@@ -1630,6 +1630,138 @@ body.staff-shell .live-deck-seed-picker select {
   min-width: 8rem;
   font-size: 0.85rem;
 }
+/* ===== Set Class deck row ===== */
+body.staff-shell .live-set-class-card {
+  container: set-class / inline-size;
+  --set-class-ctl-h: 44px;
+}
+body.staff-shell .live-set-class-card .live-pack-strip {
+  align-items: flex-start;
+  gap: 0.75rem 1rem;
+}
+body.staff-shell .live-set-class-card .live-pack-field,
+body.staff-shell .live-set-class-card .live-deck-seed-picker {
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.3rem;
+  margin: 0;
+}
+body.staff-shell .live-set-class-card .live-pack-field > span,
+body.staff-shell .live-set-class-card .live-deck-seed legend {
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.2;
+  color: #334155;
+  white-space: nowrap;
+}
+body.staff-shell .live-set-class-card .live-pack-field select {
+  width: auto;
+  min-width: 5.5rem;
+  height: var(--set-class-ctl-h);
+  min-height: var(--set-class-ctl-h);
+  line-height: calc(var(--set-class-ctl-h) - 2px);
+  padding: 0 0.5rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+body.staff-shell .live-set-class-card .live-deck-seed-picker select { min-width: 8rem; }
+body.staff-shell .live-set-class-card .live-pack-field select:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+body.staff-shell .live-deck-seed-picker[hidden] { display: none !important; }
+body.staff-shell .live-set-class-card .live-deck-seed {
+  flex: 0 1 22rem;
+  min-inline-size: 0;
+  min-width: 16rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+body.staff-shell .live-set-class-card .live-deck-seed legend {
+  float: left;
+  width: 100%;
+  margin: 0 0 0.3rem;
+  padding: 0;
+}
+body.staff-shell .live-deck-seed-seg {
+  clear: both;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  box-sizing: border-box;
+  height: var(--set-class-ctl-h);
+  min-height: var(--set-class-ctl-h);
+  /* Chip fills cover an inset shadow. A real border stays on top of them
+     and border-box keeps the row at --set-class-ctl-h. */
+  border: 1px solid #94a3b8;
+  border-radius: 8px;
+  box-shadow: none;
+  background: #fff;
+  overflow: hidden;
+}
+body.staff-shell .live-deck-seed-seg .live-add-type-chip {
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  font-size: 0.82rem;
+}
+body.staff-shell .live-deck-seed-seg .live-add-type-chip span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  height: 100%;
+  padding: 0 0.55rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+body.staff-shell .live-deck-seed-seg .live-add-type-chip:has(input:not(:checked):not(:disabled)):hover span {
+  background: #f1f5f9;
+}
+body.staff-shell .live-deck-seed-seg .live-add-type-chip:has(input:disabled) span {
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+body.staff-shell .live-set-class-card .live-deck-seed-note {
+  margin: 0.3rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.3;
+}
+body.staff-shell .live-deck-seed[aria-busy="true"] .live-deck-seed-note::before { content: "⋯ "; }
+@container set-class (max-width: 34rem) {
+  body.staff-shell .live-set-class-card .live-pack-field { flex: 1 1 calc(50% - 0.5rem); }
+  body.staff-shell .live-set-class-card .live-pack-field select { width: 100%; }
+  body.staff-shell .live-set-class-card .live-deck-seed,
+  body.staff-shell .live-set-class-card .live-deck-seed-picker { flex: 1 1 100%; min-width: 0; }
+}
+/* lloves.css sets `input { width: 100% }`, which stretches radios.
+   Scoped to these chips so radios elsewhere keep that rule. */
+body.staff-shell .live-deck-seed-seg input[type="radio"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+}
+body.staff-shell .live-add-type-chip-row.live-deck-seed-seg {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  box-sizing: border-box;
+  height: var(--set-class-ctl-h);
+  min-height: var(--set-class-ctl-h);
+  border: 1px solid #94a3b8;
+  border-radius: 8px;
+  box-shadow: none;
+  overflow: hidden;
+}
+body.staff-shell .live-deck-seed-seg .live-deck-seed-choice.is-disabled {
+  opacity: 1;
+}
 body.staff-shell .live-header {
   display: flex;
   flex-wrap: nowrap;
