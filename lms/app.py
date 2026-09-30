@@ -3366,7 +3366,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if not school.teacher_owns_class(int(user["id"]), class_id):
             return jsonify({"ok": False, "error": "Forbidden"}), 403
         try:
-            options = school.deck_seed_options(int(class_id), module, slot)
+            options = school.deck_seed_options(int(class_id), module, slot, teacher_user_id=int(user["id"]))
         except KeyError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 404
         except ValueError as exc:
@@ -3381,10 +3381,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     )
     @staff_required
     def staff_live_deck_seed(class_id: int, module: str, slot: str):
-        """Copy a course deck or start the blank 7-page template.
+        """Copy a course deck, keep the current deck, or start blank.
 
-        The destination gets its own working copy. The source challenge and
-        the course seed JSON are not rewritten.
+        The destination gets its own working copy. Use current writes
+        nothing. A cross-section source is refused unless this staff
+        member can manage that class. The source challenge and the course
+        seed JSON are not rewritten.
         """
 
         user = current_user()
@@ -3392,6 +3394,15 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if not school.teacher_owns_class(int(user["id"]), class_id):
             return jsonify({"ok": False, "error": "Forbidden"}), 403
         body = request.get_json(silent=True) or {}
+        raw_source_class = body.get("source_class_id")
+        if raw_source_class in (None, ""):
+            raw_source_class = body.get("sourceClassId")
+        source_class_id = None
+        if raw_source_class not in (None, ""):
+            try:
+                source_class_id = int(raw_source_class)
+            except (TypeError, ValueError):
+                return jsonify({"ok": False, "error": "Choose a deck from this course."}), 400
         try:
             seeded = school.apply_class_deck_seed(
                 int(class_id),
@@ -3400,11 +3411,15 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 mode=str(body.get("mode") or ""),
                 source_module=body.get("source_module") or body.get("sourceModule"),
                 source_slot=body.get("source_slot") or body.get("sourceSlot"),
+                source_class_id=source_class_id,
+                teacher_user_id=int(user["id"]),
             )
         except KeyError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 404
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
+        except PermissionError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 403
         response = jsonify({"ok": True, "module": str(module or "").upper(), "slot": str(slot or "").upper(), **seeded})
         response.headers["Cache-Control"] = "no-store"
         return response

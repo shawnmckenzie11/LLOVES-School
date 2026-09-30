@@ -147,8 +147,9 @@ class LiveDeckSeedTests(unittest.TestCase):
         ]
         self.assertIn("Copy previous challenge deck", panel)
         self.assertIn("Copy another deck from this course", panel)
-        self.assertIn("Blank 7-page template", panel)
-        self.assertIn('id="live-deck-seed-blank" value="blank" checked', panel)
+        self.assertIn("Use current", panel)
+        self.assertIn('id="live-deck-seed-current" value="current" checked', panel)
+        self.assertNotIn('id="live-deck-seed-blank"', panel)
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertIn("async function applyDeckSeedChoice()", js)
         self.assertIn("deck-seed-options", js)
@@ -363,6 +364,376 @@ class LiveDeckSeedTests(unittest.TestCase):
         self.assertEqual(missing.status_code, 400)
 
 
+    def test_authored_slot_defaults_to_use_current(self) -> None:
+        """A course seed file is a current deck, so Use current is offered."""
+
+        options = self.school.deck_seed_options(self.class_id, "M1", "C3")
+        self.assertTrue(options["current"]["available"])
+        self.assertEqual(options["current"]["message"], "")
+        self.assertTrue(options["previous"]["available"])
+        page = self.client.get(f"/staff/class/{self.class_id}?tab=live&run=1")
+        html = page.get_data(as_text=True)
+        self.assertIn('id="live-deck-seed-current" value="current" checked', html)
+        self.assertNotIn('id="live-deck-seed-blank"', html)
+
+    def test_use_current_does_not_write_deck_tables(self) -> None:
+        """Continuing with Use current leaves every deck table unchanged."""
+
+        before = _deck_table_snapshot(self.school, self.class_id)
+        seeded = self.school.apply_class_deck_seed(
+            self.class_id, "M1", "C3", mode="current"
+        )
+        self.assertEqual(seeded["mode"], "current")
+        self.assertEqual(_deck_table_snapshot(self.school, self.class_id), before)
+        self.assertEqual(SEED_C2.read_bytes(), self.c2_bytes)
+        self.assertEqual(SEED_C3.read_bytes(), self.c3_bytes)
+        posted = self.client.post(
+            f"/api/staff/class/{self.class_id}/live-lessons/M1/C3/deck-seed",
+            json={"mode": "current"},
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_json())
+        self.assertEqual(_deck_table_snapshot(self.school, self.class_id), before)
+
+    def test_unedited_blank_hide_rows_are_not_a_current_deck(self) -> None:
+        """The three Blank hide-rows do not enable Use current."""
+
+        self.school.apply_class_deck_seed(self.class_id, "M1", "C3", mode="blank")
+        hides = self.school.conn.execute(
+            """
+            SELECT item_id FROM class_live_playlist_item_overrides
+            WHERE class_id = ? AND module = ? AND slot = ?
+            ORDER BY item_id
+            """,
+            (self.class_id, "M1", "C3"),
+        ).fetchall()
+        self.assertEqual(
+            [row["item_id"] for row in hides],
+            ["meet-team", "minds_on", "teams-spark"],
+        )
+        self.assertFalse(
+            self.school.class_has_current_live_deck(self.class_id, "M1", "C3")
+        )
+        options = self.school.deck_seed_options(self.class_id, "M1", "C3")
+        self.assertFalse(options["current"]["available"])
+        self.assertEqual(options["current"]["message"], "No deck set yet")
+        before = _deck_table_snapshot(self.school, self.class_id)
+        self.school.apply_class_deck_seed(self.class_id, "M1", "C3", mode="current")
+        self.assertEqual(_deck_table_snapshot(self.school, self.class_id), before)
+
+    def test_cross_section_copy_matches_and_refuses_other_teachers(self) -> None:
+        """MCR-style section copy is exact, and an unowned class is refused."""
+
+        second = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]),
+            ontario_code="MCF3M",
+            new_section=True,
+        )
+        self.assertEqual(second["section_code"], "MCF3M-2")
+        created = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": second["id"],
+                "days": "T/Th/F",
+                "time": "10:40am",
+                "codenames": ["Cedar"],
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.get_json())
+        other_id = int(created.get_json()["class"]["id"])
+        self.school.apply_class_deck_seed(
+            other_id, "M2", "C2", mode="course", source_module="M1", source_slot="C2"
+        )
+        row = self.school.conn.execute(
+            """
+            SELECT id, item_json FROM class_live_playlist_placements
+            WHERE class_id = ? AND module = 'M2' AND slot = 'C2'
+            ORDER BY id LIMIT 1
+            """,
+            (other_id,),
+        ).fetchone()
+        payload = json.loads(row["item_json"])
+        payload["text"] = "Edited only on section 2"
+        self.school.conn.execute(
+            "UPDATE class_live_playlist_placements SET item_json = ? WHERE id = ?",
+            (json.dumps(payload), int(row["id"])),
+        )
+        self.school.conn.commit()
+        self.school.invalidate_live_metadata_cache(class_id=other_id)
+        source_meta = self.school.live_class_metadata_for_class_lesson(
+            other_id, "M2", "C2", fresh=True
+        )
+        source_sig = _question_signature(source_meta)
+        self.assertIn("Edited only on section 2", source_sig[0][1])
+        dest_before = _question_signature(self._meta("M2", "C2"))
+        self.assertNotEqual(source_sig, dest_before)
+        source_tables = _deck_table_snapshot(self.school, other_id)
+        source_seeds = self.school.conn.execute(
+            "SELECT COUNT(*) AS n FROM class_live_deck_seeds WHERE class_id = ?",
+            (other_id,),
+        ).fetchone()["n"]
+        options = self.school.deck_seed_options(
+            self.class_id, "M2", "C2", teacher_user_id=int(self.teacher["id"])
+        )
+        listed = next(
+            item
+            for item in options["decks"]
+            if item["class_id"] == other_id
+            and item["module"] == "M2"
+            and item["slot"] == "C2"
+        )
+        self.assertEqual(listed["label"], "MCF3M-2 · M2 C2")
+        self.assertFalse(listed["same_class"])
+        sections = {item["section_code"] for item in options["decks"]}
+        self.assertIn("MCF3M", sections)
+        self.assertIn("MCF3M-2", sections)
+        copied = self.school.apply_class_deck_seed(
+            self.class_id,
+            "M2",
+            "C2",
+            mode="course",
+            source_module="M2",
+            source_slot="C2",
+            source_class_id=other_id,
+            teacher_user_id=int(self.teacher["id"]),
+        )
+        self.assertEqual(_question_signature(copied["live_metadata"]), source_sig)
+        self.assertEqual(_deck_table_snapshot(self.school, other_id), source_tables)
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT COUNT(*) AS n FROM class_live_deck_seeds WHERE class_id = ?",
+                (other_id,),
+            ).fetchone()["n"],
+            source_seeds,
+        )
+        dest_hides = self.school.conn.execute(
+            """
+            SELECT item_id FROM class_live_playlist_item_overrides
+            WHERE class_id = ? AND module = 'M2' AND slot = 'C2'
+              AND item_id IN ('minds_on', 'teams-spark', 'meet-team')
+            """,
+            (self.class_id,),
+        ).fetchall()
+        self.assertEqual(dest_hides, [])
+        stranger = self.school.register_staff("other-teacher@gmail.com")
+        with self.assertRaises(PermissionError):
+            self.school.apply_class_deck_seed(
+                self.class_id,
+                "M2",
+                "C2",
+                mode="course",
+                source_module="M2",
+                source_slot="C2",
+                source_class_id=other_id,
+                teacher_user_id=int(stranger["id"]),
+            )
+        self.assertEqual(_deck_table_snapshot(self.school, other_id), source_tables)
+        stranger_client = self.app.test_client()
+        stranger_client.get("/auth/google?portal=staff")
+        stranger_client.get(
+            "/auth/google/callback?email=other-teacher@gmail.com&name=Other"
+        )
+        stranger_client.post(
+            "/verify-email",
+            data={
+                "code": self.school.get_user_by_email("other-teacher@gmail.com")[
+                    "verification_code"
+                ]
+            },
+        )
+        refused = stranger_client.post(
+            f"/api/staff/class/{self.class_id}/live-lessons/M2/C2/deck-seed",
+            json={
+                "mode": "course",
+                "source_module": "M2",
+                "source_slot": "C2",
+                "source_class_id": other_id,
+            },
+        )
+        self.assertEqual(refused.status_code, 403, refused.get_json())
+        stranger_offering = self.school.assign_course(
+            teacher_user_id=int(stranger["id"]), ontario_code="MCF3M"
+        )
+        stranger_class = stranger_client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": stranger_offering["id"],
+                "days": "M/W/F",
+                "time": "9:15am",
+                "codenames": ["Birch"],
+            },
+        )
+        self.assertEqual(stranger_class.status_code, 200, stranger_class.get_json())
+        foreign_id = int(stranger_class.get_json()["class"]["id"])
+        owned_dest = self.client.post(
+            f"/api/staff/class/{self.class_id}/live-lessons/M2/C2/deck-seed",
+            json={
+                "mode": "course",
+                "source_module": "M1",
+                "source_slot": "C2",
+                "source_class_id": foreign_id,
+            },
+        )
+        self.assertEqual(owned_dest.status_code, 403, owned_dest.get_json())
+        self.assertEqual(_deck_table_snapshot(self.school, other_id), source_tables)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn('if (mode === "current") return;', js)
+        self.assertIn('document.createElement("optgroup")', js)
+
+
+
+
+    def test_use_current_keeps_working_deck_edits(self) -> None:
+        """Use current leaves page, override, and media edits in place."""
+
+        meta = self._meta("M1", "C3")
+        questions = [
+            row for row in meta.get("questions") or [] if isinstance(row, dict) and row.get("id")
+        ]
+        self.assertTrue(questions)
+        victim = str(questions[0]["id"])
+        self.school.remove_class_playlist_item(self.class_id, "M1", "C3", victim)
+        self.school.add_class_playlist_page(
+            self.class_id,
+            "M1",
+            "C3",
+            name="Kept notes",
+            after_page_id=str(meta["pages"][0]["id"]),
+        )
+        self.school.upsert_class_live_media_copy(
+            self.class_id,
+            "M1",
+            "C3",
+            stem="Kept stem",
+            caption="Kept caption",
+        )
+        edited = self._meta("M1", "C3")
+        self.assertNotIn(victim, [str(row.get("id")) for row in edited["questions"]])
+        self.assertIn("Kept notes", [row.get("name") for row in edited["pages"]])
+        self.assertEqual(edited["media"]["stem"], "Kept stem")
+        self.assertEqual(edited["media"]["caption"], "Kept caption")
+        before = _deck_table_snapshot(self.school, self.class_id)
+        seeded = self.school.apply_class_deck_seed(
+            self.class_id, "M1", "C3", mode="current"
+        )
+        self.assertEqual(seeded["mode"], "current")
+        self.assertEqual(_deck_table_snapshot(self.school, self.class_id), before)
+        again = self._meta("M1", "C3")
+        self.assertNotIn(victim, [str(row.get("id")) for row in again["questions"]])
+        self.assertIn("Kept notes", [row.get("name") for row in again["pages"]])
+        self.assertEqual(again["media"]["stem"], "Kept stem")
+        self.assertEqual(again["media"]["caption"], "Kept caption")
+        self.assertEqual(SEED_C3.read_bytes(), self.c3_bytes)
+
+    def test_cross_section_copy_keeps_source_working_edits(self) -> None:
+        """A cross-section copy takes the source working deck, edits included."""
+
+        second = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]),
+            ontario_code="MCF3M",
+            new_section=True,
+        )
+        created = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": second["id"],
+                "days": "T/Th/F",
+                "time": "12:35pm",
+                "codenames": ["Cedar"],
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.get_json())
+        other_id = int(created.get_json()["class"]["id"])
+        self.school.apply_class_deck_seed(
+            other_id, "M2", "C2", mode="course", source_module="M1", source_slot="C2"
+        )
+        source_meta = self.school.live_class_metadata_for_class_lesson(
+            other_id, "M2", "C2", fresh=True
+        )
+        questions = [
+            row
+            for row in source_meta.get("questions") or []
+            if isinstance(row, dict) and row.get("id")
+        ]
+        self.assertGreaterEqual(len(questions), 2)
+        row = self.school.conn.execute(
+            """
+            SELECT id, item_json FROM class_live_playlist_placements
+            WHERE class_id = ? AND module = 'M2' AND slot = 'C2'
+            ORDER BY id LIMIT 1
+            """,
+            (other_id,),
+        ).fetchone()
+        payload = json.loads(row["item_json"])
+        payload["text"] = "Edited working stem"
+        self.school.conn.execute(
+            "UPDATE class_live_playlist_placements SET item_json = ? WHERE id = ?",
+            (json.dumps(payload), int(row["id"])),
+        )
+        self.school.conn.commit()
+        self.school.invalidate_live_metadata_cache(class_id=other_id)
+        victim = str(questions[1]["id"])
+        self.school.remove_class_playlist_item(other_id, "M2", "C2", victim)
+        self.school.add_class_playlist_page(
+            other_id,
+            "M2",
+            "C2",
+            name="Working page",
+            after_page_id=str(source_meta["pages"][0]["id"]),
+        )
+        self.school.upsert_class_live_media_copy(
+            other_id,
+            "M2",
+            "C2",
+            stem="Working stem",
+            caption="Working caption",
+        )
+        edited = self.school.live_class_metadata_for_class_lesson(
+            other_id, "M2", "C2", fresh=True
+        )
+        self.assertEqual(edited["questions"][0].get("text"), "Edited working stem")
+        self.assertNotIn(victim, [str(item.get("id")) for item in edited["questions"]])
+        self.assertIn("Working page", [item.get("name") for item in edited["pages"]])
+        self.assertEqual(edited["media"]["stem"], "Working stem")
+        self.assertEqual(edited["media"]["caption"], "Working caption")
+        raw_seed = self.school.live_class_metadata_for_class_lesson(
+            self.class_id, "M2", "C2", fresh=True
+        )
+        self.assertNotEqual(_question_signature(edited), _question_signature(raw_seed))
+        source_tables = _deck_table_snapshot(self.school, other_id)
+        copied = self.school.apply_class_deck_seed(
+            self.class_id,
+            "M2",
+            "C2",
+            mode="course",
+            source_module="M2",
+            source_slot="C2",
+            source_class_id=other_id,
+            teacher_user_id=int(self.teacher["id"]),
+        )
+        dest = copied["live_metadata"]
+        self.assertEqual(_question_signature(dest), _question_signature(edited))
+        self.assertEqual(
+            [item.get("name") for item in dest["pages"]],
+            [item.get("name") for item in edited["pages"]],
+        )
+        self.assertEqual(dest["media"]["stem"], "Working stem")
+        self.assertEqual(dest["media"]["caption"], "Working caption")
+        self.assertNotIn(victim, [str(item.get("id")) for item in dest["questions"]])
+        self.assertNotEqual(_question_signature(dest), _question_signature(raw_seed))
+        page = self.school.conn.execute(
+            """
+            SELECT name FROM class_live_playlist_pages
+            WHERE class_id = ? AND module = 'M2' AND slot = 'C2' AND removed = 0
+            """,
+            (self.class_id,),
+        ).fetchone()
+        self.assertEqual(page["name"], "Working page")
+        media = self.school.get_class_live_media_copy(self.class_id, "M2", "C2")
+        self.assertEqual(media["stem"], "Working stem")
+        self.assertEqual(media["caption"], "Working caption")
+        self.assertEqual(_deck_table_snapshot(self.school, other_id), source_tables)
+
+
 class DeckSeedPickerUiTests(unittest.TestCase):
     """Chip helper copy, stale replies, and the empty-course chip."""
 
@@ -386,10 +757,11 @@ class DeckSeedPickerUiTests(unittest.TestCase):
         self.assertIn("</fieldset>", fieldset)
         self.assertIn('title="Copy previous challenge deck"', panel)
         self.assertIn('title="Copy another deck from this course"', panel)
-        self.assertIn('title="Blank 7-page template"', panel)
+        self.assertIn('title="Keeps the deck already set for this class"', panel)
         self.assertIn(">Previous</span>", panel)
         self.assertIn(">Course deck</span>", panel)
-        self.assertIn(">Blank</span>", panel)
+        self.assertIn(">Use current</span>", panel)
+        self.assertNotIn('id="live-deck-seed-blank"', panel)
         self.assertIn(">Source deck</span>", panel)
         self.assertIn('id="live-deck-seed-picker"', panel)
         self.assertIn("hidden", panel[panel.index('id="live-deck-seed-picker"') : panel.index('id="live-deck-seed-picker"') + 120])
@@ -407,6 +779,7 @@ class DeckSeedPickerUiTests(unittest.TestCase):
         script = r"""
 import {
   courseDeckChoiceDisabled,
+  deckSeedDefaultMode,
   deckSeedHelpText,
   deckSeedResponseIsCurrent,
 } from "./static/deck_seed_help.js";
@@ -441,10 +814,21 @@ const helpCases = [
     "Loading decks…",
   ],
   [
-    { phase: "error", mode: "blank", courseDeckCount: 0 },
-    "Couldn't load decks. Blank still works.",
+    { phase: "error", mode: "current", courseDeckCount: 0 },
+    "Couldn't load decks. Try again.",
   ],
 ];
+
+helpCases.push(
+  [
+    { mode: "current", currentAvailable: true, previousAvailable: true, previousLabel: "M1 C2", courseDeckCount: 4 },
+    "Keeps the deck already set for this class.",
+  ],
+  [
+    { mode: "current", currentAvailable: false, previousAvailable: true, courseDeckCount: 4 },
+    "No deck set yet.",
+  ],
+);
 
 let failed = 0;
 for (const [input, expected] of helpCases) {
@@ -453,6 +837,26 @@ for (const [input, expected] of helpCases) {
     console.error("help " + JSON.stringify({ input, expected, got }));
     failed += 1;
   }
+}
+
+
+const defaults = [
+  [{ mode: "current", currentAvailable: true, previousAvailable: false, courseDeckCount: 0 }, "current"],
+  [{ mode: "current", currentAvailable: false, previousAvailable: true, courseDeckCount: 4 }, "previous"],
+  [{ mode: "current", currentAvailable: false, previousAvailable: false, courseDeckCount: 0 }, "previous"],
+  [{ mode: "course", currentAvailable: true, previousAvailable: true, courseDeckCount: 2 }, "course"],
+  [{ mode: "course", currentAvailable: false, previousAvailable: false, courseDeckCount: 0 }, "previous"],
+];
+for (const [input, expected] of defaults) {
+  const got = deckSeedDefaultMode(input);
+  if (got !== expected) {
+    console.error("default " + JSON.stringify({ input, expected, got }));
+    failed += 1;
+  }
+}
+if (courseDeckChoiceDisabled(0) !== true || courseDeckChoiceDisabled(1) !== false) {
+  console.error("course disable gate drifted");
+  failed += 1;
 }
 
 const here = { classId: 7, module: "M1", slot: "C3" };
@@ -536,5 +940,30 @@ if (failed) process.exit(1);
         self.assertIn("courseDeckChoiceDisabled(decks.length)", paint)
         self.assertLess(
             paint.index("courseDeckChoiceDisabled(decks.length)"),
-            paint.index('deckSeedMode = "blank"'),
+            paint.index("deckSeedDefaultMode("),
         )
+
+
+def _deck_table_snapshot(school, class_id: int) -> str:
+    """Return a stable dump of the deck tables for one class.
+
+    Args:
+        school: Open school database.
+        class_id: Game-show class id.
+    """
+
+    tables = (
+        "class_live_playlist_placements",
+        "class_live_playlist_item_overrides",
+        "class_live_playlist_pages",
+        "class_live_media_overlays",
+        "class_live_deck_seeds",
+    )
+    chunks = []
+    for table in tables:
+        rows = school.conn.execute(
+            f"SELECT * FROM {table} WHERE class_id = ? ORDER BY id",
+            (int(class_id),),
+        ).fetchall()
+        chunks.append(repr((table, [tuple(row) for row in rows])))
+    return "\n".join(chunks)

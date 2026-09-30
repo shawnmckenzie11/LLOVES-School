@@ -7335,22 +7335,268 @@ class SchoolDB(LovesDB):
         path = metadata_path(course, module_key, slot_key)
         return path.is_file() and path.parent.parent.name == course
 
+    _BLANK_HIDE_ITEM_IDS = frozenset({"minds_on", "teams-spark", "meet-team"})
+
+    def class_has_current_live_deck(self, class_id: int, module: str, slot: str) -> bool:
+        """Return whether this class already has a real deck for one slot.
+
+        Real content is a copied or imported question, a page overlay, media
+        text, or an item override other than the three hide-rows an unedited
+        Blank writes (``minds_on``, ``teams-spark``, ``meet-team``). Those
+        three rows alone do not count. A course seed file counts only when
+        this class has not chosen Blank, because that file is the deck Set
+        Class would keep. A previous or course seed row counts even when the
+        copy had no questions. Nothing is created.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Module token such as ``M2``.
+            slot: Live slot such as ``C2``.
+        """
+
+        module_key, slot_key = self._require_live_lesson_token(module, slot)
+        params = (int(class_id), module_key, slot_key)
+        with self._lock:
+            placements = self.conn.execute(
+                """
+                SELECT 1 FROM class_live_playlist_placements
+                WHERE class_id = ? AND module = ? AND slot = ?
+                LIMIT 1
+                """,
+                params,
+            ).fetchone()
+            pages = self.conn.execute(
+                """
+                SELECT 1 FROM class_live_playlist_pages
+                WHERE class_id = ? AND module = ? AND slot = ?
+                LIMIT 1
+                """,
+                params,
+            ).fetchone()
+            media = self.conn.execute(
+                """
+                SELECT 1 FROM class_live_media_overlays
+                WHERE class_id = ? AND module = ? AND slot = ?
+                  AND (stem != '' OR caption != '')
+                LIMIT 1
+                """,
+                params,
+            ).fetchone()
+            overrides = self.conn.execute(
+                """
+                SELECT item_id, removed, page_number, stage
+                FROM class_live_playlist_item_overrides
+                WHERE class_id = ? AND module = ? AND slot = ?
+                """,
+                params,
+            ).fetchall()
+        if placements is not None or pages is not None or media is not None:
+            return True
+        for row in overrides:
+            item_id = str(row["item_id"] or "").strip()
+            removed = int(row["removed"] or 0) == 1
+            blank_hide = (
+                item_id in self._BLANK_HIDE_ITEM_IDS
+                and removed
+                and row["page_number"] is None
+                and not str(row["stage"] or "").strip()
+            )
+            if not blank_hide:
+                return True
+        seed = self.get_class_live_deck_seed(int(class_id), module_key, slot_key)
+        mode = str((seed or {}).get("mode") or "")
+        if mode == "blank":
+            return False
+        if mode in {"previous", "course", "copy"}:
+            return True
+        course = self._course_code_for_class(int(class_id))
+        path = metadata_path(course, module_key, slot_key)
+        return path.is_file() and path.parent.parent.name == course
+
+    def _section_code_for_class(self, class_id: int) -> str:
+        """Return the offering section label for one class, such as ``MCR3U-2``.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+
+        try:
+            cls = self.game.get_class(int(class_id))
+        except KeyError:
+            return ""
+        offering_id = cls.get("offering_id")
+        course = str(cls.get("course_code") or "")
+        if not offering_id:
+            return course
+        try:
+            offering = self.get_offering(int(offering_id))
+        except KeyError:
+            return course
+        return str(
+            offering.get("section_code")
+            or section_code(
+                str(offering.get("ontario_code") or course),
+                offering.get("section_index"),
+            )
+        )
+
+    def _same_course_section_classes(self, class_id: int) -> list[dict[str, Any]]:
+        """Return classes in the same semester and course as ``class_id``.
+
+        Args:
+            class_id: Destination game-show class.
+        """
+
+        try:
+            cls = self.game.get_class(int(class_id))
+        except KeyError:
+            return []
+        offering_id = cls.get("offering_id")
+        if not offering_id:
+            return []
+        try:
+            offering = self.get_offering(int(offering_id))
+        except KeyError:
+            return []
+        with self.game._lock:
+            rows = self.game.conn.execute(
+                """
+                SELECT cl.*, o.section_index AS section_index,
+                       o.ontario_code AS offering_code
+                FROM classes cl
+                JOIN course_offerings o ON o.id = cl.offering_id
+                WHERE o.semester_id = ? AND o.ontario_code = ?
+                ORDER BY o.section_index, cl.id
+                """,
+                (offering["semester_id"], offering["ontario_code"]),
+            ).fetchall()
+        found: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            item["section_code"] = section_code(
+                str(item.get("offering_code") or item.get("course_code") or ""),
+                int(item.get("section_index") or 1),
+            )
+            found.append(item)
+        return found
+
+    def _extra_section_deck_choices(
+        self,
+        class_id: int,
+        teacher_user_id: int,
+    ) -> list[dict[str, Any]]:
+        """List decks from other sections this staff member can manage.
+
+        The same challenge is included, so one section's M2 C2 can be copied
+        into another's M2 C2. Labels carry the section code. An unedited
+        Blank is omitted. Nothing is written.
+
+        Args:
+            class_id: Destination class.
+            teacher_user_id: Staff user. Each source must pass
+                ``teacher_owns_class``.
+        """
+
+        extras: list[dict[str, Any]] = []
+        for other in self._same_course_section_classes(int(class_id)):
+            other_id = int(other["id"])
+            if other_id == int(class_id):
+                continue
+            if not self.teacher_owns_class(int(teacher_user_id), other_id):
+                continue
+            section = str(other.get("section_code") or "")
+            course = self._course_code_for_class(other_id)
+            seen: set[tuple[str, str]] = set()
+            for summary in list_live_lesson_summaries(course):
+                if str(summary.get("course") or "").strip().upper() != course:
+                    continue
+                module = str(summary.get("module") or "").strip().upper()
+                slot = str(summary.get("live_class") or "").strip().upper()
+                if not MODULE_RE.fullmatch(module) or not SLOT_RE.fullmatch(slot):
+                    continue
+                if not self.class_has_current_live_deck(other_id, module, slot):
+                    continue
+                seen.add((module, slot))
+                plain = live_deck_choice_label(module, slot)
+                extras.append(
+                    {
+                        "class_id": other_id,
+                        "section_code": section,
+                        "same_class": False,
+                        "module": module,
+                        "slot": slot,
+                        "label": f"{section} · {plain}" if section else plain,
+                        "question_count": int(summary.get("question_count") or 0),
+                    }
+                )
+            with self._lock:
+                rows = self.conn.execute(
+                    """
+                    SELECT module, slot FROM class_live_playlist_placements
+                    WHERE class_id = ?
+                    UNION
+                    SELECT module, slot FROM class_live_playlist_pages
+                    WHERE class_id = ?
+                    UNION
+                    SELECT module, slot FROM class_live_media_overlays
+                    WHERE class_id = ? AND (stem != '' OR caption != '')
+                    """,
+                    (other_id, other_id, other_id),
+                ).fetchall()
+            for row in rows:
+                module = str(row["module"] or "").strip().upper()
+                slot = str(row["slot"] or "").strip().upper()
+                if (module, slot) in seen:
+                    continue
+                if not MODULE_RE.fullmatch(module) or not SLOT_RE.fullmatch(slot):
+                    continue
+                if not self.class_has_current_live_deck(other_id, module, slot):
+                    continue
+                seen.add((module, slot))
+                merged = self.live_class_metadata_for_class_lesson(
+                    other_id, module, slot, fresh=True
+                )
+                questions = [
+                    item
+                    for item in merged.get("questions") or []
+                    if isinstance(item, dict)
+                ]
+                plain = live_deck_choice_label(module, slot)
+                extras.append(
+                    {
+                        "class_id": other_id,
+                        "section_code": section,
+                        "same_class": False,
+                        "module": module,
+                        "slot": slot,
+                        "label": f"{section} · {plain}" if section else plain,
+                        "question_count": len(questions),
+                    }
+                )
+        return extras
+
     def list_course_live_deck_choices(
         self,
         class_id: int,
         *,
         exclude_module: str = "",
         exclude_slot: str = "",
+        teacher_user_id: int | None = None,
     ) -> list[dict[str, Any]]:
         """List live decks that belong to this class's course.
 
         Seed files from other course codes are not included. The challenge
-        being set up is omitted so the picker is a different deck.
+        being set up is omitted on this class. When ``teacher_user_id`` is
+        set, other sections of the same course that this staff member can
+        manage are included, including the same challenge, labelled with
+        the section code.
 
         Args:
             class_id: Game-show ``classes.id``.
-            exclude_module: Destination module to hide.
-            exclude_slot: Destination slot to hide.
+            exclude_module: Destination module to hide on this class.
+            exclude_slot: Destination slot to hide on this class.
+            teacher_user_id: Staff user for cross-section decks. None keeps
+                the list to this class only.
         """
 
         course = self._course_code_for_class(int(class_id))
@@ -7420,20 +7666,45 @@ class SchoolDB(LovesDB):
                     "question_count": len(questions),
                 }
             )
-        choices.sort(key=lambda item: (item["module"], item["slot"]))
+        section = self._section_code_for_class(int(class_id))
+        for item in choices:
+            item["class_id"] = int(class_id)
+            item["section_code"] = section
+            item["same_class"] = True
+        if teacher_user_id is not None:
+            choices.extend(
+                self._extra_section_deck_choices(int(class_id), int(teacher_user_id))
+            )
+        choices.sort(
+            key=lambda item: (
+                0 if item.get("same_class") else 1,
+                str(item.get("section_code") or ""),
+                item["module"],
+                item["slot"],
+            )
+        )
         return choices
 
-    def deck_seed_options(self, class_id: int, module: str, slot: str) -> dict[str, Any]:
+    def deck_seed_options(
+        self,
+        class_id: int,
+        module: str,
+        slot: str,
+        teacher_user_id: int | None = None,
+    ) -> dict[str, Any]:
         """Return Set Class deck choices for one course challenge.
 
         Previous is the prior challenge in the same module (C2 when setting
         up C3), never the last calendar session. The course picker lists
-        decks for this course only.
+        decks for this course, plus other sections this staff member can
+        manage when ``teacher_user_id`` is set. ``current`` is available
+        only when this class already has a real deck for the slot.
 
         Args:
             class_id: Game-show ``classes.id``.
             module: Module being set up.
             slot: Challenge being set up.
+            teacher_user_id: Staff user for cross-section source decks.
         """
 
         module_key, slot_key = self._require_live_lesson_token(module, slot)
@@ -7465,15 +7736,25 @@ class SchoolDB(LovesDB):
                     "label": label,
                     "message": f"No deck saved for {module_key} {previous}.",
                 }
+        current_ready = self.class_has_current_live_deck(
+            int(class_id), module_key, slot_key
+        )
+        current_choice = {
+            "available": current_ready,
+            "label": "Use current",
+            "message": "" if current_ready else "No deck set yet",
+        }
         return {
             "course": course,
             "module": module_key,
             "slot": slot_key,
             "previous": previous_block,
+            "current": current_choice,
             "decks": self.list_course_live_deck_choices(
                 int(class_id),
                 exclude_module=module_key,
                 exclude_slot=slot_key,
+                teacher_user_id=teacher_user_id,
             ),
             "blank": {
                 "label": "Blank 7-page template",
@@ -7547,22 +7828,30 @@ class SchoolDB(LovesDB):
         mode: str,
         source_module: str | None = None,
         source_slot: str | None = None,
+        source_class_id: int | None = None,
+        teacher_user_id: int | None = None,
     ) -> dict[str, Any]:
         """Seed one challenge's working deck without changing the source.
 
         ``previous`` copies the prior challenge in the same module.
-        ``course`` copies another deck from this course. ``blank`` starts
-        from the seven-page empty template. Copied questions are new
-        placement rows on the destination, so later edits do not rewrite
-        the source challenge or the course seed JSON.
+        ``course`` copies another deck from this course, including another
+        section this staff member can manage. ``blank`` starts from the
+        seven-page empty template. ``current`` keeps the deck already set
+        and writes nothing. Copied questions are new placement rows on the
+        destination, so later edits do not rewrite the source challenge or
+        the course seed JSON.
 
         Args:
             class_id: Game-show ``classes.id``.
             module: Destination module token.
             slot: Destination challenge token.
-            mode: ``previous``, ``course``, or ``blank``.
+            mode: ``previous``, ``course``, ``blank``, or ``current``.
             source_module: Required for ``course``.
             source_slot: Required for ``course``.
+            source_class_id: Source class for a cross-section copy. Defaults
+                to ``class_id``.
+            teacher_user_id: Required when ``source_class_id`` is another
+                class. Refused unless ``teacher_owns_class``.
 
         Returns:
             Destination metadata plus the seed mode that was stored.
@@ -7571,16 +7860,33 @@ class SchoolDB(LovesDB):
             KeyError: Unknown class.
             ValueError: Unknown mode, missing previous deck, or a source
                 that is not a deck in this course.
+            PermissionError: Source class is one this staff member cannot
+                manage.
         """
 
         module_key, slot_key = self._require_live_lesson_token(module, slot)
         choice = str(mode or "").strip().lower()
-        if choice not in {"previous", "course", "blank"}:
+        if choice not in {"previous", "course", "blank", "current"}:
             raise ValueError("Choose how to start the live deck.")
         course = self._course_code_for_class(int(class_id))
+        if choice == "current":
+            return {
+                "mode": "current",
+                "source_module": None,
+                "source_slot": None,
+                "source_class_id": None,
+                "course": course,
+                "live_metadata": self.live_class_metadata_for_class_lesson(
+                    int(class_id), module_key, slot_key, fresh=True
+                ),
+                "deck_revision": self.class_deck_revision(
+                    int(class_id), module_key, slot_key
+                ),
+            }
         source_meta: dict[str, Any] | None = None
         source_m: str | None = None
         source_s: str | None = None
+        source_class: int | None = None
         if choice == "previous":
             source_s = previous_challenge_slot(slot_key)
             source_m = module_key
@@ -7595,21 +7901,39 @@ class SchoolDB(LovesDB):
             source_m, source_s = self._require_live_lesson_token(
                 str(source_module or ""), str(source_slot or "")
             )
-            if source_m == module_key and source_s == slot_key:
-                raise ValueError("Choose a different deck from this course.")
-            source_path = metadata_path(course, source_m, source_s)
-            on_disk = (
-                source_path.is_file() and source_path.parent.parent.name == course
-            )
-            has_overlay = self._slot_has_deck_overlay(
-                int(class_id), source_m, source_s
-            )
-            if not on_disk and not has_overlay:
-                raise ValueError(f"No deck saved for {source_m} {source_s}.")
-            if not self.class_live_deck_available(int(class_id), source_m, source_s):
-                raise ValueError(f"No deck saved for {source_m} {source_s}.")
+            source_class = int(class_id)
+            if source_class_id not in (None, ""):
+                source_class = int(source_class_id)
+            if source_class != int(class_id):
+                if teacher_user_id is None or not self.teacher_owns_class(
+                    int(teacher_user_id), source_class
+                ):
+                    raise PermissionError("You can't copy a deck from that class.")
+                if self._course_code_for_class(source_class) != course:
+                    raise ValueError("Choose a deck from this course.")
+                if not self.class_has_current_live_deck(
+                    source_class, source_m, source_s
+                ):
+                    raise ValueError(f"No deck saved for {source_m} {source_s}.")
+            else:
+                if source_m == module_key and source_s == slot_key:
+                    raise ValueError("Choose a different deck from this course.")
+                source_path = metadata_path(course, source_m, source_s)
+                on_disk = (
+                    source_path.is_file()
+                    and source_path.parent.parent.name == course
+                )
+                has_overlay = self._slot_has_deck_overlay(
+                    int(class_id), source_m, source_s
+                )
+                if not on_disk and not has_overlay:
+                    raise ValueError(f"No deck saved for {source_m} {source_s}.")
+                if not self.class_live_deck_available(
+                    int(class_id), source_m, source_s
+                ):
+                    raise ValueError(f"No deck saved for {source_m} {source_s}.")
             source_meta = self.live_class_metadata_for_class_lesson(
-                int(class_id), source_m, source_s, fresh=True
+                source_class, source_m, source_s, fresh=True
             )
         questions: list[dict[str, Any]] = []
         pages = default_math_pages()
@@ -7657,6 +7981,7 @@ class SchoolDB(LovesDB):
             "mode": choice,
             "source_module": source_m,
             "source_slot": source_s,
+            "source_class_id": source_class if choice == "course" else None,
             "course": course,
             "live_metadata": metadata,
             "deck_revision": self.class_deck_revision(

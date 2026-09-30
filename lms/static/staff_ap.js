@@ -64,6 +64,7 @@ import {
 } from "/static/live_news_wire.js";
 import {
   courseDeckChoiceDisabled,
+  deckSeedDefaultMode,
   deckSeedHelpText,
   deckSeedResponseIsCurrent,
 } from "/static/deck_seed_help.js";
@@ -324,8 +325,8 @@ async function markClassSetComplete() {
   );
 }
 
-/** @type {"previous"|"course"|"blank"} */
-let deckSeedMode = "blank";
+/** @type {"previous"|"course"|"current"} */
+let deckSeedMode = "current";
 /** @type {any} */
 let deckSeedCatalog = null;
 /** @type {"ready"|"loading"|"error"} */
@@ -351,7 +352,10 @@ function selectedSetClassPack() {
  */
 function setDeckSeedChipDisabled(inputId, disabled) {
   const input = $(inputId);
-  if (input instanceof HTMLInputElement) input.disabled = disabled;
+  if (input instanceof HTMLInputElement) {
+    input.disabled = disabled;
+    input.setAttribute("aria-disabled", disabled ? "true" : "false");
+  }
   input?.closest(".live-deck-seed-choice")?.classList.toggle("is-disabled", disabled);
 }
 
@@ -372,6 +376,7 @@ function paintDeckSeedHelp() {
     previousSlot: previous.slot || "",
     previousModule: String(previous.module || ""),
     courseDeckCount: decks.length,
+    currentAvailable: Boolean(deckSeedCatalog?.current?.available),
   });
 }
 
@@ -386,7 +391,7 @@ function paintDeckSeedPicker() {
 
 /**
  * Mark the chips busy while a deck-seed request is in flight.
- * Blank stays selectable. Previous and Course deck wait for the reply.
+ * Use current, Previous, and Course deck wait for the reply.
  */
 function markDeckSeedLoading() {
   deckSeedPhase = "loading";
@@ -394,6 +399,7 @@ function markDeckSeedLoading() {
   if (field) field.setAttribute("aria-busy", "true");
   setDeckSeedChipDisabled("live-deck-seed-previous", true);
   setDeckSeedChipDisabled("live-deck-seed-course", true);
+  setDeckSeedChipDisabled("live-deck-seed-current", true);
   paintDeckSeedHelp();
 }
 
@@ -436,40 +442,81 @@ function paintDeckSeedOptions(data) {
   const select = $("live-deck-seed-source");
   const decks = Array.isArray(data?.decks) ? data.decks : [];
   if (select instanceof HTMLSelectElement) {
-    const current = select.value;
+    const currentValue = select.value;
     select.replaceChildren();
     if (!decks.length) {
       const empty = new Option("No other decks in this course", "");
       empty.disabled = true;
       select.add(empty);
     } else {
-      for (const deck of decks) {
-        const module = String(deck.module || "").toUpperCase();
-        const slot = String(deck.slot || "").toUpperCase();
-        const label = String(deck.label || `${module} ${slot}`);
-        select.add(new Option(label, `${module}:${slot}`));
-      }
-      if ([...select.options].some((opt) => opt.value === current)) {
-        select.value = current;
+      paintDeckSourceOptions(select, decks);
+      if ([...select.options].some((opt) => opt.value === currentValue)) {
+        select.value = currentValue;
       }
     }
+  }
+  const currentInfo = data?.current || {};
+  const currentAvailable = Boolean(currentInfo.available);
+  setDeckSeedChipDisabled("live-deck-seed-current", !currentAvailable);
+  const currentLabel = $("live-deck-seed-current-label");
+  if (currentLabel) {
+    currentLabel.title = currentAvailable
+      ? "Keeps the deck already set for this class"
+      : "No deck set yet";
   }
   // Isolated empty-list gate. courseDeckChoiceDisabled() returns false to revert.
   const courseDisabled = courseDeckChoiceDisabled(decks.length);
   setDeckSeedChipDisabled("live-deck-seed-course", courseDisabled);
-  if (!available && deckSeedMode === "previous") deckSeedMode = "blank";
-  if (courseDisabled && deckSeedMode === "course") deckSeedMode = "blank";
+  deckSeedMode = deckSeedDefaultMode({
+    mode: deckSeedMode,
+    currentAvailable,
+    previousAvailable: available,
+    courseDeckCount: decks.length,
+  });
   const picked = document.querySelector(
     `input[name="live-deck-seed"][value="${deckSeedMode}"]`
   );
-  if (picked instanceof HTMLInputElement && !picked.disabled) {
-    picked.checked = true;
-  } else {
-    deckSeedMode = "blank";
-    const blank = $("live-deck-seed-blank");
-    if (blank instanceof HTMLInputElement) blank.checked = true;
-  }
+  if (picked instanceof HTMLInputElement) picked.checked = true;
   paintDeckSeedPicker();
+}
+
+/**
+ * Fill the Source deck select, grouped by section when more than one appears.
+ * Option values are ``classId:module:slot``.
+ * @param {HTMLSelectElement} select
+ * @param {any[]} decks
+ */
+function paintDeckSourceOptions(select, decks) {
+  const sections = [
+    ...new Set(decks.map((deck) => String(deck.section_code || deck.sectionCode || ""))),
+  ].filter(Boolean);
+  const grouped = sections.length > 1;
+  const addOption = (parent, deck) => {
+    const module = String(deck.module || "").toUpperCase();
+    const slot = String(deck.slot || "").toUpperCase();
+    const sourceClass = deck.class_id ?? deck.classId ?? "";
+    const label = String(deck.label || `${module} ${slot}`);
+    const value = sourceClass !== "" && sourceClass != null
+      ? `${sourceClass}:${module}:${slot}`
+      : `${module}:${slot}`;
+    parent.append(new Option(label, value));
+  };
+  if (!grouped) {
+    for (const deck of decks) addOption(select, deck);
+    return;
+  }
+  const buckets = new Map();
+  for (const deck of decks) {
+    const section = String(deck.section_code || deck.sectionCode || "This section");
+    if (!buckets.has(section)) buckets.set(section, []);
+    buckets.get(section).push(deck);
+  }
+  for (const [section, rows] of buckets) {
+    const group = document.createElement("optgroup");
+    group.label = section;
+    for (const deck of rows) addOption(group, deck);
+    select.append(group);
+  }
 }
 
 /**
@@ -514,7 +561,8 @@ async function refreshDeckSeedOptions() {
 async function applyDeckSeedChoice() {
   const pack = selectedSetClassPack();
   const selected = document.querySelector('input[name="live-deck-seed"]:checked');
-  const mode = String(selected?.value || deckSeedMode || "blank");
+  const mode = String(selected?.value || deckSeedMode || "current");
+  if (mode === "current") return;
   /** @type {Record<string, string>} */
   const body = { mode };
   if (mode === "previous") {
@@ -529,12 +577,21 @@ async function applyDeckSeedChoice() {
   }
   if (mode === "course") {
     const raw = String($("live-deck-seed-source")?.value || "");
-    const [sourceModule, sourceSlot] = raw.split(":");
+    const parts = raw.split(":");
+    let sourceClass = "";
+    let sourceModule = "";
+    let sourceSlot = "";
+    if (parts.length >= 3) {
+      [sourceClass, sourceModule, sourceSlot] = parts;
+    } else {
+      [sourceModule, sourceSlot] = parts;
+    }
     if (!sourceModule || !sourceSlot) {
       throw new Error("Choose a deck from this course.");
     }
     body.source_module = sourceModule;
     body.source_slot = sourceSlot;
+    if (sourceClass) body.source_class_id = sourceClass;
   }
   await api(
     `/api/staff/class/${classId}/live-lessons/${pack.module}/${pack.slot}/deck-seed`,
@@ -545,7 +602,7 @@ async function applyDeckSeedChoice() {
 $("live-deck-seed")?.addEventListener("change", (event) => {
   const target = event.target;
   if (target instanceof HTMLInputElement && target.name === "live-deck-seed") {
-    deckSeedMode = /** @type {"previous"|"course"|"blank"} */ (target.value);
+    deckSeedMode = /** @type {"previous"|"course"|"current"} */ (target.value);
     paintDeckSeedPicker();
   }
 });
