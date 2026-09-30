@@ -1,9 +1,9 @@
-"""Staff celebration helpers for ``alc.mckenzian.com#celebrations``.
+"""Staff and public celebration helpers for ``alc.mckenzian.com#celebrations``.
 
-The public student page is a Coming soon panel until the board has real
-data. Ranking and the teacher-picked Awards setting stay here for staff.
+Ranking and the teacher-picked Awards setting live here. The public page
+asks ``public_celebration_board`` for filled cards only.
 
-Cards (when the public board is live):
+Cards:
 
 * **Awards** — teacher-picked Codename (school setting)
 * **Most Engaged** — most presents, then participation points
@@ -14,11 +14,39 @@ Cards (when the public board is live):
 from __future__ import annotations
 
 import json
+import time
+from threading import Lock
 from typing import Any
 
 SETTING_FEATURED_AWARD = "celebration_featured_award"
 MIN_SESSIONS_FOR_IMPROVED = 4
 MIN_PRESENTS_FOR_COOKING = 2
+PUBLIC_BOARD_TTL_SECONDS = 60.0
+
+# Every user-visible celebrations string. Wonder replaces these placeholders.
+WONDER_COPY: dict[str, str] = {
+    "page_title": "Celebrations",  # Wonder copy slot
+    "sub_line": "Codenames from live class — not legal names.",  # Wonder copy slot
+    "empty_board": "Coming soon — the shout-outs are warming up.",  # Wonder copy slot
+    "footer": "Codenames only.",  # Wonder copy slot
+    "coming_soon_line": "Coming soon — the shout-outs are warming up.",  # Wonder copy slot
+    "coming_soon_sub": "Good work deserves a spotlight; we’re still setting the lights.",  # Wonder copy slot
+    "award_title": "Awards",  # Wonder copy slot
+    "award_kicker": "Celebrating a student",  # Wonder copy slot
+    "engaged_title": "Most Engaged",  # Wonder copy slot
+    "engaged_kicker": "Showed up and jumped in",  # Wonder copy slot
+    "improved_title": "Most Improved",  # Wonder copy slot
+    "improved_kicker": "Biggest climb lately",  # Wonder copy slot
+    "cooking_title": "Quietly Cooking",  # Wonder copy slot
+    "cooking_kicker": "Steady work, no spotlight needed",  # Wonder copy slot
+}
+
+_public_board_lock = Lock()
+_public_board_memo: dict[str, Any] = {
+    "school_id": None,
+    "at": 0.0,
+    "payload": None,
+}
 
 
 def student_public_name(row: dict[str, Any]) -> str:
@@ -35,6 +63,28 @@ def student_public_name(row: dict[str, Any]) -> str:
         if value:
             return value
     return "Student"
+
+
+def public_student_label(row: dict[str, Any], course: str) -> str:
+    """Public card name: Codename, else first name, else a course placeholder.
+
+    Matches ``student_public_name`` when a Codename or first name is set.
+    A blank Codename and a blank first name become ``A student in <course>``.
+    Last names are never read.
+
+    Args:
+        row: Game-show ``students`` row.
+        course: Section code used only for the blank-name placeholder.
+
+    Returns:
+        Name safe to show on the public board.
+    """
+    if str(row.get("codename") or "").strip() or str(row.get("first_name") or "").strip():
+        return student_public_name(row)
+    course_code = str(course or "").strip()
+    if course_code:
+        return f"A student in {course_code}"
+    return "A student"
 
 
 def _empty_card(key: str, title: str, kicker: str, waiting: str) -> dict[str, Any]:
@@ -194,8 +244,8 @@ def _featured_card(school: Any) -> dict[str, Any]:
     """Resolve the teacher-picked Award against the live roster."""
     card = _empty_card(
         "award",
-        "Awards",
-        "Celebrating a student",
+        WONDER_COPY["award_title"],
+        WONDER_COPY["award_kicker"],
         "A teacher will feature someone here.",
     )
     raw = school.get_school_setting(SETTING_FEATURED_AWARD, "")
@@ -302,30 +352,144 @@ def build_celebration_board(school: Any) -> dict[str, Any]:
         _featured_card(school),
         _card_from_stat(
             "engaged",
-            "Most Engaged",
-            "Showed up and jumped in",
+            WONDER_COPY["engaged_title"],
+            WONDER_COPY["engaged_kicker"],
             "Waiting on the first attendance.",
             engaged,
             engaged_detail,
         ),
         _card_from_stat(
             "improved",
-            "Most Improved",
-            "Biggest climb lately",
+            WONDER_COPY["improved_title"],
+            WONDER_COPY["improved_kicker"],
             "Needs a few more live classes.",
             improved,
             improved_detail,
         ),
         _card_from_stat(
             "cooking",
-            "Quietly Cooking",
-            "Steady work, no spotlight needed",
+            WONDER_COPY["cooking_title"],
+            WONDER_COPY["cooking_kicker"],
             "Waiting on a quiet streak.",
             cooking,
             cooking_detail,
         ),
     ]
     return {"cards": cards}
+
+
+def _public_card(school: Any, card: dict[str, Any]) -> dict[str, Any] | None:
+    """One public card, or None when the card has no winner.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        card: Internal board card, including roster ids.
+
+    Returns:
+        ``name``, ``course``, ``detail``, ``title``, ``kicker``, and ``key``,
+        or None when ``name`` is empty.
+    """
+    if not str(card.get("name") or "").strip():
+        return None
+    course = str(card.get("course") or "").strip()
+    name = str(card.get("name") or "").strip()
+    class_id = card.get("class_id")
+    student_id = card.get("student_id")
+    if class_id is not None and student_id is not None:
+        try:
+            student = school.game.get_student(int(class_id), int(student_id))
+        except (KeyError, TypeError, ValueError):
+            student = None
+        if student is not None:
+            name = public_student_label(student, course)
+    if not name:
+        return None
+    return {
+        "key": str(card.get("key") or ""),
+        "name": name,
+        "course": course,
+        "detail": str(card.get("detail") or ""),
+        "title": str(card.get("title") or ""),
+        "kicker": str(card.get("kicker") or ""),
+    }
+
+
+def _assemble_public_board(school: Any) -> dict[str, Any]:
+    """Build the public card list from the live ranking board.
+
+    Args:
+        school: ``SchoolDB`` instance.
+
+    Returns:
+        ``{cards: [...]}`` with ids removed and empty cards dropped.
+    """
+    cards = []
+    for card in build_celebration_board(school).get("cards") or []:
+        public = _public_card(school, card)
+        if public is not None:
+            cards.append(public)
+    return {"cards": cards}
+
+
+def clear_public_celebration_memo() -> None:
+    """Drop the in-process public board memo.
+
+    Tests call this when a new ``SchoolDB`` replaces the previous one so a
+    reused ``id()`` cannot serve another school's cards.
+    """
+    with _public_board_lock:
+        _public_board_memo["school_id"] = None
+        _public_board_memo["at"] = 0.0
+        _public_board_memo["payload"] = None
+
+
+def _copy_public_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return a detached copy so callers cannot mutate the memo.
+
+    Args:
+        payload: Cached ``{cards: [...]}``.
+
+    Returns:
+        Shallow copy of the payload and each card.
+    """
+    return {"cards": [dict(card) for card in payload.get("cards") or []]}
+
+
+def public_celebration_board(
+    school: Any,
+    *,
+    now: float | None = None,
+) -> dict[str, Any]:
+    """Public celebration cards, memoized for about 60 seconds.
+
+    Only cards with a winner are returned. ``class_id`` and ``student_id``
+    are stripped. Names follow ``public_student_label``: Codename, else
+    first name, else ``A student in <course>``.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        now: Monotonic timestamp for tests. Production omits it.
+
+    Returns:
+        ``{cards: [...]}`` safe to send to the public landing page.
+    """
+    stamp = time.monotonic() if now is None else float(now)
+    school_id = id(school)
+    with _public_board_lock:
+        cached = _public_board_memo
+        payload = cached.get("payload")
+        if (
+            cached.get("school_id") == school_id
+            and isinstance(payload, dict)
+            and stamp - float(cached.get("at") or 0.0) < PUBLIC_BOARD_TTL_SECONDS
+        ):
+            return _copy_public_payload(payload)
+    fresh = _assemble_public_board(school)
+    with _public_board_lock:
+        _public_board_memo["school_id"] = school_id
+        _public_board_memo["at"] = stamp
+        _public_board_memo["payload"] = fresh
+    return _copy_public_payload(fresh)
 
 
 def celebration_candidates(school: Any, teacher_user_id: int) -> list[dict[str, Any]]:

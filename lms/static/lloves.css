@@ -524,6 +524,77 @@ body.landing-page .calc-coming-line {
 body.landing-page .calc-coming-soon .sub {
   margin: 0;
 }
+body.landing-page .calc-wrap.is-live-board {
+  max-width: 1040px;
+  text-align: left;
+}
+body.landing-page .calc-header {
+  text-align: center;
+  padding: 0 0 1rem;
+}
+body.landing-page .calc-header h2 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  font-size: clamp(1.8rem, 5vw, 2.6rem);
+  margin: 0.2rem 0 0.4rem;
+}
+body.landing-page .calc-header .sub {
+  margin-bottom: 0.65rem;
+}
+body.landing-page .calc-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 1.35rem 1.3rem 1.45rem;
+}
+body.landing-page .calc-card h3 {
+  margin: 0.15rem 0 0.65rem;
+  font-size: 1.35rem;
+}
+body.landing-page .calc-card-award {
+  border-color: rgba(251, 191, 36, 0.45);
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.18);
+  margin-bottom: 1rem;
+}
+body.landing-page .calc-rank-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+body.landing-page .calc-winner {
+  font-size: 1.85rem;
+  font-weight: 750;
+  margin: 0 0 0.25rem;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+body.landing-page .calc-detail {
+  margin: 0.45rem 0 0;
+  color: var(--ink);
+}
+body.landing-page .calc-footer {
+  margin: 1.25rem 0 0;
+  text-align: center;
+  color: var(--muted);
+}
+body.landing-page .calc-card[data-card="engaged"] {
+  border-color: rgba(45, 212, 191, 0.35);
+}
+body.landing-page .calc-card[data-card="improved"] {
+  border-color: rgba(103, 232, 249, 0.35);
+}
+body.landing-page .calc-card[data-card="cooking"] {
+  border-color: rgba(251, 191, 36, 0.28);
+}
+@media (max-width: 800px) {
+  body.landing-page .calc-rank-grid { grid-template-columns: 1fr; }
+  body.landing-page .calc-wrap.is-live-board { max-width: 100%; }
+  body.landing-page .calc-winner { font-size: 1.55rem; }
+  body.landing-page .calc-card { padding: 1.05rem 1rem 1.15rem; }
+  body.landing-page .calc-header h2 { font-size: 1.7rem; }
+}
 
 .staff-celebrate {
   margin-top: 1.75rem;
