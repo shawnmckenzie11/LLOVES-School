@@ -582,6 +582,158 @@ class LiveDeckSeedTests(unittest.TestCase):
 
 
 
+    def test_use_current_keeps_working_deck_edits(self) -> None:
+        """Use current leaves page, override, and media edits in place."""
+
+        meta = self._meta("M1", "C3")
+        questions = [
+            row for row in meta.get("questions") or [] if isinstance(row, dict) and row.get("id")
+        ]
+        self.assertTrue(questions)
+        victim = str(questions[0]["id"])
+        self.school.remove_class_playlist_item(self.class_id, "M1", "C3", victim)
+        self.school.add_class_playlist_page(
+            self.class_id,
+            "M1",
+            "C3",
+            name="Kept notes",
+            after_page_id=str(meta["pages"][0]["id"]),
+        )
+        self.school.upsert_class_live_media_copy(
+            self.class_id,
+            "M1",
+            "C3",
+            stem="Kept stem",
+            caption="Kept caption",
+        )
+        edited = self._meta("M1", "C3")
+        self.assertNotIn(victim, [str(row.get("id")) for row in edited["questions"]])
+        self.assertIn("Kept notes", [row.get("name") for row in edited["pages"]])
+        self.assertEqual(edited["media"]["stem"], "Kept stem")
+        self.assertEqual(edited["media"]["caption"], "Kept caption")
+        before = _deck_table_snapshot(self.school, self.class_id)
+        seeded = self.school.apply_class_deck_seed(
+            self.class_id, "M1", "C3", mode="current"
+        )
+        self.assertEqual(seeded["mode"], "current")
+        self.assertEqual(_deck_table_snapshot(self.school, self.class_id), before)
+        again = self._meta("M1", "C3")
+        self.assertNotIn(victim, [str(row.get("id")) for row in again["questions"]])
+        self.assertIn("Kept notes", [row.get("name") for row in again["pages"]])
+        self.assertEqual(again["media"]["stem"], "Kept stem")
+        self.assertEqual(again["media"]["caption"], "Kept caption")
+        self.assertEqual(SEED_C3.read_bytes(), self.c3_bytes)
+
+    def test_cross_section_copy_keeps_source_working_edits(self) -> None:
+        """A cross-section copy takes the source working deck, edits included."""
+
+        second = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]),
+            ontario_code="MCF3M",
+            new_section=True,
+        )
+        created = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": second["id"],
+                "days": "T/Th/F",
+                "time": "12:35pm",
+                "codenames": ["Cedar"],
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.get_json())
+        other_id = int(created.get_json()["class"]["id"])
+        self.school.apply_class_deck_seed(
+            other_id, "M2", "C2", mode="course", source_module="M1", source_slot="C2"
+        )
+        source_meta = self.school.live_class_metadata_for_class_lesson(
+            other_id, "M2", "C2", fresh=True
+        )
+        questions = [
+            row
+            for row in source_meta.get("questions") or []
+            if isinstance(row, dict) and row.get("id")
+        ]
+        self.assertGreaterEqual(len(questions), 2)
+        row = self.school.conn.execute(
+            """
+            SELECT id, item_json FROM class_live_playlist_placements
+            WHERE class_id = ? AND module = 'M2' AND slot = 'C2'
+            ORDER BY id LIMIT 1
+            """,
+            (other_id,),
+        ).fetchone()
+        payload = json.loads(row["item_json"])
+        payload["text"] = "Edited working stem"
+        self.school.conn.execute(
+            "UPDATE class_live_playlist_placements SET item_json = ? WHERE id = ?",
+            (json.dumps(payload), int(row["id"])),
+        )
+        self.school.conn.commit()
+        self.school.invalidate_live_metadata_cache(class_id=other_id)
+        victim = str(questions[1]["id"])
+        self.school.remove_class_playlist_item(other_id, "M2", "C2", victim)
+        self.school.add_class_playlist_page(
+            other_id,
+            "M2",
+            "C2",
+            name="Working page",
+            after_page_id=str(source_meta["pages"][0]["id"]),
+        )
+        self.school.upsert_class_live_media_copy(
+            other_id,
+            "M2",
+            "C2",
+            stem="Working stem",
+            caption="Working caption",
+        )
+        edited = self.school.live_class_metadata_for_class_lesson(
+            other_id, "M2", "C2", fresh=True
+        )
+        self.assertEqual(edited["questions"][0].get("text"), "Edited working stem")
+        self.assertNotIn(victim, [str(item.get("id")) for item in edited["questions"]])
+        self.assertIn("Working page", [item.get("name") for item in edited["pages"]])
+        self.assertEqual(edited["media"]["stem"], "Working stem")
+        self.assertEqual(edited["media"]["caption"], "Working caption")
+        raw_seed = self.school.live_class_metadata_for_class_lesson(
+            self.class_id, "M2", "C2", fresh=True
+        )
+        self.assertNotEqual(_question_signature(edited), _question_signature(raw_seed))
+        source_tables = _deck_table_snapshot(self.school, other_id)
+        copied = self.school.apply_class_deck_seed(
+            self.class_id,
+            "M2",
+            "C2",
+            mode="course",
+            source_module="M2",
+            source_slot="C2",
+            source_class_id=other_id,
+            teacher_user_id=int(self.teacher["id"]),
+        )
+        dest = copied["live_metadata"]
+        self.assertEqual(_question_signature(dest), _question_signature(edited))
+        self.assertEqual(
+            [item.get("name") for item in dest["pages"]],
+            [item.get("name") for item in edited["pages"]],
+        )
+        self.assertEqual(dest["media"]["stem"], "Working stem")
+        self.assertEqual(dest["media"]["caption"], "Working caption")
+        self.assertNotIn(victim, [str(item.get("id")) for item in dest["questions"]])
+        self.assertNotEqual(_question_signature(dest), _question_signature(raw_seed))
+        page = self.school.conn.execute(
+            """
+            SELECT name FROM class_live_playlist_pages
+            WHERE class_id = ? AND module = 'M2' AND slot = 'C2' AND removed = 0
+            """,
+            (self.class_id,),
+        ).fetchone()
+        self.assertEqual(page["name"], "Working page")
+        media = self.school.get_class_live_media_copy(self.class_id, "M2", "C2")
+        self.assertEqual(media["stem"], "Working stem")
+        self.assertEqual(media["caption"], "Working caption")
+        self.assertEqual(_deck_table_snapshot(self.school, other_id), source_tables)
+
+
 class DeckSeedPickerUiTests(unittest.TestCase):
     """Chip helper copy, stale replies, and the empty-course chip."""
 
