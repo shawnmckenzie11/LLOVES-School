@@ -44,13 +44,19 @@ function previousChallengeLabel(state) {
 export function deckSeedHelpText(state = {}) {
   const phase = String(state.phase || "ready");
   if (phase === "loading") return "Loading decks…";
-  if (phase === "error") return "Couldn't load decks. Blank still works.";
+  if (phase === "error") return "Couldn't load decks. Try again.";
 
-  const mode = String(state.mode || "blank");
+  const mode = String(state.mode || "current");
   const previousAvailable = Boolean(state.previousAvailable);
+  const currentAvailable = Boolean(state.currentAvailable);
   const courseDisabled = courseDeckChoiceDisabled(state.courseDeckCount);
   const label = previousChallengeLabel(state);
 
+  if (mode === "current") {
+    return currentAvailable
+      ? "Keeps the deck already set for this class."
+      : "No deck set yet.";
+  }
   if (mode === "previous" && previousAvailable) {
     return label
       ? `Starts from a copy of your ${label} deck.`
@@ -67,7 +73,30 @@ export function deckSeedHelpText(state = {}) {
     }
     return "No earlier challenge in this module. Starting blank.";
   }
-  return "Starts from a blank 7-page deck.";
+  if (mode === "blank") return "Starts from a blank 7-page deck.";
+  return "Keeps the deck already set for this class.";
+}
+
+/**
+ * Pick the chip that should be selected after options load.
+ *
+ * Use current stays selected when this slot already has a real deck.
+ * Otherwise the selection falls back to Previous, even when Previous
+ * is also greyed, so the helper can explain the gap.
+ *
+ * @param {{mode?: string, currentAvailable?: boolean, previousAvailable?: boolean, courseDeckCount?: number}} state
+ * @returns {"current"|"previous"|"course"}
+ */
+export function deckSeedDefaultMode(state = {}) {
+  const currentOk = Boolean(state.currentAvailable);
+  const previousOk = Boolean(state.previousAvailable);
+  const courseOk = !courseDeckChoiceDisabled(state.courseDeckCount);
+  const requested = String(state.mode || "current");
+  if (requested === "current" && currentOk) return "current";
+  if (requested === "previous" && previousOk) return "previous";
+  if (requested === "course" && courseOk) return "course";
+  if (currentOk) return "current";
+  return "previous";
 }
 
 /**
