@@ -21,11 +21,14 @@ import {
 } from "/static/live_news_wire.js";
 import {
   bindWhiteboard,
+  boardWriteRejected,
   createBoardDeltaPoll,
   createPresenceQueue,
   cursorAfterOps,
   normalizeBoardPoint,
+  noteBoardRun,
   opsAboveCursor,
+  showBoardRefreshCue,
 } from "/static/live_whiteboard.js";
 import { avatarGlyph, nameWithAvatar } from "/static/student_avatars.js";
 
@@ -717,6 +720,11 @@ let studentPresence = null;
 /** Last applied sequence on this student's team board. */
 let studentBoardSince = 0;
 
+/** Run key of the live class this tab is drawing in. */
+const studentBoardRun = { key: "" };
+
+let studentBoardRefresh = null;
+
 /** Last applied sequence on the teacher board. */
 let studentTeacherSince = 0;
 
@@ -739,6 +747,7 @@ function studentPresenceQueue() {
         ...body,
         since: studentBoardSince,
         teacher_since: studentTeacherSince,
+        run_key: studentBoardRun.key || "",
       };
       if (!payload.client_batch_id) {
         payload.client_batch_id = `b-${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}`;
@@ -751,7 +760,24 @@ function studentPresenceQueue() {
           credentials: "same-origin",
           body: JSON.stringify(payload),
         })
-      ).then((res) => (res.ok ? res.json() : null));
+      ).then(async (res) => {
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (_err) {
+          data = null;
+        }
+        if (boardWriteRejected(res.status, data)) {
+          await refreshStudentBoard();
+          return null;
+        }
+        if (!res.ok) return null;
+        if (noteBoardRun(studentBoardRun, data && data.run_key) === "changed") {
+          await refreshStudentBoard();
+          return null;
+        }
+        return data;
+      });
     },
     /**
      * @param {any} data
@@ -860,6 +886,15 @@ function bindStudentCanvas() {
         stroke_id: stroke.id,
       });
     },
+    onClear: (gone) => {
+      for (const stroke of gone || []) {
+        if (!stroke || !stroke.mine || !stroke.id) continue;
+        studentPresenceQueue().push({
+          op: "stroke_remove",
+          stroke_id: stroke.id,
+        });
+      }
+    },
     onRedo: (stroke) => {
       postStudentCanvas(stroke.points, {
         ended: true,
@@ -884,6 +919,13 @@ function bindStudentCanvas() {
   bindStudentCanvas.applyDelta = (delta) => {
     board.applyDelta(delta);
   };
+  /**
+   * Paint one server view and drop this tab's open stroke.
+   * @param {any} view
+   */
+  bindStudentCanvas.resetRun = (view) => {
+    if (typeof board.resetRun === "function") board.resetRun(view);
+  };
   ensureStudentBoardPoll();
 }
 
@@ -894,6 +936,74 @@ function bindStudentCanvas() {
  * stream. The poll stops while the whiteboard is hidden or the session
  * has ended.
  */
+
+/**
+ * Drop queued ink and paint the board for the run the server is on.
+ *
+ * Pending ops are not sent again. A 409 from an open Tip A tab never
+ * reaches this function; that tab's queue already drops a non-OK body.
+ */
+function refreshStudentBoard() {
+  if (studentBoardRefresh) return studentBoardRefresh;
+  studentBoardRefresh = (async () => {
+    const empty = { strokes: [], texts: [], cursors: [] };
+    studentPresenceQueue().drop();
+    studentBoardSince = 0;
+    studentTeacherSince = 0;
+    // End the open stroke before the refetch so later flushes cannot
+    // re-post it once this tab learns the new run key.
+    if (typeof bindStudentCanvas.resetRun === "function") {
+      bindStudentCanvas.resetRun(empty);
+    }
+    const params = new URLSearchParams();
+    params.set("since", "0");
+    params.set("teacher_since", "0");
+    let data = null;
+    try {
+      const res = await fetch(
+        `/api/student/board/mine?${params}`,
+        visitFetchInit()
+      );
+      data = await res.json();
+    } catch (_err) {
+      data = null;
+    }
+    // A flush that landed in the queue during the refetch is still the old run.
+    studentPresenceQueue().drop();
+    if (!data || data.ended) {
+      if (data && data.ended && typeof bindStudentCanvas.resetRun === "function") {
+        bindStudentCanvas.resetRun(empty);
+      }
+      if (studentCanvas instanceof HTMLCanvasElement) {
+        showBoardRefreshCue(studentCanvas);
+      }
+      return;
+    }
+    noteBoardRun(studentBoardRun, data.run_key);
+    if (typeof bindStudentCanvas.resetRun === "function") {
+      if (data.snapshot && data.canvas_view) {
+        bindStudentCanvas.resetRun(data.canvas_view);
+      } else {
+        bindStudentCanvas.resetRun(empty);
+        if (typeof bindStudentCanvas.applyDelta === "function") {
+          bindStudentCanvas.applyDelta({
+            ops: data.ops || [],
+            teacher_ops: data.teacher_ops || [],
+          });
+        }
+      }
+    }
+    studentBoardSince = Number(data.board_seq) || 0;
+    studentTeacherSince = Number(data.teacher_board_seq) || 0;
+    if (studentCanvas instanceof HTMLCanvasElement) {
+      showBoardRefreshCue(studentCanvas);
+    }
+  })().finally(() => {
+    studentBoardRefresh = null;
+  });
+  return studentBoardRefresh;
+}
+
 function ensureStudentBoardPoll() {
   if (studentBoardPoll) return;
   studentBoardPoll = createBoardDeltaPoll({
@@ -913,23 +1023,52 @@ function ensureStudentBoardPoll() {
       params.set("since", String(studentBoardSince));
       params.set("teacher_since", String(studentTeacherSince));
       return fetch(`/api/student/board/mine?${params}`, visitFetchInit()).then(async (res) => {
-        if (res.status === 429 || res.status >= 500) {
-          return { status: res.status, busy: true };
+        const status = Number(res.status) || 0;
+        let contentType = "";
+        try {
+          contentType = String(res.headers?.get?.("content-type") || "");
+        } catch (_err) {
+          contentType = "";
+        }
+        // A logged-out tab is sent to the login page. Stop this poll.
+        const loggedOut =
+          status === 302 ||
+          status === 401 ||
+          Boolean(res.redirected) ||
+          res.type === "opaqueredirect";
+        if (loggedOut && studentBoardPoll) {
+          studentBoardPoll.stop();
+          return { status: status || 302 };
+        }
+        if (status === 429 || status >= 500) {
+          return { status, busy: true };
         }
         let data = null;
         try {
           data = await res.json();
         } catch (_err) {
+          if (contentType.includes("text/html")) {
+            if (studentBoardPoll) studentBoardPoll.stop();
+            return { status };
+          }
           data = null;
         }
-        if (!res.ok) return { status: res.status, busy: res.status >= 500 };
-        return { ...(data || {}), status: res.status };
+        if (!res.ok) return { status, busy: status >= 500 };
+        return { ...(data || {}), status };
       });
     },
     /**
      * @param {any} data
      */
     onDelta(data) {
+      if (data && data.ended) {
+        refreshStudentBoard();
+        return;
+      }
+      if (noteBoardRun(studentBoardRun, data && data.run_key) === "changed") {
+        refreshStudentBoard();
+        return;
+      }
       if (data.snapshot) {
         if (typeof data.board_seq === "number" && data.board_seq >= studentBoardSince) {
           studentBoardSince = data.board_seq;

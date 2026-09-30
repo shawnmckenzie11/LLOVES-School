@@ -35,10 +35,14 @@ import {
 import { nameWithMood } from "/static/mood_faces.js";
 import {
   bindWhiteboard,
+  boardWriteRejected,
+  createBoardDeltaPoll,
   createPresenceQueue,
   cursorAfterOps,
   normalizeBoardPoint,
+  noteBoardRun,
   opsAboveCursor,
+  showBoardRefreshCue,
 } from "/static/live_whiteboard.js";
 import {
   RECONNECT_PENDING_MS,
@@ -9383,11 +9387,134 @@ let teacherPresence = null;
 /** Last applied sequence on the teacher board. */
 let teacherBoardSince = 0;
 
+/** Run key of the live class this staff tab is drawing in. */
+const teacherBoardRun = { key: "" };
+
+/** @type {Promise<void> | null} */
+let teacherBoardRefresh = null;
+
+/** @type {ReturnType<typeof createBoardDeltaPoll> | null} */
+let teacherBoardPoll = null;
+
 /**
  * One presence POST at a time for this teacher tab.
  * The live session id is read when the request is sent.
  * @returns {ReturnType<typeof createPresenceQueue>}
  */
+
+/**
+ * Drop queued teacher ink and load the run the server is on.
+ *
+ * The pending batch is not posted again. Fetch failures stay quiet.
+ */
+function refreshTeacherBoard() {
+  if (teacherBoardRefresh) return teacherBoardRefresh;
+  teacherBoardRefresh = (async () => {
+    const empty = { strokes: [], texts: [], cursors: [] };
+    const sessionId = liveSessionId || readLiveSessionId();
+    teacherPresenceQueue().drop();
+    teacherBoardSince = 0;
+    teacherCalmFrameHeld = false;
+    // End the open stroke before the refetch so later flushes cannot re-post it.
+    if (teacherBoard && typeof teacherBoard.resetRun === "function") {
+      teacherBoard.resetRun(empty);
+    }
+    if (!sessionId) return;
+    let data = null;
+    try {
+      const res = await fetch(
+        `/api/live-sessions/${sessionId}/board/teacher?since=0`,
+        { credentials: "same-origin", headers: { Accept: "application/json" } }
+      );
+      data = await res.json();
+    } catch (_err) {
+      data = null;
+    }
+    // A flush that landed in the queue during the refetch is still the old run.
+    teacherPresenceQueue().drop();
+    const canvas = $("live-canvas-stub");
+    if (!data || data.ended) {
+      if (data && data.ended && teacherBoard && typeof teacherBoard.resetRun === "function") {
+        teacherBoard.resetRun(empty);
+      }
+      if (canvas instanceof HTMLCanvasElement) showBoardRefreshCue(canvas);
+      return;
+    }
+    noteBoardRun(teacherBoardRun, data.run_key);
+    if (teacherBoard && typeof teacherBoard.resetRun === "function") {
+      if (data.snapshot && data.canvas_view) {
+        teacherBoard.resetRun(data.canvas_view);
+      } else {
+        teacherBoard.resetRun({ strokes: [], texts: [], cursors: [] });
+        if (typeof teacherBoard.applyDelta === "function") {
+          teacherBoard.applyDelta({ ops: data.ops || [] });
+        }
+      }
+    }
+    teacherBoardSince = Number(data.board_seq) || 0;
+    if (canvas instanceof HTMLCanvasElement) showBoardRefreshCue(canvas);
+  })().finally(() => {
+    teacherBoardRefresh = null;
+  });
+  return teacherBoardRefresh;
+}
+
+/**
+ * Poll the teacher board so a restarted class changes ``run_key`` here
+ * even when this tab is not drawing.
+ */
+function ensureTeacherBoardPoll() {
+  if (teacherBoardPoll) return;
+  teacherBoardPoll = createBoardDeltaPoll({
+    isShown() {
+      const canvas = $("live-canvas-stub");
+      return canvas instanceof HTMLCanvasElement && !canvas.hidden;
+    },
+    poll() {
+      const sessionId = liveSessionId || readLiveSessionId();
+      if (!sessionId) return Promise.resolve({ ended: true });
+      return fetch(
+        `/api/live-sessions/${sessionId}/board/teacher?since=${teacherBoardSince}`,
+        { credentials: "same-origin", headers: { Accept: "application/json" } }
+      ).then(async (res) => {
+        if (res.status === 429 || res.status >= 500) {
+          return { status: res.status, busy: true };
+        }
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (_err) {
+          data = null;
+        }
+        if (!res.ok) return { status: res.status, busy: res.status >= 500 };
+        return { ...(data || {}), status: res.status };
+      });
+    },
+    onDelta(data) {
+      if (data && data.ended) {
+        refreshTeacherBoard();
+        return;
+      }
+      if (noteBoardRun(teacherBoardRun, data && data.run_key) === "changed") {
+        refreshTeacherBoard();
+        return;
+      }
+      if (data.snapshot && data.canvas_view && teacherBoard && typeof teacherBoard.applyDelta === "function") {
+        if (typeof data.board_seq === "number" && data.board_seq >= teacherBoardSince) {
+          teacherBoardSince = data.board_seq;
+        }
+        teacherBoard.applyDelta(data);
+        return;
+      }
+      const fresh = opsAboveCursor(data.ops || data.ops_since, teacherBoardSince);
+      teacherBoardSince = cursorAfterOps(teacherBoardSince, fresh);
+      if (fresh.length && teacherBoard && typeof teacherBoard.applyDelta === "function") {
+        teacherBoard.applyDelta({ ops_since: fresh });
+      }
+    },
+  });
+}
+
 function teacherPresenceQueue() {
   if (teacherPresence) return teacherPresence;
   teacherPresence = createPresenceQueue({
@@ -9398,13 +9525,39 @@ function teacherPresenceQueue() {
     send(body) {
       const sessionId = liveSessionId || readLiveSessionId();
       if (!sessionId) return Promise.resolve(null);
-      const payload = { ...body, since: teacherBoardSince };
+      const payload = {
+        ...body,
+        since: teacherBoardSince,
+        run_key: teacherBoardRun.key || "",
+      };
       if (!payload.client_batch_id) {
         payload.client_batch_id = `b-${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}`;
       }
-      return api(`/api/live-sessions/${sessionId}/canvas-presence`, {
+      return fetch(`/api/live-sessions/${sessionId}/canvas-presence`, {
         method: "POST",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(payload),
+      }).then(async (res) => {
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (_err) {
+          data = null;
+        }
+        if (boardWriteRejected(res.status, data)) {
+          await refreshTeacherBoard();
+          return null;
+        }
+        if (!res.ok) return null;
+        if (noteBoardRun(teacherBoardRun, data && data.run_key) === "changed") {
+          await refreshTeacherBoard();
+          return null;
+        }
+        return data;
       });
     },
     /**
@@ -9502,11 +9655,22 @@ function bindEphemeralCanvas() {
         stroke_id: stroke.id,
       });
     },
+    onClear: (gone) => {
+      teacherCalmFrameHeld = true;
+      for (const stroke of gone || []) {
+        if (!stroke || !stroke.mine || !stroke.id) continue;
+        teacherPresenceQueue().push({
+          op: "stroke_remove",
+          stroke_id: stroke.id,
+        });
+      }
+    },
     onRedo: (stroke) => {
       teacherCalmFrameHeld = true;
       postTeacherCanvas(canvas, stroke.points, { ended: true, strokeId: stroke.id });
     },
   });
+  ensureTeacherBoardPoll();
 }
 
 selectTrackMode("individual");

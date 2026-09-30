@@ -883,6 +883,34 @@ def _serve_component_item(
     )
 
 
+
+def board_write_closed(exc: BoardSessionClosed):
+    """JSON for a board write the server did not store.
+
+    A missing or mismatched run key on a live session is ``stale_run``.
+    An ended session, including a run closed while End is still in
+    progress, is ``ended``. The two flags are not set together.
+
+    Args:
+        exc: Close raised by the session check or the board store.
+
+    Returns:
+        A 409 response.
+    """
+    if getattr(exc, "stale_run", False):
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": "This board is from an earlier class.",
+                    "stale_run": True,
+                }
+            ),
+            409,
+        )
+    return jsonify({"ok": False, "error": "Session has ended.", "ended": True}), 409
+
+
 def create_app(
     *,
     db_path: Path | None = None,
@@ -4727,7 +4755,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     x=body.get("x"),
                     y=body.get("y"),
                     as_teacher=False,
-                    claimed_run_key=str(body.get("run_key") or "").strip() or None,
+                    claimed_run_key=str(body.get("run_key") or "").strip(),
                 )
             elif str(body.get("op") or body.get("type") or "") == "stroke_remove":
                 school.remove_live_board_stroke(
@@ -4737,7 +4765,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     team_id=team_id,
                     as_teacher=False,
                     client_batch_id=batch_id,
-                    claimed_run_key=str(body.get("run_key") or "").strip() or None,
+                    claimed_run_key=str(body.get("run_key") or "").strip(),
                 )
             else:
                 raw_points = body.get("points")
@@ -4754,18 +4782,26 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     ended=bool(body.get("ended")),
                     as_teacher=False,
                     client_batch_id=batch_id,
-                    claimed_run_key=str(body.get("run_key") or "").strip() or None,
+                    claimed_run_key=str(body.get("run_key") or "").strip(),
                 )
-        except BoardSessionClosed:
-            return jsonify({"ok": False, "error": "Session has ended.", "ended": True}), 409
+            # The reply reads the session again. Start can delete the row
+            # in the few milliseconds after the write has already landed.
+            reply = school.canvas_presence_reply(
+                live_session_id,
+                student_id=int(student_id),
+                since=_optional_board_seq(body.get("since")),
+                teacher_since=_optional_board_seq(body.get("teacher_since")),
+            )
+        except BoardSessionClosed as exc:
+            return board_write_closed(exc)
         except BoardOpRejected as exc:
             return jsonify({"ok": False, "error": str(exc)}), 403
-        reply = school.canvas_presence_reply(
-            live_session_id,
-            student_id=int(student_id),
-            since=_optional_board_seq(body.get("since")),
-            teacher_since=_optional_board_seq(body.get("teacher_since")),
-        )
+        except KeyError as exc:
+            # Start deletes the row a few milliseconds after End. The
+            # student write that lands in that gap is a closed class.
+            if not missing_live_session(exc):
+                raise
+            return board_write_closed(BoardSessionClosed("session has ended"))
         # Own team plus the teacher. Other groups are not in this reply.
         return jsonify(reply)
 
@@ -5955,13 +5991,14 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 publish_mode=body.get("publish_mode") if has_publish else None,
                 response_mode=body.get("response_mode") if has_response else None,
             )
+            teacher_state = school.live_session_teacher_state_payload(session_id)
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         return jsonify(
             {
                 "ok": True,
                 "item": item,
-                "teacher_state": school.live_session_teacher_state_payload(session_id),
+                "teacher_state": teacher_state,
             }
         )
 
@@ -6132,7 +6169,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     x=body.get("x"),
                     y=body.get("y"),
                     as_teacher=as_teacher,
-                    claimed_run_key=str(body.get("run_key") or "").strip() or None,
+                    claimed_run_key=str(body.get("run_key") or "").strip(),
                 )
             elif str(body.get("op") or body.get("type") or "") == "stroke_remove":
                 school.remove_live_board_stroke(
@@ -6142,7 +6179,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     team_id=team_id,
                     as_teacher=as_teacher,
                     client_batch_id=batch_id,
-                    claimed_run_key=str(body.get("run_key") or "").strip() or None,
+                    claimed_run_key=str(body.get("run_key") or "").strip(),
                 )
             else:
                 raw_points = body.get("points")
@@ -6159,21 +6196,21 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     ended=bool(body.get("ended")),
                     as_teacher=as_teacher,
                     client_batch_id=batch_id,
-                    claimed_run_key=str(body.get("run_key") or "").strip() or None,
+                    claimed_run_key=str(body.get("run_key") or "").strip(),
                 )
-        except BoardSessionClosed:
-            return jsonify({"ok": False, "error": "Session has ended.", "ended": True}), 409
+            reply = school.canvas_presence_reply(
+                session_id,
+                student_id=int(owner) if owner.isdigit() else None,
+                as_teacher=as_teacher,
+                since=_optional_board_seq(body.get("since")),
+                teacher_since=_optional_board_seq(body.get("teacher_since")),
+            )
+        except BoardSessionClosed as exc:
+            return board_write_closed(exc)
         except BoardOpRejected as exc:
             return jsonify({"ok": False, "error": str(exc)}), 403
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
-        reply = school.canvas_presence_reply(
-            session_id,
-            student_id=int(owner) if owner.isdigit() else None,
-            as_teacher=as_teacher,
-            since=_optional_board_seq(body.get("since")),
-            teacher_since=_optional_board_seq(body.get("teacher_since")),
-        )
         # Staff stays on the teacher board (#165). A student receives only
         # their own team plus the teacher — never another group's ops.
         return jsonify(reply)
@@ -6316,6 +6353,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     for op in ops
                 ],
                 client_batch_id=str(body.get("client_batch_id") or "").strip() or None,
+                claimed_run_key=str(body.get("run_key") or "").strip(),
             )
             reply = school.canvas_presence_reply(
                 live_session_id,
@@ -6323,8 +6361,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 since=_optional_board_seq(body.get("since")),
                 teacher_since=_optional_board_seq(body.get("teacher_since")),
             )
-        except BoardSessionClosed:
-            return jsonify({"ok": False, "error": "Session has ended.", "ended": True}), 409
+        except BoardSessionClosed as exc:
+            return board_write_closed(exc)
         except BoardOpRejected as exc:
             return jsonify({"ok": False, "error": str(exc)}), 403
         except (KeyError, ValueError) as exc:
@@ -6403,15 +6441,15 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     owner="teacher",
                     ops=ops,
                     client_batch_id=batch_id,
-                    claimed_run_key=str(body.get("run_key") or "").strip() or None,
+                    claimed_run_key=str(body.get("run_key") or "").strip(),
                 )
                 reply = school.canvas_presence_reply(
                     session_id,
                     as_teacher=True,
                     since=_optional_board_seq(body.get("since")),
                 )
-            except BoardSessionClosed:
-                return jsonify({"ok": False, "error": "Session has ended.", "ended": True}), 409
+            except BoardSessionClosed as exc:
+                return board_write_closed(exc)
             except BoardOpRejected as exc:
                 return jsonify({"ok": False, "error": str(exc)}), 403
             except (KeyError, ValueError) as exc:
@@ -6438,7 +6476,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 owner=str(int(student_id or 0)),
                 ops=ops,
                 client_batch_id=batch_id,
-                    claimed_run_key=str(body.get("run_key") or "").strip() or None,
+                    claimed_run_key=str(body.get("run_key") or "").strip(),
             )
             reply = school.canvas_presence_reply(
                 session_id,
@@ -6446,8 +6484,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 since=_optional_board_seq(body.get("since")),
                 teacher_since=_optional_board_seq(body.get("teacher_since")),
             )
-        except BoardSessionClosed:
-            return jsonify({"ok": False, "error": "Session has ended.", "ended": True}), 409
+        except BoardSessionClosed as exc:
+            return board_write_closed(exc)
         except BoardOpRejected as exc:
             return jsonify({"ok": False, "error": str(exc)}), 403
         except (KeyError, ValueError) as exc:

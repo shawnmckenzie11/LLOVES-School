@@ -21307,6 +21307,34 @@ class SchoolDB(LovesDB):
             client_batch_id=str(client_batch_id or "").strip() or None,
         )
 
+
+    def _board_run_key(self, session_id: int) -> str:
+        """Return this session's run key, or an empty string when it has none.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            The stored run key, or ``""`` when the row is gone.
+        """
+        try:
+            return self.live_board_run_key(int(session_id))
+        except KeyError:
+            return ""
+
+    def _with_run_key(self, session_id: int, reply: dict[str, Any]) -> dict[str, Any]:
+        """Attach the current run key to a board read.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            reply: JSON-ready board payload.
+
+        Returns:
+            The same dict, with ``run_key`` set.
+        """
+        reply["run_key"] = self._board_run_key(session_id)
+        return reply
+
     def canvas_presence_reply(
         self,
         session_id: int,
@@ -21336,11 +21364,11 @@ class SchoolDB(LovesDB):
             seq = since if since is not None else teacher_since
             if seq is None:
                 view = self.live_session_canvas_view(int(session_id), as_teacher=True)
-                return {"ok": True, "canvas_sync": view, "canvas_view": view}
+                return self._with_run_key(int(session_id), {"ok": True, "canvas_sync": view, "canvas_view": view})
             delta = self.board_delta(
                 int(session_id), "teacher", int(seq), as_teacher=True
             )
-            return self._delta_reply(delta, teacher_key="teacher")
+            return self._with_run_key(int(session_id), self._delta_reply(delta, teacher_key="teacher"))
         access = self.student_board_access(
             int(session_id), int(student_id or 0)
         )
@@ -21348,7 +21376,7 @@ class SchoolDB(LovesDB):
             view = self.live_session_canvas_view(
                 int(session_id), student_id=student_id
             )
-            return {"ok": True, "canvas_sync": view, "canvas_view": view}
+            return self._with_run_key(int(session_id), {"ok": True, "canvas_sync": view, "canvas_view": view})
         reply: dict[str, Any] = {
             "ok": True,
             "ops_since": [],
@@ -21392,7 +21420,7 @@ class SchoolDB(LovesDB):
             reply["canvas_sync"] = view
             reply["ops_since"] = []
             reply["teacher_ops"] = []
-        return reply
+        return self._with_run_key(int(session_id), reply)
 
     @staticmethod
     def _delta_reply(delta: dict[str, Any], *, teacher_key: str) -> dict[str, Any]:
@@ -21448,7 +21476,10 @@ class SchoolDB(LovesDB):
         if session_row is None:
             raise KeyError(f"live session {session_id}")
         if str(session_row.get("status") or "") != "active":
-            return {"ok": True, "ended": True, "status": "ended"}
+            return self._with_run_key(
+                int(session_id),
+                {"ok": True, "ended": True, "status": "ended"},
+            )
         delta = self.board_delta(
             int(session_id),
             board_key,
@@ -21459,6 +21490,7 @@ class SchoolDB(LovesDB):
         reply: dict[str, Any] = {
             "ok": True,
             "ended": False,
+            "run_key": self._board_run_key(int(session_id)),
             "board_key": delta.get("board_key") or board_key,
             "board_seq": delta.get("board_seq") or 0,
             "since": delta.get("since") or 0,
@@ -21555,8 +21587,9 @@ class SchoolDB(LovesDB):
             The current run key to store the write under.
 
         Raises:
-            BoardSessionClosed: The session is missing, ended, or the
-                claim belongs to another run.
+            BoardSessionClosed: The session is missing or ended, or the
+                claimed run key is missing or belongs to another run
+                (``stale_run``).
         """
         from board_ops import BoardSessionClosed
 
@@ -21571,9 +21604,11 @@ class SchoolDB(LovesDB):
             ).fetchone()
         if row is None or str(row["status"] or "") != "active":
             raise BoardSessionClosed("session has ended")
-        claimed = str(claimed_run_key or "").strip()
-        if claimed and claimed != key:
-            raise BoardSessionClosed("session has ended")
+        if claimed_run_key is None:
+            return key
+        claimed = str(claimed_run_key).strip()
+        if not claimed or claimed != key:
+            raise BoardSessionClosed("board run is stale", stale_run=True)
         return key
 
     def append_live_board_ops(
@@ -23681,6 +23716,9 @@ class SchoolDB(LovesDB):
             session_id = int(cur.lastrowid)
         session_row = self.get_live_session(session_id)
         assert session_row is not None
+        boards = getattr(self, "boards", None)
+        if boards is not None:
+            boards.forget_closed_runs()
         self._mirror_presence_session(session_row)
         self._write_teacher_state(session_id, public_teacher_state(None))
         if live_module is not None or live_slot is not None:

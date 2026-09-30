@@ -85,6 +85,8 @@ CREATE INDEX IF NOT EXISTS live_presence_attendees_session
 
 
 PRESENCE_DDL_LOCK = 87421300
+# Distinct from presence DDL and from the board-ops DDL lock (87421301).
+PRESENCE_BACKFILL_LOCK = 87421302
 
 
 def ddl_race(exc: BaseException) -> bool:
@@ -409,53 +411,118 @@ class LivePresenceStore:
     def upsert_attendee(self, row: dict[str, Any]) -> dict[str, Any]:
         """Insert or replace one attendee presence row.
 
+        A conflict on ``id`` updates that row. A conflict on the unique
+        ``visit_token`` index updates the row that already holds the token
+        instead of raising, so a duplicate boot copy cannot kill a worker.
+
         Args:
             row: Attendee mapping (sqlite or presence shaped).
 
         Returns:
             The stored attendee row.
         """
+        with self._conn() as conn:
+            stored = self._write_attendee(conn.execute, row, savepoint=False)
+        if stored is None:
+            raise LivePresenceUnavailable("presence upsert returned no row")
+        return _attendee_payload(stored)
+
+    def _write_attendee(
+        self,
+        execute: Any,
+        row: dict[str, Any],
+        *,
+        savepoint: bool,
+    ) -> dict[str, Any] | None:
+        """Insert one attendee, updating on an id or visit-token conflict.
+
+        Inside an open transaction a unique violation aborts the statement
+        until a savepoint rolls it back. Autocommit callers skip that.
+
+        Args:
+            execute: ``execute(sql, params)`` returning a cursor.
+            row: Attendee mapping.
+            savepoint: True when ``execute`` is already inside a transaction.
+
+        Returns:
+            The stored row, or ``None`` when no row came back.
+
+        Raises:
+            LivePresenceUnavailable: The attendee has no visit token.
+        """
         token = str(row.get("visit_token") or "").strip()
         if not token:
             raise LivePresenceUnavailable("attendee is missing a visit token")
         sid = row.get("student_id")
         student_id = int(sid) if sid not in (None, "") else None
-        with self._conn() as conn:
-            stored = conn.execute(
-                """
-                INSERT INTO live_presence_attendees (
-                    id, live_session_id, student_id, participant_uuid,
-                    visit_token, codename, unmatched, joined_at, left_at,
-                    last_heartbeat_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (id) DO UPDATE SET
-                    live_session_id = EXCLUDED.live_session_id,
-                    student_id = EXCLUDED.student_id,
-                    participant_uuid = EXCLUDED.participant_uuid,
-                    visit_token = EXCLUDED.visit_token,
-                    codename = EXCLUDED.codename,
-                    unmatched = EXCLUDED.unmatched,
-                    joined_at = EXCLUDED.joined_at,
-                    left_at = EXCLUDED.left_at,
-                    last_heartbeat_at = EXCLUDED.last_heartbeat_at
-                RETURNING *
-                """,
-                (
-                    int(row["id"]),
-                    int(row["live_session_id"]),
-                    student_id,
-                    str(row.get("participant_uuid") or ""),
-                    token,
-                    str(row.get("codename") or ""),
-                    1 if int(row.get("unmatched") or 0) else 0,
-                    str(row.get("joined_at") or ""),
-                    row.get("left_at"),
-                    row.get("last_heartbeat_at"),
-                ),
-            ).fetchone()
-        if stored is None:
-            raise LivePresenceUnavailable("presence upsert returned no row")
-        return _attendee_payload(stored)
+        params = (
+            int(row["id"]),
+            int(row["live_session_id"]),
+            student_id,
+            str(row.get("participant_uuid") or ""),
+            token,
+            str(row.get("codename") or ""),
+            1 if int(row.get("unmatched") or 0) else 0,
+            str(row.get("joined_at") or ""),
+            row.get("left_at"),
+            row.get("last_heartbeat_at"),
+        )
+        insert = """
+            INSERT INTO live_presence_attendees (
+                id, live_session_id, student_id, participant_uuid,
+                visit_token, codename, unmatched, joined_at, left_at,
+                last_heartbeat_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                live_session_id = EXCLUDED.live_session_id,
+                student_id = EXCLUDED.student_id,
+                participant_uuid = EXCLUDED.participant_uuid,
+                visit_token = EXCLUDED.visit_token,
+                codename = EXCLUDED.codename,
+                unmatched = EXCLUDED.unmatched,
+                joined_at = EXCLUDED.joined_at,
+                left_at = EXCLUDED.left_at,
+                last_heartbeat_at = EXCLUDED.last_heartbeat_at
+            RETURNING *
+        """
+        update_token = """
+            UPDATE live_presence_attendees SET
+                live_session_id = %s,
+                student_id = %s,
+                participant_uuid = %s,
+                codename = %s,
+                unmatched = %s,
+                joined_at = %s,
+                left_at = %s,
+                last_heartbeat_at = %s
+            WHERE visit_token = %s
+            RETURNING *
+        """
+        token_params = (
+            int(row["live_session_id"]),
+            student_id,
+            str(row.get("participant_uuid") or ""),
+            str(row.get("codename") or ""),
+            1 if int(row.get("unmatched") or 0) else 0,
+            str(row.get("joined_at") or ""),
+            row.get("left_at"),
+            row.get("last_heartbeat_at"),
+            token,
+        )
+        if savepoint:
+            execute("SAVEPOINT attendee_upsert")
+        try:
+            stored = execute(insert, params).fetchone()
+        except Exception as exc:
+            if savepoint:
+                execute("ROLLBACK TO SAVEPOINT attendee_upsert")
+            if not _is_unique_violation(exc):
+                raise
+            stored = execute(update_token, token_params).fetchone()
+        else:
+            if savepoint:
+                execute("RELEASE SAVEPOINT attendee_upsert")
+        return dict(stored) if stored is not None else None
 
     def get_by_token(self, token: str) -> dict[str, Any] | None:
         """Return one attendee plus ``session_status``, or ``None``.
@@ -672,8 +739,12 @@ class LivePresenceStore:
     def backfill_active(self, sqlite_conn: Any) -> tuple[int, int]:
         """Copy active sqlite sessions and their attendees into Postgres.
 
-        Used once at process start so a class already on the volume is
-        present after the cutover. Heartbeats after this do not write sqlite.
+        Every worker runs this at boot. The copy takes
+        ``pg_advisory_xact_lock`` so only one worker writes at a time, and
+        each attendee insert treats a duplicate ``visit_token`` as an
+        update. A second boot changes nothing and does not raise.
+        This is the only boot-time data copy into live Postgres. Schema
+        setup uses its own advisory lock and does not insert attendees.
 
         Args:
             sqlite_conn: Open school sqlite connection.
@@ -681,36 +752,74 @@ class LivePresenceStore:
         Returns:
             ``(sessions, attendees)`` copied.
         """
-        sessions = sqlite_conn.execute(
-            """
-            SELECT id, class_id, status, started_at, ended_at
-            FROM live_class_sessions
-            WHERE status = 'active'
-            """
-        ).fetchall()
-        session_n = 0
-        attendee_n = 0
-        for session in sessions:
-            item = dict(session)
-            self.upsert_session(item)
-            session_n += 1
-            people = sqlite_conn.execute(
+        sessions = [
+            dict(row)
+            for row in sqlite_conn.execute(
                 """
-                SELECT * FROM live_session_attendees
-                WHERE live_session_id = ?
-                """,
-                (int(item["id"]),),
+                SELECT id, class_id, status, started_at, ended_at
+                FROM live_class_sessions
+                WHERE status = 'active'
+                """
             ).fetchall()
-            for person in people:
-                self.upsert_attendee(dict(person))
-                attendee_n += 1
-        if session_n or attendee_n:
-            logger.info(
-                "live presence backfill sessions=%s attendees=%s",
-                session_n,
-                attendee_n,
+        ]
+        people: list[dict[str, Any]] = []
+        for item in sessions:
+            people.extend(
+                dict(row)
+                for row in sqlite_conn.execute(
+                    """
+                    SELECT * FROM live_session_attendees
+                    WHERE live_session_id = ?
+                    """,
+                    (int(item["id"]),),
+                ).fetchall()
             )
-        return session_n, attendee_n
+        if not sessions and not people:
+            return 0, 0
+        with self._conn() as conn:
+            raw = conn.connection
+            with raw.transaction():
+                raw.execute(
+                    "SELECT pg_advisory_xact_lock(%s)",
+                    (PRESENCE_BACKFILL_LOCK,),
+                )
+                for item in sessions:
+                    self._upsert_session_on(raw.execute, item)
+                for person in people:
+                    self._write_attendee(raw.execute, person, savepoint=True)
+        logger.info(
+            "live presence backfill sessions=%s attendees=%s",
+            len(sessions),
+            len(people),
+        )
+        return len(sessions), len(people)
+
+    def _upsert_session_on(self, execute: Any, session_row: dict[str, Any]) -> None:
+        """Insert or update one session on a connection that may be in a transaction.
+
+        Args:
+            execute: ``execute(sql, params)`` for the locked connection.
+            session_row: ``live_class_sessions`` mapping.
+        """
+        execute(
+            """
+            INSERT INTO live_presence_sessions (
+                id, class_id, status, started_at, ended_at
+            ) VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                class_id = EXCLUDED.class_id,
+                status = EXCLUDED.status,
+                started_at = EXCLUDED.started_at,
+                ended_at = EXCLUDED.ended_at
+            """,
+            (
+                int(session_row["id"]),
+                int(session_row["class_id"]),
+                str(session_row.get("status") or "active"),
+                session_row.get("started_at"),
+                session_row.get("ended_at"),
+            ),
+        )
 
     @contextmanager
     def _conn(self) -> Iterator[_PresenceConnection]:
@@ -835,6 +944,19 @@ class LivePresenceStore:
             conn.close()
         except Exception:
             return
+
+
+
+def _is_unique_violation(exc: BaseException) -> bool:
+    """True when Postgres rejected a duplicate key.
+
+    Args:
+        exc: Driver exception from an insert.
+    """
+    if type(exc).__name__ == "UniqueViolation":
+        return True
+    code = getattr(exc, "sqlstate", None) or getattr(exc, "pgcode", None)
+    return str(code or "") == "23505"
 
 
 def _is_db_error(exc: BaseException) -> bool:

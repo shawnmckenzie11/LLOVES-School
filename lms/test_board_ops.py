@@ -30,6 +30,27 @@ from board_ops import (  # noqa: E402
 )
 from live_presence import apply_locked_ddl  # noqa: E402
 
+def node_harness_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """Environment for whiteboard node harnesses.
+
+    Static paths are resolved from this file so the harness does not
+    depend on the process working directory or a fixed checkout path.
+
+    Args:
+        extra: Variables merged in after the repo paths.
+
+    Returns:
+        A copy of the process environment plus those paths.
+    """
+    env = os.environ.copy()
+    env["LLOVES_LMS_STATIC"] = str(LMS_DIR / "static")
+    env["LLOVES_COMMON_JS"] = str(
+        REPO_ROOT / "tools" / "math-game-show" / "static" / "common.js"
+    )
+    if extra:
+        env.update(extra)
+    return env
+
 
 class SqliteBoardOpsTests(unittest.TestCase):
     """Sequence allocation and since-seq reads on a private sqlite file."""
@@ -513,6 +534,7 @@ class BoardRouteTests(unittest.TestCase):
         drawn = aspen.post(
             "/api/student/canvas-presence",
             json={
+                "run_key": self.school.live_board_run_key(self.session_id),
                 "x": 0.2,
                 "y": 0.3,
                 "points": [[0.2, 0.3]],
@@ -533,6 +555,7 @@ class BoardRouteTests(unittest.TestCase):
         foreign_write = aspen.post(
             f"/api/student/board/team:{int(cedar_team)}/ops",
             json={
+                "run_key": self.school.live_board_run_key(self.session_id),
                 "ops": [
                     {
                         "type": "stroke_add",
@@ -569,6 +592,7 @@ class BoardRouteTests(unittest.TestCase):
         drawn = aspen.post(
             "/api/student/canvas-presence",
             json={
+                "run_key": self.school.live_board_run_key(self.session_id),
                 "x": 0.4,
                 "y": 0.4,
                 "points": [[0.4, 0.4], [0.45, 0.5]],
@@ -579,14 +603,14 @@ class BoardRouteTests(unittest.TestCase):
         self.assertEqual(drawn.status_code, 200, drawn.get_json())
         stolen = birch.post(
             "/api/student/canvas-presence",
-            json={"op": "stroke_remove", "stroke_id": "aspen-undo"},
+            json={"run_key": self.school.live_board_run_key(self.session_id),"op": "stroke_remove", "stroke_id": "aspen-undo"},
         )
         self.assertEqual(stolen.status_code, 403, stolen.get_json())
         before = birch.get("/api/student/board/mine?since=0").get_json()
         seen = int(before["board_seq"])
         removed = aspen.post(
             "/api/student/canvas-presence",
-            json={"op": "stroke_remove", "stroke_id": "aspen-undo"},
+            json={"run_key": self.school.live_board_run_key(self.session_id),"op": "stroke_remove", "stroke_id": "aspen-undo"},
         )
         self.assertEqual(removed.status_code, 200, removed.get_json())
         delta = birch.get(f"/api/student/board/mine?since={seen}").get_json()
@@ -609,6 +633,7 @@ class BoardRouteTests(unittest.TestCase):
         drawn = aspen.post(
             "/api/student/canvas-presence",
             json={
+                "run_key": self.school.live_board_run_key(self.session_id),
                 "x": 0.15,
                 "y": 0.25,
                 "points": [[0.15, 0.25]],
@@ -643,6 +668,7 @@ class BoardRouteTests(unittest.TestCase):
         drawn = aspen.post(
             "/api/student/canvas-presence",
             json={
+                "run_key": self.school.live_board_run_key(self.session_id),
                 "x": 0.5,
                 "y": 0.5,
                 "point": [0.5, 0.5],
@@ -674,6 +700,7 @@ class BoardRouteTests(unittest.TestCase):
         first = aspen.post(
             "/api/student/canvas-presence",
             json={
+                "run_key": self.school.live_board_run_key(self.session_id),
                 "x": 0.2,
                 "y": 0.2,
                 "point": [0.2, 0.2],
@@ -685,6 +712,7 @@ class BoardRouteTests(unittest.TestCase):
         drawn = aspen.post(
             "/api/student/canvas-presence",
             json={
+                "run_key": self.school.live_board_run_key(self.session_id),
                 "x": 0.4,
                 "y": 0.4,
                 "point": [0.4, 0.4],
@@ -755,13 +783,21 @@ class BoardRouteTests(unittest.TestCase):
         self.assertEqual(published.status_code, 200, published.get_json())
         return tokens
 
-    def _draw(self, client, stroke_id: str, *, run_key: str | None = None):
+    def _draw(
+        self,
+        client,
+        stroke_id: str,
+        *,
+        run_key: str | None = None,
+        omit_run_key: bool = False,
+    ):
         """Post one finished stroke and return the response.
 
         Args:
             client: Student test client.
             stroke_id: Stroke id to store.
-            run_key: Optional run claim. A stale claim must be rejected.
+            run_key: Run claim. Defaults to the current live run.
+            omit_run_key: Send no run key, which the server must reject.
         """
         body = {
             "x": 0.2,
@@ -770,8 +806,10 @@ class BoardRouteTests(unittest.TestCase):
             "stroke_id": stroke_id,
             "ended": True,
         }
-        if run_key:
+        if run_key is not None:
             body["run_key"] = run_key
+        elif not omit_run_key:
+            body["run_key"] = self.school.live_board_run_key(self.session_id)
         return client.post("/api/student/canvas-presence", json=body)
 
     def _op_count(self, run_key: str) -> int:
@@ -807,6 +845,10 @@ class BoardRouteTests(unittest.TestCase):
         new_key = self.school.live_board_run_key(self.session_id)
         self.assertEqual(self.session_id, old_id)
         self.assertNotEqual(new_key, old_key)
+        closed = self.school.boards.conn.execute(
+            "SELECT COUNT(*) FROM board_sessions WHERE closed = 1"
+        ).fetchone()
+        self.assertEqual(int(closed[0]), 0)
         tokens = self._rejoin_published_groups()
         aspen = self._student(tokens["Aspen"])
         empty = aspen.get("/api/student/board/mine?since=0")
@@ -885,13 +927,107 @@ class BoardRouteTests(unittest.TestCase):
         aspen = self._student(tokens["Aspen"])
         stale = self._draw(aspen, "stale-ink", run_key=old_key)
         self.assertEqual(stale.status_code, 409, stale.get_json())
-        self.assertTrue(stale.get_json().get("ended"))
+        stale_body = stale.get_json()
+        self.assertTrue(stale_body.get("stale_run"))
+        self.assertFalse(stale_body.get("ended"))
+        closed = self.school.boards.conn.execute(
+            "SELECT COUNT(*) FROM board_sessions WHERE closed = 1"
+        ).fetchone()
+        self.assertEqual(int(closed[0]), 0)
         self.assertEqual(self._op_count(old_key), 0)
         self.assertEqual(self._op_count(new_key), 0)
         mine = aspen.get("/api/student/board/mine?since=0").get_json()
         self.assertFalse(mine.get("ended"))
         self.assertNotIn("stale-ink", str(mine))
         self.assertNotIn("before-restart", str(mine))
+
+
+    def test_every_board_write_route_requires_the_current_run(self) -> None:
+        """Missing or foreign run keys are 409 and do not store the stroke."""
+        tokens = self._publish_two_groups()
+        aspen = self._student(tokens["Aspen"])
+        run = self.school.live_board_run_key(self.session_id)
+        before = self._op_count(run)
+
+        def post(client, path: str, body: dict):
+            """POST one board write and return the response."""
+            return client.post(path, json=body)
+
+        def rejected(response, stroke_id: str) -> None:
+            """A refused write is stale_run and leaves the board unchanged."""
+            self.assertEqual(response.status_code, 409, response.get_json())
+            body = response.get_json()
+            self.assertTrue(body.get("stale_run"), body)
+            self.assertNotIn("ended", body)
+            self.assertNotIn(stroke_id, str(self.school.live_session_canvas_sync(self.session_id)))
+            self.assertEqual(self._op_count(run), before)
+
+        ink = {
+            "x": 0.2,
+            "y": 0.2,
+            "points": [[0.2, 0.2]],
+            "ended": True,
+        }
+        ops = {
+            "ops": [
+                {"type": "stroke_add", "id": "route-op", "points": [[0.4, 0.4]]}
+            ]
+        }
+        routes = [
+            (aspen, "/api/student/canvas-presence", {**ink, "stroke_id": "miss-student"}),
+            (aspen, "/api/student/board/mine/ops", {**ops, "ops": [{"type": "stroke_add", "id": "miss-mine", "points": [[0.4, 0.4]]}]}),
+            (
+                aspen,
+                f"/api/live-sessions/{self.session_id}/canvas-presence",
+                {**ink, "stroke_id": "miss-session"},
+            ),
+            (
+                aspen,
+                f"/api/live-sessions/{self.session_id}/board/mine/ops",
+                {"ops": [{"type": "stroke_add", "id": "miss-session-ops", "points": [[0.5, 0.5]]}]},
+            ),
+            (
+                self.client,
+                f"/api/live-sessions/{self.session_id}/canvas-presence",
+                {**ink, "stroke_id": "miss-staff"},
+            ),
+            (
+                self.client,
+                f"/api/live-sessions/{self.session_id}/board/teacher/ops",
+                {"ops": [{"type": "stroke_add", "id": "miss-teacher", "points": [[0.6, 0.6]]}]},
+            ),
+        ]
+        for client, path, body in routes:
+            rejected(post(client, path, body), "miss")
+        for client, path, body in routes:
+            foreign = dict(body)
+            foreign["run_key"] = "not-this-run"
+            rejected(post(client, path, foreign), "miss")
+        ok = post(
+            aspen,
+            "/api/student/canvas-presence",
+            {**ink, "stroke_id": "kept-student", "run_key": run},
+        )
+        self.assertEqual(ok.status_code, 200, ok.get_json())
+        self.assertEqual(ok.get_json().get("run_key"), run)
+        mine = aspen.get("/api/student/board/mine?since=0")
+        self.assertEqual(mine.status_code, 200, mine.get_json())
+        self.assertEqual(mine.get_json().get("run_key"), run)
+        self.assertIn("kept-student", str(mine.get_json()))
+        staff = post(
+            self.client,
+            f"/api/live-sessions/{self.session_id}/board/teacher/ops",
+            {
+                "run_key": run,
+                "ops": [{"type": "stroke_add", "id": "kept-teacher", "points": [[0.1, 0.1]]}],
+            },
+        )
+        self.assertEqual(staff.status_code, 200, staff.get_json())
+        teacher = self.client.get(
+            f"/api/live-sessions/{self.session_id}/board/teacher?since=0"
+        )
+        self.assertEqual(teacher.get_json().get("run_key"), run)
+        self.assertIn("kept-teacher", str(teacher.get_json()))
 
     def test_shared_board_poll_runs_with_or_without_a_stream(self) -> None:
         """Every shown shared-board tab polls, one request in flight."""
@@ -909,7 +1045,15 @@ class BoardRouteTests(unittest.TestCase):
         self.assertIn("stroke_add does not append points onto an existing stroke", wb)
         self.assertIn("/api/student/board/mine?", student)
         self.assertNotIn("hasStream()", student)
-        self.assertNotIn("createBoardDeltaPoll", staff)
+        self.assertNotIn("/api/student/board/mine", staff)
+        self.assertIn("/board/teacher?since=", staff)
+        self.assertIn("run_key:", student)
+        self.assertIn("run_key:", staff)
+        self.assertIn("Board refreshed for the new class.", wb)
+        self.assertNotIn("alert(", student)
+        self.assertNotIn("alert(", staff)
+        self.assertIn("drop()", student)
+        self.assertIn("drop()", staff)
         self.assertIn("hasStream()", wire)
         self.assertIn("pg_advisory_xact_lock", presence)
         self.assertIn("pg_advisory_xact_lock", boards)
@@ -955,6 +1099,879 @@ if (later === key || seen.has(later)) process.exit(7);
             check=False,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
+
+
+
+    def test_client_drops_a_stale_run_without_retrying_it(self) -> None:
+        """A changed run key is remembered, and a queued op is not sent."""
+        script = """
+import { createPresenceQueue, noteBoardRun, boardWriteRejected } from './lms/static/live_whiteboard.js';
+const state = { key: '' };
+if (noteBoardRun(state, 'abc') !== 'first') process.exit(1);
+if (noteBoardRun(state, 'abc') !== 'same') process.exit(2);
+if (noteBoardRun(state, 'def') !== 'changed' || state.key !== 'def') process.exit(3);
+if (boardWriteRejected(409, { stale_run: true }) !== 'stale') process.exit(4);
+if (boardWriteRejected(409, { ended: true }) !== 'ended') process.exit(5);
+if (boardWriteRejected(409, { stale_run: true, ended: true }) !== 'stale') process.exit(6);
+if (boardWriteRejected(200, { ok: true }) !== '') process.exit(7);
+const sent = [];
+const queue = createPresenceQueue({
+  send(body) {
+    sent.push(body.stroke_id || body.op);
+    return Promise.resolve({ ok: true, run_key: 'def' });
+  },
+});
+queue.push({ stroke_id: 'a', points: [[0, 0]] });
+queue.push({ op: 'stroke_remove', stroke_id: 'b' });
+queue.drop();
+await new Promise((resolve) => setTimeout(resolve, 20));
+queue.push({ stroke_id: 'c', points: [[1, 1]], ended: true });
+await new Promise((resolve) => setTimeout(resolve, 20));
+if (sent.join(',') !== 'a,c') {
+  console.error(JSON.stringify(sent));
+  process.exit(8);
+}
+"""
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=node_harness_env(),
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+
+
+    def test_student_stale_refresh_discards_the_open_stroke(self) -> None:
+        """A student stale_run refresh clears the board and does not re-post.
+
+        The open stroke ends, the op cache is reset, and pointer samples
+        after the 409 are not sent under the new run key. An ended refetch
+        resets as well.
+        """
+        script = r"""
+import { readFileSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+
+class HTMLElement {}
+class HTMLCanvasElement extends HTMLElement {}
+class HTMLButtonElement extends HTMLElement {}
+class HTMLInputElement extends HTMLElement {}
+class Element {}
+globalThis.HTMLElement = HTMLElement;
+globalThis.HTMLButtonElement = HTMLButtonElement;
+globalThis.HTMLInputElement = HTMLInputElement;
+globalThis.HTMLCanvasElement = HTMLCanvasElement;
+globalThis.Element = Element;
+
+function makeEl(tag) {
+  const listeners = {};
+  const node = {
+    tagName: String(tag || 'div').toUpperCase(),
+    hidden: false,
+    style: { cursor: '', removeProperty() {} },
+    dataset: {},
+    className: '',
+    classList: { add() {}, remove() {}, toggle() {} },
+    children: [],
+    parentElement: null,
+    width: 720,
+    height: 360,
+    appendChild(child) {
+      node.children.push(child);
+      child.parentElement = node;
+      return child;
+    },
+    insertAdjacentElement(_where, child) {
+      return node.appendChild(child);
+    },
+    addEventListener(type, fn) {
+      (listeners[type] ||= []).push(fn);
+    },
+    removeEventListener() {},
+    setAttribute() {},
+    getAttribute() { return null; },
+    removeAttribute() {},
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    getBoundingClientRect() {
+      return { width: 720, height: 360, left: 0, top: 0, right: 720, bottom: 360 };
+    },
+    setPointerCapture() {},
+    releasePointerCapture() {},
+    getContext() {
+      return {
+        setTransform() {}, clearRect() {}, beginPath() {}, moveTo() {},
+        lineTo() {}, stroke() {}, fill() {}, arc() {}, save() {}, restore() {},
+      };
+    },
+    dispatch(type, props) {
+      const event = {
+        type,
+        clientX: 0,
+        clientY: 0,
+        pointerId: 1,
+        preventDefault() {},
+        stopPropagation() {},
+        target: node,
+        ...props,
+      };
+      for (const fn of listeners[type] || []) fn(event);
+    },
+  };
+  return node;
+}
+
+const canvas = makeEl('canvas');
+Object.setPrototypeOf(canvas, HTMLCanvasElement.prototype);
+const body = makeEl('body');
+body.dataset = { codename: '' };
+const byId = { 'student-canvas': canvas, body };
+globalThis.document = {
+  body,
+  title: '',
+  getElementById(id) { return byId[id] || null; },
+  createElement(tag) { return makeEl(tag); },
+  addEventListener() {},
+};
+globalThis.window = globalThis;
+window.addEventListener = () => {};
+window.setTimeout = setTimeout;
+window.clearTimeout = clearTimeout;
+window.setInterval = setInterval;
+window.clearInterval = clearInterval;
+window.devicePixelRatio = 1;
+window.requestAnimationFrame = (fn) => { fn(); return 1; };
+window.location = { origin: 'http://localhost', pathname: '/student' };
+window.innerWidth = 1280;
+
+const staticDir = process.env.LLOVES_LMS_STATIC.replace(/\/$/, '');
+const staticHref = pathToFileURL(staticDir + '/').href;
+let src = readFileSync(staticDir + '/student-portal.js', 'utf8');
+src = src.replaceAll('"/static/common.js"', JSON.stringify(pathToFileURL(process.env.LLOVES_COMMON_JS).href));
+src = src.replaceAll('"/static/', '"' + staticHref);
+src = src.replace('void tick();', '');
+src = src.replace('setInterval(tickDisplayTime, 250);', '');
+src += '\nexport { bindStudentCanvas, refreshStudentBoard, studentBoardRun, studentPresenceQueue };\n';
+const out = '/tmp/student-board-refresh-harness.mjs';
+writeFileSync(out, src);
+
+const posts = [];
+let mode = 'stale';
+let refreshSeen = false;
+globalThis.fetch = async (url, init) => {
+  const target = String(url);
+  const json = (status, data) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    async json() { return data; },
+  });
+  if (target.includes('/api/student/canvas-presence')) {
+    posts.push(JSON.parse(init.body));
+    if (mode === 'ended') {
+      return json(409, { ok: false, error: 'Session has ended.', ended: true });
+    }
+    if (posts.length === 1) {
+      return json(409, { ok: false, error: 'This board is from an earlier class.', stale_run: true });
+    }
+    return json(200, { ok: true, run_key: 'new-run' });
+  }
+  if (target.includes('/api/student/board/mine')) {
+    refreshSeen = true;
+    if (mode === 'ended') return json(200, { ok: false, ended: true });
+    return json(200, {
+      ok: true,
+      run_key: 'new-run',
+      snapshot: true,
+      canvas_view: { strokes: [], texts: [], cursors: [] },
+      board_seq: 0,
+      teacher_board_seq: 0,
+    });
+  }
+  return json(200, { ok: true });
+};
+
+const mod = await import(pathToFileURL(out).href);
+if (typeof mod.bindStudentCanvas.resetRun !== 'function') {
+  console.error('resetRun was not wired');
+  process.exit(2);
+}
+let resets = 0;
+const origReset = mod.bindStudentCanvas.resetRun;
+mod.bindStudentCanvas.resetRun = (view) => {
+  resets += 1;
+  return origReset(view);
+};
+mod.bindStudentCanvas.setAlign('team');
+mod.studentBoardRun.key = 'old-run';
+
+function waitFor(pred) {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const tick = () => {
+      if (pred()) return resolve();
+      if (Date.now() - start > 2000) return reject(new Error('timeout ' + posts.length + ' refresh=' + refreshSeen));
+      setTimeout(tick, 15);
+    };
+    tick();
+  });
+}
+
+canvas.dispatch('pointerdown', { clientX: 30, clientY: 40 });
+canvas.dispatch('pointermove', { clientX: 120, clientY: 80 });
+await waitFor(() => posts.length >= 1 && refreshSeen);
+const strokeId = posts[0].stroke_id;
+if (posts[0].run_key !== 'old-run') {
+  console.error('first post key ' + posts[0].run_key);
+  process.exit(3);
+}
+if (mod.studentBoardRun.key !== 'new-run') {
+  console.error('run key after refresh ' + mod.studentBoardRun.key);
+  process.exit(4);
+}
+if (resets < 1) {
+  console.error('reset not called');
+  process.exit(5);
+}
+const afterRefresh = posts.length;
+canvas.dispatch('pointermove', { clientX: 200, clientY: 90 });
+canvas.dispatch('pointermove', { clientX: 260, clientY: 140 });
+canvas.dispatch('pointerup', { clientX: 280, clientY: 160 });
+await new Promise((resolve) => setTimeout(resolve, 250));
+const replayed = posts.slice(afterRefresh).filter((body) => body.stroke_id === strokeId);
+if (replayed.length || posts.length !== afterRefresh) {
+  console.error(JSON.stringify(posts.map((body) => ({
+    id: body.stroke_id, key: body.run_key, ended: body.ended, n: (body.points || []).length,
+  }))));
+  process.exit(6);
+}
+
+mode = 'ended';
+refreshSeen = false;
+const resetsBeforeEnd = resets;
+const postsBeforeEnd = posts.length;
+mod.studentBoardRun.key = 'old-run';
+canvas.dispatch('pointerdown', { clientX: 40, clientY: 50 });
+canvas.dispatch('pointermove', { clientX: 140, clientY: 70 });
+await waitFor(() => posts.length > postsBeforeEnd && refreshSeen);
+canvas.dispatch('pointermove', { clientX: 220, clientY: 100 });
+canvas.dispatch('pointerup', { clientX: 250, clientY: 120 });
+await new Promise((resolve) => setTimeout(resolve, 250));
+if (posts.length !== postsBeforeEnd + 1) {
+  console.error('ended re-posted ' + JSON.stringify(posts.slice(postsBeforeEnd)));
+  process.exit(7);
+}
+if (resets <= resetsBeforeEnd) {
+  console.error('ended refetch did not reset');
+  process.exit(8);
+}
+if (!posts[postsBeforeEnd].run_key) {
+  console.error('ended post missing key');
+  process.exit(9);
+}
+process.exit(0);
+"""
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=node_harness_env(),
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+
+    def test_canvas_presence_in_the_start_after_end_gap_is_409(self) -> None:
+        """A stroke after End deletes the row is 409 ended, not a 500.
+
+        Start removes the session a few milliseconds after End. The
+        attendee gate can already have passed. ``KeyError: live session N``
+        from that gap is a closed class.
+        """
+        tokens = self._publish_two_groups()
+        aspen = self._student(tokens["Aspen"])
+        sid = self.session_id
+        run_key = self.school.live_board_run_key(sid)
+        original = self.school.apply_live_canvas_presence
+
+        def vanish_then_apply(*args, **kwargs):
+            """Delete the live row, then run the real presence write."""
+            with self.school._lock:
+                self.school.conn.execute(
+                    "DELETE FROM live_class_sessions WHERE id = ?",
+                    (sid,),
+                )
+                self.school.conn.commit()
+            return original(*args, **kwargs)
+
+        self.school.apply_live_canvas_presence = vanish_then_apply
+        self.app.config["PROPAGATE_EXCEPTIONS"] = False
+        drawn = aspen.post(
+            "/api/student/canvas-presence",
+            json={
+                "run_key": run_key,
+                "x": 0.4,
+                "y": 0.4,
+                "points": [[0.4, 0.4]],
+                "stroke_id": "gap-stroke",
+                "client_batch_id": "gap-batch",
+            },
+        )
+        self.assertEqual(drawn.status_code, 409, drawn.get_data(as_text=True))
+        body = drawn.get_json()
+        self.assertTrue(body.get("ended"))
+        self.assertNotIn("stale_run", body)
+
+    def test_canvas_presence_reply_after_the_row_is_gone_is_409(self) -> None:
+        """A session removed after the write still returns 409 ended.
+
+        The presence reply reads the row again. Start can delete it in
+        the few milliseconds after the stroke has already been stored.
+        That KeyError is the closed response, not a 500.
+        """
+        tokens = self._publish_two_groups()
+        aspen = self._student(tokens["Aspen"])
+        sid = self.session_id
+        run_key = self.school.live_board_run_key(sid)
+        original = self.school.canvas_presence_reply
+
+        def drop_then_reply(*args, **kwargs):
+            """Delete the live row, then build the real reply."""
+            with self.school._lock:
+                self.school.conn.execute(
+                    "DELETE FROM live_class_sessions WHERE id = ?",
+                    (sid,),
+                )
+                self.school.conn.commit()
+            return original(*args, **kwargs)
+
+        self.school.canvas_presence_reply = drop_then_reply
+        self.app.config["PROPAGATE_EXCEPTIONS"] = False
+        drawn = aspen.post(
+            "/api/student/canvas-presence",
+            json={
+                "run_key": run_key,
+                "x": 0.4,
+                "y": 0.4,
+                "points": [[0.4, 0.4]],
+                "stroke_id": "reply-gap",
+                "client_batch_id": "reply-gap-batch",
+            },
+        )
+        self.assertNotEqual(drawn.status_code, 500, drawn.get_data(as_text=True))
+        self.assertEqual(drawn.status_code, 409, drawn.get_data(as_text=True))
+        body = drawn.get_json()
+        self.assertTrue(body.get("ended"))
+        self.assertNotIn("stale_run", body)
+        self.assertNotIn("Internal Server Error", drawn.get_data(as_text=True))
+
+
+
+
+    def test_pen_up_posts_stroke_end_when_the_point_repeats(self) -> None:
+        """A duplicate pen-up sample still posts the stroke_end batch.
+
+        ``pushPoint`` drops a point that matches the last sample, and
+        ``flushPending`` used to return when nothing new was queued. The
+        lift has to reach the server anyway. ``resetRun`` also clears
+        cursor chips.
+        """
+        script = r"""
+import { bindWhiteboard } from './lms/static/live_whiteboard.js';
+
+class HTMLElement {}
+class HTMLCanvasElement extends HTMLElement {}
+class HTMLButtonElement extends HTMLElement {}
+globalThis.HTMLElement = HTMLElement;
+globalThis.HTMLCanvasElement = HTMLCanvasElement;
+globalThis.HTMLButtonElement = HTMLButtonElement;
+globalThis.Element = class Element {};
+
+function makeEl() {
+  const listeners = {};
+  const node = {
+    hidden: false,
+    style: { cursor: '', removeProperty() {} },
+    dataset: {},
+    className: '',
+    classList: { add() {}, remove() {}, toggle() {} },
+    innerHTML: '',
+    width: 720,
+    height: 360,
+    parentElement: null,
+    appendChild(child) { child.parentElement = node; return child; },
+    insertAdjacentElement(_where, child) { return node.appendChild(child); },
+    addEventListener(type, fn) { (listeners[type] ||= []).push(fn); },
+    removeEventListener() {},
+    setAttribute() {},
+    getAttribute() { return null; },
+    querySelector() { return null; },
+    getBoundingClientRect() {
+      return { width: 720, height: 360, left: 0, top: 0, right: 720, bottom: 360 };
+    },
+    setPointerCapture() {},
+    getContext() {
+      return {
+        setTransform() {}, clearRect() {}, beginPath() {}, moveTo() {},
+        lineTo() {}, stroke() {}, fill() {}, arc() {}, save() {}, restore() {},
+      };
+    },
+    dispatch(type, props) {
+      const event = {
+        clientX: 0, clientY: 0, pointerId: 1, preventDefault() {},
+        stopPropagation() {}, target: node, ...props,
+      };
+      for (const fn of listeners[type] || []) fn(event);
+    },
+  };
+  return node;
+}
+
+const canvas = makeEl();
+Object.setPrototypeOf(canvas, HTMLCanvasElement.prototype);
+const cursors = makeEl();
+Object.setPrototypeOf(cursors, HTMLElement.prototype);
+globalThis.document = {
+  body: makeEl(),
+  createElement() { return makeEl(); },
+  getElementById() { return null; },
+  addEventListener() {},
+};
+globalThis.window = globalThis;
+window.addEventListener = () => {};
+window.setTimeout = setTimeout;
+window.clearTimeout = clearTimeout;
+window.devicePixelRatio = 1;
+window.requestAnimationFrame = (fn) => { fn(); return 1; };
+
+const batches = [];
+const board = bindWhiteboard(canvas, {
+  cursorLayer: cursors,
+  owner: () => 'teacher',
+  onPoints(points, ended, strokeId) {
+    batches.push({ ended: Boolean(ended), strokeId, n: points.length });
+  },
+});
+board.importRemote({
+  cursors: [{ name: 'Aspen', owner: '1', x: 0.2, y: 0.4, color: '#123456' }],
+}, { collab: false });
+if (!String(cursors.innerHTML).includes('Aspen')) {
+  console.error('cursor missing ' + cursors.innerHTML);
+  process.exit(1);
+}
+board.resetRun({ strokes: [], texts: [], cursors: [] });
+if (String(cursors.innerHTML).includes('Aspen') || String(cursors.innerHTML).includes('canvas-cursor-chip')) {
+  console.error('cursor stayed ' + cursors.innerHTML);
+  process.exit(2);
+}
+canvas.dispatch('pointerdown', { clientX: 30, clientY: 40 });
+canvas.dispatch('pointermove', { clientX: 140, clientY: 90 });
+await new Promise((resolve) => setTimeout(resolve, 120));
+const opened = batches.filter((row) => !row.ended);
+if (!opened.length) {
+  console.error('no open batch ' + JSON.stringify(batches));
+  process.exit(3);
+}
+const strokeId = opened[0].strokeId;
+canvas.dispatch('pointerup', { clientX: 140, clientY: 90 });
+await new Promise((resolve) => setTimeout(resolve, 40));
+const ended = batches.filter((row) => row.ended && row.strokeId === strokeId);
+if (!ended.length) {
+  console.error(JSON.stringify(batches));
+  process.exit(4);
+}
+process.exit(0);
+"""
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=node_harness_env(),
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+
+    def test_staff_ended_refresh_discards_the_open_stroke(self) -> None:
+        """End with no restart resets the teacher board and does not re-post.
+
+        The poll's ``ended`` payload and a 409 ``ended`` write both call
+        ``resetRun``. Pointer samples after that stay off the wire.
+        """
+        script = r"""
+import { readFileSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+
+class HTMLElement {}
+class HTMLCanvasElement extends HTMLElement {}
+class HTMLButtonElement extends HTMLElement {}
+class HTMLInputElement extends HTMLElement {}
+class HTMLFormElement extends HTMLElement {}
+class HTMLDialogElement extends HTMLElement {}
+class HTMLSelectElement extends HTMLElement {}
+class HTMLIFrameElement extends HTMLElement {}
+globalThis.HTMLElement = HTMLElement;
+globalThis.HTMLCanvasElement = HTMLCanvasElement;
+globalThis.HTMLButtonElement = HTMLButtonElement;
+globalThis.HTMLInputElement = HTMLInputElement;
+globalThis.HTMLFormElement = HTMLFormElement;
+globalThis.HTMLDialogElement = HTMLDialogElement;
+globalThis.HTMLSelectElement = HTMLSelectElement;
+globalThis.HTMLIFrameElement = HTMLIFrameElement;
+globalThis.Element = class Element {};
+
+function makeEl(tag) {
+  const listeners = {};
+  const node = {
+    tagName: String(tag || 'div').toUpperCase(),
+    hidden: false,
+    style: { cursor: '', removeProperty() {} },
+    dataset: {},
+    className: '',
+    classList: { add() {}, remove() {}, toggle() {} },
+    children: [],
+    parentElement: null,
+    width: 720,
+    height: 360,
+    innerHTML: '',
+    appendChild(child) { node.children.push(child); child.parentElement = node; return child; },
+    insertAdjacentElement(_where, child) { return node.appendChild(child); },
+    addEventListener(type, fn) { (listeners[type] ||= []).push(fn); },
+    removeEventListener() {},
+    setAttribute() {},
+    getAttribute() { return null; },
+    removeAttribute() {},
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    getBoundingClientRect() {
+      return { width: 720, height: 360, left: 0, top: 0, right: 720, bottom: 360 };
+    },
+    setPointerCapture() {},
+    getContext() {
+      return {
+        setTransform() {}, clearRect() {}, beginPath() {}, moveTo() {},
+        lineTo() {}, stroke() {}, fill() {}, arc() {}, save() {}, restore() {},
+      };
+    },
+    dispatch(type, props) {
+      const event = {
+        clientX: 0, clientY: 0, pointerId: 1, preventDefault() {},
+        stopPropagation() {}, target: node, ...props,
+      };
+      for (const fn of listeners[type] || []) fn(event);
+    },
+  };
+  return node;
+}
+
+const canvas = makeEl('canvas');
+Object.setPrototypeOf(canvas, HTMLCanvasElement.prototype);
+const root = makeEl('div');
+root.dataset = { classId: '1', liveSessionId: '9', apView: '' };
+const byId = { 'ap-root': root, 'live-canvas-stub': canvas };
+globalThis.document = {
+  body: makeEl('body'),
+  title: '',
+  getElementById(id) { return byId[id] || null; },
+  createElement(tag) { return makeEl(tag); },
+  addEventListener() {},
+  querySelector() { return null; },
+  querySelectorAll() { return []; },
+};
+globalThis.localStorage = { getItem() { return null; }, setItem() {}, removeItem() {} };
+globalThis.location = {
+  search: '', href: 'http://localhost/staff/class/1', origin: 'http://localhost',
+  pathname: '/staff/class/1',
+};
+globalThis.window = globalThis;
+window.addEventListener = () => {};
+window.setTimeout = setTimeout;
+window.clearTimeout = clearTimeout;
+window.setInterval = setInterval;
+window.clearInterval = clearInterval;
+window.devicePixelRatio = 1;
+window.requestAnimationFrame = (fn) => { fn(); return 1; };
+window.location = location;
+window.innerWidth = 1280;
+window.confirm = () => false;
+
+const staticDir = process.env.LLOVES_LMS_STATIC.replace(/\/$/, '');
+const staticHref = pathToFileURL(staticDir + '/').href;
+let src = readFileSync(staticDir + '/staff_ap.js', 'utf8');
+src = src.replaceAll('"/static/common.js"', JSON.stringify(pathToFileURL(process.env.LLOVES_COMMON_JS).href));
+src = src.replaceAll('"/static/', '"' + staticHref);
+src += '\nexport { bindEphemeralCanvas, refreshTeacherBoard, teacherBoard, teacherBoardRun, teacherState };\n';
+const out = '/tmp/staff-board-refresh-harness.mjs';
+writeFileSync(out, src);
+
+const posts = [];
+globalThis.fetch = async (url, init) => {
+  const target = String(url);
+  const json = (status, data) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    async json() { return data; },
+  });
+  if (target.includes('/canvas-presence') && init && init.method === 'POST') {
+    posts.push(JSON.parse(init.body));
+    return json(409, { ok: false, error: 'Session has ended.', ended: true });
+  }
+  if (target.includes('/board/teacher')) {
+    return json(200, { ok: true, ended: true, status: 'ended', run_key: 'run-old' });
+  }
+  return json(200, { ok: true });
+};
+
+const mod = await import(pathToFileURL(out).href);
+mod.bindEphemeralCanvas();
+if (!mod.teacherBoard || typeof mod.teacherBoard.resetRun !== 'function') {
+  console.error('teacher board was not bound');
+  process.exit(2);
+}
+let resets = 0;
+const origReset = mod.teacherBoard.resetRun;
+mod.teacherBoard.resetRun = (view) => {
+  resets += 1;
+  return origReset(view);
+};
+mod.teacherState.canvas_align = 'team';
+mod.teacherBoardRun.key = 'run-old';
+
+function waitFor(pred, label) {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const tick = () => {
+      if (pred()) return resolve();
+      if (Date.now() - start > 2000) return reject(new Error(label + ' resets=' + resets + ' posts=' + posts.length));
+      setTimeout(tick, 15);
+    };
+    tick();
+  });
+}
+
+await waitFor(() => resets >= 1, 'poll ended');
+canvas.dispatch('pointerdown', { clientX: 30, clientY: 40 });
+canvas.dispatch('pointermove', { clientX: 150, clientY: 80 });
+await waitFor(() => posts.length >= 1, 'first post');
+const strokeId = posts[0].stroke_id;
+if (!posts[0].run_key) {
+  console.error('missing run key');
+  process.exit(3);
+}
+const after = posts.length;
+const resetsAfterPost = resets;
+canvas.dispatch('pointermove', { clientX: 220, clientY: 110 });
+canvas.dispatch('pointerup', { clientX: 260, clientY: 140 });
+await new Promise((resolve) => setTimeout(resolve, 250));
+const replayed = posts.slice(after).filter((body) => body.stroke_id === strokeId);
+if (replayed.length || posts.length !== after) {
+  console.error(JSON.stringify(posts.map((body) => ({
+    id: body.stroke_id, ended: body.ended, n: (body.points || []).length,
+  }))));
+  process.exit(4);
+}
+if (resets < resetsAfterPost) {
+  console.error('ended write did not reset');
+  process.exit(5);
+}
+process.exit(0);
+"""
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=node_harness_env(),
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+
+
+
+
+    def _run_student_board_poll(self, mode: str) -> subprocess.CompletedProcess[str]:
+        """Boot the student board poll once and let it settle.
+
+        ``ended`` is an idle class-end payload. ``auth302`` and
+        ``authhtml`` are a logged-out board read.
+
+        Args:
+            mode: ``ended``, ``auth302``, or ``authhtml``.
+
+        Returns:
+            The node process result.
+        """
+        script = r"""
+import { readFileSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+
+const mode = process.env.STUDENT_POLL_CASE || 'ended';
+class HTMLElement {}
+class HTMLCanvasElement extends HTMLElement {}
+class HTMLButtonElement extends HTMLElement {}
+class HTMLInputElement extends HTMLElement {}
+globalThis.HTMLElement = HTMLElement;
+globalThis.HTMLCanvasElement = HTMLCanvasElement;
+globalThis.HTMLButtonElement = HTMLButtonElement;
+globalThis.HTMLInputElement = HTMLInputElement;
+globalThis.Element = class Element {};
+
+function makeEl() {
+  const node = {
+    hidden: false,
+    style: { cursor: '', removeProperty() {} },
+    dataset: {},
+    className: '',
+    classList: { add() {}, remove() {}, toggle() {} },
+    parentElement: null,
+    width: 720,
+    height: 360,
+    appendChild(child) { child.parentElement = node; return child; },
+    insertAdjacentElement(_where, child) { return node.appendChild(child); },
+    addEventListener() {},
+    removeEventListener() {},
+    setAttribute() {},
+    getAttribute() { return null; },
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    getBoundingClientRect() {
+      return { width: 720, height: 360, left: 0, top: 0, right: 720, bottom: 360 };
+    },
+    setPointerCapture() {},
+    getContext() {
+      return {
+        setTransform() {}, clearRect() {}, beginPath() {}, moveTo() {},
+        lineTo() {}, stroke() {}, fill() {}, arc() {}, save() {}, restore() {},
+      };
+    },
+  };
+  return node;
+}
+
+const canvas = makeEl();
+Object.setPrototypeOf(canvas, HTMLCanvasElement.prototype);
+const pane = makeEl();
+Object.setPrototypeOf(pane, HTMLElement.prototype);
+const body = makeEl();
+body.dataset = { codename: '' };
+const byId = { 'student-canvas': canvas, 'canvas-pane': pane, body };
+globalThis.document = {
+  body,
+  title: '',
+  getElementById(id) { return byId[id] || null; },
+  createElement() { return makeEl(); },
+  addEventListener() {},
+};
+globalThis.window = globalThis;
+window.addEventListener = () => {};
+window.setTimeout = setTimeout;
+window.clearTimeout = clearTimeout;
+window.setInterval = setInterval;
+window.clearInterval = clearInterval;
+window.devicePixelRatio = 1;
+window.requestAnimationFrame = (fn) => { fn(); return 1; };
+window.location = { origin: 'http://localhost', pathname: '/student' };
+
+let reads = 0;
+globalThis.fetch = async (url) => {
+  if (String(url || '').includes('/api/student/board/mine')) reads += 1;
+  if (mode === 'ended') {
+    return {
+      ok: true,
+      status: 200,
+      redirected: false,
+      type: 'basic',
+      headers: { get: () => 'application/json' },
+      async json() {
+        return { ok: true, ended: true, status: 'ended', run_key: 'run-1' };
+      },
+    };
+  }
+  if (mode === 'auth302') {
+    return {
+      ok: false,
+      status: 302,
+      redirected: false,
+      type: 'basic',
+      headers: { get: () => 'text/html' },
+      async json() { throw new Error('redirect'); },
+    };
+  }
+  return {
+    ok: true,
+    status: 200,
+    redirected: false,
+    type: 'basic',
+    headers: { get: () => 'text/html; charset=utf-8' },
+    async json() { throw new Error('login page'); },
+  };
+};
+
+const staticDir = process.env.LLOVES_LMS_STATIC.replace(/\/$/, '');
+const staticHref = pathToFileURL(staticDir + '/').href;
+let src = readFileSync(staticDir + '/student-portal.js', 'utf8');
+src = src.replaceAll('"/static/common.js"', JSON.stringify(pathToFileURL(process.env.LLOVES_COMMON_JS).href));
+src = src.replaceAll('"/static/', '"' + staticHref);
+src = src.replaceAll('void tick();', '');
+src = src.replace('setInterval(tickDisplayTime, 250);', '');
+src += '\nexport { bindStudentCanvas };\n';
+const out = '/tmp/student-poll-' + mode + '-harness.mjs';
+writeFileSync(out, src);
+const mod = await import(pathToFileURL(out).href);
+let resets = 0;
+const orig = mod.bindStudentCanvas.resetRun;
+mod.bindStudentCanvas.resetRun = (view) => {
+  resets += 1;
+  return orig(view);
+};
+mod.bindStudentCanvas.setAlign('team');
+await new Promise((resolve) => setTimeout(resolve, 2000));
+if (mode === 'ended') {
+  if (resets < 1) {
+    console.error('ended poll did not reset ' + resets);
+    process.exit(2);
+  }
+  if (reads !== 2) {
+    console.error('ended poll fetched ' + reads);
+    process.exit(3);
+  }
+} else if (reads !== 1 || resets !== 0) {
+  console.error(mode + ' reads=' + reads + ' resets=' + resets);
+  process.exit(4);
+}
+process.exit(0);
+"""
+        env = node_harness_env({"STUDENT_POLL_CASE": mode})
+        return subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+        )
+
+    def test_student_poll_ended_resets_an_idle_board(self) -> None:
+        """An idle student tab resets when the poll says the class ended.
+
+        The poll has already stopped, so the refresh does not schedule
+        another read.
+        """
+        completed = self._run_student_board_poll("ended")
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+
+    def test_student_poll_stops_on_a_logged_out_board_read(self) -> None:
+        """A 302 or a login HTML page stops the student board poll."""
+        for mode in ("auth302", "authhtml"):
+            completed = self._run_student_board_poll(mode)
+            self.assertEqual(
+                completed.returncode,
+                0,
+                f"{mode}: {completed.stderr or completed.stdout}",
+            )
+
+
 
 
 if __name__ == "__main__":
