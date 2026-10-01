@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import io
 import json
+import logging
 import sqlite3
 import threading
 import time
@@ -13,6 +15,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
+
+logger = logging.getLogger(__name__)
 
 from csv_import import parse_canvas_grades_csv
 from schedule import (
@@ -89,6 +93,14 @@ CREATE TABLE IF NOT EXISTS live_participation_credits (
     points_r2 REAL NOT NULL DEFAULT 0,
     points_r3 REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (run_key, student_id)
+);
+
+-- One End per live class run writes the column (MCK-72 follow-up). Two
+-- Ends racing in different workers both passed the "active" check; the
+-- INSERT OR IGNORE here lets only one of them persist.
+CREATE TABLE IF NOT EXISTS live_end_claims (
+    run_key TEXT PRIMARY KEY,
+    claimed_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS games (
@@ -3855,6 +3867,94 @@ class GameShowDB:
                     n = 0
             if n > 0:
                 credit_map[sid] = n
+        claim = str(run_key or "").strip() or None
+        if claim is not None and not self._claim_live_end(claim):
+            # Another End for this run already wrote (or is writing) the
+            # column. A second write would add a new class-day column.
+            return {
+                "ok": True,
+                "class_id": int(class_id),
+                "session_id": None,
+                "already_persisted": True,
+            }
+        try:
+            return self._persist_end_class_column_claimed(
+                int(class_id),
+                present_set,
+                credit_map,
+                include_attendance=include_attendance,
+                include_participation=include_participation,
+                run_key=run_key,
+            )
+        except BaseException:
+            if claim is not None:
+                self._release_live_end(claim)
+            raise
+
+    def _claim_live_end(self, run_key: str) -> bool:
+        """Take this run's one End write. ``False`` when already taken.
+
+        ``INSERT OR IGNORE`` on the primary key is atomic across workers.
+
+        Args:
+            run_key: ``live_class_sessions.run_key``.
+        """
+        with self._lock:
+            cur = self.conn.execute(
+                """
+                INSERT OR IGNORE INTO live_end_claims (run_key, claimed_at)
+                VALUES (?, ?)
+                """,
+                (run_key, datetime.now().isoformat(timespec="seconds")),
+            )
+        return int(cur.rowcount or 0) == 1
+
+    def _release_live_end(self, run_key: str) -> None:
+        """Drop a claim after a failed write so a retry can persist.
+
+        Args:
+            run_key: ``live_class_sessions.run_key``.
+        """
+        try:
+            with self._lock:
+                self.conn.execute(
+                    "DELETE FROM live_end_claims WHERE run_key = ?", (run_key,)
+                )
+        except sqlite3.Error:
+            logger.warning("live end claim release failed")
+
+    @contextlib.contextmanager
+    def _write_txn(self):
+        """``BEGIN IMMEDIATE`` … ``COMMIT`` on the autocommit connection.
+
+        Caller holds ``_lock``. The write lock is taken before the first
+        read, so another worker cannot read the same ledger row in between.
+        A nested call joins the open transaction.
+        """
+        if self.conn.in_transaction:
+            yield
+            return
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield
+        except BaseException:
+            if self.conn.in_transaction:
+                self.conn.execute("ROLLBACK")
+            raise
+        if self.conn.in_transaction:
+            self.conn.execute("COMMIT")
+
+    def _persist_end_class_column_claimed(
+        self,
+        class_id: int,
+        present_set: set[int],
+        credit_map: dict[int, int],
+        *,
+        include_attendance: bool,
+        include_participation: bool,
+        run_key: str | None,
+    ) -> dict[str, Any] | None:
+        """Body of ``persist_end_class_column`` once the End is claimed."""
         try:
             self._game_row(class_id)
         except KeyError:
@@ -3864,7 +3964,7 @@ class GameShowDB:
             ):
                 return None
             self.begin_game(class_id)
-        with self._lock:
+        with self._lock, self._write_txn():
             game = self._game_row(class_id)
             if include_attendance:
                 self._write_attendance_unlocked(game, present_set)
@@ -3887,6 +3987,16 @@ class GameShowDB:
                     (session_id,),
                 )
             key = self._live_credit_key(run_key, session_id)
+            if include_participation:
+                # A credit that fell to 0 is not in credit_map; take it back.
+                for row in self.conn.execute(
+                    """
+                    SELECT student_id FROM live_participation_credits
+                    WHERE run_key = ?
+                    """,
+                    (key,),
+                ).fetchall():
+                    credit_map.setdefault(int(row["student_id"]), 0)
             for sid, n in credit_map.items():
                 self._add_live_credit_unlocked(session_id, sid, key, n)
             self.conn.execute(
@@ -3924,7 +4034,9 @@ class GameShowDB:
         Manual points in ``session_scores`` are never replaced. Only the
         difference from what this run already credited is added, so a
         repeat (End twice, or a live sync then End) does not add twice.
-        Caller holds ``_lock`` and commits.
+        Points never go below 0. Caller holds ``_lock`` inside
+        ``_write_txn`` so the ledger read and the score write are atomic
+        across workers.
 
         Args:
             session_id: Sessions primary key (the class-day column).
@@ -3964,15 +4076,20 @@ class GameShowDB:
             cur = self.conn.execute(
                 """
                 UPDATE session_scores
-                SET points = ROUND(points + ?, 1),
-                    points_r1 = ROUND(points_r1 + ?, 1),
-                    points_r2 = ROUND(points_r2 + ?, 1),
-                    points_r3 = ROUND(points_r3 + ?, 1)
+                SET points = MAX(0, ROUND(points + ?, 1)),
+                    points_r1 = MAX(0, ROUND(points_r1 + ?, 1)),
+                    points_r2 = MAX(0, ROUND(points_r2 + ?, 1)),
+                    points_r3 = MAX(0, ROUND(points_r3 + ?, 1))
                 WHERE session_id = ? AND student_id = ?
                 """,
                 (*delta, column, int(student_id)),
             )
             if cur.rowcount != 1:
+                logger.warning(
+                    "live credit skipped; no score row session=%s student=%s",
+                    column,
+                    student_id,
+                )
                 return
         self.conn.execute(
             """
@@ -4014,7 +4131,7 @@ class GameShowDB:
             return None
         session_id = int(game["session_id"])
         key = self._live_credit_key(run_key, session_id)
-        with self._lock:
+        with self._lock, self._write_txn():
             self._ensure_session_scores(session_id, int(class_id))
             for raw_sid, raw_n in (credits or {}).items():
                 try:
