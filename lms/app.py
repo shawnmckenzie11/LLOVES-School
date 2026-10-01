@@ -5903,6 +5903,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "run_as_group",
             "scoreboard_visible",
             "hide_absent",
+            "timer_closes_answers",
             "class_set",
             "layout_preset",
             "frames",
@@ -6051,6 +6052,43 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             ],
         )
         return jsonify({"ok": True, "item": item, "results": results})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/timer-expired",
+        methods=["POST"],
+    )
+    @login_required
+    def api_live_timer_expired(session_id: int):
+        """Teacher clock reached 0:00: close answers if the opt-in is on.
+
+        The server re-checks the flag and its own clock, so an early or
+        repeated call closes nothing (MCK-27).
+        """
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        try:
+            closed = school.close_answers_if_timer_expired(session_id)
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        if closed:
+            seq = teacher_state_seq(school, session_id)
+            emit_session_news(
+                school,
+                session_id,
+                [
+                    {"type": "state_seq", "state_seq": seq},
+                    flag_work_event("close", seq),
+                ],
+            )
+        return jsonify(
+            {
+                "ok": True,
+                "closed": closed,
+                "active_questions": school.list_active_live_questions(session_id),
+            }
+        )
 
     @app.route(
         "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/settings",

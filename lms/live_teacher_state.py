@@ -214,6 +214,7 @@ def default_teacher_state() -> dict[str, Any]:
         "run_as_group": False,
         "scoreboard_visible": False,
         "hide_absent": False,
+        "timer_closes_answers": False,
         "class_set": False,
         "layout_preset": DEFAULT_LAYOUT_PRESET,
         "frames": dict(LAYOUT_PRESETS[DEFAULT_LAYOUT_PRESET]),
@@ -821,6 +822,7 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
         "run_as_group",
         "scoreboard_visible",
         "hide_absent",
+        "timer_closes_answers",
         "class_set",
     ):
         parsed = _as_bool(stored.get(key))
@@ -960,6 +962,7 @@ def apply_teacher_state_update(
     run_as_group: Any = None,
     scoreboard_visible: Any = None,
     hide_absent: Any = None,
+    timer_closes_answers: Any = None,
     class_set: Any = None,
     layout_preset: Any = None,
     frames: Any = None,
@@ -997,6 +1000,8 @@ def apply_teacher_state_update(
         run_as_group: Session-global group presentation/tracking toggle.
         scoreboard_visible: Session-global student scoreboard toggle.
         hide_absent: Session-global class-list filter; defaults false.
+        timer_closes_answers: Opt-in. When the SessionTimer reaches 0:00,
+            open questions published before then close (MCK-27).
         class_set: True after the teacher confirms Set Class (date + module + slot).
         layout_preset: Named preset; fills frames unless ``frames`` is set.
         frames: ``{A,B,C}`` content-id map.
@@ -1101,6 +1106,11 @@ def apply_teacher_state_update(
         if hidden is None:
             raise ValueError("hide_absent must be a boolean")
         base["hide_absent"] = hidden
+    if timer_closes_answers is not None:
+        closes = _as_bool(timer_closes_answers)
+        if closes is None:
+            raise ValueError("timer_closes_answers must be a boolean")
+        base["timer_closes_answers"] = closes
     if class_set is not None:
         confirmed = _as_bool(class_set)
         if confirmed is None:

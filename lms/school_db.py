@@ -14089,6 +14089,10 @@ class SchoolDB(LovesDB):
             raise ValueError("This question is not a group submission.")
         if str(item.get("status") or "") != "active":
             raise ValueError("This item is not accepting responses.")
+        if int(item["id"]) in self.close_answers_if_timer_expired(
+            int(item["live_session_id"])
+        ):
+            raise ValueError("This item is not accepting responses.")
         session_row = self.get_live_session(int(item["live_session_id"]))
         if session_row is None:
             raise KeyError(f"live session {item.get('live_session_id')}")
@@ -14292,7 +14296,12 @@ class SchoolDB(LovesDB):
             KeyError: The live session is gone.
         """
         if str(item.get("status") or "") == "active":
-            return self._require_group_submit_member(item, student_id)
+            if int(item["id"]) in self.close_answers_if_timer_expired(
+                int(item["live_session_id"])
+            ):
+                item = {**item, "status": "closed"}
+            else:
+                return self._require_group_submit_member(item, student_id)
         if student_id in (None, ""):
             raise ValueError("Roster student required")
         if str(item.get("response_mode") or "") != "group_submit":
@@ -15092,6 +15101,7 @@ class SchoolDB(LovesDB):
         """Store one private member vote and auto-advance a complete team."""
 
         self._require_active_live_session(session_id)
+        self.close_answers_if_timer_expired(session_id)
         item = self.get_live_session_item(session_id, live_item_id)
         if (
             item["status"] != "active"
@@ -15190,6 +15200,7 @@ class SchoolDB(LovesDB):
         """Atomically record the one canonical answer for a student's team."""
 
         self._require_active_live_session(session_id)
+        self.close_answers_if_timer_expired(session_id)
         item = self.get_live_session_item(session_id, live_item_id)
         if (
             item["status"] != "active"
@@ -18131,6 +18142,7 @@ class SchoolDB(LovesDB):
             prompt_row,
             response,
         )
+        self.close_answers_if_timer_expired(int(prompt_row["live_session_id"]))
         with self._lock:
             lifecycle = self.conn.execute(
                 """
@@ -21210,6 +21222,110 @@ class SchoolDB(LovesDB):
                 "label": _label(remaining_i),
             }
         return idle
+
+    def _timer_closes_answers_on(self, session_id: int) -> tuple[bool, int | None]:
+        """Read the opt-in flag and class id without building teacher state.
+
+        Returns:
+            ``(flag, class_id)``. ``(False, None)`` for a missing session.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT class_id, status, teacher_state_json "
+                "FROM live_class_sessions WHERE id = ?",
+                (int(session_id),),
+            ).fetchone()
+        if row is None or str(row["status"] or "") != "active":
+            return False, None
+        try:
+            stored = json.loads(row["teacher_state_json"] or "{}")
+        except (TypeError, ValueError):
+            return False, None
+        flag = isinstance(stored, dict) and stored.get("timer_closes_answers") is True
+        return flag, int(row["class_id"])
+
+    def session_timer_deadline(
+        self, class_id: int, *, now: datetime | None = None
+    ) -> datetime | None:
+        """Return when the SessionTimer hit 0:00, if it has.
+
+        A paused or idle clock, or one still counting, returns ``None``.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            now: Reference time (tests). Default: local now.
+        """
+        try:
+            game = self.game.open_game_round_fields(int(class_id)) or {}
+        except (TypeError, ValueError, KeyError, sqlite3.Error):
+            return None
+        if not game or game.get("timer_paused"):
+            return None
+        raw = game.get("round_ends_at")
+        if not raw or not game.get("round_started_at"):
+            return None
+        try:
+            ends = datetime.fromisoformat(str(raw))
+        except ValueError:
+            return None
+        if ends.tzinfo is not None:
+            ends = ends.astimezone().replace(tzinfo=None)
+        return ends if (now or datetime.now()) >= ends else None
+
+    def close_answers_if_timer_expired(
+        self, session_id: int, *, now: datetime | None = None
+    ) -> list[int]:
+        """Close open questions when the opt-in timer has reached 0:00 (MCK-27).
+
+        Runs only when the teacher turned on "Close answers at 0:00". Closes
+        each active lifecycle item published at or before the deadline,
+        through the same path as the teacher's Close button. An item
+        published after the clock ran out is left open, so a new question
+        under a stale 0:00 still takes answers.
+
+        Called before every answer write and by the teacher shell when its
+        clock reaches zero. It is idempotent.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            now: Reference time (tests).
+
+        Returns:
+            Lifecycle ids closed by this call.
+        """
+        flag, class_id = self._timer_closes_answers_on(session_id)
+        if not flag or class_id is None:
+            return []
+        deadline = self.session_timer_deadline(class_id, now=now)
+        if deadline is None:
+            return []
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT id, published_at FROM live_session_items
+                WHERE live_session_id = ? AND status = 'active'
+                ORDER BY id
+                """,
+                (int(session_id),),
+            ).fetchall()
+        closed: list[int] = []
+        for row in rows:
+            try:
+                published = datetime.fromisoformat(str(row["published_at"] or ""))
+            except ValueError:
+                published = None
+            if published is not None and published > deadline:
+                continue
+            try:
+                self.close_live_session_item(int(session_id), int(row["id"]))
+            except (KeyError, ValueError):
+                continue  # already closed by a concurrent request
+            closed.append(int(row["id"]))
+        if closed:
+            logger.info(
+                "timer closed answers session=%s items=%s", session_id, closed
+            )
+        return closed
 
     SESSION_TIMER_STAGE_PRESETS: dict[str, int] = {}
 
