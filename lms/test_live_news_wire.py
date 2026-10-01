@@ -320,6 +320,86 @@ console.log(JSON.stringify(out));
         self.assertLessEqual(got["noStream"], 4000)
         self.assertGreaterEqual(got["fallback"], 15000)
 
+    def test_student_poll_slows_after_end_and_jitters(self) -> None:
+        """MCK-88 M1 + L1: celebrate/ended slows the poll; healthy delays jitter.
+
+        A celebrate-End reply is 200 ``{celebrate: true, status: "waiting"}``,
+        not 409, so the tab must read the body to know the class is over.
+        """
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node is not installed")
+        wire = (LMS_DIR / "static" / "live_news_wire.js").resolve().as_uri()
+        script = f"""
+import {{
+  ENDED_POLL_MS, FALLBACK_POLL_MS, NO_STREAM_POLL_MS,
+  studentFallbackPollMs, studentSessionOver,
+}} from {json.dumps(wire)};
+const shed = {{ hasStream: () => false }};
+const open = {{ hasStream: () => true }};
+const samples = [];
+for (let i = 0; i < 200; i += 1) samples.push(studentFallbackPollMs(shed, false));
+const out = {{
+  ended: ENDED_POLL_MS,
+  fallback: FALLBACK_POLL_MS,
+  noStream: NO_STREAM_POLL_MS,
+  shedLow: studentFallbackPollMs(shed, false, 0),
+  shedHigh: studentFallbackPollMs(shed, false, 1),
+  shedMid: studentFallbackPollMs(shed, false, 0.5),
+  openMid: studentFallbackPollMs(open, false, 0.5),
+  overLow: studentFallbackPollMs(shed, true, 0),
+  overOpenMid: studentFallbackPollMs(open, true, 0.5),
+  distinct: new Set(samples).size,
+  sampleMin: Math.min(...samples),
+  sampleMax: Math.max(...samples),
+  celebrate: studentSessionOver({{ celebrate: true, status: "waiting" }}),
+  endedBody: studentSessionOver({{ status: "ended", celebrate: false }}),
+  active: studentSessionOver({{ status: "active", celebrate: false }}),
+  waiting: studentSessionOver({{ status: "waiting" }}),
+  unchanged: studentSessionOver({{ ok: true, unchanged: true, state_seq: 3 }}),
+  none: studentSessionOver(null),
+}};
+console.log(JSON.stringify(out));
+"""
+        done = subprocess.run(
+            [node, "--input-type=module", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        got = json.loads(done.stdout.strip().splitlines()[-1])
+        # L1: the 4 s shed poll is jittered ±20%, centred on 4 s.
+        self.assertEqual(got["shedMid"], got["noStream"])
+        self.assertEqual(got["shedLow"], round(got["noStream"] * 0.8))
+        self.assertEqual(got["shedHigh"], round(got["noStream"] * 1.2))
+        self.assertGreater(got["distinct"], 20)
+        self.assertGreaterEqual(got["sampleMin"], round(got["noStream"] * 0.8))
+        self.assertLessEqual(got["sampleMax"], round(got["noStream"] * 1.2))
+        self.assertEqual(got["openMid"], got["fallback"])
+        # M1: once over, even a shed tab waits ~30 s, never the 4 s pace.
+        self.assertGreaterEqual(got["ended"], got["fallback"])
+        self.assertEqual(got["overOpenMid"], got["ended"])
+        self.assertGreater(got["overLow"], got["noStream"] * 5)
+        self.assertTrue(got["celebrate"])
+        self.assertTrue(got["endedBody"])
+        self.assertFalse(got["active"])
+        self.assertFalse(got["waiting"])
+        self.assertFalse(got["unchanged"])
+        self.assertFalse(got["none"])
+
+    def test_student_tick_records_session_over_from_full_body(self) -> None:
+        """The flag is set from each full body, after the ``unchanged`` early return."""
+        student = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        tick = student.split("async function tick()")[1].split(
+            'document.getElementById("live-response")'
+        )[0]
+        unchanged_at = tick.index("if (data.unchanged)")
+        flag_at = tick.index("studentSessionIsOver = studentSessionOver(data);")
+        self.assertLess(unchanged_at, flag_at)
+        self.assertLess(flag_at, tick.index("paintCelebrate(data)"))
+
     def test_staff_and_student_polls_use_the_stream_aware_pace(self) -> None:
         """Both live tabs schedule their fallback through ``fallbackPollMs``."""
         static = LMS_DIR / "static"
@@ -329,5 +409,10 @@ console.log(JSON.stringify(out));
         schedule = student.split("function scheduleStudentPoll()")[1].split(
             "function "
         )[0]
-        self.assertIn("fallbackPollMs(studentNewsWire)", schedule)
+        self.assertIn(
+            "studentFallbackPollMs(studentNewsWire, studentSessionIsOver)", schedule
+        )
+        wire = (static / "live_news_wire.js").read_text(encoding="utf-8")
+        helper = wire.split("export function studentFallbackPollMs(")[1]
+        self.assertIn("fallbackPollMs(wire)", helper.split("\n}")[0])
         self.assertNotIn(": STUDENT_POLL_BASE_MS;", schedule)

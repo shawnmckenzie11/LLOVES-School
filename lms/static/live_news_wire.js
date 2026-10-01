@@ -6,7 +6,7 @@
  * second poll. Callers light-fetch the slice they already paint.
  */
 
-import { artifactMountAction, mediaMountKey } from "./live_poll_feel.js";
+import { artifactMountAction, jitterPollDelay, mediaMountKey } from "./live_poll_feel.js";
 
 /** Slow /state safety net when the wire is quiet or down. */
 export const FALLBACK_POLL_MS = 20000;
@@ -30,6 +30,39 @@ export function fallbackPollMs(wire) {
   const streaming =
     Boolean(wire) && typeof wire.hasStream === "function" && wire.hasStream();
   return streaming ? FALLBACK_POLL_MS : NO_STREAM_POLL_MS;
+}
+
+/**
+ * Student /state pace once End Live Class has run: the session is ended,
+ * or the tab is on the celebrate screen (200 ``{celebrate: true, status:
+ * "waiting"}``). No question can publish after End, so the tab only needs
+ * a slow check for Quit / the next class instead of 4s forever (MCK-88 M1).
+ */
+export const ENDED_POLL_MS = 30000;
+
+/**
+ * True when a full student /state body says the class is over.
+ * The tiny ``unchanged`` body carries neither field; callers keep the last value.
+ * @param {any} payload
+ * @returns {boolean}
+ */
+export function studentSessionOver(payload) {
+  if (!payload || typeof payload !== "object") return false;
+  return Boolean(payload.celebrate) || String(payload.status || "") === "ended";
+}
+
+/**
+ * Healthy student fallback delay, jittered ±20% so shed tabs that stalled
+ * together do not re-align into bursts (MCK-88 L1).
+ * Over: ``ENDED_POLL_MS``. Otherwise the stream-aware ``fallbackPollMs``.
+ * @param {{hasStream?: () => boolean}|null|undefined} wire
+ * @param {boolean} over ``studentSessionOver`` of the last full body.
+ * @param {number} [rand] ``Math.random()`` stand-in for tests.
+ * @returns {number}
+ */
+export function studentFallbackPollMs(wire, over, rand = Math.random()) {
+  const base = over ? ENDED_POLL_MS : fallbackPollMs(wire);
+  return jitterPollDelay(base, rand);
 }
 
 /** Soft line when a news-driven fetch is still out after ~800ms. */
