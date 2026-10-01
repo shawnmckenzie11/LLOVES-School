@@ -283,6 +283,26 @@ class LiveNewsLog:
             self._conn.commit()
         return stored
 
+    def purge_session(self, session_id: int) -> int:
+        """Delete every postcard for one session id.
+
+        ``id`` is AUTOINCREMENT, so a tab holding an old ``Last-Event-ID``
+        still gets every later append.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            Rows deleted.
+        """
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM live_news_events WHERE session_id = ?",
+                (int(session_id),),
+            )
+            self._conn.commit()
+        return int(cursor.rowcount or 0)
+
     def since(self, session_id: int, after_id: int, limit: int = 50) -> list[dict[str, Any]]:
         """Return postcards newer than ``after_id``, oldest first.
 
@@ -693,6 +713,23 @@ def format_sse(
     lines.append(f"event: {body.get('type') or 'ping'}")
     lines.append("data: " + json.dumps(body, separators=(",", ":"), default=str))
     return "\n".join(lines) + "\n\n"
+
+
+def purge_session_news(data_dir: Path | str, session_id: int) -> int:
+    """Clear one session's tape at Start. Wire faults are logged.
+
+    Args:
+        data_dir: School data directory.
+        session_id: ``live_class_sessions.id`` of the new run.
+
+    Returns:
+        Rows deleted, or ``0`` on a wire fault.
+    """
+    try:
+        return log_for(data_dir).purge_session(int(session_id))
+    except Exception:
+        logger.warning("live news purge failed session=%s", session_id)
+        return 0
 
 
 def parse_last_event_id(header: str | None, arg: str | None) -> int:
