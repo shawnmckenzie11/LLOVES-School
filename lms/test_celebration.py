@@ -449,8 +449,11 @@ class CelebrationTests(unittest.TestCase):
         self.assertEqual(board[0]["key"], "award")
         self.assertEqual(board[0]["name"], "Birch")
         self.assertEqual(board[0]["detail"], "Kept the warm-up moving.")
-        mcf3m = next(card for card in board if card["course"] == "MCF3M")
-        self.assertEqual(mcf3m["key"], "engaged")
+        mcf3m = next(
+            card
+            for card in board
+            if card["key"] == "engaged" and card["course"] == "MCF3M"
+        )
         self.assertEqual(mcf3m["name"], "Maple")
 
     def test_most_engaged_per_class_lists_ties(self) -> None:
