@@ -66,12 +66,12 @@ class CelebrationTests(unittest.TestCase):
         self.school.close()
         self.tmp.cleanup()
 
-    def _populate(self, names: list[str]) -> int:
-        """Create a rostered MCF3M class and return its id."""
+    def _populate(self, names: list[str], offering_id: int | None = None) -> int:
+        """Create a rostered class (MCF3M unless ``offering_id``) and return its id."""
         rv = self.client.post(
             "/api/staff/classes",
             json={
-                "offering_id": self.offering["id"],
+                "offering_id": offering_id or self.offering["id"],
                 "days": "M/W/F",
                 "time": "2:00pm",
                 "codenames": names,
@@ -153,8 +153,15 @@ class CelebrationTests(unittest.TestCase):
             )
             game.conn.commit()
 
+    def _ids(self, class_id: int) -> dict[str, int]:
+        """Codename to student id for one class."""
+        return {
+            row["codename"]: int(row["id"])
+            for row in self.school.game.dashboard(class_id, sort="az")["students"]
+        }
+
     def _feature(self, class_id: int, student_id: int, blurb: str) -> None:
-        """Post one Awards pick through the staff API.
+        """Post one Shoutout pick through the staff API.
 
         Args:
             class_id: Class of the featured student.
@@ -211,6 +218,8 @@ class CelebrationTests(unittest.TestCase):
         self.assertNotIn("Most Improved", body)
         self.assertNotIn("Quietly Cooking", body)
         self.assertNotIn("Celebrating a student", body)
+        self.assertNotIn("Codenames from live class", body)
+        self.assertNotIn("Codenames only", body)
         self.assertNotIn("A teacher will feature someone here.", body)
         self.assertNotIn("Waiting on the first attendance.", body)
         self.assertNotIn("calc.mckenzian.com", body)
@@ -226,6 +235,8 @@ class CelebrationTests(unittest.TestCase):
         self.assertEqual(payload["cards"], [])
         self.assertEqual(payload["copy"]["page_title"], WONDER_COPY["page_title"])
         self.assertEqual(payload["copy"]["empty_board"], WONDER_COPY["empty_board"])
+        self.assertNotIn("sub_line", payload["copy"])
+        self.assertNotIn("footer", payload["copy"])
         page = anon.get("/").get_data(as_text=True)
         self.assertIn("Coming soon — the shout-outs are warming up.", page)
         self.assertIn('class="calc-coming-soon"', page)
@@ -233,7 +244,7 @@ class CelebrationTests(unittest.TestCase):
         self.assertNotIn("data-card=", page)
 
     def test_api_award_and_engaged_strip_ids(self) -> None:
-        """Award plus Most Engaged returns two cards and no roster ids."""
+        """Shoutout plus MCF3M Most Engaged returns two cards and no roster ids."""
         class_id = self._populate(["Maple", "Birch"])
         students = {
             row["codename"]: int(row["id"])
@@ -252,13 +263,26 @@ class CelebrationTests(unittest.TestCase):
         self.assertEqual([card["key"] for card in cards], ["award", "engaged"])
         by_key = {card["key"]: card for card in cards}
         self.assertEqual(by_key["award"]["name"], "Birch")
+        self.assertEqual(by_key["award"]["title"], "Shoutout")
+        self.assertEqual(by_key["award"]["kicker"], "")
         self.assertEqual(by_key["award"]["detail"], "Kept the warm-up moving.")
         self.assertEqual(by_key["engaged"]["name"], "Maple")
         self.assertEqual(by_key["engaged"]["title"], "Most Engaged")
-        self.assertEqual(by_key["engaged"]["kicker"], "Showed up and jumped in")
+        self.assertEqual(by_key["engaged"]["kicker"], "")
+        self.assertEqual(by_key["engaged"]["course"], "MCF3M")
         dumped = json.dumps(rv.get_json())
         self.assertNotIn("class_id", dumped)
         self.assertNotIn("student_id", dumped)
+        for gone in (
+            "Awards",
+            "Celebrating a student",
+            "Codenames only",
+            "Codenames from live class",
+            "Showed up and jumped in",
+            "Biggest climb lately",
+            "Steady work",
+        ):
+            self.assertNotIn(gone, dumped)
         for card in cards:
             self.assertEqual(
                 set(card),
@@ -409,6 +433,8 @@ class CelebrationTests(unittest.TestCase):
 
         home = self.client.get("/staff").get_data(as_text=True)
         self.assertIn("Celebrate a student", home)
+        self.assertIn("Post to Shoutout", home)
+        self.assertNotIn("Awards", home)
         self.assertIn("Now featuring", home)
         self.assertIn("Birch", home)
         self.assertIn("/#celebrations", home)
@@ -420,42 +446,65 @@ class CelebrationTests(unittest.TestCase):
         self.assertNotIn("Kept the warm-up moving.", page)
 
         board = build_celebration_board(self.school)["cards"]
-        by_key = {card["key"]: card for card in board}
-        self.assertEqual(by_key["award"]["name"], "Birch")
-        self.assertEqual(by_key["award"]["detail"], "Kept the warm-up moving.")
-        self.assertEqual(by_key["engaged"]["name"], "Maple")
+        self.assertEqual(board[0]["key"], "award")
+        self.assertEqual(board[0]["name"], "Birch")
+        self.assertEqual(board[0]["detail"], "Kept the warm-up moving.")
+        mcf3m = next(
+            card
+            for card in board
+            if card["key"] == "engaged" and card["course"] == "MCF3M"
+        )
+        self.assertEqual(mcf3m["name"], "Maple")
 
-    def test_most_improved_and_quietly_cooking(self) -> None:
-        """Four classes unlock Most Improved; steady attendance is Quietly Cooking."""
-        class_id = self._populate(["Maple", "Aspen", "Cedar"])
-        students = {
-            row["codename"]: int(row["id"])
-            for row in self.school.game.dashboard(class_id, sort="az")["students"]
-        }
-        days = ["2026-09-09", "2026-09-11", "2026-09-14", "2026-09-16"]
-        everyone = [
-            students["Maple"],
-            students["Aspen"],
-            students["Cedar"],
-        ]
-        point_plan = [
-            {students["Cedar"]: 8, students["Aspen"]: 1, students["Maple"]: 0},
-            {students["Cedar"]: 8, students["Aspen"]: 1, students["Maple"]: 0},
-            {students["Cedar"]: 8, students["Aspen"]: 1, students["Maple"]: 12},
-            {students["Cedar"]: 8, students["Aspen"]: 1, students["Maple"]: 12},
-        ]
-        for day, pts in zip(days, point_plan, strict=True):
-            self._log_day(class_id, day, everyone, pts)
+    def test_most_engaged_per_class_lists_ties(self) -> None:
+        """One Most Engaged card per class; presents beat points; ties all show."""
+        mcr3u = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]), ontario_code="MCR3U"
+        )
+        mcr3u_2 = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]),
+            ontario_code="MCR3U",
+            new_section=True,
+        )
+        self.assertEqual(mcr3u_2["section_code"], "MCR3U-2")
 
-        page = self.app.test_client().get("/").get_data(as_text=True)
-        self.assertIn("Coming soon — the shout-outs are warming up.", page)
-        self.assertNotIn("data-card=", page)
+        mcf3m_id = self._populate(["Maple", "Birch", "Cedar"])
+        mcf = self._ids(mcf3m_id)
+        self._log_day(
+            mcf3m_id,
+            "2026-09-09",
+            [mcf["Maple"], mcf["Birch"], mcf["Cedar"]],
+            {mcf["Maple"]: 5, mcf["Birch"]: 5, mcf["Cedar"]: 1},
+        )
 
-        board = build_celebration_board(self.school)["cards"]
-        by_key = {card["key"]: card for card in board}
-        self.assertEqual(by_key["engaged"]["name"], "Cedar")
-        self.assertEqual(by_key["improved"]["name"], "Maple")
-        self.assertEqual(by_key["cooking"]["name"], "Aspen")
+        mcr_id = self._populate(["Oak", "Pine"], int(mcr3u["id"]))
+        mcr = self._ids(mcr_id)
+        self._log_day(mcr_id, "2026-09-09", [mcr["Oak"]], {mcr["Oak"]: 3})
+
+        mcr2_id = self._populate(["Elm", "Ash"], int(mcr3u_2["id"]))
+        mcr2 = self._ids(mcr2_id)
+        self._log_day(
+            mcr2_id,
+            "2026-09-09",
+            [mcr2["Elm"], mcr2["Ash"]],
+            {mcr2["Elm"]: 9},
+        )
+        self._log_day(mcr2_id, "2026-09-11", [mcr2["Ash"]])
+
+        cards = self.app.test_client().get("/api/celebrations").get_json()["cards"]
+        self.assertEqual(
+            [(card["key"], card["course"], card["name"]) for card in cards],
+            [
+                ("engaged", "MCR3U", "Oak"),
+                ("engaged", "MCR3U-2", "Ash"),
+                ("engaged", "MCF3M", "Birch, Maple"),
+            ],
+        )
+        for card in cards:
+            self.assertEqual(card["title"], "Most Engaged")
+            self.assertEqual(card["kicker"], "")
+        self.assertEqual(cards[2]["detail"], "1 class present · 5 pts")
+        self.assertEqual(cards[1]["detail"], "2 classes present")
 
     def test_foreign_class_rejected(self) -> None:
         """A teacher cannot feature a Codename from someone else's class."""
