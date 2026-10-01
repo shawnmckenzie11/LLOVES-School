@@ -19,6 +19,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from name_match import first_token_key, loose_name_key, name_key, same_name  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 from serve_capacity import (  # noqa: E402
@@ -609,6 +611,36 @@ CREATE TABLE IF NOT EXISTS live_group_responses (
 
 CREATE INDEX IF NOT EXISTS idx_live_group_responses_item
     ON live_group_responses(live_item_id, status, team_id);
+
+-- MCK-45: answers copied out right before End/cleanup deletes them, so a
+-- teacher can review a class after it ends. No FK to the session row: the
+-- id is reused for the next class, and these rows must outlive it.
+CREATE TABLE IF NOT EXISTS live_result_snapshots (
+    id INTEGER PRIMARY KEY,
+    live_session_id INTEGER NOT NULL,
+    class_id INTEGER NOT NULL,
+    session_code TEXT NOT NULL DEFAULT '',
+    run_key TEXT NOT NULL DEFAULT '',
+    live_module TEXT NOT NULL DEFAULT '',
+    live_slot TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL,
+    question_key TEXT NOT NULL,
+    question_json TEXT NOT NULL DEFAULT '{}',
+    student_id INTEGER,
+    participant_uuid TEXT,
+    codename TEXT NOT NULL DEFAULT '',
+    team_id INTEGER,
+    answer_json TEXT NOT NULL DEFAULT '{}',
+    awarded_points REAL,
+    answered_at TEXT,
+    snapshot_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_result_snapshots_class
+    ON live_result_snapshots(class_id, snapshot_at);
+
+CREATE INDEX IF NOT EXISTS idx_live_result_snapshots_session
+    ON live_result_snapshots(live_session_id, run_key);
 
 CREATE TABLE IF NOT EXISTS live_class_feedback (
     id INTEGER PRIMARY KEY,
@@ -11054,21 +11086,18 @@ class SchoolDB(LovesDB):
         self, live_access_code: str, codename: str
     ) -> dict[str, Any] | None:
         """Disambiguate overlapping live sections by roster Codename."""
-        name = (codename or "").strip()
-        if not name:
+        needle = name_key(codename)
+        if not needle:
             return None
         classes = self.classes_for_access_code(live_access_code)
         matches = []
         with self.game._lock:
             for cls in classes:
-                row = self.game.conn.execute(
-                    """
-                    SELECT id FROM students
-                    WHERE class_id = ? AND lower(codename) = ?
-                    """,
-                    (int(cls["id"]), name.lower()),
-                ).fetchone()
-                if row:
+                rows = self.game.conn.execute(
+                    "SELECT codename FROM students WHERE class_id = ?",
+                    (int(cls["id"]),),
+                ).fetchall()
+                if any(name_key(row["codename"]) == needle for row in rows):
                     matches.append(cls)
         if len(matches) == 1:
             return matches[0]
@@ -11079,27 +11108,31 @@ class SchoolDB(LovesDB):
     ) -> list[dict[str, Any]]:
         """Return ``{class, student}`` pairs whose Codename matches ``name``.
 
-        Matching is case-insensitive on ``lower(trim(codename))`` across every
+        Matching uses ``name_match.name_key`` (Unicode casefold) across every
         section that shares the student course code.
 
         Args:
             live_access_code: Shared 8-character offering key.
             name: Student-entered roster name.
         """
-        needle = (name or "").strip().lower()
+        needle = name_key(name)
         if not needle:
             return []
         classes = self.classes_for_access_code(live_access_code)
         matches: list[dict[str, Any]] = []
         with self.game._lock:
             for cls in classes:
-                row = self.game.conn.execute(
-                    """
-                    SELECT * FROM students
-                    WHERE class_id = ? AND lower(trim(codename)) = ?
-                    """,
-                    (int(cls["id"]), needle),
-                ).fetchone()
+                row = next(
+                    (
+                        r
+                        for r in self.game.conn.execute(
+                            "SELECT * FROM students WHERE class_id = ? ORDER BY id",
+                            (int(cls["id"]),),
+                        ).fetchall()
+                        if name_key(r["codename"]) == needle
+                    ),
+                    None,
+                )
                 if row:
                     matches.append({"class": cls, "student": dict(row)})
         return matches
@@ -11525,7 +11558,7 @@ class SchoolDB(LovesDB):
             ):
                 token_name = first_name_only(str(by_token.get("codename") or ""))
                 same_person = (not name) or (
-                    token_name.lower() == name.lower()
+                    same_name(token_name, name)
                 ) or (
                     sid is not None
                     and by_token.get("student_id") not in (None, "")
@@ -11622,21 +11655,22 @@ class SchoolDB(LovesDB):
             session_id: ``live_class_sessions.id``.
             name: First-name / Codename already passed through ``first_name_only``.
         """
-        needle = first_name_only(name).lower()
+        needle = name_key(first_name_only(name))
         if not needle:
             return None
         with self._lock:
-            row = self.conn.execute(
+            rows = self.conn.execute(
                 """
                 SELECT * FROM live_session_attendees
                 WHERE live_session_id = ?
                   AND unmatched = 1
-                  AND lower(codename) = ?
                 ORDER BY id ASC
-                LIMIT 1
                 """,
-                (int(session_id), needle),
-            ).fetchone()
+                (int(session_id),),
+            ).fetchall()
+        row = next(
+            (r for r in rows if name_key(r["codename"]) == needle), None
+        )
         if row is None:
             return None
         return self._apply_presence(dict(row))
@@ -22933,11 +22967,239 @@ class SchoolDB(LovesDB):
         self.game.clear_students_live_presence(class_id, student_ids)
         return len(student_ids)
 
+    def _snapshot_live_results_unlocked(self, session_id: int) -> int:
+        """Copy every answer for one session into ``live_result_snapshots``.
+
+        Called by ``cleanup_live_session_response_data`` in the same
+        transaction as the deletes, so each answer is copied exactly once
+        (MCK-45). Three sources are kept:
+
+        * ``prompt``: one student's answer to a prompt or individual item
+          (``live_session_responses``).
+        * ``group_vote``: one student's vote inside a team
+          (``live_group_votes``).
+        * ``group_final``: the team's proposed or final answer
+          (``live_group_responses``).
+
+        Caller holds ``self._lock`` and an open transaction.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            Number of rows written.
+        """
+        sid = int(session_id)
+        session = self.conn.execute(
+            "SELECT * FROM live_class_sessions WHERE id = ?", (sid,)
+        ).fetchone()
+        if session is None:
+            return 0
+        keys = session.keys()
+        run_key = str(session["run_key"] or "") if "run_key" in keys else ""
+        try:
+            teacher = json.loads(session["teacher_state_json"] or "{}") if (
+                "teacher_state_json" in keys
+            ) else {}
+        except (TypeError, ValueError):
+            teacher = {}
+        if not isinstance(teacher, dict):
+            teacher = {}
+        base = (
+            sid,
+            int(session["class_id"]),
+            str(session["session_code"] or ""),
+            run_key,
+            str(teacher.get("live_module") or ""),
+            str(teacher.get("live_slot") or ""),
+        )
+        now = _now()
+        insert = """
+            INSERT INTO live_result_snapshots (
+                live_session_id, class_id, session_code, run_key,
+                live_module, live_slot, source, question_key, question_json,
+                student_id, participant_uuid, codename, team_id,
+                answer_json, awarded_points, answered_at, snapshot_at
+            )
+            SELECT ?, ?, ?, ?, ?, ?, {source}
+        """
+        codename_by_student = """
+            COALESCE((
+                SELECT a.codename FROM live_session_attendees a
+                WHERE a.live_session_id = {sid}
+                  AND ({match})
+                ORDER BY a.id DESC LIMIT 1
+            ), '')
+        """
+        written = 0
+        written += self.conn.execute(
+            insert.format(
+                source="""
+                'prompt',
+                COALESCE((
+                    SELECT 'item:' || i.placement_key FROM live_session_items i
+                    WHERE i.prompt_id = p.id ORDER BY i.id LIMIT 1
+                ), 'prompt:' || p.slide_index),
+                COALESCE((
+                    SELECT i.item_json FROM live_session_items i
+                    WHERE i.prompt_id = p.id ORDER BY i.id LIMIT 1
+                ), p.payload),
+                r.student_id, r.participant_uuid,
+                """
+                + codename_by_student.format(
+                    sid="p.live_session_id",
+                    match=(
+                        "(r.student_id IS NOT NULL AND a.student_id = r.student_id)"
+                        " OR (r.participant_uuid IS NOT NULL"
+                        " AND a.participant_uuid = r.participant_uuid)"
+                    ),
+                )
+                + """,
+                NULL, r.response_json, r.awarded_points, r.updated_at, ?
+                FROM live_session_responses r
+                INNER JOIN live_session_prompts p ON p.id = r.prompt_id
+                WHERE p.live_session_id = ?
+                ORDER BY r.id
+                """,
+            ),
+            (*base, now, sid),
+        ).rowcount
+        written += self.conn.execute(
+            insert.format(
+                source="""
+                'group_vote', 'item:' || i.placement_key, i.item_json,
+                v.student_id, NULL,
+                """
+                + codename_by_student.format(
+                    sid="i.live_session_id", match="a.student_id = v.student_id"
+                )
+                + """,
+                v.team_id, v.response_json, NULL, v.updated_at, ?
+                FROM live_group_votes v
+                INNER JOIN live_session_items i ON i.id = v.live_item_id
+                WHERE i.live_session_id = ?
+                ORDER BY v.id
+                """,
+            ),
+            (*base, now, sid),
+        ).rowcount
+        groups = self.conn.execute(
+            """
+            SELECT g.*, i.placement_key, i.item_json
+            FROM live_group_responses g
+            INNER JOIN live_session_items i ON i.id = g.live_item_id
+            WHERE i.live_session_id = ?
+            ORDER BY g.id
+            """,
+            (sid,),
+        ).fetchall()
+        for group in groups:
+
+            def _loads(raw: Any) -> Any:
+                try:
+                    return json.loads(raw) if raw not in (None, "") else None
+                except (TypeError, ValueError):
+                    return raw
+
+            answer = {
+                "status": str(group["status"] or ""),
+                "final": _loads(group["final_answer_json"]),
+                "proposed": _loads(group["proposed_answer_json"]),
+                "why": str(group["why_text"] or ""),
+            }
+            if answer["final"] is None and answer["proposed"] is None and not answer["why"]:
+                continue  # a team that never answered
+            self.conn.execute(
+                """
+                INSERT INTO live_result_snapshots (
+                    live_session_id, class_id, session_code, run_key,
+                    live_module, live_slot, source, question_key, question_json,
+                    student_id, participant_uuid, codename, team_id,
+                    answer_json, awarded_points, answered_at, snapshot_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'group_final', ?, ?, ?, NULL, '', ?, ?, ?, ?, ?)
+                """,
+                (
+                    *base,
+                    f"item:{group['placement_key']}",
+                    str(group["item_json"] or "{}"),
+                    group["finalizer_student_id"],
+                    int(group["team_id"]),
+                    json.dumps(answer),
+                    group["awarded_points"],
+                    group["finalized_at"] or group["updated_at"],
+                    now,
+                ),
+            )
+            written += 1
+        return max(0, written)
+
+    def live_result_snapshot_rows(
+        self, class_id: int, *, live_session_id: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Return saved End-of-class answers for one class, oldest first.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            live_session_id: Optional filter to one session id.
+        """
+        sql = "SELECT * FROM live_result_snapshots WHERE class_id = ?"
+        params: list[Any] = [int(class_id)]
+        if live_session_id is not None:
+            sql += " AND live_session_id = ?"
+            params.append(int(live_session_id))
+        sql += " ORDER BY id"
+        with self._lock:
+            rows = self.conn.execute(sql, params).fetchall()
+        out = []
+        for row in rows:
+            item = dict(row)
+            for key in ("question_json", "answer_json"):
+                try:
+                    item[key.replace("_json", "")] = json.loads(item[key] or "{}")
+                except (TypeError, ValueError):
+                    item[key.replace("_json", "")] = {}
+            out.append(item)
+        return out
+
     def cleanup_live_session_response_data(self, session_id: int) -> None:
-        """Delete ephemeral individual votes, group responses, and board ops."""
+        """Delete ephemeral individual votes, group responses, and board ops.
+
+        Every answer is first copied to ``live_result_snapshots`` in the
+        same transaction (MCK-45), so End leaves a results record.
+        """
 
         self.purge_board_ops(int(session_id))
         with self._lock:
+            if self.conn.in_transaction:
+                self.conn.execute("COMMIT")
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                # A snapshot failure must never block End: roll back just the
+                # snapshot and delete as before.
+                self.conn.execute("SAVEPOINT live_result_snapshot")
+                try:
+                    self._snapshot_live_results_unlocked(int(session_id))
+                except Exception:  # noqa: BLE001
+                    self.conn.execute("ROLLBACK TO live_result_snapshot")
+                    logger.exception(
+                        "live result snapshot failed session=%s", session_id
+                    )
+                self.conn.execute("RELEASE live_result_snapshot")
+                self._delete_live_session_response_rows_unlocked(int(session_id))
+            except BaseException:
+                self.conn.execute("ROLLBACK")
+                raise
+            self.conn.execute("COMMIT")
+
+    def _delete_live_session_response_rows_unlocked(self, session_id: int) -> None:
+        """Delete votes, group rows, and prompt responses for one session.
+
+        Caller holds ``self._lock`` and an open transaction.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        with self._lock:  # re-entrant; the caller already holds it
             item_rows = self.conn.execute(
                 """
                 SELECT id FROM live_session_items
@@ -22979,7 +23241,6 @@ class SchoolDB(LovesDB):
                 """,
                 (int(session_id),),
             )
-            self.conn.commit()
 
     def invalidate_live_session_code(self, session_id: int) -> dict[str, Any] | None:
         """Mark a session ended so its code is no longer joinable.
@@ -23069,6 +23330,33 @@ class SchoolDB(LovesDB):
             if result:
                 ended.append(result)
         return ended
+
+    @staticmethod
+    def _live_class_seq_floor(rows: list[dict[str, Any]]) -> int:
+        """Highest ``state_seq`` any earlier run of this class reached.
+
+        A new run starts above it. Open student tabs keep the old run's seq
+        and their guard drops a lower one, and the new row can reuse the
+        wiped session id.
+
+        Args:
+            rows: ``live_class_sessions`` rows for one class.
+
+        Returns:
+            The highest seq, or ``0`` when no row has a teacher state.
+        """
+        floor = 0
+        for row in rows:
+            raw = row.get("teacher_state_json")
+            if not raw:
+                continue
+            try:
+                stored = json.loads(raw)
+                seq = int(stored.get("state_seq") or 0)
+            except (TypeError, ValueError, AttributeError):
+                continue
+            floor = max(floor, seq)
+        return floor
 
     def list_live_sessions_for_class(self, class_id: int) -> list[dict[str, Any]]:
         """Return every live session row for a class (active and ended).
@@ -24269,9 +24557,12 @@ class SchoolDB(LovesDB):
                 "Use End Live Class to finish it before starting another."
             )
         # Drop a leftover End-Live celebration SID; keep historical ended rows.
+        prior_rows = self.list_live_sessions_for_class(int(class_id))
+        # Read before the wipe: SQLite can hand the wiped id to the new row.
+        seq_floor = self._live_class_seq_floor(prior_rows)
         celebrating = [
             int(row["id"])
-            for row in self.list_live_sessions_for_class(int(class_id))
+            for row in prior_rows
             if self.session_is_celebrating(int(row["id"]))
         ]
         if celebrating:
@@ -24307,7 +24598,11 @@ class SchoolDB(LovesDB):
         if boards is not None:
             boards.forget_closed_runs()
         self._mirror_presence_session(session_row)
-        self._write_teacher_state(session_id, public_teacher_state(None))
+        first_state = public_teacher_state(None)
+        if seq_floor > 0:
+            # Old tabs still hold the last run's seq and drop lower bodies.
+            first_state["state_seq"] = seq_floor + 1
+        self._write_teacher_state(session_id, first_state)
         if live_module is not None or live_slot is not None:
             self.set_live_session_teacher_state(
                 session_id,
@@ -24862,37 +25157,72 @@ class SchoolDB(LovesDB):
     ) -> list[dict[str, Any]]:
         """Roster rows whose Codename or first name matches ``name``.
 
-        Matching is case-insensitive and uses the first token only so last
-        names are never required or stored.
+        Names are compared with ``name_match.name_key``: Unicode NFKC plus
+        casefold, with apostrophe, quote, hyphen and space look-alikes
+        folded. SQLite ``lower()`` only folds ASCII, which locked out
+        "Élodie" and "Ó'Brien" (MCK-110). Tiers, first non-empty wins:
+
+        1. The whole typed name equals the Codename or first name.
+        2. The typed first token equals the Codename / first name, or its
+           first token. Last names are never required or stored.
+        3. Tiers 1 and 2 again ignoring accents and apostrophes, for a
+           student who types "Elodie" or "OBrien".
 
         Args:
             session_id: ``live_class_sessions.id``.
             name: Student-entered name.
 
         Returns:
-            Matching student dicts (possibly empty).
+            Matching student dicts (possibly empty), roster id order.
         """
         session_row = self.get_live_session(session_id)
         if session_row is None or session_row.get("status") != "active":
             return []
-        needle = first_name_only(name).lower()
-        if not needle:
+        full = name_key(name)
+        if not full:
             return []
+        first = first_token_key(name)
         class_id = int(session_row["class_id"])
         with self.game._lock:
-            rows = self.game.conn.execute(
-                """
-                SELECT * FROM students
-                WHERE class_id = ?
-                  AND (
-                      lower(trim(codename)) = ?
-                      OR lower(trim(first_name)) = ?
-                  )
-                ORDER BY id ASC
-                """,
-                (class_id, needle, needle),
-            ).fetchall()
-        return [dict(row) for row in rows]
+            rows = [
+                dict(row)
+                for row in self.game.conn.execute(
+                    "SELECT * FROM students WHERE class_id = ? ORDER BY id ASC",
+                    (class_id,),
+                ).fetchall()
+            ]
+
+        def labels(row: dict[str, Any]) -> list[str]:
+            return [
+                str(row.get(col) or "")
+                for col in ("codename", "first_name")
+                if str(row.get(col) or "").strip()
+            ]
+
+        def tier(fold: Any, typed_full: str, typed_first: str) -> list[dict[str, Any]]:
+            exact = [
+                row for row in rows
+                if any(fold(label) == typed_full for label in labels(row))
+            ]
+            if exact:
+                return exact
+            return [
+                row for row in rows
+                if any(
+                    fold(label) == typed_first
+                    or fold(label).split(" ", 1)[0] == typed_first
+                    for label in labels(row)
+                )
+            ]
+
+        matches = tier(name_key, full, first)
+        if matches:
+            return matches
+        loose_full = loose_name_key(name)
+        loose_first = loose_full.split(" ", 1)[0] if loose_full else ""
+        if not loose_full:
+            return []
+        return tier(loose_name_key, loose_full, loose_first)
 
     def disambiguated_roster_labels(
         self, matches: list[dict[str, Any]]
