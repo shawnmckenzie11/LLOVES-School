@@ -299,6 +299,42 @@ def _note_live_session_gone(session_id: int) -> None:
 from board_ops import BoardOpRejected, BoardSessionClosed, normalize_board_key  # noqa: E402
 
 
+def _start_live_and_wake(
+    school: SchoolDB, class_id: int, teacher_user_id: int, **kwargs: Any
+) -> dict[str, Any]:
+    """Start a live run, then wake tabs still on the last run's stream.
+
+    Tabs left on End's celebration keep their stream to that session id
+    and poll at the slow ended pace. A ``state_seq`` postcard on the old
+    ids and the new one makes those tabs fetch the new class now.
+    Resuming the teacher's open session sends nothing.
+
+    Args:
+        school: App SchoolDB.
+        class_id: Game-show ``classes.id``.
+        teacher_user_id: Staff user starting the run.
+        **kwargs: Passed to ``start_live_class_session``.
+    """
+    open_row = school.get_active_live_session_for_teacher(int(teacher_user_id))
+    celebrating = [
+        int(row["id"])
+        for row in school.list_live_sessions_for_class(int(class_id))
+        if school.session_is_celebrating(int(row["id"]))
+    ]
+    session_row = school.start_live_class_session(
+        class_id, teacher_user_id, **kwargs
+    )
+    new_id = int(session_row["id"])
+    if open_row is not None and int(open_row["id"]) == new_id:
+        return session_row
+    seq = teacher_state_seq(school, new_id)
+    for sid in sorted(set(celebrating) | {new_id}):
+        emit_session_news(
+            school, sid, [{"type": "state_seq", "state_seq": seq}]
+        )
+    return session_row
+
+
 def _optional_board_seq(raw: Any) -> int | None:
     """Parse a since-seq cursor. Missing means the caller wants a full view.
 
@@ -2714,7 +2750,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if not school.teacher_owns_class(int(user["id"]), class_id):
             abort(403)
         try:
-            live_session = school.start_live_class_session(class_id, int(user["id"]))
+            live_session = _start_live_and_wake(school, class_id, int(user["id"]))
         except ValueError as exc:
             return render_template("forbidden.html", message=str(exc)), 400
         return redirect(
@@ -6749,7 +6785,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         assert user is not None
         try:
             body = request.get_json(silent=True) or {}
-            session_row = school.start_live_class_session(
+            session_row = _start_live_and_wake(
+                school,
                 class_id,
                 int(user["id"]),
                 live_module=body.get("live_module"),
