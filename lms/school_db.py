@@ -610,6 +610,36 @@ CREATE TABLE IF NOT EXISTS live_group_responses (
 CREATE INDEX IF NOT EXISTS idx_live_group_responses_item
     ON live_group_responses(live_item_id, status, team_id);
 
+-- MCK-45: answers copied out right before End/cleanup deletes them, so a
+-- teacher can review a class after it ends. No FK to the session row: the
+-- id is reused for the next class, and these rows must outlive it.
+CREATE TABLE IF NOT EXISTS live_result_snapshots (
+    id INTEGER PRIMARY KEY,
+    live_session_id INTEGER NOT NULL,
+    class_id INTEGER NOT NULL,
+    session_code TEXT NOT NULL DEFAULT '',
+    run_key TEXT NOT NULL DEFAULT '',
+    live_module TEXT NOT NULL DEFAULT '',
+    live_slot TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL,
+    question_key TEXT NOT NULL,
+    question_json TEXT NOT NULL DEFAULT '{}',
+    student_id INTEGER,
+    participant_uuid TEXT,
+    codename TEXT NOT NULL DEFAULT '',
+    team_id INTEGER,
+    answer_json TEXT NOT NULL DEFAULT '{}',
+    awarded_points REAL,
+    answered_at TEXT,
+    snapshot_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_result_snapshots_class
+    ON live_result_snapshots(class_id, snapshot_at);
+
+CREATE INDEX IF NOT EXISTS idx_live_result_snapshots_session
+    ON live_result_snapshots(live_session_id, run_key);
+
 CREATE TABLE IF NOT EXISTS live_class_feedback (
     id INTEGER PRIMARY KEY,
     class_id INTEGER NOT NULL,
@@ -22893,11 +22923,239 @@ class SchoolDB(LovesDB):
         self.game.clear_students_live_presence(class_id, student_ids)
         return len(student_ids)
 
+    def _snapshot_live_results_unlocked(self, session_id: int) -> int:
+        """Copy every answer for one session into ``live_result_snapshots``.
+
+        Called by ``cleanup_live_session_response_data`` in the same
+        transaction as the deletes, so each answer is copied exactly once
+        (MCK-45). Three sources are kept:
+
+        * ``prompt``: one student's answer to a prompt or individual item
+          (``live_session_responses``).
+        * ``group_vote``: one student's vote inside a team
+          (``live_group_votes``).
+        * ``group_final``: the team's proposed or final answer
+          (``live_group_responses``).
+
+        Caller holds ``self._lock`` and an open transaction.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            Number of rows written.
+        """
+        sid = int(session_id)
+        session = self.conn.execute(
+            "SELECT * FROM live_class_sessions WHERE id = ?", (sid,)
+        ).fetchone()
+        if session is None:
+            return 0
+        keys = session.keys()
+        run_key = str(session["run_key"] or "") if "run_key" in keys else ""
+        try:
+            teacher = json.loads(session["teacher_state_json"] or "{}") if (
+                "teacher_state_json" in keys
+            ) else {}
+        except (TypeError, ValueError):
+            teacher = {}
+        if not isinstance(teacher, dict):
+            teacher = {}
+        base = (
+            sid,
+            int(session["class_id"]),
+            str(session["session_code"] or ""),
+            run_key,
+            str(teacher.get("live_module") or ""),
+            str(teacher.get("live_slot") or ""),
+        )
+        now = _now()
+        insert = """
+            INSERT INTO live_result_snapshots (
+                live_session_id, class_id, session_code, run_key,
+                live_module, live_slot, source, question_key, question_json,
+                student_id, participant_uuid, codename, team_id,
+                answer_json, awarded_points, answered_at, snapshot_at
+            )
+            SELECT ?, ?, ?, ?, ?, ?, {source}
+        """
+        codename_by_student = """
+            COALESCE((
+                SELECT a.codename FROM live_session_attendees a
+                WHERE a.live_session_id = {sid}
+                  AND ({match})
+                ORDER BY a.id DESC LIMIT 1
+            ), '')
+        """
+        written = 0
+        written += self.conn.execute(
+            insert.format(
+                source="""
+                'prompt',
+                COALESCE((
+                    SELECT 'item:' || i.placement_key FROM live_session_items i
+                    WHERE i.prompt_id = p.id ORDER BY i.id LIMIT 1
+                ), 'prompt:' || p.slide_index),
+                COALESCE((
+                    SELECT i.item_json FROM live_session_items i
+                    WHERE i.prompt_id = p.id ORDER BY i.id LIMIT 1
+                ), p.payload),
+                r.student_id, r.participant_uuid,
+                """
+                + codename_by_student.format(
+                    sid="p.live_session_id",
+                    match=(
+                        "(r.student_id IS NOT NULL AND a.student_id = r.student_id)"
+                        " OR (r.participant_uuid IS NOT NULL"
+                        " AND a.participant_uuid = r.participant_uuid)"
+                    ),
+                )
+                + """,
+                NULL, r.response_json, r.awarded_points, r.updated_at, ?
+                FROM live_session_responses r
+                INNER JOIN live_session_prompts p ON p.id = r.prompt_id
+                WHERE p.live_session_id = ?
+                ORDER BY r.id
+                """,
+            ),
+            (*base, now, sid),
+        ).rowcount
+        written += self.conn.execute(
+            insert.format(
+                source="""
+                'group_vote', 'item:' || i.placement_key, i.item_json,
+                v.student_id, NULL,
+                """
+                + codename_by_student.format(
+                    sid="i.live_session_id", match="a.student_id = v.student_id"
+                )
+                + """,
+                v.team_id, v.response_json, NULL, v.updated_at, ?
+                FROM live_group_votes v
+                INNER JOIN live_session_items i ON i.id = v.live_item_id
+                WHERE i.live_session_id = ?
+                ORDER BY v.id
+                """,
+            ),
+            (*base, now, sid),
+        ).rowcount
+        groups = self.conn.execute(
+            """
+            SELECT g.*, i.placement_key, i.item_json
+            FROM live_group_responses g
+            INNER JOIN live_session_items i ON i.id = g.live_item_id
+            WHERE i.live_session_id = ?
+            ORDER BY g.id
+            """,
+            (sid,),
+        ).fetchall()
+        for group in groups:
+
+            def _loads(raw: Any) -> Any:
+                try:
+                    return json.loads(raw) if raw not in (None, "") else None
+                except (TypeError, ValueError):
+                    return raw
+
+            answer = {
+                "status": str(group["status"] or ""),
+                "final": _loads(group["final_answer_json"]),
+                "proposed": _loads(group["proposed_answer_json"]),
+                "why": str(group["why_text"] or ""),
+            }
+            if answer["final"] is None and answer["proposed"] is None and not answer["why"]:
+                continue  # a team that never answered
+            self.conn.execute(
+                """
+                INSERT INTO live_result_snapshots (
+                    live_session_id, class_id, session_code, run_key,
+                    live_module, live_slot, source, question_key, question_json,
+                    student_id, participant_uuid, codename, team_id,
+                    answer_json, awarded_points, answered_at, snapshot_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'group_final', ?, ?, ?, NULL, '', ?, ?, ?, ?, ?)
+                """,
+                (
+                    *base,
+                    f"item:{group['placement_key']}",
+                    str(group["item_json"] or "{}"),
+                    group["finalizer_student_id"],
+                    int(group["team_id"]),
+                    json.dumps(answer),
+                    group["awarded_points"],
+                    group["finalized_at"] or group["updated_at"],
+                    now,
+                ),
+            )
+            written += 1
+        return max(0, written)
+
+    def live_result_snapshot_rows(
+        self, class_id: int, *, live_session_id: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Return saved End-of-class answers for one class, oldest first.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            live_session_id: Optional filter to one session id.
+        """
+        sql = "SELECT * FROM live_result_snapshots WHERE class_id = ?"
+        params: list[Any] = [int(class_id)]
+        if live_session_id is not None:
+            sql += " AND live_session_id = ?"
+            params.append(int(live_session_id))
+        sql += " ORDER BY id"
+        with self._lock:
+            rows = self.conn.execute(sql, params).fetchall()
+        out = []
+        for row in rows:
+            item = dict(row)
+            for key in ("question_json", "answer_json"):
+                try:
+                    item[key.replace("_json", "")] = json.loads(item[key] or "{}")
+                except (TypeError, ValueError):
+                    item[key.replace("_json", "")] = {}
+            out.append(item)
+        return out
+
     def cleanup_live_session_response_data(self, session_id: int) -> None:
-        """Delete ephemeral individual votes, group responses, and board ops."""
+        """Delete ephemeral individual votes, group responses, and board ops.
+
+        Every answer is first copied to ``live_result_snapshots`` in the
+        same transaction (MCK-45), so End leaves a results record.
+        """
 
         self.purge_board_ops(int(session_id))
         with self._lock:
+            if self.conn.in_transaction:
+                self.conn.execute("COMMIT")
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                # A snapshot failure must never block End: roll back just the
+                # snapshot and delete as before.
+                self.conn.execute("SAVEPOINT live_result_snapshot")
+                try:
+                    self._snapshot_live_results_unlocked(int(session_id))
+                except Exception:  # noqa: BLE001
+                    self.conn.execute("ROLLBACK TO live_result_snapshot")
+                    logger.exception(
+                        "live result snapshot failed session=%s", session_id
+                    )
+                self.conn.execute("RELEASE live_result_snapshot")
+                self._delete_live_session_response_rows_unlocked(int(session_id))
+            except BaseException:
+                self.conn.execute("ROLLBACK")
+                raise
+            self.conn.execute("COMMIT")
+
+    def _delete_live_session_response_rows_unlocked(self, session_id: int) -> None:
+        """Delete votes, group rows, and prompt responses for one session.
+
+        Caller holds ``self._lock`` and an open transaction.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        with self._lock:  # re-entrant; the caller already holds it
             item_rows = self.conn.execute(
                 """
                 SELECT id FROM live_session_items
@@ -22939,7 +23197,6 @@ class SchoolDB(LovesDB):
                 """,
                 (int(session_id),),
             )
-            self.conn.commit()
 
     def invalidate_live_session_code(self, session_id: int) -> dict[str, Any] | None:
         """Mark a session ended so its code is no longer joinable.
