@@ -106,6 +106,27 @@ export function boardWriteRejected(status, data) {
 }
 
 /**
+ * True when a board write came back signed out (MCK-75).
+ *
+ * The login gate answers 302 (or 401 for the visit-token gate). ``fetch``
+ * follows the redirect by default, so a followed 302 shows up as
+ * ``redirected`` with the login page's status, and ``redirect: "manual"``
+ * shows up as ``opaqueredirect``. Every form means: stop posting ink.
+ * @param {{status?: number, redirected?: boolean, type?: string} | null | undefined} res
+ * @returns {boolean}
+ */
+export function boardAuthLost(res) {
+  if (!res || typeof res !== "object") return false;
+  const status = Number(res.status) || 0;
+  return (
+    status === 302 ||
+    status === 401 ||
+    Boolean(res.redirected) ||
+    res.type === "opaqueredirect"
+  );
+}
+
+/**
  * One calm line. Not an alert and not an error dialog.
  * @param {HTMLElement | null | undefined} anchor
  */
