@@ -678,6 +678,17 @@ body.student-home.is-live .student-live-response {
   line-height: 1.4;
 }
 
+/* MCK-27 L2: answer typed but not sent when the card closed. */
+.student-live-unsent {
+  margin: 0 0 0.6rem;
+  padding: 0.35rem 0.5rem;
+  border-left: 3px solid #f0b429;
+  color: #f5d48a;
+  font-size: 0.69rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .student-live-card-head {
   display: flex;
   flex-wrap: wrap;

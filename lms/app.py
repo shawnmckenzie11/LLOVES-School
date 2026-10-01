@@ -4659,6 +4659,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         )
         pid = str((ctx or {}).get("participant_uuid") or "")
         unmatched = bool((ctx or {}).get("unmatched")) or student_id in (None, "")
+        # Opt-in 0:00 close on the server clock, before the unchanged
+        # short-circuit so the new stamp reaches this poll (MCK-27 M1).
+        school.close_answers_if_timer_due(live_session_id)
         try:
             unchanged = school.student_live_poll_unchanged(
                 live_session_id,
@@ -5397,6 +5400,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "true",
             "yes",
         }
+        # Opt-in 0:00 close on the server clock (MCK-27), throttled.
+        school.close_answers_if_timer_due(session_id)
         try:
             state = school.get_live_session_state(session_id, light=light)
         except PollBudgetExceeded:
@@ -6069,23 +6074,24 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         if error is not None:
             return error
         try:
+            # The close publishes its own news (same postcards as Close).
             closed = school.close_answers_if_timer_expired(session_id)
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
-        if closed:
-            seq = teacher_state_seq(school, session_id)
-            emit_session_news(
-                school,
-                session_id,
-                [
-                    {"type": "state_seq", "state_seq": seq},
-                    flag_work_event("close", seq),
-                ],
-            )
+        flag, class_id = school._timer_closes_answers_on(session_id)
+        due_in_ms = (
+            school.session_timer_due_in_ms(class_id)
+            if flag and class_id is not None
+            else None
+        )
         return jsonify(
             {
                 "ok": True,
                 "closed": closed,
+                # Server clock: ms until 0:00, 0 once passed, null when the
+                # switch is off or the clock is paused/idle. The teacher tab
+                # retries on this, not on its own clock (MCK-27 M2).
+                "due_in_ms": due_in_ms,
                 "active_questions": school.list_active_live_questions(session_id),
             }
         )

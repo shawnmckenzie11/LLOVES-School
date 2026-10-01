@@ -7528,16 +7528,21 @@ function paintSessionClock() {
 
 /** Deadline (epoch ms) already sent to ``timer-expired``. */
 let timerCloseSentFor = 0;
-/** Calls made for ``timerCloseSentFor``; capped so 0:00 never spams. */
+/** Calls made for ``timerCloseSentFor``; a safety cap so 0:00 never spams. */
 let timerCloseTries = 0;
-const TIMER_CLOSE_MAX_TRIES = 3;
+const TIMER_CLOSE_MAX_TRIES = 12;
 let timerCloseInFlight = false;
 let timerCloseDone = false;
+/** ``Date.now()`` before which clock ticks do not call again. */
+let timerCloseNextAt = 0;
 
 /**
  * Opt-in "Close answers at 0:00" (MCK-27). Ask the server to close open
  * questions once per deadline. The server re-checks its own clock and the
- * flag, so an early tick closes nothing.
+ * flag, so an early tick closes nothing. When nothing closed, the server's
+ * ``due_in_ms`` says when to ask again, so a fast or slow teacher clock
+ * still lands the close (M2). The server also closes on its own from the
+ * state polls; this call just makes the teacher board flip at once.
  * @param {number} deadlineMs
  */
 async function closeAnswersAtZero(deadlineMs) {
@@ -7545,31 +7550,39 @@ async function closeAnswersAtZero(deadlineMs) {
   if (timerCloseSentFor !== deadlineMs) {
     timerCloseSentFor = deadlineMs;
     timerCloseTries = 0;
+    timerCloseDone = false;
+    timerCloseNextAt = 0;
   } else if (timerCloseInFlight || timerCloseDone) {
     return;
   }
+  if (Date.now() < timerCloseNextAt) return;
   if (timerCloseTries >= TIMER_CLOSE_MAX_TRIES) return;
   const sessionId = liveSessionId || readLiveSessionId();
   if (!sessionId) return;
   timerCloseTries += 1;
   timerCloseInFlight = true;
-  timerCloseDone = false;
   try {
     const result = await api(`/api/live-sessions/${sessionId}/timer-expired`, {
       method: "POST",
       body: "{}",
     });
+    const due = Number(result?.due_in_ms);
     if (Array.isArray(result?.closed) && result.closed.length) {
       timerCloseDone = true;
       await refreshLiveQuestionCards();
       await refreshLifecycleResults();
+    } else if (result?.due_in_ms != null && Number.isFinite(due) && due > 0) {
+      // The server's 0:00 is still ahead (teacher clock runs fast).
+      timerCloseNextAt = Date.now() + Math.min(due, 60000) + 250;
     } else {
-      // Nothing open, or the server clock is a beat behind. Allow a
-      // capped retry two seconds later.
-      await new Promise((resolve) => window.setTimeout(resolve, 2000));
+      // Past 0:00 on the server with nothing left (a poll may have closed
+      // it already), or the switch is off or the clock paused. Stop and
+      // repaint so the board matches the server.
+      timerCloseDone = true;
+      await refreshLiveQuestionCards();
     }
   } catch (_) {
-    await new Promise((resolve) => window.setTimeout(resolve, 2000));
+    timerCloseNextAt = Date.now() + 2000;
   } finally {
     timerCloseInFlight = false;
   }
