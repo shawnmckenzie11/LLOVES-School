@@ -31,9 +31,10 @@ PUBLIC_BOARD_TTL_SECONDS = 60.0
 # Every user-visible celebrations string. Wonder replaces these placeholders.
 WONDER_COPY: dict[str, str] = {
     "page_title": "Celebrations",  # Wonder copy slot
-    "empty_board": "Coming soon — the shout-outs are warming up.",  # Wonder copy slot
-    "coming_soon_line": "Coming soon — the shout-outs are warming up.",  # Wonder copy slot
-    "coming_soon_sub": "Good work deserves a spotlight; we’re still setting the lights.",  # Wonder copy slot
+    # MCK-78 Wonder copy for the three keys #178 kept. Copy pending Shawn.
+    "empty_board": "No shout-outs yet. The first one's up for grabs.",  # Wonder copy slot
+    "coming_soon_line": "Shout-outs are on their way.",  # Wonder copy slot
+    "coming_soon_sub": "Good work deserves a spotlight. We're still setting up the lights.",  # Wonder copy slot
     "award_title": "Shoutout",  # Wonder copy slot
     "engaged_title": "Most Engaged",  # Wonder copy slot
 }
