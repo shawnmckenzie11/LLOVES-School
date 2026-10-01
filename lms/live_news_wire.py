@@ -834,10 +834,16 @@ def live_news_response(
             mimetype="text/event-stream",
             headers=_sse_headers(),
         )
-    after_id = parse_last_event_id(last_event_header, last_event_arg)
-    hello_seq = teacher_state_seq(school, int(session_id))
-    hold_s = STREAM_HOLD_TESTING_S if testing else STREAM_HOLD_S
-    log = log_for(school.data_dir)
+    try:
+        after_id = parse_last_event_id(last_event_header, last_event_arg)
+        hello_seq = teacher_state_seq(school, int(session_id))
+        hold_s = STREAM_HOLD_TESTING_S if testing else STREAM_HOLD_S
+        log = log_for(school.data_dir)
+    except BaseException:
+        # A tape that won't open (after its bounded wait) must not keep
+        # this worker's stream slot until restart.
+        _release_stream()
+        raise
 
     def generate() -> Iterator[str]:
         """Yield frames and always return the thread slot."""
