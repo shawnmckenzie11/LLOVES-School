@@ -23793,6 +23793,8 @@ class SchoolDB(LovesDB):
         except KeyError:
             payload = {"stage": "play"}
         payload["celebrate"] = True
+        # MCK-108: a new seq so open student tabs drop their pre-End stamp.
+        payload["state_seq"] = int(payload.get("state_seq") or 0) + 1
         snap = winner if isinstance(winner, dict) else self.snapshot_live_winner(int(class_id))
         name = str((snap or {}).get("name") or "").strip() or "Class"
         payload["winner"] = {
@@ -24329,6 +24331,11 @@ class SchoolDB(LovesDB):
         Board ink is not in this stamp. A stroke or text edit must leave
         it unchanged.
 
+        The session status and the celebrate flag are in the stamp too
+        (MCK-108). End Live Class flips both, so a tab that still sends its
+        pre-End seq and stamp can never get the unchanged short-circuit
+        and miss the celebration, even if ``state_seq`` was not bumped.
+
         Args:
             session_id: ``live_class_sessions.id``.
             class_id: Game-show class id (accepted for call-site clarity).
@@ -24336,7 +24343,12 @@ class SchoolDB(LovesDB):
         del class_id
         teacher = self.live_session_teacher_state_payload(session_id)
         seq = int(teacher.get("state_seq") or 0)
+        celebrate = 1 if teacher.get("celebrate") else 0
         with self._lock:
+            status_row = self.conn.execute(
+                "SELECT status FROM live_class_sessions WHERE id = ?",
+                (int(session_id),),
+            ).fetchone()
             row = self.conn.execute(
                 """
                 SELECT
@@ -24423,12 +24435,13 @@ class SchoolDB(LovesDB):
         response_max = int(row["response_max"] if row is not None else 0)
         group_vote_max = int(row["group_vote_max"] if row is not None else 0)
         group_vote_rev = str(row["group_vote_rev"] if row is not None else "")
+        status = str(status_row["status"] if status_row is not None else "")
         # Ink lives in board_ops. It must not change this stamp, or every
         # stroke forces a full ``/state`` rebuild.
         return (
             f"{seq}:{prompt_max}:{prompt_active}:{active_n}:{item_n}:{save_n}:"
             f"{item_max}:{response_max}:{group_vote_max}:{event_max}:"
-            f"{prompt_rev}:{item_rev}:{group_vote_rev}"
+            f"{prompt_rev}:{item_rev}:{group_vote_rev}:{status}:{celebrate}"
         )
 
     def _student_live_poll_is_open(self, session_id: int) -> bool:

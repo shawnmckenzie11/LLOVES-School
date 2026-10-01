@@ -2013,6 +2013,80 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn(gone_body.get("status"), {"ended", "waiting"})
         self.assertFalse(gone_body.get("celebrate"))
 
+    def test_end_reaches_tab_polling_with_pre_end_seq_and_stamp(self) -> None:
+        """MCK-108: an open tab's pre-End seq+stamp must not hide the celebration.
+
+        No answers are stored, so End's response cleanup cannot change the
+        stamp by accident (the Ops wave case: last teacher patch 30 s
+        before End, no fresh responses).
+        """
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        sid = int(live["id"])
+        student_id = self._aspen_id()
+        self.school.join_live_class_session(sid, student_id, codename="Aspen")
+        self._bind_aspen_live_session(sid, student_id)
+        full = self.client.get("/api/student/state").get_json()
+        seq = full.get("state_seq")
+        stamp = full.get("stamp")
+        self.assertTrue(stamp, full)
+        steady = self.client.get(
+            "/api/student/state", query_string={"seq": seq, "stamp": stamp}
+        ).get_json()
+        self.assertTrue(steady.get("unchanged"), steady)
+        ended = self.client.post(
+            f"/staff/class/{self.class_id}/end-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(ended.status_code, 302)
+        after = self.client.get(
+            "/api/student/state", query_string={"seq": seq, "stamp": stamp}
+        ).get_json()
+        self.assertFalse(after.get("unchanged"), after)
+        self.assertTrue(after.get("celebrate"), after)
+        self.assertNotEqual(after.get("stamp"), stamp)
+        # Once the tab has the celebrate body, its new seq+stamp may short-circuit.
+        again = self.client.get(
+            "/api/student/state",
+            query_string={"seq": after.get("state_seq"), "stamp": after.get("stamp")},
+        ).get_json()
+        self.assertTrue(again.get("unchanged") or again.get("celebrate"), again)
+
+    def test_stamp_tracks_session_status_and_celebrate(self) -> None:
+        """MCK-108 braces: End changes the stamp even without a seq bump."""
+        sid, student_id = self._open_live_with_aspen_answers()
+        before = self.school.live_student_poll_stamp(sid, self.class_id)
+        state = self.school.live_session_teacher_state_payload(sid)
+        seq = state.get("state_seq")
+        state["celebrate"] = True
+        self.school._write_teacher_state(sid, state)
+        with self.school._lock:
+            self.school.conn.execute(
+                "UPDATE live_class_sessions SET status = 'ended' WHERE id = ?",
+                (sid,),
+            )
+            self.school.conn.commit()
+        self.assertEqual(
+            self.school.live_session_teacher_state_payload(sid).get("state_seq"), seq
+        )
+        after = self.school.live_student_poll_stamp(sid, self.class_id)
+        self.assertNotEqual(after, before)
+        self.assertIsNone(
+            self.school.student_live_poll_unchanged(
+                sid, self.class_id, seq or 0, before
+            )
+        )
+
+    def test_end_bumps_state_seq(self) -> None:
+        """MCK-108: close_live_class_for_celebration bumps state_seq."""
+        sid, _student_id = self._open_live_with_aspen_answers()
+        seq = int(self.school.live_session_teacher_state_payload(sid).get("state_seq") or 0)
+        self.school.close_live_class_for_celebration(self.class_id)
+        after = self.school.live_session_teacher_state_payload(sid)
+        self.assertTrue(after.get("celebrate"))
+        self.assertEqual(int(after.get("state_seq") or 0), seq + 1)
+
     def test_end_then_quit_closes_student_celebration(self) -> None:
         """Quit after End Live drops celebration and unsubmitted How-was-class."""
         sid, student_id = self._open_live_with_aspen_answers()
