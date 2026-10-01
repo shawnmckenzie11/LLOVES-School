@@ -531,6 +531,25 @@ class NumericTallyTests(unittest.TestCase):
         self.assertEqual(len(set(labels)), len(labels), "duplicate-looking bars")
         self.assertTrue(all("~" not in str(row["id"]) for row in tally["choices"]))
 
+    def test_key_finer_than_six_places_labels_bars_at_full_precision(self) -> None:
+        """Ops LOW on 54fdc0e: key 1e-7 read "0 ✓" and an exact 0 read "≈0 ✗"."""
+        tally = build_numeric_tally(
+            self._prompt(integer_only=False, correct_answer="0.0000001"),
+            responses=self._answers(1e-7, 1.1e-7, 0),
+            present=3,
+        )
+        assert tally is not None
+        rows = [(row["label"], row["count"], row["correct"]) for row in tally["choices"]]
+        self.assertEqual(
+            rows,
+            [
+                ("0", 1, False),
+                ("0.0000001", 1, True),
+                ("0.00000011", 1, False),
+            ],
+        )
+        self.assertTrue(all("\u2248" not in label for label, _c, _ok in rows))
+
     def test_bar_of_only_wrong_answers_still_rounds(self) -> None:
         """Wrong answers keep sharing a rounded bar when no right one is there."""
         tally = build_numeric_tally(

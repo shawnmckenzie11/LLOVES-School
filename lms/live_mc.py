@@ -469,11 +469,28 @@ def build_numeric_tally(
     right_labels = {label for label, _n, ok in entries if ok}
     wrong_labels = {label for label, _n, ok in entries if not ok}
     mixed = right_labels & wrong_labels
+    # A key finer than six places (e.g. 1e-7) buckets into a bar that
+    # prints as something else ("0"). Label its ✓ bar with the key at full
+    # precision, and wrong answers in that bar at full precision too, so
+    # the bars don't read "0 ✓" and "≈0 ✗" (MCK-83).
+    key_label: str | None = None
+    if expected is not None and not integer_only:
+        full_key = _numeric_full_label(float(expected))
+        if _numeric_exact_label(float(expected)) != full_key:
+            key_label = full_key
     bars: dict[str, dict[str, Any]] = {}
     for label, number, ok in entries:
         bar_label = label
         value = float(label)
-        if label in mixed and not ok:
+        if ok and key_label is not None:
+            bar_label = key_label
+            value = float(expected)
+        elif label in mixed and not ok and key_label is not None:
+            bar_label = _numeric_full_label(number)
+            if bar_label == key_label:
+                bar_label = f"\u2248{key_label}"
+            value = float(number)
+        elif label in mixed and not ok:
             # Its own bar, labelled with enough digits to differ from the
             # correct bar. The id is the label, so the student reveal and
             # the class-results card (keyed by label) keep them apart.
