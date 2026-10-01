@@ -6158,6 +6158,19 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return _json_error(exc)
         return jsonify({"ok": True, **result})
 
+    def _without_response_names(rows: list[Any]) -> list[Any]:
+        """Response rows with names and characters blanked (Hide names).
+
+        Args:
+            rows: ``live_prompt_response_roster`` rows.
+        """
+        out = []
+        for row in rows:
+            if isinstance(row, dict):
+                row = {**row, "name": "", "character": None}
+            out.append(row)
+        return out
+
     @app.route(
         "/api/live-sessions/<int:session_id>/questions/<int:prompt_id>/responses",
         methods=["GET", "POST"],
@@ -6178,7 +6191,16 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 responses = school.live_prompt_response_roster(
                     session_id, prompt_id
                 )
-                return jsonify({"ok": True, "responses": responses})
+                if str(request.args.get("hide_names") or "") == "1":
+                    responses = _without_response_names(responses)
+                # Hide-names labels stay fixed per run (MCK-111).
+                return jsonify(
+                    {
+                        "ok": True,
+                        "responses": responses,
+                        "run_key": session_row.get("run_key"),
+                    }
+                )
             body = request.get_json(silent=True) or {}
             result = school.award_live_prompt_points(
                 session_id,
@@ -6192,6 +6214,13 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             )
         except (KeyError, TypeError, ValueError) as exc:
             return _json_error(exc)
+        if body.get("hide_names") is True and isinstance(
+            result.get("responses"), list
+        ):
+            result = {
+                **result,
+                "responses": _without_response_names(result["responses"]),
+            }
         return jsonify({"ok": True, **result})
 
     @app.route(

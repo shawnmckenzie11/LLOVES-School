@@ -79,6 +79,9 @@ const HIDE_NAMES_KEY = "lloves-hide-names";
 let hideResponseNames = localStorage.getItem(HIDE_NAMES_KEY) === "1";
 /** Last rows painted, so the switch can repaint without a fetch. */
 let lastResponseRows = [];
+/** Stable Hide-names labels for the open run (MCK-111). */
+let responseLabelBook = null;
+const HIDE_LABELS_KEY = `lloves-hide-labels-${classId}`;
 const STUDENT_AMOUNTS = [1, 5, 10, -1];
 const TEAM_AMOUNTS = [1, 5, 10];
 const TEAM_RULES = [
@@ -3971,17 +3974,147 @@ function responseRowLabel(row, ordinal, hidden) {
 }
 
 /**
- * Render response rows in the same alphabetical/team order as Class list.
- * @param {any[]} responses
+ * 32-bit FNV-1a of ``seed:id``. Orders new students for numbering.
+ * @param {string} seed
+ * @param {number} id
+ * @returns {number}
  */
-function paintQuestionResponses(responses) {
+function hiddenLabelHash(seed, id) {
+  let hash = 0x811c9dc5;
+  const text = `${seed}:${id}`;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash >>> 0;
+}
+
+/**
+ * Empty label book for one run.
+ * @param {string} run
+ * @param {string} [seed]
+ * @returns {{run: string, seed: string, next: number, byStudent: Record<string, number>}}
+ */
+function newHiddenLabelBook(run, seed) {
+  const fresh =
+    seed ||
+    (globalThis.crypto?.getRandomValues
+      ? String(globalThis.crypto.getRandomValues(new Uint32Array(1))[0])
+      : String(Math.floor(Math.random() * 2 ** 32)));
+  return { run: String(run || ""), seed: fresh, next: 1, byStudent: {} };
+}
+
+/**
+ * Give each student without a label the next number.
+ *
+ * A label never changes for the run, so "Student 4" stays one student
+ * across reopens and late joins. New students in one batch are numbered
+ * in a seeded shuffle, not A-Z, so the labels cannot be read off the
+ * Class List order.
+ * @param {{seed: string, next: number, byStudent: Record<string, number>}} book
+ * @param {number[]} studentIds
+ * @returns {boolean} True when a label was added.
+ */
+function assignHiddenLabels(book, studentIds) {
+  const fresh = [...new Set(studentIds.map(Number))].filter(
+    (id) => Number.isFinite(id) && book.byStudent[String(id)] == null
+  );
+  if (!fresh.length) return false;
+  fresh.sort(
+    (a, b) => hiddenLabelHash(book.seed, a) - hiddenLabelHash(book.seed, b) || a - b
+  );
+  for (const id of fresh) {
+    book.byStudent[String(id)] = book.next;
+    book.next += 1;
+  }
+  return true;
+}
+
+/**
+ * Label book for this run from localStorage, or a new one.
+ * @param {string} run ``run_key`` from the responses reply.
+ */
+function loadHiddenLabelBook(run) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(HIDE_LABELS_KEY) || "null");
+    if (
+      saved &&
+      saved.run === String(run || "") &&
+      saved.byStudent &&
+      typeof saved.byStudent === "object"
+    ) {
+      return saved;
+    }
+  } catch (_) {
+    /* a bad blob starts a new book */
+  }
+  return newHiddenLabelBook(run);
+}
+
+/**
+ * Keep the labels for reloads and other tabs.
+ * @param {any} book
+ */
+function saveHiddenLabelBook(book) {
+  try {
+    localStorage.setItem(HIDE_LABELS_KEY, JSON.stringify(book));
+  } catch (_) {
+    /* private mode: labels last for this page only */
+  }
+}
+
+/**
+ * Checkbox state in the list now, so a repaint keeps unsaved ticks.
+ * @param {Element} host
+ * @returns {Map<number, boolean>}
+ */
+function currentResponseTicks(host) {
+  const ticks = new Map();
+  host.querySelectorAll("[data-response-student]").forEach((input) => {
+    ticks.set(Number(input.getAttribute("data-response-student")), Boolean(input.checked));
+  });
+  return ticks;
+}
+
+/**
+ * Blur the Class List behind the dialog while names are hidden.
+ */
+function syncHiddenNamesBackdrop() {
+  const dialog = $("live-responses-dialog");
+  const open = Boolean(dialog && dialog.open);
+  document.body?.classList.toggle("is-response-names-hidden", hideResponseNames && open);
+}
+
+/**
+ * Render response rows in the same alphabetical/team order as Class list.
+ *
+ * With Hide names on, each student keeps one label for the run and rows
+ * sort by label inside each team, so row order does not follow A-Z.
+ * @param {any[]} responses
+ * @param {boolean} [keepTicks] Keep the checkboxes as they are now.
+ */
+function paintQuestionResponses(responses, keepTicks) {
   const host = $("live-responses-list");
   if (!host) return;
   const rows = Array.isArray(responses) ? responses : [];
   lastResponseRows = rows;
   const hidden = hideResponseNames;
   host.classList.toggle("is-names-hidden", hidden);
-  let studentOrdinal = 0;
+  const ticks = keepTicks ? currentResponseTicks(host) : null;
+  const book = hidden ? responseLabelBook || newHiddenLabelBook("") : null;
+  if (book) {
+    responseLabelBook = book;
+    const ids = rows
+      .filter((row) => row.student_id != null)
+      .map((row) => Number(row.student_id));
+    if (assignHiddenLabels(book, ids)) saveHiddenLabelBook(book);
+  }
+  const labelOf = (row) => Number(book?.byStudent[String(Number(row.student_id))] || 0);
+  const isTicked = (row) => {
+    const id = Number(row.student_id);
+    if (ticks && ticks.has(id)) return ticks.get(id);
+    return Boolean(Number(row.awarded_points || 0));
+  };
   let guestOrdinal = 0;
   const byStudent = new Map(
     rows
@@ -3994,6 +4127,7 @@ function paintQuestionResponses(responses) {
     const groupRows = group.students
       .map((student) => byStudent.get(Number(student.id)))
       .filter(Boolean);
+    if (hidden) groupRows.sort((a, b) => labelOf(a) - labelOf(b));
     if (!groupRows.length) continue;
     if (group.name) {
       chunks.push(
@@ -4004,9 +4138,9 @@ function paintQuestionResponses(responses) {
       ...groupRows.map(
         (row) => `<label class="live-response-row">
           <input type="checkbox" data-response-student="${Number(row.student_id)}"${
-            Number(row.awarded_points || 0) ? " checked" : ""
+            isTicked(row) ? " checked" : ""
           }>
-          <span class="live-response-name">${escapeHtml(responseRowLabel(row, ++studentOrdinal, hidden))}</span>
+          <span class="live-response-name">${escapeHtml(responseRowLabel(row, labelOf(row), hidden))}</span>
           <span class="live-response-answer">${escapeHtml(row.answer || "—")}</span>
           <span class="live-response-mark">${row.correct === true ? "Correct" : row.correct === false ? "Incorrect" : "Answered"}</span>
           <span class="live-response-points">${row.awarded_points ? `+${escapeHtml(row.awarded_points)}` : ""}</span>
@@ -4068,10 +4202,9 @@ function liveQuestionHasSingularKey(card) {
 async function openQuestionResponses(promptId, title, questionType, hasAnswerKey) {
   const sessionId = liveSessionId || readLiveSessionId();
   if (!sessionId || !promptId) return;
-  const result = await api(
-    `/api/live-sessions/${sessionId}/questions/${promptId}/responses`
-  );
+  const result = await api(responsesUrl(sessionId, promptId, hideResponseNames));
   openResponsePromptId = promptId;
+  responseLabelBook = loadHiddenLabelBook(result.run_key || `session-${sessionId}`);
   const heading = $("live-responses-title");
   if (heading) heading.textContent = title || "Responses";
   paintQuestionResponses(result.responses);
@@ -4089,6 +4222,53 @@ async function openQuestionResponses(promptId, title, questionType, hasAnswerKey
       : "Polls and numeric questions have no answer key.";
   }
   if (dialog instanceof HTMLDialogElement && !dialog.open) dialog.showModal();
+  syncHiddenNamesBackdrop();
+}
+
+/**
+ * Responses URL. ``hide_names=1`` asks the server to leave names out.
+ * @param {number} sessionId
+ * @param {number} promptId
+ * @param {boolean} hidden
+ * @returns {string}
+ */
+function responsesUrl(sessionId, promptId, hidden) {
+  const base = `/api/live-sessions/${sessionId}/questions/${promptId}/responses`;
+  return hidden ? `${base}?hide_names=1` : base;
+}
+
+/**
+ * Turn Hide names on or off and repaint the open list, keeping ticks.
+ *
+ * Turning it off refetches, because the hidden reply has no names.
+ * @param {boolean} on
+ * @param {{store?: boolean}} [options] ``store`` writes localStorage.
+ */
+async function setHideResponseNames(on, options = {}) {
+  hideResponseNames = Boolean(on);
+  const toggle = $("live-hide-names");
+  if (toggle instanceof HTMLInputElement) toggle.checked = hideResponseNames;
+  if (options.store) {
+    localStorage.setItem(HIDE_NAMES_KEY, hideResponseNames ? "1" : "0");
+  }
+  syncHiddenNamesBackdrop();
+  const dialog = $("live-responses-dialog");
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!hideResponseNames && dialog?.open && openResponsePromptId && sessionId) {
+    try {
+      const result = await api(responsesUrl(sessionId, openResponsePromptId, false));
+      paintQuestionResponses(result.responses, true);
+      return;
+    } catch (_) {
+      /* keep the painted rows; names come back on the next open */
+    }
+  }
+  paintQuestionResponses(
+    hideResponseNames
+      ? lastResponseRows.map((row) => ({ ...row, name: "", character: null }))
+      : lastResponseRows,
+    true
+  );
 }
 
 /**
@@ -9448,11 +9628,18 @@ $("live-question-list")?.addEventListener("click", async (event) => {
   if (toggle instanceof HTMLInputElement) {
     toggle.checked = hideResponseNames;
     toggle.addEventListener("change", () => {
-      hideResponseNames = toggle.checked;
-      localStorage.setItem(HIDE_NAMES_KEY, hideResponseNames ? "1" : "0");
-      paintQuestionResponses(lastResponseRows);
+      void setHideResponseNames(toggle.checked, { store: true });
     });
   }
+  // Another tab flipped the switch: follow it here too.
+  window.addEventListener("storage", (event) => {
+    if (event.key !== HIDE_NAMES_KEY) return;
+    const on = event.newValue === "1";
+    if (on !== hideResponseNames) void setHideResponseNames(on);
+  });
+  $("live-responses-dialog")?.addEventListener("close", () => {
+    syncHiddenNamesBackdrop();
+  });
 }
 
 $("live-responses-dialog")?.addEventListener("click", async (event) => {
@@ -9479,6 +9666,7 @@ $("live-responses-dialog")?.addEventListener("click", async (event) => {
           student_ids: studentIds,
           amount: 1,
           replace: true,
+          hide_names: hideResponseNames,
         }),
       }
     );

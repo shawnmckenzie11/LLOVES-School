@@ -44,8 +44,12 @@ const host = {
 };
 const ctx = {
   host,
+  Math,
   hideResponseNames: input.hidden,
   lastResponseRows: [],
+  responseLabelBook: null,
+  HIDE_LABELS_KEY: "k",
+  localStorage: { setItem() {}, getItem() { return null; } },
   $: (id) => (id === "live-responses-list" ? host : null),
   escapeHtml: (s) => String(s),
   projectedClassListStudents: () => input.roster,
@@ -75,7 +79,15 @@ class HideNamesTests(unittest.TestCase):
         js = STAFF_JS.read_text(encoding="utf-8")
         src = "\n".join(
             _function_source(js, name)
-            for name in ("responseRowLabel", "paintQuestionResponses")
+            for name in (
+                "responseRowLabel",
+                "hiddenLabelHash",
+                "newHiddenLabelBook",
+                "assignHiddenLabels",
+                "saveHiddenLabelBook",
+                "currentResponseTicks",
+                "paintQuestionResponses",
+            )
         )
         done = subprocess.run(
             ["node", "-e", HARNESS],
@@ -100,7 +112,9 @@ class HideNamesTests(unittest.TestCase):
         """Switch on: no names in the markup; answers and checkboxes stay."""
         out = self._paint(True)
         self.assertEqual(out["names"], ["Student 1", "Student 2", "Guest 1"])
-        self.assertEqual(out["answers"], ["A", "B", "C"])
+        # MCK-111: rows sort by a shuffled, stable label, not A-Z.
+        self.assertEqual(sorted(out["answers"][:2]), ["A", "B"])
+        self.assertEqual(out["answers"][2], "C")
         self.assertEqual(out["boxes"], 2)
         self.assertTrue(out["hiddenClass"])
 
@@ -114,7 +128,7 @@ class HideNamesTests(unittest.TestCase):
         js = STAFF_JS.read_text(encoding="utf-8")
         self.assertIn('localStorage.getItem(HIDE_NAMES_KEY) === "1"', js)
         self.assertIn("localStorage.setItem(HIDE_NAMES_KEY", js)
-        self.assertIn("paintQuestionResponses(lastResponseRows)", js)
+        self.assertIn("setHideResponseNames(toggle.checked, { store: true })", js)
 
 
 if __name__ == "__main__":
