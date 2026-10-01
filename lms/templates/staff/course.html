@@ -1071,6 +1071,7 @@
           <div class="row-actions ap-toolbar">
             <button type="button" class="secondary" id="part-clear">Clear</button>
             <button type="button" class="secondary" id="sort-toggle">Sort: A–Z</button>
+            <a class="btn secondary" id="export-results-csv" href="{{ url_for('staff_class_results_csv', class_id=cls.id) }}" download>Export results (CSV)</a>
             <label class="field ap-view-field" for="round-view-select">
               <span class="ap-view-label">Class Data View</span>
               <select id="round-view-select" aria-label="Class Data View">
