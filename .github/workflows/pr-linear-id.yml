@@ -1,0 +1,27 @@
+name: Require Linear ID
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check-linear-id:
+    runs-on: ubuntu-latest
+    env:
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+    steps:
+      - name: Require an MCK Linear ID
+        shell: bash
+        run: |
+          set -euo pipefail
+          if printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY" | grep -qE 'MCK-[0-9]+'; then
+            echo "Found a Linear ID in the pull request title or body."
+          else
+            echo '::error::The pull request title or body must contain a Linear ID matching MCK-[0-9]+.'
+            exit 1
+          fi
