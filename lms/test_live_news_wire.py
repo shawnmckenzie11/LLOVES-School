@@ -212,6 +212,49 @@ class LiveNewsRouteTests(unittest.TestCase):
         self.assertIn("event: hello", resumed)
         self.assertNotIn('"stage":"teams"', resumed)
 
+    def test_student_join_taps_staff_wire_so_class_list_updates(self) -> None:
+        """A join writes a staff-only postcard; staff /state then lists them.
+
+        Since the staff tab polls ``/state`` only every 20s, the join tap is
+        what makes the ClassList show a new student live.
+        """
+        code = str(self.school.get_live_session(self.session_id)["session_code"])
+        student = self.app.test_client()
+        joined = student.post(
+            "/auth/student-code", json={"code": code, "name": "Aspen"}
+        )
+        self.assertLess(joined.status_code, 400, joined.get_data(as_text=True))
+        log = LiveNewsLog(news_db_path(self.tmp.name))
+        try:
+            rows = log.since(self.session_id, 0)
+        finally:
+            log.close()
+        taps = [
+            row
+            for row in rows
+            if row["type"] == "flag_work" and row.get("kind") == "join"
+        ]
+        self.assertEqual(len(taps), 1, rows)
+        tap = taps[0]
+        self.assertTrue(event_visible(tap, NewsAudience("staff")))
+        self.assertFalse(
+            event_visible(tap, NewsAudience("student", student_id=1))
+        )
+        self.assertNotIn("codename", tap)
+        stream = self.client.get(f"/api/live/session/{self.session_id}/events")
+        body = stream.get_data(as_text=True)
+        self.assertIn("event: flag_work", body)
+        self.assertIn('"kind":"join"', body)
+        state = self.client.get(
+            f"/api/live-sessions/{self.session_id}/state?light=1"
+        ).get_json()
+        present = [
+            row.get("codename")
+            for row in state.get("attendees") or []
+            if not row.get("left_at")
+        ]
+        self.assertIn("Aspen", present)
+
     def test_shed_is_busy_not_a_reload(self) -> None:
         """A worker at the stream cap returns one busy postcard."""
         for _ in range(STREAMS_PER_WORKER):
