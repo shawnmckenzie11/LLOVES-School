@@ -81,8 +81,9 @@ export function deckSeedHelpText(state = {}) {
  * Pick the chip that should be selected after options load.
  *
  * Use current stays selected when this slot already has a real deck.
- * Otherwise the selection falls back to Previous, even when Previous
- * is also greyed, so the helper can explain the gap.
+ * Otherwise Previous is the fallback when that chip can run. When
+ * Previous is unavailable and Course deck can run, Course deck is
+ * selected so the helper describes the chip that is actually on.
  *
  * @param {{mode?: string, currentAvailable?: boolean, previousAvailable?: boolean, courseDeckCount?: number}} state
  * @returns {"current"|"previous"|"course"}
@@ -96,6 +97,7 @@ export function deckSeedDefaultMode(state = {}) {
   if (requested === "previous" && previousOk) return "previous";
   if (requested === "course" && courseOk) return "course";
   if (currentOk) return "current";
+  if (!previousOk && courseOk) return "course";
   return "previous";
 }
 

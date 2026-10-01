@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import sys
@@ -188,11 +189,8 @@ class CelebrationTests(unittest.TestCase):
         self.assertIn('id="celebrations"', body)
         self.assertIn('href="#celebrations"', body)
         self.assertIn("location.hash === \"#celebrations\"", body)
-        self.assertIn("Coming soon — the shout-outs are warming up.", body)
-        self.assertIn(
-            "Good work deserves a spotlight; we’re still setting the lights.",
-            body,
-        )
+        self.assertIn(WONDER_COPY["coming_soon_line"], body)
+        self.assertIn(WONDER_COPY["coming_soon_sub"], html.unescape(body))
         self.assertNotIn("Coming soon.", body)
         self.assertNotIn(
             "We’ll shout out strong work and engagement here when it’s ready.",
@@ -238,7 +236,7 @@ class CelebrationTests(unittest.TestCase):
         self.assertNotIn("sub_line", payload["copy"])
         self.assertNotIn("footer", payload["copy"])
         page = anon.get("/").get_data(as_text=True)
-        self.assertIn("Coming soon — the shout-outs are warming up.", page)
+        self.assertIn(WONDER_COPY["coming_soon_line"], page)
         self.assertIn('class="calc-coming-soon"', page)
         self.assertIn('class="calc-board"', page)
         self.assertNotIn("data-card=", page)
@@ -440,7 +438,7 @@ class CelebrationTests(unittest.TestCase):
         self.assertIn("/#celebrations", home)
 
         page = self.app.test_client().get("/").get_data(as_text=True)
-        self.assertIn("Coming soon — the shout-outs are warming up.", page)
+        self.assertIn(WONDER_COPY["coming_soon_line"], page)
         self.assertIn('class="calc-sparkle-dot"', page)
         self.assertNotIn("data-card=", page)
         self.assertNotIn("Kept the warm-up moving.", page)
