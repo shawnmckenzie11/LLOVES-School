@@ -2654,6 +2654,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     "error": "End the live class before editing the roster.",
                 }
             ), 409
+        before = school.class_roster_pairs(class_id)
         try:
             dash = school.game.replace_codename_roster(
                 class_id,
@@ -2664,6 +2665,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": str(exc)}), 400
         except KeyError:
             abort(404)
+        # Match id and name: a new student can reuse a removed id.
+        removed = before - school.class_roster_pairs(class_id)
+        school.delete_student_live_result_snapshots(
+            class_id, [sid for sid, _ in removed]
+        )
         dash["class"] = school.enrich_class(dash["class"])
         return jsonify({"ok": True, "class": dash["class"], "students": dash.get("students")})
 
@@ -8117,11 +8123,14 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
         def run(body):
             """Apply one staff JSON mutation for this class."""
+            student_id = int(body.get("student_id") or 0)
             dash = school.game.delete_student(
                 class_id,
-                int(body.get("student_id") or 0),
+                student_id,
                 sort=str(body.get("sort") or "az"),
             )
+            # Saved End-of-class answers carry the name; drop them too.
+            school.delete_student_live_result_snapshots(class_id, [student_id])
             dash["class"] = school.enrich_class(dash["class"])
             return dash
 

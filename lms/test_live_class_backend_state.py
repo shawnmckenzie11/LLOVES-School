@@ -705,8 +705,9 @@ class LiveBackendStateTests(unittest.TestCase):
         self.school.finalize_group_consensus_answer(
             self.session_id, int(group_item["id"]), first_ids[0], {"choice": "A"}
         )
+        run_key = self.school.get_live_session(self.session_id)["run_key"]
         self.school.close_live_class_for_celebration(self.class_id)
-        rows = self.school.live_result_snapshot_rows(self.class_id)
+        rows = self.school.live_result_snapshot_rows(self.class_id, run_key=run_key)
         votes = [row for row in rows if row["source"] == "group_vote"]
         finals = [row for row in rows if row["source"] == "group_final"]
         self.assertEqual(sorted(int(row["student_id"]) for row in votes), sorted(first_ids[:2]))
@@ -724,7 +725,10 @@ class LiveBackendStateTests(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(left, 0)
         self.school.cleanup_live_session_response_data(self.session_id)
-        self.assertEqual(len(self.school.live_result_snapshot_rows(self.class_id)), len(rows))
+        self.assertEqual(
+            len(self.school.live_result_snapshot_rows(self.class_id, run_key=run_key)),
+            len(rows),
+        )
 
     def test_group_consensus_privacy_tie_finalization_and_award(self) -> None:
         """Votes stay private, ties need a choice, and finalization is atomic."""
