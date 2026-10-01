@@ -642,6 +642,14 @@ CREATE INDEX IF NOT EXISTS idx_live_result_snapshots_class
 CREATE INDEX IF NOT EXISTS idx_live_result_snapshots_session
     ON live_result_snapshots(live_session_id, run_key);
 
+-- Highest teacher state_seq a wiped run reached (MCK-108 follow-up #2).
+-- Quit deletes live_class_sessions rows, so the next Start reads its seq
+-- floor here. scope is 'class:<class_id>' or 'sid:<session_id>'.
+CREATE TABLE IF NOT EXISTS live_seq_floors (
+    scope TEXT PRIMARY KEY,
+    max_seq INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS live_class_feedback (
     id INTEGER PRIMARY KEY,
     class_id INTEGER NOT NULL,
@@ -23358,6 +23366,79 @@ class SchoolDB(LovesDB):
             floor = max(floor, seq)
         return floor
 
+    def _remember_seq_floors_unlocked(self, class_id: int) -> None:
+        """Save each run's highest seq before its rows are deleted.
+
+        Caller holds ``self._lock``. Quit deletes every session row for
+        the class, so ``_live_class_seq_floor`` alone would start the next
+        run at seq 1 and open tabs would drop it.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        rows = self.conn.execute(
+            """
+            SELECT id, teacher_state_json FROM live_class_sessions
+            WHERE class_id = ?
+            """,
+            (int(class_id),),
+        ).fetchall()
+        upserts: list[tuple[str, int]] = []
+        class_floor = 0
+        for row in rows:
+            seq = self._live_class_seq_floor([dict(row)])
+            if seq <= 0:
+                continue
+            class_floor = max(class_floor, seq)
+            upserts.append((f"sid:{int(row['id'])}", seq))
+        if class_floor > 0:
+            upserts.append((f"class:{int(class_id)}", class_floor))
+        for scope, seq in upserts:
+            self.conn.execute(
+                """
+                INSERT INTO live_seq_floors (scope, max_seq) VALUES (?, ?)
+                ON CONFLICT(scope) DO UPDATE
+                SET max_seq = MAX(live_seq_floors.max_seq, excluded.max_seq)
+                """,
+                (scope, int(seq)),
+            )
+
+    def stored_seq_floor(
+        self,
+        *,
+        class_id: int | None = None,
+        session_id: int | None = None,
+    ) -> int:
+        """Highest seq saved for a class or a session id by earlier wipes.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            session_id: ``live_class_sessions.id``. SQLite can hand a
+                wiped id to another class's new row.
+
+        Returns:
+            The larger saved floor, or ``0`` when nothing was saved.
+        """
+        scopes = []
+        if class_id is not None:
+            scopes.append(f"class:{int(class_id)}")
+        if session_id is not None:
+            scopes.append(f"sid:{int(session_id)}")
+        if not scopes:
+            return 0
+        placeholders = ",".join("?" * len(scopes))
+        with self._lock:
+            row = self.conn.execute(
+                f"""
+                SELECT MAX(max_seq) AS seq FROM live_seq_floors
+                WHERE scope IN ({placeholders})
+                """,
+                scopes,
+            ).fetchone()
+        if row is None or row["seq"] is None:
+            return 0
+        return int(row["seq"])
+
     def list_live_sessions_for_class(self, class_id: int) -> list[dict[str, Any]]:
         """Return every live session row for a class (active and ended).
 
@@ -23472,6 +23553,7 @@ class SchoolDB(LovesDB):
                     """,
                     session_ids,
                 )
+            self._remember_seq_floors_unlocked(int(class_id))
             self.conn.execute(
                 "DELETE FROM live_class_sessions WHERE class_id = ?",
                 (int(class_id),),
@@ -24576,7 +24658,10 @@ class SchoolDB(LovesDB):
         # Drop a leftover End-Live celebration SID; keep historical ended rows.
         prior_rows = self.list_live_sessions_for_class(int(class_id))
         # Read before the wipe: SQLite can hand the wiped id to the new row.
-        seq_floor = self._live_class_seq_floor(prior_rows)
+        seq_floor = max(
+            self._live_class_seq_floor(prior_rows),
+            self.stored_seq_floor(class_id=int(class_id)),
+        )
         celebrating = [
             int(row["id"])
             for row in prior_rows
@@ -24611,6 +24696,9 @@ class SchoolDB(LovesDB):
             session_id = int(cur.lastrowid)
         session_row = self.get_live_session(session_id)
         assert session_row is not None
+        # A reused id may carry another run's saved floor and tape.
+        seq_floor = max(seq_floor, self.stored_seq_floor(session_id=session_id))
+        self._purge_session_news(session_id)
         boards = getattr(self, "boards", None)
         if boards is not None:
             boards.forget_closed_runs()
@@ -24633,6 +24721,21 @@ class SchoolDB(LovesDB):
             self._publish_restored_team_lock(session_id)
         return session_row
 
+
+    def _purge_session_news(self, session_id: int) -> None:
+        """Clear LiveNewsWire postcards left on a reused session id.
+
+        A first connect (no ``Last-Event-ID``) reads the whole ring, so
+        an old run's postcards would replay into the new run.
+
+        Args:
+            session_id: ``live_class_sessions.id`` of the new run.
+        """
+        try:
+            from live_news_wire import purge_session_news
+        except Exception:  # noqa: BLE001 — wire is optional at import time
+            return
+        purge_session_news(self.data_dir, int(session_id))
 
     def list_active_live_sessions(self) -> list[dict[str, Any]]:
         """Return enriched active sessions for IT / overlay polling.
