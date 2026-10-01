@@ -23327,6 +23327,33 @@ class SchoolDB(LovesDB):
                 ended.append(result)
         return ended
 
+    @staticmethod
+    def _live_class_seq_floor(rows: list[dict[str, Any]]) -> int:
+        """Highest ``state_seq`` any earlier run of this class reached.
+
+        A new run starts above it. Open student tabs keep the old run's seq
+        and their guard drops a lower one, and the new row can reuse the
+        wiped session id.
+
+        Args:
+            rows: ``live_class_sessions`` rows for one class.
+
+        Returns:
+            The highest seq, or ``0`` when no row has a teacher state.
+        """
+        floor = 0
+        for row in rows:
+            raw = row.get("teacher_state_json")
+            if not raw:
+                continue
+            try:
+                stored = json.loads(raw)
+                seq = int(stored.get("state_seq") or 0)
+            except (TypeError, ValueError, AttributeError):
+                continue
+            floor = max(floor, seq)
+        return floor
+
     def list_live_sessions_for_class(self, class_id: int) -> list[dict[str, Any]]:
         """Return every live session row for a class (active and ended).
 
@@ -24526,9 +24553,12 @@ class SchoolDB(LovesDB):
                 "Use End Live Class to finish it before starting another."
             )
         # Drop a leftover End-Live celebration SID; keep historical ended rows.
+        prior_rows = self.list_live_sessions_for_class(int(class_id))
+        # Read before the wipe: SQLite can hand the wiped id to the new row.
+        seq_floor = self._live_class_seq_floor(prior_rows)
         celebrating = [
             int(row["id"])
-            for row in self.list_live_sessions_for_class(int(class_id))
+            for row in prior_rows
             if self.session_is_celebrating(int(row["id"]))
         ]
         if celebrating:
@@ -24564,7 +24594,11 @@ class SchoolDB(LovesDB):
         if boards is not None:
             boards.forget_closed_runs()
         self._mirror_presence_session(session_row)
-        self._write_teacher_state(session_id, public_teacher_state(None))
+        first_state = public_teacher_state(None)
+        if seq_floor > 0:
+            # Old tabs still hold the last run's seq and drop lower bodies.
+            first_state["state_seq"] = seq_floor + 1
+        self._write_teacher_state(session_id, first_state)
         if live_module is not None or live_slot is not None:
             self.set_live_session_teacher_state(
                 session_id,
