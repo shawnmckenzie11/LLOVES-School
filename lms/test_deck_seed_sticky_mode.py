@@ -149,7 +149,7 @@ window.localStorage = { getItem() { return null; }, setItem() {}, removeItem() {
 globalThis.localStorage = window.localStorage;
 window.sessionStorage = window.localStorage;
 globalThis.sessionStorage = window.localStorage;
-globalThis.navigator = { userAgent: 'node', clipboard: { writeText() {} } };
+Object.defineProperty(globalThis, 'navigator', { value: { userAgent: 'node', clipboard: { writeText() {} } }, configurable: true, writable: true });
 window.setInterval = () => 0;
 window.clearInterval = () => {};
 globalThis.setInterval = window.setInterval;
