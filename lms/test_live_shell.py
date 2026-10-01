@@ -259,7 +259,8 @@ class LiveShellTests(unittest.TestCase):
         ).get_data(as_text=True)
         self.assertIn("Round options", html)
         self.assertIn(">Hide Absent<", html)
-        self.assertIn(">Run as Group<", html)
+        # MCK-112 (Wonder v1): Run as Group reads "Show teams to students".
+        self.assertIn(">Show teams to students<", html)
         self.assertIn(">Rename Teams<", html)
         self.assertIn(">Set Up<", html)
         self.assertIn('id="live-teams-start"', html)
@@ -2699,6 +2700,47 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn("if (isBlankOverlayLivePage()) return [];", body)
         self.assertIn("if (pageIndex > 0 && cardPage > 0) return cardPage === pageIndex", body)
         self.assertIn("if (blankOverlay) return false", body)
+    def test_mck112_s1_no_silent_run_as_group_flips(self) -> None:
+        """MCK-112 S1: per-item choices never flip class-wide Run as Group.
+
+        The Submission click only stores the choice. Publish asks in place
+        ("Show teams and publish" / Cancel, Wonder v1) before it patches
+        run_as_group. A surface choice with no lifecycle row is held
+        client-side instead of writing student_view.
+        """
+
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        click = js.split('const submission = event.target.closest("button[data-submission-value]");')[1]
+        click = click.split("paintLiveQuestionCards();")[0]
+        self.assertNotIn("patchTeacherState({ run_as_group", click)
+        self.assertIn("persistQuestionMode(id, value)", click)
+        publish = js.split("async function publishLifecycleItem(")[1].split(
+            "async function closeLifecycleItem("
+        )[0]
+        confirm_at = publish.index("await confirmGroupPublish(")
+        patch_at = publish.index("patchTeacherState({ run_as_group: true }")
+        self.assertLess(confirm_at, patch_at)
+        self.assertIn("if (!confirmed) return;", publish)
+        self.assertIn("groupModeNeedsTeamsShown(publishMode)", publish)
+        needs = js.split("function groupModeNeedsTeamsShown(")[1].split("}")[0]
+        self.assertIn('"group_submit"', needs)
+        self.assertIn('"group_consensus"', needs)
+        self.assertIn("Show teams and publish", js)
+        self.assertIn(
+            "Students can't see teams yet. Publishing as a group will show team names to the class.",
+            js,
+        )
+        surface = js.split("async function persistSurfacePublishMode(")[1].split(
+            "function patchStudentViewFromControl("
+        )[0]
+        no_row = surface.split("if (!id) {")[1].split("}")[0]
+        self.assertIn("surfaceModeIntent.set(surface, viewMode)", no_row)
+        self.assertNotIn("patchTeacherState", no_row)
+        selection = js.split("function surfacePublishSelection(")[1].split(
+            "function paintStudentViewControls("
+        )[0]
+        self.assertIn("surfaceModeIntent", selection)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3073,6 +3073,24 @@ body.staff-shell .live-submission-choice.is-on {
   border-color: #0f766e;
   background: #ccfbf1;
 }
+/* MCK-112 S1: in-place "Show teams and publish" confirm (replaces Publish). */
+body.staff-shell .live-group-setup-confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+}
+body.staff-shell .live-group-setup-confirm-text {
+  flex: 1 1 100%;
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: #12202e;
+}
+body.staff-shell .live-group-setup-confirm button:focus-visible {
+  outline: 2px solid #f5c518;
+  outline-offset: 2px;
+}
 body.staff-shell .group-status-board {
   list-style: none;
   margin: 0.5rem 0 0;
