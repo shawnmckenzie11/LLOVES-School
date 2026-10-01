@@ -763,8 +763,33 @@ function adoptLifecycleResponseCounts(counts, rankRevs) {
       // Thin group_results paints in place. Do not refreshLifecycleResults on a light tick.
       continue;
     }
+    // Individual questions: light ticks carry only the count. Repaint the
+    // "answered N / M" line in place (MCK-84), like paintGroupResultsInPlace.
+    if (!seen || previous !== n) paintLifecycleProgressInPlace(liveItemId);
   }
   if (refreshGroups) void refreshLifecycleResults();
+}
+
+/**
+ * Patch one individual card's "N / M answered" line without remounting.
+ * Light /state ticks only send ``lifecycle_response_counts``; the full card
+ * paint runs on full ticks. Eligible stays from the last full results.
+ * @param {number} liveItemId
+ */
+function paintLifecycleProgressInPlace(liveItemId) {
+  const host = $("live-question-list");
+  if (!host || !liveItemId) return;
+  const card = host.querySelector(
+    `.live-question-card[data-live-item-id="${liveItemId}"]`
+  );
+  if (!card) return;
+  const progress = card.querySelector(".live-question-progress");
+  if (!progress) return;
+  const result = lifecycleResults.get(liveItemId) || {};
+  const answered = Number(result.response_count ?? result.tally?.responded ?? 0) || 0;
+  const eligible = Number(result.eligible_count ?? result.tally?.present ?? 0) || 0;
+  const text = `${answered} / ${Math.max(eligible, answered)} answered`;
+  if (progress.textContent !== text) progress.textContent = text;
 }
 
 /**
