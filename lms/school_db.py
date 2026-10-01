@@ -12,11 +12,12 @@ import sqlite3
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -825,6 +826,48 @@ def configure_sqlite_connection(conn: sqlite3.Connection) -> sqlite3.Connection:
     return conn
 
 
+@contextmanager
+def boot_schema_lock(db_path: Path | str) -> Iterator[None]:
+    """Run startup DDL in one worker process at a time (MCK-104, MCK-76).
+
+    Gunicorn starts four workers without ``--preload`` and each one builds
+    ``SchoolDB`` on the same sqlite file. Every additive migration is
+    ``PRAGMA table_info`` then ``ALTER TABLE ... ADD COLUMN``, so on a DB
+    that is missing a column two workers can both see it missing and the
+    second ``ALTER`` raises ``duplicate column name`` and kills the worker
+    (Sentry LLOVES-LMS-3 ``run_key``; ``team_names_approved`` in Math Game
+    Show). ``BEGIN IMMEDIATE`` cannot span the whole boot because the
+    ``executescript`` calls and ``commit()`` in the ensure helpers end the
+    transaction, so this holds an exclusive ``flock`` on a sidecar file
+    instead. A later worker waits, then finds every column present and
+    skips the ``ALTER``. Do not nest two of these in one process: ``flock``
+    locks from two opens of the same file block each other.
+
+    Args:
+        db_path: The shared sqlite file. ``:memory:`` takes no lock.
+
+    Yields:
+        ``None`` while the lock is held.
+    """
+    raw = str(db_path)
+    if not raw or raw == ":memory:" or raw.startswith("file:"):
+        yield
+        return
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover - Windows dev box, single process
+        yield
+        return
+    lock_path = Path(raw).with_name(Path(raw).name + ".boot.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "a+b") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def retry_if_db_locked(fn, *, attempts: int = 4, delay_s: float = 0.4):
     """Retry a sqlite write when the class-size poll storm holds the lock.
 
@@ -1175,28 +1218,30 @@ class LovesDB:
             isolation_level=None,
         )
         configure_sqlite_connection(self.conn)
-        self.conn.executescript(SCHEMA)
-        self._ensure_tenant_and_audit_schema()
-        self._ensure_offering_columns()
-        self._ensure_offering_sections()
-        # Section rebuild may recreate course_offerings; re-apply additive columns.
-        self._ensure_offering_columns()
-        self._ensure_tenant_and_audit_schema()
-        self._ensure_offering_archived_column()
-        self._ensure_offering_schedule_columns()
-        self._ensure_library_schema()
-        self._ensure_module_bank_schema()
-        self._ensure_archived_column()
-        self._ensure_gradebook_schema()
-        self._ensure_live_session_schema()
-        self._ensure_live_session_identity_schema()
-        self._ensure_live_item_schema()
-        self._ensure_save_to_card_columns()
-        self._ensure_live_class_feature_schema()
-        self._ensure_access_request_schema()
-        self._seed()
-        self._seed_live_class_features()
-        self.conn.commit()
+        # One worker at a time runs the DDL + seed (MCK-104, MCK-76).
+        with boot_schema_lock(db_path):
+            self.conn.executescript(SCHEMA)
+            self._ensure_tenant_and_audit_schema()
+            self._ensure_offering_columns()
+            self._ensure_offering_sections()
+            # Section rebuild may recreate course_offerings; re-apply additive columns.
+            self._ensure_offering_columns()
+            self._ensure_tenant_and_audit_schema()
+            self._ensure_offering_archived_column()
+            self._ensure_offering_schedule_columns()
+            self._ensure_library_schema()
+            self._ensure_module_bank_schema()
+            self._ensure_archived_column()
+            self._ensure_gradebook_schema()
+            self._ensure_live_session_schema()
+            self._ensure_live_session_identity_schema()
+            self._ensure_live_item_schema()
+            self._ensure_save_to_card_columns()
+            self._ensure_live_class_feature_schema()
+            self._ensure_access_request_schema()
+            self._seed()
+            self._seed_live_class_features()
+            self.conn.commit()
         self._install_sqlite_board_ops()
         self._attach_live_presence()
 
@@ -5255,7 +5300,11 @@ class SchoolDB(LovesDB):
         # One lock for both connections. Gunicorn threads must not use the
         # shared file at once: a school write and a game write otherwise
         # raise "database is locked" on the live-class polls.
-        self.game = mod.GameShowDB(path, store, lock=self._lock)
+        # GameShowDB.__init__ runs its own ADD COLUMN migrations
+        # (``games.team_names_approved``). Same cross-worker lock, taken
+        # after the school schema lock above was released (MCK-104).
+        with boot_schema_lock(path):
+            self.game = mod.GameShowDB(path, store, lock=self._lock)
         self._artifact_slider_previews: dict[tuple[int, int, int], dict[str, Any]] = {}
         self.data_dir = store
         self._live_metadata_cache: dict[
