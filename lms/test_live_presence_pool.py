@@ -372,6 +372,56 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class _SerializedSqlite:
+    """Share one sqlite connection across test threads, one statement at a time.
+
+    ``sqlite3`` does not support concurrent statements on one connection, even
+    with ``check_same_thread=False``: parallel ``execute``/``fetchall`` calls
+    tear rows (``int(None)``) or raise ``InterfaceError: bad parameter or other
+    API misuse``. In production each gunicorn worker boots ``LovesDB`` with its
+    own connection, so only the Postgres advisory lock is shared. This wrapper
+    keeps the race test about that lock (MCK-74).
+    """
+
+    class _Rows:
+        """Rows already fetched under the lock."""
+
+        def __init__(self, rows: list[Any]) -> None:
+            """Remember fetched rows.
+
+            Args:
+                rows: Result of ``fetchall`` taken while holding the lock.
+            """
+            self._rows = rows
+
+        def fetchall(self) -> list[Any]:
+            """Return the pre-fetched rows."""
+            return list(self._rows)
+
+        def fetchone(self) -> Any:
+            """Return the first pre-fetched row, or ``None``."""
+            return self._rows[0] if self._rows else None
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        """Wrap ``conn``.
+
+        Args:
+            conn: Connection opened with ``check_same_thread=False``.
+        """
+        self._conn = conn
+        self._lock = threading.Lock()
+
+    def execute(self, query: str, params: Any = ()) -> "_SerializedSqlite._Rows":
+        """Run one statement and fetch its rows while holding the lock.
+
+        Args:
+            query: SQL text.
+            params: Bound parameters.
+        """
+        with self._lock:
+            return self._Rows(self._conn.execute(query, params).fetchall())
+
+
 class PresenceBackfillRaceTests(unittest.TestCase):
     """Boot copies one attendee set without crashing on a duplicate token."""
 
@@ -459,12 +509,16 @@ class PresenceBackfillRaceTests(unittest.TestCase):
         db.execute(
             "INSERT INTO live_session_attendees VALUES (5, 1, 9, '', 'tok', 'Aspen', 0, 't', NULL, NULL)"
         )
+        db.commit()
+        shared_db = _SerializedSqlite(db)
         errors: list[BaseException] = []
+        start = threading.Barrier(4)
 
         def copy() -> None:
             """Run the boot copy and remember unexpected errors."""
             try:
-                store.backfill_active(db)
+                start.wait(timeout=5)
+                store.backfill_active(shared_db)
             except Exception as exc:
                 errors.append(exc)
 
