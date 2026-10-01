@@ -1,14 +1,13 @@
 """Staff and public celebration helpers for ``alc.mckenzian.com#celebrations``.
 
-Ranking and the teacher-picked Awards setting live here. The public page
+Ranking and the teacher-picked Shoutout setting live here. The public page
 asks ``public_celebration_board`` for filled cards only.
 
 Cards:
 
-* **Awards** — teacher-picked Codename (school setting)
-* **Most Engaged** — most presents, then participation points
-* **Most Improved** — biggest recent-vs-prior climb (needs four scored classes)
-* **Quietly Cooking** — high attendance, not the points leader
+* **Shoutout** — teacher-picked Codename (school setting)
+* **Most Engaged** — one card per class in ``ENGAGED_COURSES``: most
+  presents, then participation points; ties list every tied student
 """
 
 from __future__ import annotations
@@ -19,26 +18,18 @@ from threading import Lock
 from typing import Any
 
 SETTING_FEATURED_AWARD = "celebration_featured_award"
-MIN_SESSIONS_FOR_IMPROVED = 4
-MIN_PRESENTS_FOR_COOKING = 2
+# Section codes (``section_code``) that each get their own Most Engaged card.
+ENGAGED_COURSES: tuple[str, ...] = ("MCR3U", "MCR3U-2", "MCF3M")
 PUBLIC_BOARD_TTL_SECONDS = 60.0
 
 # Every user-visible celebrations string. Wonder replaces these placeholders.
 WONDER_COPY: dict[str, str] = {
     "page_title": "Celebrations",  # Wonder copy slot
-    "sub_line": "Codenames from live class — not legal names.",  # Wonder copy slot
     "empty_board": "Coming soon — the shout-outs are warming up.",  # Wonder copy slot
-    "footer": "Codenames only.",  # Wonder copy slot
     "coming_soon_line": "Coming soon — the shout-outs are warming up.",  # Wonder copy slot
     "coming_soon_sub": "Good work deserves a spotlight; we’re still setting the lights.",  # Wonder copy slot
-    "award_title": "Awards",  # Wonder copy slot
-    "award_kicker": "Celebrating a student",  # Wonder copy slot
+    "award_title": "Shoutout",  # Wonder copy slot
     "engaged_title": "Most Engaged",  # Wonder copy slot
-    "engaged_kicker": "Showed up and jumped in",  # Wonder copy slot
-    "improved_title": "Most Improved",  # Wonder copy slot
-    "improved_kicker": "Biggest climb lately",  # Wonder copy slot
-    "cooking_title": "Quietly Cooking",  # Wonder copy slot
-    "cooking_kicker": "Steady work, no spotlight needed",  # Wonder copy slot
 }
 
 _public_board_lock = Lock()
@@ -166,9 +157,6 @@ def _gather_stats(school: Any) -> list[dict[str, Any]]:
                 if sid not in seen:
                     scored_ids.append(sid)
                     seen.add(sid)
-        half = len(scored_ids) // 2
-        prior_ids = set(scored_ids[:half])
-        recent_ids = set(scored_ids[half:])
         by_student: dict[int, list[dict[str, Any]]] = {}
         for row in score_rows:
             by_student.setdefault(int(row["student_id"]), []).append(row)
@@ -177,19 +165,9 @@ def _gather_stats(school: Any) -> list[dict[str, Any]]:
             rows = by_student.get(stid, [])
             present = 0
             points = 0.0
-            prior_score = 0.0
-            recent_score = 0.0
             for row in rows:
-                sess_id = int(row["session_id"])
-                here_present = 1 if row.get("present") else 0
-                here_points = float(row.get("points") or 0)
-                present += here_present
-                points += here_points
-                climb = here_points + here_present
-                if sess_id in prior_ids:
-                    prior_score += climb
-                elif sess_id in recent_ids:
-                    recent_score += climb
+                present += 1 if row.get("present") else 0
+                points += float(row.get("points") or 0)
             stats.append(
                 {
                     "class_id": class_id,
@@ -199,53 +177,67 @@ def _gather_stats(school: Any) -> list[dict[str, Any]]:
                     "present": present,
                     "session_count": len(scored_ids),
                     "points": points,
-                    "delta": recent_score - prior_score,
-                    "present_rate": (
-                        present / len(scored_ids) if scored_ids else 0.0
-                    ),
                 }
             )
     return stats
 
 
-def _pick_unique(
-    ranked: list[dict[str, Any]],
-    taken: set[tuple[int, int]],
-) -> dict[str, Any] | None:
-    """First ranked student not already on another computed card."""
-    for item in ranked:
-        key = (int(item["class_id"]), int(item["student_id"]))
-        if key not in taken:
-            return item
-    return ranked[0] if ranked else None
+def _top_tied(stats: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every student tied for most presents, then most points.
+
+    Args:
+        stats: ``_gather_stats`` rows for one class.
+
+    Returns:
+        Tied leaders sorted by name, or an empty list when nobody has
+        attended or scored yet.
+    """
+    pool = [s for s in stats if s["present"] > 0 or s["points"] > 0]
+    if not pool:
+        return []
+    best = max((s["present"], s["points"]) for s in pool)
+    leaders = [s for s in pool if (s["present"], s["points"]) == best]
+    return sorted(leaders, key=lambda s: s["name"].lower())
 
 
-def _card_from_stat(
-    key: str,
-    title: str,
-    kicker: str,
-    waiting: str,
-    stat: dict[str, Any] | None,
-    detail: str,
-) -> dict[str, Any]:
-    """Fill a card from a student stat row."""
-    card = _empty_card(key, title, kicker, waiting)
-    if not stat:
+def _engaged_card(course: str, leaders: list[dict[str, Any]]) -> dict[str, Any]:
+    """Most Engaged card for one class, listing every tied leader.
+
+    Args:
+        course: Section code shown on the card (``MCR3U-2``).
+        leaders: ``_top_tied`` rows; empty leaves the card waiting.
+
+    Returns:
+        Card payload with ``students`` ids for the public name lookup.
+    """
+    card = _empty_card(
+        "engaged",
+        WONDER_COPY["engaged_title"],
+        "",
+        "Waiting on the first attendance.",
+    )
+    card["course"] = course
+    if not leaders:
         return card
-    card["name"] = stat["name"]
-    card["course"] = stat.get("course") or ""
+    top = leaders[0]
+    detail = f"{top['present']} class{'es' if top['present'] != 1 else ''} present"
+    if top["points"]:
+        detail += f" · {top['points']:g} pts"
+    card["name"] = ", ".join(s["name"] for s in leaders)
     card["detail"] = detail
-    card["class_id"] = stat["class_id"]
-    card["student_id"] = stat["student_id"]
+    card["students"] = [
+        {"class_id": int(s["class_id"]), "student_id": int(s["student_id"])}
+        for s in leaders
+    ]
     return card
 
 
 def _featured_card(school: Any) -> dict[str, Any]:
-    """Resolve the teacher-picked Award against the live roster."""
+    """Resolve the teacher-picked Shoutout against the live roster."""
     card = _empty_card(
         "award",
         WONDER_COPY["award_title"],
-        WONDER_COPY["award_kicker"],
+        "",
         "A teacher will feature someone here.",
     )
     raw = school.get_school_setting(SETTING_FEATURED_AWARD, "")
@@ -291,7 +283,7 @@ def _featured_card(school: Any) -> dict[str, Any]:
 
 
 def build_celebration_board(school: Any) -> dict[str, Any]:
-    """Assemble the four public celebration cards.
+    """Assemble the Shoutout card and one Most Engaged card per class.
 
     Args:
         school: ``SchoolDB`` instance.
@@ -300,81 +292,12 @@ def build_celebration_board(school: Any) -> dict[str, Any]:
         ``{cards: [...]}`` in display order.
     """
     stats = _gather_stats(school)
-    engaged_pool = [s for s in stats if s["present"] > 0 or s["points"] > 0]
-    engaged_ranked = sorted(
-        engaged_pool,
-        key=lambda s: (-s["present"], -s["points"], s["name"].lower()),
-    )
-    improved_pool = [
-        s
-        for s in stats
-        if s["session_count"] >= MIN_SESSIONS_FOR_IMPROVED and s["delta"] > 0
-    ]
-    improved_ranked = sorted(
-        improved_pool,
-        key=lambda s: (-s["delta"], s["name"].lower()),
-    )
-    cooking_pool = [
-        s for s in stats if s["present"] >= MIN_PRESENTS_FOR_COOKING
-    ]
-    cooking_ranked = sorted(
-        cooking_pool,
-        key=lambda s: (-s["present_rate"], s["points"], s["name"].lower()),
-    )
-
-    taken: set[tuple[int, int]] = set()
-    engaged = _pick_unique(engaged_ranked, taken)
-    if engaged:
-        taken.add((int(engaged["class_id"]), int(engaged["student_id"])))
-    improved = _pick_unique(improved_ranked, taken)
-    if improved:
-        taken.add((int(improved["class_id"]), int(improved["student_id"])))
-    cooking = _pick_unique(cooking_ranked, taken)
-
-    engaged_detail = ""
-    if engaged:
-        pts = engaged["points"]
-        engaged_detail = (
-            f"{engaged['present']} class"
-            f"{'es' if engaged['present'] != 1 else ''} present"
-        )
-        if pts:
-            engaged_detail += f" · {pts:g} pts"
-    improved_detail = ""
-    if improved:
-        improved_detail = f"+{improved['delta']:g} vs earlier classes"
-    cooking_detail = ""
-    if cooking:
-        rate = int(round(cooking["present_rate"] * 100))
-        cooking_detail = f"{rate}% attendance · keeping it steady"
-
-    cards = [
-        _featured_card(school),
-        _card_from_stat(
-            "engaged",
-            WONDER_COPY["engaged_title"],
-            WONDER_COPY["engaged_kicker"],
-            "Waiting on the first attendance.",
-            engaged,
-            engaged_detail,
-        ),
-        _card_from_stat(
-            "improved",
-            WONDER_COPY["improved_title"],
-            WONDER_COPY["improved_kicker"],
-            "Needs a few more live classes.",
-            improved,
-            improved_detail,
-        ),
-        _card_from_stat(
-            "cooking",
-            WONDER_COPY["cooking_title"],
-            WONDER_COPY["cooking_kicker"],
-            "Waiting on a quiet streak.",
-            cooking,
-            cooking_detail,
-        ),
-    ]
+    cards = [_featured_card(school)]
+    for course in ENGAGED_COURSES:
+        in_course = [
+            s for s in stats if str(s.get("course") or "").upper() == course
+        ]
+        cards.append(_engaged_card(course, _top_tied(in_course)))
     return {"cards": cards}
 
 
@@ -393,6 +316,18 @@ def _public_card(school: Any, card: dict[str, Any]) -> dict[str, Any] | None:
         return None
     course = str(card.get("course") or "").strip()
     name = str(card.get("name") or "").strip()
+    if card.get("students"):
+        labels = []
+        for ids in card["students"]:
+            try:
+                student = school.game.get_student(
+                    int(ids["class_id"]), int(ids["student_id"])
+                )
+            except (KeyError, TypeError, ValueError):
+                student = None
+            if student is not None:
+                labels.append(public_student_label(student, course))
+        name = ", ".join(labels) if labels else name
     class_id = card.get("class_id")
     student_id = card.get("student_id")
     if class_id is not None and student_id is not None:
@@ -493,7 +428,7 @@ def public_celebration_board(
 
 
 def celebration_candidates(school: Any, teacher_user_id: int) -> list[dict[str, Any]]:
-    """Codenames this teacher can feature on the Awards card.
+    """Codenames this teacher can feature on the Shoutout card.
 
     Args:
         school: ``SchoolDB`` instance.
@@ -535,7 +470,7 @@ def set_featured_award(
     student_id: int | None,
     blurb: str = "",
 ) -> dict[str, Any]:
-    """Save or clear the teacher-picked Awards student.
+    """Save or clear the teacher-picked Shoutout student.
 
     Args:
         school: ``SchoolDB`` instance.

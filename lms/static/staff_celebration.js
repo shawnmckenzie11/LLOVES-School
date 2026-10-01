@@ -1,7 +1,7 @@
 import { api, hideError, showError } from "/static/common.js";
 
 /**
- * Wire the staff-home Awards picker (featured Codename + optional blurb).
+ * Wire the staff-home Shoutout picker (featured Codename + optional blurb).
  */
 function bindCelebrateForm() {
   const form = document.getElementById("celebrate-form");
@@ -25,7 +25,7 @@ function bindCelebrateForm() {
         window.location.reload();
       })
       .catch((err) => {
-        showError("#error", err.message || "Could not update Awards.");
+        showError("#error", err.message || "Could not update Shoutout.");
       });
   }
 

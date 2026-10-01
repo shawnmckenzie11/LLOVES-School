@@ -154,15 +154,17 @@
         var article = document.createElement("article");
         article.className = isAward ? "calc-card calc-card-award" : "calc-card";
         if (card.key) article.setAttribute("data-card", String(card.key));
-        var kicker = document.createElement("p");
-        kicker.className = "kicker";
-        kicker.textContent = card.kicker || "";
+        if (card.kicker) {
+          var kicker = document.createElement("p");
+          kicker.className = "kicker";
+          kicker.textContent = card.kicker;
+          article.appendChild(kicker);
+        }
         var heading = document.createElement("h3");
         heading.textContent = card.title || "";
         var winner = document.createElement("p");
         winner.className = "calc-winner";
         winner.textContent = card.name || "";
-        article.appendChild(kicker);
         article.appendChild(heading);
         article.appendChild(winner);
         if (card.course) {

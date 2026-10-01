@@ -192,7 +192,7 @@
     <section id="staff-celebrate" class="card staff-celebrate">
       <p class="kicker">alc.mckenzian.com#celebrations</p>
       <h2>Celebrate a student</h2>
-      <p class="hint">Posts the Awards card on the public #celebrations board. Codenames only.</p>
+      <p class="hint">Posts the Shoutout card on the public #celebrations board.</p>
       {% if celebration_award and celebration_award.name %}
       <p class="sub">Now featuring <strong>{{ celebration_award.name }}</strong>{% if celebration_award.detail %} — {{ celebration_award.detail }}{% endif %}</p>
       {% endif %}
@@ -211,8 +211,8 @@
         <input id="celebrate-blurb" type="text" maxlength="240" placeholder="Optional one-liner"
                value="{{ celebration_award.detail if celebration_award and celebration_award.name and celebration_award.detail != 'Featured by their teacher.' else '' }}">
         <div class="row-actions">
-          <button type="submit">Post to Awards</button>
-          <button type="button" class="secondary" id="celebrate-clear">Clear Awards card</button>
+          <button type="submit">Post to Shoutout</button>
+          <button type="button" class="secondary" id="celebrate-clear">Clear Shoutout card</button>
           <a class="btn secondary" href="/#celebrations">View public page</a>
         </div>
       </form>
