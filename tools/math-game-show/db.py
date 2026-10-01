@@ -77,6 +77,20 @@ CREATE TABLE IF NOT EXISTS session_scores (
     PRIMARY KEY (session_id, student_id)
 );
 
+-- Live participation credit already added into session_scores, per class
+-- run (MCK-72). End adds only the difference, so manual points stay and a
+-- repeat credit for the same run does not add twice.
+CREATE TABLE IF NOT EXISTS live_participation_credits (
+    run_key TEXT NOT NULL,
+    student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    points REAL NOT NULL DEFAULT 0,
+    points_r1 REAL NOT NULL DEFAULT 0,
+    points_r2 REAL NOT NULL DEFAULT 0,
+    points_r3 REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (run_key, student_id)
+);
+
 CREATE TABLE IF NOT EXISTS games (
     id INTEGER PRIMARY KEY,
     class_id INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
@@ -3800,6 +3814,7 @@ class GameShowDB:
         *,
         include_attendance: bool = True,
         include_participation: bool = True,
+        run_key: str | None = None,
     ) -> dict[str, Any] | None:
         """Write optional attendance / +1/question participation, then end.
 
@@ -3814,6 +3829,9 @@ class GameShowDB:
             include_attendance: When False, skip the attendance write.
             include_participation: When False (Quit / unchecked), zero
                 live points so only attendance remains.
+            run_key: Live class run. The credit is added on top of the
+                points already in the column (manual awards stay), once
+                per run: a repeat adds only the change (MCK-72).
 
         Returns:
             ``{ok, class_id, session_id}``, or ``None`` when there is
@@ -3864,21 +3882,13 @@ class GameShowDB:
                     """,
                     (session_id,),
                 )
-            for sid, n in credit_map.items():
-                r1 = 1 if n >= 1 else 0
-                r2 = 1 if n >= 2 else 0
-                r3 = 1 if n >= 3 else 0
                 self.conn.execute(
-                    """
-                    UPDATE session_scores
-                    SET points = ?,
-                        points_r1 = ?,
-                        points_r2 = ?,
-                        points_r3 = ?
-                    WHERE session_id = ? AND student_id = ?
-                    """,
-                    (n, r1, r2, r3, session_id, sid),
+                    "DELETE FROM live_participation_credits WHERE session_id = ?",
+                    (session_id,),
                 )
+            key = self._live_credit_key(run_key, session_id)
+            for sid, n in credit_map.items():
+                self._add_live_credit_unlocked(session_id, sid, key, n)
             self.conn.execute(
                 """
                 UPDATE sessions
@@ -3900,14 +3910,100 @@ class GameShowDB:
             "session_id": session_id,
         }
 
+    @staticmethod
+    def _live_credit_key(run_key: str | None, session_id: int) -> str:
+        """Ledger key for one live class run. No run key: the column."""
+        key = str(run_key or "").strip()
+        return key or f"session:{int(session_id)}"
+
+    def _add_live_credit_unlocked(
+        self, session_id: int, student_id: int, run_key: str, n: int
+    ) -> None:
+        """Set this run's participation credit to ``n`` on top of the column.
+
+        Manual points in ``session_scores`` are never replaced. Only the
+        difference from what this run already credited is added, so a
+        repeat (End twice, or a live sync then End) does not add twice.
+        Caller holds ``_lock`` and commits.
+
+        Args:
+            session_id: Sessions primary key (the class-day column).
+            student_id: Students primary key.
+            run_key: ``_live_credit_key`` for the run.
+            n: Distinct questions answered this run.
+        """
+        n = max(0, int(n))
+        target = (
+            float(n),
+            1.0 if n >= 1 else 0.0,
+            1.0 if n >= 2 else 0.0,
+            1.0 if n >= 3 else 0.0,
+        )
+        prev = self.conn.execute(
+            """
+            SELECT session_id, points, points_r1, points_r2, points_r3
+            FROM live_participation_credits
+            WHERE run_key = ? AND student_id = ?
+            """,
+            (run_key, int(student_id)),
+        ).fetchone()
+        if prev is None:
+            column = int(session_id)
+            before = (0.0, 0.0, 0.0, 0.0)
+        else:
+            # The run's credit already sits in that column; adjust it there.
+            column = int(prev["session_id"])
+            before = (
+                float(prev["points"]),
+                float(prev["points_r1"]),
+                float(prev["points_r2"]),
+                float(prev["points_r3"]),
+            )
+        delta = tuple(after - was for after, was in zip(target, before))
+        if any(delta):
+            cur = self.conn.execute(
+                """
+                UPDATE session_scores
+                SET points = ROUND(points + ?, 1),
+                    points_r1 = ROUND(points_r1 + ?, 1),
+                    points_r2 = ROUND(points_r2 + ?, 1),
+                    points_r3 = ROUND(points_r3 + ?, 1)
+                WHERE session_id = ? AND student_id = ?
+                """,
+                (*delta, column, int(student_id)),
+            )
+            if cur.rowcount != 1:
+                return
+        self.conn.execute(
+            """
+            INSERT INTO live_participation_credits (
+                run_key, student_id, session_id,
+                points, points_r1, points_r2, points_r3
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (run_key, student_id) DO UPDATE SET
+                points = excluded.points,
+                points_r1 = excluded.points_r1,
+                points_r2 = excluded.points_r2,
+                points_r3 = excluded.points_r3
+            """,
+            (run_key, int(student_id), column, *target),
+        )
+
     def write_live_participation(
-        self, class_id: int, credits: dict[int, int]
+        self,
+        class_id: int,
+        credits: dict[int, int],
+        *,
+        run_key: str | None = None,
     ) -> dict[str, Any] | None:
         """Write this-session QH counts onto the open game without ending.
+
+        Adds on top of manual points, once per run (MCK-72).
 
         Args:
             class_id: Classes primary key.
             credits: ``student_id → distinct questions answered``.
+            run_key: Live class run the credits belong to.
 
         Returns:
             Game-state payload when an open game exists, else ``None``.
@@ -3917,6 +4013,7 @@ class GameShowDB:
         except KeyError:
             return None
         session_id = int(game["session_id"])
+        key = self._live_credit_key(run_key, session_id)
         with self._lock:
             self._ensure_session_scores(session_id, int(class_id))
             for raw_sid, raw_n in (credits or {}).items():
@@ -3925,24 +4022,7 @@ class GameShowDB:
                     n = max(0, int(raw_n))
                 except (TypeError, ValueError):
                     continue
-                self.conn.execute(
-                    """
-                    UPDATE session_scores
-                    SET points = ?,
-                        points_r1 = ?,
-                        points_r2 = ?,
-                        points_r3 = ?
-                    WHERE session_id = ? AND student_id = ?
-                    """,
-                    (
-                        n,
-                        1 if n >= 1 else 0,
-                        1 if n >= 2 else 0,
-                        1 if n >= 3 else 0,
-                        session_id,
-                        sid,
-                    ),
-                )
+                self._add_live_credit_unlocked(session_id, sid, key, n)
             self.conn.commit()
         return self.game_state(int(class_id))
 

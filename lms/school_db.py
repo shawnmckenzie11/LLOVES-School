@@ -23373,6 +23373,17 @@ class SchoolDB(LovesDB):
                 out[int(sid)] = points
         return out
 
+    def _live_class_run_key(self, class_id: int) -> str | None:
+        """``run_key`` of the class's open live session, if any (MCK-72)."""
+        try:
+            row = self.get_active_live_session_for_class(int(class_id))
+        except Exception:  # noqa: BLE001 - credit falls back to the column
+            return None
+        if not row:
+            return None
+        key = str(row.get("run_key") or "").strip()
+        return key or None
+
     def sync_live_participation_scores(self, class_id: int) -> dict[str, Any] | None:
         """Push live QH counts onto the open game so the scoreboard updates.
 
@@ -23381,7 +23392,11 @@ class SchoolDB(LovesDB):
         """
         credits = self.participation_question_credits_for_class(int(class_id))
         try:
-            return self.game.write_live_participation(int(class_id), credits)
+            return self.game.write_live_participation(
+                int(class_id),
+                credits,
+                run_key=self._live_class_run_key(int(class_id)),
+            )
         except Exception:  # noqa: BLE001 — live paint must not fail the answer
             return None
 
@@ -24032,6 +24047,7 @@ class SchoolDB(LovesDB):
             if save_participation
             else {}
         )
+        run_key = self._live_class_run_key(int(class_id))
         wrote = None
         if save_attendance or save_participation:
             try:
@@ -24041,6 +24057,7 @@ class SchoolDB(LovesDB):
                     credits,
                     include_attendance=bool(save_attendance),
                     include_participation=bool(save_participation),
+                    run_key=run_key,
                 )
             except Exception:  # noqa: BLE001 — close still happens
                 wrote = None
