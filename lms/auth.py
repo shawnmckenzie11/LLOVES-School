@@ -255,6 +255,40 @@ def school_db() -> SchoolDB:
     return db
 
 
+def _tap_staff_class_list(db: SchoolDB, live_session_id: int, student_id: Any) -> None:
+    """Wake the staff LiveNewsWire so ClassList repaints on a student join.
+
+    Since LiveNewsWire (#166) the staff tab polls ``/state`` only every
+    ``FALLBACK_POLL_MS`` (20s) and otherwise waits for a postcard. A join
+    wrote no postcard, so new students sat off the roster until the slow
+    poll. This emits one staff-only ``flag_work`` tap (students never see
+    it, so a join wave is not a fan-out to every student tab). The staff
+    tab light-fetches ``/state`` and paints the attendee.
+
+    Wire faults are swallowed: the join already committed.
+
+    Args:
+        db: SchoolDB.
+        live_session_id: ``live_class_sessions.id``.
+        student_id: Roster id of the joiner, or ``None`` for a guest.
+    """
+    try:
+        from live_news_wire import (
+            emit_session_news,
+            flag_work_event,
+            teacher_state_seq,
+        )
+
+        seq = teacher_state_seq(db, live_session_id)
+        emit_session_news(
+            db,
+            live_session_id,
+            [flag_work_event("join", seq, student_id=student_id)],
+        )
+    except Exception:  # noqa: BLE001 - join must not fail on a wire tap
+        pass
+
+
 def _safe_next_url(next_url: str | None) -> str | None:
     """Return a same-site relative redirect target when safe."""
     if not next_url or not next_url.startswith("/") or next_url.startswith("//"):
@@ -1291,6 +1325,7 @@ def register_auth_routes(app: Flask) -> None:
         visit_token = str(attendee.get("visit_token") or "")
         participant_uuid = str(attendee.get("participant_uuid") or "")
         sid = attendee.get("student_id")
+        _tap_staff_class_list(db, int(live_session["id"]), sid)
         try:
             db.record_access_event(
                 action="student.join",

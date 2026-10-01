@@ -60,6 +60,7 @@ import {
   CATCHING_UP_COPY,
   FALLBACK_POLL_MS,
   connectLiveNewsWire,
+  fallbackPollMs,
   newsPaintsBoardInPlace,
 } from "/static/live_news_wire.js";
 import {
@@ -4434,10 +4435,12 @@ function scheduleLiveSessionPoll() {
 
 /**
  * Slow fallback while LiveNewsWire is the tap. Not a 1–2s stampede.
+ * A staff tab without an open stream (shed at the stream cap, or
+ * reconnecting) hears no join or answer postcard, so it polls faster.
  * @returns {number}
  */
 function desiredSessionPollMs() {
-  return FALLBACK_POLL_MS;
+  return fallbackPollMs(staffNewsWire);
 }
 
 /**

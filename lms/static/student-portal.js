@@ -18,6 +18,7 @@ import {
   CATCHING_UP_COPY,
   FALLBACK_POLL_MS,
   connectLiveNewsWire,
+  fallbackPollMs,
 } from "/static/live_news_wire.js";
 import {
   bindWhiteboard,
@@ -4442,8 +4443,12 @@ function noteStudentPollBusy() {
  */
 function scheduleStudentPoll() {
   if (studentPollTimer) window.clearTimeout(studentPollTimer);
+  // A tab without an open stream (shed at the stream cap, or reconnecting)
+  // hears no publish postcard, so it must not wait the slow 20s net.
   const ms =
-    studentBackoffMs > 0 ? jitterPollDelay(studentBackoffMs) : STUDENT_POLL_BASE_MS;
+    studentBackoffMs > 0
+      ? jitterPollDelay(studentBackoffMs)
+      : fallbackPollMs(studentNewsWire);
   studentPollTimer = window.setTimeout(() => {
     studentPollTimer = 0;
     void tick();
