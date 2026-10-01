@@ -316,6 +316,24 @@ def _numeric_bucket_label(number: float, *, integer_only: bool) -> str | None:
     return text
 
 
+def _numeric_exact_label(number: float) -> str:
+    """Label one answer at up to six decimal places (no bar rounding).
+
+    Args:
+        number: Finite parsed student value.
+    """
+    try:
+        quantized = Decimal(str(number)).quantize(
+            Decimal("0.000001"), rounding=ROUND_HALF_UP
+        )
+    except InvalidOperation:
+        return str(number)
+    text = format(quantized, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return "0" if text in {"", "-", "-0"} else text
+
+
 def _numeric_expected(payload: dict[str, Any]) -> float | None:
     """Parse the authored numeric key, if the prompt has one.
 
@@ -382,8 +400,9 @@ def build_numeric_tally(
 
     Whole-number prompts still drop fractions. Decimal prompts bucket
     equivalent values together, including negatives, and sort the bars
-    by number. A bar is correct when a response in it matches the
-    authored key, including any tolerance on the prompt.
+    by number. A bar is correct when its responses match the authored
+    key, including any tolerance on the prompt. A wrong answer that rounds
+    into a correct bar gets its own exact bar instead (MCK-83).
 
     Args:
         prompt: Active live-prompt row (``kind=numeric``).
@@ -403,9 +422,7 @@ def build_numeric_tally(
         return None
     integer_only = _prompt_requires_integer(payload)
     expected = _numeric_expected(payload)
-    counts: dict[str, int] = {}
-    correct_labels: set[str] = set()
-    responded = 0
+    entries: list[tuple[str, float, bool]] = []
     for row in responses or []:
         if not isinstance(row, dict):
             continue
@@ -420,31 +437,51 @@ def build_numeric_tally(
         label = _numeric_bucket_label(number, integer_only=integer_only)
         if label is None:
             continue
-        counts[label] = counts.get(label, 0) + 1
-        responded += 1
-        if expected is not None and _numeric_within_tolerance(
+        ok = expected is not None and _numeric_within_tolerance(
             number,
             expected,
             payload.get("tolerance"),
             payload.get("tolerance_kind"),
-        ):
-            correct_labels.add(label)
-    labels = sorted(counts.keys(), key=lambda token: float(token))
+        )
+        entries.append((label, number, bool(ok)))
+    responded = len(entries)
+    # A rounded bar can hold right and wrong answers (3.14 and 3.141 with a
+    # 0 tolerance). Wrong ones move to their own exact bar so a ✓ bar only
+    # counts correct answers (MCK-83).
+    right_labels = {label for label, _n, ok in entries if ok}
+    wrong_labels = {label for label, _n, ok in entries if not ok}
+    mixed = right_labels & wrong_labels
+    bars: dict[str, dict[str, Any]] = {}
+    for label, number, ok in entries:
+        bar_id = label
+        bar_label = label
+        if label in mixed and not ok:
+            bar_label = _numeric_exact_label(number)
+            bar_id = bar_label if bar_label != label else f"{label}~x"
+        bar = bars.get(bar_id)
+        if bar is None:
+            bar = {"label": bar_label, "count": 0, "correct": ok}
+            bars[bar_id] = bar
+        bar["count"] += 1
+    ordered = sorted(
+        bars.items(),
+        key=lambda item: (float(item[1]["label"]), not item[1]["correct"]),
+    )
     present_n = max(0, int(present), responded)
     denom = responded if responded > 0 else 0
     choices_out: list[dict[str, Any]] = []
     count_list: list[int] = []
-    for label in labels:
-        count = counts[label]
+    for bar_id, bar in ordered:
+        count = int(bar["count"])
         count_list.append(count)
         pct = int(round(100.0 * count / denom)) if denom else 0
         choices_out.append(
             {
-                "id": label,
-                "label": label,
+                "id": bar_id,
+                "label": bar["label"],
                 "count": count,
                 "pct": pct,
-                "correct": label in correct_labels,
+                "correct": bool(bar["correct"]),
             }
         )
     ref = prompt_ref_for(prompt, teacher_state)
