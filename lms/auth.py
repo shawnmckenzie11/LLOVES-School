@@ -1264,8 +1264,10 @@ def register_auth_routes(app: Flask) -> None:
         if offering is None:
             return _fail(mismatch_msg)
 
+        # Full typed name: a multi-word Codename must match as a whole
+        # before the first-token fallback (MCK-110).
         matches = db.list_roster_matches_for_live_session(
-            int(live_session["id"]), display_name
+            int(live_session["id"]), name or display_name
         )
         chosen_id = None
         try:

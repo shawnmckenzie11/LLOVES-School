@@ -19,6 +19,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from name_match import first_token_key, loose_name_key, name_key, same_name  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 from serve_capacity import (  # noqa: E402
@@ -11084,21 +11086,18 @@ class SchoolDB(LovesDB):
         self, live_access_code: str, codename: str
     ) -> dict[str, Any] | None:
         """Disambiguate overlapping live sections by roster Codename."""
-        name = (codename or "").strip()
-        if not name:
+        needle = name_key(codename)
+        if not needle:
             return None
         classes = self.classes_for_access_code(live_access_code)
         matches = []
         with self.game._lock:
             for cls in classes:
-                row = self.game.conn.execute(
-                    """
-                    SELECT id FROM students
-                    WHERE class_id = ? AND lower(codename) = ?
-                    """,
-                    (int(cls["id"]), name.lower()),
-                ).fetchone()
-                if row:
+                rows = self.game.conn.execute(
+                    "SELECT codename FROM students WHERE class_id = ?",
+                    (int(cls["id"]),),
+                ).fetchall()
+                if any(name_key(row["codename"]) == needle for row in rows):
                     matches.append(cls)
         if len(matches) == 1:
             return matches[0]
@@ -11109,27 +11108,31 @@ class SchoolDB(LovesDB):
     ) -> list[dict[str, Any]]:
         """Return ``{class, student}`` pairs whose Codename matches ``name``.
 
-        Matching is case-insensitive on ``lower(trim(codename))`` across every
+        Matching uses ``name_match.name_key`` (Unicode casefold) across every
         section that shares the student course code.
 
         Args:
             live_access_code: Shared 8-character offering key.
             name: Student-entered roster name.
         """
-        needle = (name or "").strip().lower()
+        needle = name_key(name)
         if not needle:
             return []
         classes = self.classes_for_access_code(live_access_code)
         matches: list[dict[str, Any]] = []
         with self.game._lock:
             for cls in classes:
-                row = self.game.conn.execute(
-                    """
-                    SELECT * FROM students
-                    WHERE class_id = ? AND lower(trim(codename)) = ?
-                    """,
-                    (int(cls["id"]), needle),
-                ).fetchone()
+                row = next(
+                    (
+                        r
+                        for r in self.game.conn.execute(
+                            "SELECT * FROM students WHERE class_id = ? ORDER BY id",
+                            (int(cls["id"]),),
+                        ).fetchall()
+                        if name_key(r["codename"]) == needle
+                    ),
+                    None,
+                )
                 if row:
                     matches.append({"class": cls, "student": dict(row)})
         return matches
@@ -11555,7 +11558,7 @@ class SchoolDB(LovesDB):
             ):
                 token_name = first_name_only(str(by_token.get("codename") or ""))
                 same_person = (not name) or (
-                    token_name.lower() == name.lower()
+                    same_name(token_name, name)
                 ) or (
                     sid is not None
                     and by_token.get("student_id") not in (None, "")
@@ -11652,21 +11655,22 @@ class SchoolDB(LovesDB):
             session_id: ``live_class_sessions.id``.
             name: First-name / Codename already passed through ``first_name_only``.
         """
-        needle = first_name_only(name).lower()
+        needle = name_key(first_name_only(name))
         if not needle:
             return None
         with self._lock:
-            row = self.conn.execute(
+            rows = self.conn.execute(
                 """
                 SELECT * FROM live_session_attendees
                 WHERE live_session_id = ?
                   AND unmatched = 1
-                  AND lower(codename) = ?
                 ORDER BY id ASC
-                LIMIT 1
                 """,
-                (int(session_id), needle),
-            ).fetchone()
+                (int(session_id),),
+            ).fetchall()
+        row = next(
+            (r for r in rows if name_key(r["codename"]) == needle), None
+        )
         if row is None:
             return None
         return self._apply_presence(dict(row))
@@ -25269,37 +25273,72 @@ class SchoolDB(LovesDB):
     ) -> list[dict[str, Any]]:
         """Roster rows whose Codename or first name matches ``name``.
 
-        Matching is case-insensitive and uses the first token only so last
-        names are never required or stored.
+        Names are compared with ``name_match.name_key``: Unicode NFKC plus
+        casefold, with apostrophe, quote, hyphen and space look-alikes
+        folded. SQLite ``lower()`` only folds ASCII, which locked out
+        "Élodie" and "Ó'Brien" (MCK-110). Tiers, first non-empty wins:
+
+        1. The whole typed name equals the Codename or first name.
+        2. The typed first token equals the Codename / first name, or its
+           first token. Last names are never required or stored.
+        3. Tiers 1 and 2 again ignoring accents and apostrophes, for a
+           student who types "Elodie" or "OBrien".
 
         Args:
             session_id: ``live_class_sessions.id``.
             name: Student-entered name.
 
         Returns:
-            Matching student dicts (possibly empty).
+            Matching student dicts (possibly empty), roster id order.
         """
         session_row = self.get_live_session(session_id)
         if session_row is None or session_row.get("status") != "active":
             return []
-        needle = first_name_only(name).lower()
-        if not needle:
+        full = name_key(name)
+        if not full:
             return []
+        first = first_token_key(name)
         class_id = int(session_row["class_id"])
         with self.game._lock:
-            rows = self.game.conn.execute(
-                """
-                SELECT * FROM students
-                WHERE class_id = ?
-                  AND (
-                      lower(trim(codename)) = ?
-                      OR lower(trim(first_name)) = ?
-                  )
-                ORDER BY id ASC
-                """,
-                (class_id, needle, needle),
-            ).fetchall()
-        return [dict(row) for row in rows]
+            rows = [
+                dict(row)
+                for row in self.game.conn.execute(
+                    "SELECT * FROM students WHERE class_id = ? ORDER BY id ASC",
+                    (class_id,),
+                ).fetchall()
+            ]
+
+        def labels(row: dict[str, Any]) -> list[str]:
+            return [
+                str(row.get(col) or "")
+                for col in ("codename", "first_name")
+                if str(row.get(col) or "").strip()
+            ]
+
+        def tier(fold: Any, typed_full: str, typed_first: str) -> list[dict[str, Any]]:
+            exact = [
+                row for row in rows
+                if any(fold(label) == typed_full for label in labels(row))
+            ]
+            if exact:
+                return exact
+            return [
+                row for row in rows
+                if any(
+                    fold(label) == typed_first
+                    or fold(label).split(" ", 1)[0] == typed_first
+                    for label in labels(row)
+                )
+            ]
+
+        matches = tier(name_key, full, first)
+        if matches:
+            return matches
+        loose_full = loose_name_key(name)
+        loose_first = loose_full.split(" ", 1)[0] if loose_full else ""
+        if not loose_full:
+            return []
+        return tier(loose_name_key, loose_full, loose_first)
 
     def disambiguated_roster_labels(
         self, matches: list[dict[str, Any]]
