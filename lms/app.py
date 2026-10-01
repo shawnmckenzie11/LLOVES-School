@@ -2799,10 +2799,23 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if not school.teacher_owns_class(int(user["id"]), class_id):
             abort(403)
         active = school.get_active_live_session_for_teacher(int(user["id"]))
+        # Read seqs before the wipe deletes the rows.
+        quit_seqs = {
+            int(row["id"]): teacher_state_seq(school, int(row["id"]))
+            for row in school.list_live_sessions_for_class(int(class_id))
+        }
         if active is not None and int(active["class_id"]) == int(class_id):
             school.finish_live_class(int(class_id), persist=False, celebrate=False)
         else:
             school.wipe_live_sessions_for_class(int(class_id))
+        # Open tabs (often on the End celebration) fetch now and leave,
+        # instead of waiting for the safety poll.
+        for quit_sid, quit_seq in quit_seqs.items():
+            emit_session_news(
+                school,
+                quit_sid,
+                [{"type": "state_seq", "state_seq": int(quit_seq) + 1}],
+            )
         return redirect(url_for("staff_home"))
 
     @app.route("/staff/class/<int:class_id>")
