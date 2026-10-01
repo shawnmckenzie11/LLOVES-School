@@ -510,6 +510,27 @@ class NumericTallyTests(unittest.TestCase):
         self.assertEqual(sum(row["count"] for row in tally["choices"]), 5)
         self.assertEqual(len({row["id"] for row in tally["choices"]}), 4)
 
+    def test_near_miss_past_six_places_gets_a_distinct_label(self) -> None:
+        """Ops LOW-1 on #199: 2.5000001 vs key 2.5 must not print as a second "2.5"."""
+        tally = build_numeric_tally(
+            self._prompt(integer_only=False, correct_answer="2.5"),
+            responses=self._answers(2.5, 2.5000001, 3.0000001),
+            present=3,
+        )
+        assert tally is not None
+        rows = [(row["id"], row["label"], row["count"], row["correct"]) for row in tally["choices"]]
+        self.assertEqual(
+            rows,
+            [
+                ("2.5", "2.5", 1, True),
+                ("2.5000001", "2.5000001", 1, False),
+                ("3", "3", 1, False),
+            ],
+        )
+        labels = [row["label"] for row in tally["choices"]]
+        self.assertEqual(len(set(labels)), len(labels), "duplicate-looking bars")
+        self.assertTrue(all("~" not in str(row["id"]) for row in tally["choices"]))
+
     def test_bar_of_only_wrong_answers_still_rounds(self) -> None:
         """Wrong answers keep sharing a rounded bar when no right one is there."""
         tally = build_numeric_tally(

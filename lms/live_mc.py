@@ -334,6 +334,24 @@ def _numeric_exact_label(number: float) -> str:
     return "0" if text in {"", "-", "-0"} else text
 
 
+def _numeric_full_label(number: float) -> str:
+    """Label one answer at full float precision (shortest round-trip).
+
+    Used when even six places print the same as the correct bar, e.g.
+    2.5000001 against a key of 2.5 at zero tolerance.
+
+    Args:
+        number: Finite parsed student value.
+    """
+    try:
+        text = format(Decimal(repr(float(number))), "f")
+    except (InvalidOperation, ValueError, OverflowError):
+        return str(number)
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return "0" if text in {"", "-", "-0"} else text
+
+
 def _numeric_expected(payload: dict[str, Any]) -> float | None:
     """Parse the authored numeric key, if the prompt has one.
 
@@ -453,19 +471,26 @@ def build_numeric_tally(
     mixed = right_labels & wrong_labels
     bars: dict[str, dict[str, Any]] = {}
     for label, number, ok in entries:
-        bar_id = label
         bar_label = label
+        value = float(label)
         if label in mixed and not ok:
+            # Its own bar, labelled with enough digits to differ from the
+            # correct bar. The id is the label, so the student reveal and
+            # the class-results card (keyed by label) keep them apart.
             bar_label = _numeric_exact_label(number)
-            bar_id = bar_label if bar_label != label else f"{label}~x"
-        bar = bars.get(bar_id)
+            if bar_label == label:
+                bar_label = _numeric_full_label(number)
+            if bar_label == label:
+                bar_label = f"\u2248{label}"
+            value = float(number)
+        bar = bars.get(bar_label)
         if bar is None:
-            bar = {"label": bar_label, "count": 0, "correct": ok}
-            bars[bar_id] = bar
+            bar = {"label": bar_label, "count": 0, "correct": ok, "value": value}
+            bars[bar_label] = bar
         bar["count"] += 1
     ordered = sorted(
         bars.items(),
-        key=lambda item: (float(item[1]["label"]), not item[1]["correct"]),
+        key=lambda item: (item[1]["value"], not item[1]["correct"]),
     )
     present_n = max(0, int(present), responded)
     denom = responded if responded > 0 else 0
