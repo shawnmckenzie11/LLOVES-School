@@ -13,6 +13,7 @@ import importlib.util
 import multiprocessing
 import sys
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -265,6 +266,107 @@ class EndParticipationAddsTests(shell.LiveShellTests):
         cell = self._cell(column, student_id)
         for key in ("points", "points_r1", "points_r2", "points_r3"):
             self.assertGreaterEqual(float(cell[key]), 0.0, cell)
+
+
+    # --- Ops re-gate on 0423bb5: a late End must not add a column -------
+
+    def _claims(self) -> dict[str, str]:
+        with self.school.game._lock:
+            rows = self.school.game.conn.execute(
+                "SELECT run_key, claimed_at FROM live_end_claims"
+            ).fetchall()
+        return {str(r["run_key"]): str(r["claimed_at"]) for r in rows}
+
+    def test_late_end_after_close_adds_no_column(self) -> None:
+        """End B passed the route check before End A closed; B runs after."""
+        self._open_live_with_aspen_answers()
+        active = self.school.get_active_live_session_for_class(self.class_id)
+        assert active is not None
+        run = str(active["run_key"])
+        self.school.finish_live_class(self.class_id, celebrate=True, run_key=run)
+        columns = self._columns()
+        claims = self._claims()
+        late = self.school.finish_live_class(
+            self.class_id, celebrate=True, run_key=run
+        )
+        self.assertTrue(late.get("already_ended"), late)
+        self.assertEqual(self._columns(), columns, "phantom class-day column")
+        self.assertEqual(self._claims(), claims)
+
+    def test_late_end_route_after_close_adds_no_column(self) -> None:
+        """Same race through the End route (Ops probe-late-end)."""
+        self._open_live_with_aspen_answers()
+        active = self.school.get_active_live_session_for_class(self.class_id)
+        assert active is not None
+        first = self.client.post(f"/staff/class/{self.class_id}/end-live")
+        self.assertEqual(first.status_code, 302)
+        columns = self._columns()
+        # The second request read the session as active before the close.
+        real = self.school.get_active_live_session_for_teacher
+        self.school.get_active_live_session_for_teacher = (  # type: ignore[method-assign]
+            lambda _uid: dict(active)
+        )
+        try:
+            second = self.client.post(f"/staff/class/{self.class_id}/end-live")
+        finally:
+            self.school.get_active_live_session_for_teacher = real  # type: ignore[method-assign]
+        self.assertEqual(second.status_code, 302)
+        self.assertEqual(self._columns(), columns, "phantom class-day column")
+
+    def test_end_with_no_live_run_begins_no_game(self) -> None:
+        """No active run and no open game: End writes nothing new."""
+        try:
+            self.school.game.cancel_setup(self.class_id)
+        except Exception:  # noqa: BLE001 - no open game is fine
+            pass
+        student_id = self._aspen_id()
+        columns = self._columns()
+        self.school.game.persist_end_class_column(
+            self.class_id, [student_id], {student_id: 2}, create_game=False
+        )
+        self.school.finish_live_class(self.class_id, celebrate=True)
+        self.assertEqual(self._columns(), columns)
+
+    def test_stale_claim_from_a_dead_worker_is_retaken(self) -> None:
+        """A claim left by a killed worker (game still open) does not block End."""
+        student_id = self._aspen_id()
+        column = self._live_game_with_award(student_id, 5)
+        game = self.school.game
+        old = (datetime.now() - timedelta(hours=1)).isoformat(timespec="seconds")
+        with game._lock:
+            game.conn.execute(
+                "INSERT INTO live_end_claims (run_key, claimed_at) VALUES (?, ?)",
+                ("run-dead", old),
+            )
+        wrote = game.persist_end_class_column(
+            self.class_id, [student_id], {student_id: 2}, run_key="run-dead"
+        )
+        self.assertFalse(wrote.get("already_persisted"), wrote)
+        self.assertEqual(float(self._cell(column, student_id)["points"]), 7.0)
+        # Once written (game ended), the claim is final again.
+        with game._lock:
+            game.conn.execute(
+                "UPDATE live_end_claims SET claimed_at = ? WHERE run_key = ?",
+                (old, "run-dead"),
+            )
+        again = game.persist_end_class_column(
+            self.class_id, [student_id], {student_id: 2}, run_key="run-dead"
+        )
+        self.assertTrue(again.get("already_persisted"), again)
+
+    def test_fresh_claim_still_blocks_and_old_claims_are_pruned(self) -> None:
+        student_id = self._aspen_id()
+        self._live_game_with_award(student_id, 5)
+        game = self.school.game
+        ancient = (datetime.now() - timedelta(days=40)).isoformat(timespec="seconds")
+        with game._lock:
+            game.conn.execute(
+                "INSERT INTO live_end_claims (run_key, claimed_at) VALUES (?, ?)",
+                ("run-ancient", ancient),
+            )
+        self.assertTrue(game._claim_live_end("run-fresh", self.class_id))
+        self.assertFalse(game._claim_live_end("run-fresh", self.class_id))
+        self.assertNotIn("run-ancient", self._claims())
 
 
 def load_tests(

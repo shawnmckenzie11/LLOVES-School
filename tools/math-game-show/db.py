@@ -217,6 +217,11 @@ CREATE TABLE IF NOT EXISTS student_moods (
 """
 
 TEAM_NAME_OPTION_MAX = 32
+#: A live End claim this old whose class game is still open belongs to a
+#: worker that died before its write committed; another End may retake it.
+LIVE_END_CLAIM_STALE_SECONDS = 300
+#: Claims are pruned after this many days (one row per class run).
+LIVE_END_CLAIM_KEEP_DAYS = 30
 
 SCOREBOARD_GAME_KEY = "scoreboard_game_id"
 CURRENT_CLASS_KEY = "current_class_id"
@@ -3827,6 +3832,7 @@ class GameShowDB:
         include_attendance: bool = True,
         include_participation: bool = True,
         run_key: str | None = None,
+        create_game: bool = True,
     ) -> dict[str, Any] | None:
         """Write optional attendance / +1/question participation, then end.
 
@@ -3844,6 +3850,9 @@ class GameShowDB:
             run_key: Live class run. The credit is added on top of the
                 points already in the column (manual awards stay), once
                 per run: a repeat adds only the change (MCK-72).
+            create_game: When False, never begin a new game (column). End
+                with no live run passes False, so a late End cannot add a
+                phantom class-day column (MCK-72 follow-up).
 
         Returns:
             ``{ok, class_id, session_id}``, or ``None`` when there is
@@ -3868,7 +3877,7 @@ class GameShowDB:
             if n > 0:
                 credit_map[sid] = n
         claim = str(run_key or "").strip() or None
-        if claim is not None and not self._claim_live_end(claim):
+        if claim is not None and not self._claim_live_end(claim, int(class_id)):
             # Another End for this run already wrote (or is writing) the
             # column. A second write would add a new class-day column.
             return {
@@ -3885,29 +3894,75 @@ class GameShowDB:
                 include_attendance=include_attendance,
                 include_participation=include_participation,
                 run_key=run_key,
+                create_game=create_game,
             )
         except BaseException:
             if claim is not None:
                 self._release_live_end(claim)
             raise
 
-    def _claim_live_end(self, run_key: str) -> bool:
+    def _claim_live_end(self, run_key: str, class_id: int | None = None) -> bool:
         """Take this run's one End write. ``False`` when already taken.
 
         ``INSERT OR IGNORE`` on the primary key is atomic across workers.
+        A claim older than ``LIVE_END_CLAIM_STALE_SECONDS`` whose class game
+        is still open was left by a worker that died before its write
+        committed (a successful write ends the game), so it is retaken with
+        a compare-and-set on ``claimed_at``. Claims older than
+        ``LIVE_END_CLAIM_KEEP_DAYS`` are pruned here.
 
         Args:
             run_key: ``live_class_sessions.run_key``.
+            class_id: Class of the run, for the stale-claim check.
         """
+        now = datetime.now()
+        stamp = now.isoformat(timespec="seconds")
+        cutoff = (now - timedelta(days=LIVE_END_CLAIM_KEEP_DAYS)).isoformat(
+            timespec="seconds"
+        )
         with self._lock:
+            self.conn.execute(
+                "DELETE FROM live_end_claims WHERE claimed_at < ? AND run_key != ?",
+                (cutoff, run_key),
+            )
             cur = self.conn.execute(
                 """
                 INSERT OR IGNORE INTO live_end_claims (run_key, claimed_at)
                 VALUES (?, ?)
                 """,
-                (run_key, datetime.now().isoformat(timespec="seconds")),
+                (run_key, stamp),
             )
-        return int(cur.rowcount or 0) == 1
+            if int(cur.rowcount or 0) == 1:
+                return True
+            if class_id is None:
+                return False
+            row = self.conn.execute(
+                "SELECT claimed_at FROM live_end_claims WHERE run_key = ?",
+                (run_key,),
+            ).fetchone()
+            if row is None:
+                return False
+            try:
+                claimed = datetime.fromisoformat(str(row["claimed_at"]))
+            except ValueError:
+                return False
+            if (now - claimed).total_seconds() < LIVE_END_CLAIM_STALE_SECONDS:
+                return False
+            try:
+                self._game_row(int(class_id))
+            except KeyError:
+                return False  # the claimed write ended the game
+            retake = self.conn.execute(
+                """
+                UPDATE live_end_claims SET claimed_at = ?
+                WHERE run_key = ? AND claimed_at = ?
+                """,
+                (stamp, run_key, str(row["claimed_at"])),
+            )
+            if int(retake.rowcount or 0) == 1:
+                logger.warning("live end claim retaken after a stale claim")
+                return True
+        return False
 
     def _release_live_end(self, run_key: str) -> None:
         """Drop a claim after a failed write so a retry can persist.
@@ -3953,11 +4008,17 @@ class GameShowDB:
         include_attendance: bool,
         include_participation: bool,
         run_key: str | None,
+        create_game: bool = True,
     ) -> dict[str, Any] | None:
         """Body of ``persist_end_class_column`` once the End is claimed."""
         try:
             self._game_row(class_id)
         except KeyError:
+            if not create_game:
+                logger.warning(
+                    "End with no live run and no open game: no column written"
+                )
+                return None
             if not (
                 (include_attendance and present_set)
                 or (include_participation and credit_map)

@@ -2759,11 +2759,14 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         else:
             save_attendance = True
             save_participation = True
+        # The run this request saw as active. If another End closes it
+        # first, this one is a no-op instead of a new column (MCK-72).
         school.finish_live_class(
             int(class_id),
             save_attendance=save_attendance,
             save_participation=save_participation,
             celebrate=True,
+            run_key=str(active.get("run_key") or "") or None,
         )
         # Streaming tabs fetch the celebration now, not at the safety poll.
         ended_id = int(active["id"])

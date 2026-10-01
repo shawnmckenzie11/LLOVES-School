@@ -24386,6 +24386,7 @@ class SchoolDB(LovesDB):
         save_attendance: bool = True,
         save_participation: bool = True,
         celebrate: bool | None = None,
+        run_key: str | None = None,
     ) -> dict[str, Any]:
         """End Live Class (keep student celebration) or Quit (wipe).
 
@@ -24401,10 +24402,22 @@ class SchoolDB(LovesDB):
             save_participation: Write +1/question participation.
             celebrate: True for End Live Class; False for Quit. Default
                 follows ``persist`` (Quit is ``persist=False``).
+            run_key: The run the caller saw as active (the End route passes
+                it). When that run is no longer the class's active run, a
+                concurrent End already closed it, so this one does nothing
+                (MCK-72 follow-up: a late End used to begin a new column).
 
         Returns:
-            Celebration payload or wipe payload.
+            Celebration payload or wipe payload, or ``already_ended``.
         """
+        active_key = self._live_class_run_key(int(class_id))
+        expected = str(run_key or "").strip()
+        if expected and active_key != expected:
+            logger.info(
+                "late End for class=%s: run already closed by another End",
+                class_id,
+            )
+            return {"ok": True, "class_id": int(class_id), "already_ended": True}
         if persist is not None:
             save_attendance = bool(persist)
             save_participation = bool(persist)
@@ -24417,7 +24430,7 @@ class SchoolDB(LovesDB):
             if save_participation
             else {}
         )
-        run_key = self._live_class_run_key(int(class_id))
+        run_key = active_key
         wrote = None
         if save_attendance or save_participation:
             try:
@@ -24428,6 +24441,8 @@ class SchoolDB(LovesDB):
                     include_attendance=bool(save_attendance),
                     include_participation=bool(save_participation),
                     run_key=run_key,
+                    # No live run: never begin a new game (phantom column).
+                    create_game=run_key is not None,
                 )
             except Exception:  # noqa: BLE001 — close still happens
                 wrote = None
