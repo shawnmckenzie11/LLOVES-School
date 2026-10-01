@@ -506,6 +506,71 @@ class CelebrationTests(unittest.TestCase):
         self.assertEqual(cards[2]["detail"], "1 class present · 5 pts")
         self.assertEqual(cards[1]["detail"], "2 classes present")
 
+    def _session_days(self, class_id: int) -> list[str]:
+        """Meeting day of every non-template session in one class, oldest first."""
+        game = self.school.game
+        with game._lock:
+            rows = game.conn.execute(
+                """
+                SELECT substr(starts_at, 1, 10) AS day FROM sessions
+                WHERE class_id = ? AND status != 'template'
+                ORDER BY starts_at ASC, id ASC
+                """,
+                (class_id,),
+            ).fetchall()
+        return [str(row["day"]) for row in rows]
+
+    def test_most_engaged_counts_distinct_days_not_rows(self) -> None:
+        """Several sessions on one day count once; points still sum; no merging.
+
+        Re-logging a day (a second attendance pass or an extra game) adds a
+        new session row on that date. Most Engaged used to count every
+        ``session_scores`` row with ``present`` set, so Norah showed more
+        classes present than the class had met.
+        """
+        mcr3u = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]), ontario_code="MCR3U"
+        )
+        mcf3m_id = self._populate(["Norah", "Birch"])
+        mcf = self._ids(mcf3m_id)
+        self._log_day(
+            mcf3m_id,
+            "2026-09-09",
+            [mcf["Norah"], mcf["Birch"]],
+            {mcf["Norah"]: 1, mcf["Birch"]: 1},
+        )
+        self._log_day(mcf3m_id, "2026-09-09", [mcf["Norah"]], {mcf["Norah"]: 2})
+        self._log_day(mcf3m_id, "2026-09-09", [mcf["Norah"]])
+        self._log_day(
+            mcf3m_id,
+            "2026-09-11",
+            [mcf["Norah"], mcf["Birch"]],
+            {mcf["Birch"]: 2},
+        )
+        days = self._session_days(mcf3m_id)
+        self.assertEqual(
+            days, ["2026-09-09", "2026-09-09", "2026-09-09", "2026-09-11"]
+        )
+
+        # Same Codename in another section is a separate roster row.
+        mcr_id = self._populate(["Norah", "Oak"], int(mcr3u["id"]))
+        mcr = self._ids(mcr_id)
+        self.assertNotEqual(mcr["Norah"], mcf["Norah"])
+        self._log_day(mcr_id, "2026-09-09", [mcr["Norah"]], {mcr["Norah"]: 7})
+
+        board = build_celebration_board(self.school)["cards"]
+        engaged = {card["course"]: card for card in board if card["key"] == "engaged"}
+        mcf_card = engaged["MCF3M"]
+        self.assertEqual(mcf_card["name"], "Birch, Norah")
+        self.assertEqual(mcf_card["detail"], "2 classes present · 3 pts")
+        mcr_card = engaged["MCR3U"]
+        self.assertEqual(mcr_card["name"], "Norah")
+        self.assertEqual(mcr_card["detail"], "1 class present · 7 pts")
+        self.assertEqual(
+            mcr_card["students"],
+            [{"class_id": mcr_id, "student_id": mcr["Norah"]}],
+        )
+
     def test_foreign_class_rejected(self) -> None:
         """A teacher cannot feature a Codename from someone else's class."""
         class_id = self._populate(["Maple"])

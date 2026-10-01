@@ -7,7 +7,8 @@ Cards:
 
 * **Shoutout** — teacher-picked Codename (school setting)
 * **Most Engaged** — one card per class in ``ENGAGED_COURSES``: most
-  presents, then participation points; ties list every tied student
+  distinct class days present, then participation points; ties list every
+  tied student
 """
 
 from __future__ import annotations
@@ -16,6 +17,11 @@ import json
 import time
 from threading import Lock
 from typing import Any
+
+try:
+    from gradebook import session_meeting_date
+except ImportError:  # ``lms`` package import
+    from lms.gradebook import session_meeting_date
 
 SETTING_FEATURED_AWARD = "celebration_featured_award"
 # Section codes (``section_code``) that each get their own Most Engaged card.
@@ -111,11 +117,32 @@ def _active_class_rows(school: Any) -> list[dict[str, Any]]:
 
 
 def _gather_stats(school: Any) -> list[dict[str, Any]]:
-    """Per-student attendance and points across active-semester classes."""
+    """Per-student attendance and points, scoped to one class at a time.
+
+    ``session_scores`` holds one row per (session, student), but a class can
+    log several sessions on the same meeting day (a second attendance pass,
+    an extra game ``_2``/``_3``). Attendance therefore counts distinct
+    meeting days with ``present`` set, matching the staff Attendance grid
+    (``gradebook.build_attendance_week_grid``): template columns are
+    skipped. Points sum every scored row, matching the gradebook TOTAL.
+
+    Students are ``students`` rows owned by one ``class_id``, so a learner
+    rostered in two sections gets two separate entries, never a merged one.
+
+    Args:
+        school: ``SchoolDB`` instance.
+
+    Returns:
+        One stats row per (class, student) in the active semester.
+    """
     stats: list[dict[str, Any]] = []
     game = school.game
+    seen_classes: set[int] = set()
     for cls in _active_class_rows(school):
         class_id = int(cls["class_id"])
+        if class_id in seen_classes:
+            continue
+        seen_classes.add(class_id)
         with game._lock:
             students = [
                 dict(row)
@@ -128,7 +155,7 @@ def _gather_stats(school: Any) -> list[dict[str, Any]]:
                 dict(row)
                 for row in game.conn.execute(
                     """
-                    SELECT id, starts_at FROM sessions
+                    SELECT id, starts_at, status FROM sessions
                     WHERE class_id = ?
                     ORDER BY starts_at ASC, id ASC
                     """,
@@ -142,41 +169,45 @@ def _gather_stats(school: Any) -> list[dict[str, Any]]:
                     SELECT ss.session_id, ss.student_id, ss.present, ss.points
                     FROM session_scores ss
                     JOIN sessions se ON se.id = ss.session_id
-                    WHERE se.class_id = ?
+                    JOIN students st ON st.id = ss.student_id
+                    WHERE se.class_id = ? AND st.class_id = se.class_id
                     """,
                     (class_id,),
                 )
             ]
         if not students:
             continue
-        scored_ids = []
-        seen = set()
+        # Meeting day per non-template session in this class.
+        session_days: dict[int, str] = {}
         for session in sessions:
-            sid = int(session["id"])
-            if any(int(r["session_id"]) == sid for r in score_rows):
-                if sid not in seen:
-                    scored_ids.append(sid)
-                    seen.add(sid)
-        by_student: dict[int, list[dict[str, Any]]] = {}
+            if str(session.get("status") or "") == "template":
+                continue
+            meeting = session_meeting_date(session.get("starts_at"))
+            if meeting is None:
+                continue
+            session_days[int(session["id"])] = meeting.isoformat()
+        present_days: dict[int, set[str]] = {}
+        points_by_student: dict[int, float] = {}
         for row in score_rows:
-            by_student.setdefault(int(row["student_id"]), []).append(row)
+            stid = int(row["student_id"])
+            points_by_student[stid] = points_by_student.get(stid, 0.0) + float(
+                row.get("points") or 0
+            )
+            day = session_days.get(int(row["session_id"]))
+            if day is not None and int(row.get("present") or 0) == 1:
+                present_days.setdefault(stid, set()).add(day)
+        held_days = set(session_days.values())
         for student in students:
             stid = int(student["id"])
-            rows = by_student.get(stid, [])
-            present = 0
-            points = 0.0
-            for row in rows:
-                present += 1 if row.get("present") else 0
-                points += float(row.get("points") or 0)
             stats.append(
                 {
                     "class_id": class_id,
                     "student_id": stid,
                     "name": student_public_name(student),
                     "course": cls["course"],
-                    "present": present,
-                    "session_count": len(scored_ids),
-                    "points": points,
+                    "present": len(present_days.get(stid, set())),
+                    "session_count": len(held_days),
+                    "points": round(points_by_student.get(stid, 0.0), 1),
                 }
             )
     return stats
