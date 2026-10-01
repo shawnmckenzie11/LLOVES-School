@@ -3974,7 +3974,10 @@ function responseRowLabel(row, ordinal, hidden) {
 }
 
 /**
- * 32-bit FNV-1a of ``seed:id``. Orders new students for numbering.
+ * 32-bit FNV-1a of ``seed:id`` with a murmur3 ``fmix32`` finalizer.
+ * Orders new students for numbering. Plain FNV-1a left neighbouring ids
+ * (Class List neighbours) with neighbouring hashes, so adjacent students
+ * often got adjacent labels; the finalizer spreads every input bit.
  * @param {string} seed
  * @param {number} id
  * @returns {number}
@@ -3986,6 +3989,11 @@ function hiddenLabelHash(seed, id) {
     hash ^= text.charCodeAt(index);
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
+  hash ^= hash >>> 16;
+  hash = Math.imul(hash, 0x85ebca6b);
+  hash ^= hash >>> 13;
+  hash = Math.imul(hash, 0xc2b2ae35);
+  hash ^= hash >>> 16;
   return hash >>> 0;
 }
 

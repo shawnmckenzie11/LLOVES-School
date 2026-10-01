@@ -133,6 +133,49 @@ class StableLabelTests(unittest.TestCase):
         self.assertNotEqual([r["id"] for r in rows], roster, "rows still in A-Z order")
         self.assertEqual(sorted(r["id"] for r in rows), roster)
 
+    def test_class_list_neighbours_get_near_random_labels(self) -> None:
+        """Ops MED-1: adjacent ids got adjacent labels 58% of the time.
+
+        Over many seeds, the share of Class List neighbours (ids i, i+1)
+        whose labels differ by 1 must be close to a true shuffle (2/n).
+        """
+        js = STAFF_JS.read_text(encoding="utf-8")
+        src = "\n".join(
+            _function_source(js, name) for name in ("hiddenLabelHash", "assignHiddenLabels")
+        )
+        script = r"""
+const vm = require("vm");
+const src = require("fs").readFileSync(0, "utf8");
+const ctx = { Math, Number, Set, String };
+vm.createContext(ctx);
+vm.runInContext(src, ctx);
+const n = 24, seeds = 400;
+let adjacent = 0, pairs = 0, longest = 0;
+for (let s = 0; s < seeds; s += 1) {
+  const book = { seed: String(1000003 * s + 17), next: 1, byStudent: {} };
+  const ids = Array.from({ length: n }, (_, i) => 101 + i);
+  ctx.book = book; ctx.ids = ids;
+  vm.runInContext("assignHiddenLabels(book, ids)", ctx);
+  let run = 1;
+  for (let i = 0; i + 1 < n; i += 1) {
+    const d = book.byStudent[String(ids[i + 1])] - book.byStudent[String(ids[i])];
+    pairs += 1;
+    if (Math.abs(d) === 1) { adjacent += 1; run += 1; longest = Math.max(longest, run); }
+    else run = 1;
+  }
+}
+console.log(JSON.stringify({ share: adjacent / pairs, longest }));
+"""
+        done = subprocess.run(
+            ["node", "-e", script], input=src, capture_output=True, text=True,
+            timeout=60, check=False,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        out = json.loads(done.stdout.strip().splitlines()[-1])
+        # True shuffle: 2/24 = 8.3%. Plain FNV-1a measured about 58%.
+        self.assertLess(out["share"], 0.13, out)
+        self.assertGreater(out["share"], 0.04, out)
+
     def test_toggle_repaint_keeps_unsaved_ticks(self) -> None:
         """Ops M3: ticks (or un-ticks) made before the toggle survive it."""
         roster = [1, 2, 3, 4]
