@@ -1382,6 +1382,210 @@ process.exit(0);
         )
         self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
 
+    def test_student_signed_out_ink_drops_the_queue_and_stops_posting(self) -> None:
+        """MCK-75: a 302 or 401 on a stroke write drops queued ink and stops posting.
+
+        ``fetch`` follows the login 302, so the tab sees ``redirected`` with an
+        HTML body. A 401 comes from the visit-token gate. Either way the tab
+        stops posting, does not navigate or reload, and paints the calm strip.
+        """
+        for mode in ("redirect", "401"):
+            with self.subTest(mode=mode):
+                script = r"""
+import { readFileSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+
+class HTMLElement {}
+class HTMLCanvasElement extends HTMLElement {}
+class HTMLButtonElement extends HTMLElement {}
+class HTMLInputElement extends HTMLElement {}
+class Element {}
+globalThis.HTMLElement = HTMLElement;
+globalThis.HTMLButtonElement = HTMLButtonElement;
+globalThis.HTMLInputElement = HTMLInputElement;
+globalThis.HTMLCanvasElement = HTMLCanvasElement;
+globalThis.Element = Element;
+
+function makeEl(tag) {
+  const listeners = {};
+  const node = {
+    tagName: String(tag || 'div').toUpperCase(),
+    hidden: false,
+    style: { cursor: '', removeProperty() {} },
+    dataset: {},
+    className: '',
+    classList: { add() {}, remove() {}, toggle() {} },
+    children: [],
+    parentElement: null,
+    width: 720,
+    height: 360,
+    appendChild(child) {
+      node.children.push(child);
+      child.parentElement = node;
+      return child;
+    },
+    insertAdjacentElement(_where, child) {
+      return node.appendChild(child);
+    },
+    addEventListener(type, fn) {
+      (listeners[type] ||= []).push(fn);
+    },
+    removeEventListener() {},
+    setAttribute() {},
+    getAttribute() { return null; },
+    removeAttribute() {},
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    getBoundingClientRect() {
+      return { width: 720, height: 360, left: 0, top: 0, right: 720, bottom: 360 };
+    },
+    setPointerCapture() {},
+    releasePointerCapture() {},
+    getContext() {
+      return {
+        setTransform() {}, clearRect() {}, beginPath() {}, moveTo() {},
+        lineTo() {}, stroke() {}, fill() {}, arc() {}, save() {}, restore() {},
+      };
+    },
+    dispatch(type, props) {
+      const event = {
+        type,
+        clientX: 0,
+        clientY: 0,
+        pointerId: 1,
+        preventDefault() {},
+        stopPropagation() {},
+        target: node,
+        ...props,
+      };
+      for (const fn of listeners[type] || []) fn(event);
+    },
+  };
+  return node;
+}
+
+const canvas = makeEl('canvas');
+Object.setPrototypeOf(canvas, HTMLCanvasElement.prototype);
+const body = makeEl('body');
+body.dataset = { codename: '' };
+const byId = { 'student-canvas': canvas, body };
+globalThis.document = {
+  body,
+  title: '',
+  getElementById(id) { return byId[id] || null; },
+  createElement(tag) { return makeEl(tag); },
+  addEventListener() {},
+};
+globalThis.window = globalThis;
+window.addEventListener = () => {};
+window.setTimeout = setTimeout;
+window.clearTimeout = clearTimeout;
+window.setInterval = setInterval;
+window.clearInterval = clearInterval;
+window.devicePixelRatio = 1;
+window.requestAnimationFrame = (fn) => { fn(); return 1; };
+window.location = { origin: 'http://localhost', pathname: '/student' };
+window.innerWidth = 1280;
+
+const staticDir = process.env.LLOVES_LMS_STATIC.replace(/\/$/, '');
+const staticHref = pathToFileURL(staticDir + '/').href;
+let src = readFileSync(staticDir + '/student-portal.js', 'utf8');
+src = src.replaceAll('"/static/common.js"', JSON.stringify(pathToFileURL(process.env.LLOVES_COMMON_JS).href));
+src = src.replaceAll('"/static/', '"' + staticHref);
+src = src.replace('void tick();', '');
+src = src.replace('setInterval(tickDisplayTime, 250);', '');
+src += '\nexport { bindStudentCanvas, studentBoardRun, studentPresenceQueue };\n';
+const out = '/tmp/student-board-signed-out-harness.mjs';
+writeFileSync(out, src);
+
+const mode = process.env.SIGNED_OUT_MODE;
+const posts = [];
+let navigated = false;
+window.location = new Proxy(window.location, {
+  set(target, key, value) { navigated = true; target[key] = value; return true; },
+  get(target, key) {
+    if (key === 'reload' || key === 'assign' || key === 'replace') return () => { navigated = true; };
+    return target[key];
+  },
+});
+globalThis.location = window.location;
+globalThis.fetch = async (url, init) => {
+  const target = String(url);
+  if (target.includes('/api/student/canvas-presence')) {
+    posts.push(JSON.parse(init.body));
+    if (mode === '401') {
+      return { ok: false, status: 401, redirected: false, type: 'basic',
+        async json() { return { ok: false, error: 'Sign in again.' }; } };
+    }
+    return { ok: true, status: 200, redirected: true, type: 'basic',
+      url: 'http://localhost/login',
+      async json() { throw new SyntaxError('Unexpected token <'); } };
+  }
+  return { ok: true, status: 200, async json() { return { ok: true }; } };
+};
+
+const mod = await import(pathToFileURL(out).href);
+mod.bindStudentCanvas.setAlign('team');
+mod.studentBoardRun.key = 'run-1';
+
+canvas.dispatch('pointerdown', { clientX: 30, clientY: 40 });
+canvas.dispatch('pointermove', { clientX: 120, clientY: 80 });
+// Queue more ink while the first write is still in flight.
+canvas.dispatch('pointermove', { clientX: 160, clientY: 90 });
+await new Promise((resolve) => setTimeout(resolve, 150));
+if (posts.length !== 1) {
+  console.error('expected one rejected post, got ' + posts.length);
+  process.exit(3);
+}
+canvas.dispatch('pointermove', { clientX: 200, clientY: 120 });
+canvas.dispatch('pointerup', { clientX: 220, clientY: 140 });
+canvas.dispatch('pointerdown', { clientX: 10, clientY: 10 });
+canvas.dispatch('pointermove', { clientX: 90, clientY: 30 });
+canvas.dispatch('pointerup', { clientX: 95, clientY: 35 });
+mod.studentPresenceQueue().push({ op: 'stroke_remove', stroke_id: 'x' });
+await new Promise((resolve) => setTimeout(resolve, 250));
+if (posts.length !== 1) {
+  console.error('kept posting after sign-out: ' + posts.length);
+  process.exit(4);
+}
+if (navigated) {
+  console.error('signed-out tab navigated or reloaded');
+  process.exit(5);
+}
+console.log('ok');
+process.exit(0);
+"""
+                completed = subprocess.run(
+                    ["node", "--input-type=module", "-e", script],
+                    cwd=REPO_ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    env=node_harness_env({"SIGNED_OUT_MODE": mode}),
+                )
+                self.assertEqual(
+                    completed.returncode, 0, completed.stderr or completed.stdout
+                )
+
+    def test_board_auth_lost_reads_every_signed_out_shape(self) -> None:
+        """``boardAuthLost``: 302, 401, followed redirect, opaque redirect."""
+        script = """
+import { boardAuthLost } from './lms/static/live_whiteboard.js';
+const yes = [{ status: 302 }, { status: 401 }, { status: 200, redirected: true }, { status: 0, type: 'opaqueredirect' }];
+const no = [{ status: 200 }, { status: 409 }, { status: 503 }, null, undefined];
+for (const res of yes) if (!boardAuthLost(res)) { console.error('missed ' + JSON.stringify(res)); process.exit(1); }
+for (const res of no) if (boardAuthLost(res)) { console.error('false hit ' + JSON.stringify(res)); process.exit(2); }
+"""
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=node_harness_env(),
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+
     def test_canvas_presence_in_the_start_after_end_gap_is_409(self) -> None:
         """A stroke after End deletes the row is 409 ended, not a 500.
 

@@ -23,6 +23,7 @@ import {
 } from "/static/live_news_wire.js";
 import {
   bindWhiteboard,
+  boardAuthLost,
   boardWriteRejected,
   createBoardDeltaPoll,
   createPresenceQueue,
@@ -724,6 +725,23 @@ let studentPresenceCollab = false;
 /** @type {ReturnType<typeof createPresenceQueue> | null} */
 let studentPresence = null;
 
+/**
+ * True after an ink write came back signed out (302 / 401). Queued strokes
+ * are dropped and nothing more is posted until a /state succeeds (MCK-75).
+ */
+let studentBoardSignedOut = false;
+
+/**
+ * Stop posting ink for a signed-out tab: drop queued strokes, stop the
+ * board poll, and paint the calm Reconnecting… strip. Never reloads.
+ */
+function noteStudentBoardSignedOut() {
+  studentBoardSignedOut = true;
+  studentPresenceQueue().drop();
+  if (studentBoardPoll) studentBoardPoll.stop();
+  setStudentReconnectBanner(true);
+}
+
 /** Last applied sequence on this student's team board. */
 let studentBoardSince = 0;
 
@@ -750,6 +768,7 @@ function studentPresenceQueue() {
      * @returns {Promise<any>}
      */
     send(body) {
+      if (studentBoardSignedOut) return Promise.resolve(null);
       const payload = {
         ...body,
         since: studentBoardSince,
@@ -768,6 +787,11 @@ function studentPresenceQueue() {
           body: JSON.stringify(payload),
         })
       ).then(async (res) => {
+        // Logged out: the gate answers 302 (followed to the login page) or 401.
+        if (boardAuthLost(res)) {
+          noteStudentBoardSignedOut();
+          return null;
+        }
         let data = null;
         try {
           data = await res.json();
@@ -836,6 +860,7 @@ function studentPresenceQueue() {
  */
 function postStudentCanvas(p, extra) {
   if (!(studentCanvas instanceof HTMLCanvasElement)) return;
+  if (studentBoardSignedOut) return;
   const align = String(extra.align || "student");
   const text = extra.text;
   if (extra.cursorOnly) return;
@@ -4373,6 +4398,8 @@ function armStudentStuckTimer() {
  * Hide the strip and let the next poll use the healthy interval.
  */
 function clearStudentOutage() {
+  // A good /state means the visit is signed in again; ink may post (MCK-75).
+  studentBoardSignedOut = false;
   studentOutageStartedAt = 0;
   studentBackoffMs = 0;
   studentNewsFetch = false;
