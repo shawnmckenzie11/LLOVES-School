@@ -3054,24 +3054,108 @@ body.staff-shell .live-item-chart.is-histogram .live-item-chart-track {
   height: 1.3rem;
   border-radius: 2px 2px 0 0;
 }
-body.staff-shell .live-submission-switch {
+/* MCK-112: one "Students work [Individual | Group]" control on every
+   group-capable Publish row, plus the options row and live chips. */
+body.staff-shell .live-group-setup {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+body.staff-shell .live-group-setup legend {
+  float: left;
+  margin-right: 0.35rem;
+  padding: 0;
+  color: #12202e;
+}
+body.staff-shell .live-group-setup-seg {
+  display: inline-flex;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  overflow: hidden;
+}
+body.staff-shell .live-group-setup-choice {
+  position: relative;
+  display: inline-flex;
+  margin: 0;
+  border-right: 1px solid #cbd5e1;
+}
+body.staff-shell .live-group-setup-choice:last-child {
+  border-right: 0;
+}
+body.staff-shell .live-group-setup-choice input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+body.staff-shell .live-group-setup-choice span {
+  padding: 0.2rem 0.55rem;
+  background: #fff;
+  color: #12202e;
+  cursor: pointer;
+}
+body.staff-shell .live-group-setup-choice input:checked + span {
+  background: #12202e;
+  color: #fff;
+}
+body.staff-shell .live-group-setup-choice input:focus-visible + span {
+  outline: 2px solid #f5c518;
+  outline-offset: -2px;
+}
+body.staff-shell .live-group-setup-opts {
+  flex: 1 1 100%;
+  width: 100%;
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  color: #12202e;
+}
+body.staff-shell .live-group-setup-opts p {
+  margin: 0.1rem 0;
+}
+body.staff-shell .live-group-setup-teams {
+  color: #475569;
+}
+body.staff-shell .live-group-setup-groupq {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
+  font-weight: 650;
+}
+body.staff-shell .live-group-setup-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: #12202e;
+  color: #fff;
+}
+body.staff-shell .live-group-setup-chip.is-closed {
+  background: #e2e8f0;
+  color: #475569;
+}
+body.staff-shell .live-group-setup-noteams {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
   font-size: 0.78rem;
-  font-weight: 700;
+  font-weight: 650;
+  color: #12202e;
 }
-body.staff-shell .live-submission-choice {
-  border: 1px solid #94a3b8;
-  background: #fff;
-  border-radius: 6px;
-  padding: 0.2rem 0.45rem;
-  font: inherit;
-  font-weight: 700;
+body.staff-shell .live-group-setup-host {
+  display: inline-flex;
+  align-items: center;
 }
-body.staff-shell .live-submission-choice.is-on {
-  border-color: #0f766e;
-  background: #ccfbf1;
+body.staff-shell .live-group-setup-opts-host {
+  margin: 0.25rem 0 0;
 }
 /* MCK-112 S1: in-place "Show teams and publish" confirm (replaces Publish). */
 body.staff-shell .live-group-setup-confirm {

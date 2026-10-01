@@ -3570,9 +3570,16 @@ class LiveBackendStateTests(unittest.TestCase):
         student_js = (LMS_DIR / "static" / "student-portal.js").read_text(
             encoding="utf-8"
         )
-        self.assertIn('aria-label="Submission"', staff_js)
+        # MCK-112 S2: the MC Submission switch is the shared "Students
+        # work" control now; the dead multiple-choice-only stub is gone.
+        shared_js = (LMS_DIR / "static" / "group_setup.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn('aria-label="Submission"', staff_js)
         self.assertIn("group_submit", staff_js)
-        self.assertIn("Group submission is multiple choice only.", staff_js)
+        self.assertIn("group_submit", shared_js)
+        self.assertIn("<legend>${esc(C.legend)}</legend>", shared_js)
+        self.assertNotIn("Group submission is multiple choice only.", staff_js)
         self.assertIn("Submit for team", student_js)
         self.assertIn("data-group-phase", student_js)
         self.assertIn("Submitted — waiting for other teams", student_js)

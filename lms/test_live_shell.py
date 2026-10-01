@@ -132,9 +132,13 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn('id="meet-option-card"', html)
         self.assertIn('id="round-option-card"', html)
         self.assertIn('id="play-option-card"', html)
-        self.assertIn('id="live-view-media"', html)
-        self.assertIn('id="live-view-canvas"', html)
-        self.assertIn('id="live-view-slides"', html)
+        # MCK-112 S3: the pane-head Publish mode selects are gone; the
+        # shared Students work control mounts in each surface Publish row.
+        self.assertNotIn('id="live-view-media"', html)
+        self.assertNotIn('id="live-view-canvas"', html)
+        self.assertNotIn('id="live-view-slides"', html)
+        self.assertIn('data-group-setup-host="canvas"', html)
+        self.assertIn('data-group-setup-host="media"', html)
         self.assertIn('id="live-question-list"', html)
         self.assertNotIn('id="live-round-type"', html)
         self.assertNotIn('id="live-round-set"', html)
@@ -224,7 +228,6 @@ class LiveShellTests(unittest.TestCase):
             "ap-assign-random",
             "ap-assign-manual",
             "ap-scoreboard-toggle",
-            "live-view-slides",
             "live-timer-toggle",
             "live-teams-start",
             "live-run-as-group",
@@ -312,7 +315,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function surfacePublishSelection(", js)
         self.assertIn("async function persistSurfacePublishMode(", js)
         self.assertIn("async function persistQuestionMode(", js)
-        self.assertIn(
+        # MCK-112 S3: the live-view-* selects and their listeners are gone.
+        self.assertNotIn(
             '$(`live-view-${surface}`)?.addEventListener("change"',
             js,
         )
@@ -331,11 +335,16 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("absorbSaveToCardSnapshot(", js)
         self.assertIn("function liveQuestionControlStrip(", js)
         self.assertIn("function groupConsensusResultsHtml(", js)
-        self.assertIn("function openPublishModeSelection(", js)
-        self.assertIn("const openPublishIntent = new Map()", js)
-        self.assertIn("Individual in Group", js)
-        self.assertIn('select[data-publish-live-mode]', js)
-        self.assertIn("openPublishIntent.set", js)
+        self.assertIn("function questionGroupPick(", js)
+        # MCK-112 S2: one Students work control replaces the MC switch and
+        # the open/numeric "Individual in Group" select.
+        self.assertIn("const groupModeIntent = new Map()", js)
+        self.assertIn("groupSetupHtml({", js)
+        self.assertIn("data-group-setup", js)
+        self.assertNotIn("Individual in Group", js)
+        self.assertNotIn("select[data-publish-live-mode]", js)
+        self.assertNotIn("openPublishIntent", js)
+        self.assertNotIn("groupSubmissionIntent", js)
         adopt = js.split("function adoptLifecycleResponseCounts(")[1].split(
             "function "
         )[0]
@@ -888,21 +897,29 @@ class LiveShellTests(unittest.TestCase):
         )
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
         self.assertIn('id="live-unlocks-strip"', html)
-        self.assertIn('id="live-view-media"', html)
-        self.assertIn('id="live-view-canvas"', html)
-        self.assertIn('id="live-view-slides"', html)
+        self.assertNotIn('id="live-view-media"', html)
+        self.assertNotIn('id="live-view-canvas"', html)
+        self.assertNotIn('id="live-view-slides"', html)
         self.assertNotIn('id="live-view-questions"', html)
         self.assertIn('id="live-question-list"', html)
-        self.assertIn("data-question-view", js)
+        # MCK-112: dead data-question-view listener deleted.
+        self.assertNotIn("data-question-view", js)
         self.assertNotIn('id="live-canvas-align"', html)
         self.assertNotIn("Student View", html)
-        self.assertIn("Publish mode", html)
-        self.assertIn(">Individual<", html)
-        self.assertIn(">Shared within Group<", html)
+        # MCK-112 S3: no pane-head Publish mode select; the whiteboard
+        # control sits inside its .live-surface-publish row.
+        self.assertNotIn("Publish mode", html)
+        self.assertNotIn(">Shared within Group<", html)
+        canvas_row = html.split('data-surface-controls="canvas"')[1].split("</div>")[0]
+        self.assertIn('data-group-setup-host="canvas"', canvas_row)
+        media_row = html.split('data-surface-controls="media"')[1].split("</div>")[0]
+        self.assertIn('data-group-setup-host="media"', media_row)
+        slides_row = html.split('data-surface-controls="slides"')[1].split("</div>")[0]
+        self.assertNotIn("data-group-setup-host", slides_row)
         play_html = html.split('id="play-option-card"')[1].split("</section>")[0]
-        self.assertNotIn('id="live-view-media"', play_html)
+        self.assertNotIn("data-group-setup-host", play_html)
         self.assertIn("card.hidden = false;", js)
-        self.assertIn("patchStudentViewFromControl", js)
+        self.assertIn("function paintGroupSetupSurfaces(", js)
         self.assertIn("canvas-presence", js)
         self.assertIn("body.staff-shell .live-unlocks-strip {", css)
         unlocks_css = css.split("body.staff-shell .live-unlocks-strip {")[1].split(
@@ -1440,7 +1457,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("data-close-live-item", js)
         self.assertIn("data-end-voting", js)
         consensus = js.split("function groupConsensusResultsHtml(")[1].split(
-            "function setQuestionStudentView("
+            "\nfunction "
         )[0]
         self.assertIn("keyedMc", consensus)
         self.assertIn("data-award-consensus", consensus)
@@ -2710,10 +2727,14 @@ class LiveShellTests(unittest.TestCase):
         """
 
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
-        click = js.split('const submission = event.target.closest("button[data-submission-value]");')[1]
-        click = click.split("paintLiveQuestionCards();")[0]
-        self.assertNotIn("patchTeacherState({ run_as_group", click)
-        self.assertIn("persistQuestionMode(id, value)", click)
+        shared = (LMS_DIR / "static" / "group_setup.js").read_text(encoding="utf-8")
+        # S2 replaced the Submission click with one delegated handler.
+        click = js.split("async function onGroupSetupChange(")[1].split(
+            "function focusTeamSetup("
+        )[0]
+        self.assertNotIn("patchTeacherState", click)
+        self.assertNotIn("run_as_group", click)
+        self.assertIn("persistQuestionMode(", click)
         publish = js.split("async function publishLifecycleItem(")[1].split(
             "async function closeLifecycleItem("
         )[0]
@@ -2721,25 +2742,78 @@ class LiveShellTests(unittest.TestCase):
         patch_at = publish.index("patchTeacherState({ run_as_group: true }")
         self.assertLess(confirm_at, patch_at)
         self.assertIn("if (!confirmed) return;", publish)
-        self.assertIn("groupModeNeedsTeamsShown(publishMode)", publish)
-        needs = js.split("function groupModeNeedsTeamsShown(")[1].split("}")[0]
+        self.assertIn("groupTokenNeedsTeamsShown(publishMode)", publish)
+        needs = shared.split("export function groupTokenNeedsTeamsShown(")[1].split(
+            "\n}\n"
+        )[0]
         self.assertIn('"group_submit"', needs)
         self.assertIn('"group_consensus"', needs)
-        self.assertIn("Show teams and publish", js)
+        self.assertIn("Show teams and publish", shared)
         self.assertIn(
             "Students can't see teams yet. Publishing as a group will show team names to the class.",
-            js,
+            shared,
         )
         surface = js.split("async function persistSurfacePublishMode(")[1].split(
-            "function patchStudentViewFromControl("
+            "async function persistQuestionMode("
         )[0]
-        no_row = surface.split("if (!id) {")[1].split("}")[0]
-        self.assertIn("surfaceModeIntent.set(surface, viewMode)", no_row)
-        self.assertNotIn("patchTeacherState", no_row)
+        no_row = surface.split("if (!id || surface !== \"canvas\") {")[1].split("}")[0]
+        self.assertIn("return;", no_row)
+        self.assertNotIn("patchTeacherState", surface)
+        self.assertNotIn("student_view", surface)
         selection = js.split("function surfacePublishSelection(")[1].split(
-            "function paintStudentViewControls("
+            "function surfaceStatus("
         )[0]
-        self.assertIn("surfaceModeIntent", selection)
+        self.assertIn("groupModeIntent", selection)
+        surface_publish = js.split("async function publishSurface(")[1].split(
+            "async function closeSurface("
+        )[0]
+        self.assertLess(
+            surface_publish.index("await confirmGroupPublish("),
+            surface_publish.index("patchTeacherState({ run_as_group: true }"),
+        )
+
+    def test_mck112_group_setup_node_harness(self) -> None:
+        """MCK-112 S2-S4: shared Students work control (node harness)."""
+
+        node = LMS_DIR / "static" / "group_setup.test.mjs"
+        result = subprocess.run(
+            ["node", str(node)],
+            cwd=str(node.parent),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        self.assertIn("ok", result.stdout)
+
+    def test_mck112_one_control_on_every_question_card(self) -> None:
+        """MCK-112 S2: cards mount the shared control first in C Lifecycle."""
+
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn('from "/static/group_setup.js"', js)
+        paint = js.split("function paintLiveQuestionCards()")[1].split(
+            "function individualLifecycleResultsHtml("
+        )[0]
+        self.assertIn("groupStyleFor(item, card)", paint)
+        self.assertIn("groupSetupHtml({", paint)
+        self.assertIn("groupSetupOptionsHtml({", paint)
+        self.assertNotIn("live-submission-switch", paint)
+        self.assertNotIn("live-group-submit-stub", paint)
+        self.assertNotIn("<select", paint)
+        strip = js.split("function liveQuestionControlStrip(")[1].split(
+            "function paintLiveQuestionCards("
+        )[0]
+        self.assertIn("lifecycleBody = `${groupSetup}${lifecycleBody}`", strip)
+        self.assertIn("parts.groupOptsHtml", strip)
+        chosen = js.split("function selectedPublishMode(")[1].split("\n}\n")[0]
+        self.assertIn("input[data-group-setup=", chosen)
+        self.assertNotIn("data-submission-value", js)
+        # D2: rank no longer auto-defaults to Group unless the flag flips.
+        pick = js.split("function questionGroupPick(")[1].split("\n}\n")[0]
+        self.assertIn("RANK_DEFAULTS_TO_GROUP &&", pick)
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn("body.staff-shell .live-group-setup {", css)
+        self.assertNotIn(".live-submission-switch", css)
 
 
 if __name__ == "__main__":

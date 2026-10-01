@@ -440,19 +440,14 @@
                 <section class="ap-active-media" id="ap-active-media">
                   <div class="live-content-pane-head">
                     <h2>Media</h2>
-                    <label class="live-student-view-field" for="live-view-media">
-                      <span>Publish mode</span>
-                      <select id="live-view-media" aria-label="Media student view">
-                        <option value="student">Individual</option>
-                        <option value="team">Shared within Group</option>
-                      </select>
-                    </label>
                   </div>
                   <div class="live-surface-publish" data-surface-controls="media">
+                    <span class="live-group-setup-host" data-group-setup-host="media"></span>
                     <span class="live-status-badge" data-surface-status="media">Inactive</span>
                     <button type="button" data-surface-publish="media">Publish</button>
                     <button type="button" class="secondary" data-surface-close="media" disabled>Close</button>
                   </div>
+                  <div class="live-group-setup-opts-host" data-group-setup-opts-host="media" hidden></div>
                   <iframe class="ap-media-preview" id="ap-media-preview" title="Teacher media preview" sandbox="allow-scripts allow-same-origin" hidden></iframe>
                   <section id="state-event-bar" class="state-event-bar" hidden aria-label="State events">
                     <p class="state-event-bar-label">State events</p>
@@ -574,19 +569,14 @@
               <section id="canvas-zone" class="live-content-slot" data-content-id="canvas" data-slot="">
                 <div class="live-content-pane-head">
                   <h2 class="live-pane-title">Whiteboard</h2>
-                  <label class="live-student-view-field" for="live-view-canvas">
-                    <span>Publish mode</span>
-                    <select id="live-view-canvas" aria-label="Whiteboard student view">
-                      <option value="student">Individual</option>
-                      <option value="team">Shared within Group</option>
-                    </select>
-                  </label>
                 </div>
                 <div class="live-surface-publish" data-surface-controls="canvas">
+                  <span class="live-group-setup-host" data-group-setup-host="canvas"></span>
                   <span class="live-status-badge" data-surface-status="canvas">Inactive</span>
                   <button type="button" data-surface-publish="canvas">Publish</button>
                   <button type="button" class="secondary" data-surface-close="canvas" disabled>Close</button>
                 </div>
+                <div class="live-group-setup-opts-host" data-group-setup-opts-host="canvas" hidden></div>
                 <p class="hint compact">Whiteboard lasts for this live class. Text stays until the class ends.</p>
                 <div class="live-canvas-toolbar" role="toolbar" aria-label="Whiteboard tools">
                   <button type="button" id="live-canvas-undo">Undo</button>
@@ -603,12 +593,6 @@
               <section id="slides-zone" class="live-content-slot" data-content-id="slides" data-slot="">
                 <div class="live-content-pane-head">
                   <h2 class="live-pane-title">Slides</h2>
-                  <label class="live-student-view-field" for="live-view-slides">
-                    <span>Publish mode</span>
-                    <select id="live-view-slides" aria-label="Slides student view">
-                      <option value="student">Individual</option>
-                    </select>
-                  </label>
                 </div>
                 <div class="live-surface-publish" data-surface-controls="slides">
                   <span class="live-status-badge" data-surface-status="slides">Inactive</span>
