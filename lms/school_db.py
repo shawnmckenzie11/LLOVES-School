@@ -25234,51 +25234,90 @@ class SchoolDB(LovesDB):
     def replace_course_expectations(
         self, course_code: str, rows: list[dict[str, Any]], *, status: str
     ) -> int:
-        """Replace overall/specific expectation rows for one course."""
+        """Replace overall/specific expectation rows for one course.
+
+        Every gunicorn worker runs ``seed_curriculum`` at boot, so four
+        processes replace the same course at once. The connection is in
+        autocommit mode and ``self._lock`` only covers threads in one
+        process, so without a transaction worker B's DELETE lands between
+        worker A's INSERTs and A then re-inserts a code B already wrote
+        (``UNIQUE constraint failed: expectations.course_code,
+        expectations.code``, Sentry LLOVES-LMS-2). ``BEGIN IMMEDIATE`` takes
+        the sqlite write lock for the whole replace, so the other workers
+        wait on ``busy_timeout`` and then run their own full replace. The
+        upsert keeps a repeated code in the source list from failing the
+        boot; the last row for a code wins.
+
+        Args:
+            course_code: Ontario course code (any case).
+            rows: Expectation dicts with kind/code/statement and optional
+                parent_code/strand/verification_status.
+            status: Verification status for rows that carry none, also
+                written onto the course.
+
+        Returns:
+            Number of distinct expectation codes stored for the course.
+        """
         key = course_code.strip().upper()
-        count = 0
+        codes: set[str] = set()
         with self._lock:
-            self.conn.execute("DELETE FROM expectations WHERE course_code = ?", (key,))
-            for item in rows:
-                statement = str(item.get("statement") or "").strip()
-                code = str(item.get("code") or "").strip()
-                kind = str(item.get("kind") or "").strip()
-                if not statement or not code or kind not in {"overall", "specific"}:
-                    continue
+            if self.conn.in_transaction:
+                self.conn.execute("COMMIT")
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
                 self.conn.execute(
-                    """
-                    INSERT INTO expectations (
-                        course_code, kind, code, parent_code, strand,
-                        statement, verification_status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        key,
-                        kind,
-                        code,
-                        item.get("parent_code"),
-                        item.get("strand"),
-                        statement,
-                        str(item.get("verification_status") or status),
-                    ),
+                    "DELETE FROM expectations WHERE course_code = ?", (key,)
                 )
-                count += 1
-            cols = {
-                row["name"]
-                for row in self.conn.execute("PRAGMA table_info(ontario_courses)")
-            }
-            if "expectations_status" in cols:
-                self.conn.execute(
-                    "UPDATE ontario_courses SET expectations_status = ? WHERE code = ?",
-                    (status, key),
-                )
-            elif "verification_status" in cols:
-                self.conn.execute(
-                    "UPDATE ontario_courses SET verification_status = ? WHERE code = ?",
-                    (status, key),
-                )
-            self.conn.commit()
-        return count
+                for item in rows:
+                    statement = str(item.get("statement") or "").strip()
+                    code = str(item.get("code") or "").strip()
+                    kind = str(item.get("kind") or "").strip()
+                    if not statement or not code or kind not in {"overall", "specific"}:
+                        continue
+                    self.conn.execute(
+                        """
+                        INSERT INTO expectations (
+                            course_code, kind, code, parent_code, strand,
+                            statement, verification_status
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(course_code, code) DO UPDATE SET
+                            kind = excluded.kind,
+                            parent_code = excluded.parent_code,
+                            strand = excluded.strand,
+                            statement = excluded.statement,
+                            verification_status = excluded.verification_status
+                        """,
+                        (
+                            key,
+                            kind,
+                            code,
+                            item.get("parent_code"),
+                            item.get("strand"),
+                            statement,
+                            str(item.get("verification_status") or status),
+                        ),
+                    )
+                    codes.add(code)
+                cols = {
+                    row["name"]
+                    for row in self.conn.execute("PRAGMA table_info(ontario_courses)")
+                }
+                if "expectations_status" in cols:
+                    self.conn.execute(
+                        "UPDATE ontario_courses SET expectations_status = ? WHERE code = ?",
+                        (status, key),
+                    )
+                elif "verification_status" in cols:
+                    self.conn.execute(
+                        "UPDATE ontario_courses SET verification_status = ? WHERE code = ?",
+                        (status, key),
+                    )
+            except BaseException:
+                if self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                raise
+            self.conn.execute("COMMIT")
+        return len(codes)
 
     def grade_weights_for_class(self, class_id: int) -> dict[str, float]:
         """Return persisted category weights, seeding defaults when missing.
