@@ -7,6 +7,11 @@ builds ``SchoolDB`` on the same sqlite file, and every additive migration is
 column (fresh volume, or a deploy that adds one) two workers can both see it
 missing and the second ``ALTER`` dies with ``duplicate column name`` (Sentry
 LLOVES-LMS-3 ``run_key``; Ops Mac wave ``team_names_approved``).
+
+A brand-new file has a second race: every worker switched the file to WAL
+before taking ``boot_schema_lock``, and SQLite can answer that with BUSY at
+once (``database is locked`` at ``PRAGMA journal_mode = WAL``; Ops wave
+9e22188, 3 of 18 fresh boots).
 """
 
 from __future__ import annotations
@@ -31,6 +36,9 @@ os.environ.pop("GOOGLE_CLIENT_SECRET", None)
 from school_db import SchoolDB  # noqa: E402
 
 WORKERS = 4
+#: Fresh-file rounds. Main crashed about 1 round in 5 on the box, so 24 clean
+#: rounds would happen by chance well under 1% of the time.
+FRESH_ROUNDS = 24
 #: (table, column) pairs dropped before each cold boot. Both raced in prod.
 MISSING = (("games", "team_names_approved"), ("live_class_sessions", "run_key"))
 
@@ -157,6 +165,44 @@ class BootSchemaRaceTests(unittest.TestCase):
                         self.assertIn(column, _columns(db_path, table))
             self.assertEqual(failures, [], "\n".join(failures))
 
+    def test_parallel_cold_boot_on_a_brand_new_file(self) -> None:
+        """Four workers boot a file that does not exist yet; none dies.
+
+        This is the WAL race: the file is not in WAL mode, so every worker
+        switches it. Each round uses a new file.
+        """
+        ctx = multiprocessing.get_context("spawn")
+        with tempfile.TemporaryDirectory() as tmp:
+            failures: list[str] = []
+            with ctx.Manager() as manager:
+                for round_no in range(FRESH_ROUNDS):
+                    folder = Path(tmp) / f"fresh{round_no}"
+                    folder.mkdir()
+                    db_path = folder / "lloves.sqlite"
+                    self.assertFalse(db_path.exists())
+                    start = manager.Barrier(WORKERS)
+                    results = manager.list()
+                    procs = [
+                        ctx.Process(target=_boot_worker, args=(str(db_path), start, results))
+                        for _ in range(WORKERS)
+                    ]
+                    for proc in procs:
+                        proc.start()
+                    for proc in procs:
+                        proc.join(timeout=120)
+                    got = list(results)
+                    self.assertEqual(len(got), WORKERS, got)
+                    failures.extend(
+                        f"round {round_no}: {item}" for item in got if item != "ok"
+                    )
+                    conn = sqlite3.connect(str(db_path))
+                    try:
+                        mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+                    finally:
+                        conn.close()
+                    self.assertEqual(str(mode).lower(), "wal")
+            self.assertEqual(failures, [], "\n".join(failures))
+
     def test_parallel_game_show_migrate_under_the_boot_lock(self) -> None:
         """``GameShowDB`` ALTERs (``team_names_approved``) also serialize.
 
@@ -204,11 +250,74 @@ class BootSchemaRaceTests(unittest.TestCase):
             locked.index("self._ensure_live_class_feature_schema()"),
             locked.index("self._attach_live_presence()"),
         )
+        self.assertLess(
+            locked.index("configure_sqlite_connection(self.conn)"),
+            locked.index("self.conn.executescript(SCHEMA)"),
+        )
+        before_lock = loves.split("with boot_schema_lock(db_path):")[0]
+        self.assertNotIn("configure_sqlite_connection(self.conn)", before_lock)
         school = source.split("class SchoolDB(LovesDB):")[1]
         self.assertIn(
             "with boot_schema_lock(path):\n            self.game = mod.GameShowDB(",
             school,
         )
+
+
+class _BusyThenOk:
+    """Stand-in connection: the WAL pragma fails ``fail`` times first."""
+
+    def __init__(self, fail: int, message: str = "database is locked") -> None:
+        self.fail = fail
+        self.message = message
+        self.calls = 0
+
+    def execute(self, sql: str):
+        """Raise for the first ``fail`` WAL pragmas, then succeed."""
+        if "journal_mode" in sql:
+            self.calls += 1
+            if self.calls <= self.fail:
+                raise sqlite3.OperationalError(self.message)
+        return self
+
+    def fetchone(self):
+        """Mimic the pragma's one-row reply."""
+        return ("wal",)
+
+
+class WalSwitchRetryTests(unittest.TestCase):
+    """``enable_sqlite_wal`` retries BUSY and nothing else (MCK-104)."""
+
+    def setUp(self) -> None:
+        """Make the backoff instant for these tests."""
+        import school_db
+
+        self.school_db = school_db
+        self._delays = school_db.SQLITE_WAL_RETRY_DELAYS
+        school_db.SQLITE_WAL_RETRY_DELAYS = (0.0,) * len(self._delays)
+
+    def tearDown(self) -> None:
+        """Restore the real backoff."""
+        self.school_db.SQLITE_WAL_RETRY_DELAYS = self._delays
+
+    def test_busy_then_ok_succeeds(self) -> None:
+        """Two BUSY answers, then WAL: no error."""
+        conn = _BusyThenOk(2)
+        self.school_db.enable_sqlite_wal(conn)
+        self.assertEqual(conn.calls, 3)
+
+    def test_busy_forever_raises_after_the_last_retry(self) -> None:
+        """BUSY on every try still raises once the retries run out."""
+        conn = _BusyThenOk(1000)
+        with self.assertRaises(sqlite3.OperationalError):
+            self.school_db.enable_sqlite_wal(conn)
+        self.assertEqual(conn.calls, len(self._delays) + 1)
+
+    def test_other_errors_are_not_retried(self) -> None:
+        """A non-BUSY error raises on the first try."""
+        conn = _BusyThenOk(1, message="disk I/O error")
+        with self.assertRaises(sqlite3.OperationalError):
+            self.school_db.enable_sqlite_wal(conn)
+        self.assertEqual(conn.calls, 1)
 
 
 if __name__ == "__main__":

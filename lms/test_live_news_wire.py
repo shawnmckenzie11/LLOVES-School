@@ -370,17 +370,18 @@ console.log(JSON.stringify(out));
         )
         self.assertEqual(done.returncode, 0, done.stderr)
         got = json.loads(done.stdout.strip().splitlines()[-1])
-        # L1: the 4 s shed poll is jittered ±20%, centred on 4 s.
-        self.assertEqual(got["shedMid"], got["noStream"])
-        self.assertEqual(got["shedLow"], round(got["noStream"] * 0.8))
+        # L1: the 4 s shed poll is jittered upward only, 4 s to 4.8 s, so it
+        # never runs faster than the 4 s floor.
+        self.assertEqual(got["shedLow"], got["noStream"])
+        self.assertEqual(got["shedMid"], round(got["noStream"] * 1.1))
         self.assertEqual(got["shedHigh"], round(got["noStream"] * 1.2))
         self.assertGreater(got["distinct"], 20)
-        self.assertGreaterEqual(got["sampleMin"], round(got["noStream"] * 0.8))
+        self.assertGreaterEqual(got["sampleMin"], got["noStream"])
         self.assertLessEqual(got["sampleMax"], round(got["noStream"] * 1.2))
-        self.assertEqual(got["openMid"], got["fallback"])
+        self.assertEqual(got["openMid"], round(got["fallback"] * 1.1))
         # M1: once over, even a shed tab waits ~30 s, never the 4 s pace.
         self.assertGreaterEqual(got["ended"], got["fallback"])
-        self.assertEqual(got["overOpenMid"], got["ended"])
+        self.assertEqual(got["overOpenMid"], round(got["ended"] * 1.1))
         self.assertGreater(got["overLow"], got["noStream"] * 5)
         self.assertTrue(got["celebrate"])
         self.assertTrue(got["endedBody"])
@@ -388,6 +389,51 @@ console.log(JSON.stringify(out));
         self.assertFalse(got["waiting"])
         self.assertFalse(got["unchanged"])
         self.assertFalse(got["none"])
+
+    def test_healthy_student_poll_never_beats_its_base(self) -> None:
+        """MCK-88: jitter never takes the healthy poll under 4 s / 20 s / 30 s.
+
+        Ops wave 9e22188 saw 4 s-band gaps down to 2.88 s (p5 3.3 s) with
+        #186's ±20% jitter. Every healthy delay must be base to base +20%.
+        """
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node is not installed")
+        wire = (LMS_DIR / "static" / "live_news_wire.js").resolve().as_uri()
+        script = f"""
+import {{
+  ENDED_POLL_MS, FALLBACK_POLL_MS, NO_STREAM_POLL_MS, studentFallbackPollMs,
+}} from {json.dumps(wire)};
+const shed = {{ hasStream: () => false }};
+const open = {{ hasStream: () => true }};
+const bands = {{
+  shed: [shed, false, NO_STREAM_POLL_MS],
+  open: [open, false, FALLBACK_POLL_MS],
+  over: [shed, true, ENDED_POLL_MS],
+}};
+const out = {{}};
+for (const [name, [wire, over, base]] of Object.entries(bands)) {{
+  const samples = [];
+  for (let i = 0; i < 5000; i += 1) samples.push(studentFallbackPollMs(wire, over));
+  for (const r of [0, -1, 1, 2, undefined]) samples.push(studentFallbackPollMs(wire, over, r));
+  out[name] = {{ base, min: Math.min(...samples), max: Math.max(...samples), distinct: new Set(samples).size }};
+}}
+console.log(JSON.stringify(out));
+"""
+        done = subprocess.run(
+            [node, "--input-type=module", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        got = json.loads(done.stdout.strip().splitlines()[-1])
+        self.assertEqual(got["shed"]["base"], 4000)
+        for name, band in got.items():
+            self.assertGreaterEqual(band["min"], band["base"], name)
+            self.assertLessEqual(band["max"], round(band["base"] * 1.2), name)
+            self.assertGreater(band["distinct"], 20, name)
 
     def test_student_tick_records_session_over_from_full_body(self) -> None:
         """The flag is set from each full body, after the ``unchanged`` early return."""

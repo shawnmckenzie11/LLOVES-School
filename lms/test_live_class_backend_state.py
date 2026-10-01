@@ -680,6 +680,52 @@ class LiveBackendStateTests(unittest.TestCase):
             ).fetchone()["n"]
         self.assertEqual(int(response_count), 0)
 
+    def test_end_keeps_group_votes_and_team_answers_in_snapshot(self) -> None:
+        """MCK-45: End copies group votes and team answers before cleanup."""
+
+        self._begin_and_join(4)
+        teams = self._setup_groups()
+        self.school.game.rename_teams(
+            self.class_id,
+            [{"id": team["id"], "name": team["name"]} for team in teams],
+        )
+        items = self.school.ensure_live_session_items(self.session_id)
+        group_item = next(row for row in items if row["item_id"] == "q-two")
+        group_item = self.school.publish_live_session_item(
+            self.session_id,
+            int(group_item["id"]),
+            publish_mode="group_consensus",
+        )
+        teams = self.school.game.game_state(self.class_id)["teams"]
+        first_ids = [int(row["id"]) for row in teams[0]["members"]]
+        for sid in first_ids[:2]:
+            self.school.submit_group_consensus_vote(
+                self.session_id, int(group_item["id"]), sid, {"choice": "A"}
+            )
+        self.school.finalize_group_consensus_answer(
+            self.session_id, int(group_item["id"]), first_ids[0], {"choice": "A"}
+        )
+        self.school.close_live_class_for_celebration(self.class_id)
+        rows = self.school.live_result_snapshot_rows(self.class_id)
+        votes = [row for row in rows if row["source"] == "group_vote"]
+        finals = [row for row in rows if row["source"] == "group_final"]
+        self.assertEqual(sorted(int(row["student_id"]) for row in votes), sorted(first_ids[:2]))
+        self.assertTrue(all(row["answer"].get("value") == "A" for row in votes), votes)
+        self.assertEqual({row["codename"] for row in votes} - {""}, {row["codename"] for row in votes})
+        self.assertEqual(len(finals), 1, finals)
+        self.assertEqual(int(finals[0]["team_id"]), int(teams[0]["id"]))
+        self.assertEqual(finals[0]["answer"]["status"], "finalized")
+        self.assertTrue(finals[0]["question_key"].startswith("item:"))
+        self.assertTrue(all(row["live_session_id"] == self.session_id for row in rows))
+        # The live tables are still cleaned, and a second cleanup copies nothing.
+        with self.school._lock:
+            left = self.school.conn.execute(
+                "SELECT COUNT(*) FROM live_group_votes"
+            ).fetchone()[0]
+        self.assertEqual(left, 0)
+        self.school.cleanup_live_session_response_data(self.session_id)
+        self.assertEqual(len(self.school.live_result_snapshot_rows(self.class_id)), len(rows))
+
     def test_group_consensus_privacy_tie_finalization_and_award(self) -> None:
         """Votes stay private, ties need a choice, and finalization is atomic."""
 

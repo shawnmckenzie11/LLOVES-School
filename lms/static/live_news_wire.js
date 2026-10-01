@@ -6,7 +6,7 @@
  * second poll. Callers light-fetch the slice they already paint.
  */
 
-import { artifactMountAction, jitterPollDelay, mediaMountKey } from "./live_poll_feel.js";
+import { artifactMountAction, mediaMountKey } from "./live_poll_feel.js";
 
 /** Slow /state safety net when the wire is quiet or down. */
 export const FALLBACK_POLL_MS = 20000;
@@ -51,10 +51,18 @@ export function studentSessionOver(payload) {
   return Boolean(payload.celebrate) || String(payload.status || "") === "ended";
 }
 
+/** Upward-only spread on the healthy student poll: base to base +20%. */
+export const STUDENT_POLL_JITTER = 0.2;
+
 /**
- * Healthy student fallback delay, jittered ±20% so shed tabs that stalled
+ * Healthy student fallback delay, jittered so shed tabs that stalled
  * together do not re-align into bursts (MCK-88 L1).
  * Over: ``ENDED_POLL_MS``. Otherwise the stream-aware ``fallbackPollMs``.
+ *
+ * The jitter only adds time: ``base`` to ``base * 1.2`` (4–4.8 s shed,
+ * 20–24 s streaming, 30–36 s over). The healthy poll never runs faster
+ * than its base, so the 4 s shed floor holds. #186's ±20% reached 3.2 s
+ * (Ops wave 9e22188: p5 3.3 s). Backoff keeps ``jitterPollDelay``.
  * @param {{hasStream?: () => boolean}|null|undefined} wire
  * @param {boolean} over ``studentSessionOver`` of the last full body.
  * @param {number} [rand] ``Math.random()`` stand-in for tests.
@@ -62,7 +70,8 @@ export function studentSessionOver(payload) {
  */
 export function studentFallbackPollMs(wire, over, rand = Math.random()) {
   const base = over ? ENDED_POLL_MS : fallbackPollMs(wire);
-  return jitterPollDelay(base, rand);
+  const unit = Math.min(1, Math.max(0, Number(rand) || 0));
+  return base + Math.round(unit * base * STUDENT_POLL_JITTER);
 }
 
 /** Soft line when a news-driven fetch is still out after ~800ms. */
