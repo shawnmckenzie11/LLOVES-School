@@ -792,6 +792,44 @@ LIVE_HEARTBEAT_STALE_SECONDS = 90
 LIVE_HEARTBEAT_WRITE_SECONDS = 20
 LIVE_SWEEP_MIN_INTERVAL_SECONDS = 20
 SQLITE_BUSY_TIMEOUT_MS = 30_000
+#: Backoff (seconds) between ``PRAGMA journal_mode = WAL`` retries on BUSY.
+#: Sums to about 6 s, well under the gunicorn boot timeout.
+SQLITE_WAL_RETRY_DELAYS = (0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.0)
+
+
+def _sqlite_is_busy(exc: sqlite3.OperationalError) -> bool:
+    """True for SQLITE_BUSY / ``database is locked`` errors.
+
+    Args:
+        exc: Error raised by sqlite.
+    """
+    code = getattr(exc, "sqlite_errorcode", None)
+    if code is not None and (int(code) & 0xFF) == 5:  # SQLITE_BUSY
+        return True
+    return "database is locked" in str(exc).lower()
+
+
+def enable_sqlite_wal(conn: sqlite3.Connection) -> None:
+    """Switch one connection to WAL, retrying a busy file (MCK-104).
+
+    On a brand-new file several gunicorn workers race the switch to WAL.
+    SQLite can return ``SQLITE_BUSY`` at once there, without waiting out
+    ``busy_timeout``, so the worker died at boot (Ops wave 9e22188: 3 of 18
+    fresh boots). This retries on BUSY with a short backoff. Any other
+    error, or BUSY after the last retry, is raised.
+
+    Args:
+        conn: Open sqlite connection.
+    """
+    for delay in (*SQLITE_WAL_RETRY_DELAYS, None):
+        try:
+            conn.execute("PRAGMA journal_mode = WAL").fetchone()
+            return
+        except sqlite3.OperationalError as exc:
+            if delay is None or not _sqlite_is_busy(exc):
+                raise
+            logger.warning("sqlite busy switching to WAL; retrying in %.2fs", delay)
+            time.sleep(delay)
 
 
 def configure_sqlite_connection(conn: sqlite3.Connection) -> sqlite3.Connection:
@@ -819,7 +857,7 @@ def configure_sqlite_connection(conn: sqlite3.Connection) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL").fetchone()
+    enable_sqlite_wal(conn)
     # WAL's recommended companion. A statement no longer fsyncs the whole
     # file, so a heartbeat write does not sit on the reserved lock.
     conn.execute("PRAGMA synchronous = NORMAL")
@@ -1217,9 +1255,11 @@ class LovesDB:
             timeout=SQLITE_BUSY_TIMEOUT_MS / 1000,
             isolation_level=None,
         )
-        configure_sqlite_connection(self.conn)
-        # One worker at a time runs the DDL + seed (MCK-104, MCK-76).
+        # One worker at a time runs the DDL + seed (MCK-104, MCK-76). The WAL
+        # switch is inside the lock too: on a fresh file the workers raced it
+        # and one died with ``database is locked`` (MCK-104 follow-up).
         with boot_schema_lock(db_path):
+            configure_sqlite_connection(self.conn)
             self.conn.executescript(SCHEMA)
             self._ensure_tenant_and_audit_schema()
             self._ensure_offering_columns()
