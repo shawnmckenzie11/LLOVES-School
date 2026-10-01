@@ -18,7 +18,8 @@ import {
   CATCHING_UP_COPY,
   FALLBACK_POLL_MS,
   connectLiveNewsWire,
-  fallbackPollMs,
+  studentFallbackPollMs,
+  studentSessionOver,
 } from "/static/live_news_wire.js";
 import {
   bindWhiteboard,
@@ -144,6 +145,11 @@ let studentOutageStartedAt = 0;
 let studentPendingTimer = 0;
 let studentStuckTimer = 0;
 const STUDENT_POLL_BASE_MS = FALLBACK_POLL_MS;
+/**
+ * True once a full /state says ended or celebrate. The healthy poll then
+ * slows to ``ENDED_POLL_MS`` (MCK-88 M1). ``unchanged`` bodies keep it.
+ */
+let studentSessionIsOver = false;
 /** @type {any} */
 let lastStudentPayload = null;
 /** @type {string} */
@@ -4445,10 +4451,12 @@ function scheduleStudentPoll() {
   if (studentPollTimer) window.clearTimeout(studentPollTimer);
   // A tab without an open stream (shed at the stream cap, or reconnecting)
   // hears no publish postcard, so it must not wait the slow 20s net.
+  // After End / celebrate nothing can publish, so the poll slows right down.
+  // Healthy delays are jittered so shed tabs do not re-align (MCK-88).
   const ms =
     studentBackoffMs > 0
       ? jitterPollDelay(studentBackoffMs)
-      : fallbackPollMs(studentNewsWire);
+      : studentFallbackPollMs(studentNewsWire, studentSessionIsOver);
   studentPollTimer = window.setTimeout(() => {
     studentPollTimer = 0;
     void tick();
@@ -4522,6 +4530,7 @@ async function tick() {
       return;
     }
     if (data.stamp) lastPollStamp = String(data.stamp);
+    studentSessionIsOver = studentSessionOver(data);
     if (data.live_session_id && data.status !== "ended") {
       ensureStudentNewsWire(data.live_session_id);
     }
