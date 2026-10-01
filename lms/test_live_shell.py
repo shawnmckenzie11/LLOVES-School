@@ -699,7 +699,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function applyMcTally(", js)
         self.assertIn("function patchMcReveal(", js)
         self.assertIn("desiredSessionPollMs()", js)
-        self.assertIn("return FALLBACK_POLL_MS", js)
+        self.assertIn("return fallbackPollMs(staffNewsWire)", js)
         self.assertNotIn("return lastMcTally ? 1000 : 2000", js)
         self.assertIn("connectLiveNewsWire", js)
         self.assertIn("startStaffNewsWire", js)

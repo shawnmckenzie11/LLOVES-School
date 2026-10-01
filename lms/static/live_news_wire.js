@@ -10,6 +10,28 @@ import { artifactMountAction, mediaMountKey } from "./live_poll_feel.js";
 
 /** Slow /state safety net when the wire is quiet or down. */
 export const FALLBACK_POLL_MS = 20000;
+/**
+ * /state pace for a tab with no open stream: shed at the per-worker
+ * stream cap (4 per gunicorn worker, 16 per machine), still connecting,
+ * or reconnecting. That tab hears no postcards, so the slow 20s net would
+ * leave a published question or a new joiner up to 20s late. This is the
+ * pre-wire student pace (#166 moved every tab to 20s).
+ */
+export const NO_STREAM_POLL_MS = 4000;
+
+/**
+ * Fallback /state delay for one tab.
+ * A tab holding an open stream is told about every change, so it polls
+ * on the slow safety net. Any other tab polls at ``NO_STREAM_POLL_MS``.
+ * @param {{hasStream?: () => boolean}|null|undefined} wire
+ * @returns {number}
+ */
+export function fallbackPollMs(wire) {
+  const streaming =
+    Boolean(wire) && typeof wire.hasStream === "function" && wire.hasStream();
+  return streaming ? FALLBACK_POLL_MS : NO_STREAM_POLL_MS;
+}
+
 /** Soft line when a news-driven fetch is still out after ~800ms. */
 export const CATCHING_UP_COPY = "Catching up…";
 

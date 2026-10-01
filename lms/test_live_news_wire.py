@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -277,3 +279,55 @@ class LiveNewsRouteTests(unittest.TestCase):
             [{"type": "ping"}, {"type": "not-a-type", "stem": "nope"}],
         )
         self.assertEqual(stored, [])
+
+
+class NoStreamPollTests(unittest.TestCase):
+    """A tab the wire did not stream to must not wait the 20s safety net."""
+
+    def test_shed_or_reconnecting_tab_polls_at_the_pre_wire_pace(self) -> None:
+        """Open stream: 20s. Shed, connecting, or no wire: 4s.
+
+        The worker cap is 4 streams (16 per machine), so a class of 25
+        always has tabs that get ``busy`` and hear no publish postcard.
+        """
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node is not installed")
+        wire = (LMS_DIR / "static" / "live_news_wire.js").resolve().as_uri()
+        script = f"""
+import {{ FALLBACK_POLL_MS, NO_STREAM_POLL_MS, fallbackPollMs }} from {json.dumps(wire)};
+const out = {{
+  fallback: FALLBACK_POLL_MS,
+  noStream: NO_STREAM_POLL_MS,
+  open: fallbackPollMs({{ hasStream: () => true }}),
+  shed: fallbackPollMs({{ hasStream: () => false }}),
+  none: fallbackPollMs(null),
+}};
+console.log(JSON.stringify(out));
+"""
+        done = subprocess.run(
+            [node, "--input-type=module", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        got = json.loads(done.stdout.strip().splitlines()[-1])
+        self.assertEqual(got["open"], got["fallback"])
+        self.assertEqual(got["shed"], got["noStream"])
+        self.assertEqual(got["none"], got["noStream"])
+        self.assertLessEqual(got["noStream"], 4000)
+        self.assertGreaterEqual(got["fallback"], 15000)
+
+    def test_staff_and_student_polls_use_the_stream_aware_pace(self) -> None:
+        """Both live tabs schedule their fallback through ``fallbackPollMs``."""
+        static = LMS_DIR / "static"
+        staff = (static / "staff_ap.js").read_text(encoding="utf-8")
+        student = (static / "student-portal.js").read_text(encoding="utf-8")
+        self.assertIn("return fallbackPollMs(staffNewsWire);", staff)
+        schedule = student.split("function scheduleStudentPoll()")[1].split(
+            "function "
+        )[0]
+        self.assertIn("fallbackPollMs(studentNewsWire)", schedule)
+        self.assertNotIn(": STUDENT_POLL_BASE_MS;", schedule)
