@@ -3451,7 +3451,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """Copy a course deck, keep the current deck, or start blank.
 
         The destination gets its own working copy. Use current writes
-        nothing. A cross-section source is refused unless this staff
+        nothing. ``keep_existing: true`` (sent for an auto-picked mode)
+        also writes nothing when the slot already has a deck. A cross-section source is refused unless this staff
         member can manage that class. The source challenge and the course
         seed JSON are not rewritten.
         """
@@ -3480,6 +3481,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 source_slot=body.get("source_slot") or body.get("sourceSlot"),
                 source_class_id=source_class_id,
                 teacher_user_id=int(user["id"]),
+                keep_existing=body.get("keep_existing") is True or body.get("keepExisting") is True,
             )
         except KeyError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 404

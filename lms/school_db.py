@@ -7901,6 +7901,7 @@ class SchoolDB(LovesDB):
         source_slot: str | None = None,
         source_class_id: int | None = None,
         teacher_user_id: int | None = None,
+        keep_existing: bool = False,
     ) -> dict[str, Any]:
         """Seed one challenge's working deck without changing the source.
 
@@ -7923,6 +7924,11 @@ class SchoolDB(LovesDB):
                 to ``class_id``.
             teacher_user_id: Required when ``source_class_id`` is another
                 class. Refused unless ``teacher_owns_class``.
+            keep_existing: Set Class sends this when the mode was auto-picked
+                rather than clicked. When the slot already has a real deck
+                (``class_has_current_live_deck``) nothing is written and the
+                result is the ``current`` no-op with ``kept_existing`` set.
+                MCK-77: a stale auto pick must not overwrite a deck.
 
         Returns:
             Destination metadata plus the seed mode that was stored.
@@ -7940,8 +7946,17 @@ class SchoolDB(LovesDB):
         if choice not in {"previous", "course", "blank", "current"}:
             raise ValueError("Choose how to start the live deck.")
         course = self._course_code_for_class(int(class_id))
+        kept_existing = False
+        if (
+            choice != "current"
+            and keep_existing
+            and self.class_has_current_live_deck(int(class_id), module_key, slot_key)
+        ):
+            choice = "current"
+            kept_existing = True
         if choice == "current":
             return {
+                "kept_existing": kept_existing,
                 "mode": "current",
                 "source_module": None,
                 "source_slot": None,
