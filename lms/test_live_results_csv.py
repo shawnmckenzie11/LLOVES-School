@@ -14,7 +14,13 @@ import unittest
 from typing import Any
 
 import test_live_shell as shell
-from live_results_csv import COLUMNS, answer_text, live_results_csv, safe_cell
+from live_results_csv import (
+    COLUMNS,
+    answer_text,
+    live_results_csv,
+    question_text,
+    safe_cell,
+)
 
 
 def _parse(body: str) -> list[dict[str, str]]:
@@ -34,6 +40,33 @@ class CsvFormatTests(unittest.TestCase):
         self.assertEqual(safe_cell("-3"), "-3")
         self.assertEqual(safe_cell("2.5"), "2.5")
         self.assertEqual(safe_cell(None), "")
+        # A leading line break can also start a formula in some apps.
+        self.assertEqual(safe_cell("\n=1+1"), "'\n=1+1")
+        self.assertEqual(safe_cell("\r=1+1"), "'\r=1+1")
+        self.assertEqual(safe_cell("\t=1+1"), "'\t=1+1")
+
+    def test_question_text_reads_each_payload_shape(self) -> None:
+        """Every saved prompt shape gives its stem, not a blank or a title."""
+        cases = [
+            ({"prompt": "Solve 2x = 6", "text": "Solve 2x = 6"}, "Solve 2x = 6"),
+            ({"stem": "Factor x^2 - 9"}, "Factor x^2 - 9"),
+            ({"question": "What is 3 + 4?"}, "What is 3 + 4?"),
+            ({"text": "Share one idea"}, "Share one idea"),
+            ({"title": "Warm-up"}, "Warm-up"),
+            ({"label": "Q1"}, "Q1"),
+            # Artifact prompt: text is the artifact title, prompt the stem.
+            (
+                {"text": "Parabola lab", "title": "Parabola lab", "prompt": "Find the vertex"},
+                "Find the vertex",
+            ),
+            ({"stem": "", "question": "  ", "text": "Fallback"}, "Fallback"),
+            ({"question": {"nested": True}, "label": "Q2"}, "Q2"),
+            ({}, ""),
+            ("not a dict", ""),
+        ]
+        for payload, expected in cases:
+            with self.subTest(payload=payload):
+                self.assertEqual(question_text(payload), expected)
 
     def test_answer_text_flattens_saved_answers(self) -> None:
         """Choice, numeric and multi-select answers read as text."""

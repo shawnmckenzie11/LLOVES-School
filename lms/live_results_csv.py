@@ -37,13 +37,14 @@ _ANSWER_KEYS = ("choice", "value", "answer", "text", "response", "choices")
 def safe_cell(value: Any) -> str:
     """Return a CSV cell that a spreadsheet will not run as a formula.
 
-    Text starting with ``= + - @``, a tab or a carriage return gets a
-    leading apostrophe. Plain numbers such as ``-3`` are left alone.
+    Text starting with ``= + - @``, a tab, a carriage return or a line
+    feed gets a leading apostrophe. Plain numbers such as ``-3`` are left
+    alone.
     """
     if value is None:
         return ""
     text = str(value)
-    if text and text[0] in "=+-@\t\r" and not _NUMBER.match(text):
+    if text and text[0] in "=+-@\t\r\n" and not _NUMBER.match(text):
         return "'" + text
     return text
 
@@ -64,13 +65,24 @@ def answer_text(answer: Any) -> str:
     return json.dumps(rest, ensure_ascii=False, sort_keys=True) if rest else ""
 
 
+_QUESTION_KEYS = ("prompt", "stem", "question", "text", "title", "label")
+
+
 def question_text(question: Any) -> str:
-    """Pick the question's stem from its saved JSON."""
+    """Pick the question's stem from its saved JSON.
+
+    The stem keys come first: artifact prompts set ``text`` to the
+    artifact title and ``prompt`` to the stem. Bank and metadata payloads
+    use ``question``; some use only ``stem``.
+    """
     if not isinstance(question, dict):
         return ""
-    for key in ("text", "prompt", "label", "title"):
-        if question.get(key):
-            return str(question[key])
+    for key in _QUESTION_KEYS:
+        value = question.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return str(value)
+        if isinstance(value, str) and value.strip():
+            return value
     return ""
 
 
