@@ -12167,9 +12167,16 @@ class SchoolDB(LovesDB):
             return prompt
         payload["kind"] = "numeric"
         payload["type"] = "numeric"
-        payload["integer_only"] = bool(
-            question.get("integer_only") or payload.get("integer_only") or True
-        )
+        # The catalogue item's own flag wins, then the old prompt's, then the
+        # publish default (integer). A decimal-enabled item stays decimal
+        # (MCK-81: this used to be ``... or True`` and undid MCK-30).
+        if "integer_only" in question:
+            integer_only = question.get("integer_only")
+        elif "integer_only" in payload:
+            integer_only = payload.get("integer_only")
+        else:
+            integer_only = True
+        payload["integer_only"] = bool(integer_only)
         payload["options"] = []
         payload["choices"] = []
         placeholder = str(
