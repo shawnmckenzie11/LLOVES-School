@@ -65,6 +65,7 @@ import {
 } from "/static/live_news_wire.js";
 import {
   courseDeckChoiceDisabled,
+  deckSeedConfirmMode,
   deckSeedDefaultMode,
   deckSeedHelpText,
   deckSeedResponseIsCurrent,
@@ -291,6 +292,8 @@ function enterSetClassPhase() {
   setupPhase = true;
   currentStep = "validate";
   lockClassListPane();
+  deckSeedMode = "current";
+  deckSeedModeChosen = false;
   refreshDeckSeedOptions();
 }
 
@@ -328,6 +331,11 @@ async function markClassSetComplete() {
 
 /** @type {"previous"|"course"|"current"} */
 let deckSeedMode = "current";
+/**
+ * True only after the teacher clicks a deck chip in this Set Class.
+ * An auto-picked mode is worked out again for every module or slot.
+ */
+let deckSeedModeChosen = false;
 /** @type {any} */
 let deckSeedCatalog = null;
 /** @type {"ready"|"loading"|"error"} */
@@ -468,8 +476,11 @@ function paintDeckSeedOptions(data) {
   // Isolated empty-list gate. courseDeckChoiceDisabled() returns false to revert.
   const courseDisabled = courseDeckChoiceDisabled(decks.length);
   setDeckSeedChipDisabled("live-deck-seed-course", courseDisabled);
+  // An auto pick is not carried to another slot (MCK-77). Only a chip the
+  // teacher clicked is kept, and only while that chip can still run.
   deckSeedMode = deckSeedDefaultMode({
     mode: deckSeedMode,
+    chosen: deckSeedModeChosen,
     currentAvailable,
     previousAvailable: available,
     courseDeckCount: decks.length,
@@ -562,10 +573,17 @@ async function refreshDeckSeedOptions() {
 async function applyDeckSeedChoice() {
   const pack = selectedSetClassPack();
   const selected = document.querySelector('input[name="live-deck-seed"]:checked');
-  const mode = String(selected?.value || deckSeedMode || "current");
+  const mode = deckSeedConfirmMode({
+    selected: String(selected?.value || deckSeedMode || "current"),
+    chosen: deckSeedModeChosen,
+    catalog: deckSeedCatalog,
+    pack,
+  });
   if (mode === "current") return;
-  /** @type {Record<string, string>} */
+  /** @type {Record<string, string|boolean>} */
   const body = { mode };
+  // The server keeps an existing deck when the mode was not clicked.
+  if (!deckSeedModeChosen) body.keep_existing = true;
   if (mode === "previous") {
     const previous = $("live-deck-seed-previous");
     if (previous instanceof HTMLInputElement && previous.disabled) {
@@ -604,7 +622,22 @@ $("live-deck-seed")?.addEventListener("change", (event) => {
   const target = event.target;
   if (target instanceof HTMLInputElement && target.name === "live-deck-seed") {
     deckSeedMode = /** @type {"previous"|"course"|"current"} */ (target.value);
+    deckSeedModeChosen = true;
     paintDeckSeedPicker();
+  }
+});
+// Clicking the chip that is already auto-selected fires no change event,
+// but it is still the teacher's choice.
+$("live-deck-seed")?.addEventListener("click", (event) => {
+  const target = event.target;
+  if (
+    target instanceof HTMLInputElement &&
+    target.name === "live-deck-seed" &&
+    target.checked &&
+    !target.disabled
+  ) {
+    deckSeedMode = /** @type {"previous"|"course"|"current"} */ (target.value);
+    deckSeedModeChosen = true;
   }
 });
 const LAYOUT_PRESETS = {

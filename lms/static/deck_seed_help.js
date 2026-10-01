@@ -85,20 +85,61 @@ export function deckSeedHelpText(state = {}) {
  * Previous is unavailable and Course deck can run, Course deck is
  * selected so the helper describes the chip that is actually on.
  *
- * @param {{mode?: string, currentAvailable?: boolean, previousAvailable?: boolean, courseDeckCount?: number}} state
+ * ``chosen`` says whether ``mode`` came from the teacher clicking a
+ * chip. When it is ``false`` the mode was auto-picked for some other
+ * slot, so it is ignored and the default is worked out again for this
+ * slot (MCK-77: an auto Course deck must not follow the teacher to a
+ * slot that already has a deck). Leave ``chosen`` out to keep the old
+ * behaviour, where ``mode`` is always honoured when it can run.
+ *
+ * @param {{mode?: string, chosen?: boolean, currentAvailable?: boolean, previousAvailable?: boolean, courseDeckCount?: number}} state
  * @returns {"current"|"previous"|"course"}
  */
 export function deckSeedDefaultMode(state = {}) {
   const currentOk = Boolean(state.currentAvailable);
   const previousOk = Boolean(state.previousAvailable);
   const courseOk = !courseDeckChoiceDisabled(state.courseDeckCount);
-  const requested = String(state.mode || "current");
+  const requested = state.chosen === false ? "current" : String(state.mode || "current");
   if (requested === "current" && currentOk) return "current";
   if (requested === "previous" && previousOk) return "previous";
   if (requested === "course" && courseOk) return "course";
   if (currentOk) return "current";
   if (!previousOk && courseOk) return "course";
   return "previous";
+}
+
+/**
+ * Pick the deck mode Set Class should send when the teacher confirms.
+ *
+ * A chip the teacher clicked is sent as-is. An auto-picked chip is only
+ * trusted when the loaded options are for the selected module and slot:
+ * then the default is worked out again from those options, so a slot
+ * that already has a deck keeps it. When the options are missing or
+ * belong to another slot (still loading, or a stale reply), nothing is
+ * written ("current").
+ *
+ * @param {{selected?: string, chosen?: boolean, catalog?: any, pack?: {module?: string, slot?: string}}} state
+ * @returns {"current"|"previous"|"course"}
+ */
+export function deckSeedConfirmMode(state = {}) {
+  const selected = String(state.selected || "current");
+  if (state.chosen) {
+    return selected === "previous" || selected === "course" ? selected : "current";
+  }
+  const catalog = state.catalog;
+  const pack = state.pack || {};
+  const sameSlot =
+    Boolean(catalog) &&
+    String(catalog.module || "").toUpperCase() === String(pack.module || "").toUpperCase() &&
+    String(catalog.slot || "").toUpperCase() === String(pack.slot || "").toUpperCase();
+  if (!sameSlot || catalog.current?.available) return "current";
+  const decks = Array.isArray(catalog.decks) ? catalog.decks : [];
+  return deckSeedDefaultMode({
+    chosen: false,
+    currentAvailable: false,
+    previousAvailable: Boolean(catalog.previous?.available),
+    courseDeckCount: decks.length,
+  });
 }
 
 /**
