@@ -2765,6 +2765,18 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             save_participation=save_participation,
             celebrate=True,
         )
+        # Streaming tabs fetch the celebration now, not at the safety poll.
+        ended_id = int(active["id"])
+        emit_session_news(
+            school,
+            ended_id,
+            [
+                {
+                    "type": "state_seq",
+                    "state_seq": teacher_state_seq(school, ended_id),
+                }
+            ],
+        )
         return redirect(
             url_for(
                 "staff_course",

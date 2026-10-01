@@ -2087,6 +2087,48 @@ class LiveShellTests(unittest.TestCase):
         self.assertTrue(after.get("celebrate"))
         self.assertEqual(int(after.get("state_seq") or 0), seq + 1)
 
+    def test_end_live_keeps_a_results_snapshot(self) -> None:
+        """MCK-45: End Live Class saves each answer before cleanup deletes it."""
+        sid, student_id = self._open_live_with_aspen_answers()
+        with self.school._lock:
+            live_rows = self.school.conn.execute(
+                """
+                SELECT r.response_json FROM live_session_responses r
+                JOIN live_session_prompts p ON p.id = r.prompt_id
+                WHERE p.live_session_id = ? AND r.student_id = ?
+                """,
+                (sid, student_id),
+            ).fetchall()
+        self.assertGreaterEqual(len(live_rows), 2)
+        ended = self.client.post(
+            f"/staff/class/{self.class_id}/end-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(ended.status_code, 302)
+        with self.school._lock:
+            left = self.school.conn.execute(
+                """
+                SELECT COUNT(*) FROM live_session_responses r
+                JOIN live_session_prompts p ON p.id = r.prompt_id
+                WHERE p.live_session_id = ?
+                """,
+                (sid,),
+            ).fetchone()[0]
+        self.assertEqual(left, 0)
+        rows = self.school.live_result_snapshot_rows(self.class_id)
+        mine = [
+            row for row in rows
+            if row["source"] == "prompt" and row["student_id"] == student_id
+        ]
+        self.assertEqual(len(mine), len(live_rows), rows)
+        answers = [row["answer"].get("choice") for row in mine]
+        self.assertIn(MINDS_ON_CHOICES[0], answers)
+        self.assertIn("This sparks something", answers)
+        self.assertTrue(all(row["codename"] == "Aspen" for row in mine), mine)
+        self.assertTrue(all(row["live_session_id"] == sid for row in mine))
+        self.assertTrue(all(row["question_key"] for row in mine))
+        self.assertTrue(all(row["snapshot_at"] for row in mine))
+
     def test_end_then_quit_closes_student_celebration(self) -> None:
         """Quit after End Live drops celebration and unsubmitted How-was-class."""
         sid, student_id = self._open_live_with_aspen_answers()
