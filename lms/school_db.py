@@ -459,6 +459,15 @@ CREATE TABLE IF NOT EXISTS student_code_attempts (
     ts TEXT NOT NULL
 );
 
+-- MCK-120: limiter keys are "ip:<addr>", "session:<id>:<run_key>" and
+-- "session:<id>:<run_key>|ip:<addr>", plus "ok:ip:<addr>" rows for
+-- successful joins (the column keeps its old name).
+-- Counted by key and time window.
+CREATE INDEX IF NOT EXISTS idx_student_code_attempts_key_ts
+    ON student_code_attempts(ip, ts);
+CREATE INDEX IF NOT EXISTS idx_student_code_attempts_ts
+    ON student_code_attempts(ts);
+
 CREATE TABLE IF NOT EXISTS live_class_sessions (
     id INTEGER PRIMARY KEY,
     class_id INTEGER NOT NULL,
@@ -4210,6 +4219,56 @@ class LovesDB:
             )
             self.conn.commit()
         return self.count_recent_code_attempts(ip, seconds=600)
+
+    def record_join_failures(self, keys: list[str]) -> None:
+        """Log one failed Student Code join under each limiter key (MCK-120).
+
+        Also prunes rows older than a day so the table stays small.
+
+        Args:
+            keys: e.g. ``["ip:203.0.113.7", "session:12:<run_key>"]``.
+        """
+        stamp = _now()
+        cutoff = (datetime.now() - timedelta(days=1)).replace(microsecond=0).isoformat()
+        with self._lock:
+            self.conn.executemany(
+                "INSERT INTO student_code_attempts (ip, ts) VALUES (?, ?)",
+                [(str(key), stamp) for key in keys if key],
+            )
+            self.conn.execute("DELETE FROM student_code_attempts WHERE ts < ?", (cutoff,))
+            self.conn.commit()
+
+    def count_join_failures(
+        self, key: str | None = None, *, prefix: str | None = None, seconds: int = 600
+    ) -> int:
+        """Failed joins in the last ``seconds`` for one key or a key prefix.
+
+        Args:
+            key: Exact limiter key, e.g. ``"ip:203.0.113.7"``.
+            prefix: Count every key starting with this, e.g. ``"ip:"``.
+            seconds: Rolling window.
+
+        Returns:
+            Row count inside the window.
+        """
+        cutoff = (
+            datetime.now() - timedelta(seconds=int(seconds))
+        ).replace(microsecond=0).isoformat()
+        with self._lock:
+            if key is not None:
+                row = self.conn.execute(
+                    "SELECT COUNT(*) AS n FROM student_code_attempts WHERE ip = ? AND ts >= ?",
+                    (str(key), cutoff),
+                ).fetchone()
+            else:
+                row = self.conn.execute(
+                    """
+                    SELECT COUNT(*) AS n FROM student_code_attempts
+                    WHERE ip >= ? AND ip < ? AND ts >= ?
+                    """,
+                    (str(prefix or ""), str(prefix or "") + "\uffff", cutoff),
+                ).fetchone()
+        return int(row["n"] if row is not None else 0)
 
     def clear_recent_code_attempts(self, ip: str) -> None:
         """Wipe failed Student Code join records for an IP after a success."""

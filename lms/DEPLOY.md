@@ -22,6 +22,11 @@ In **Cloudflare → mckenzian.com → DNS**, add:
 
 Grey cloud avoids double-proxy TLS between Cloudflare and Fly (same as `hh` and `iaw`).
 
+**Student join limiter and client IPs (MCK-120).** The `/auth/student-code` limiter keys each client on the `Fly-Client-IP` header, and only when `FLY_APP_NAME` is set. Without that variable it uses the TCP peer. It never uses `X-Forwarded-For`.
+- **Why the header is trusted:** Fly's edge proxy sets `Fly-Client-IP` to the address it accepted the connection from, replacing any client-sent value. Public internet traffic can't spoof it.
+- **Where it can be spoofed:** only by something that reaches the Machine without Fly's edge, i.e. inside Fly's private network (6PN): another app in the org over `.internal` or flycast, or `fly proxy` / `fly ssh`. Don't expose the app on 6PN to untrusted apps.
+- **Keep the grey cloud for the limiter too:** with Cloudflare proxy mode (orange cloud), Fly would see Cloudflare's IPs. Every student would collapse onto a few keys, so one noisy client would quiet or block everyone. That fails safe, but it's a school-wide outage of joins. If proxy mode is ever needed, switch the limiter to `CF-Connecting-IP` first, accepted only from Cloudflare's published ranges.
+
 ## GoDaddy
 
 **Nothing**, if `mckenzian.com` nameservers already point at Cloudflare (they do for `hh` / `iaw` / `paperscraper`). Do not add a second A/CNAME for `alc` in GoDaddy — that fights Cloudflare.
