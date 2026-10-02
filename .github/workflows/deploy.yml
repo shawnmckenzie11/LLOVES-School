@@ -1,18 +1,31 @@
 name: Deploy LLOVES LMS
 
-# Push to main runs the LMS test suite immediately. The deploy job waits
-# for approval on `production` before flyctl deploy. The required reviewer
-# is a repo setting (shawnmckenzie11), not this file.
+# Push to main runs the LMS test suite immediately. The Production
+# approval job then waits for review on `production`; once approved, the
+# Deploy to Fly job runs flyctl deploy. The required reviewer is a repo
+# setting (shawnmckenzie11), not this file.
 #
-# workflow_dispatch uses the same test job. Deploy still requires
-# refs/heads/main, the production environment, and the SHA guard.
+# workflow_dispatch uses the same test job. Approval and deploy still
+# require refs/heads/main, the production environment, and the SHA guard.
 # Feature branches never run this workflow; they test via ci.yml.
 #
-# Concurrency is on the deploy job only (group deploy-lloves-lms,
-# cancel-in-progress false). Tests are not queued behind an approval,
-# and an in-flight flyctl deploy is not aborted. GitHub can leave older
-# runs sitting on "Waiting for review" after a newer merge. The SHA guard
-# refuses flyctl unless GITHUB_SHA is still origin/main.
+# Concurrency (MCK-126): only the newest run waits at the Production gate.
+# Three jobs, three groups:
+#   test    group deploy-lloves-lms-test-<ref>, cancel-in-progress true.
+#           A newer run on the same ref cancels an older run still testing.
+#   approve group deploy-lloves-lms-gate-<ref>, cancel-in-progress true.
+#           Holds the production environment (required reviewer). A job
+#           waiting for review occupies its concurrency group, so a newer
+#           run's approve job cancels an older one still waiting.
+#   deploy  group deploy-lloves-lms-fly, cancel-in-progress false.
+#           No environment (approval already happened in approve). Runs
+#           flyctl. Never cancelled by a newer run; a newer approved
+#           deploy waits as pending (one pending slot, newest wins).
+# The test and gate groups are separate so an older run's approve job
+# can never cancel a newer run's tests.
+# Backstops: the SHA guard refuses flyctl unless GITHUB_SHA is still
+# origin/main, and deploy refuses unless approve ran in this run attempt
+# (a "Re-run failed jobs" of deploy alone does not skip approval).
 #
 # Not a code deploy: attach-live-postgres.yml is workflow_dispatch only.
 # It does not flyctl deploy. It can restart lloves-lms and waits on the
@@ -31,6 +44,10 @@ jobs:
   test:
     name: LMS test suite
     runs-on: ubuntu-latest
+    # A newer run on the same ref supersedes this one while it tests.
+    concurrency:
+      group: deploy-lloves-lms-test-${{ github.ref }}
+      cancel-in-progress: true
     # Same Postgres the feature-branch suite uses (ci.yml). The N=28
     # Artifact load test dials LIVE_PRESENCE_TEST_URL, defaulting to
     # postgresql://lloves:lloves@127.0.0.1:5432/lloves_live, and fails
@@ -70,8 +87,8 @@ jobs:
           LIVE_PRESENCE_TEST_URL: postgresql://lloves:lloves@127.0.0.1:5432/lloves_live
         run: python -m unittest discover -s lms -p 'test_*.py' -v
 
-  deploy:
-    name: Deploy to Fly
+  approve:
+    name: Production approval
     needs: test
     # workflow_dispatch can target any ref. Only main may request a
     # production review. A red test job skips this job, so approval
@@ -81,13 +98,55 @@ jobs:
     environment:
       name: production
       url: https://alc.mckenzian.com
-    # One deploy at a time. Do not cancel an in-flight flyctl deploy.
-    # Pending jobs in this group are replaced (queue single). A review
-    # hold is not this queue; the SHA guard below covers that gap.
+    # Only the newest run waits here. A newer run's approve job cancels
+    # this one while it is waiting for review (or pending). Nothing in
+    # this job touches Fly, so cancelling it is always safe.
     concurrency:
-      group: deploy-lloves-lms
+      group: deploy-lloves-lms-gate-${{ github.ref }}
+      cancel-in-progress: true
+    outputs:
+      attempt: ${{ steps.approved.outputs.attempt }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refuse a stale main SHA
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          tip="$(git rev-parse origin/main)"
+          echo "This run:    ${GITHUB_SHA}"
+          echo "origin/main: ${tip}"
+          if [ "${GITHUB_SHA}" != "${tip}" ]; then
+            echo "::error title=Stale deploy blocked::This run is ${GITHUB_SHA}, but origin/main is ${tip}. A newer merge landed while this deploy waited for review. Approve the newest green Deploy LLOVES LMS run instead."
+            exit 1
+          fi
+
+      - name: Record the approved attempt
+        id: approved
+        run: echo "attempt=${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy to Fly
+    needs: approve
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # One flyctl deploy at a time, and never cancelled by a newer run:
+    # mid-deploy cancellation is unsafe. A newer approved run waits here
+    # as pending; a still-newer one replaces it (queue single).
+    concurrency:
+      group: deploy-lloves-lms-fly
       cancel-in-progress: false
     steps:
+      - name: Require approval in this run attempt
+        env:
+          APPROVED_ATTEMPT: ${{ needs.approve.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [ "${APPROVED_ATTEMPT}" != "${GITHUB_RUN_ATTEMPT}" ]; then
+            echo "::error title=Approval not in this attempt::Production approval ran in attempt ${APPROVED_ATTEMPT}, this is attempt ${GITHUB_RUN_ATTEMPT}. Use Re-run all jobs so the deploy is approved again."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - name: Refuse a stale main SHA

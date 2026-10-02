@@ -86,6 +86,22 @@ curl -s https://alc.mckenzian.com/health
 fly certs check alc.mckenzian.com --app lloves-lms
 ```
 
+## Deploy workflow: only the newest run waits for approval (MCK-126)
+
+A push to `main` runs **Deploy LLOVES LMS** (`.github/workflows/deploy.yml`) through three jobs:
+
+1. **LMS test suite** (group `deploy-lloves-lms-test-<ref>`, cancel-in-progress).
+2. **Production approval**: the `production` environment gate, Shawn approves (group `deploy-lloves-lms-gate-<ref>`, cancel-in-progress).
+3. **Deploy to Fly**: `flyctl deploy` (group `deploy-lloves-lms-fly`, never cancelled).
+
+**What this means for Shawn:**
+- **Stale runs clear themselves.** A newer push cancels any older run still testing or waiting at **Production approval**. Only the newest run asks for review, so there is no need to reject old ones.
+- **A deploy in progress is never cancelled.** If a newer run is approved while Fly is still deploying, it waits as *pending* and starts when that deploy ends.
+- **Stale SHAs are still refused.** Both approval and deploy fail when the run's SHA is no longer `origin/main`.
+- **To retry a failed deploy, use "Re-run all jobs".** "Re-run failed jobs" on Deploy to Fly alone is refused, because approval must happen in the same attempt.
+- **The GitHub deployment record is set by the approval job.** The environment's deployment shows success once approval passes. Check the Deploy to Fly job (or `/health`) for the real result.
+- **One-time switch:** runs started before this change use the old single job and group. Reject any that are still "Waiting for review" once. They don't block new runs, because the Fly group has a new name.
+
 ## Live presence Postgres (heartbeat / Artifact polls)
 
 Student `/api/student/state` and `/api/student/heartbeat` write attendee presence on every poll. That write used to take a lock on `/data/lloves.sqlite` and returned `database is locked` (HTML “server overloaded”) once a class was in the mid-20s with an Artifact open.
