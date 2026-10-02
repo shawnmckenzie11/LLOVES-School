@@ -1068,6 +1068,114 @@ class CelebrationTests(unittest.TestCase):
             self._engaged_names(), {"MCF3M": ["O’Brien", "O'Neil", "Oak", "Zed"]}
         )
 
+    def _live_class_with_joins(self, names: list[str]) -> tuple[int, dict[str, int]]:
+        """Start a live class, game ``begin``, and join ``names`` as students.
+
+        Mirrors Ops' ``mid212c.py``: joins mark ``session_scores.present`` on
+        the game session while it is still ``active``.
+
+        Args:
+            names: Roster Codenames that join. The roster also has "Quiet",
+                who never joins.
+
+        Returns:
+            ``(class_id, {codename: student_id})``.
+        """
+        class_id = self._populate(names + ["Quiet"])
+        ids = self._ids(class_id)
+        started = self.client.post(f"/api/classes/{class_id}/live-session/start", json={})
+        self.assertEqual(started.status_code, 200, started.get_json())
+        code = str(started.get_json()["live_session"]["session_code"])
+        begun = self.client.post(f"/api/classes/{class_id}/begin", json={})
+        self.assertEqual(begun.status_code, 200, begun.get_json())
+        for name in names:
+            joined = self.app.test_client().post(
+                "/auth/student-code", json={"code": code, "name": name}
+            )
+            self.assertLess(joined.status_code, 400, joined.get_data(as_text=True))
+        with self.school.game._lock:
+            present = {
+                int(row["student_id"])
+                for row in self.school.game.conn.execute(
+                    """
+                    SELECT ss.student_id FROM session_scores ss
+                    JOIN sessions se ON se.id = ss.session_id
+                    WHERE se.class_id = ? AND se.status = 'active' AND ss.present = 1
+                    """,
+                    (class_id,),
+                )
+            }
+        # The repro's precondition: provisional presence on an active session.
+        self.assertEqual(present, {ids[name] for name in names})
+        return class_id, ids
+
+    def test_mid_class_read_does_not_freeze_unsaved_joins(self) -> None:
+        """MCK-125 (#212 MED-1): begin, 2 joins, public read, End without save.
+
+        The mid-class read must not freeze the provisional joiners, and after
+        End without saving attendance nobody is Most Engaged. Saving
+        attendance later puts the students on the board.
+        """
+        class_id, ids = self._live_class_with_joins(["Bellamy", "Cordelia"])
+        self.assertEqual(self._engaged_names(), {})
+        self.assertIsNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))
+        ended = self.client.post(
+            f"/staff/class/{class_id}/end-live", data={"end_options": "1"}
+        )
+        self.assertIn(ended.status_code, (200, 302))
+        self.assertFalse(self.school.has_active_live_sessions())
+        self.assertEqual(self._engaged_names(), {})
+        self.assertEqual(
+            [r for r in celebrated_students(self.school) if r["card"] == "engaged"], []
+        )
+        # Attendance saved afterwards (Take Attendance): now they count.
+        self._log_day(class_id, "2026-09-09", [ids["Bellamy"], ids["Cordelia"]])
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Bellamy", "Cordelia"]})
+        stored = json.loads(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT))
+        self.assertEqual(
+            sorted(r["student_id"] for r in stored["cards"][0]["students"]),
+            sorted([ids["Bellamy"], ids["Cordelia"]]),
+        )
+
+    def test_attendance_saved_at_end_shows_after_class(self) -> None:
+        """MCK-125: End with Save attendance; a later read shows the joiners.
+
+        The mid-class read shows nobody and stores nothing; the read after
+        End takes the snapshot from the saved column.
+        """
+        class_id, ids = self._live_class_with_joins(["Bellamy", "Cordelia"])
+        self.assertEqual(self._engaged_names(), {})
+        self.assertIsNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))
+        ended = self.client.post(
+            f"/staff/class/{class_id}/end-live",
+            data={"end_options": "1", "save_attendance": "1"},
+        )
+        self.assertIn(ended.status_code, (200, 302))
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Bellamy", "Cordelia"]})
+        self.assertIsNotNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))
+
+    def test_no_snapshot_write_while_a_live_class_runs(self) -> None:
+        """MCK-125 (a): a running live class never stores or extends the snapshot.
+
+        With nothing stored, the read serves the saved-attendance view
+        without persisting it. A stored snapshot is served as is.
+        """
+        class_id, ids = self._three_tie()
+        other = self._populate(["Solo"])
+        started = self.client.post(f"/api/classes/{other}/live-session/start", json={})
+        self.assertEqual(started.status_code, 200, started.get_json())
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Birch", "Cedar", "Maple"]})
+        self.assertIsNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))
+        self.client.post(f"/staff/class/{other}/end-live", data={"end_options": "1"})
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Birch", "Cedar", "Maple"]})
+        raw = self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None)
+        self.assertIsNotNone(raw)
+        self._log_day(class_id, "2026-09-11", [ids["Cedar"]], {ids["Cedar"]: 4})
+        again = self.client.post(f"/api/classes/{other}/live-session/start", json={})
+        self.assertEqual(again.status_code, 200, again.get_json())
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Birch", "Cedar", "Maple"]})
+        self.assertEqual(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None), raw)
+
     def test_frozen_shoutout_still_follows_teacher(self) -> None:
         """MCK-118: a new teacher Shoutout shows while Most Engaged stays frozen."""
         class_id = self._populate(["Maple", "Birch"])
