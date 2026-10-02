@@ -17,11 +17,18 @@ MCK-118 freeze: while ``celebrations_frozen()`` is True (env
 ``student_id`` and a fingerprint of the roster row. Names are looked up
 live on every read, so a Codename change or a roster delete still reaches
 the public page within the 60 s memo. The ranking code is unchanged.
+
+The fingerprint is an HMAC keyed by the app secret (``FLASK_SECRET_KEY``),
+so a copy of the database alone cannot be used to guess a deleted
+student's Codename. Refs that no longer resolve to a live student are
+pruned from the stored snapshot; a card whose winners are all gone stays
+as an empty placeholder so it is not refilled with a new winner.
 """
 
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import time
@@ -48,13 +55,24 @@ PUBLIC_BOARD_TTL_SECONDS = 60.0
 # snapshot stale, so turning it back on takes a fresh one.
 CELEBRATIONS_FROZEN_ENV = "CELEBRATIONS_FROZEN"
 CELEBRATIONS_FROZEN_DEFAULT = True
-# JSON ``{"version", "semester_id", "epoch", "taken_at", "cards"}``. Each
-# card keeps every tied winner as ``{class_id, student_id, fp}``. No names.
-# A snapshot is only used for the semester and freeze epoch it was taken in.
+# JSON ``{"version", "semester_id", "epoch", "kid", "taken_at", "cards"}``.
+# Each card keeps every tied winner as ``{class_id, student_id, fp}``. No
+# names. ``fp`` is an HMAC under the app secret; ``kid`` identifies that key
+# (an HMAC of a constant, not the key). A snapshot is only used for the
+# semester, freeze epoch, and key it was taken with.
 SETTING_PUBLIC_SNAPSHOT = "celebration_public_snapshot"
 # Freeze epoch. Changes each time the board is seen unfrozen.
 SETTING_FREEZE_EPOCH = "celebration_freeze_epoch"
-SNAPSHOT_VERSION = 2
+# v3: keyed HMAC fingerprints plus ``kid``. v2 rows (unsalted sha256) and
+# older are retaken like any other old format.
+SNAPSHOT_VERSION = 3
+# Same env var and dev default as ``create_app``'s ``app.secret_key``. Used
+# only when no app bound its secret (scripts that open SchoolDB directly).
+SECRET_KEY_ENV = "FLASK_SECRET_KEY"
+SECRET_KEY_DEV_DEFAULT = "lloves-dev-secret-change-me"
+# Domain separation: the fingerprint key is derived, never the raw secret.
+_FP_KEY_CONTEXT = b"lloves:celebration-fp:v1"
+_KID_MESSAGE = b"lloves:celebration-fp:key-id"
 
 # Every user-visible celebrations string. Wonder replaces these placeholders.
 WONDER_COPY: dict[str, str] = {
@@ -117,13 +135,30 @@ def public_student_label(row: dict[str, Any], course: str) -> str:
 _FOLD_EXTRA = str.maketrans(
     {"đ": "d", "ð": "d", "ł": "l", "ø": "o", "æ": "ae", "œ": "oe", "ħ": "h", "ı": "i", "þ": "th"}
 )
+# Apostrophe look-alikes typed by phones and word processors. Folded to
+# ``'`` before NFKD (which would turn ``´`` into a space plus an accent).
+_FOLD_APOSTROPHES = str.maketrans(
+    {
+        "\u2019": "'",  # ’ right single quotation mark (iOS/macOS smart quote)
+        "\u2018": "'",  # ‘ left single quotation mark
+        "\u201b": "'",  # ‛ single high-reversed-9 quotation mark
+        "\u02bc": "'",  # ʼ modifier letter apostrophe
+        "\u02bb": "'",  # ʻ modifier letter turned comma (ʻokina)
+        "\u2032": "'",  # ′ prime
+        "\u00b4": "'",  # ´ acute accent used as an apostrophe
+        "\u0060": "'",  # ` grave accent used as an apostrophe
+        "\uff07": "'",  # ＇ fullwidth apostrophe
+    }
+)
 
 
 def name_sort_key(name: str) -> tuple[str, str]:
     """Sort key that files accented names with their base letter.
 
-    "Élodie" sorts among the Es and "Łukasz" among the Ls: casefold, NFKD,
-    drop combining marks, then map the few letters NFKD leaves alone.
+    "Élodie" sorts among the Es and "Łukasz" among the Ls: casefold, fold
+    apostrophe look-alikes (``’``, ``ʼ``, ``´``...) to ``'`` so "O’Brien"
+    sorts with "O'Brien", NFKD, drop combining marks, then map the few
+    letters NFKD leaves alone.
 
     Args:
         name: Display name.
@@ -133,7 +168,9 @@ def name_sort_key(name: str) -> tuple[str, str]:
     """
     text = str(name or "").casefold()
     folded = "".join(
-        ch for ch in unicodedata.normalize("NFKD", text) if not unicodedata.combining(ch)
+        ch
+        for ch in unicodedata.normalize("NFKD", text.translate(_FOLD_APOSTROPHES))
+        if not unicodedata.combining(ch)
     ).translate(_FOLD_EXTRA)
     return folded, text
 
@@ -401,16 +438,51 @@ def celebrations_frozen() -> bool:
     return raw.strip().lower() not in {"0", "false", "no", "off"}
 
 
-def _student_fp(class_id: int, student_id: int, canvas_id: Any) -> str:
-    """Fingerprint of one roster row: class, id, and its never-changing key.
+def bind_celebration_secret(school: Any, secret: Any) -> None:
+    """Key this school's snapshot fingerprints to the app secret.
+
+    ``create_app`` calls this with ``app.secret_key``. A changed secret
+    changes the key id, so the next read retakes the snapshot instead of
+    failing every fingerprint.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        secret: App secret (str or bytes). Empty falls back to the env.
+    """
+    school._celebration_fp_secret = secret
+
+
+def _fp_key(school: Any) -> bytes:
+    """Derived HMAC key for snapshot fingerprints.
+
+    The app's bound secret, else ``FLASK_SECRET_KEY`` with the same dev
+    default ``create_app`` uses. Never the raw secret: an HMAC of a fixed
+    context string under it.
+    """
+    secret = getattr(school, "_celebration_fp_secret", None)
+    if secret in (None, "", b""):
+        secret = os.environ.get(SECRET_KEY_ENV) or SECRET_KEY_DEV_DEFAULT
+    if isinstance(secret, str):
+        secret = secret.encode("utf-8")
+    return hmac.new(bytes(secret), _FP_KEY_CONTEXT, hashlib.sha256).digest()
+
+
+def _key_id(school: Any) -> str:
+    """Short id of the current fingerprint key, stored as ``kid``."""
+    return hmac.new(_fp_key(school), _KID_MESSAGE, hashlib.sha256).hexdigest()[:16]
+
+
+def _student_fp(school: Any, class_id: int, student_id: int, canvas_id: Any) -> str:
+    """Keyed fingerprint of one roster row: class, id, and its never-changing key.
 
     ``students.id`` can be reused after a delete. ``canvas_id`` is set once
     at insert and never updated (renames keep it), so a reused id on a
-    different student gives a different fingerprint. Hashed so the
-    snapshot holds no Canvas id or Codename.
+    different student gives a different fingerprint. HMAC-SHA256 under the
+    app secret, so the snapshot holds no Canvas id or Codename and a DB
+    copy without the secret cannot test name guesses against it.
     """
     raw = f"{int(class_id)}:{int(student_id)}:{canvas_id or ''}"
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
+    return hmac.new(_fp_key(school), raw.encode("utf-8"), hashlib.sha256).hexdigest()[:20]
 
 
 def _roster_row(school: Any, class_id: Any, student_id: Any) -> dict[str, Any] | None:
@@ -433,8 +505,10 @@ def _resolve_ref(school: Any, ref: Any) -> dict[str, Any] | None:
     if row is None:
         return None
     want = str(ref.get("fp") or "")
-    have = _student_fp(int(ref["class_id"]), int(ref["student_id"]), row.get("canvas_id"))
-    return row if want and want == have else None
+    have = _student_fp(
+        school, int(ref["class_id"]), int(ref["student_id"]), row.get("canvas_id")
+    )
+    return row if want and hmac.compare_digest(want, have) else None
 
 
 def _sorted_labels(labels: list[str]) -> list[str]:
@@ -555,7 +629,7 @@ def _engaged_snapshot_cards(
                 {
                     "class_id": class_id,
                     "student_id": student_id,
-                    "fp": _student_fp(class_id, student_id, row.get("canvas_id")),
+                    "fp": _student_fp(school, class_id, student_id, row.get("canvas_id")),
                 }
             )
         if not refs:
@@ -610,6 +684,7 @@ def _new_snapshot(school: Any, semester_id: int, epoch: str) -> dict[str, Any]:
         "version": SNAPSHOT_VERSION,
         "semester_id": int(semester_id),
         "epoch": epoch,
+        "kid": _key_id(school),
         "taken_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "cards": _engaged_snapshot_cards(school),
     }
@@ -631,9 +706,41 @@ def _store_snapshot(school: Any, old_raw: str | None, payload: dict[str, Any]) -
         stored is not None
         and stored.get("semester_id") == payload["semester_id"]
         and stored.get("epoch") == payload["epoch"]
+        and stored.get("kid") == payload.get("kid")
     ):
         return stored
     return payload
+
+
+def _prune_cards(school: Any, cards: list[Any]) -> tuple[list[dict[str, Any]], bool]:
+    """Drop frozen refs that no longer resolve to a live student.
+
+    A deleted student, a student moved off the class, or an id now held by
+    someone else (fingerprint mismatch) is removed from the stored row, so
+    the snapshot stops carrying their fingerprint. The card itself is kept,
+    even with no students left: an empty card is not shown, and keeping it
+    stops the missing-course path from refilling it with a new winner.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        cards: Stored snapshot cards.
+
+    Returns:
+        ``(cards, changed)``. ``changed`` is True when any ref was removed.
+    """
+    out: list[dict[str, Any]] = []
+    changed = False
+    for card in cards:
+        if not isinstance(card, dict):
+            changed = True
+            continue
+        refs = list(card.get("students") or [])
+        kept = [ref for ref in refs if _resolve_ref(school, ref) is not None]
+        if len(kept) != len(refs):
+            changed = True
+            card = {**card, "students": kept}
+        out.append(card)
+    return out, changed
 
 
 def frozen_celebration_snapshot(school: Any) -> dict[str, Any]:
@@ -641,8 +748,12 @@ def frozen_celebration_snapshot(school: Any) -> dict[str, Any]:
 
     * No active semester, or nobody has attended yet: nothing is stored and
       the next read tries again.
-    * A stored snapshot from another semester or epoch, a blank or corrupt
-      value, or the old name-based format is replaced (compare-and-set).
+    * A stored snapshot from another semester or epoch, taken under another
+      app secret (``kid``), a blank or corrupt value, or an older format
+      (v1 names, v2 unsalted fingerprints) is replaced (compare-and-set).
+    * Refs that no longer resolve to a live student are pruned from the
+      stored row. A card left with nobody stays as an empty placeholder,
+      so it is hidden and not refilled.
     * A course with no card yet is added the first time it has a winner,
       then stays frozen.
 
@@ -662,18 +773,18 @@ def frozen_celebration_snapshot(school: Any) -> dict[str, Any]:
         saved is not None
         and saved.get("semester_id") == semester_id
         and saved.get("epoch") == epoch
+        and saved.get("kid") == _key_id(school)
         and saved["cards"]
     ):
-        have = {str(card.get("course") or "") for card in saved["cards"] if isinstance(card, dict)}
+        cards, changed = _prune_cards(school, saved["cards"])
+        have = {str(card.get("course") or "") for card in cards}
         missing = [course for course in ENGAGED_COURSES if course not in have]
-        if not missing:
-            return saved
-        extra = _engaged_snapshot_cards(school, missing)
-        if not extra:
+        extra = _engaged_snapshot_cards(school, missing) if missing else []
+        if not changed and not extra:
             return saved
         merged = dict(saved)
         merged["cards"] = sorted(
-            [c for c in saved["cards"] if isinstance(c, dict)] + extra,
+            cards + extra,
             key=lambda c: (
                 ENGAGED_COURSES.index(c["course"]) if c.get("course") in ENGAGED_COURSES else 99
             ),

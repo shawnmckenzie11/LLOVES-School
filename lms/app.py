@@ -70,6 +70,7 @@ from auth import (  # noqa: E402
 from bots import list_bots  # noqa: E402
 from celebration import (  # noqa: E402
     WONDER_COPY as CELEBRATION_COPY,
+    bind_celebration_secret,
     build_celebration_board,
     celebration_candidates,
     note_celebrations_unfrozen,
@@ -1011,6 +1012,8 @@ def create_app(
     )
     app.config["SCHOOL_DB"] = school
     app.config["DATA_DIR"] = store
+    # MCK-118 LOW-A: Most Engaged fingerprints are keyed to the app secret.
+    bind_celebration_secret(school, app.secret_key)
     try:
         # MCK-118: CELEBRATIONS_FROZEN=0 at boot retires the old snapshot.
         note_celebrations_unfrozen(school)
