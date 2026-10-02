@@ -10013,7 +10013,10 @@ async function toggleEyesUp() {
       method: "POST",
       body: JSON.stringify({ eyes_up: want }),
     });
-    if (
+    if (res?.ended) {
+      // Release after End/Quit: the server cleared it (or the row is gone).
+      teacherState.eyes_up = false;
+    } else if (
       res?.teacher_state &&
       shouldApplyLiveSnapshot(
         res.teacher_state,

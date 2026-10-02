@@ -4,9 +4,11 @@
  * Reads ``teacher_state.eyes_up`` from the /api/student/state payload the
  * portal already polls, so it adds no request. While on, the overlay
  * covers the page, the rest of <body> is ``inert``, and key/paste/input
- * events are swallowed. Nothing is removed or re-rendered, so typed
- * answers, scroll, and the current page stay exactly as they were. One
- * more teacher tap releases it and focus returns where it was.
+ * events are swallowed. The overlay itself removes nothing and the
+ * student stays on their page. The portal still re-renders the live card
+ * on every teacher-state write (as it did before MCK-26; drafts carry
+ * over), so on release this module puts focus, the caret, and scroll
+ * positions back on the re-rendered nodes after that repaint.
  */
 
 /** Placeholder copy for Wonder. */
@@ -29,11 +31,16 @@ const BLOCKED_EVENTS = ["keydown", "keypress", "keyup", "beforeinput", "paste", 
 export function eyesUpOn(payload) {
   if (!payload || typeof payload !== "object") return false;
   const status = String(payload.status || "");
-  // "waiting" is the live waiting room and still pauses; only a payload
-  // that carries the session's teacher_state can turn it on.
+  // The live waiting room is "waiting" and still pauses. After End the
+  // payload is also "waiting", but with celebrate: that and any ended,
+  // pick, or session-less payload is always off (MCK-26 HIGH-1).
   if (status === "ended" || status === "pick") return false;
+  if (String(payload.phase || "") === "ended") return false;
+  if (payload.celebrate) return false;
   const ts = payload.teacher_state;
-  return Boolean(ts && typeof ts === "object" && ts.eyes_up === true);
+  if (!ts || typeof ts !== "object") return false;
+  if (ts.celebrate) return false;
+  return ts.eyes_up === true;
 }
 
 const CSS = `
@@ -41,12 +48,13 @@ const CSS = `
   position: fixed; inset: 0; z-index: 2147483000;
   display: flex; align-items: center; justify-content: center;
   padding: 2rem; box-sizing: border-box;
-  background: rgba(15, 23, 42, 0.97); color: #f8fafc;
+  background: #0f172a; color: #f8fafc;
   text-align: center; cursor: default; user-select: none;
   touch-action: none; overscroll-behavior: contain;
   animation: eyes-up-in 180ms ease-out;
 }
 #${OVERLAY_ID}[hidden] { display: none !important; }
+#${OVERLAY_ID}:focus, #${OVERLAY_ID}:focus-visible { outline: none; }
 #${OVERLAY_ID} .eyes-up-card { max-width: 32rem; }
 #${OVERLAY_ID} .eyes-up-icon { font-size: 3.5rem; line-height: 1; margin-bottom: 1rem; }
 #${OVERLAY_ID} .eyes-up-title { margin: 0 0 0.5rem; font-size: clamp(2rem, 7vw, 3.25rem); font-weight: 700; letter-spacing: 0.01em; }
@@ -59,6 +67,164 @@ html.eyes-up-on, html.eyes-up-on body { overflow: hidden !important; }
 let active = false;
 /** @type {Element | null} */
 let restoreFocus = null;
+/** @type {{focus: any, selection: [number, number, string] | null, scrolls: {el: any, top: number, left: number}[], winY: number} | null} */
+let saved = null;
+let restoreTimers = [];
+/** Last student scroll per element, so a repaint just before the pause cannot erase it. */
+const lastScrolls = new Map();
+let lastWinY = 0;
+/** @type {Document | null} */
+let watched = null;
+let lastUserInputAt = -Infinity;
+const USER_SCROLL_WINDOW_MS = 1500;
+const USER_SCROLL_TO_TOP_MS = 250;
+
+/**
+ * Record student scrolls (passive, capture) while not paused.
+ * @param {Document} doc
+ */
+function watchScrolls(doc) {
+  if (watched === doc || !doc || typeof doc.addEventListener !== "function") return;
+  watched = doc;
+  // Chrome scrolls passive wheel/touch input on the compositor, so the
+  // scroll event can arrive before the input event. Positions > 0 are
+  // always recorded; a scroller at 0 only clears its entry when the
+  // student's own input is the likely cause (a repaint reset must not).
+  let sweepTimer = null;
+  const sweep = () => {
+    sweepTimer = null;
+    if (active) return;
+    for (const [key, entry] of Array.from(lastScrolls.entries())) {
+      const el = resolve(entry.el, doc);
+      if (el && !(el.scrollTop || 0) && !(el.scrollLeft || 0)) lastScrolls.delete(key);
+    }
+  };
+  const noteInput = () => {
+    lastUserInputAt = Date.now();
+    if (sweepTimer === null && typeof setTimeout === "function") sweepTimer = setTimeout(sweep, 200);
+  };
+  for (const type of ["wheel", "touchmove", "touchstart", "pointerdown", "keydown"]) {
+    doc.addEventListener(type, noteInput, { capture: true, passive: true });
+  }
+  doc.addEventListener(
+    "scroll",
+    (event) => {
+      if (active) return;
+      const el = /** @type {any} */ (event).target;
+      if (!el || el === doc || el === doc.documentElement || el === doc.body) {
+        const view = doc.defaultView;
+        const y = view ? view.scrollY || 0 : 0;
+        if (y > 0 || Date.now() - lastUserInputAt <= USER_SCROLL_WINDOW_MS) lastWinY = y;
+        return;
+      }
+      const d = describe(el, doc);
+      if (!d) return;
+      const key = JSON.stringify(d);
+      if ((el.scrollTop || 0) > 0 || (el.scrollLeft || 0) > 0) {
+        lastScrolls.set(key, { el: d, top: el.scrollTop || 0, left: el.scrollLeft || 0 });
+      } else if (Date.now() - lastUserInputAt <= USER_SCROLL_TO_TOP_MS) {
+        // Back to the top by hand (input just now), not a repaint reset.
+        lastScrolls.delete(key);
+      }
+    },
+    { capture: true, passive: true }
+  );
+}
+
+/**
+ * A re-findable address for one element: its id, or the nearest id'd
+ * ancestor plus the element's index among same-tag descendants.
+ * @param {any} el
+ * @param {Document} doc
+ */
+function describe(el, doc) {
+  if (!el || !el.tagName) return null;
+  if (el.id) return { id: el.id, tag: el.tagName, type: el.type || "" };
+  let anchor = el.parentElement || null;
+  while (anchor && !anchor.id) anchor = anchor.parentElement || null;
+  const scope = anchor || doc.body;
+  const list = Array.from(scope.getElementsByTagName(el.tagName));
+  const index = list.indexOf(el);
+  if (index < 0) return null;
+  return { anchorId: anchor ? anchor.id : "", tag: el.tagName, index, type: el.type || "" };
+}
+
+/**
+ * @param {any} d
+ * @param {Document} doc
+ */
+function resolve(d, doc) {
+  if (!d) return null;
+  let el = null;
+  if (d.id) {
+    el = doc.getElementById(d.id);
+  } else {
+    const scope = d.anchorId ? doc.getElementById(d.anchorId) : doc.body;
+    el = scope ? scope.getElementsByTagName(d.tag)[d.index] || null : null;
+  }
+  if (!el || el.tagName !== d.tag || String(el.type || "") !== String(d.type || "")) return null;
+  return el;
+}
+
+/** @param {Document} doc */
+function snapshot(doc) {
+  const focused = doc.activeElement && doc.activeElement !== doc.body ? doc.activeElement : null;
+  let selection = null;
+  try {
+    if (focused && typeof focused.selectionStart === "number") {
+      selection = [focused.selectionStart, focused.selectionEnd, focused.selectionDirection || "none"];
+    }
+  } catch (_) {
+    selection = null;
+  }
+  const byKey = new Map(lastScrolls);
+  for (const el of Array.from(doc.body.getElementsByTagName("*"))) {
+    if ((el.scrollTop || 0) > 0 || (el.scrollLeft || 0) > 0) {
+      const d = describe(el, doc);
+      if (d) byKey.set(JSON.stringify(d), { el: d, top: el.scrollTop || 0, left: el.scrollLeft || 0 });
+    }
+  }
+  const view = doc.defaultView;
+  const winY = (view ? view.scrollY || 0 : 0) || lastWinY;
+  return { focus: describe(focused, doc), selection, scrolls: Array.from(byKey.values()), winY };
+}
+
+/**
+ * Put focus, caret, and scroll back on the (possibly re-rendered) nodes.
+ * @param {any} state
+ * @param {Document} doc
+ * @param {boolean} withFocus
+ */
+function applySnapshot(state, doc, withFocus) {
+  if (!state || active) return;
+  if (withFocus && state.focus) {
+    const el = resolve(state.focus, doc);
+    const current = doc.activeElement;
+    // Do not steal focus if the student already moved on.
+    if (el && (!current || current === doc.body || current === el)) {
+      try {
+        el.focus({ preventScroll: true });
+        if (state.selection && typeof el.setSelectionRange === "function") {
+          el.setSelectionRange(state.selection[0], state.selection[1], state.selection[2]);
+        }
+      } catch (_) {
+        /* number inputs have no selection API */
+      }
+    }
+  }
+  for (const row of state.scrolls) {
+    const el = resolve(row.el, doc);
+    // Later passes only undo a repaint reset; a student scroll wins.
+    if (el && (withFocus || !el.scrollTop)) {
+      el.scrollTop = row.top;
+      el.scrollLeft = row.left;
+    }
+  }
+  const view = doc.defaultView;
+  if (view && typeof view.scrollTo === "function" && state.winY && (withFocus || !view.scrollY)) {
+    view.scrollTo(0, state.winY);
+  }
+}
 
 /** @param {Event} event */
 function swallow(event) {
@@ -119,12 +285,16 @@ function ensureOverlay(doc) {
  * @returns {boolean} the new state
  */
 export function setEyesUp(on, doc = document) {
+  watchScrolls(doc);
   const want = Boolean(on);
   if (want === active) return active;
   if (!doc || !doc.body) return active;
   const overlay = ensureOverlay(doc);
   if (want) {
+    for (const t of restoreTimers) clearTimeout(t);
+    restoreTimers = [];
     restoreFocus = doc.activeElement && doc.activeElement !== doc.body ? doc.activeElement : null;
+    saved = snapshot(doc);
     for (const child of Array.from(doc.body.children)) {
       if (child === overlay || child.tagName === "SCRIPT" || child.hasAttribute("inert")) continue;
       child.setAttribute("inert", "");
@@ -157,6 +327,16 @@ export function setEyesUp(on, doc = document) {
         /* ignore */
       }
     }
+    lastScrolls.clear();
+    // The portal repaints the live card later in this same poll; restore
+    // on the new nodes after it, then once more for late layout (math).
+    const state = saved;
+    saved = null;
+    restoreTimers = [
+      setTimeout(() => applySnapshot(state, doc, true), 0),
+      setTimeout(() => applySnapshot(state, doc, false), 300),
+      setTimeout(() => applySnapshot(state, doc, false), 1000),
+    ];
   }
   return active;
 }

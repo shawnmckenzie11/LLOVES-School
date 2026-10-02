@@ -6202,7 +6202,18 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         always true.
         """
         session_row = school.get_live_session(session_id)
+        posted = (
+            request.get_json(silent=True) if request.method == "POST" else None
+        )
+        release_only = (
+            isinstance(posted, dict)
+            and set(posted) == {"eyes_up"}
+            and posted.get("eyes_up") in (False, 0, "false", "0", "off")
+        )
         if session_row is None:
+            if release_only:
+                # MCK-26: Release after Quit (row wiped) is a harmless no-op.
+                return jsonify({"ok": True, "teacher_state": None, "ended": True})
             return jsonify({"ok": False, "error": "Session not found"}), 404
         if not _can_view_live_session(session_row):
             return jsonify({"ok": False, "error": "Forbidden"}), 403
@@ -6217,7 +6228,11 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     "layout_presets": LAYOUT_PRESETS,
                 }
             )
-        body = request.get_json(silent=True) or {}
+        body = posted or {}
+        if release_only and session_row.get("status") != "active":
+            # MCK-26: Release after End is a harmless no-op, never a 400.
+            released = school.release_eyes_up(session_id)
+            return jsonify({"ok": True, "teacher_state": released, "ended": True})
         kwargs: dict[str, Any] = {}
         for key in (
             "advance",

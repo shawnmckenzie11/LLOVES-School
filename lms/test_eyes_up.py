@@ -253,6 +253,90 @@ class EyesUpHttpTests(unittest.TestCase):
         self.assertTrue(off["text_ride"]["frozen"])
         self.assertEqual(off["text_ride"]["cons_item"], "C2-CONS-1")
 
+    def test_end_while_paused_releases_students(self) -> None:
+        """HIGH-1: End (celebration) clears eyes_up; Release after End is a no-op 200."""
+        self.assertEqual(self._patch({"eyes_up": True}).status_code, 200)
+        before = self._student_state()
+        self.assertIs(before["teacher_state"]["eyes_up"], True)
+        end = self.staff.post(
+            f"/staff/class/{self.class_id}/end-live", follow_redirects=False
+        )
+        self.assertIn(end.status_code, (200, 302), end.get_data(as_text=True)[:200])
+        row = self.school.get_live_session(self.live_session_id)
+        self.assertEqual(row["status"], "ended")
+        after = self._student_state(seq=before["state_seq"], stamp=before["stamp"])
+        self.assertTrue(after.get("celebrate"), after)
+        self.assertIs(after["teacher_state"]["eyes_up"], False)
+        # Reload on the celebration screen: still released.
+        self.assertIs(self._student_state()["teacher_state"]["eyes_up"], False)
+        stored = self.school.live_session_teacher_state_payload(self.live_session_id)
+        self.assertIs(stored["eyes_up"], False)
+        # Release after End is harmless and idempotent (no 400).
+        for _ in range(2):
+            late = self._patch({"eyes_up": False})
+            self.assertEqual(late.status_code, 200, late.get_json())
+            self.assertTrue(late.get_json()["ended"])
+            self.assertIs(late.get_json()["teacher_state"]["eyes_up"], False)
+        # Turning it ON after End is still refused.
+        self.assertEqual(self._patch({"eyes_up": True}).status_code, 400)
+        # Mixed bodies after End keep the old 400.
+        self.assertEqual(
+            self._patch({"eyes_up": False, "stage": "play"}).status_code, 400
+        )
+
+    def test_end_masks_a_stale_paused_blob(self) -> None:
+        """An ended session never pauses students even if the blob says so."""
+        self.assertEqual(self._patch({"eyes_up": True}).status_code, 200)
+        self.school.close_live_class_for_celebration(self.class_id)
+        import json as _json
+
+        with self.school._lock:
+            raw = self.school.conn.execute(
+                "SELECT teacher_state_json FROM live_class_sessions WHERE id = ?",
+                (self.live_session_id,),
+            ).fetchone()["teacher_state_json"]
+            blob = _json.loads(raw)
+            blob["eyes_up"] = True
+            self.school.conn.execute(
+                "UPDATE live_class_sessions SET teacher_state_json = ? WHERE id = ?",
+                (_json.dumps(blob), self.live_session_id),
+            )
+            self.school.conn.commit()
+        self.assertIs(self._student_state()["teacher_state"]["eyes_up"], False)
+
+    def test_end_live_class_session_releases(self) -> None:
+        self.assertEqual(self._patch({"eyes_up": True}).status_code, 200)
+        seq = self.school.live_session_teacher_state_payload(self.live_session_id)[
+            "state_seq"
+        ]
+        self.school.end_live_class_session(self.live_session_id)
+        state = self.school.live_session_teacher_state_payload(self.live_session_id)
+        self.assertIs(state["eyes_up"], False)
+        self.assertEqual(state["state_seq"], seq + 1)
+        # Idempotent: a second end does not bump again.
+        self.school.end_live_class_session(self.live_session_id)
+        again = self.school.live_session_teacher_state_payload(self.live_session_id)
+        self.assertEqual(again["state_seq"], seq + 1)
+
+    def test_quit_while_paused_releases_students(self) -> None:
+        """Quit wipes the session; students leave, and a late Release is a 200."""
+        self.assertEqual(self._patch({"eyes_up": True}).status_code, 200)
+        before = self._student_state()
+        quit_ = self.staff.post(
+            f"/staff/class/{self.class_id}/quit-live", follow_redirects=False
+        )
+        self.assertIn(quit_.status_code, (200, 302))
+        after = self.student.get(
+            f"/api/student/state?seq={before['state_seq']}&stamp={before['stamp']}"
+        ).get_json()
+        self.assertFalse((after.get("teacher_state") or {}).get("eyes_up"), after)
+        self.assertNotEqual(after.get("status"), "live")
+        late = self._patch({"eyes_up": False})
+        self.assertEqual(late.status_code, 200, late.get_json())
+        self.assertTrue(late.get_json()["ended"])
+        # Non-release writes to a wiped session still 404.
+        self.assertEqual(self._patch({"eyes_up": True}).status_code, 404)
+
     def test_new_session_starts_released(self) -> None:
         self.assertEqual(self._patch({"eyes_up": True}).status_code, 200)
         self.school.end_live_class_session(self.live_session_id)
@@ -299,6 +383,7 @@ class EyesUpClientTests(unittest.TestCase):
         self.assertIn('aria-pressed="false"', html)
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertIn("JSON.stringify({ eyes_up: want })", js)
+        self.assertIn("if (res?.ended) {", js)
         self.assertIn("paintEyesUpToggle();", js[js.index("function adoptTeacherState("):])
         # Labels are declared before teacherState so early adopts cannot hit the TDZ.
         self.assertLess(js.index("const EYES_UP_LABEL"), js.index("let teacherState = {"))
