@@ -3209,6 +3209,18 @@ body.staff-shell .live-responses-head {
 body.staff-shell .live-responses-head h2 {
   margin: 0;
 }
+body.staff-shell .live-hide-names {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+body.staff-shell .live-responses-list.is-names-hidden .live-response-name {
+  font-weight: 600;
+  color: #475569;
+}
 body.staff-shell .live-responses-list {
   display: flex;
   flex-direction: column;

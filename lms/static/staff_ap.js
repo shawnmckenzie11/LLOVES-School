@@ -74,6 +74,11 @@ import {
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
 const nameSort = localStorage.getItem(`lloves-sort-${classId}`) === "za" ? "za" : "az";
+/** Hide names switch for projecting the Responses list (MCK-29). */
+const HIDE_NAMES_KEY = "lloves-hide-names";
+let hideResponseNames = localStorage.getItem(HIDE_NAMES_KEY) === "1";
+/** Last rows painted, so the switch can repaint without a fetch. */
+let lastResponseRows = [];
 const STUDENT_AMOUNTS = [1, 5, 10, -1];
 const TEAM_AMOUNTS = [1, 5, 10];
 const TEAM_RULES = [
@@ -3953,6 +3958,19 @@ function applyQuestionResponseSelection(mode) {
 }
 
 /**
+ * Name shown for one response row. With Hide names on, rows are numbered
+ * in list order ("Student 3", "Guest 1") so the list is safe to project.
+ * @param {any} row
+ * @param {number} ordinal 1-based position among rows of the same kind
+ * @param {boolean} hidden
+ * @returns {string}
+ */
+function responseRowLabel(row, ordinal, hidden) {
+  if (!hidden) return String(row?.name || "");
+  return `${row?.student_id == null ? "Guest" : "Student"} ${ordinal}`;
+}
+
+/**
  * Render response rows in the same alphabetical/team order as Class list.
  * @param {any[]} responses
  */
@@ -3960,6 +3978,11 @@ function paintQuestionResponses(responses) {
   const host = $("live-responses-list");
   if (!host) return;
   const rows = Array.isArray(responses) ? responses : [];
+  lastResponseRows = rows;
+  const hidden = hideResponseNames;
+  host.classList.toggle("is-names-hidden", hidden);
+  let studentOrdinal = 0;
+  let guestOrdinal = 0;
   const byStudent = new Map(
     rows
       .filter((row) => row.student_id != null)
@@ -3983,7 +4006,7 @@ function paintQuestionResponses(responses) {
           <input type="checkbox" data-response-student="${Number(row.student_id)}"${
             Number(row.awarded_points || 0) ? " checked" : ""
           }>
-          <span class="live-response-name">${escapeHtml(row.name)}</span>
+          <span class="live-response-name">${escapeHtml(responseRowLabel(row, ++studentOrdinal, hidden))}</span>
           <span class="live-response-answer">${escapeHtml(row.answer || "—")}</span>
           <span class="live-response-mark">${row.correct === true ? "Correct" : row.correct === false ? "Incorrect" : "Answered"}</span>
           <span class="live-response-points">${row.awarded_points ? `+${escapeHtml(row.awarded_points)}` : ""}</span>
@@ -3993,7 +4016,7 @@ function paintQuestionResponses(responses) {
   }
   for (const row of rows.filter((item) => item.student_id == null)) {
     chunks.push(
-      `<div class="live-response-row"><span></span><span class="live-response-name">${escapeHtml(row.name)}</span><span class="live-response-answer">${escapeHtml(row.answer || "—")}</span><span class="live-response-mark">Guest</span><span></span></div>`
+      `<div class="live-response-row"><span></span><span class="live-response-name">${escapeHtml(responseRowLabel(row, ++guestOrdinal, hidden))}</span><span class="live-response-answer">${escapeHtml(row.answer || "—")}</span><span class="live-response-mark">Guest</span><span></span></div>`
     );
   }
   host.innerHTML =
@@ -9419,6 +9442,18 @@ $("live-question-list")?.addEventListener("click", async (event) => {
     showError("#ap-overlay-error", err);
   }
 });
+
+{
+  const toggle = $("live-hide-names");
+  if (toggle instanceof HTMLInputElement) {
+    toggle.checked = hideResponseNames;
+    toggle.addEventListener("change", () => {
+      hideResponseNames = toggle.checked;
+      localStorage.setItem(HIDE_NAMES_KEY, hideResponseNames ? "1" : "0");
+      paintQuestionResponses(lastResponseRows);
+    });
+  }
+}
 
 $("live-responses-dialog")?.addEventListener("click", async (event) => {
   const select = event.target.closest("button[data-response-select]");
