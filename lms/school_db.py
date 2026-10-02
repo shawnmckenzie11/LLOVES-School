@@ -23,6 +23,11 @@ from name_match import first_token_key, loose_name_key, name_key, same_name  # n
 
 logger = logging.getLogger(__name__)
 
+#: End waits this long for another End of the same run (double click) to
+#: finish before refusing with "End in progress, try again" (MCK-72).
+LIVE_END_BUSY_WAIT_SECONDS = 3.0
+LIVE_END_BUSY_POLL_SECONDS = 0.1
+
 from serve_capacity import (  # noqa: E402
     begin_poll_budget,
     end_poll_budget,
@@ -24160,6 +24165,17 @@ class SchoolDB(LovesDB):
                 out[int(sid)] = points
         return out
 
+    def _live_class_run_key(self, class_id: int) -> str | None:
+        """``run_key`` of the class's open live session, if any (MCK-72)."""
+        try:
+            row = self.get_active_live_session_for_class(int(class_id))
+        except Exception:  # noqa: BLE001 - credit falls back to the column
+            return None
+        if not row:
+            return None
+        key = str(row.get("run_key") or "").strip()
+        return key or None
+
     def sync_live_participation_scores(self, class_id: int) -> dict[str, Any] | None:
         """Push live QH counts onto the open game so the scoreboard updates.
 
@@ -24168,7 +24184,11 @@ class SchoolDB(LovesDB):
         """
         credits = self.participation_question_credits_for_class(int(class_id))
         try:
-            return self.game.write_live_participation(int(class_id), credits)
+            return self.game.write_live_participation(
+                int(class_id),
+                credits,
+                run_key=self._live_class_run_key(int(class_id)),
+            )
         except Exception:  # noqa: BLE001 — live paint must not fail the answer
             return None
 
@@ -24788,6 +24808,7 @@ class SchoolDB(LovesDB):
         save_attendance: bool = True,
         save_participation: bool = True,
         celebrate: bool | None = None,
+        run_key: str | None = None,
     ) -> dict[str, Any]:
         """End Live Class (keep student celebration) or Quit (wipe).
 
@@ -24803,10 +24824,22 @@ class SchoolDB(LovesDB):
             save_participation: Write +1/question participation.
             celebrate: True for End Live Class; False for Quit. Default
                 follows ``persist`` (Quit is ``persist=False``).
+            run_key: The run the caller saw as active (the End route passes
+                it). When that run is no longer the class's active run, a
+                concurrent End already closed it, so this one does nothing
+                (MCK-72 follow-up: a late End used to begin a new column).
 
         Returns:
-            Celebration payload or wipe payload.
+            Celebration payload or wipe payload, or ``already_ended``.
         """
+        active_key = self._live_class_run_key(int(class_id))
+        expected = str(run_key or "").strip()
+        if expected and active_key != expected:
+            logger.info(
+                "late End for class=%s: run already closed by another End",
+                class_id,
+            )
+            return {"ok": True, "class_id": int(class_id), "already_ended": True}
         if persist is not None:
             save_attendance = bool(persist)
             save_participation = bool(persist)
@@ -24819,18 +24852,43 @@ class SchoolDB(LovesDB):
             if save_participation
             else {}
         )
+        run_key = active_key
         wrote = None
         if save_attendance or save_participation:
-            try:
-                wrote = self.game.persist_end_class_column(
-                    int(class_id),
-                    present_ids,
-                    credits,
-                    include_attendance=bool(save_attendance),
-                    include_participation=bool(save_participation),
-                )
-            except Exception:  # noqa: BLE001 — close still happens
-                wrote = None
+            deadline = time.monotonic() + LIVE_END_BUSY_WAIT_SECONDS
+            while True:
+                try:
+                    wrote = self.game.persist_end_class_column(
+                        int(class_id),
+                        present_ids,
+                        credits,
+                        include_attendance=bool(save_attendance),
+                        include_participation=bool(save_participation),
+                        run_key=run_key,
+                        # No live run: never begin a new game (phantom column).
+                        create_game=run_key is not None,
+                    )
+                except Exception:  # noqa: BLE001 — close still happens
+                    wrote = None
+                if not (wrote and wrote.get("in_progress")):
+                    break
+                # Another End is writing this run (a double click): give it
+                # a moment to finish, then follow it as already persisted.
+                if time.monotonic() >= deadline:
+                    # Still open: that End is stuck or its worker died
+                    # mid-write. Closing now would celebrate with nothing
+                    # saved and leave the game open, so tomorrow's End
+                    # would merge both days (Ops MED on a4147fd).
+                    logger.warning(
+                        "End for class=%s refused: another End holds the run",
+                        class_id,
+                    )
+                    return {
+                        "ok": False,
+                        "class_id": int(class_id),
+                        "in_progress": True,
+                    }
+                time.sleep(LIVE_END_BUSY_POLL_SECONDS)
         if wrote is None and not save_attendance and not save_participation:
             try:
                 self.game.cancel_setup(int(class_id))

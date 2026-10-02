@@ -3,16 +3,20 @@
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import io
 import json
+import logging
 import sqlite3
 import threading
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
+
+logger = logging.getLogger(__name__)
 
 from csv_import import parse_canvas_grades_csv
 from schedule import (
@@ -75,6 +79,28 @@ CREATE TABLE IF NOT EXISTS session_scores (
     points_r2 REAL NOT NULL DEFAULT 0,
     points_r3 REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (session_id, student_id)
+);
+
+-- Live participation credit already added into session_scores, per class
+-- run (MCK-72). End adds only the difference, so manual points stay and a
+-- repeat credit for the same run does not add twice.
+CREATE TABLE IF NOT EXISTS live_participation_credits (
+    run_key TEXT NOT NULL,
+    student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    points REAL NOT NULL DEFAULT 0,
+    points_r1 REAL NOT NULL DEFAULT 0,
+    points_r2 REAL NOT NULL DEFAULT 0,
+    points_r3 REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (run_key, student_id)
+);
+
+-- One End per live class run writes the column (MCK-72 follow-up). Two
+-- Ends racing in different workers both passed the "active" check; the
+-- INSERT OR IGNORE here lets only one of them persist.
+CREATE TABLE IF NOT EXISTS live_end_claims (
+    run_key TEXT PRIMARY KEY,
+    claimed_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS games (
@@ -191,6 +217,11 @@ CREATE TABLE IF NOT EXISTS student_moods (
 """
 
 TEAM_NAME_OPTION_MAX = 32
+#: A live End claim this old whose class game is still open belongs to a
+#: worker that died before its write committed; another End may retake it.
+LIVE_END_CLAIM_STALE_SECONDS = 300
+#: Claims are pruned after this many days (one row per class run).
+LIVE_END_CLAIM_KEEP_DAYS = 30
 
 SCOREBOARD_GAME_KEY = "scoreboard_game_id"
 CURRENT_CLASS_KEY = "current_class_id"
@@ -718,6 +749,8 @@ class GameShowDB:
         self.conn.executescript(SCHEMA)
         self._migrate()
         self.conn.commit()
+        # Old End claims are pruned at startup too, not only on a new End.
+        self._prune_live_end_claims()
         # Short stampede cache: class id → (monotonic time, membership index).
         self._team_index_cache: dict[int, tuple[float, dict[str, Any]]] = {}
 
@@ -3800,6 +3833,8 @@ class GameShowDB:
         *,
         include_attendance: bool = True,
         include_participation: bool = True,
+        run_key: str | None = None,
+        create_game: bool = True,
     ) -> dict[str, Any] | None:
         """Write optional attendance / +1/question participation, then end.
 
@@ -3814,6 +3849,12 @@ class GameShowDB:
             include_attendance: When False, skip the attendance write.
             include_participation: When False (Quit / unchecked), zero
                 live points so only attendance remains.
+            run_key: Live class run. The credit is added on top of the
+                points already in the column (manual awards stay), once
+                per run: a repeat adds only the change (MCK-72).
+            create_game: When False, never begin a new game (column). End
+                with no live run passes False, so a late End cannot add a
+                phantom class-day column (MCK-72 follow-up).
 
         Returns:
             ``{ok, class_id, session_id}``, or ``None`` when there is
@@ -3837,16 +3878,228 @@ class GameShowDB:
                     n = 0
             if n > 0:
                 credit_map[sid] = n
+        claim = str(run_key or "").strip() or None
+        state = (
+            self._claim_live_end_state(claim, int(class_id))
+            if claim is not None
+            else "claimed"
+        )
+        if state == "busy":
+            # Another End holds a fresh claim and the game is still open:
+            # it is writing now, or it crashed less than
+            # LIVE_END_CLAIM_STALE_SECONDS ago. Closing here would lose the
+            # day (the next End would merge it into tomorrow's column), so
+            # the caller must not close; the teacher retries (MCK-72).
+            return {
+                "ok": False,
+                "class_id": int(class_id),
+                "session_id": None,
+                "in_progress": True,
+            }
+        if state == "done":
+            # Another End for this run already wrote the column. A second
+            # write would add a new class-day column.
+            return {
+                "ok": True,
+                "class_id": int(class_id),
+                "session_id": None,
+                "already_persisted": True,
+            }
+        try:
+            return self._persist_end_class_column_claimed(
+                int(class_id),
+                present_set,
+                credit_map,
+                include_attendance=include_attendance,
+                include_participation=include_participation,
+                run_key=run_key,
+                create_game=create_game,
+            )
+        except BaseException:
+            if claim is not None:
+                self._release_live_end(claim)
+            raise
+
+    def _claim_live_end(self, run_key: str, class_id: int | None = None) -> bool:
+        """Take this run's one End write. ``False`` when already taken.
+
+        Args:
+            run_key: ``live_class_sessions.run_key``.
+            class_id: Class of the run, for the stale-claim check.
+        """
+        return self._claim_live_end_state(run_key, class_id) == "claimed"
+
+    @staticmethod
+    def _live_end_claim_time(raw: Any) -> datetime | None:
+        """Parse a stored ``claimed_at`` as an aware UTC time.
+
+        Claims are written in UTC (``+00:00``). A naive stamp from an
+        older build is local time.
+        """
+        try:
+            stamp = datetime.fromisoformat(str(raw))
+        except ValueError:
+            return None
+        if stamp.tzinfo is None:
+            stamp = stamp.astimezone()  # naive = local wall time
+        return stamp.astimezone(timezone.utc)
+
+    def _prune_live_end_claims(self, keep: str | None = None) -> None:
+        """Delete claims older than ``LIVE_END_CLAIM_KEEP_DAYS``.
+
+        Runs at startup and on every End, so an idle install does not
+        keep old rows. Best effort: a failed prune never blocks an End.
+
+        Args:
+            keep: Run key never pruned (the End in progress).
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(days=LIVE_END_CLAIM_KEEP_DAYS)
+        try:
+            with self._lock:
+                rows = self.conn.execute(
+                    "SELECT run_key, claimed_at FROM live_end_claims"
+                ).fetchall()
+                old = [
+                    str(row["run_key"])
+                    for row in rows
+                    if str(row["run_key"]) != str(keep or "")
+                    and (stamp := self._live_end_claim_time(row["claimed_at"]))
+                    is not None
+                    and stamp < cutoff
+                ]
+                for key in old:
+                    self.conn.execute(
+                        "DELETE FROM live_end_claims WHERE run_key = ?", (key,)
+                    )
+        except sqlite3.Error:
+            logger.warning("live end claim prune failed")
+
+    def _claim_live_end_state(self, run_key: str, class_id: int | None = None) -> str:
+        """Try to take this run's one End write.
+
+        ``INSERT OR IGNORE`` on the primary key is atomic across workers.
+        A claim older than ``LIVE_END_CLAIM_STALE_SECONDS`` whose class game
+        is still open was left by a worker that died before its write
+        committed (a successful write ends the game), so it is retaken with
+        a compare-and-set on ``claimed_at``. Claim times are UTC.
+
+        Args:
+            run_key: ``live_class_sessions.run_key``.
+            class_id: Class of the run, for the open-game check.
+
+        Returns:
+            ``"claimed"`` (this End writes), ``"done"`` (another End's write
+            committed: the game is closed) or ``"busy"`` (another End holds
+            a fresh claim and the game is still open: writing now, or it
+            crashed under ``LIVE_END_CLAIM_STALE_SECONDS`` ago).
+        """
+        now = datetime.now(timezone.utc)
+        stamp = now.isoformat(timespec="seconds")
+        self._prune_live_end_claims(keep=run_key)
+        with self._lock:
+            cur = self.conn.execute(
+                """
+                INSERT OR IGNORE INTO live_end_claims (run_key, claimed_at)
+                VALUES (?, ?)
+                """,
+                (run_key, stamp),
+            )
+            if int(cur.rowcount or 0) == 1:
+                return "claimed"
+            if class_id is None:
+                return "done"
+            row = self.conn.execute(
+                "SELECT claimed_at FROM live_end_claims WHERE run_key = ?",
+                (run_key,),
+            ).fetchone()
+            if row is None:
+                return "done"
+            try:
+                self._game_row(int(class_id))
+            except KeyError:
+                return "done"  # the claimed write ended the game
+            claimed = self._live_end_claim_time(row["claimed_at"])
+            # An unreadable stamp is treated as stale, so it cannot block
+            # End forever.
+            if (
+                claimed is not None
+                and (now - claimed).total_seconds() < LIVE_END_CLAIM_STALE_SECONDS
+            ):
+                return "busy"
+            retake = self.conn.execute(
+                """
+                UPDATE live_end_claims SET claimed_at = ?
+                WHERE run_key = ? AND claimed_at = ?
+                """,
+                (stamp, run_key, str(row["claimed_at"])),
+            )
+            if int(retake.rowcount or 0) == 1:
+                logger.warning("live end claim retaken after a stale claim")
+                return "claimed"
+        return "busy"  # another End retook it first; it is writing now
+
+    def _release_live_end(self, run_key: str) -> None:
+        """Drop a claim after a failed write so a retry can persist.
+
+        Args:
+            run_key: ``live_class_sessions.run_key``.
+        """
+        try:
+            with self._lock:
+                self.conn.execute(
+                    "DELETE FROM live_end_claims WHERE run_key = ?", (run_key,)
+                )
+        except sqlite3.Error:
+            logger.warning("live end claim release failed")
+
+    @contextlib.contextmanager
+    def _write_txn(self):
+        """``BEGIN IMMEDIATE`` … ``COMMIT`` on the autocommit connection.
+
+        Caller holds ``_lock``. The write lock is taken before the first
+        read, so another worker cannot read the same ledger row in between.
+        A nested call joins the open transaction.
+        """
+        if self.conn.in_transaction:
+            yield
+            return
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield
+        except BaseException:
+            if self.conn.in_transaction:
+                self.conn.execute("ROLLBACK")
+            raise
+        if self.conn.in_transaction:
+            self.conn.execute("COMMIT")
+
+    def _persist_end_class_column_claimed(
+        self,
+        class_id: int,
+        present_set: set[int],
+        credit_map: dict[int, int],
+        *,
+        include_attendance: bool,
+        include_participation: bool,
+        run_key: str | None,
+        create_game: bool = True,
+    ) -> dict[str, Any] | None:
+        """Body of ``persist_end_class_column`` once the End is claimed."""
         try:
             self._game_row(class_id)
         except KeyError:
+            if not create_game:
+                logger.warning(
+                    "End with no live run and no open game: no column written"
+                )
+                return None
             if not (
                 (include_attendance and present_set)
                 or (include_participation and credit_map)
             ):
                 return None
             self.begin_game(class_id)
-        with self._lock:
+        with self._lock, self._write_txn():
             game = self._game_row(class_id)
             if include_attendance:
                 self._write_attendance_unlocked(game, present_set)
@@ -3864,21 +4117,23 @@ class GameShowDB:
                     """,
                     (session_id,),
                 )
-            for sid, n in credit_map.items():
-                r1 = 1 if n >= 1 else 0
-                r2 = 1 if n >= 2 else 0
-                r3 = 1 if n >= 3 else 0
                 self.conn.execute(
-                    """
-                    UPDATE session_scores
-                    SET points = ?,
-                        points_r1 = ?,
-                        points_r2 = ?,
-                        points_r3 = ?
-                    WHERE session_id = ? AND student_id = ?
-                    """,
-                    (n, r1, r2, r3, session_id, sid),
+                    "DELETE FROM live_participation_credits WHERE session_id = ?",
+                    (session_id,),
                 )
+            key = self._live_credit_key(run_key, session_id)
+            if include_participation:
+                # A credit that fell to 0 is not in credit_map; take it back.
+                for row in self.conn.execute(
+                    """
+                    SELECT student_id FROM live_participation_credits
+                    WHERE run_key = ?
+                    """,
+                    (key,),
+                ).fetchall():
+                    credit_map.setdefault(int(row["student_id"]), 0)
+            for sid, n in credit_map.items():
+                self._add_live_credit_unlocked(session_id, sid, key, n)
             self.conn.execute(
                 """
                 UPDATE sessions
@@ -3900,14 +4155,107 @@ class GameShowDB:
             "session_id": session_id,
         }
 
+    @staticmethod
+    def _live_credit_key(run_key: str | None, session_id: int) -> str:
+        """Ledger key for one live class run. No run key: the column."""
+        key = str(run_key or "").strip()
+        return key or f"session:{int(session_id)}"
+
+    def _add_live_credit_unlocked(
+        self, session_id: int, student_id: int, run_key: str, n: int
+    ) -> None:
+        """Set this run's participation credit to ``n`` on top of the column.
+
+        Manual points in ``session_scores`` are never replaced. Only the
+        difference from what this run already credited is added, so a
+        repeat (End twice, or a live sync then End) does not add twice.
+        Points never go below 0. Caller holds ``_lock`` inside
+        ``_write_txn`` so the ledger read and the score write are atomic
+        across workers.
+
+        Args:
+            session_id: Sessions primary key (the class-day column).
+            student_id: Students primary key.
+            run_key: ``_live_credit_key`` for the run.
+            n: Distinct questions answered this run.
+        """
+        n = max(0, int(n))
+        target = (
+            float(n),
+            1.0 if n >= 1 else 0.0,
+            1.0 if n >= 2 else 0.0,
+            1.0 if n >= 3 else 0.0,
+        )
+        prev = self.conn.execute(
+            """
+            SELECT session_id, points, points_r1, points_r2, points_r3
+            FROM live_participation_credits
+            WHERE run_key = ? AND student_id = ?
+            """,
+            (run_key, int(student_id)),
+        ).fetchone()
+        if prev is None:
+            column = int(session_id)
+            before = (0.0, 0.0, 0.0, 0.0)
+        else:
+            # The run's credit already sits in that column; adjust it there.
+            column = int(prev["session_id"])
+            before = (
+                float(prev["points"]),
+                float(prev["points_r1"]),
+                float(prev["points_r2"]),
+                float(prev["points_r3"]),
+            )
+        delta = tuple(after - was for after, was in zip(target, before))
+        if any(delta):
+            cur = self.conn.execute(
+                """
+                UPDATE session_scores
+                SET points = MAX(0, ROUND(points + ?, 1)),
+                    points_r1 = MAX(0, ROUND(points_r1 + ?, 1)),
+                    points_r2 = MAX(0, ROUND(points_r2 + ?, 1)),
+                    points_r3 = MAX(0, ROUND(points_r3 + ?, 1))
+                WHERE session_id = ? AND student_id = ?
+                """,
+                (*delta, column, int(student_id)),
+            )
+            if cur.rowcount != 1:
+                logger.warning(
+                    "live credit skipped; no score row session=%s student=%s",
+                    column,
+                    student_id,
+                )
+                return
+        self.conn.execute(
+            """
+            INSERT INTO live_participation_credits (
+                run_key, student_id, session_id,
+                points, points_r1, points_r2, points_r3
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (run_key, student_id) DO UPDATE SET
+                points = excluded.points,
+                points_r1 = excluded.points_r1,
+                points_r2 = excluded.points_r2,
+                points_r3 = excluded.points_r3
+            """,
+            (run_key, int(student_id), column, *target),
+        )
+
     def write_live_participation(
-        self, class_id: int, credits: dict[int, int]
+        self,
+        class_id: int,
+        credits: dict[int, int],
+        *,
+        run_key: str | None = None,
     ) -> dict[str, Any] | None:
         """Write this-session QH counts onto the open game without ending.
+
+        Adds on top of manual points, once per run (MCK-72).
 
         Args:
             class_id: Classes primary key.
             credits: ``student_id → distinct questions answered``.
+            run_key: Live class run the credits belong to.
 
         Returns:
             Game-state payload when an open game exists, else ``None``.
@@ -3917,7 +4265,8 @@ class GameShowDB:
         except KeyError:
             return None
         session_id = int(game["session_id"])
-        with self._lock:
+        key = self._live_credit_key(run_key, session_id)
+        with self._lock, self._write_txn():
             self._ensure_session_scores(session_id, int(class_id))
             for raw_sid, raw_n in (credits or {}).items():
                 try:
@@ -3925,24 +4274,7 @@ class GameShowDB:
                     n = max(0, int(raw_n))
                 except (TypeError, ValueError):
                     continue
-                self.conn.execute(
-                    """
-                    UPDATE session_scores
-                    SET points = ?,
-                        points_r1 = ?,
-                        points_r2 = ?,
-                        points_r3 = ?
-                    WHERE session_id = ? AND student_id = ?
-                    """,
-                    (
-                        n,
-                        1 if n >= 1 else 0,
-                        1 if n >= 2 else 0,
-                        1 if n >= 3 else 0,
-                        session_id,
-                        sid,
-                    ),
-                )
+                self._add_live_credit_unlocked(session_id, sid, key, n)
             self.conn.commit()
         return self.game_state(int(class_id))
 
