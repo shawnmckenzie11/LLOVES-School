@@ -376,6 +376,9 @@ class EyesUpClientTests(unittest.TestCase):
         for token in ("fetch(", "XMLHttpRequest", "setInterval(", "EventSource", "WebSocket"):
             self.assertNotIn(token, overlay)
         self.assertIn("// copy: Wonder", overlay)
+        # Wonder copy pass: three overlay lines.
+        self.assertIn('line: "Look at the board.", // copy: Wonder', overlay)
+        self.assertIn('saved: "Your work is saved.", // copy: Wonder', overlay)
 
     def test_teacher_toggle_markup_and_patch(self) -> None:
         html = (LMS_DIR / "templates" / "staff" / "course.html").read_text(encoding="utf-8")
@@ -387,6 +390,13 @@ class EyesUpClientTests(unittest.TestCase):
         self.assertIn("paintEyesUpToggle();", js[js.index("function adoptTeacherState("):])
         # Labels are declared before teacherState so early adopts cannot hit the TDZ.
         self.assertLess(js.index("const EYES_UP_LABEL"), js.index("let teacherState = {"))
+        # Wonder copy pass: "Resume students", never "Release students".
+        self.assertIn('const EYES_UP_RESUME_LABEL = "Resume students"; // copy: Wonder', js)
+        self.assertIn('"Every student screen is paused. Tap to resume."', js)
+        self.assertIn("Tap again to resume.", html)
+        for text in (js, html):
+            self.assertNotIn("Release students", text)
+            self.assertNotIn("to release.", text)
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
         self.assertIn('.live-header-eyes-up[aria-pressed="true"]', css)
 

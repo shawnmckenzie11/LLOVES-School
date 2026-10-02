@@ -95,7 +95,8 @@ const afterEnd = { status: "waiting", waiting_room: true, celebrate: true, teach
 if (eyesUpOn(afterEnd)) fail("End celebration payload must never pause");
 if (eyesUpOn({ status: "waiting", teacher_state: { eyes_up: true, celebrate: true } })) fail("teacher_state.celebrate is off");
 if (eyesUpOn({ phase: "ended", teacher_state: { eyes_up: true } })) fail("ended phase is off");
-if (EYES_UP_COPY.title !== "Eyes up" || !EYES_UP_COPY.line) fail("placeholder copy");
+if (EYES_UP_COPY.title !== "Eyes up" || EYES_UP_COPY.line !== "Look at the board.") fail("overlay copy");
+if (EYES_UP_COPY.saved !== "Your work is saved.") fail("overlay saved line copy");
 
 const doc = makeDoc();
 const main = doc.createElement("main");
@@ -115,6 +116,13 @@ if (doc.getElementById("eyes-up-overlay")) fail("off must not build the overlay"
 // On.
 if (!paintEyesUp({ teacher_state: { eyes_up: true, stage: "play" } }, doc)) fail("paint on");
 const overlay = doc.getElementById("eyes-up-overlay");
+{
+  const texts = [];
+  const walk = (n) => { for (const c of n.children || []) { if (c.tagName === "P") texts.push(c.textContent); walk(c); } };
+  walk(overlay);
+  if (texts.join("|") !== "Eyes up|Look at the board.|Your work is saved.") fail(`overlay lines: ${texts.join("|")}`);
+  if (overlay.getAttribute("aria-describedby") !== "eyes-up-line eyes-up-saved") fail("saved line is described");
+}
 if (!overlay || overlay.hidden) fail("overlay visible");
 if (overlay.getAttribute("role") !== "alertdialog") fail("overlay role");
 if (!doc.getElementById("eyes-up-style")) fail("style injected once");

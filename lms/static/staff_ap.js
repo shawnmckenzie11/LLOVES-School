@@ -978,10 +978,10 @@ const REACHED_STAGES = new Set(["join"]);
 
 /** MCK-26 Eyes up labels. */
 const EYES_UP_LABEL = "Eyes up"; // copy: Wonder
-const EYES_UP_RELEASE_LABEL = "Release students"; // copy: Wonder
-const EYES_UP_ON_TITLE = "Every student screen is paused. Tap to release."; // copy: Wonder
+const EYES_UP_RESUME_LABEL = "Resume students"; // copy: Wonder
+const EYES_UP_ON_TITLE = "Every student screen is paused. Tap to resume."; // copy: Wonder
 const EYES_UP_OFF_TITLE =
-  "Pause every student screen so the class looks up. Tap again to release."; // copy: Wonder
+  "Pause every student screen so the class looks up. Tap again to resume."; // copy: Wonder
 let eyesUpBusy = false;
 
 /** @type {{stage: string, round?: string|null, round_flags?: {minds_on: boolean, action: boolean, consolidation: boolean}, teams_mode: string, groups_configured: boolean, run_as_group: boolean, scoreboard_visible: boolean, hide_absent: boolean, layout_preset: string, frames: Record<string, string>, active_tab: string, active_media_ref?: string|null, prompt_ref?: string|null, canvas_ephemeral: true, updated_at?: string, cue_id?: string|null, meet_chain?: any, state_seq?: number, student_frames?: Record<string, boolean>, unlocks?: Record<string, boolean>, mc_ui?: {prompt_ref: string, reveal: boolean, reveal_to_students?: boolean, poll_closed?: boolean}}} */
@@ -9991,7 +9991,7 @@ function paintEyesUpToggle() {
   const hasSession = Boolean(liveSessionId || readLiveSessionId());
   btn.setAttribute("aria-pressed", on ? "true" : "false");
   btn.classList.toggle("is-on", on);
-  btn.textContent = on ? EYES_UP_RELEASE_LABEL : EYES_UP_LABEL;
+  btn.textContent = on ? EYES_UP_RESUME_LABEL : EYES_UP_LABEL;
   btn.title = on ? EYES_UP_ON_TITLE : EYES_UP_OFF_TITLE;
   btn.disabled = eyesUpBusy || !hasSession;
 }

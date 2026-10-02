@@ -15,6 +15,7 @@
 export const EYES_UP_COPY = Object.freeze({
   title: "Eyes up", // copy: Wonder
   line: "Look at the board.", // copy: Wonder
+  saved: "Your work is saved.", // copy: Wonder
 });
 
 const OVERLAY_ID = "eyes-up-overlay";
@@ -59,6 +60,7 @@ const CSS = `
 #${OVERLAY_ID} .eyes-up-icon { font-size: 3.5rem; line-height: 1; margin-bottom: 1rem; }
 #${OVERLAY_ID} .eyes-up-title { margin: 0 0 0.5rem; font-size: clamp(2rem, 7vw, 3.25rem); font-weight: 700; letter-spacing: 0.01em; }
 #${OVERLAY_ID} .eyes-up-line { margin: 0; font-size: clamp(1.1rem, 4vw, 1.5rem); color: #cbd5e1; }
+#${OVERLAY_ID} .eyes-up-saved { margin-top: 0.75rem; font-size: clamp(0.95rem, 3.4vw, 1.15rem); color: #94a3b8; }
 html.eyes-up-on, html.eyes-up-on body { overflow: hidden !important; }
 @keyframes eyes-up-in { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { #${OVERLAY_ID} { animation: none; } }
@@ -256,7 +258,7 @@ function ensureOverlay(doc) {
   overlay.setAttribute("role", "alertdialog");
   overlay.setAttribute("aria-modal", "true");
   overlay.setAttribute("aria-labelledby", "eyes-up-title");
-  overlay.setAttribute("aria-describedby", "eyes-up-line");
+  overlay.setAttribute("aria-describedby", "eyes-up-line eyes-up-saved");
   overlay.tabIndex = -1;
   const card = doc.createElement("div");
   card.className = "eyes-up-card";
@@ -272,7 +274,11 @@ function ensureOverlay(doc) {
   line.className = "eyes-up-line";
   line.id = "eyes-up-line";
   line.textContent = EYES_UP_COPY.line;
-  card.append(icon, title, line);
+  const saved = doc.createElement("p");
+  saved.className = "eyes-up-line eyes-up-saved";
+  saved.id = "eyes-up-saved";
+  saved.textContent = EYES_UP_COPY.saved;
+  card.append(icon, title, line, saved);
   overlay.append(card);
   doc.body.appendChild(overlay);
   return overlay;
