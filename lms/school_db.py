@@ -835,6 +835,22 @@ CREATE TABLE IF NOT EXISTS portfolio_mark_suggestions (
     UNIQUE(class_id, module_number, student_id)
 );
 
+-- MCK-133: Celebrations award periods. Append-only: Start fresh adds one
+-- row per class; the newest row in a semester is the class's current
+-- period. No row = first period (semester day 1). ``starts_at`` is school
+-- wall time, same form as game ``sessions.starts_at``.
+CREATE TABLE IF NOT EXISTS celebration_award_periods (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    semester_id INTEGER NOT NULL,
+    class_id INTEGER NOT NULL,
+    starts_at TEXT NOT NULL,
+    created_by_user_id INTEGER,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_celebration_award_periods_class
+    ON celebration_award_periods(class_id, semester_id, id);
+
 CREATE TABLE IF NOT EXISTS access_audit_log (
     id INTEGER PRIMARY KEY,
     tenant_id INTEGER NOT NULL,
@@ -3673,6 +3689,11 @@ class LovesDB:
                         f"DELETE FROM grade_category_weights WHERE class_id IN ({placeholders})",
                         class_ids,
                     )
+                # MCK-133 award periods (no FK).
+                self.conn.execute(
+                    f"DELETE FROM celebration_award_periods WHERE class_id IN ({placeholders})",
+                    class_ids,
+                )
                 self.conn.execute(
                     f"DELETE FROM classes WHERE id IN ({placeholders})",
                     class_ids,
@@ -10747,6 +10768,7 @@ class SchoolDB(LovesDB):
         bank_scope: str = "module",
         bank_kind: str | None = None,
         library_id: int | None = None,
+        extra_item: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Add one staff-authored question to the current class overlay page.
 
@@ -10774,6 +10796,8 @@ class SchoolDB(LovesDB):
             bank_kind: Staff Kind. Empty is Core Math (untagged). ``custom``
                 stores as ``standard``. Does not overwrite question ``type``.
             library_id: Attached pack library, required when saving to bank.
+            extra_item: MCK-79. Extra item fields (``live_problem_id``, a
+                batch token). Cannot override ids, order or placement key.
 
         Returns:
             Inserted placement row including parsed ``item`` payload.
@@ -10866,6 +10890,9 @@ class SchoolDB(LovesDB):
             from lms.bank_kinds import apply_stored_bank_kind
 
         apply_stored_bank_kind(item_payload, bank_kind)
+        for extra_key, extra_value in (extra_item or {}).items():
+            if str(extra_key) not in {"id", "item_id", "order", "placement_key"}:
+                item_payload[str(extra_key)] = extra_value
         if kind == "rank":
             rank_rows = build_rank_options(option_list)
             labels = [row["label"] for row in rank_rows]

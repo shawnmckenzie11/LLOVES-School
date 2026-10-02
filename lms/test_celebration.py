@@ -302,9 +302,15 @@ class CelebrationTests(unittest.TestCase):
         ):
             self.assertNotIn(gone, dumped)
         for card in cards:
+            # MCK-133: Most Engaged also carries its award timeframe.
+            extra = (
+                {"period_start", "period_end", "period_label"}
+                if card["key"] == "engaged"
+                else set()
+            )
             self.assertEqual(
                 set(card),
-                {"key", "name", "names", "course", "detail", "title", "kicker"},
+                {"key", "name", "names", "course", "detail", "title", "kicker"} | extra,
             )
             self.assertEqual(card["names"], [card["name"]])
 
@@ -453,7 +459,9 @@ class CelebrationTests(unittest.TestCase):
         home = self.client.get("/staff").get_data(as_text=True)
         self.assertIn("Celebrate a student", home)
         self.assertIn("Post to Shoutout", home)
-        self.assertNotIn("Awards", home)
+        # The old "Awards" heading is gone (MCK-133's Wonder confirm body
+        # "Awards start counting again…" is a different string).
+        self.assertNotIn(">Awards<", home)
         self.assertIn("Now featuring", home)
         self.assertIn("Birch", home)
         self.assertIn("/#celebrations", home)
@@ -1143,6 +1151,10 @@ class CelebrationTests(unittest.TestCase):
         The mid-class read shows nobody and stores nothing; the read after
         End takes the snapshot from the saved column.
         """
+        # This class meets today. MCK-133 ends the first award period on
+        # Oct 1, 2026, so move that end out of the way: this test is about
+        # saved attendance (MCK-125), not the period cut-off.
+        self.school.set_school_setting("celebration_first_award_period_end", "2099-12-31")
         class_id, ids = self._live_class_with_joins(["Bellamy", "Cordelia"])
         self.assertEqual(self._engaged_names(), {})
         self.assertIsNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))
