@@ -207,6 +207,14 @@ def _active_class_rows(school: Any) -> list[dict[str, Any]]:
     return rows
 
 
+# MCK-125: only these game ``sessions.status`` values feed Most Engaged.
+# ``ended`` is written only when attendance is saved (finalize, End live
+# scoring). ``active`` is a class still running: its ``present`` flags are
+# provisional joins that End-without-save resets (status back to
+# ``template``). Templates are empty grid columns.
+COUNTED_SESSION_STATUSES = frozenset({"ended"})
+
+
 def _gather_stats(school: Any) -> list[dict[str, Any]]:
     """Per-student attendance and points, scoped to one class at a time.
 
@@ -215,7 +223,11 @@ def _gather_stats(school: Any) -> list[dict[str, Any]]:
     an extra game ``_2``/``_3``). Attendance therefore counts distinct
     meeting days with ``present`` set, matching the staff Attendance grid
     (``gradebook.build_attendance_week_grid``): template columns are
-    skipped. Points sum every scored row, matching the gradebook TOTAL.
+    skipped. Points sum the scored rows of those same sessions.
+
+    Only sessions with saved attendance count (``COUNTED_SESSION_STATUSES``,
+    MCK-125). A class still running (``active``) never reaches the board,
+    so a mid-class read cannot freeze provisional joins.
 
     Students are ``students`` rows owned by one ``class_id``, so a learner
     rostered in two sections gets two separate entries, never a merged one.
@@ -257,7 +269,8 @@ def _gather_stats(school: Any) -> list[dict[str, Any]]:
                 dict(row)
                 for row in game.conn.execute(
                     """
-                    SELECT ss.session_id, ss.student_id, ss.present, ss.points
+                    SELECT ss.session_id, ss.student_id, ss.present, ss.points,
+                           se.status AS session_status
                     FROM session_scores ss
                     JOIN sessions se ON se.id = ss.session_id
                     JOIN students st ON st.id = ss.student_id
@@ -271,7 +284,7 @@ def _gather_stats(school: Any) -> list[dict[str, Any]]:
         # Meeting day per non-template session in this class.
         session_days: dict[int, str] = {}
         for session in sessions:
-            if str(session.get("status") or "") == "template":
+            if str(session.get("status") or "") not in COUNTED_SESSION_STATUSES:
                 continue
             meeting = session_meeting_date(session.get("starts_at"))
             if meeting is None:
@@ -280,6 +293,8 @@ def _gather_stats(school: Any) -> list[dict[str, Any]]:
         present_days: dict[int, set[str]] = {}
         points_by_student: dict[int, float] = {}
         for row in score_rows:
+            if str(row.get("session_status") or "") not in COUNTED_SESSION_STATUSES:
+                continue
             stid = int(row["student_id"])
             points_by_student[stid] = points_by_student.get(stid, 0.0) + float(
                 row.get("points") or 0
@@ -662,6 +677,20 @@ def _parse_snapshot(raw: str | None) -> dict[str, Any] | None:
     return payload
 
 
+def _live_class_running(school: Any) -> bool:
+    """True while any live class session is active (MCK-125).
+
+    A failed check counts as running, so an error never stores a snapshot.
+    """
+    check = getattr(school, "has_active_live_sessions", None)
+    if check is None:
+        return False
+    try:
+        return bool(check())
+    except Exception:  # noqa: BLE001 - fail closed: do not persist
+        return True
+
+
 def _freeze_epoch(school: Any) -> str:
     """Current freeze epoch marker ("" until the board is first unfrozen)."""
     return str(school.get_school_setting(SETTING_FREEZE_EPOCH, "") or "")
@@ -756,6 +785,8 @@ def frozen_celebration_snapshot(school: Any) -> dict[str, Any]:
       so it is hidden and not refilled.
     * A course with no card yet is added the first time it has a winner,
       then stays frozen.
+    * While any live class is running no snapshot is taken and no course
+      is added; only pruning may write (MCK-125). Rankings only count sessions with saved attendance.
 
     Args:
         school: ``SchoolDB`` instance.
@@ -769,6 +800,10 @@ def frozen_celebration_snapshot(school: Any) -> dict[str, Any]:
     epoch = _freeze_epoch(school)
     raw = school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None)
     saved = _parse_snapshot(raw)
+    # MCK-125: never take or extend the snapshot while any live class is
+    # running. Serve the stored one (pruning gone students still applies);
+    # with nothing usable stored, serve the ended-sessions view unstored.
+    live = _live_class_running(school)
     if (
         saved is not None
         and saved.get("semester_id") == semester_id
@@ -778,7 +813,7 @@ def frozen_celebration_snapshot(school: Any) -> dict[str, Any]:
     ):
         cards, changed = _prune_cards(school, saved["cards"])
         have = {str(card.get("course") or "") for card in cards}
-        missing = [course for course in ENGAGED_COURSES if course not in have]
+        missing = [] if live else [c for c in ENGAGED_COURSES if c not in have]
         extra = _engaged_snapshot_cards(school, missing) if missing else []
         if not changed and not extra:
             return saved
@@ -791,7 +826,7 @@ def frozen_celebration_snapshot(school: Any) -> dict[str, Any]:
         )
         return _store_snapshot(school, raw, merged)
     fresh = _new_snapshot(school, semester_id, epoch)
-    if not fresh["cards"]:
+    if not fresh["cards"] or live:
         return fresh
     return _store_snapshot(school, raw, fresh)
 
