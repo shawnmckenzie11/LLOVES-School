@@ -35,6 +35,11 @@ import {
   showBoardRefreshCue,
 } from "/static/live_whiteboard.js";
 import { nameWithAvatar, paintAvatar } from "/static/student_avatars.js";
+import {
+  GROUP_INSTRUCTION_COPY,
+  consensusWaitHtml,
+  groupInstructionHtml,
+} from "/static/group_instructions.js";
 
 const waitEl = document.getElementById("student-wait");
 const gameShowWelcomeEl = document.getElementById("game-show-welcome");
@@ -2396,7 +2401,7 @@ function lifecycleAnswerControls(item, action, initial = null) {
   const content = item?.content || prompt.payload || {};
   const kind = lifecycleAnswerKind(item);
   const current = liveAnswerLabel(initial);
-  const prefix = action === "team" ? "Submit Group Answer" : "Submit Answer";
+  const prefix = action === "team" ? GROUP_INSTRUCTION_COPY.send : "Submit Answer";
   if (kind === "rank") {
     const options = rankOptionsFromContent(content);
     const stored = Array.isArray(initial?.order) ? initial.order.map((id) => String(id)) : [];
@@ -2506,19 +2511,17 @@ function lifecycleConsensusHtml(item) {
   if (!group.eligible) {
     return `<p class="student-live-note">You joined after voting closed for this question.</p>`;
   }
-  const responded = Number(group.vote_count) || 0;
-  const eligible = Number(group.eligible_count) || 0;
-  const progress = `<p class="student-live-progress">${responded} / ${eligible} teammates have responded</p>`;
   if (group.status === "collecting_votes") {
-    return `${progress}${
-      group.can_vote
-        ? lifecycleAnswerControls(
-            item,
-            "vote",
-            liveCardDrafts.get(`${Number(item.id)}:vote`) || group.my_vote
-          )
-        : ""
-    }`;
+    // MCK-155 S5: everyone writes first. Once I've answered, Send group
+    // answer stays disabled with its reason and who is still writing.
+    const controls = group.can_vote
+      ? lifecycleAnswerControls(
+          item,
+          "vote",
+          liveCardDrafts.get(`${Number(item.id)}:vote`) || group.my_vote
+        )
+      : "";
+    return `${controls}${group.has_voted ? consensusWaitHtml(group, Number(item.id)) : ""}`;
   }
   const answers = lifecycleMemberAnswerValues(group);
   const responseList = answers
@@ -2530,11 +2533,13 @@ function lifecycleConsensusHtml(item) {
     <p class="student-live-proposal">Discuss: What should your team's answer be?</p>
   </section>`;
   if (group.status === "finalized") {
-    return `${progress}${discussion}<p class="student-live-final">GROUP ANSWER SENT<br><strong>${escapeText(
+    return `${discussion}<p class="student-live-final">GROUP ANSWER SENT<br><strong>${escapeText(
       liveAnswerLabel(group.final_answer)
     )}</strong></p>`;
   }
-  return `${progress}${discussion}${
+  return `<p class="student-group-ready" aria-live="polite">${escapeText(
+    GROUP_INSTRUCTION_COPY.ready
+  )}</p>${discussion}${
     group.can_finalize
       ? lifecycleAnswerControls(
           item,
@@ -2786,9 +2791,17 @@ function studentGroupCardHtml(item) {
       <tbody>${rows
         .map((row) => {
           const missed = Boolean(row.missed);
+          // MCK-155 S3: the server sends ``correct`` only after Close,
+          // only with results on, and only on this student's own row.
+          const mark =
+            row.correct === true
+              ? ' <span class="group-reveal-mark is-correct"><span aria-hidden="true">✓</span> Correct</span>'
+              : row.correct === false
+                ? ' <span class="group-reveal-mark is-incorrect"><span aria-hidden="true">✗</span> Incorrect</span>'
+                : "";
           return `<tr class="${missed ? "is-missed" : ""}">
             <th>${escapeText(row.team_name || "Group")}</th>
-            <td>${missed ? "" : escapeText(row.answer || "")}</td>
+            <td>${missed ? "" : `${escapeText(row.answer || "")}${mark}`}</td>
             <td>${missed ? "" : escapeText(row.why || "")}</td>
           </tr>`;
         })
@@ -3055,10 +3068,23 @@ function paintLifecycleQuestionStack(payload) {
               (ownLabel && ownLabel !== "—") ||
               item.group_consensus?.has_voted
           ));
-      const answerControls = groupSubmit
+      // MCK-155 S4: one calm instruction line on an open group card.
+      const groupInstruction =
+        (groupSubmit || groupMode) &&
+        String(item.group_consensus?.status || "") !== "finalized" &&
+        !(groupSubmit && item.group_submit?.submitted)
+          ? groupInstructionHtml(item, content)
+          : "";
+      const groupControls = groupSubmit
         ? studentGroupCardHtml(item)
         : groupMode
           ? lifecycleConsensusHtml(item)
+          : "";
+      const answerControls =
+        groupSubmit || groupMode
+          ? groupControls
+            ? `${groupInstruction}${groupControls}`
+            : ""
           : individualControls;
       const ownAnswer = answerControls ? "" : studentOwnAnswerHtml(item);
       const results =

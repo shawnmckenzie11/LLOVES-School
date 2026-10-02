@@ -1225,6 +1225,76 @@ function groupResultsHostId(result, liveItemId) {
   return Number(liveItemId || result?.live_item_id || result?.item?.id) || 0;
 }
 
+/** MCK-155 S3: teacher right/wrong copy (Wonder v2 ``mark.*``). */
+const MARK_COPY = Object.freeze({
+  correct: "Correct",
+  incorrect: "Incorrect",
+  summary: "{k} of {n} groups correct",
+  hideKey: "Hide key",
+});
+
+/** Teacher-local Hide key (this browser only; never sent to students). */
+const HIDE_KEY_STORE = "lloves.live.hideKey";
+
+/** @returns {boolean} */
+function hideKeyOn() {
+  try {
+    return window.localStorage.getItem(HIDE_KEY_STORE) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * MCK-155 S3: apply Hide key to the Questions list and the toggle.
+ * Hides the "Answer X" chips and every right/wrong mark, so the teacher
+ * can project the live view without giving the answer away.
+ */
+function applyHideKey() {
+  const on = hideKeyOn();
+  $("live-question-list")?.classList.toggle("is-key-hidden", on);
+  const btn = $("live-hide-key-btn");
+  if (btn) btn.setAttribute("aria-pressed", on ? "true" : "false");
+}
+
+$("live-hide-key-btn")?.addEventListener("click", () => {
+  try {
+    window.localStorage.setItem(HIDE_KEY_STORE, hideKeyOn() ? "0" : "1");
+  } catch {
+    /* storage off: the toggle simply does not stick */
+  }
+  applyHideKey();
+});
+applyHideKey();
+
+/**
+ * MCK-155 S3: icon + word mark for one answer. Teacher only.
+ * Hidden with the key when "Hide key" is on.
+ * @param {boolean|null|undefined} correct
+ * @returns {string} Empty when the question has no key.
+ */
+function answerMarkHtml(correct) {
+  if (correct !== true && correct !== false) return "";
+  return correct
+    ? `<span class="live-mark is-correct" data-key-mark><span aria-hidden="true">✓</span> ${MARK_COPY.correct}</span>`
+    : `<span class="live-mark is-incorrect" data-key-mark><span aria-hidden="true">✗</span> ${MARK_COPY.incorrect}</span>`;
+}
+
+/**
+ * MCK-155 S3: "{k} of {n} groups correct" over groups that sent.
+ * @param {any} result
+ * @returns {string}
+ */
+function groupCorrectSummaryHtml(result) {
+  if (!result?.answer_key) return "";
+  const board = Array.isArray(result?.status_board) ? result.status_board : [];
+  const sent = board.filter((row) => row.submitted);
+  if (!sent.length) return "";
+  const k = sent.filter((row) => row.correct === true).length;
+  const text = MARK_COPY.summary.replace("{k}", String(k)).replace("{n}", String(sent.length));
+  return `<p class="live-mark-summary" data-key-mark>${escapeHtml(text)}</p>`;
+}
+
 /**
  * Waiting / check board with a soft submitter line. Answers stay out.
  * @param {any} result
@@ -1244,9 +1314,12 @@ function groupStatusBoardHtml(result) {
         Boolean(row.submitted) || String(row.status || source.status || "") === "submitted";
       const mark = submitted ? "✓" : "Waiting";
       const line = groupSubmitterLine(source);
+      // MCK-155 S3: keyed group MC gets a right/wrong mark once sent.
+      const keyMark = submitted ? answerMarkHtml(row.correct) : "";
       return `<li>
         <span>${escapeHtml(row.team_name || source.team_name || "Group")}</span>
         <span class="group-status-mark">${mark}</span>
+        ${keyMark}
         ${line ? `<span class="group-submitter-log">${escapeHtml(line)}</span>` : ""}
       </li>`;
     })
@@ -1313,6 +1386,8 @@ function adoptLightGroupResults(bag) {
           team_id: Number(team.team_id) || 0,
           team_name: String(team.team_name || "Group"),
           submitted: team.status === "submitted",
+          // MCK-155 S3: staff-only right/wrong on keyed group MC.
+          ...(typeof team.correct === "boolean" ? { correct: team.correct } : {}),
         })),
         submitter_log: teams.map((team) => ({
           team_id: Number(team.team_id) || 0,
@@ -3678,14 +3753,14 @@ function groupSubmitTeacherHtml(result, revealed, liveItemId) {
             const missed = Boolean(row.missed);
             return `<tr class="${missed ? "is-missed" : ""}">
               <th>${escapeHtml(row.team_name || "Group")}</th>
-              <td>${missed ? "" : escapeHtml(row.answer || "")}</td>
+              <td>${missed ? "" : `${escapeHtml(row.answer || "")} ${answerMarkHtml(row.correct)}`}</td>
               <td>${missed ? "" : escapeHtml(row.why || "")}</td>
             </tr>`;
           })
           .join("")}</tbody>
       </table>`
     : "";
-  return `${open}${groupStatusBoardHtml(result)}${revealHtml}</div>`;
+  return `${open}${groupCorrectSummaryHtml(result)}${groupStatusBoardHtml(result)}${revealHtml}</div>`;
 }
 
 /**
@@ -4133,17 +4208,26 @@ function writeQuestionCardsKeepingConfirms(host, html) {
 function individualLifecycleResultsHtml(tally) {
   if (!tally || !Array.isArray(tally.choices)) return "";
   const numeric = String(tally.kind || "") === "numeric";
+  const keyed = tally.choices.some((row) => row?.correct === true);
   return `<div class="live-item-chart${numeric ? " is-histogram" : ""}" aria-label="${
     numeric ? "Numeric answer histogram" : "Live answer distribution"
   }">${tally.choices
     .map((row) => {
       const pct = Math.max(0, Math.min(100, Number(row.pct) || 0));
       const correct = row.correct ? " is-correct" : "";
-      const mark = row.correct ? " · Correct" : "";
+      // MCK-155 S3: icon + word, teacher only. The key bar says Correct;
+      // a picked wrong bar says Incorrect. Unkeyed (poll) has no marks.
+      const mark = keyed
+        ? row.correct
+          ? answerMarkHtml(true)
+          : Number(row.count) > 0
+            ? answerMarkHtml(false)
+            : ""
+        : "";
       return `<div class="live-item-chart-row${correct}">
         <span class="live-item-chart-label">${escapeHtml(row.label ?? row.id ?? "")}</span>
         <span class="live-item-chart-track"><span style="width:${pct}%"></span></span>
-        <span class="live-item-chart-value">${Number(row.count) || 0} · ${pct}%${mark}</span>
+        <span class="live-item-chart-value">${Number(row.count) || 0} · ${pct}%</span>${mark}
       </div>`;
     })
     .join("")}</div>`;

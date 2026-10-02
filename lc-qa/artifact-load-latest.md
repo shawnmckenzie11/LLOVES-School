@@ -12,7 +12,7 @@ Writes this file and `lc-qa/artifact-load-latest.log`.
 
 On alc, opening an **Artifact for group work** returned Internal Server Error / server overloaded for the teacher and students. #115 and #116 kept idle `/state` at 200. They did not cover Artifact mint, active media, or Group Q preview fanout.
 
-Production is gunicorn **1 worker, 2 threads** on a **shared-cpu-1x / 1gb** Fly machine (`fly.toml`, `lms/Dockerfile`). No Fly deploy in this change.
+Production is gunicorn **4 workers, 8 threads**, timeout 120, on a **shared-cpu-1x / 1gb** Fly machine (`fly.toml` `[processes]`, `lms/Dockerfile`). This harness still caps in-flight work at 2. No Fly deploy in this change.
 
 ## Cause
 
@@ -36,19 +36,19 @@ Group Q team checks and the session timer used the same full rebuild.
 |---|---|
 | Verdict | **PASS** |
 | Class | 16 students + teacher |
-| In-flight cap | 2 (gunicorn threads) |
-| Wall | 228 ms |
+| In-flight cap | 2 (harness; production threads are 8) |
+| Wall | 420 ms |
 | `game_state` calls | 35 (budget 80) |
 | HTTP | media:200=16, mint:200=1, preview:200=16, staff-media:200=1, staff-state:200=1, state:200=16 |
 
 | Path | n | med ms | p95 ms | max ms |
 |---|---:|---:|---:|---:|
-| media | 16 | 1 | 2 | 3 |
-| mint | 1 | 37 | 37 | 37 |
-| preview | 16 | 4 | 6 | 7 |
-| staff-media | 1 | 6 | 6 | 6 |
-| staff-state | 1 | 33 | 33 | 33 |
-| state | 16 | 17 | 18 | 24 |
+| media | 16 | 1 | 2 | 2 |
+| mint | 1 | 69 | 69 | 69 |
+| preview | 16 | 5 | 8 | 9 |
+| staff-media | 1 | 3 | 3 | 3 |
+| staff-state | 1 | 61 | 61 | 61 |
+| state | 16 | 36 | 40 | 42 |
 
 ### Errors
 
@@ -56,7 +56,7 @@ Group Q team checks and the session timer used the same full rebuild.
 
 ## Residual
 
-- Fly machine size is unchanged: shared-cpu-1x, 1 GB, 2 threads. A different heavy path can still saturate that VM. This wave no longer rebuilds the game per teacher-state read.
+- Fly machine size is unchanged: shared-cpu-1x, 1 GB, 4 workers × 8 threads (`lms/serve_capacity.py`). A different heavy path can still saturate that VM. This wave no longer rebuilds the game per teacher-state read.
 - Staff heavy `/state` is still the #115 path (field isolation, 200). This test rides one heavy staff poll in the same wave and expects 200.
 - The 0.5s membership cache can lag a team edit by one student poll. Artifact open does not edit teams.
 - Not smoked on Fly. Re-run this test on tip `:8787` only if you want the same protocol against the dev server; the in-process bar above is the regression lock.

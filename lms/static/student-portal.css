@@ -2570,3 +2570,49 @@ body.rw-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .rw-modal { animation: none; }
 }
+/* MCK-155 S4: one calm instruction line on an open group card. */
+.student-group-instruction {
+  margin: 0.25rem 0 0.6rem;
+  font-size: 0.92rem;
+  line-height: 1.35;
+  color: #cbd5e1;
+}
+/* MCK-155 S5: disabled Send group answer + why, until everyone answered. */
+.student-group-wait {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.6rem;
+}
+.student-group-wait .prompt-submit[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.student-group-wait-reason {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.35;
+  color: #cbd5e1;
+}
+.student-group-still-writing {
+  color: #94a3b8;
+}
+.student-group-ready {
+  margin: 0.25rem 0 0.5rem;
+  font-weight: 600;
+  color: #5eead4;
+}
+/* MCK-155 S3: own group's mark after Close (results on). */
+.group-reveal-mark {
+  display: inline-flex;
+  gap: 0.2rem;
+  margin-left: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.group-reveal-mark.is-correct {
+  color: #86efac;
+}
+.group-reveal-mark.is-incorrect {
+  color: #fca5a5;
+}

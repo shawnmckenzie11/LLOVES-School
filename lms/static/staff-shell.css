@@ -3076,7 +3076,7 @@ body.staff-shell .live-item-chart {
 }
 body.staff-shell .live-item-chart-row {
   display: grid;
-  grid-template-columns: minmax(4rem, 0.45fr) minmax(8rem, 1fr) auto;
+  grid-template-columns: minmax(4rem, 0.45fr) minmax(8rem, 1fr) auto minmax(0, 6.5rem);
   gap: 0.45rem;
   align-items: center;
   font-size: 0.78rem;
@@ -6241,4 +6241,45 @@ body.staff-shell .award-fresh-summary {
   border-radius: 8px;
   background: #f1f5f9;
   font-weight: 600;
+}
+
+/* MCK-155 S3: teacher-only right/wrong marks (icon + word) and Hide key. */
+body.staff-shell .live-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+body.staff-shell .live-mark.is-correct {
+  color: #166534;
+}
+body.staff-shell .live-mark.is-incorrect {
+  color: #b91c1c;
+}
+body.staff-shell .live-mark-summary {
+  margin: 0.35rem 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+}
+body.staff-shell .group-status-board .live-mark {
+  margin-left: 0.35rem;
+}
+body.staff-shell .live-hide-key-btn[aria-pressed="true"] {
+  background: #0f172a;
+  color: #f8fafc;
+}
+body.staff-shell .live-question-list.is-key-hidden .live-question-key,
+body.staff-shell .live-question-list.is-key-hidden [data-key-mark] {
+  display: none;
+}
+body.staff-shell .live-question-list.is-key-hidden .live-item-chart-row.is-correct .live-item-chart-label,
+body.staff-shell .live-question-list.is-key-hidden .live-item-chart-row.is-correct .live-item-chart-value {
+  font-weight: inherit;
+  color: inherit;
+}
+body.staff-shell .live-question-list.is-key-hidden .live-item-chart-row.is-correct .live-item-chart-track > span {
+  background: #0f766e;
 }
