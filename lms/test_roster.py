@@ -865,7 +865,7 @@ class RosterTests(unittest.TestCase):
         self.assertIsNotNone(session_one)
         assert session_one is not None
         minted = str(session_one["session_code"])
-        self.assertEqual(len(minted), 8)
+        self.assertEqual(len(minted), 4)  # MCK-117 short session code
         self.assertNotEqual(minted, self.offering["live_access_code"])
         reuse = self.client.post(
             f"/staff/class/{class_id}/run-live",

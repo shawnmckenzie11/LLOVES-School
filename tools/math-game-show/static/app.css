@@ -1311,7 +1311,10 @@ body.live-overlay.overlay .live-overlay-stage {
 .live-overlay-code {
   margin: 0.35rem 0 0.15rem;
   font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
-  font-size: clamp(1.35rem, 4.5vw, 1.85rem);
+  /* MCK-117: 4-character codes leave room to read from the back row.
+     1920x1080 projector: 5rem (80px). A narrow popup scales with its width. */
+  font-size: clamp(1.6rem, min(9vw, 11vh), 5rem);
+  line-height: 1.05;
   font-weight: 700;
   font-variant-numeric: slashed-zero;
   letter-spacing: 0.08em;

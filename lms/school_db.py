@@ -11428,7 +11428,8 @@ class SchoolDB(LovesDB):
         """True when another active live session already uses this code.
 
         Args:
-            session_code: Candidate 8-character session join code.
+            session_code: Candidate session join code (4 to 6 characters,
+                or 8 for sessions minted before MCK-117).
         """
         code = (session_code or "").strip().upper()
         if not code:
@@ -11444,19 +11445,39 @@ class SchoolDB(LovesDB):
             ).fetchone()
         return row is not None
 
-    def mint_unique_active_session_code(self) -> str:
-        """Generate an 8-character code unused by any active live session.
+    def count_active_live_sessions(self) -> int:
+        """Number of live class sessions currently ``active``."""
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT COUNT(*) AS n FROM live_class_sessions WHERE status = 'active'"
+            ).fetchone()
+        return int(row["n"] if row is not None else 0)
 
-        Also avoids colliding with durable offering or class join codes so
-        later join resolution stays unambiguous.
+    def mint_unique_active_session_code(self) -> str:
+        """Generate a short join code unused by any active live session.
+
+        MCK-117: 4 characters, growing to 5 then 6 when many sessions are
+        active or picks keep colliding (``codes.pick_session_code``). Also
+        avoids durable offering or class join codes so join resolution
+        stays unambiguous.
 
         Returns:
-            Uppercase 8-character code from ``codes.generate_live_access_code``.
+            Uppercase code from ``codes.SESSION_CODE_ALPHABET``, never one on
+            ``codes.OFFENSIVE_CODE_PARTS``.
+
+        Raises:
+            codes.SessionCodeUnavailable: A ``ValueError``; Start shows it as
+                a 400 message.
         """
-        code = generate_live_access_code()
-        while self.active_session_code_taken(code) or self.class_live_code_taken(code):
-            code = generate_live_access_code()
-        return code
+        try:
+            from codes import pick_session_code
+        except ImportError:
+            from lms.codes import pick_session_code
+
+        def taken(code: str) -> bool:
+            return self.active_session_code_taken(code) or self.class_live_code_taken(code)
+
+        return pick_session_code(taken, self.count_active_live_sessions())
 
     def get_live_session(self, session_id: int) -> dict[str, Any] | None:
         """Return one live-class session row by id.
@@ -11538,7 +11559,8 @@ class SchoolDB(LovesDB):
         """Resolve an active session by its ephemeral join code.
 
         Args:
-            session_code: Raw or normalized 8-character code.
+            session_code: Raw or normalized code: 4 to 6 characters, or 8
+                for sessions minted before MCK-117.
         """
         try:
             from codes import normalize_live_access_code
@@ -25396,6 +25418,11 @@ class SchoolDB(LovesDB):
                 if clash is not None:
                     self.conn.execute("ROLLBACK")
                     return None, dict(clash)
+                if self.active_session_code_taken(code):
+                    # MCK-117: short codes make a cross-worker pick of the
+                    # same code possible. Re-pick under this write lock
+                    # instead of tripping idx_live_session_code_active.
+                    code = self.mint_unique_active_session_code()
                 cur = self.conn.execute(
                     """
                     INSERT INTO live_class_sessions (

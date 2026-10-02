@@ -32,7 +32,7 @@
     </div>
     <form class="student-code-panel{% if not student_error %} hidden{% endif %}" id="student-code-panel" method="post" action="{{ url_for('auth_student_code') }}">
       <label class="field" for="code">Course code</label>
-      <input id="code" name="code" maxlength="8" minlength="8" autocomplete="off" autocapitalize="characters" required placeholder="8-character code" value="{{ student_code or '' }}">
+      <input id="code" name="code" minlength="4" maxlength="24" pattern="\s*(?:(?:[A-Za-z0-9]\s*){4,6}|(?:[A-Za-z0-9]\s*){8})" title="The code on your teacher's screen: 4 to 6 letters and numbers (older codes have 8)" autocomplete="off" autocapitalize="characters" spellcheck="false" required placeholder="Code on the screen" value="{{ student_code or '' }}">
       <label class="field" for="student-name">First name or Codename</label>
       <input id="student-name" name="name" autocomplete="given-name" required placeholder="First name on the roster" value="{{ student_name or '' }}">
       {% if student_candidates %}
