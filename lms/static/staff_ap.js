@@ -976,6 +976,14 @@ const FLAG_BY_STAGE = {
 
 const REACHED_STAGES = new Set(["join"]);
 
+/** MCK-26 Eyes up labels. */
+const EYES_UP_LABEL = "Eyes up"; // copy: Wonder
+const EYES_UP_RESUME_LABEL = "Resume students"; // copy: Wonder
+const EYES_UP_ON_TITLE = "Every student screen is paused. Tap to resume."; // copy: Wonder
+const EYES_UP_OFF_TITLE =
+  "Pause every student screen so the class looks up. Tap again to resume."; // copy: Wonder
+let eyesUpBusy = false;
+
 /** @type {{stage: string, round?: string|null, round_flags?: {minds_on: boolean, action: boolean, consolidation: boolean}, teams_mode: string, groups_configured: boolean, run_as_group: boolean, scoreboard_visible: boolean, hide_absent: boolean, layout_preset: string, frames: Record<string, string>, active_tab: string, active_media_ref?: string|null, prompt_ref?: string|null, canvas_ephemeral: true, updated_at?: string, cue_id?: string|null, meet_chain?: any, state_seq?: number, student_frames?: Record<string, boolean>, unlocks?: Record<string, boolean>, mc_ui?: {prompt_ref: string, reveal: boolean, reveal_to_students?: boolean, poll_closed?: boolean}}} */
 let teacherState = {
   stage: "join",
@@ -987,6 +995,7 @@ let teacherState = {
   scoreboard_visible: false,
   hide_absent: false,
   timer_closes_answers: false,
+  eyes_up: false,
   layout_preset: "questions_full",
   frames: { A: "questions" },
   active_tab: "questions",
@@ -1481,6 +1490,7 @@ function adoptTeacherState(next) {
     next.live_module || teacherState.live_module || "M1"
   ).toUpperCase();
   paintLiveLessonBadge();
+  paintEyesUpToggle();
   textRideSlot = slot === "C2" || slot === "C3" ? slot : "";
   textOnlyChallenge = isTextOnlyLiveSlot(slot) ? slot : "";
   trackMode = teacherState.run_as_group ? "team" : "individual";
@@ -9970,6 +9980,63 @@ async function patchTeacherState(body, opts = {}) {
     teacherStateInFlight = false;
   }
 }
+
+/**
+ * Paint the header Eyes up toggle from ``teacherState.eyes_up`` (MCK-26).
+ */
+function paintEyesUpToggle() {
+  const btn = $("live-eyes-up");
+  if (!(btn instanceof HTMLButtonElement)) return;
+  const on = Boolean(teacherState.eyes_up);
+  const hasSession = Boolean(liveSessionId || readLiveSessionId());
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  btn.classList.toggle("is-on", on);
+  btn.textContent = on ? EYES_UP_RESUME_LABEL : EYES_UP_LABEL;
+  btn.title = on ? EYES_UP_ON_TITLE : EYES_UP_OFF_TITLE;
+  btn.disabled = eyesUpBusy || !hasSession;
+}
+
+/**
+ * Flip Eyes up for the whole session. Only the server reply (or a newer
+ * poll) changes the painted state, so a failed write never shows a pause
+ * the students do not have.
+ * @returns {Promise<void>}
+ */
+async function toggleEyesUp() {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId || eyesUpBusy) return;
+  const want = !Boolean(teacherState.eyes_up);
+  eyesUpBusy = true;
+  paintEyesUpToggle();
+  try {
+    const res = await api(`/api/live-sessions/${sessionId}/teacher-state`, {
+      method: "POST",
+      body: JSON.stringify({ eyes_up: want }),
+    });
+    if (res?.ended) {
+      // Release after End/Quit: the server cleared it (or the row is gone).
+      teacherState.eyes_up = false;
+    } else if (
+      res?.teacher_state &&
+      shouldApplyLiveSnapshot(
+        res.teacher_state,
+        Number(teacherState.state_seq) || lastGoodStateSeq
+      )
+    ) {
+      adoptTeacherState(res.teacher_state);
+    }
+  } catch (err) {
+    showError("#ap-overlay-error", err);
+  } finally {
+    eyesUpBusy = false;
+    paintEyesUpToggle();
+  }
+}
+
+$("live-eyes-up")?.addEventListener("click", () => {
+  void toggleEyesUp();
+});
+paintEyesUpToggle();
 
 $("mc-reveal-btn")?.addEventListener("click", () => {
   patchMcReveal(true);

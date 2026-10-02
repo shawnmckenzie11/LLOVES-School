@@ -205,6 +205,10 @@
           <button type="button" class="live-stage-stepper" id="live-delete-page">Delete Page</button>
         </nav>
         <div class="live-header-actions">
+          {# MCK-26: one-tap pause for every student screen. #}
+          <button type="button" class="live-header-eyes-up secondary" id="live-eyes-up"
+                  aria-pressed="false"
+                  title="Pause every student screen so the class looks up. Tap again to resume.">Eyes up</button>{# copy: Wonder #}
           <div class="live-end-class-form">
             <button type="button" class="live-header-end danger" id="live-end-class" data-open-end-live aria-label="End Live Class">End Live Class</button>
           </div>

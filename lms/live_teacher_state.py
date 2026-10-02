@@ -203,6 +203,9 @@ def default_teacher_state() -> dict[str, Any]:
         ``live_slot`` defaults to C1; C2/C3 use ``text_ride`` instead of media.
         Student-view modes default teacher-only except JOIN Questions.
         ``class_set`` stays false until Set Class (date + module + slot).
+        ``eyes_up`` (MCK-26) is a session-global pause: while true every
+        student screen shows a full-screen "Eyes up" overlay and blocks
+        input without changing page. Independent of C2/C3 ``text_ride``.
     """
     view = default_student_view("join")
     return {
@@ -216,6 +219,7 @@ def default_teacher_state() -> dict[str, Any]:
         "hide_absent": False,
         "timer_closes_answers": False,
         "class_set": False,
+        "eyes_up": False,
         "layout_preset": DEFAULT_LAYOUT_PRESET,
         "frames": dict(LAYOUT_PRESETS[DEFAULT_LAYOUT_PRESET]),
         "active_tab": "questions",
@@ -824,6 +828,7 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
         "hide_absent",
         "timer_closes_answers",
         "class_set",
+        "eyes_up",
     ):
         parsed = _as_bool(stored.get(key))
         if parsed is not None:
@@ -964,6 +969,7 @@ def apply_teacher_state_update(
     hide_absent: Any = None,
     timer_closes_answers: Any = None,
     class_set: Any = None,
+    eyes_up: Any = None,
     layout_preset: Any = None,
     frames: Any = None,
     active_tab: Any = None,
@@ -1003,6 +1009,8 @@ def apply_teacher_state_update(
         timer_closes_answers: Opt-in. When the SessionTimer reaches 0:00,
             open questions published before then close (MCK-27).
         class_set: True after the teacher confirms Set Class (date + module + slot).
+        eyes_up: Session-global "Eyes up" pause for every student screen
+            (MCK-26). Stage, page, and ``text_ride`` are left unchanged.
         layout_preset: Named preset; fills frames unless ``frames`` is set.
         frames: ``{A,B,C}`` content-id map.
         active_tab: Active Content tab.
@@ -1116,6 +1124,11 @@ def apply_teacher_state_update(
         if confirmed is None:
             raise ValueError("class_set must be a boolean")
         base["class_set"] = confirmed
+    if eyes_up is not None:
+        paused = _as_bool(eyes_up)
+        if paused is None:
+            raise ValueError("eyes_up must be a boolean")
+        base["eyes_up"] = paused
     if not base.get("groups_configured"):
         base["run_as_group"] = False
     base["teams_mode"] = "teams" if base.get("run_as_group") else "individual"

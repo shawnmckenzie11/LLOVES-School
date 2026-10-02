@@ -24486,6 +24486,51 @@ class SchoolDB(LovesDB):
                 (int(session_id),),
             )
 
+    def release_eyes_up(self, session_id: int) -> dict[str, Any] | None:
+        """Turn MCK-26 Eyes up off for one session, active or not.
+
+        Idempotent. Only writes (and bumps ``state_seq``) when the stored
+        blob still has ``eyes_up`` on, so End / Quit / a late Release
+        never leave students paused and never 400.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            Public teacher state, or ``None`` when the session row is gone.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT teacher_state_json FROM live_class_sessions WHERE id = ?",
+                (int(session_id),),
+            ).fetchone()
+        if row is None:
+            return None
+        stored: dict[str, Any] = {}
+        raw = row["teacher_state_json"]
+        if isinstance(raw, str) and raw.strip():
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                parsed = {}
+            if isinstance(parsed, dict):
+                stored = parsed
+        if not stored.get("eyes_up"):
+            return self.live_session_teacher_state_payload(int(session_id))
+        stored["eyes_up"] = False
+        try:
+            seq = int(stored.get("state_seq") or 0)
+        except (TypeError, ValueError):
+            seq = 0
+        stored["state_seq"] = seq + 1
+        with self._lock:
+            self.conn.execute(
+                "UPDATE live_class_sessions SET teacher_state_json = ? WHERE id = ?",
+                (json.dumps(stored), int(session_id)),
+            )
+            self.conn.commit()
+        return self.live_session_teacher_state_payload(int(session_id))
+
     def invalidate_live_session_code(self, session_id: int) -> dict[str, Any] | None:
         """Mark a session ended so its code is no longer joinable.
 
@@ -24497,6 +24542,7 @@ class SchoolDB(LovesDB):
         session_row = self.get_live_session(session_id)
         if session_row is None:
             return None
+        self.release_eyes_up(int(session_id))
         if session_row.get("status") == "ended":
             self.cleanup_live_session_response_data(session_id)
             if self.presence is not None:
@@ -24718,6 +24764,7 @@ class SchoolDB(LovesDB):
                 int(row["id"]) for row in sessions if int(row["id"]) in wanted
             ]
         for sid in session_ids:
+            self.release_eyes_up(int(sid))
             self.purge_board_ops(sid)
             self.clear_attendee_moods_and_characters(sid)
         try:
@@ -25469,6 +25516,8 @@ class SchoolDB(LovesDB):
         except KeyError:
             payload = {"stage": "play"}
         payload["celebrate"] = True
+        # MCK-26: End releases Eyes up so celebration + feedback are usable.
+        payload["eyes_up"] = False
         # MCK-108: a new seq so open student tabs drop their pre-End stamp.
         payload["state_seq"] = int(payload.get("state_seq") or 0) + 1
         snap = winner if isinstance(winner, dict) else self.snapshot_live_winner(int(class_id))
@@ -26916,6 +26965,10 @@ class SchoolDB(LovesDB):
         payload["teacher_state"] = self.live_session_teacher_state_payload(
             int(live_session_id)
         )
+        if session_row is None or session_row.get("status") != "active":
+            # MCK-26: an ended (celebrating) or inactive session never
+            # pauses students, even if a stale blob still says eyes_up.
+            payload["teacher_state"]["eyes_up"] = False
         ensure_poll_budget()
         self.apply_student_live_group_projection(payload, int(live_session_id))
         ensure_poll_budget()

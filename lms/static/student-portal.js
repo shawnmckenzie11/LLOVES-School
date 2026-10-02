@@ -2,6 +2,7 @@
  * Phone-first student live-class home: Live response shell + chrome boards.
  */
 import { formatQuestionHtml, renderLiveQuestionMath } from "/static/common.js";
+import { paintEyesUp } from "/static/eyes_up.js";
 import {
   RECONNECT_PENDING_MS,
   RECONNECT_STUCK_MS,
@@ -4614,6 +4615,8 @@ async function tick() {
     paintRoundBanner(data);
     paintMedia(data);
     paintMeetCue(data);
+    // MCK-26: teacher "Eyes up" pause rides the same teacher_state.
+    paintEyesUp(data);
     const promptId = data.prompt && data.prompt.id != null ? Number(data.prompt.id) : null;
     const meetSig = data.prompt
       ? `${promptId}:${(data.prompt.payload && data.prompt.payload.step) || ""}:${
