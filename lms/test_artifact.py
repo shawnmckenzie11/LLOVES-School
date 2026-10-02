@@ -515,6 +515,77 @@ class ArtifactMintChannelTests(unittest.TestCase):
         self.assertFalse(after["payload"]["group_q"])
         self.assertEqual(after["payload"]["accuracy_margin"], 0.10)
 
+    def _mint_on_m1_c3(self) -> dict:
+        """Mint the Transformations Artifact on MCF3M M1 C3 (the real deck)."""
+        self.school.set_live_session_teacher_state(
+            self.live_session_id, live_module="M1", live_slot="C3", stage="play"
+        )
+        minted = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/artifacts",
+            json={
+                "artifact_id": TRANSFORMATIONS_ARTIFACT_ID,
+                "snapshot": {"a": 2, "h": -1, "k": 3},
+                "target_mode": "graph",
+            },
+        )
+        self.assertEqual(minted.status_code, 200, minted.get_json())
+        body = minted.get_json()
+        self.assertEqual(body["active_media"]["url"], C2_TRANSFORM_MEDIA_URL)
+        self.assertIsInstance(body["active_media"].get("artifact"), dict)
+        return body
+
+    def test_c3_group_q_patch_keeps_artifact_media(self) -> None:
+        """MCK-112: ticking Wait until teammates match on M1 C3 keeps the media.
+
+        The flag patch has no url, so C3's text-only branch used to clear
+        the whole active media (artifact included). The Students work row
+        then vanished, Media went out Individual, and the prompt still said
+        Group Q. Fails on main 3e3d14a.
+        """
+        body = self._mint_on_m1_c3()
+        media_art = body["active_media"]["artifact"]
+        patched = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"artifact": {**media_art, "group_q": True}},
+        )
+        self.assertEqual(patched.status_code, 200, patched.get_json())
+        media = patched.get_json()["active_media"]
+        self.assertIsInstance(media, dict)
+        self.assertEqual(media["url"], C2_TRANSFORM_MEDIA_URL)
+        self.assertTrue(media["artifact"]["group_q"])
+        self.assertEqual(media["artifact"]["snapshot"], media_art["snapshot"])
+        stored = self.school.live_session_active_media_payload(self.live_session_id)
+        assert stored is not None
+        self.assertTrue(stored["artifact"]["group_q"])
+        prompt = self.school.get_active_live_prompt(self.live_session_id)
+        assert prompt is not None
+        self.assertTrue(prompt["payload"]["group_q"])
+        teacher = self.school.live_session_teacher_state_payload(self.live_session_id)
+        self.assertEqual(teacher["live_slot"], "C3")
+        # Unticking keeps it too, and the prompt follows.
+        off = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"artifact": {**media["artifact"], "group_q": False}},
+        )
+        self.assertEqual(off.status_code, 200, off.get_json())
+        self.assertFalse(off.get_json()["active_media"]["artifact"]["group_q"])
+        prompt = self.school.get_active_live_prompt(self.live_session_id)
+        assert prompt is not None
+        self.assertFalse(prompt["payload"]["group_q"])
+
+    def test_c3_slot_switch_without_url_still_clears(self) -> None:
+        """Only an artifact flag patch merges; a C3 slot switch still clears."""
+        self._mint_on_m1_c3()
+        cleared = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"challenge": "C3"},
+        )
+        self.assertEqual(cleared.status_code, 200, cleared.get_json())
+        self.assertIsNone(cleared.get_json()["active_media"])
+        self.assertIsNone(
+            self.school.live_session_active_media_payload(self.live_session_id)
+        )
+
 
 class ParentArtifactTests(unittest.TestCase):
     """MCR3U M1 C3 parent-function Artifact grade + mint."""
@@ -839,6 +910,73 @@ class ArtifactGroupQTests(unittest.TestCase):
         )
         self.assertEqual(minted.status_code, 200, minted.get_json())
         return minted.get_json()
+
+    def test_c3_artifact_media_runs_as_group_and_remint_keeps_it(self) -> None:
+        """MCK-112: artifact Media on M1 C3 can run as Group, and stays Group.
+
+        Group on artifact Media is Show teams on, Media projected to teams,
+        and Group Q ("Wait until teammates match") on the Artifact. Ticking
+        Group Q used to wipe the C3 media, and a re-mint reset Media to
+        Individual. Fails on main 3e3d14a.
+        """
+        self.school.set_live_session_teacher_state(
+            self.live_session_id, live_module="M1", live_slot="C3", stage="play"
+        )
+        minted = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/artifacts",
+            json={
+                "artifact_id": TRANSFORMATIONS_ARTIFACT_ID,
+                "snapshot": {"a": 2, "h": 1, "k": -1},
+                "target_mode": "graph",
+            },
+        )
+        self.assertEqual(minted.status_code, 200, minted.get_json())
+        media_art = minted.get_json()["active_media"]["artifact"]
+        self.school.set_live_session_teacher_state(
+            self.live_session_id, run_as_group=True
+        )
+        view = dict(
+            self.school.live_session_teacher_state_payload(self.live_session_id)[
+                "student_view"
+            ]
+        )
+        view["media"] = "team"
+        set_view = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/teacher-state",
+            json={"student_view": view},
+        )
+        self.assertEqual(set_view.status_code, 200, set_view.get_json())
+        patched = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/active-media",
+            json={"artifact": {**media_art, "group_q": True}},
+        )
+        self.assertEqual(patched.status_code, 200, patched.get_json())
+        media = patched.get_json()["active_media"]
+        self.assertIsInstance(media, dict)
+        self.assertTrue(media["artifact"]["group_q"])
+        prompt = self.school.get_active_live_prompt(self.live_session_id)
+        status = self.school.artifact_group_q_status(
+            self.live_session_id, self.maple_id, prompt
+        )
+        self.assertTrue(status["needed"])
+        self.assertEqual(
+            sorted(row["student_id"] for row in status["members"]),
+            sorted([self.maple_id, self.birch_id]),
+        )
+        teacher = self.school.live_session_teacher_state_payload(self.live_session_id)
+        self.assertEqual(teacher["student_view"]["media"], "team")
+        second = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/artifacts",
+            json={
+                "artifact_id": TRANSFORMATIONS_ARTIFACT_ID,
+                "snapshot": {"a": -1, "h": 2, "k": 0},
+                "target_mode": "equation",
+            },
+        )
+        self.assertEqual(second.status_code, 200, second.get_json())
+        teacher = self.school.live_session_teacher_state_payload(self.live_session_id)
+        self.assertEqual(teacher["student_view"]["media"], "team")
+        self.assertIsInstance(second.get_json()["active_media"].get("artifact"), dict)
 
     def test_group_q_waits_for_teammate_previews(self) -> None:
         """Missing preview is not a match; both matching sliders unlock submit."""

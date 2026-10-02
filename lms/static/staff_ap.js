@@ -70,6 +70,18 @@ import {
   deckSeedHelpText,
   deckSeedResponseIsCurrent,
 } from "/static/deck_seed_help.js";
+import {
+  GROUP_SETUP_COPY,
+  RANK_DEFAULTS_TO_GROUP,
+  groupModeToken,
+  groupPublishConfirmHtml,
+  groupPublishToken,
+  groupSetupHtml,
+  groupSetupOptionsHtml,
+  groupStyleFor,
+  groupTokenNeedsTeamsShown,
+  isGroupModeToken,
+} from "/static/group_setup.js";
 
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -1083,6 +1095,26 @@ let mutationRetry = null;
 let lastActiveMedia = null;
 
 /**
+ * MCK-112: one Individual/Group pick per item before Publish, keyed
+ * ``q:<liveItemId>`` for questions and ``s:<surface>`` for Whiteboard and
+ * Media. Inactive repaints read this so the choice survives the staff
+ * poll. Replaces the old Submission and Publish-mode intent maps.
+ * @type {Map<string, "individual"|"group">}
+ */
+const groupModeIntent = new Map();
+
+/**
+ * Pending in-place Publish confirms, keyed ``q:<liveItemId>`` or ``s:<surface>``. Each value
+ * resolves the promise ``confirmGroupPublish`` returned.
+ * @type {Map<string, (ok: boolean) => void>}
+ */
+const groupPublishConfirms = new Map();
+
+/** @type {Map<string, string>} Last HTML painted per surface host. */
+const groupSetupSurfacePainted = new Map();
+
+
+/**
  * Map a setup step onto the StageRail id.
  * @param {string} [step]
  * @returns {string}
@@ -1406,13 +1438,10 @@ function currentStudentView() {
 }
 
 /**
- * MCK-112 S1: surface Publish-mode choices held client-side when the
- * surface has no lifecycle row yet. Applied only at Publish.
- * @type {Map<string, "student"|"team">}
+ * MCK-112 S1 LOW: held surface picks (``s:<surface>`` in
+ * ``groupModeIntent``) survive a reload. sessionStorage, per live session;
+ * nothing reaches students and the pick still only applies at Publish.
  */
-const surfaceModeIntent = new Map();
-
-/** sessionStorage key prefix for held surface picks (MCK-112 S1 LOW). */
 const SURFACE_INTENT_STORE = "alc.mck112.surfaceIntent";
 
 /** Session the held surface picks were last loaded for. */
@@ -1428,8 +1457,7 @@ function surfaceIntentStoreKey() {
 }
 
 /**
- * Restore held surface picks after a reload. Nothing reaches students;
- * the pick still only applies at Publish.
+ * Restore held surface picks after a reload.
  */
 function loadSurfaceModeIntent() {
   const key = surfaceIntentStoreKey();
@@ -1440,7 +1468,10 @@ function loadSurfaceModeIntent() {
     for (const [surface, mode] of Object.entries(raw || {})) {
       if (!["media", "canvas", "slides"].includes(surface)) continue;
       if (mode !== "team" && mode !== "student") continue;
-      if (!surfaceModeIntent.has(surface)) surfaceModeIntent.set(surface, mode);
+      const intentKey = `s:${surface}`;
+      if (!groupModeIntent.has(intentKey)) {
+        groupModeIntent.set(intentKey, mode === "team" ? "group" : "individual");
+      }
     }
   } catch (_err) {
     // Private mode or bad JSON: the pick just lives in memory.
@@ -1451,9 +1482,14 @@ function loadSurfaceModeIntent() {
 function saveSurfaceModeIntent() {
   const key = surfaceIntentStoreKey();
   if (!key) return;
+  const held = {};
+  for (const [intentKey, pick] of groupModeIntent) {
+    if (!intentKey.startsWith("s:")) continue;
+    held[intentKey.slice(2)] = pick === "group" ? "team" : "student";
+  }
   try {
-    if (surfaceModeIntent.size) {
-      window.sessionStorage.setItem(key, JSON.stringify(Object.fromEntries(surfaceModeIntent)));
+    if (Object.keys(held).length) {
+      window.sessionStorage.setItem(key, JSON.stringify(held));
     } else {
       window.sessionStorage.removeItem(key);
     }
@@ -1463,8 +1499,10 @@ function saveSurfaceModeIntent() {
 }
 
 /**
- * Dropdown value for one surface. The lifecycle publish mode wins over the
- * projection map so Shared within Group survives a poll before Publish.
+ * Students work pick for one surface: "team" means Group. An inactive
+ * surface reads the teacher's held pick first (MCK-112), so nothing is
+ * written to students before Publish; otherwise the lifecycle publish
+ * mode, then the projection map.
  * @param {"media"|"canvas"|"slides"} surface
  * @returns {"student"|"team"}
  */
@@ -1472,9 +1510,13 @@ function surfacePublishSelection(surface) {
   const item = lifecycleItemForSurface(surface);
   const id = Number(item?.id) || 0;
   loadSurfaceModeIntent();
-  if (!id && surfaceModeIntent.has(surface)) {
-    return surfaceModeIntent.get(surface) === "team" ? "team" : "student";
+  const key = `s:${surface}`;
+  if (surfaceStatus(surface) === "inactive" && groupModeIntent.has(key)) {
+    return groupModeIntent.get(key) === "group" ? "team" : "student";
   }
+  // MCK-112: Media rows always publish ``individual``; artifact Media Group
+  // is the projection (``student_view.media = team``), so read that.
+  if (surface === "media") return currentStudentView().media === "team" ? "team" : "student";
   const held = id ? teacherSettingHold.get(`${id}:publish_mode`) : undefined;
   const stored = String(held || item?.publish_mode || "");
   if (stored === "group_shared") return "team";
@@ -1483,25 +1525,11 @@ function surfacePublishSelection(surface) {
 }
 
 /**
- * Sync per-content Publish mode dropdowns from the saved lifecycle row.
+ * Sync the surface Students work controls (kept name: callers repaint
+ * through this after polls).
  */
 function paintStudentViewControls() {
-  for (const key of ["media", "canvas", "slides"]) {
-    const el = $(`live-view-${key}`);
-    if (!(el instanceof HTMLSelectElement)) continue;
-    const wanted = surfacePublishSelection(key);
-    if ([...el.options].some((option) => option.value === wanted)) {
-      el.value = wanted;
-    }
-    const team = [...el.options].find((option) => option.value === "team");
-    if (team) {
-      const whiteboard = key === "canvas";
-      team.disabled = whiteboard
-        ? false
-        : !Boolean(teacherState.run_as_group) || !surfaceSupportsGroup(key);
-      if (team.disabled && el.value === "team") el.value = "student";
-    }
-  }
+  paintGroupSetupSurfaces();
 }
 
 /**
@@ -1520,20 +1548,6 @@ function lifecycleItemForSurface(surface) {
   return (
     matches.find((row) => String(row.stage || "") === stage) || matches[0] || null
   );
-}
-
-/**
- * True when metadata explicitly allows shared group publication.
- * Whiteboard keeps its catalogue-level compatibility capability when it has
- * no placement row in an older playlist.
- * @param {"media"|"canvas"|"slides"} surface
- * @returns {boolean}
- */
-function surfaceSupportsGroup(surface) {
-  const item = lifecycleItemForSurface(surface);
-  if (!item) return surface === "canvas";
-  const modes = item.item?.publish_modes || item.item?.capabilities?.publish_modes || [];
-  return Array.isArray(modes) && modes.includes("group_shared");
 }
 
 /**
@@ -1564,14 +1578,36 @@ function paintSurfacePublishing() {
 async function publishSurface(surface) {
   const sessionId = liveSessionId || readLiveSessionId();
   if (!sessionId) return;
-  const select = $(`live-view-${surface}`);
-  const picked = select instanceof HTMLSelectElement && select.value === "team";
-  const groupOk =
-    surface === "canvas" ||
-    (Boolean(teacherState.run_as_group) && surfaceSupportsGroup(surface));
-  const selected = picked && groupOk ? "team" : "student";
-  surfaceModeIntent.delete(surface);
+  // MCK-112: the surface's Students work pick. Group needs a group style
+  // (whiteboard, or media with an artifact) and teams.
+  const picked = surfacePublishSelection(surface) === "team";
+  const style = groupStyleFor({
+    surface,
+    artifact: surface === "media" && Boolean(lastActiveMedia && lastActiveMedia.artifact),
+  });
+  const groupOk = Boolean(style) && Boolean(teacherState.groups_configured);
+  let selected = picked && groupOk ? "team" : "student";
+  if (
+    selected === "team" &&
+    groupTokenNeedsTeamsShown(groupModeToken(style), { surface }) &&
+    !teacherState.run_as_group
+  ) {
+    const confirmed = await confirmGroupPublish(`s:${surface}`);
+    if (!confirmed) return;
+    // Re-read the pick now: it may have changed while the confirm was open.
+    if (surfacePublishSelection(surface) !== "team") selected = "student";
+    if (selected === "team" && !teacherState.run_as_group) {
+      teacherState.run_as_group = true;
+      teacherState.teams_mode = "teams";
+      await patchTeacherState({ run_as_group: true }, { silent: true });
+    }
+  }
+  groupModeIntent.delete(`s:${surface}`);
   saveSurfaceModeIntent();
+  if (surface === "media" && selected !== "team") {
+    // Individual Media never keeps "Wait until teammates match" on.
+    await clearArtifactGroupQ();
+  }
   const item = lifecycleItemForSurface(surface);
   if (item && item.status === "inactive") {
     const publishMode =
@@ -3075,38 +3111,39 @@ function cardSaveToCardChecked(card, liveItemId) {
 }
 
 /**
- * Per-card Submission choice before publish. Group is the one switch.
- * @type {Map<number, "individual"|"group_submit">}
- */
-const groupSubmissionIntent = new Map();
-
-/**
- * Individual vs Individual in Group before Publish.
- * Inactive repaints read this so the dropdown survives the staff poll.
- * @type {Map<number, "individual"|"group_consensus">}
- */
-const openPublishIntent = new Map();
-
-/**
- * Mode shown on an open or numeric card.
- * A teacher click wins over the catalogue default until Publish.
+ * Individual/Group pick shown on one question card.
+ * A teacher click wins over the stored/catalogue mode until Publish. Live
+ * and closed cards show what they ran as.
  * @param {number} liveItemId
- * @param {any} card
+ * @param {any} card Merged lifecycle + deck row.
  * @param {string} status
- * @returns {"individual"|"group_consensus"}
+ * @param {"submit"|"consensus"|"shared"|null} style
+ * @returns {"individual"|"group"}
  */
-function openPublishModeSelection(liveItemId, card, status) {
-  const stored =
-    String(card?.response_mode || "") === "group_consensus"
-      ? "group_consensus"
-      : "individual";
+function questionGroupPick(liveItemId, card, status, style) {
+  const key = `q:${Number(liveItemId)}`;
+  const id = Number(liveItemId) || 0;
+  const held = id ? teacherSettingHold.get(`${id}:response_mode`) : undefined;
+  const stored = String(held || card?.response_mode || "");
+  const storedGroup = isGroupModeToken(stored) ? "group" : "individual";
   if (status === "active" || status === "closed") {
-    openPublishIntent.delete(liveItemId);
-    return stored;
+    groupModeIntent.delete(key);
+    return storedGroup;
   }
-  const held = openPublishIntent.get(liveItemId);
-  if (held === "group_consensus" || held === "individual") return held;
-  return stored;
+  const pick = groupModeIntent.get(key);
+  if (pick === "group" || pick === "individual") return pick;
+  // D2 (open for Shawn): spec default is Individual for rank too. The
+  // flag restores the old "rank defaults to Group when teams exist".
+  if (
+    RANK_DEFAULTS_TO_GROUP &&
+    style === "submit" &&
+    String(card?.type || card?.item?.type || "").toLowerCase() === "rank" &&
+    teacherState.groups_configured &&
+    storedGroup === "individual"
+  ) {
+    return "group";
+  }
+  return storedGroup;
 }
 
 /**
@@ -3278,6 +3315,8 @@ function groupSubmitTeacherHtml(result, revealed, liveItemId) {
  *   liveItemId: number,
  *   card: any,
  *   status: string,
+ *   groupSetupHtml?: string,
+ *   groupOptsHtml?: string,
  *   publishHtml: string,
  *   revealHtml: string,
  *   pointsHtml: string,
@@ -3321,10 +3360,16 @@ function liveQuestionControlStrip(parts) {
   } else {
     lifecycleBody = parts.publishHtml || "";
   }
+  // MCK-112: "Students work" (or its live/closed chip, or the no-teams
+  // line) is the first thing in C Lifecycle, just left of Publish. The
+  // options row goes full width under it.
+  const groupSetup = parts.groupSetupHtml || "";
+  if (lifecycleBody || groupSetup) lifecycleBody = `${groupSetup}${lifecycleBody}`;
   const lifecycle = lifecycleBody
     ? `<div class="live-q-group" data-live-q-group="lifecycle" role="group" aria-label="C Lifecycle">
         <span class="live-q-group-kicker">C Lifecycle</span>
         <div class="live-q-group-actions">${lifecycleBody}</div>
+        ${parts.groupOptsHtml || ""}
       </div>`
     : "";
   if (!persist && !visibility && !lifecycle) return "";
@@ -3433,16 +3478,18 @@ function paintLiveQuestionCards() {
       const openEnded = liveQuestionIsOpenEnded(item, card);
       const isRank = liveQuestionIsRank(item, card);
       const multipleChoice = liveQuestionIsMultipleChoice(item, card) || isRank;
-      const intent = groupSubmissionIntent.get(liveItemId);
+      // MCK-112: the type decides the group style; the teacher only picks.
+      const groupStyle = groupStyleFor(item, card);
+      const groupPick = groupStyle
+        ? questionGroupPick(liveItemId, card, status, groupStyle)
+        : "individual";
       const groupChrome =
         multipleChoice &&
         (card.response_mode === "group_submit" ||
-          (status !== "active" && status !== "closed" && intent === "group_submit"));
-      const canGroup =
-        !multipleChoice &&
-        Boolean(teacherState.groups_configured) &&
-        Boolean(teacherState.run_as_group) &&
-        (openEnded || publishModes.includes("group_consensus"));
+          (status !== "active" &&
+            status !== "closed" &&
+            groupStyle === "submit" &&
+            groupPick === "group"));
       const showGroupBadge =
         groupChrome ||
         card.response_mode === "group_submit" ||
@@ -3469,7 +3516,6 @@ function paintLiveQuestionCards() {
         tallyRef && cardRef && tallyRef === cardRef
           ? Number(tally?.response_count ?? tally?.responded ?? 0)
           : 0;
-      const openMode = openPublishModeSelection(liveItemId, card, status);
       const answered = Number(
         result?.response_count ??
           result?.tally?.responded ??
@@ -3492,50 +3538,33 @@ function paintLiveQuestionCards() {
                 card.response_mode === "group_consensus" ? "responded" : "answered"
               }</p>`
             : "";
-      let submissionValue =
-        card.response_mode === "group_submit" || intent === "group_submit"
-          ? "group_submit"
-          : "individual";
-      if (
-        isRank &&
-        status !== "active" &&
-        status !== "closed" &&
-        intent == null &&
-        card.response_mode !== "group_submit" &&
-        teacherState.groups_configured
-      ) {
-        submissionValue = "group_submit";
-      }
-      const groupStub = multipleChoice
-        ? ""
-        : `<span class="live-group-submit-stub" hidden>Group submission is multiple choice only.</span>`;
+      const teamsReady = Boolean(teacherState.groups_configured);
+      const groupKey = `q:${liveItemId}`;
+      const groupSetup = liveItemId
+        ? groupSetupHtml({
+            key: groupKey,
+            style: groupStyle,
+            status,
+            mode: groupPick,
+            teamsReady,
+          })
+        : "";
+      const groupOpts = liveItemId
+        ? groupSetupOptionsHtml({
+            key: groupKey,
+            style: groupStyle,
+            status,
+            mode: groupPick,
+            teamsReady,
+            teamNames: groupTeamNames(),
+          })
+        : "";
+      const publishToken = groupPublishToken(groupStyle, groupPick, teamsReady);
       const publish = !liveItemId || !onStage
         ? ""
-        : multipleChoice
-          ? `<div class="live-publish-split has-modes">
-            <div class="live-submission-switch" role="group" aria-label="Submission">
-              <span>Submission</span>
-              <button type="button" class="live-submission-choice${submissionValue === "individual" ? " is-on" : ""}" data-submission-mode="${liveItemId}" data-submission-value="individual" aria-pressed="${submissionValue === "individual" ? "true" : "false"}">Individual</button>
-              <button type="button" class="live-submission-choice${submissionValue === "group_submit" ? " is-on" : ""}" data-submission-mode="${liveItemId}" data-submission-value="group_submit" aria-pressed="${submissionValue === "group_submit" ? "true" : "false"}">Group</button>
-              <input type="hidden" data-publish-live-mode="${liveItemId}" value="${submissionValue}">
-            </div>
+        : `<div class="live-publish-split${groupSetup ? " has-modes" : ""}">
+            <input type="hidden" data-publish-live-mode="${liveItemId}" value="${escapeHtml(publishToken)}">
             ${groupPublishButtonHtml(liveItemId)}
-          </div>`
-          : `<div class="live-publish-split${canGroup ? " has-modes" : ""}">
-            ${groupPublishButtonHtml(liveItemId)}
-            ${
-              canGroup
-                ? `<select data-publish-live-mode="${liveItemId}" aria-label="Publish mode">
-                    <option value="individual"${
-                      openMode === "individual" ? " selected" : ""
-                    }>Individual</option>
-                    <option value="group_consensus"${
-                      openMode === "group_consensus" ? " selected" : ""
-                    }>Individual in Group</option>
-                  </select>`
-                : `<input type="hidden" data-publish-live-mode="${liveItemId}" value="individual">`
-            }
-            ${groupStub}
           </div>`;
       const pointsButton =
         (card.response_mode === "group_consensus" || groupChrome) &&
@@ -3572,6 +3601,8 @@ function paintLiveQuestionCards() {
             liveItemId,
             card,
             status,
+            groupSetupHtml: groupSetup,
+            groupOptsHtml: groupOpts,
             publishHtml: publish,
             revealHtml,
             pointsHtml: pointsButton,
@@ -3830,28 +3861,6 @@ function groupConsensusResultsHtml(result, revealed, liveItemId) {
 }
 
 /**
- * Show one question to individual students and hide all sibling questions.
- * @param {string} questionId
- * @param {string} mode
- */
-async function setQuestionStudentView(questionId, mode) {
-  const sessionId = liveSessionId || readLiveSessionId();
-  if (!sessionId) return;
-  const result = await api(
-    `/api/live-sessions/${sessionId}/questions/${encodeURIComponent(questionId)}/visibility`,
-    {
-      method: "POST",
-      body: JSON.stringify({ mode }),
-    }
-  );
-  if (result?.teacher_state) adoptTeacherState(result.teacher_state);
-  if (Array.isArray(result?.question_cards)) {
-    lastQuestionCards = questionCardsFromMetadata(result.question_cards);
-    paintLiveQuestionCards();
-  }
-}
-
-/**
  * Replace one cached lifecycle row from an item-mutation response.
  * @param {any} item
  */
@@ -3882,8 +3891,9 @@ function canonicalPublishMode(raw) {
 }
 
 /**
- * Read the mode for one card. Multiple choice uses the pressed Submission
- * button so a stray publish-mode control cannot override Group.
+ * Read the publish token for one card from its "Students work" control.
+ * The checked radio wins (so a fast Group → Publish never races the
+ * settings PATCH); the hidden input carries the token otherwise.
  * @param {number} liveItemId
  * @returns {string}
  */
@@ -3891,44 +3901,21 @@ function selectedPublishMode(liveItemId) {
   const card = document.querySelector(
     `.live-question-card[data-live-item-id="${liveItemId}"]`
   );
-  const pressed = card?.querySelector(
-    'button[data-submission-value][aria-pressed="true"]'
-  );
-  if (pressed instanceof HTMLButtonElement) {
-    return canonicalPublishMode(pressed.getAttribute("data-submission-value"));
-  }
   const root = card instanceof HTMLElement ? card : document;
+  const checked = root.querySelector(
+    `input[data-group-setup="q:${Number(liveItemId)}"]:checked`
+  );
+  if (checked instanceof HTMLInputElement) {
+    if (checked.value !== "group") return "individual";
+    const fieldset = checked.closest("[data-group-token]");
+    return canonicalPublishMode(fieldset?.getAttribute("data-group-token") || "individual");
+  }
   const control = root.querySelector(`[data-publish-live-mode="${liveItemId}"]`);
   const raw =
     control instanceof HTMLSelectElement || control instanceof HTMLInputElement
       ? control.value
-      : groupSubmissionIntent.get(Number(liveItemId)) || "individual";
+      : "individual";
   return canonicalPublishMode(raw);
-}
-
-/**
- * MCK-112 copy (Wonder v1) for the Publish-on-Group confirm.
- */
-const GROUP_PUBLISH_CONFIRM_COPY = Object.freeze({
-  text: "Students can't see teams yet. Publishing as a group will show team names to the class.",
-  confirm: "Show teams and publish",
-  cancel: "Cancel",
-});
-
-/**
- * Pending in-place Publish confirms, keyed ``q:<liveItemId>``. Each value
- * resolves the promise ``confirmGroupPublish`` returned.
- * @type {Map<string, (ok: boolean) => void>}
- */
-const groupPublishConfirms = new Map();
-
-/**
- * True when a publish mode needs class-wide Run as Group on the server.
- * @param {string} mode
- * @returns {boolean}
- */
-function groupModeNeedsTeamsShown(mode) {
-  return mode === "group_submit" || mode === "group_consensus";
 }
 
 /**
@@ -3945,8 +3932,10 @@ function confirmGroupPublish(key) {
       groupPublishConfirms.delete(key);
       resolve(Boolean(ok));
       paintLiveQuestionCards();
+      paintGroupSetupSurfaces();
     });
     paintLiveQuestionCards();
+    paintGroupSetupSurfaces();
     const yes = document.querySelector(
       `[data-group-confirm-yes="${CSS.escape ? CSS.escape(key) : key}"]`
     );
@@ -3962,10 +3951,7 @@ function confirmGroupPublish(key) {
  */
 function questionPublishModeNow(liveItemId) {
   const id = Number(liveItemId) || 0;
-  const mc = groupSubmissionIntent.get(id);
-  if (mc === "group_submit" || mc === "individual") return mc;
-  const open = openPublishIntent.get(id);
-  if (open === "group_consensus" || open === "individual") return open;
+  if (groupModeIntent.get(`q:${id}`) === "individual") return "individual";
   return selectedPublishMode(id);
 }
 
@@ -3989,12 +3975,7 @@ function groupPublishButtonHtml(liveItemId) {
   if (!groupPublishConfirms.has(key)) {
     return `<button type="button" class="live-q-btn" data-publish-live-item="${liveItemId}">Publish</button>`;
   }
-  const C = GROUP_PUBLISH_CONFIRM_COPY;
-  return `<span class="live-group-setup-confirm" role="group" aria-label="${escapeHtml(C.confirm)}" data-group-confirm="${escapeHtml(key)}">
-      <span class="live-group-setup-confirm-text">${escapeHtml(C.text)}</span>
-      <button type="button" class="live-q-btn" data-group-confirm-yes="${escapeHtml(key)}">${escapeHtml(C.confirm)}</button>
-      <button type="button" class="secondary live-q-btn" data-group-confirm-cancel="${escapeHtml(key)}">${escapeHtml(C.cancel)}</button>
-    </span>`;
+  return groupPublishConfirmHtml(key);
 }
 
 document.addEventListener("click", (event) => {
@@ -4041,7 +4022,7 @@ async function publishLifecycleItem(liveItemId) {
   if (!sessionId || !liveItemId) return;
   let publishMode = selectedPublishMode(liveItemId);
   if (
-    groupModeNeedsTeamsShown(publishMode) &&
+    groupTokenNeedsTeamsShown(publishMode) &&
     teacherState.groups_configured &&
     !teacherState.run_as_group
   ) {
@@ -4052,7 +4033,7 @@ async function publishLifecycleItem(liveItemId) {
     // Re-read the card's mode now: the teacher may have switched it back
     // to Individual while the confirm was open.
     publishMode = questionPublishModeNow(liveItemId);
-    if (groupModeNeedsTeamsShown(publishMode) && !teacherState.run_as_group) {
+    if (groupTokenNeedsTeamsShown(publishMode) && !teacherState.run_as_group) {
       teacherState.run_as_group = true;
       teacherState.teams_mode = "teams";
       await patchTeacherState({ run_as_group: true }, { silent: true });
@@ -4577,7 +4558,10 @@ async function setHideResponseNames(on, options = {}) {
  * @param {any} [media]
  */
 function paintQuestionArtifact(media) {
-  if (media && typeof media === "object") lastActiveMedia = media;
+  if (media && typeof media === "object") {
+    lastActiveMedia = media;
+    paintGroupSetupSurfaces();
+  }
   paintLiveSlotPicks();
   paintLiveQuestionCards();
   isBlankOverlayLivePage();
@@ -5753,6 +5737,7 @@ async function armJigsawableAsk(kind) {
 
 function paintActiveMediaStatus(media) {
   lastActiveMedia = media && typeof media === "object" ? media : null;
+  paintGroupSetupSurfaces();
   paintStateEventBar(isJigsawableMedia(media) ? media : null);
   const preview = $("ap-media-preview");
   if (!preview) return;
@@ -6136,6 +6121,72 @@ async function patchArtifactTeacherFlags(data) {
 }
 
 /**
+ * Turn "Wait until teammates match" off on the Artifact media (and its
+ * prompt). Used when artifact Media runs Individual.
+ * @returns {Promise<void>}
+ */
+async function clearArtifactGroupQ() {
+  const artifact = lastActiveMedia && lastActiveMedia.artifact;
+  if (!artifact || typeof artifact !== "object" || !artifact.group_q) return;
+  await patchArtifactTeacherFlags({
+    hot_cold_visible: Boolean(artifact.hot_cold_visible),
+    group_q: false,
+    accuracy_margin: artifact.accuracy_margin,
+  });
+}
+
+/**
+ * MCK-112: switch live artifact Media between Individual and Group in place
+ * (the normal order is publish the media, then mint). Group asks first
+ * when teams are hidden, exactly like Publish. Individual also turns
+ * Group Q off so students are never told to match teammates alone.
+ * @param {"individual"|"group"} pick
+ * @returns {Promise<boolean>} False when the teacher cancelled.
+ */
+async function applyLiveArtifactMediaPick(pick) {
+  if (pick === "group") {
+    if (!teacherState.groups_configured) return false;
+    if (!teacherState.run_as_group) {
+      const confirmed = await confirmGroupPublish("s:media");
+      if (!confirmed) return false;
+      if (!teacherState.run_as_group) {
+        teacherState.run_as_group = true;
+        teacherState.teams_mode = "teams";
+        await patchTeacherState({ run_as_group: true }, { silent: true });
+      }
+    }
+  }
+  const next = {
+    ...(teacherState.student_view || {}),
+    media: pick === "group" ? "team" : "student",
+  };
+  teacherState.student_view = next;
+  await patchTeacherState({ student_view: next });
+  if (pick !== "group") await clearArtifactGroupQ();
+  paintGroupSetupSurfaces();
+  return true;
+}
+
+/**
+ * The iframe's own Group Q box picks Group on the Students work row, so
+ * Media never runs Individual with "Wait until teammates match" on.
+ * @param {boolean} on
+ * @returns {Promise<void>}
+ */
+async function syncMediaPickFromGroupQ(on) {
+  if (!on || !teacherState.groups_configured) return;
+  if (surfacePublishSelection("media") === "team") return;
+  if (surfaceStatus("media") === "inactive") {
+    groupModeIntent.set("s:media", "group");
+    saveSurfaceModeIntent();
+    paintGroupSetupSurfaces();
+    return;
+  }
+  const ok = await applyLiveArtifactMediaPick("group");
+  if (!ok) await clearArtifactGroupQ();
+}
+
+/**
  * Bind iframe → session patches. Artifact mint and C1 peel tools live in-frame.
  */
 function bindActiveMediaControls() {
@@ -6158,7 +6209,9 @@ function bindActiveMediaControls() {
       (data.source === "lloves-m1c2-transforms" ||
         data.source === "lloves-mcr3u-m1c3-parents")
     ) {
-      patchArtifactTeacherFlags(data).catch((err) => showError("#ap-overlay-error", err));
+      patchArtifactTeacherFlags(data)
+        .then(() => syncMediaPickFromGroupQ(Boolean(data.group_q)))
+        .catch((err) => showError("#ap-overlay-error", err));
       return;
     }
     if (!data || data.source !== "lloves-m1c1-c1" || data.type !== "params") return;
@@ -9727,24 +9780,100 @@ $("live-class-select")?.addEventListener("change", () => {
 });
 
 /**
- * Remember one surface's Publish mode on its lifecycle row.
+ * Lifecycle status for one surface, with the projection-map fallback.
+ * @param {"media"|"canvas"|"slides"} surface
+ * @returns {string}
+ */
+function surfaceStatus(surface) {
+  const item = lifecycleItemForSurface(surface);
+  const fallbackActive = currentStudentView()[surface] !== "none";
+  return String(item?.status || (fallbackActive ? "active" : "inactive")).toLowerCase();
+}
+
+/**
+ * Team names for the Group options row (committed teams only).
+ * @returns {string[]}
+ */
+function groupTeamNames() {
+  // Wonder v1: "{Team 1 · name}, {Team 2 · name}"; skip the name when
+  // it is just the default "Team N".
+  return assignedRosterTeamsCommitted().map((team, index) => {
+    const label = `Team ${index + 1}`;
+    const name = String(team?.name || "").trim();
+    return name && name !== label ? `${label} · ${name}` : label;
+  });
+}
+
+/**
+ * MCK-112 S3: paint "Students work" into the Whiteboard and Media
+ * Publish rows (replaces the pane-head Publish mode selects). Media only
+ * gets it with an artifact (Group Q); plain media and Slides get nothing.
+ */
+function paintGroupSetupSurfaces() {
+  const teamsReady = Boolean(teacherState.groups_configured);
+  const artifact = lastActiveMedia && lastActiveMedia.artifact;
+  for (const surface of ["canvas", "media"]) {
+    const host = document.querySelector(`[data-group-setup-host="${surface}"]`);
+    const optsHost = document.querySelector(`[data-group-setup-opts-host="${surface}"]`);
+    if (!(host instanceof HTMLElement)) continue;
+    const key = `s:${surface}`;
+    const style = groupStyleFor({ surface, artifact: surface === "media" && Boolean(artifact) });
+    const status = surfaceStatus(surface);
+    const mode = surfacePublishSelection(surface) === "team" ? "group" : "individual";
+    const confirming = groupPublishConfirms.has(key);
+    const liveSwitch = surface === "media" && Boolean(artifact) && status === "active";
+    const html = confirming
+      ? groupPublishConfirmHtml(key)
+      : groupSetupHtml({ key, style, status, mode, teamsReady, surface, liveSwitch });
+    const opts = confirming
+      ? ""
+      : groupSetupOptionsHtml({
+          key,
+          style,
+          status,
+          mode,
+          teamsReady,
+          surface,
+          teamNames: groupTeamNames(),
+          groupQ:
+            surface === "media" && artifact && typeof artifact === "object"
+              ? Boolean(artifact.group_q)
+              : null,
+        });
+    const signature = `${html}\u0000${opts}`;
+    if (groupSetupSurfacePainted.get(surface) !== signature) {
+      groupSetupSurfacePainted.set(surface, signature);
+      host.innerHTML = html;
+      if (optsHost instanceof HTMLElement) {
+        optsHost.innerHTML = opts;
+        optsHost.hidden = !opts;
+      }
+    }
+    const publish = document.querySelector(`[data-surface-publish="${surface}"]`);
+    if (publish instanceof HTMLElement) publish.hidden = confirming;
+  }
+}
+
+/**
+ * Remember one surface's Students work pick on its lifecycle row.
  * Shared within Group is ``group_shared``. An active whiteboard also turns
  * the collab projection on so teammates share strokes.
  * @param {"media"|"canvas"|"slides"} surface
+ * @param {"student"|"team"} picked
  * @returns {Promise<void>}
  */
-async function persistSurfacePublishMode(surface) {
-  const el = $(`live-view-${surface}`);
-  if (!(el instanceof HTMLSelectElement)) return;
-  const viewMode = el.value === "team" ? "team" : "student";
+async function persistSurfacePublishMode(surface, picked) {
+  const viewMode = picked === "team" ? "team" : "student";
   const publishMode = viewMode === "team" ? "group_shared" : "individual";
   const item = lifecycleItemForSurface(surface);
   const id = Number(item?.id) || 0;
-  if (!id) {
-    // MCK-112 S1: no lifecycle row yet. Hold the choice until Publish;
-    // writing student_view here changed students' screens early.
-    surfaceModeIntent.set(surface, viewMode);
-    saveSurfaceModeIntent();
+  groupModeIntent.set(`s:${surface}`, viewMode === "team" ? "group" : "individual");
+  saveSurfaceModeIntent();
+  if (!id || surface !== "canvas") {
+    // MCK-112: no lifecycle row yet (or artifact media, whose row may not
+    // allow group_shared). Hold the choice until Publish; writing the
+    // projection map here changed students' screens early.
+    paintGroupSetupSurfaces();
     return;
   }
   const index = lastLiveItems.findIndex((row) => Number(row.id) === id);
@@ -9774,15 +9903,6 @@ async function persistSurfacePublishMode(surface) {
     paintStudentViewControls();
     paintSurfacePublishing();
   }
-}
-
-/**
- * PATCH one Publish mode dropdown onto the lifecycle row.
- * @param {"media"|"canvas"|"slides"} surface
- * @returns {Promise<void>}
- */
-function patchStudentViewFromControl(surface) {
-  return persistSurfacePublishMode(surface);
 }
 
 /**
@@ -9830,11 +9950,84 @@ async function persistQuestionMode(liveItemId, rawMode) {
   }
 }
 
-for (const surface of ["media", "canvas", "slides"]) {
-  $(`live-view-${surface}`)?.addEventListener("change", () => {
-    persistSurfacePublishMode(surface).catch((err) =>
-      showError("#ap-overlay-error", err)
-    );
+/**
+ * MCK-112: one delegated handler for every "Students work" control,
+ * question cards and surfaces alike. Picking changes nothing for
+ * students and never touches Run as Group; it only stores the choice on
+ * the inactive item (or holds it client-side until Publish).
+ * @param {Event} event
+ */
+async function onGroupSetupChange(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  const groupQ = target?.closest("input[data-group-setup-groupq]");
+  if (groupQ instanceof HTMLInputElement) {
+    const artifact = (lastActiveMedia && lastActiveMedia.artifact) || {};
+    try {
+      await patchArtifactTeacherFlags({
+        hot_cold_visible: Boolean(artifact.hot_cold_visible),
+        group_q: groupQ.checked,
+        accuracy_margin: artifact.accuracy_margin,
+      });
+    } catch (_err) {
+      groupQ.checked = !groupQ.checked;
+      showError("#ap-overlay-error", new Error(GROUP_SETUP_COPY.saveFailed));
+    }
+    return;
+  }
+  const radio = target?.closest("input[data-group-setup]");
+  if (!(radio instanceof HTMLInputElement) || !radio.checked) return;
+  const key = radio.getAttribute("data-group-setup") || "";
+  const pick = radio.value === "group" ? "group" : "individual";
+  // A mode change closes an open "Show teams and publish" confirm.
+  settleGroupPublishConfirm(key, false);
+  const previous = groupModeIntent.get(key);
+  groupModeIntent.set(key, pick);
+  const [scope, id] = key.split(":");
+  try {
+    if (scope === "s" && id === "media" && radio.closest("[data-group-setup-live]")) {
+      groupModeIntent.delete(key);
+      saveSurfaceModeIntent();
+      await applyLiveArtifactMediaPick(pick);
+    } else if (scope === "s") {
+      await persistSurfacePublishMode(id, pick === "group" ? "team" : "student");
+      if (id === "media" && pick !== "group") await clearArtifactGroupQ();
+    } else {
+      const token =
+        pick === "group"
+          ? radio.closest("[data-group-token]")?.getAttribute("data-group-token") || "individual"
+          : "individual";
+      paintLiveQuestionCards();
+      await persistQuestionMode(Number(id) || 0, token);
+    }
+  } catch (_err) {
+    if (previous) groupModeIntent.set(key, previous);
+    else groupModeIntent.delete(key);
+    showError("#ap-overlay-error", new Error(GROUP_SETUP_COPY.saveFailed));
+  }
+  if (scope === "s") paintGroupSetupSurfaces();
+  else paintLiveQuestionCards();
+}
+
+/**
+ * "Set up teams": move focus to the Teams setup stepper. No stage change.
+ */
+function focusTeamSetup() {
+  const strip = $("teams-option-card");
+  if (strip instanceof HTMLElement && !strip.hidden) {
+    strip.scrollIntoView?.({ block: "nearest" });
+  }
+  const stepper = $("ap-n-teams");
+  if (stepper instanceof HTMLElement) stepper.focus();
+}
+
+for (const hostId of ["live-question-list", "live-frames"]) {
+  $(hostId)?.addEventListener("change", (event) => {
+    void onGroupSetupChange(event);
+  });
+  $(hostId)?.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const teams = target?.closest("button[data-group-setup-teams]");
+    if (teams instanceof HTMLButtonElement) focusTeamSetup();
   });
 }
 
@@ -9869,27 +10062,6 @@ document.querySelectorAll("#text-ride-cons [data-cons-item]").forEach((btn) => {
   });
 });
 
-$("live-question-list")?.addEventListener("click", async (event) => {
-  const submission = event.target.closest("button[data-submission-value]");
-  if (submission instanceof HTMLButtonElement) {
-    const id = Number(submission.dataset.submissionMode) || 0;
-    const value =
-      submission.dataset.submissionValue === "group_submit" ? "group_submit" : "individual";
-    groupSubmissionIntent.set(id, value);
-    // A mode change closes an open "Show teams and publish" confirm.
-    settleGroupPublishConfirm(`q:${id}`, false);
-    try {
-      // MCK-112 S1: picking Group only stores the choice on the inactive
-      // item. It never turns class-wide Run as Group on; Publish asks.
-      await persistQuestionMode(id, value);
-    } catch (err) {
-      showError("#ap-overlay-error", err);
-    }
-    paintLiveQuestionCards();
-    return;
-  }
-});
-
 $("live-question-list")?.addEventListener("change", async (event) => {
   const resultToggle = event.target.closest("[data-live-results-toggle]");
   if (resultToggle instanceof HTMLInputElement) {
@@ -9914,30 +10086,6 @@ $("live-question-list")?.addEventListener("change", async (event) => {
       showError("#ap-overlay-error", err);
     }
     return;
-  }
-  const publishMode = event.target.closest("select[data-publish-live-mode]");
-  if (publishMode instanceof HTMLSelectElement) {
-    const id = Number(publishMode.getAttribute("data-publish-live-mode")) || 0;
-    const value = canonicalPublishMode(publishMode.value);
-    openPublishIntent.set(
-      id,
-      value === "group_consensus" ? "group_consensus" : "individual"
-    );
-    settleGroupPublishConfirm(`q:${id}`, false);
-    try {
-      await persistQuestionMode(id, value);
-    } catch (err) {
-      showError("#ap-overlay-error", err);
-    }
-    paintLiveQuestionCards();
-    return;
-  }
-  const select = event.target.closest("select[data-question-view]");
-  if (!(select instanceof HTMLSelectElement)) return;
-  try {
-    await setQuestionStudentView(select.dataset.questionView || "", select.value);
-  } catch (err) {
-    showError("#ap-overlay-error", err);
   }
 });
 
