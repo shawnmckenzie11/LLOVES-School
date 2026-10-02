@@ -73,8 +73,11 @@ from celebration import (  # noqa: E402
     bind_celebration_secret,
     build_celebration_board,
     celebration_candidates,
+    forget_featured_students,
     note_celebrations_unfrozen,
     public_celebration_board,
+    reward_appearances,
+    reward_title,
     set_featured_award,
 )
 from curriculum import seed_curriculum  # noqa: E402
@@ -200,6 +203,8 @@ from paths import (  # noqa: E402
     public_brand,
 )
 from student_portal import (  # noqa: E402
+    EARNED_AVATAR_SRC,
+    EARNED_AVATARS,
     EARNED_CHARACTERS,
     EXIT_FEEDBACK_SESSION_KEY,
     HOW_WAS_CLASS,
@@ -2727,6 +2732,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         school.delete_student_live_result_snapshots(
             class_id, [sid for sid, _ in removed]
         )
+        # Reward rows follow the roster row; SQLite can reuse its id (MCK-116).
+        school.delete_avatar_reward_grants(class_id, [sid for sid, _ in removed])
+        forget_featured_students(school, class_id, [sid for sid, _ in removed])
         dash["class"] = school.enrich_class(dash["class"])
         return jsonify({"ok": True, "class": dash["class"], "students": dash.get("students")})
 
@@ -4408,6 +4416,79 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return None
         return _ended_student_response(as_json=as_json)
 
+    AVATAR_REWARD_SYNCED_KEY = "avatar_reward_synced"
+    AVATAR_REWARD_PROMPTED_KEY = "avatar_reward_prompted"
+
+    def _avatar_reward_view(ctx: dict[str, Any], class_id: int, student_id: int):
+        """MCK-116 reward pop-up state for one roster student, or None.
+
+        Once per join (visit token) it records a pending grant for each
+        appearance on the Celebrations board (``reward_appearances``; the
+        frozen board while frozen). Grants are idempotent per appearance, so
+        another login never re-grants. The pop-up itself only shows while the
+        live session is in JOIN with no live question (Minds-On idle;
+        ``live_session_reward_window_open``), never mid-class or in TEAMS, and
+        opens on its own once per join; the slot or chip reopens it.
+
+        Args:
+            ctx: ``_student_live_context()`` for the request.
+            class_id: Roster class.
+            student_id: Roster student.
+
+        Returns:
+            ``{grants, choices, auto_open}`` for ``_avatar_reward.html``.
+        """
+        mark = f"{int(class_id)}:{int(student_id)}:{ctx.get('visit_token') or ''}"
+        try:
+            if session.get(AVATAR_REWARD_SYNCED_KEY) != mark:
+                mine = [
+                    row
+                    for row in reward_appearances(school)
+                    if row["class_id"] == int(class_id) and row["student_id"] == int(student_id)
+                ]
+                if mine:
+                    school.sync_avatar_reward_grants(
+                        int(class_id),
+                        int(student_id),
+                        mine,
+                        catalogue_size=len(EARNED_CHARACTERS),
+                    )
+                session[AVATAR_REWARD_SYNCED_KEY] = mark
+            pending = school.pending_avatar_reward_grants(int(class_id), int(student_id))
+        except Exception:  # noqa: BLE001 - a reward must never block joining
+            logger.exception(
+                "avatar reward lookup failed class=%s student=%s", class_id, student_id
+            )
+            return None
+        if not pending:
+            return None
+        try:
+            live_id = int(ctx.get("live_session_id") or 0)
+            open_now = bool(live_id) and school.live_session_reward_window_open(live_id)
+        except Exception:  # noqa: BLE001 - unknown state counts as mid-class
+            open_now = False
+        if not open_now:
+            return None
+        owned = set(earned_avatar_keys(school, int(class_id), int(student_id)))
+        auto_open = session.get(AVATAR_REWARD_PROMPTED_KEY) != mark
+        session[AVATAR_REWARD_PROMPTED_KEY] = mark
+        return {
+            "grants": [
+                {"id": int(row["id"]), "award_title": reward_title(str(row["source"]))}
+                for row in pending
+            ],
+            "choices": [
+                {
+                    "key": key,
+                    "label": EARNED_AVATARS[key],
+                    "img": EARNED_AVATAR_SRC.format(key=key),
+                    "owned": key in owned,
+                }
+                for key in EARNED_CHARACTERS
+            ],
+            "auto_open": auto_open,
+        }
+
     def _student_advance():
         """Redirect to pick, landing, or the next unfinished student step."""
         ctx = _student_live_context()
@@ -4653,7 +4734,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if nxt != "student_character":
             return _student_advance()
         student_id = int(student_id)
-        # MCK-116: reward avatars this student owns (empty until slice S1 lands).
+        # MCK-116: reward avatars this student owns (claimed rewards, S1).
         earned = earned_avatar_keys(school, class_id, student_id)
         if request.method == "POST":
             character = (request.form.get("character") or "").strip()
@@ -4670,6 +4751,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     school_name=SCHOOL_NAME,
                     visit_token=visit_token,
                     codename=str(ctx.get("codename") or ""),
+                    reward=_avatar_reward_view(ctx, class_id, student_id),
+                    reward_next_url=student_url_with_token("student_home", visit_token),
                 )
             return _student_advance()
         return render_template(
@@ -4680,6 +4763,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             school_name=SCHOOL_NAME,
             visit_token=visit_token,
             codename=str(ctx.get("codename") or ""),
+            reward=_avatar_reward_view(ctx, class_id, student_id),
+            reward_next_url=student_url_with_token("student_home", visit_token),
         )
 
     @app.route("/student/home")
@@ -4738,6 +4823,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             }
         if payload.get("celebrate") and payload.get("exit_feedback", {}).get("token"):
             session[EXIT_FEEDBACK_SESSION_KEY] = payload["exit_feedback"]["token"]
+        reward = None
+        if not unmatched and not payload.get("scoring") and not payload.get("celebrate"):
+            reward = _avatar_reward_view(ctx, class_id, int(student_id))
         return render_template(
             "student/home.html",
             offering=offering,
@@ -4745,6 +4833,84 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             school_name=SCHOOL_NAME,
             visit_token=visit_token,
             codename=str(ctx.get("codename") or payload.get("me", {}).get("codename") or ""),
+            reward=reward,
+            reward_next_url="",
+        )
+
+    @app.route("/api/student/avatar-reward/claim", methods=["POST"])
+    @student_required
+    def api_student_avatar_reward_claim():
+        """Pick one reward avatar for a pending Celebrations grant (MCK-116).
+
+        Body ``{grant_id, avatar_key, visit_token}``. Only the caller's own
+        pending grant can be claimed, once; a repeat returns the stored pick
+        (``already``). The pick is a permanent unlock and also becomes the
+        current avatar (best effort). 409 once the class is under way (the
+        pop-up's MED-1 rule): no claim and no avatar change mid-class.
+        """
+        denied = _require_active_live_attendee(as_json=True)
+        if denied is not None:
+            return denied
+        ident = _student_identity()
+        if ident is None:
+            return jsonify(
+                {"ok": False, "error": "Not joined.", "redirect": url_for("landing")}
+            ), 401
+        _offering, class_id, student_id = ident
+        if student_id in (None, ""):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        class_id = int(class_id)
+        student_id = int(student_id)
+        body = request.get_json(silent=True) or {}
+        key = str(body.get("avatar_key") or "").strip()
+        try:
+            grant_id = int(body.get("grant_id"))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "Choose an avatar."}), 400
+        if key not in EARNED_CHARACTERS:
+            return jsonify({"ok": False, "error": "Choose an avatar."}), 400
+        try:
+            live_id = int((_student_live_context() or {}).get("live_session_id") or 0)
+            open_now = bool(live_id) and school.live_session_reward_window_open(live_id)
+        except Exception:  # noqa: BLE001 - unknown state counts as mid-class
+            logger.exception("avatar reward window check failed class=%s", class_id)
+            open_now = False
+        if not open_now:
+            return jsonify(
+                {"ok": False, "error": "Class is under way.", "closed": True}
+            ), 409
+        result = school.claim_avatar_reward(grant_id, class_id, student_id, key)
+        status = result["status"]
+        if status == "missing":
+            return jsonify({"ok": False, "error": "Not found."}), 404
+        if status == "owned":
+            return jsonify({"ok": False, "error": "Choose an avatar."}), 400
+        stored = str(result.get("avatar_key") or key)
+        if status == "claimed":
+            try:
+                school.game.set_character(class_id, student_id, stored)
+            except Exception:  # noqa: BLE001 - the unlock stands either way
+                logger.exception(
+                    "avatar reward set_character failed class=%s student=%s",
+                    class_id,
+                    student_id,
+                )
+        pending = school.pending_avatar_reward_grants(class_id, student_id)
+        nxt = (
+            {"grant_id": int(pending[0]["id"]), "award_title": reward_title(str(pending[0]["source"]))}
+            if pending
+            else None
+        )
+        return jsonify(
+            {
+                "ok": True,
+                "already": status == "already",
+                "avatar_key": stored,
+                "name": EARNED_AVATARS.get(stored, ""),
+                "src": EARNED_AVATAR_SRC.format(key=stored) if stored in EARNED_AVATARS else "",
+                "next": nxt,
+                "remaining": len(pending),
+            }
         )
 
     @app.route("/student/pick", methods=["GET", "POST"])
@@ -8355,6 +8521,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             )
             # Saved End-of-class answers carry the name; drop them too.
             school.delete_student_live_result_snapshots(class_id, [student_id])
+            school.delete_avatar_reward_grants(class_id, [student_id])
+            # MCK-116 MED-2: a reused id must not inherit the Shoutout.
+            forget_featured_students(school, class_id, [student_id])
             dash["class"] = school.enrich_class(dash["class"])
             return dash
 

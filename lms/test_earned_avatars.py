@@ -202,8 +202,8 @@ class EarnedAvatarArtTests(unittest.TestCase):
 class EarnedSeamAndChoicesTests(unittest.TestCase):
     """The S1 seam and character_choices()."""
 
-    def test_seam_returns_nothing_earned_until_s1(self) -> None:
-        """No store yet: every student has earned nothing."""
+    def test_seam_returns_nothing_earned_without_a_store(self) -> None:
+        """A school object with no reward store: every student has earned nothing."""
         got = earned_avatar_keys(object(), 1, 1)
         self.assertEqual(got, ())
         self.assertIsInstance(got, tuple)
