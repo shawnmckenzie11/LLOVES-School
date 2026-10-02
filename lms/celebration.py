@@ -9,12 +9,19 @@ Cards:
 * **Most Engaged** — one card per class in ``ENGAGED_COURSES``: most
   distinct class days present, then participation points; ties list every
   tied student
+
+MCK-118 freeze: while ``CELEBRATIONS_FROZEN`` is True the public Most
+Engaged cards come from one saved snapshot (school setting
+``SETTING_PUBLIC_SNAPSHOT``) instead of being recomputed after every class.
+The ranking code below is unchanged and still runs for the staff page.
+Set ``CELEBRATIONS_FROZEN = False`` to turn live updates back on.
 """
 
 from __future__ import annotations
 
 import json
 import time
+from datetime import datetime, timezone
 from threading import Lock
 from typing import Any
 
@@ -27,6 +34,18 @@ SETTING_FEATURED_AWARD = "celebration_featured_award"
 # Section codes (``section_code``) that each get their own Most Engaged card.
 ENGAGED_COURSES: tuple[str, ...] = ("MCR3U", "MCR3U-2", "MCF3M")
 PUBLIC_BOARD_TTL_SECONDS = 60.0
+
+# MCK-118: the one switch for the public board. True serves the saved Most
+# Engaged snapshot. False recomputes Most Engaged live, as before the freeze.
+# Turning it back on: set this to False and deploy. No data is deleted either
+# way, and the snapshot row stays in ``school_settings`` until refreshed.
+CELEBRATIONS_FROZEN = True
+# JSON ``{"taken_at": ISO-8601 UTC, "cards": [...]}``. Each card keeps every
+# tied student: ``names`` in display order and ``students`` as
+# ``{class_id, student_id, name}``. Taken the first time the frozen board is
+# read with no snapshot saved. Delete the row (or call
+# ``refresh_public_celebration_snapshot``) to take a new one.
+SETTING_PUBLIC_SNAPSHOT = "celebration_public_snapshot"
 
 # Every user-visible celebrations string. Wonder replaces these placeholders.
 WONDER_COPY: dict[str, str] = {
@@ -256,6 +275,7 @@ def _engaged_card(course: str, leaders: list[dict[str, Any]]) -> dict[str, Any]:
     if top["points"]:
         detail += f" · {top['points']:g} pts"
     card["name"] = ", ".join(s["name"] for s in leaders)
+    card["names"] = [s["name"] for s in leaders]
     card["detail"] = detail
     card["students"] = [
         {"class_id": int(s["class_id"]), "student_id": int(s["student_id"])}
@@ -333,6 +353,64 @@ def build_celebration_board(school: Any) -> dict[str, Any]:
     return {"cards": cards}
 
 
+def _public_labels(school: Any, card: dict[str, Any]) -> list[tuple[dict[str, int], str]]:
+    """Public name for every student on a card, in card order.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        card: Internal board card with ``students`` ids, or a Shoutout card
+            with ``class_id`` and ``student_id``.
+
+    Returns:
+        ``(ids, label)`` pairs. Students missing from the roster are skipped.
+    """
+    course = str(card.get("course") or "").strip()
+    refs = list(card.get("students") or [])
+    if not refs and card.get("class_id") is not None and card.get("student_id") is not None:
+        refs = [{"class_id": card["class_id"], "student_id": card["student_id"]}]
+    out: list[tuple[dict[str, int], str]] = []
+    for ids in refs:
+        try:
+            class_id = int(ids["class_id"])
+            student_id = int(ids["student_id"])
+            student = school.game.get_student(class_id, student_id)
+        except (KeyError, TypeError, ValueError):
+            student = None
+        if student is not None:
+            out.append(
+                (
+                    {"class_id": class_id, "student_id": student_id},
+                    public_student_label(student, course),
+                )
+            )
+    return out
+
+
+def _public_shape(card: dict[str, Any], names: list[str]) -> dict[str, Any] | None:
+    """Public JSON card: no roster ids, every tied name kept.
+
+    Args:
+        card: Internal or snapshot card (``key``, ``course``, ``detail``...).
+        names: Public names in display order.
+
+    Returns:
+        ``key``, ``name`` (names joined with ", "), ``names``, ``course``,
+        ``detail``, ``title``, and ``kicker``, or None when no name is left.
+    """
+    names = [str(n).strip() for n in names if str(n or "").strip()]
+    if not names:
+        return None
+    return {
+        "key": str(card.get("key") or ""),
+        "name": ", ".join(names),
+        "names": names,
+        "course": str(card.get("course") or "").strip(),
+        "detail": str(card.get("detail") or ""),
+        "title": str(card.get("title") or ""),
+        "kicker": str(card.get("kicker") or ""),
+    }
+
+
 def _public_card(school: Any, card: dict[str, Any]) -> dict[str, Any] | None:
     """One public card, or None when the card has no winner.
 
@@ -341,48 +419,113 @@ def _public_card(school: Any, card: dict[str, Any]) -> dict[str, Any] | None:
         card: Internal board card, including roster ids.
 
     Returns:
-        ``name``, ``course``, ``detail``, ``title``, ``kicker``, and ``key``,
-        or None when ``name`` is empty.
+        ``_public_shape`` output, or None when ``name`` is empty.
     """
     if not str(card.get("name") or "").strip():
         return None
-    course = str(card.get("course") or "").strip()
-    name = str(card.get("name") or "").strip()
-    if card.get("students"):
-        labels = []
-        for ids in card["students"]:
-            try:
-                student = school.game.get_student(
-                    int(ids["class_id"]), int(ids["student_id"])
-                )
-            except (KeyError, TypeError, ValueError):
-                student = None
-            if student is not None:
-                labels.append(public_student_label(student, course))
-        name = ", ".join(labels) if labels else name
-    class_id = card.get("class_id")
-    student_id = card.get("student_id")
-    if class_id is not None and student_id is not None:
-        try:
-            student = school.game.get_student(int(class_id), int(student_id))
-        except (KeyError, TypeError, ValueError):
-            student = None
-        if student is not None:
-            name = public_student_label(student, course)
-    if not name:
+    labels = [label for _ids, label in _public_labels(school, card)]
+    if not labels:
+        labels = list(card.get("names") or []) or [str(card.get("name") or "")]
+    return _public_shape(card, labels)
+
+
+def _engaged_snapshot_cards(school: Any) -> list[dict[str, Any]]:
+    """Most Engaged cards with a winner, ready to store in the snapshot.
+
+    Args:
+        school: ``SchoolDB`` instance.
+
+    Returns:
+        One dict per course with ``names`` and ``students`` (ids plus the
+        public name) for every tied leader.
+    """
+    out: list[dict[str, Any]] = []
+    for card in build_celebration_board(school).get("cards") or []:
+        if card.get("key") != "engaged" or not str(card.get("name") or "").strip():
+            continue
+        pairs = _public_labels(school, card)
+        if not pairs:
+            continue
+        out.append(
+            {
+                "key": "engaged",
+                "title": str(card.get("title") or ""),
+                "kicker": str(card.get("kicker") or ""),
+                "course": str(card.get("course") or ""),
+                "detail": str(card.get("detail") or ""),
+                "names": [label for _ids, label in pairs],
+                "students": [dict(ids, name=label) for ids, label in pairs],
+            }
+        )
+    return out
+
+
+def _read_snapshot(school: Any) -> dict[str, Any] | None:
+    """Saved public snapshot, or None when unset or unreadable."""
+    raw = school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, "")
+    if not str(raw or "").strip():
         return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict) or not isinstance(payload.get("cards"), list):
+        return None
+    return payload
+
+
+def _new_snapshot(school: Any) -> dict[str, Any]:
+    """Build a snapshot payload from the live ranking right now."""
     return {
-        "key": str(card.get("key") or ""),
-        "name": name,
-        "course": course,
-        "detail": str(card.get("detail") or ""),
-        "title": str(card.get("title") or ""),
-        "kicker": str(card.get("kicker") or ""),
+        "taken_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "cards": _engaged_snapshot_cards(school),
     }
 
 
+def frozen_celebration_snapshot(school: Any) -> dict[str, Any]:
+    """The saved Most Engaged snapshot, taking it once if none is saved.
+
+    Two workers racing on the first read both build a snapshot, but only the
+    first insert lands; both then serve the stored row.
+
+    Args:
+        school: ``SchoolDB`` instance.
+
+    Returns:
+        ``{"taken_at": ..., "cards": [...]}``.
+    """
+    saved = _read_snapshot(school)
+    if saved is not None:
+        return saved
+    fresh = _new_snapshot(school)
+    school.add_school_setting_if_missing(SETTING_PUBLIC_SNAPSHOT, json.dumps(fresh))
+    return _read_snapshot(school) or fresh
+
+
+def refresh_public_celebration_snapshot(school: Any) -> dict[str, Any]:
+    """Replace the frozen snapshot with the live ranking right now.
+
+    Not wired to any route. Run it from a shell when Shawn wants the frozen
+    board to show newer Most Engaged results without unfreezing.
+
+    Args:
+        school: ``SchoolDB`` instance.
+
+    Returns:
+        The new snapshot payload.
+    """
+    fresh = _new_snapshot(school)
+    school.set_school_setting(SETTING_PUBLIC_SNAPSHOT, json.dumps(fresh))
+    clear_public_celebration_memo()
+    return fresh
+
+
 def _assemble_public_board(school: Any) -> dict[str, Any]:
-    """Build the public card list from the live ranking board.
+    """Build the public card list.
+
+    The Shoutout card always follows the teacher's current pick. Most
+    Engaged comes from the snapshot while ``CELEBRATIONS_FROZEN`` is True,
+    else from the live ranking.
 
     Args:
         school: ``SchoolDB`` instance.
@@ -391,11 +534,69 @@ def _assemble_public_board(school: Any) -> dict[str, Any]:
         ``{cards: [...]}`` with ids removed and empty cards dropped.
     """
     cards = []
+    if CELEBRATIONS_FROZEN:
+        award = _public_card(school, _featured_card(school))
+        if award is not None:
+            cards.append(award)
+        for card in frozen_celebration_snapshot(school).get("cards") or []:
+            if not isinstance(card, dict):
+                continue
+            public = _public_shape(card, list(card.get("names") or []))
+            if public is not None:
+                cards.append(public)
+        return {"cards": cards}
     for card in build_celebration_board(school).get("cards") or []:
         public = _public_card(school, card)
         if public is not None:
             cards.append(public)
     return {"cards": cards}
+
+
+def celebrated_students(school: Any) -> list[dict[str, Any]]:
+    """Students the public board is celebrating right now, with roster ids.
+
+    For the reward pop-up (pick an avatar on next login). One row per
+    (card, student): a tie gives one row per tied student, and a student on
+    two cards appears twice. Ids are game-show ``students`` rows, which are
+    per class, so the same learner in two sections has two different ids.
+
+    Args:
+        school: ``SchoolDB`` instance.
+
+    Returns:
+        ``{card, course, class_id, student_id, name}`` rows in board order.
+    """
+    rows: list[dict[str, Any]] = []
+    award = _featured_card(school)
+    if award.get("name"):
+        for ids, label in _public_labels(school, award):
+            rows.append(
+                {"card": "award", "course": str(award.get("course") or ""), **ids, "name": label}
+            )
+    if CELEBRATIONS_FROZEN:
+        for card in frozen_celebration_snapshot(school).get("cards") or []:
+            for ref in card.get("students") or []:
+                try:
+                    rows.append(
+                        {
+                            "card": "engaged",
+                            "course": str(card.get("course") or ""),
+                            "class_id": int(ref["class_id"]),
+                            "student_id": int(ref["student_id"]),
+                            "name": str(ref.get("name") or ""),
+                        }
+                    )
+                except (KeyError, TypeError, ValueError):
+                    continue
+        return rows
+    for card in build_celebration_board(school).get("cards") or []:
+        if card.get("key") != "engaged" or not card.get("name"):
+            continue
+        for ids, label in _public_labels(school, card):
+            rows.append(
+                {"card": "engaged", "course": str(card.get("course") or ""), **ids, "name": label}
+            )
+    return rows
 
 
 def clear_public_celebration_memo() -> None:
@@ -419,7 +620,13 @@ def _copy_public_payload(payload: dict[str, Any]) -> dict[str, Any]:
     Returns:
         Shallow copy of the payload and each card.
     """
-    return {"cards": [dict(card) for card in payload.get("cards") or []]}
+    cards = []
+    for card in payload.get("cards") or []:
+        copied = dict(card)
+        if isinstance(copied.get("names"), list):
+            copied["names"] = list(copied["names"])
+        cards.append(copied)
+    return {"cards": cards}
 
 
 def public_celebration_board(
@@ -431,7 +638,10 @@ def public_celebration_board(
 
     Only cards with a winner are returned. ``class_id`` and ``student_id``
     are stripped. Names follow ``public_student_label``: Codename, else
-    first name, else ``A student in <course>``.
+    first name, else ``A student in <course>``. Each card lists every tied
+    student in ``names``; ``name`` is the same list joined with ", ".
+    While ``CELEBRATIONS_FROZEN`` is True, Most Engaged comes from the saved
+    snapshot (see ``frozen_celebration_snapshot``).
 
     Args:
         school: ``SchoolDB`` instance.

@@ -26929,6 +26929,28 @@ class SchoolDB(LovesDB):
             self.conn.commit()
         return {"key": str(key), "value": str(value)}
 
+    def add_school_setting_if_missing(self, key: str, value: str) -> bool:
+        """Insert one school-wide setting only when the key is not stored yet.
+
+        Args:
+            key: Settings primary key.
+            value: Stored string.
+
+        Returns:
+            True when this call wrote the row, False when it already existed.
+        """
+        with self._lock:
+            cur = self.conn.execute(
+                """
+                INSERT INTO school_settings (key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO NOTHING
+                """,
+                (str(key), str(value), _now()),
+            )
+            self.conn.commit()
+        return bool(cur.rowcount)
+
     def only_live_class_days(self) -> bool:
         """True when Admin requires live-class-day log validation."""
         try:
