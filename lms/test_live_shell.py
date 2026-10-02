@@ -2816,5 +2816,85 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn(".live-submission-switch", css)
 
 
+    def test_mck112_s1_confirm_rereads_mode_and_survives_repaints(self) -> None:
+        """MCK-112 S1 gate: the Publish-on-Group confirm stays honest.
+
+        Ops bag smoke-pr208-4b4bd8a: (1) switching the card to Individual
+        while the confirm was open still published Group and showed teams;
+        (2) live repaints replaced the card under the open confirm, so focus
+        fell to the page body and Esc stopped cancelling; (3) a surface pick
+        held before a lifecycle row existed was lost on reload. Ported onto
+        the shared Students work control (S2/S3).
+        """
+
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        publish = js.split("async function publishLifecycleItem(")[1].split(
+            "async function closeLifecycleItem("
+        )[0]
+        confirm_at = publish.index("await confirmGroupPublish(")
+        reread_at = publish.index("publishMode = questionPublishModeNow(liveItemId)")
+        patch_at = publish.index("patchTeacherState({ run_as_group: true }")
+        self.assertLess(confirm_at, reread_at)
+        self.assertLess(reread_at, patch_at)
+        self.assertIn(
+            "if (groupTokenNeedsTeamsShown(publishMode) && !teacherState.run_as_group)",
+            publish,
+        )
+        now = js.split("function questionPublishModeNow(")[1].split("\n}\n")[0]
+        self.assertLess(
+            now.index("groupModeIntent.get(`q:${id}`)"), now.index("selectedPublishMode(id)")
+        )
+        surface_publish = js.split("async function publishSurface(")[1].split(
+            "async function closeSurface("
+        )[0]
+        self.assertLess(
+            surface_publish.index("await confirmGroupPublish("),
+            surface_publish.index('if (surfacePublishSelection(surface) !== "team") selected = "student";'),
+        )
+        self.assertLess(
+            surface_publish.index('if (surfacePublishSelection(surface) !== "team") selected = "student";'),
+            surface_publish.index("patchTeacherState({ run_as_group: true }"),
+        )
+        # A Students work change closes the open confirm before it saves.
+        change = js.split("async function onGroupSetupChange(")[1].split(
+            "function focusTeamSetup("
+        )[0]
+        radio = change.split('const radio = target?.closest("input[data-group-setup]");')[1]
+        self.assertLess(
+            radio.index("settleGroupPublishConfirm(key, false)"),
+            radio.index("persistQuestionMode("),
+        )
+        # Repaints keep the card under an open confirm and restore focus.
+        paint = js.split("function paintLiveQuestionCards()")[1].split(
+            "function individualLifecycleResultsHtml("
+        )[0]
+        self.assertIn("writeQuestionCardsKeepingConfirms(host, cards", paint)
+        self.assertNotIn("host.innerHTML = cards", paint)
+        keep = js.split("function writeQuestionCardsKeepingConfirms(")[1].split(
+            "function individualLifecycleResultsHtml("
+        )[0]
+        self.assertIn("groupPublishConfirms.keys()", keep)
+        self.assertIn("if (!keep.has(node)) node.remove();", keep)
+        self.assertIn("host.insertBefore(node, at)", keep)
+        self.assertIn("restoreGroupConfirmFocus(focused)", keep)
+        # Esc cancels even when focus fell to the page body.
+        esc = js.split('if (event.key !== "Escape" || !groupPublishConfirms.size) return;')[1]
+        esc = esc.split("});")[0]
+        self.assertIn("active === document.body", esc)
+        self.assertIn("settleGroupPublishConfirm(key, false)", esc)
+        # Held surface picks survive a reload (sessionStorage, per session).
+        self.assertIn("function loadSurfaceModeIntent(", js)
+        self.assertIn("window.sessionStorage.setItem(key", js)
+        selection = js.split("function surfacePublishSelection(")[1].split(
+            "function surfaceStatus("
+        )[0]
+        self.assertIn("loadSurfaceModeIntent();", selection)
+        surface = js.split("async function persistSurfacePublishMode(")[1].split(
+            "async function persistQuestionMode("
+        )[0]
+        self.assertIn("saveSurfaceModeIntent();", surface)
+        self.assertIn("saveSurfaceModeIntent();", surface_publish)
+
+
 if __name__ == "__main__":
     unittest.main()
