@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import html
 import json
 import os
@@ -22,12 +24,22 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+import celebration  # noqa: E402
 from celebration import (  # noqa: E402
+    CELEBRATIONS_FROZEN_ENV,
     SETTING_FEATURED_AWARD,
+    SETTING_FREEZE_EPOCH,
+    SETTING_PUBLIC_SNAPSHOT,
     WONDER_COPY,
+    bind_celebration_secret,
     build_celebration_board,
+    celebrated_students,
+    celebrations_frozen,
     clear_public_celebration_memo,
+    name_sort_key,
+    note_celebrations_unfrozen,
     public_celebration_board,
+    refresh_public_celebration_snapshot,
 )
 
 
@@ -37,6 +49,10 @@ class CelebrationTests(unittest.TestCase):
     def setUp(self) -> None:
         """Isolated app with one assigned teacher."""
         clear_public_celebration_memo()
+        env = patch.dict(os.environ)
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop(CELEBRATIONS_FROZEN_ENV, None)
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         self.app = create_app(
@@ -199,6 +215,8 @@ class CelebrationTests(unittest.TestCase):
         self.assertIn("class=\"calc-coming-soon\"", body)
         self.assertIn('class="calc-sparkle-dot"', body)
         self.assertIn("pulseSparkle", body)
+        self.assertIn("calc-winner-list", body)
+        self.assertIn("Array.isArray(card.names)", body)
         self.assertIn("is-pulse", body)
         css = anon.get("/static/lloves.css")
         self.assertEqual(css.status_code, 200)
@@ -207,6 +225,8 @@ class CelebrationTests(unittest.TestCase):
         self.assertIn("@keyframes calc-sparkle-pulse", css_text)
         self.assertIn("prefers-reduced-motion", css_text)
         self.assertIn("animation: none", css_text)
+        self.assertIn(".calc-winner-list", css_text)
+        self.assertIn("flex-wrap: wrap", css_text.split(".calc-winner-list", 1)[1])
         self.assertIn('class="calc-board"', body)
         self.assertIn('"/api/celebrations"', body)
         script = body.split("function syncLandingHash()", 1)[1]
@@ -284,8 +304,9 @@ class CelebrationTests(unittest.TestCase):
         for card in cards:
             self.assertEqual(
                 set(card),
-                {"key", "name", "course", "detail", "title", "kicker"},
+                {"key", "name", "names", "course", "detail", "title", "kicker"},
             )
+            self.assertEqual(card["names"], [card["name"]])
 
     def test_api_codename_wins_over_first_name(self) -> None:
         """A set Codename is the public name, not the first or last name."""
@@ -568,6 +589,526 @@ class CelebrationTests(unittest.TestCase):
             mcr_card["students"],
             [{"class_id": mcr_id, "student_id": mcr["Norah"]}],
         )
+
+    def _three_sections(self) -> dict[str, int]:
+        """Offering id per section code: MCR3U, MCR3U-2, and MCF3M."""
+        mcr3u = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]), ontario_code="MCR3U"
+        )
+        mcr3u_2 = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]),
+            ontario_code="MCR3U",
+            new_section=True,
+        )
+        return {
+            "MCR3U": int(mcr3u["id"]),
+            "MCR3U-2": int(mcr3u_2["id"]),
+            "MCF3M": int(self.offering["id"]),
+        }
+
+    def _tie_board(self, tied: int) -> dict[str, dict[str, int]]:
+        """Give every course ``tied`` students sharing the top score.
+
+        Each class also has one present student with fewer points and one
+        who never attended, so neither may join the tie.
+
+        Args:
+            tied: How many students share first place in each course.
+
+        Returns:
+            Section code to ``{codename: student_id}``.
+        """
+        rosters: dict[str, dict[str, int]] = {}
+        for course, offering_id in self._three_sections().items():
+            prefix = course.replace("-", "")
+            leaders = [f"{prefix}Lead{n}" for n in range(1, tied + 1)]
+            names = leaders + [f"{prefix}Close", f"{prefix}Absent"]
+            class_id = self._populate(names, offering_id)
+            ids = self._ids(class_id)
+            points = {ids[name]: 6 for name in leaders}
+            points[ids[f"{prefix}Close"]] = 5
+            self._log_day(
+                class_id,
+                "2026-09-09",
+                [ids[name] for name in leaders] + [ids[f"{prefix}Close"]],
+                points,
+            )
+            ids["_class_id"] = class_id
+            rosters[course] = ids
+        return rosters
+
+    def _assert_ties(self, rosters: dict[str, dict[str, int]], tied: int) -> None:
+        """Every course card lists exactly its ``tied`` leaders, in order."""
+        cards = self.app.test_client().get("/api/celebrations").get_json()["cards"]
+        engaged = {c["course"]: c for c in cards if c["key"] == "engaged"}
+        self.assertEqual(list(engaged), ["MCR3U", "MCR3U-2", "MCF3M"])
+        for course, card in engaged.items():
+            prefix = course.replace("-", "")
+            want = [f"{prefix}Lead{n}" for n in range(1, tied + 1)]
+            self.assertEqual(card["names"], want)
+            self.assertEqual(card["name"], ", ".join(want))
+            self.assertEqual(card["detail"], "1 class present · 6 pts")
+            self.assertNotIn(f"{prefix}Close", card["name"])
+            self.assertNotIn(f"{prefix}Absent", card["name"])
+        raw = self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT)
+        snapshot = json.loads(raw)
+        stored = {c["course"]: c for c in snapshot["cards"]}
+        rows = celebrated_students(self.school)
+        for course, ids in rosters.items():
+            prefix = course.replace("-", "")
+            want = [f"{prefix}Lead{n}" for n in range(1, tied + 1)]
+            # Ids and a fingerprint only: no names in the stored snapshot.
+            self.assertEqual(
+                [(r["class_id"], r["student_id"]) for r in stored[course]["students"]],
+                [(ids["_class_id"], ids[name]) for name in want],
+            )
+            for ref in stored[course]["students"]:
+                self.assertEqual(set(ref), {"class_id", "student_id", "fp"})
+            for name in want:
+                self.assertNotIn(name, raw)
+            self.assertEqual(
+                [
+                    (r["class_id"], r["student_id"], r["name"])
+                    for r in rows
+                    if r["card"] == "engaged" and r["course"] == course
+                ],
+                [(ids["_class_id"], ids[name], name) for name in want],
+            )
+
+    def test_two_way_tie_each_course(self) -> None:
+        """MCK-118: two students tied on top all show, in every course."""
+        self._assert_ties(self._tie_board(2), 2)
+
+    def test_three_way_tie_each_course(self) -> None:
+        """MCK-118: three students tied on top all show, in every course."""
+        self._assert_ties(self._tie_board(3), 3)
+
+    def test_frozen_by_default(self) -> None:
+        """MCK-118: frozen unless env CELEBRATIONS_FROZEN says 0/false/no/off."""
+        self.assertIs(celebrations_frozen(), True)
+        for raw, want in (("", True), ("1", True), ("yes", True), ("0", False),
+                          ("false", False), ("OFF", False), ("no", False)):
+            os.environ[CELEBRATIONS_FROZEN_ENV] = raw
+            self.assertIs(celebrations_frozen(), want, raw)
+
+    def _three_tie(self) -> tuple[int, dict[str, int]]:
+        """MCF3M class with Maple, Birch, and Cedar tied on one day."""
+        class_id = self._populate(["Maple", "Birch", "Cedar"])
+        ids = self._ids(class_id)
+        self._log_day(
+            class_id,
+            "2026-09-09",
+            [ids["Maple"], ids["Birch"], ids["Cedar"]],
+            {ids["Maple"]: 3, ids["Birch"]: 3, ids["Cedar"]: 3},
+        )
+        return class_id, ids
+
+    def _engaged_names(self) -> dict[str, list[str]]:
+        """Public Most Engaged names per course, memo cleared first."""
+        clear_public_celebration_memo()
+        cards = self.app.test_client().get("/api/celebrations").get_json()["cards"]
+        return {c["course"]: c["names"] for c in cards if c["key"] == "engaged"}
+
+    def test_frozen_board_ignores_new_classes(self) -> None:
+        """MCK-118: after the snapshot, new attendance leaves the winners alone.
+
+        The ranking still runs, unfreezing goes back to live results, and
+        refresh re-takes the snapshot.
+        """
+        class_id, ids = self._three_tie()
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Birch", "Cedar", "Maple"]})
+        snapshot = json.loads(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT))
+        self.assertTrue(snapshot["taken_at"].endswith("+00:00"))
+        self.assertEqual(snapshot["semester_id"], int(self.school.get_active_semester()["id"]))
+
+        self._log_day(class_id, "2026-09-11", [ids["Cedar"]], {ids["Cedar"]: 4})
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Birch", "Cedar", "Maple"]})
+        live = build_celebration_board(self.school)["cards"]
+        mcf3m = next(c for c in live if c["key"] == "engaged" and c["course"] == "MCF3M")
+        self.assertEqual(mcf3m["name"], "Cedar")
+        self.assertEqual(
+            json.loads(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT)), snapshot
+        )
+
+        refreshed = refresh_public_celebration_snapshot(self.school)
+        self.assertEqual(len(refreshed["cards"][0]["students"]), 1)
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Cedar"]})
+
+    def test_frozen_names_follow_roster_within_memo(self) -> None:
+        """MCK-118 HIGH-1: a roster delete and a Codename change reach the
+        frozen public page once the 60 s memo expires.
+        """
+        class_id, ids = self._three_tie()
+        started = time.monotonic()
+        first = public_celebration_board(self.school, now=started)
+        self.assertEqual(first["cards"][0]["names"], ["Birch", "Cedar", "Maple"])
+
+        deleted = self.client.post(
+            f"/api/classes/{class_id}/students/delete",
+            json={"student_id": ids["Birch"]},
+        )
+        self.assertEqual(deleted.status_code, 200, deleted.get_json())
+        self._rename_student(
+            class_id, ids["Maple"], codename="Moonbeam", first_name="Maple",
+            last_display="Pereira",
+        )
+        # Inside the memo window the old payload may still be served.
+        cached = public_celebration_board(self.school, now=started + 20)
+        self.assertEqual(cached["cards"][0]["names"], ["Birch", "Cedar", "Maple"])
+        after = public_celebration_board(self.school, now=started + 61)
+        self.assertEqual(after["cards"][0]["names"], ["Cedar", "Moonbeam"])
+        self.assertEqual(after["cards"][0]["name"], "Cedar, Moonbeam")
+        dumped = json.dumps(after)
+        for gone in ("Birch", "Maple", "Pereira"):
+            self.assertNotIn(gone, dumped)
+        raw = self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT)
+        for name in ("Birch", "Maple", "Cedar", "Moonbeam"):
+            self.assertNotIn(name, raw)
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Cedar", "Moonbeam"]})
+        rows = celebrated_students(self.school)
+        self.assertEqual(
+            [(r["student_id"], r["name"]) for r in rows],
+            [(ids["Cedar"], "Cedar"), (ids["Maple"], "Moonbeam")],
+        )
+
+        # Every frozen winner gone: the card is dropped, not refilled.
+        for name in ("Cedar", "Maple"):
+            self.client.post(
+                f"/api/classes/{class_id}/students/delete",
+                json={"student_id": ids[name]},
+            )
+        self.assertEqual(self._engaged_names(), {})
+
+    def test_reused_student_id_is_not_celebrated(self) -> None:
+        """MCK-118 LOW-5: a new student who gets a deleted winner's id is skipped."""
+        class_id = self._populate(["Birch", "Winner"])
+        ids = self._ids(class_id)
+        self.assertGreater(ids["Winner"], ids["Birch"])
+        self._log_day(class_id, "2026-09-09", [ids["Winner"]], {ids["Winner"]: 5})
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Winner"]})
+        self.client.post(
+            f"/api/classes/{class_id}/students/delete",
+            json={"student_id": ids["Winner"]},
+        )
+        added = self.client.post(
+            f"/api/classes/{class_id}/students", json={"codename": "Newkid"}
+        )
+        self.assertEqual(added.status_code, 200, added.get_json())
+        self.assertEqual(self._ids(class_id)["Newkid"], ids["Winner"])
+        self.assertEqual(self._engaged_names(), {})
+        self.assertEqual(
+            [r for r in celebrated_students(self.school) if r["card"] == "engaged"], []
+        )
+
+    def test_no_snapshot_until_someone_attends(self) -> None:
+        """MCK-118 MED-1: an empty board is never frozen; the next read retries."""
+        class_id = self._populate(["Maple", "Birch"])
+        ids = self._ids(class_id)
+        self.assertEqual(self._engaged_names(), {})
+        self.assertIsNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))
+        self._log_day(class_id, "2026-09-09", [ids["Maple"]], {ids["Maple"]: 1})
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Maple"]})
+        self.assertIsNotNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))
+
+    def test_no_snapshot_without_active_semester(self) -> None:
+        """MCK-118 MED-1: no active semester stores nothing."""
+        class_id, _ids = self._three_tie()
+        with patch.object(self.school, "get_active_semester", return_value=None):
+            self.assertEqual(self._engaged_names(), {})
+        self.assertIsNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Birch", "Cedar", "Maple"]})
+
+    def test_snapshot_from_another_semester_is_retaken(self) -> None:
+        """MCK-118 MED-1: the snapshot is keyed to the active semester."""
+        class_id, ids = self._three_tie()
+        self._engaged_names()
+        stale = json.loads(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT))
+        stale["semester_id"] = stale["semester_id"] + 1000
+        self.school.set_school_setting(SETTING_PUBLIC_SNAPSHOT, json.dumps(stale))
+        self._log_day(class_id, "2026-09-11", [ids["Cedar"]], {ids["Cedar"]: 4})
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Cedar"]})
+        fresh = json.loads(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT))
+        self.assertEqual(fresh["semester_id"], int(self.school.get_active_semester()["id"]))
+
+    def test_course_without_winner_is_added_later(self) -> None:
+        """MCK-118 MED-1: a course with no attendance at freeze time gets its card
+        when it first has a winner; courses already frozen stay put.
+        """
+        mcr3u = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]), ontario_code="MCR3U"
+        )
+        mcf_id, mcf = self._three_tie()
+        mcr_id = self._populate(["Oak", "Pine"], int(mcr3u["id"]))
+        mcr = self._ids(mcr_id)
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Birch", "Cedar", "Maple"]})
+        self._log_day(mcf_id, "2026-09-11", [mcf["Cedar"]], {mcf["Cedar"]: 4})
+        self._log_day(mcr_id, "2026-09-11", [mcr["Pine"]], {mcr["Pine"]: 2})
+        names = self._engaged_names()
+        self.assertEqual(list(names), ["MCR3U", "MCF3M"])
+        self.assertEqual(names["MCR3U"], ["Pine"])
+        self.assertEqual(names["MCF3M"], ["Birch", "Cedar", "Maple"])
+
+    def test_blank_or_corrupt_snapshot_is_retaken(self) -> None:
+        """MCK-118 LOW-2: a blank, corrupt, or old-format value is replaced,
+        and the board stays frozen.
+        """
+        class_id, ids = self._three_tie()
+        legacy = json.dumps({"taken_at": "x", "cards": [{"course": "MCF3M", "names": ["Old"]}]})
+        # f526b9b's v2 row: unsalted sha256 fingerprints, no ``kid``.
+        self._engaged_names()
+        unsalted = json.loads(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT))
+        unsalted["version"] = 2
+        unsalted.pop("kid", None)
+        for card in unsalted["cards"]:
+            for ref in card["students"]:
+                ref["fp"] = self._unsalted_fp(ref["class_id"], ref["student_id"])
+        v2 = json.dumps(unsalted)
+        for bad in ("", "{not json", legacy, v2):
+            self.school.set_school_setting(SETTING_PUBLIC_SNAPSHOT, bad)
+            self.assertEqual(self._engaged_names(), {"MCF3M": ["Birch", "Cedar", "Maple"]}, bad)
+            stored = json.loads(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT))
+            self.assertEqual(stored["version"], 3)
+            self.assertTrue(stored["kid"])
+            for ref in stored["cards"][0]["students"]:
+                self.assertNotEqual(
+                    ref["fp"], self._unsalted_fp(ref["class_id"], ref["student_id"])
+                )
+        self._log_day(class_id, "2026-09-11", [ids["Cedar"]], {ids["Cedar"]: 4})
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Birch", "Cedar", "Maple"]})
+
+    def test_unfreeze_then_refreeze_takes_fresh_snapshot(self) -> None:
+        """MCK-118 LOW-4: off goes live; back on does not revive the old snapshot."""
+        class_id, ids = self._three_tie()
+        self._engaged_names()
+        old_raw = self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT)
+        self._log_day(class_id, "2026-09-11", [ids["Cedar"]], {ids["Cedar"]: 4})
+
+        os.environ[CELEBRATIONS_FROZEN_ENV] = "0"
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Cedar"]})
+        epoch = self.school.get_school_setting(SETTING_FREEZE_EPOCH, "")
+        self.assertTrue(epoch)
+        self._engaged_names()
+        self.assertEqual(self.school.get_school_setting(SETTING_FREEZE_EPOCH, ""), epoch)
+
+        os.environ[CELEBRATIONS_FROZEN_ENV] = "1"
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Cedar"]})
+        fresh = json.loads(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT))
+        self.assertEqual(fresh["epoch"], epoch)
+        self.assertNotEqual(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT), old_raw)
+
+    def test_boot_with_flag_off_retires_snapshot(self) -> None:
+        """MCK-118 LOW-4: a restart with CELEBRATIONS_FROZEN=0 bumps the epoch
+        even if nobody opens the page while unfrozen.
+        """
+        self._three_tie()
+        self._engaged_names()
+        before = self.school.get_school_setting(SETTING_FREEZE_EPOCH, "")
+        note_celebrations_unfrozen(self.school)
+        self.assertEqual(self.school.get_school_setting(SETTING_FREEZE_EPOCH, ""), before)
+        os.environ[CELEBRATIONS_FROZEN_ENV] = "off"
+        with patch("app.note_celebrations_unfrozen") as hook:
+            create_app(
+                db_path=Path(self.tmp.name) / "boot.sqlite",
+                data_dir=Path(self.tmp.name) / "boot",
+                testing=True,
+            ).config["SCHOOL_DB"].close()
+        hook.assert_called_once()
+        note_celebrations_unfrozen(self.school)
+        self.assertNotEqual(self.school.get_school_setting(SETTING_FREEZE_EPOCH, ""), before)
+
+    def test_tie_order_folds_accents(self) -> None:
+        """MCK-118 LOW-1: accented names sort with their base letter."""
+        names = ["Zoë", "Ïsabeau", "Đorđe", "Łukasz", "Élodie", "Ōtake", "adam", "Birch"]
+        self.assertEqual(
+            sorted(names, key=name_sort_key),
+            ["adam", "Birch", "Đorđe", "Élodie", "Ïsabeau", "Łukasz", "Ōtake", "Zoë"],
+        )
+        class_id = self._populate(["Zoë", "Élodie", "Birch"])
+        ids = self._ids(class_id)
+        self._log_day(
+            class_id,
+            "2026-09-09",
+            list(ids.values()),
+            {sid: 2 for sid in ids.values()},
+        )
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Birch", "Élodie", "Zoë"]})
+        board = build_celebration_board(self.school)["cards"]
+        mcf3m = next(c for c in board if c["key"] == "engaged" and c["course"] == "MCF3M")
+        self.assertEqual(mcf3m["names"], ["Birch", "Élodie", "Zoë"])
+
+    def _unsalted_fp(self, class_id: int, student_id: int) -> str:
+        """f526b9b's fingerprint: plain sha256, guessable from a DB copy."""
+        row = self.school.game.get_student(int(class_id), int(student_id))
+        raw = f"{int(class_id)}:{int(student_id)}:{row.get('canvas_id') or ''}"
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
+
+    def _stored(self) -> dict:
+        """Parsed Most Engaged snapshot row."""
+        return json.loads(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT))
+
+    def test_fingerprint_is_keyed_to_app_secret(self) -> None:
+        """MCK-118 LOW-A: fp is an HMAC under the app secret, not plain sha256.
+
+        Without the secret, a DB copy cannot test Codename guesses against a
+        stored fp. The fp is checked against an HMAC built from
+        ``app.secret_key`` the way ``create_app`` binds it.
+        """
+        class_id, ids = self._three_tie()
+        self._engaged_names()
+        stored = self._stored()
+        self.assertEqual(stored["version"], 3)
+        secret = self.app.secret_key
+        secret = secret.encode("utf-8") if isinstance(secret, str) else secret
+        key = hmac.new(secret, b"lloves:celebration-fp:v1", hashlib.sha256).digest()
+        self.assertEqual(
+            stored["kid"],
+            hmac.new(key, b"lloves:celebration-fp:key-id", hashlib.sha256).hexdigest()[:16],
+        )
+        self.assertNotIn(secret.decode("utf-8", "ignore"), json.dumps(stored))
+        refs = stored["cards"][0]["students"]
+        self.assertEqual(len(refs), 3)
+        for ref in refs:
+            row = self.school.game.get_student(ref["class_id"], ref["student_id"])
+            raw = f"{ref['class_id']}:{ref['student_id']}:{row.get('canvas_id') or ''}"
+            self.assertEqual(
+                ref["fp"], hmac.new(key, raw.encode("utf-8"), hashlib.sha256).hexdigest()[:20]
+            )
+            # The f526b9b dictionary attack: an unsalted guess never matches.
+            self.assertNotEqual(ref["fp"], self._unsalted_fp(ref["class_id"], ref["student_id"]))
+
+    def test_secret_rotation_retakes_snapshot(self) -> None:
+        """MCK-118 LOW-A: a new app secret retakes the snapshot, no error.
+
+        Old fingerprints cannot be checked under a new key, so the board is
+        re-frozen from the live ranking instead of dropping every card.
+        """
+        class_id, ids = self._three_tie()
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Birch", "Cedar", "Maple"]})
+        old = self._stored()
+        self._log_day(class_id, "2026-09-11", [ids["Cedar"]], {ids["Cedar"]: 4})
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Birch", "Cedar", "Maple"]})
+        bind_celebration_secret(self.school, "rotated-secret-for-test")
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Cedar"]})
+        fresh = self._stored()
+        self.assertNotEqual(fresh["kid"], old["kid"])
+        self.assertEqual(fresh["epoch"], old["epoch"])
+        self.assertEqual(
+            [(r["class_id"], r["student_id"]) for r in fresh["cards"][0]["students"]],
+            [(class_id, ids["Cedar"])],
+        )
+        # Stable under the new key: later attendance does not move it.
+        self._log_day(class_id, "2026-09-14", [ids["Maple"]], {ids["Maple"]: 9})
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Cedar"]})
+        self.assertEqual(
+            [r["student_id"] for r in celebrated_students(self.school) if r["card"] == "engaged"],
+            [ids["Cedar"]],
+        )
+
+    def test_deleted_winner_is_pruned_and_card_not_refilled(self) -> None:
+        """MCK-118 LOW-A: refs that no longer resolve leave the stored row.
+
+        A deleted winner's ref and fingerprint are removed. When every
+        winner is gone the card stays stored with no students: it is hidden,
+        and a new leader in that course does not refill it (same as before).
+        """
+        class_id, ids = self._three_tie()
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Birch", "Cedar", "Maple"]})
+        birch_fp = next(
+            r["fp"] for r in self._stored()["cards"][0]["students"]
+            if r["student_id"] == ids["Birch"]
+        )
+        self.client.post(
+            f"/api/classes/{class_id}/students/delete", json={"student_id": ids["Birch"]}
+        )
+        self.assertEqual(self._engaged_names(), {"MCF3M": ["Cedar", "Maple"]})
+        raw = self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT)
+        self.assertNotIn(birch_fp, raw)
+        self.assertEqual(
+            [r["student_id"] for r in json.loads(raw)["cards"][0]["students"]],
+            [ids["Cedar"], ids["Maple"]],
+        )
+        for name in ("Cedar", "Maple"):
+            self.client.post(
+                f"/api/classes/{class_id}/students/delete", json={"student_id": ids[name]}
+            )
+        self.assertEqual(self._engaged_names(), {})
+        stored = self._stored()
+        self.assertEqual(
+            [(c["course"], c["students"]) for c in stored["cards"]], [("MCF3M", [])]
+        )
+        added = self.client.post(f"/api/classes/{class_id}/students", json={"codename": "Newkid"})
+        self.assertEqual(added.status_code, 200, added.get_json())
+        newkid = self._ids(class_id)["Newkid"]
+        self._log_day(class_id, "2026-09-11", [newkid], {newkid: 7})
+        self.assertEqual(self._engaged_names(), {})
+        self.assertEqual(self._stored()["cards"], stored["cards"])
+        self.assertEqual(
+            [r for r in celebrated_students(self.school) if r["card"] == "engaged"], []
+        )
+
+    def test_tie_order_folds_curly_apostrophes(self) -> None:
+        """MCK-118 LOW-B: O’Brien and O'Brien sort together.
+
+        Phones type ``’``; the roster may hold either. Apostrophe
+        look-alikes fold to ``'`` in the tie sort key.
+        """
+        names = ["Øystein", "O’Brien", "Oak", "Ó'Brien", "Œuvre", "O'Brien", "Oʼneil", "O`Hara"]
+        self.assertEqual(
+            sorted(names, key=name_sort_key),
+            ["O'Brien", "O’Brien", "Ó'Brien", "O`Hara", "Oʼneil", "Oak", "Œuvre", "Øystein"],
+        )
+        for variant in ("’", "‘", "ʼ", "´", "`", "′", "＇", "‛", "ʻ"):
+            self.assertEqual(name_sort_key(f"O{variant}Brien")[0], "o'brien", variant)
+        class_id = self._populate(["Zed", "O’Brien", "Oak", "O'Neil"])
+        ids = self._ids(class_id)
+        self._log_day(
+            class_id, "2026-09-09", list(ids.values()), {sid: 2 for sid in ids.values()}
+        )
+        self.assertEqual(
+            self._engaged_names(), {"MCF3M": ["O’Brien", "O'Neil", "Oak", "Zed"]}
+        )
+
+    def test_frozen_shoutout_still_follows_teacher(self) -> None:
+        """MCK-118: a new teacher Shoutout shows while Most Engaged stays frozen."""
+        class_id = self._populate(["Maple", "Birch"])
+        ids = self._ids(class_id)
+        self._log_day(class_id, "2026-09-09", [ids["Maple"]], {ids["Maple"]: 2})
+        first = self.app.test_client().get("/api/celebrations").get_json()["cards"]
+        self.assertEqual([c["key"] for c in first], ["engaged"])
+        self._log_day(class_id, "2026-09-11", [ids["Birch"]], {ids["Birch"]: 9})
+        self._feature(class_id, ids["Birch"], "Great question.")
+        clear_public_celebration_memo()
+        cards = self.app.test_client().get("/api/celebrations").get_json()["cards"]
+        self.assertEqual(
+            [(c["key"], c["name"]) for c in cards],
+            [("award", "Birch"), ("engaged", "Maple")],
+        )
+        rows = celebrated_students(self.school)
+        self.assertEqual(
+            [(r["card"], r["student_id"], r["name"]) for r in rows],
+            [("award", ids["Birch"], "Birch"), ("engaged", ids["Maple"], "Maple")],
+        )
+
+    def test_snapshot_first_insert_wins(self) -> None:
+        """MCK-118: a second worker's snapshot never overwrites the first."""
+        self.assertTrue(
+            self.school.add_school_setting_if_missing(SETTING_PUBLIC_SNAPSHOT, '{"cards": []}')
+        )
+        self.assertFalse(
+            self.school.add_school_setting_if_missing(SETTING_PUBLIC_SNAPSHOT, "other")
+        )
+        self.assertEqual(
+            self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT), '{"cards": []}'
+        )
+        self.assertFalse(
+            self.school.compare_and_set_school_setting(SETTING_PUBLIC_SNAPSHOT, "stale", "x")
+        )
+        self.assertTrue(
+            self.school.compare_and_set_school_setting(
+                SETTING_PUBLIC_SNAPSHOT, '{"cards": []}', "y"
+            )
+        )
+        self.assertEqual(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT), "y")
 
     def test_foreign_class_rejected(self) -> None:
         """A teacher cannot feature a Codename from someone else's class."""

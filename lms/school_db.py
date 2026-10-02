@@ -26967,6 +26967,50 @@ class SchoolDB(LovesDB):
             self.conn.commit()
         return {"key": str(key), "value": str(value)}
 
+    def add_school_setting_if_missing(self, key: str, value: str) -> bool:
+        """Insert one school-wide setting only when the key is not stored yet.
+
+        Args:
+            key: Settings primary key.
+            value: Stored string.
+
+        Returns:
+            True when this call wrote the row, False when it already existed.
+        """
+        with self._lock:
+            cur = self.conn.execute(
+                """
+                INSERT INTO school_settings (key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO NOTHING
+                """,
+                (str(key), str(value), _now()),
+            )
+            self.conn.commit()
+        return bool(cur.rowcount)
+
+    def compare_and_set_school_setting(self, key: str, expected: str, value: str) -> bool:
+        """Replace one setting only if it still holds ``expected``.
+
+        Args:
+            key: Settings primary key.
+            expected: Value the caller read earlier.
+            value: New stored string.
+
+        Returns:
+            True when this call wrote the row.
+        """
+        with self._lock:
+            cur = self.conn.execute(
+                """
+                UPDATE school_settings SET value = ?, updated_at = ?
+                WHERE key = ? AND value = ?
+                """,
+                (str(value), _now(), str(key), str(expected)),
+            )
+            self.conn.commit()
+        return bool(cur.rowcount)
+
     def only_live_class_days(self) -> bool:
         """True when Admin requires live-class-day log validation."""
         try:

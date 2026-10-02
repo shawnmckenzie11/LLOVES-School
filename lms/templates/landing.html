@@ -162,11 +162,27 @@
         }
         var heading = document.createElement("h3");
         heading.textContent = card.title || "";
-        var winner = document.createElement("p");
-        winner.className = "calc-winner";
-        winner.textContent = card.name || "";
         article.appendChild(heading);
-        article.appendChild(winner);
+        // MCK-118: a tie lists every tied student as its own wrapping chip.
+        var names = (Array.isArray(card.names) ? card.names : [])
+          .map(function (name) { return String(name || "").trim(); })
+          .filter(function (name) { return name; });
+        if (names.length > 1) {
+          var list = document.createElement("ul");
+          list.className = "calc-winner-list";
+          list.setAttribute("aria-label", names.length + " students tied");
+          names.forEach(function (name) {
+            var item = document.createElement("li");
+            item.textContent = name;
+            list.appendChild(item);
+          });
+          article.appendChild(list);
+        } else {
+          var winner = document.createElement("p");
+          winner.className = "calc-winner";
+          winner.textContent = names[0] || card.name || "";
+          article.appendChild(winner);
+        }
         if (card.course) {
           var course = document.createElement("p");
           course.className = "hint";
