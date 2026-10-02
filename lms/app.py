@@ -6412,9 +6412,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             and posted.get("eyes_up") in (False, 0, "false", "0", "off")
         )
         if session_row is None:
-            if release_only:
-                # MCK-26: Release after Quit (row wiped) is a harmless no-op.
-                return jsonify({"ok": True, "teacher_state": None, "ended": True})
+            # MCK-159: a missing id is a 404 for every body, Release
+            # included (Quit wipes the row; the staff toggle treats this
+            # 404 on a Release as "already released").
             return jsonify({"ok": False, "error": "Session not found"}), 404
         if not _can_view_live_session(session_row):
             return jsonify({"ok": False, "error": "Forbidden"}), 403

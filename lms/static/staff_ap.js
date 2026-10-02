@@ -10093,7 +10093,12 @@ async function toggleEyesUp() {
       adoptTeacherState(res.teacher_state);
     }
   } catch (err) {
-    showError("#ap-overlay-error", err);
+    if (!want && String(err?.message || "") === "Session not found") {
+      // MCK-159: Release after Quit (row gone) is a 404; nobody is paused.
+      teacherState.eyes_up = false;
+    } else {
+      showError("#ap-overlay-error", err);
+    }
   } finally {
     eyesUpBusy = false;
     paintEyesUpToggle();
