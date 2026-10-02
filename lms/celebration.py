@@ -249,8 +249,11 @@ def _gather_stats(school: Any) -> list[dict[str, Any]]:
     rostered in two sections gets two separate entries, never a merged one.
 
     MCK-133: only sessions scheduled at or after the class's current award
-    period start count (``celebration_periods``). Start fresh opens a new
-    period; nothing is deleted, so course views still show every session.
+    period start count (``celebration_periods``). In the first period (no
+    Start fresh yet) only classes that met on or before
+    ``FIRST_AWARD_PERIOD_END`` count; later classes count toward no award
+    until Start fresh opens a new period. Nothing is deleted, so course
+    views still show every session.
 
     Args:
         school: ``SchoolDB`` instance.
@@ -263,6 +266,13 @@ def _gather_stats(school: Any) -> list[dict[str, Any]]:
     seen_classes: set[int] = set()
     # MCK-133: one query for every class's current award period.
     periods = award_periods.current_periods(school, _active_semester_id(school))
+    # First period (no Start fresh yet): only classes that met on or before
+    # FIRST_AWARD_PERIOD_END count (Shawn, Oct 2). None = no cut-off.
+    try:
+        semester_day_1 = award_periods.semester_first_day(school.get_active_semester())
+    except Exception:  # noqa: BLE001 - keep the cut-off (constant) on a bad read
+        semester_day_1 = None
+    first_end = award_periods.first_period_end(school, semester_day_1)
     for cls in _active_class_rows(school):
         class_id = int(cls["class_id"])
         if class_id in seen_classes:
@@ -313,6 +323,12 @@ def _gather_stats(school: Any) -> list[dict[str, Any]]:
                 continue
             # MCK-133: only sessions in the class's current award period.
             if not award_periods.session_in_period(session.get("starts_at"), period_start):
+                continue
+            if (
+                not period
+                and first_end is not None
+                and not award_periods.met_on_or_before(session.get("starts_at"), first_end)
+            ):
                 continue
             counted.add(int(session["id"]))
             meeting = session_meeting_date(session.get("starts_at"))
@@ -983,19 +999,23 @@ def staff_award_periods(school: Any, teacher_user_id: int) -> list[dict[str, Any
         teacher_user_id: Staff user id.
 
     Returns:
-        ``{class_id, course, period_id, period_start, since_label}`` rows in
-        ``list_staff_classes`` order. ``period_start`` is a school date ISO
-        (semester day 1 for the first period).
+        ``{class_id, course, period_id, period_start, period_end,
+        period_label}`` rows in ``list_staff_classes`` order. Dates are
+        school date ISO; the first period runs from semester day 1 to
+        ``FIRST_AWARD_PERIOD_END``, a later one is open (``period_end``
+        None, "Since …").
     """
     semester = school.get_active_semester()
     semester_id = _active_semester_id(school)
     periods = award_periods.current_periods(school, semester_id)
     first_day = award_periods.semester_first_day(semester)
+    first_end = award_periods.first_period_end(school, first_day)
     out: list[dict[str, Any]] = []
     for cls in school.list_staff_classes(int(teacher_user_id)):
         class_id = int(cls["id"])
         period = periods.get(class_id) or {}
         start = award_periods.school_date(period.get("starts_at")) or first_day
+        end = None if period else first_end
         out.append(
             {
                 "class_id": class_id,
@@ -1003,7 +1023,8 @@ def staff_award_periods(school: Any, teacher_user_id: int) -> list[dict[str, Any
                 "period_id": int(period.get("id") or 0),
                 "period_start": start.isoformat() if start else None,
                 "period_started_at": str(period.get("starts_at") or "") or None,
-                "since_label": award_periods.period_label(start, None, WONDER_COPY),
+                "period_end": end.isoformat() if end else None,
+                "period_label": award_periods.period_label(start, end, WONDER_COPY),
             }
         )
     return out

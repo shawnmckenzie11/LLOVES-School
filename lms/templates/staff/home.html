@@ -224,7 +224,7 @@
         <p class="hint">Restarts the award tally from now. Saved attendance and points stay in your course views.</p>
         <ul id="award-period-list" class="hint">
           {% for c in celebration_periods %}
-          <li data-class-id="{{ c.class_id }}">{{ c.course }} — award tally {{ c.since_label or 'since semester start' }}</li>
+          <li data-class-id="{{ c.class_id }}">{{ c.course }} — award tally {{ c.period_label or 'this semester' }}</li>
           {% endfor %}
         </ul>
         <label class="field" for="award-fresh-scope">Classes</label>

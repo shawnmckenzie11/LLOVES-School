@@ -26,8 +26,11 @@ from zoneinfo import ZoneInfo
 SCHOOL_TZ = ZoneInfo("America/Toronto")
 
 # The first award period (no Start fresh yet) runs from semester day 1 to
-# this school date, as Shawn defined it (MCK-133). It is the label's end
-# whenever no stored snapshot gives an earlier one. School setting
+# this school date, as Shawn defined it (MCK-133, confirmed Oct 2 15:07).
+# The first-period ranking only counts saved classes that met on or before
+# it; classes after it count toward no award until a Start fresh opens a
+# new period. It is also the label's end whenever no stored snapshot gives
+# an earlier one. School setting
 # ``SETTING_FIRST_AWARD_PERIOD_END`` (ISO date) overrides it; a blank or
 # unreadable setting falls back to this constant. A date before the active
 # semester's day 1 is ignored (a later semester's first period is open).
@@ -93,6 +96,15 @@ def session_in_period(session_starts_at: Any, period_starts_at: Any) -> bool:
         return True
     when = _wall(session_starts_at)
     return when is not None and when >= start
+
+
+def met_on_or_before(session_starts_at: Any, last_day: date) -> bool:
+    """True when a session's meeting day (school date) is on or before ``last_day``.
+
+    An unreadable start is left out.
+    """
+    when = _wall(session_starts_at)
+    return when is not None and when.date() <= last_day
 
 
 def current_periods(school: Any, semester_id: int | None) -> dict[int, dict[str, Any]]:

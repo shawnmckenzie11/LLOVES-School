@@ -1149,6 +1149,10 @@ class CelebrationTests(unittest.TestCase):
         The mid-class read shows nobody and stores nothing; the read after
         End takes the snapshot from the saved column.
         """
+        # This class meets today. MCK-133 ends the first award period on
+        # Oct 1, 2026, so move that end out of the way: this test is about
+        # saved attendance (MCK-125), not the period cut-off.
+        self.school.set_school_setting("celebration_first_award_period_end", "2099-12-31")
         class_id, ids = self._live_class_with_joins(["Bellamy", "Cordelia"])
         self.assertEqual(self._engaged_names(), {})
         self.assertIsNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))

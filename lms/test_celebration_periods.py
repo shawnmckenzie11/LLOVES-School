@@ -223,7 +223,7 @@ class StartFreshTests(unittest.TestCase):
         self.assertEqual(self._board(), {})
         listed = self.client.get("/api/staff/celebrations/periods").get_json()["classes"]
         self.assertEqual(
-            {c["class_id"]: c["since_label"] for c in listed},
+            {c["class_id"]: c["period_label"] for c in listed},
             {cid: "Since Sep 15, 2026" for cid in mine},
         )
 
@@ -363,7 +363,7 @@ class StartFreshTests(unittest.TestCase):
         self.assertIn('id="award-fresh-go"', page)
         for class_id, _ids in rows.values():
             self.assertIn(f'<option value="{class_id}">', page)
-        self.assertIn("award tally Since Sep 8, 2026", page)
+        self.assertIn("award tally Sep 8 – Oct 1, 2026", page)
 
     def test_deleting_teacher_removes_their_periods(self) -> None:
         """Permanent staff delete clears that teacher's period rows."""
@@ -455,6 +455,63 @@ class StartFreshTests(unittest.TestCase):
             board = self._board()
         self.assertEqual(board["MCF3M"]["period_label"], "This semester")
         self.assertEqual(board["MCF3M"]["names"], ["Maple"])
+
+    # --- First-period ranking cut-off (Shawn, Oct 2 15:07) ---------------
+
+    def test_first_period_counts_only_classes_through_oct_1(self) -> None:
+        """Classes on or before Oct 1 rank; Oct 2 and later count nowhere."""
+        os.environ[CELEBRATIONS_FROZEN_ENV] = "0"
+        class_id = self._populate(["Maple", "Birch"])
+        ids = self._ids(class_id)
+        self._log_day(class_id, "2026-09-30", [ids["Maple"]], {ids["Maple"]: 1})
+        self._log_day(class_id, "2026-10-01", [ids["Maple"]], {ids["Maple"]: 1})
+        # Oct 2: Birch outscores everyone, but after the cut-off.
+        self._log_day(class_id, "2026-10-02", [ids["Birch"]], {ids["Birch"]: 50})
+        card = self._board()["MCF3M"]
+        self.assertEqual(card["names"], ["Maple"])
+        self.assertEqual(card["detail"], "2 classes present · 2 pts")
+        self.assertEqual(card["period_label"], "Sep 8 – Oct 1, 2026")
+        # Nothing deleted: Oct 2 is still saved for the course views.
+        rows = self._session_rows(class_id)
+        self.assertIn((ids["Birch"], 1, 50.0), {(r[1], r[2], r[3]) for r in rows})
+
+    def test_gap_until_start_fresh_counts_toward_no_award(self) -> None:
+        """After the first period ends, classes before Start fresh count nowhere.
+
+        First period ends Sep 20 (setting); Birch's Sep 21 class is in no
+        period; Start fresh Sep 22 08:00; Cedar's Sep 23 class wins it.
+        """
+        os.environ[CELEBRATIONS_FROZEN_ENV] = "0"
+        self.school.set_school_setting(periods.SETTING_FIRST_AWARD_PERIOD_END, "2026-09-20")
+        class_id = self._populate(["Maple", "Birch", "Cedar"])
+        ids = self._ids(class_id)
+        self._log_day(class_id, "2026-09-18", [ids["Maple"]], {ids["Maple"]: 1})
+        self._log_day(class_id, "2026-09-21", [ids["Birch"]], {ids["Birch"]: 9})
+        self.assertEqual(self._board()["MCF3M"]["names"], ["Maple"])
+        self._at("2026-09-22T08:00:00")
+        self.assertEqual(self._fresh(scope="class", class_id=class_id).status_code, 200)
+        self.assertNotIn("MCF3M", self._board())  # Sep 21 is not in the new period
+        self._log_day(class_id, "2026-09-23", [ids["Cedar"]], {ids["Cedar"]: 2})
+        card = self._board()["MCF3M"]
+        self.assertEqual(card["names"], ["Cedar"])
+        self.assertEqual(card["detail"], "1 class present · 2 pts")
+        self.assertEqual(card["period_label"], "Since Sep 22, 2026")
+
+    def test_staff_list_shows_first_period_range_then_since(self) -> None:
+        """Staff line: first period Sep 8 – Oct 1, 2026; after Start fresh, Since."""
+        class_id = self._populate(["Maple"])
+        listed = self.client.get("/api/staff/celebrations/periods").get_json()["classes"]
+        self.assertEqual(
+            [(c["period_label"], c["period_end"]) for c in listed],
+            [("Sep 8 – Oct 1, 2026", "2026-10-01")],
+        )
+        self._at("2026-10-02T15:30:00")
+        self.assertEqual(self._fresh(scope="class", class_id=class_id).status_code, 200)
+        listed = self.client.get("/api/staff/celebrations/periods").get_json()["classes"]
+        self.assertEqual(
+            [(c["period_label"], c["period_end"]) for c in listed],
+            [("Since Oct 2, 2026", None)],
+        )
 
 
 if __name__ == "__main__":
