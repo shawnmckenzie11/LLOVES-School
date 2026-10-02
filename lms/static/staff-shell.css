@@ -6242,3 +6242,21 @@ body.staff-shell .award-fresh-summary {
   background: #f1f5f9;
   font-weight: 600;
 }
+/* MCK-161 LOW-6: Contest Questions sit above the bank list, so keep the
+   Bank scope / Kind / Search row in view while the picker scrolls
+   (the safest default until the product call on LOW-6 is made). */
+body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: -0.65rem -0.85rem 0.45rem;
+  padding: 0.65rem 0.85rem 0.5rem;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+}
+/* MCK-161 INFO-2: plain prompt text with a blank line (a Contest
+   Question's stem, blank line, task) keeps its paragraphs. */
+body.staff-shell .live-question-html.is-paragraphs,
+.student-live-card .live-question-html.is-paragraphs {
+  white-space: pre-line;
+}

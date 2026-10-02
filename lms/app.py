@@ -3857,19 +3857,26 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         try:
             from live_content_questions import (
                 ContentImportFailed,
+                StalePick,
                 clean_content_picks,
+                deck_target,
                 import_content_questions,
             )
         except ImportError:
             from lms.live_content_questions import (
                 ContentImportFailed,
+                StalePick,
                 clean_content_picks,
+                deck_target,
                 import_content_questions,
             )
         body = request.get_json(silent=True) or {}
         if not isinstance(body, dict):
             body = {}
         try:
+            # MCK-161 LOW-7: the keys Add New stores (``/M01/c4/`` -> M1, C4),
+            # so a failed batch's rollback finds every row it placed.
+            module_key, slot_key = deck_target(module, slot)
             picks = clean_content_picks(body.get("picks"), modules)
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
@@ -3878,8 +3885,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         except (TypeError, ValueError):
             page_number = 1
         stage = str(body.get("stage") or "round").strip().lower()
-        module_key = str(module or "").strip().upper()
-        slot_key = str(slot or "").strip().upper()
         try:
             placements = import_content_questions(
                 school,
@@ -3892,8 +3897,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 page_number=page_number,
                 stage=stage,
             )
-        except KeyError as exc:
-            return jsonify({"ok": False, "error": str(exc).strip("'\""), "imported": 0}), 404
+        except StalePick as exc:
+            # MCK-161 LOW-8: teacher copy plus the stale picks to untick.
+            return (
+                jsonify({"ok": False, "error": str(exc), "imported": 0, "stale": exc.stale}),
+                404,
+            )
         except ContentImportFailed as exc:
             return (
                 jsonify(
