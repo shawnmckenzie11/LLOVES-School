@@ -7,10 +7,11 @@
   <link rel="stylesheet" href="/static/lloves.css">
   <link rel="stylesheet" href="/static/staff-shell.css">
 </head>
-<body class="staff-shell staff-home">
+<body class="staff-shell staff-home" data-user-id="{{ user.id }}">
   <div class="staff-home-corner" aria-label="Account">
     {% if user.role == 'it' %}<a class="staff-corner-link" href="{{ url_for('staff_bots') }}">Bots</a>{% endif %}
     {% if user.role == 'it' %}<a class="staff-corner-link" href="{{ url_for('it_dashboard') }}">Admin</a>{% endif %}
+    <button type="button" class="staff-corner-link" id="whats-new-open" hidden>What's new</button>
     <a class="staff-corner-link" href="{{ url_for('logout') }}">Log out</a>
   </div>
   <div class="wrap staff-home-wrap">
@@ -245,5 +246,6 @@
   <script type="module" src="/static/staff_home.js"></script>
   <script type="module" src="/static/staff_roster_names.js"></script>
   <script type="module" src="/static/staff_celebration.js"></script>
+  {% include "staff/_whats_new.html" %}
 </body>
 </html>
