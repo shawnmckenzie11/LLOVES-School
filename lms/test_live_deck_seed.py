@@ -347,9 +347,21 @@ class LiveDeckSeedTests(unittest.TestCase):
             any(row["module"] == "M1" and row["slot"] == "C2" for row in body["decks"])
         )
         source = _question_signature(self._meta("M1", "C2"))
-        copied = self.client.post(
+        # MCK-132: M2 C1 already has its seed deck, so the copy needs the
+        # Replace deck confirm (replace: true).
+        held = self.client.post(
             f"/api/staff/class/{self.class_id}/live-lessons/M2/C1/deck-seed",
             json={"mode": "course", "source_module": "M1", "source_slot": "C2"},
+        )
+        self.assertEqual(held.status_code, 409, held.get_json())
+        copied = self.client.post(
+            f"/api/staff/class/{self.class_id}/live-lessons/M2/C1/deck-seed",
+            json={
+                "mode": "course",
+                "source_module": "M1",
+                "source_slot": "C2",
+                "replace": True,
+            },
         )
         self.assertEqual(copied.status_code, 200, copied.get_json())
         self.assertEqual(

@@ -380,10 +380,23 @@
             </div>
             <p class="hint compact live-deck-seed-note" id="live-deck-seed-previous-note" aria-live="polite">Loading decks…</p>
           </fieldset>
+          {# MCK-132: step 1 of Course deck. This teacher's current sections of the course. copy: Wonder #}
+          <label class="live-pack-field live-deck-copy-from" id="live-deck-copy-from-field" for="live-deck-copy-from" hidden>
+            <span>From</span>{# copy: Wonder #}
+            <select id="live-deck-copy-from" aria-label="Copy from section"></select>{# copy: Wonder #}
+          </label>
           <label class="live-pack-field live-deck-seed-picker" id="live-deck-seed-picker" for="live-deck-seed-source" hidden>
             <span>Source deck</span>
-            <select id="live-deck-seed-source" aria-label="Deck from this course"></select>
+            <select id="live-deck-seed-source" aria-label="Deck to copy"></select>{# copy: Wonder #}
           </label>
+        </div>
+        {# MCK-132: inline confirm / success strip for a Course deck copy. Text is set by deckCopyConfirmState (copy: Wonder). #}
+        <div class="live-deck-copy-confirm" id="live-deck-copy-confirm" role="group" aria-label="Copy deck" hidden>
+          <p class="live-deck-copy-text" id="live-deck-copy-text" aria-live="polite"></p>
+          <div class="live-deck-copy-actions">
+            <button type="button" class="btn" id="live-deck-copy-go" hidden>Copy deck</button>{# copy: Wonder #}
+            <button type="button" class="secondary" id="live-deck-copy-keep" hidden>Keep current</button>{# copy: Wonder #}
+          </div>
         </div>
         <p class="hint" id="ap-validate-hint">Pick a valid school day in the current semester, then Next.</p>
         <div id="ap-day-grid" class="ap-day-grid-wrap"></div>

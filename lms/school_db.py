@@ -1367,6 +1367,14 @@ def parse_semester_label(semester: str) -> tuple[str, str]:
     return year_display, "Semester 1"
 
 
+class DeckReplaceNotConfirmed(ValueError):
+    """MCK-132: a Course deck copy would replace a deck without a confirm.
+
+    Set Class answers 409 so the teacher picks Replace deck or Keep
+    current. Nothing is written.
+    """
+
+
 def section_code(ontario_code: str, section_index: Any = 1) -> str:
     """Return the teacher-facing code for one section of a course.
 
@@ -7781,11 +7789,22 @@ class SchoolDB(LovesDB):
             )
         )
 
-    def _same_course_section_classes(self, class_id: int) -> list[dict[str, Any]]:
-        """Return classes in the same semester and course as ``class_id``.
+    def _same_course_section_classes(
+        self,
+        class_id: int,
+        teacher_user_id: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return current classes in the same semester and course as ``class_id``.
+
+        Archived offerings are left out. MCK-132: with ``teacher_user_id``
+        set, only sections whose offering belongs to that staff member are
+        returned. There is no IT bypass here, so an admin sees only their
+        own sections (decision D3; pass ``None`` to list every teacher's
+        sections again).
 
         Args:
             class_id: Destination game-show class.
+            teacher_user_id: Owner of the listed offerings, or None for any.
         """
 
         try:
@@ -7807,9 +7826,16 @@ class SchoolDB(LovesDB):
                 FROM classes cl
                 JOIN course_offerings o ON o.id = cl.offering_id
                 WHERE o.semester_id = ? AND o.ontario_code = ?
+                  AND o.archived_at IS NULL
+                  AND (? IS NULL OR o.teacher_user_id = ?)
                 ORDER BY o.section_index, cl.id
                 """,
-                (offering["semester_id"], offering["ontario_code"]),
+                (
+                    offering["semester_id"],
+                    offering["ontario_code"],
+                    teacher_user_id,
+                    teacher_user_id,
+                ),
             ).fetchall()
         found: list[dict[str, Any]] = []
         for row in rows:
@@ -7834,18 +7860,18 @@ class SchoolDB(LovesDB):
 
         Args:
             class_id: Destination class.
-            teacher_user_id: Staff user. Each source must pass
-                ``teacher_owns_class``.
+            teacher_user_id: Staff user. Each source is one of this user's
+                own current sections (MCK-132) and must also pass
+                ``teacher_owns_class`` (tenant check).
         """
 
         extras: list[dict[str, Any]] = []
-        for other in self._same_course_section_classes(int(class_id)):
+        for other in self._deck_copy_sibling_classes(
+            int(class_id), int(teacher_user_id)
+        ):
             other_id = int(other["id"])
-            if other_id == int(class_id):
-                continue
-            if not self.teacher_owns_class(int(teacher_user_id), other_id):
-                continue
             section = str(other.get("section_code") or "")
+            section_index = int(other.get("section_index") or 1)
             course = self._course_code_for_class(other_id)
             seen: set[tuple[str, str]] = set()
             for summary in list_live_lesson_summaries(course):
@@ -7863,11 +7889,17 @@ class SchoolDB(LovesDB):
                     {
                         "class_id": other_id,
                         "section_code": section,
+                        "section_index": section_index,
                         "same_class": False,
                         "module": module,
                         "slot": slot,
                         "label": f"{section} · {plain}" if section else plain,
-                        "question_count": int(summary.get("question_count") or 0),
+                        "question_count": self._deck_question_count(
+                            other_id,
+                            module,
+                            slot,
+                            int(summary.get("question_count") or 0),
+                        ),
                     }
                 )
             with self._lock:
@@ -7907,6 +7939,7 @@ class SchoolDB(LovesDB):
                     {
                         "class_id": other_id,
                         "section_code": section,
+                        "section_index": section_index,
                         "same_class": False,
                         "module": module,
                         "slot": slot,
@@ -7915,6 +7948,120 @@ class SchoolDB(LovesDB):
                     }
                 )
         return extras
+
+    def _deck_copy_sibling_classes(
+        self,
+        class_id: int,
+        teacher_user_id: int,
+    ) -> list[dict[str, Any]]:
+        """Return this teacher's other current sections of the same course.
+
+        MCK-132 rule for the Set Class From list and for a cross-section
+        copy: same semester and ``ontario_code`` as the destination, not
+        archived, offering owned by ``teacher_user_id`` (no IT bypass), and
+        still passing ``teacher_owns_class`` (same tenant). Ordered by
+        ``section_index``. The destination class itself is left out.
+
+        Args:
+            class_id: Destination class.
+            teacher_user_id: Signed-in staff user.
+        """
+
+        found: list[dict[str, Any]] = []
+        for other in self._same_course_section_classes(
+            int(class_id), teacher_user_id=int(teacher_user_id)
+        ):
+            other_id = int(other["id"])
+            if other_id == int(class_id):
+                continue
+            if not self.teacher_owns_class(int(teacher_user_id), other_id):
+                continue
+            found.append(other)
+        return found
+
+    def _section_index_for_class(self, class_id: int) -> int:
+        """Return the offering ``section_index`` for one class (1 when unknown).
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+
+        try:
+            cls = self.game.get_class(int(class_id))
+        except KeyError:
+            return 1
+        offering_id = cls.get("offering_id")
+        if not offering_id:
+            return 1
+        try:
+            offering = self.get_offering(int(offering_id))
+        except KeyError:
+            return 1
+        try:
+            return int(offering.get("section_index") or 1)
+        except (TypeError, ValueError):
+            return 1
+
+    def _deck_question_count(
+        self, class_id: int, module: str, slot: str, seed_count: int
+    ) -> int:
+        """Questions in one class's working deck, for the Set Class labels.
+
+        MCK-132: the confirm strip quotes this count. An unedited slot uses
+        the seed file count; a slot with any working rows (copy, edit, hide,
+        page or media) counts the merged deck, which is what a copy takes.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Module token.
+            slot: Challenge token.
+            seed_count: Question count from the course seed summary.
+        """
+
+        params = (int(class_id), str(module).upper(), str(slot).upper())
+        edited = self._slot_has_deck_overlay(int(class_id), module, slot)
+        if not edited:
+            with self._lock:
+                edited = (
+                    self.conn.execute(
+                        """
+                        SELECT 1 FROM class_live_playlist_item_overrides
+                        WHERE class_id = ? AND module = ? AND slot = ?
+                        UNION ALL
+                        SELECT 1 FROM class_live_deck_seeds
+                        WHERE class_id = ? AND module = ? AND slot = ?
+                        LIMIT 1
+                        """,
+                        params + params,
+                    ).fetchone()
+                    is not None
+                )
+        if not edited:
+            return int(seed_count)
+        merged = self.live_class_metadata_for_class_lesson(
+            int(class_id), module, slot, fresh=True
+        )
+        return len(
+            [item for item in merged.get("questions") or [] if isinstance(item, dict)]
+        )
+
+    @staticmethod
+    def _deck_natural_key(item: dict[str, Any]) -> tuple[int, int]:
+        """Natural sort key for a deck: ``M2 C3`` -> ``(2, 3)``.
+
+        Digits are compared as numbers so M2 sorts before M10 and C2 before
+        C10. A token with no digits sorts as 0. Labels are never parsed;
+        only the module and slot tokens are read.
+
+        Args:
+            item: Deck choice with ``module`` and ``slot``.
+        """
+
+        def number(token: Any) -> int:
+            digits = "".join(ch for ch in str(token or "") if ch.isdigit())
+            return int(digits) if digits else 0
+
+        return number(item.get("module")), number(item.get("slot"))
 
     def list_course_live_deck_choices(
         self,
@@ -7964,7 +8111,12 @@ class SchoolDB(LovesDB):
                     "module": module,
                     "slot": slot,
                     "label": live_deck_choice_label(module, slot),
-                    "question_count": int(summary.get("question_count") or 0),
+                    "question_count": self._deck_question_count(
+                        int(class_id),
+                        module,
+                        slot,
+                        int(summary.get("question_count") or 0),
+                    ),
                 }
             )
         with self._lock:
@@ -8008,20 +8160,24 @@ class SchoolDB(LovesDB):
                 }
             )
         section = self._section_code_for_class(int(class_id))
+        own_index = self._section_index_for_class(int(class_id))
         for item in choices:
             item["class_id"] = int(class_id)
             item["section_code"] = section
+            item["section_index"] = own_index
             item["same_class"] = True
         if teacher_user_id is not None:
             choices.extend(
                 self._extra_section_deck_choices(int(class_id), int(teacher_user_id))
             )
+        # MCK-132: sibling sections first (by section_index), then this
+        # class, each in natural M·C order (M2 before M10).
         choices.sort(
             key=lambda item: (
-                0 if item.get("same_class") else 1,
-                str(item.get("section_code") or ""),
-                item["module"],
-                item["slot"],
+                1 if item.get("same_class") else 0,
+                int(item.get("section_index") or 1),
+                int(item.get("class_id") or 0),
+                *self._deck_natural_key(item),
             )
         )
         return choices
@@ -8084,24 +8240,90 @@ class SchoolDB(LovesDB):
             "available": current_ready,
             "label": "Use current",
             "message": "" if current_ready else "No deck set yet",
+            "question_count": 0,
         }
+        if current_ready:
+            merged = self.live_class_metadata_for_class_lesson(
+                int(class_id), module_key, slot_key, fresh=True
+            )
+            current_choice["question_count"] = len(
+                [
+                    item
+                    for item in merged.get("questions") or []
+                    if isinstance(item, dict)
+                ]
+            )
+        decks = self.list_course_live_deck_choices(
+            int(class_id),
+            exclude_module=module_key,
+            exclude_slot=slot_key,
+            teacher_user_id=teacher_user_id,
+        )
         return {
             "course": course,
             "module": module_key,
             "slot": slot_key,
             "previous": previous_block,
             "current": current_choice,
-            "decks": self.list_course_live_deck_choices(
-                int(class_id),
-                exclude_module=module_key,
-                exclude_slot=slot_key,
-                teacher_user_id=teacher_user_id,
+            "sources": self._deck_copy_sources(
+                int(class_id), decks, teacher_user_id=teacher_user_id
             ),
+            "decks": decks,
             "blank": {
                 "label": "Blank 7-page template",
                 "page_count": len(default_math_pages()),
             },
         }
+
+    def _deck_copy_sources(
+        self,
+        class_id: int,
+        decks: list[dict[str, Any]],
+        *,
+        teacher_user_id: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return the Set Class From list (MCK-132).
+
+        This teacher's other current sections of the same course come first
+        (by ``section_index``), then this class. Sections with no decks are
+        kept, so the picker can say so. Without ``teacher_user_id`` only
+        this class is listed.
+
+        Args:
+            class_id: Destination class.
+            decks: Deck choices already listed for this class.
+            teacher_user_id: Signed-in staff user.
+        """
+
+        counts: dict[int, int] = {}
+        for deck in decks:
+            key = int(deck.get("class_id") or 0)
+            counts[key] = counts.get(key, 0) + 1
+        sources: list[dict[str, Any]] = []
+        if teacher_user_id is not None:
+            for other in self._deck_copy_sibling_classes(
+                int(class_id), int(teacher_user_id)
+            ):
+                other_id = int(other["id"])
+                sources.append(
+                    {
+                        "class_id": other_id,
+                        "section_code": str(other.get("section_code") or ""),
+                        "section_index": int(other.get("section_index") or 1),
+                        "is_this_class": False,
+                        "deck_count": counts.get(other_id, 0),
+                    }
+                )
+        sources.append(
+            {
+                "class_id": int(class_id),
+                "section_code": self._section_code_for_class(int(class_id)),
+                "section_index": self._section_index_for_class(int(class_id)),
+                "is_this_class": True,
+                "deck_count": counts.get(int(class_id), 0),
+            }
+        )
+        return sources
 
     def _drop_blank_deck_prompts(
         self, class_id: int, module: str, slot: str
@@ -8160,6 +8382,47 @@ class SchoolDB(LovesDB):
             self.conn.commit()
         self.clear_active_live_prompt(session_id)
 
+    def _require_deck_copy_sibling(
+        self,
+        class_id: int,
+        source_class_id: int,
+        teacher_user_id: int,
+    ) -> None:
+        """Refuse a cross-section source outside the MCK-132 From list.
+
+        Args:
+            class_id: Destination class.
+            source_class_id: Requested source class.
+            teacher_user_id: Signed-in staff user.
+
+        Raises:
+            ValueError: The source section is archived or not current.
+            PermissionError: The source section belongs to someone else.
+        """
+
+        allowed = {
+            int(row["id"])
+            for row in self._deck_copy_sibling_classes(
+                int(class_id), int(teacher_user_id)
+            )
+        }
+        if int(source_class_id) in allowed:
+            return
+        offering: dict[str, Any] | None = None
+        try:
+            cls = self.game.get_class(int(source_class_id))
+            if cls.get("offering_id"):
+                offering = self.get_offering(int(cls["offering_id"]))
+        except KeyError:
+            offering = None
+        if offering is not None and int(offering.get("teacher_user_id") or 0) != int(
+            teacher_user_id
+        ):
+            raise PermissionError("You can't copy a deck from that class.")
+        if offering is not None and offering.get("archived_at"):
+            raise ValueError("That section is archived. Choose a current section.")
+        raise ValueError("Choose a current section of this course.")
+
     def apply_class_deck_seed(
         self,
         class_id: int,
@@ -8172,6 +8435,8 @@ class SchoolDB(LovesDB):
         source_class_id: int | None = None,
         teacher_user_id: int | None = None,
         keep_existing: bool = False,
+        require_replace_confirm: bool = False,
+        replace: bool = False,
     ) -> dict[str, Any]:
         """Seed one challenge's working deck without changing the source.
 
@@ -8199,6 +8464,11 @@ class SchoolDB(LovesDB):
                 (``class_has_current_live_deck``) nothing is written and the
                 result is the ``current`` no-op with ``kept_existing`` set.
                 MCK-77: a stale auto pick must not overwrite a deck.
+            require_replace_confirm: MCK-132. The Set Class route sets this.
+                A ``course`` copy onto a slot that already has a real deck
+                is then refused with ``DeckReplaceNotConfirmed`` unless
+                ``replace`` is true (the teacher pressed Replace deck).
+            replace: The teacher confirmed replacing the existing deck.
 
         Returns:
             Destination metadata plus the seed mode that was stored.
@@ -8208,7 +8478,9 @@ class SchoolDB(LovesDB):
             ValueError: Unknown mode, missing previous deck, or a source
                 that is not a deck in this course.
             PermissionError: Source class is one this staff member cannot
-                manage.
+                manage, or (MCK-132) a section owned by someone else.
+            DeckReplaceNotConfirmed: ``require_replace_confirm`` is set, the
+                slot has a deck, and ``replace`` is false. Nothing is written.
         """
 
         module_key, slot_key = self._require_live_lesson_token(module, slot)
@@ -8267,6 +8539,9 @@ class SchoolDB(LovesDB):
                     raise PermissionError("You can't copy a deck from that class.")
                 if self._course_code_for_class(source_class) != course:
                     raise ValueError("Choose a deck from this course.")
+                self._require_deck_copy_sibling(
+                    int(class_id), source_class, int(teacher_user_id)
+                )
                 if not self.class_has_current_live_deck(
                     source_class, source_m, source_s
                 ):
@@ -8288,6 +8563,16 @@ class SchoolDB(LovesDB):
                     int(class_id), source_m, source_s
                 ):
                     raise ValueError(f"No deck saved for {source_m} {source_s}.")
+            if (
+                require_replace_confirm
+                and not replace
+                and self.class_has_current_live_deck(
+                    int(class_id), module_key, slot_key
+                )
+            ):
+                raise DeckReplaceNotConfirmed(
+                    "Replace the deck or keep current first."
+                )
             source_meta = self.live_class_metadata_for_class_lesson(
                 source_class, source_m, source_s, fresh=True
             )
