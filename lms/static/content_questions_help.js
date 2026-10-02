@@ -1,5 +1,6 @@
 /**
- * MCK-79: pure helpers for the Content Questions section of Import from bank.
+ * MCK-79: pure helpers for the Contest Questions section of Import from bank.
+ * (Kind = Contest only; identifiers keep the earlier ``content`` spelling.)
  *
  * bank_mc_picker.js owns the DOM. These stay pure so grouping, labels and
  * the selection summary can be checked in node without a browser.
@@ -16,7 +17,7 @@ export function contentModuleKey(raw) {
 }
 
 /**
- * One-line meta for a Content Question row.
+ * One-line meta for a Contest Question row.
  * @param {Record<string, unknown>} item
  * @returns {string}
  */
@@ -111,7 +112,7 @@ export function contentRowsView(group, perModule = 6, onDeck = []) {
   let empty = "";
   if (!rows.length) {
     empty = linked
-      ? `${label} has no Content Questions yet.`
+      ? `${label} has no Contest questions yet.`
       : `No bank linked yet for ${label}. Pick ${label} under Bank scope to link it.`;
   }
   return { rows, empty, linked };
@@ -154,7 +155,7 @@ export function contentPicksPayload(checked) {
  */
 export function contentImportDoneText(count) {
   const n = Number(count) || 0;
-  return `Imported ${n} Content Question${n === 1 ? "" : "s"} onto this page.`;
+  return `Imported ${n} Contest Question${n === 1 ? "" : "s"} onto this page.`;
 }
 
 /**

@@ -2811,7 +2811,7 @@ async function importLiveMcFromBank(item) {
 }
 
 /**
- * MCK-79: import picked Content Questions (any module) onto the current page.
+ * MCK-79: import picked Contest Questions (any module) onto the current page.
  * Same placement path and refresh as a single bank import.
  * @param {Array<{question_id: number, module: string}>} picks
  * @returns {Promise<number>} Imported count.
@@ -2820,10 +2820,10 @@ async function importLiveContentQuestions(picks) {
   const module = String(teacherState.live_module || "M1").toUpperCase();
   const slot = String(teacherState.live_slot || "C1").toUpperCase();
   if (!classId || !Array.isArray(picks) || !picks.length) {
-    throw new Error("Pick at least one Content Question.");
+    throw new Error("Pick at least one Contest Question.");
   }
   const payload = await api(
-    `/api/staff/class/${classId}/live-lessons/${module}/${slot}/import-content-questions`,
+    `/api/staff/class/${classId}/live-lessons/${module}/${slot}/import-contest-questions`,
     {
       method: "POST",
       body: JSON.stringify({
@@ -2848,7 +2848,7 @@ async function importLiveContentQuestions(picks) {
 }
 
 /**
- * MCK-79: after a failed Content Questions batch, reload the deck so the
+ * MCK-79: after a failed Contest Questions batch, reload the deck so the
  * cards and on-deck marks match the server (the batch is rolled back).
  * @returns {Promise<void>}
  */
@@ -2880,7 +2880,7 @@ function openLiveMcImportPicker() {
             contentQuestions: {
               load: (module) =>
                 api(
-                  `/api/staff/class/${classId}/live-lessons/content-questions?module=${encodeURIComponent(
+                  `/api/staff/class/${classId}/live-lessons/contest-questions?module=${encodeURIComponent(
                     String(module || "")
                   )}`
                 ),

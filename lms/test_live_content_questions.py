@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""MCK-79: Import from bank lists each module's top 6 Content Questions.
+"""MCK-79: Import from bank lists each module's top 6 Contest Questions.
 
+Contest Questions are bank rows whose Kind is Contest (stored ``contest``).
 Server: the list endpoint is lazy and read-only. It returns every Run Live
-Class module's linked flag plus one module's top six (pack order, no
-warmups, Custom or staff-authored rows) and links no banks. The batch
+Class module's linked flag plus one module's top six (pack order, Kind =
+Contest only: no Core Math, warmup, Custom or staff-authored rows) and
+links no banks. The batch
 import uses the same placement path as ``import-mc``, only accepts a
 module's current top six, de-duplicates question ids and is all-or-nothing.
 
@@ -106,13 +108,25 @@ class ContentQuestionsApiTests(unittest.TestCase):
         self.library_id = int(self.school.create_library("MCR3U", origin="upload")["id"])
         self.school.attach_library(int(self.offering["id"]), self.library_id)
         lib = self.library_id
-        # Module 1: the pack's primary test bank, eight content MCs plus a
-        # warmup and a Custom row. Left unlinked so the list links it.
+        # Module 1: the pack's primary test bank. Eight Contest MCs
+        # interleaved with untagged Core Math rows, plus a warmup and a
+        # Custom row. Left unlinked (only the staff bank is linked).
         self.m1_bank = _bank(self.school, lib, "Module 1 Test", "bank:m1-test")
-        self.m1_qs = [
-            _mc(self.school, self.m1_bank, f"m1-{n}", f"Module one content {n}")
-            for n in range(1, 9)
-        ]
+        self.m1_qs: list[int] = []
+        self.m1_core: list[int] = []
+        for n in range(1, 9):
+            self.m1_core.append(
+                _mc(self.school, self.m1_bank, f"m1-core-{n}", f"Module one core {n}")
+            )
+            self.m1_qs.append(
+                _mc(
+                    self.school,
+                    self.m1_bank,
+                    f"m1-{n}",
+                    f"Module one contest {n}",
+                    {"bank_kind": "contest"},
+                )
+            )
         self.m1_warmup = _mc(
             self.school, self.m1_bank, "m1-w", "Warm one", {"kind": "warmup"}
         )
@@ -121,13 +135,24 @@ class ContentQuestionsApiTests(unittest.TestCase):
         )
         staff_bank = int(self.school._ensure_staff_authored_bank(lib))
         self.school._ensure_module_bank_link(lib, 1, staff_bank)
-        self.staff_q = _mc(self.school, staff_bank, "staff-1", "Teacher made one")
-        # Module 2: teacher already linked a non-test bank with three MCs.
+        # Tagged Contest but staff-authored: still not listed.
+        self.staff_q = _mc(
+            self.school, staff_bank, "staff-1", "Teacher made one", {"bank_kind": "contest"}
+        )
+        # Module 2: teacher already linked a non-test bank with three Contest
+        # MCs and one Core Math row.
         self.m2_test = _bank(self.school, lib, "Module 2 Test", "bank:m2-test")
-        _mc(self.school, self.m2_test, "m2t-1", "Module two test only")
+        _mc(self.school, self.m2_test, "m2t-1", "Module two test only", {"bank_kind": "contest"})
         self.m2_bank = _bank(self.school, lib, "M2 extras", "bank:m2-extra")
+        self.m2_core = _mc(self.school, self.m2_bank, "m2-core", "Module two core")
         self.m2_qs = [
-            _mc(self.school, self.m2_bank, f"m2-{n}", f"Module two content {n}")
+            _mc(
+                self.school,
+                self.m2_bank,
+                f"m2-{n}",
+                f"Module two contest {n}",
+                {"kind": "contest"},
+            )
             for n in range(1, 4)
         ]
         self.school.confirm_module_bank_links(lib, 2, [self.m2_bank])
@@ -158,10 +183,10 @@ class ContentQuestionsApiTests(unittest.TestCase):
         self.client.post("/verify-email", data={"code": user["verification_code"]})
 
     def _list(self, module: str = "") -> dict[str, Any]:
-        """GET the Content Questions list (optionally one module's top 6)."""
+        """GET the Contest Questions list (optionally one module's top 6)."""
         query = f"?module={module}" if module else ""
         rv = self.client.get(
-            f"/api/staff/class/{self.class_id}/live-lessons/content-questions{query}"
+            f"/api/staff/class/{self.class_id}/live-lessons/contest-questions{query}"
         )
         self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
         return rv.get_json()
@@ -188,9 +213,9 @@ class ContentQuestionsApiTests(unittest.TestCase):
         return int(row["n"])
 
     def _import(self, picks: list[dict[str, Any]], module: str = "M1", slot: str = "C1"):
-        """POST a batch Content Questions import onto page 4."""
+        """POST a batch Contest Questions import onto page 4."""
         return self.client.post(
-            f"/api/staff/class/{self.class_id}/live-lessons/{module}/{slot}/import-content-questions",
+            f"/api/staff/class/{self.class_id}/live-lessons/{module}/{slot}/import-contest-questions",
             json={"picks": picks, "page_number": 4, "stage": "round"},
         )
 
@@ -256,6 +281,22 @@ class ContentQuestionsApiTests(unittest.TestCase):
         for hidden in (self.m1_warmup, self.m1_custom, self.staff_q):
             self.assertNotIn(hidden, ids)
 
+    def test_mixed_kinds_list_only_contest_rows(self) -> None:
+        """Core Math, warmup, Custom and staff rows never appear; Contest does."""
+        self.school.confirm_module_bank_links(self.library_id, 1, [self.m1_bank])
+        m1 = self._group("M1")
+        ids = [int(item["question_id"]) for item in m1["items"]]
+        self.assertEqual(ids, self.m1_qs[:6])
+        self.assertTrue(all(item.get("kind") == "contest" for item in m1["items"]))
+        for hidden in [*self.m1_core, self.m1_warmup, self.m1_custom, self.staff_q]:
+            self.assertNotIn(hidden, ids)
+        m2_ids = [int(item["question_id"]) for item in self._group("M2")["items"]]
+        self.assertEqual(m2_ids, self.m2_qs)
+        self.assertNotIn(self.m2_core, m2_ids)
+        # The same banks still give Core Math rows to the usual Import search.
+        core = self.school.search_module_bank_mcs(self.library_id, 1, "", limit=500, kind="")
+        self.assertIn(self.m1_core[0], [int(r["question_id"]) for r in core["items"]])
+
     def test_fewer_than_six_shows_what_exists_and_unlinked_says_so(self) -> None:
         """M2 has three; M3 has no banks and reports unlinked, no rows."""
         m2 = self._group("M2")
@@ -277,7 +318,7 @@ class ContentQuestionsApiTests(unittest.TestCase):
     def test_bad_module_query_is_400(self) -> None:
         """Only Run Live Class modules can be loaded."""
         rv = self.client.get(
-            f"/api/staff/class/{self.class_id}/live-lessons/content-questions?module=M9"
+            f"/api/staff/class/{self.class_id}/live-lessons/contest-questions?module=M9"
         )
         self.assertEqual(rv.status_code, 400)
 
@@ -308,9 +349,9 @@ class ContentQuestionsApiTests(unittest.TestCase):
         self.assertNotIn(self.m2_bank, m1_banks)
 
     def test_import_refuses_rows_outside_the_top_six(self) -> None:
-        """The 7th pack MC, a warmup and a staff row are refused; nothing lands."""
+        """The 7th Contest MC, a Core Math, a warmup and a staff row are refused."""
         self.school.confirm_module_bank_links(self.library_id, 1, [self.m1_bank])
-        for qid in (self.m1_qs[6], self.m1_warmup, self.staff_q):
+        for qid in (self.m1_qs[6], self.m1_core[0], self.m1_warmup, self.staff_q):
             rv = self._import(
                 [
                     {"question_id": self.m1_qs[0], "module": "M1"},
@@ -427,7 +468,7 @@ class ContentQuestionsApiTests(unittest.TestCase):
         self.school.register_staff("other@gmail.com")
         self.client = self.app.test_client()
         self._login("other@gmail.com")
-        rv = self.client.get(f"/api/staff/class/{self.class_id}/live-lessons/content-questions")
+        rv = self.client.get(f"/api/staff/class/{self.class_id}/live-lessons/contest-questions")
         self.assertEqual(rv.status_code, 403)
         rv = self._import([{"question_id": self.m1_qs[0], "module": "M1"}])
         self.assertEqual(rv.status_code, 403)
@@ -528,7 +569,7 @@ class ContentQuestionsHelperTests(unittest.TestCase):
             self.got["empty"],
             [
                 "No bank linked yet for Module 3. Pick Module 3 under Bank scope to link it.",
-                "Module 4 has no Content Questions yet.",
+                "Module 4 has no Contest questions yet.",
             ],
         )
 
@@ -543,8 +584,8 @@ class ContentQuestionsHelperTests(unittest.TestCase):
         self.assertEqual(
             self.got["done"],
             [
-                "Imported 1 Content Question onto this page.",
-                "Imported 3 Content Questions onto this page.",
+                "Imported 1 Contest Question onto this page.",
+                "Imported 3 Contest Questions onto this page.",
             ],
         )
 
@@ -563,12 +604,18 @@ class ContentQuestionsWiringTests(unittest.TestCase):
         self.assertIn("data-bank-mc-content", src)
         self.assertIn('type="checkbox" data-content-pick=', src)
         self.assertIn("/static/content_questions_help.js", src)
+        # Labels say Contest (Kind = Contest), not the earlier "Content".
+        self.assertIn("<h4>Contest Questions · top ${CONTENT_PER_MODULE} per module</h4>", src)
+        self.assertIn('aria-label="Contest Questions"', src)
+        for name in ("bank_mc_picker.js", "content_questions_help.js", "staff_ap.js"):
+            text = (LMS_DIR / "static" / name).read_text(encoding="utf-8")
+            self.assertNotIn("Content Question", text, name)
 
     def test_run_live_class_passes_content_questions(self) -> None:
         """Import from bank loads one module at a time and posts the batch."""
         src = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
-        self.assertIn("/live-lessons/content-questions?module=", src)
-        self.assertIn("/import-content-questions", src)
+        self.assertIn("/live-lessons/contest-questions?module=", src)
+        self.assertIn("/import-contest-questions", src)
         self.assertIn("onImport: (picks) => importLiveContentQuestions(picks)", src)
         self.assertIn("onError: () => refreshLiveDeckAfterContentImportError()", src)
         self.assertIn("onDeckIds:", src)

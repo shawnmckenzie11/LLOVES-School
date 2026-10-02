@@ -162,7 +162,7 @@ async function loadModuleBankStatus(classId, moduleToken) {
  *   onDeckIds?: () => Array<Record<string, unknown>>,
  *   onImport: (picks: Array<{question_id: number, module: string}>) => Promise<number>,
  *   onError?: () => Promise<void> | void,
- * }} [opts.contentQuestions] MCK-79: Content Questions (top 6 per module),
+ * }} [opts.contentQuestions] MCK-79: Contest Questions (Kind = Contest, top 6 per module),
  *   import mode only. Loads the current module on open and each other
  *   module only when the teacher expands it.
  */
@@ -214,12 +214,12 @@ export async function mountBankMcPicker(opts) {
     </div>
     ${
       contentOpts
-        ? `<section class="bank-mc-content" data-bank-mc-content aria-label="Content Questions">
+        ? `<section class="bank-mc-content" data-bank-mc-content aria-label="Contest Questions">
             <div class="bank-mc-content-head">
-              <h4>Content Questions · top ${CONTENT_PER_MODULE} per module</h4>
+              <h4>Contest Questions · top ${CONTENT_PER_MODULE} per module</h4>
               <button type="button" class="compact" data-bank-mc-content-import disabled>Import selected</button>
             </div>
-            <p class="hint compact" data-bank-mc-content-status>Loading Content Questions…</p>
+            <p class="hint compact" data-bank-mc-content-status>Loading Contest Questions…</p>
             <div data-bank-mc-content-groups></div>
           </section>`
         : ""
@@ -471,7 +471,7 @@ export async function mountBankMcPicker(opts) {
   await refreshSearch();
   if (contentOpts) {
     // After the first search so the current module's usual bank
-    // auto-confirm has run; Content Questions never link banks itself.
+    // auto-confirm has run; Contest Questions never link banks itself.
     void mountContentQuestions(shell, contentOpts, () => {
       if (!mountTarget) closePickerModal();
     });
@@ -483,7 +483,7 @@ export async function mountBankMcPicker(opts) {
 const CONTENT_PER_MODULE = 6;
 
 /**
- * MCK-79: list modules with collapsed groups; load a module's top Content
+ * MCK-79: list modules with collapsed groups; load a module's top Contest
  * Questions only when its group opens (the class's current module opens
  * first). Ticked rows import through ``onImport`` as one batch.
  * @param {HTMLElement} shell

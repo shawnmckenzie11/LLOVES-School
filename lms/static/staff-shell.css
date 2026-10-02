@@ -5234,7 +5234,7 @@ body.staff-shell .bank-mc-picker-title {
   margin: 0 0 0.15rem;
   font-weight: 650;
 }
-/* MCK-79: Content Questions (top 6 per module) above the bank search. */
+/* MCK-79: Contest Questions (top 6 per module) above the bank search. */
 body.staff-shell .bank-mc-content {
   /* Don't let the dialog's flex column squeeze it (was 126px at 390). */
   flex: none;
@@ -5294,7 +5294,7 @@ body.staff-shell .bank-mc-content-row.is-on-deck .bank-mc-picker-text {
   color: #64748b;
 }
 @media (max-width: 640px) {
-  /* Phones: one scroll for the whole picker, Content Questions flow in it. */
+  /* Phones: one scroll for the whole picker, Contest Questions flow in it. */
   body.staff-shell .bank-mc-picker.has-content-questions {
     overflow-y: auto;
   }

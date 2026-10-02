@@ -1,25 +1,30 @@
-"""MCK-79: each module's top Content Questions for Run Live Class Import.
+"""MCK-79: each module's top Contest Questions for Run Live Class Import.
 
-A module's **Content Questions** are the content pack's own questions in
-that module's linked banks: the default Core Math mix the Import picker
-already lists (untagged and contest rows). Warmups, Custom (stored
-``standard``) and the staff-authored bank are left out, because they are
-not pack content.
+A module's **Contest Questions** are the questions whose bank Kind is
+Contest (stored ``contest``, see ``bank_kinds.py``; made with the CEMC
+Contest Question Generator) in that module's linked content-pack banks.
+Untagged Core Math, warmup, Custom (stored ``standard``), the
+staff-authored bank and Course Wide warmups are left out. (The section
+was first built as "Content Questions"; Python, JS, CSS and data-attribute
+identifiers keep the ``content`` spelling, only labels and endpoints were
+renamed.)
 
-**Top 6** is the existing Import order: linked banks by bank title (byte
-order), then insertion id, after the same duplicate filter. It is not a
-quality or difficulty rank; the pack carries no rank field, so nothing is
-re-ranked here. A module with fewer than six shows what it has.
+**Top 6** is the existing Import order with Kind = Contest: linked banks by
+bank title (byte order), then insertion id, after the same duplicate
+filter. It is not a quality or difficulty rank; the pack carries no rank
+field, so nothing is re-ranked here. A module with fewer than six shows
+what it has.
 
 Loading is lazy and read-only. The list call returns every selectable
 module's linked flag (cheap SQL) plus one module's top 6. Other modules
 load when the teacher expands them. Nothing here links banks: the picker
 still links the class's current module the way it did before MCK-79.
 
-Reads go through ``search_module_bank_mcs`` so warmup, overlay and
-duplicate rules are not forked. Imports go through
-``import_mc_to_class_playlist``, the path Import already uses, and a batch
-is all-or-nothing (see ``import_content_questions``).
+Reads go through ``search_module_bank_mcs(kind="contest")``, the same
+filter as Import's Kind = Contest, so warmup, overlay and duplicate rules
+are not forked. Imports go through ``import_mc_to_class_playlist``, the
+path Import already uses, and a batch is all-or-nothing (see
+``import_content_questions``).
 """
 
 from __future__ import annotations
@@ -36,6 +41,8 @@ except ImportError:  # ``python3 lms/app.py`` package import
     from lms.live_class_packs import live_class_registry
 
 CONTENT_QUESTIONS_PER_MODULE = 6
+# Bank Kind listed in the section (``bank_kinds.STORED_KINDS``).
+CONTEST_KIND = "contest"
 # Banks that are not content-pack questions.
 NON_PACK_BANK_KEYS = ("staff-authored", COURSE_WIDE_WARMUP_BANK_KEY)
 # Eight modules × six questions.
@@ -141,7 +148,7 @@ def module_content_questions(
     limit: int = CONTENT_QUESTIONS_PER_MODULE,
     skip_bank_ids: set[int] | None = None,
 ) -> dict[str, Any]:
-    """Return one module's top Content Questions in Import order.
+    """Return one module's top Contest Questions in Import order.
 
     Read-only apart from the existing Module 2 retag inside
     ``search_module_bank_mcs``. A module with no linked pack bank is not
@@ -176,13 +183,14 @@ def module_content_questions(
     if not group["linked"]:
         return group
     result = school.search_module_bank_mcs(
-        int(library_id), number, "", limit=500, class_id=class_id, kind=""
+        int(library_id), number, "", limit=500, class_id=class_id, kind=CONTEST_KIND
     )
     content = [
         row
         for row in result.get("items") or []
         if int(row.get("bank_id") or 0) not in skip
         and int(row.get("question_id") or 0) > 0
+        and str(row.get("kind") or "").strip().lower() == CONTEST_KIND
     ]
     for rank, row in enumerate(content[: max(0, int(limit))], start=1):
         item = dict(row)
@@ -209,9 +217,9 @@ def clean_content_picks(raw: Any, modules: list[str]) -> list[tuple[int, str]]:
         ValueError: Empty, too many, or a malformed pick.
     """
     if not isinstance(raw, list) or not raw:
-        raise ValueError("Pick at least one Content Question.")
+        raise ValueError("Pick at least one Contest Question.")
     if len(raw) > MAX_CONTENT_PICKS:
-        raise ValueError(f"Pick at most {MAX_CONTENT_PICKS} Content Questions.")
+        raise ValueError(f"Pick at most {MAX_CONTENT_PICKS} Contest Questions.")
     allowed = set(modules)
     picks: list[tuple[int, str]] = []
     seen: set[int] = set()
@@ -272,7 +280,7 @@ def import_content_questions(
     page_number: int,
     stage: str,
 ) -> list[dict[str, Any]]:
-    """Import picked Content Questions onto one class live-lesson page.
+    """Import picked Contest Questions onto one class live-lesson page.
 
     All-or-nothing. Every pick is checked against its module's current top
     six before anything is written, so a stale or hand-made id cannot
@@ -297,7 +305,7 @@ def import_content_questions(
         Placement rows in pick order.
 
     Raises:
-        KeyError: A pick is not in its module's top Content Questions
+        KeyError: A pick is not in its module's top Contest Questions
             (nothing written).
         ContentImportFailed: A placement failed and the batch was rolled back.
     """
@@ -318,7 +326,7 @@ def import_content_questions(
             }
         if question_id not in top_by_module[key]:
             raise KeyError(
-                f"question {question_id} is not a {key} Content Question"
+                f"question {question_id} is not a {key} Contest Question"
             )
     placements: list[dict[str, Any]] = []
     try:

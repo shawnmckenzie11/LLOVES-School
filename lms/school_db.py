@@ -10291,7 +10291,7 @@ class SchoolDB(LovesDB):
             stage: Optional lifecycle stage; defaults to ``round``.
             order: Optional sort order on the page; defaults to next slot.
             source_module: MCK-79. Module whose confirmed banks hold the
-                question, when it is not ``module`` (a Content Question
+                question, when it is not ``module`` (a Contest Question
                 from another module). Defaults to ``module``.
 
         Returns:

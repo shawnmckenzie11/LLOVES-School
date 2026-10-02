@@ -3716,7 +3716,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         return jsonify(response)
 
     def _content_questions_scope(class_id: int):
-        """MCK-79: class, library and selectable modules for Content Questions.
+        """MCK-79: class, library and selectable modules for Contest Questions.
 
         Returns:
             ``(library_id, modules, None)`` or ``(None, [], error_response)``.
@@ -3739,10 +3739,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         modules = selectable_live_modules(cls.get("ontario_code") or "MCF3M")
         return int(library_id), modules, None
 
-    @app.route("/api/staff/class/<int:class_id>/live-lessons/content-questions")
+    @app.route("/api/staff/class/<int:class_id>/live-lessons/contest-questions")
     @staff_required
     def staff_live_content_questions(class_id: int):
-        """MCK-79: module list plus one module's top 6 Content Questions.
+        """MCK-79: module list plus one module's top 6 Contest Questions.
 
         Read-only and lazy: ``?module=M2`` returns every selectable module's
         linked flag and only M2's questions. Links no banks.
@@ -3785,12 +3785,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         return response
 
     @app.route(
-        "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/import-content-questions",
+        "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/import-contest-questions",
         methods=["POST"],
     )
     @staff_required
     def staff_import_live_content_questions(class_id: int, module: str, slot: str):
-        """MCK-79: import picked Content Questions onto the current page.
+        """MCK-79: import picked Contest Questions onto the current page.
 
         Same placement path as ``import-mc``. Each pick names its module, and
         must be in that module's current top 6.
