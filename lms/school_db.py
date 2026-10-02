@@ -87,6 +87,16 @@ try:
         rank_fingerprint,
         safe_rank_options,
         toggle_rank_order,
+        TurnConflict,
+        apply_turn_place,
+        apply_turn_skip,
+        apply_turn_undo,
+        empty_turns_state,
+        normalize_rank_mode,
+        turn_can_place,
+        turn_next_ids,
+        turn_recent_skips,
+        turns_state,
     )
     from live_class_metadata import (
         MODULE_RE,
@@ -222,6 +232,16 @@ except ImportError:  # ``python3 lms/app.py`` package import
         rank_fingerprint,
         safe_rank_options,
         toggle_rank_order,
+        TurnConflict,
+        apply_turn_place,
+        apply_turn_skip,
+        apply_turn_undo,
+        empty_turns_state,
+        normalize_rank_mode,
+        turn_can_place,
+        turn_next_ids,
+        turn_recent_skips,
+        turns_state,
     )
     from lms.live_class_metadata import (
         MODULE_RE,
@@ -1420,6 +1440,32 @@ def parse_semester_label(semester: str) -> tuple[str, str]:
     if "S2" in term.upper():
         return year_display, "Semester 2"
     return year_display, "Semester 1"
+
+
+class GroupAnswerLocked(ValueError):
+    """MCK-155 option B: the team already sent its MC answer (409).
+
+    Attributes:
+        card: The sender-free public group card to repaint with.
+    """
+
+    def __init__(self, message: str, card: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.card = card or {}
+
+
+class RankTurnConflict(ValueError):
+    """MCK-155 take turns: a pick lost the race or is out of turn (409).
+
+    Attributes:
+        reason: ``turn_taken``, ``not_your_turn``, ``done``, ``no_undo``.
+        card: The public group card to repaint with.
+    """
+
+    def __init__(self, message: str, reason: str, card: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.card = card or {}
 
 
 class DeckReplaceNotConfirmed(ValueError):
@@ -13081,6 +13127,14 @@ class SchoolDB(LovesDB):
         body["response_mode"] = str(
             existing["response_mode"] or body.get("response_mode") or "individual"
         )
+        # MCK-155: the rank Group mode (together / turns) lives only on the
+        # session row's item_json, so carry it across a deck refresh.
+        try:
+            saved_json = json.loads(existing["item_json"] or "{}")
+        except (IndexError, KeyError, TypeError, json.JSONDecodeError):
+            saved_json = {}
+        if isinstance(saved_json, dict) and saved_json.get("group_rank_mode"):
+            body["group_rank_mode"] = str(saved_json["group_rank_mode"])
         return body
 
     @staticmethod
@@ -14240,6 +14294,7 @@ class SchoolDB(LovesDB):
         save_to_card: Any = None,
         publish_mode: Any = None,
         response_mode: Any = None,
+        group_rank_mode: Any = None,
     ) -> dict[str, Any]:
         """Update one item's teacher settings without publishing it.
 
@@ -14258,6 +14313,8 @@ class SchoolDB(LovesDB):
                 whiteboard group-shared. Stored before Publish.
             response_mode: How answers are collected. Defaults to the same
                 token as ``publish_mode`` when only that field is sent.
+            group_rank_mode: MCK-155, rank only: ``together`` or ``turns``.
+                Locked once the item is published.
 
         Raises:
             ValueError: When no setting is present or a value is invalid.
@@ -14267,6 +14324,7 @@ class SchoolDB(LovesDB):
             and save_to_card is None
             and publish_mode is None
             and response_mode is None
+            and group_rank_mode is None
         ):
             raise ValueError(
                 "show_live_results, save_to_card, publish_mode, or response_mode is required"
@@ -14312,6 +14370,15 @@ class SchoolDB(LovesDB):
             assignments.append("response_mode = ?")
             params.append(stored_response)
             question["response_mode"] = stored_response
+        if group_rank_mode is not None:
+            token = str(group_rank_mode or "").strip().lower()
+            if token not in {"together", "turns"}:
+                raise ValueError("group_rank_mode must be together or turns")
+            if self._question_answer_kind(item) != "rank":
+                raise ValueError("Group mode is for rank questions.")
+            if str(item.get("status") or "") != "inactive":
+                raise ValueError("Change Group mode before you publish.")
+            question["group_rank_mode"] = token
         assignments.append("item_json = ?")
         params.append(json.dumps(question))
         params.extend([_now(), int(item["id"])])
@@ -15009,6 +15076,49 @@ class SchoolDB(LovesDB):
             "last_submitter": last_name,
             "can_submit": active and phase == "ready",
         }
+        if self._group_mc_picks_flow(item):
+            # MCK-155 option B. Own team only; other teams never appear.
+            picks = self._group_mc_pick_rows(item, int(team_id))
+            step_open = active and self._group_mc_pick_step_open(item, int(team_id), row)
+            mine = next(
+                (
+                    str((vote.get("answer") or {}).get("value") or "")
+                    for vote in picks
+                    if int(vote["student_id"]) == int(student_id)
+                ),
+                "",
+            )
+            card["flow"] = "pick_then_agree"
+            card["pick_step"] = bool(step_open)
+            card["my_pick"] = mine
+            card["locked"] = bool(card["submitted"])
+            if step_open:
+                picked = {int(vote["student_id"]) for vote in picks}
+                waiting = [
+                    sid
+                    for sid in self._active_team_member_ids(
+                        int(item["live_session_id"]), int(team_id)
+                    )
+                    if sid not in picked
+                ]
+                card["waiting_count"] = len(waiting)
+                card["waiting_names"] = [
+                    name
+                    for name in (
+                        self._first_name(class_id, sid)
+                        for sid in waiting
+                        if sid != int(student_id)
+                    )
+                    if name
+                ]
+                card["can_submit"] = False
+            else:
+                card["member_picks"] = self._group_mc_member_picks(
+                    item, int(team_id), class_id, viewer_id=int(student_id)
+                )
+                card["can_submit"] = bool(
+                    card["can_submit"] and not card["locked"]
+                )
         if self._question_answer_kind(item) == "rank":
             proposed = row.get("proposed_answer") if isinstance(row.get("proposed_answer"), dict) else {}
             draft_order = (
@@ -15023,6 +15133,13 @@ class SchoolDB(LovesDB):
             )
             card["order"] = draft_order
             card["submitted_order"] = submitted_order
+            card["rank_mode"] = self._group_rank_mode(item)
+            if card["rank_mode"] == "turns":
+                turn_state = self._rank_turns_for_row(item, row)
+                card["order"] = list(turn_state["order"])
+                card["turns"] = self._rank_turns_public(
+                    item, int(team_id), class_id, turn_state, viewer_id=int(student_id)
+                )
         return card
 
     def _save_group_rank_draft(
@@ -15053,6 +15170,9 @@ class SchoolDB(LovesDB):
             The public group-submit card for this student.
         """
         del session_id  # membership check loads the session
+        if self._group_rank_mode(item) == "turns":
+            # MCK-155: an old client cannot bypass the turns.
+            raise ValueError("This question takes turns. Place one item at a time.")
         team_id = self._require_group_submit_member(item, student_id)
         options = self._rank_option_rows(item)
         allowed = [row["id"] for row in options]
@@ -15120,6 +15240,556 @@ class SchoolDB(LovesDB):
             self.conn.commit()
         return self.student_group_submit_state(item, student_id) or {}
 
+    # ------------------------------------------------------------------
+    # MCK-155 group MC option B: "pick alone, then agree" (approved).
+    # Runs on the group_submit engine so the #230 marks, points path and
+    # teacher view stay as they are. Each member's own pick is a
+    # ``live_group_votes`` row (``{"kind": "pick", "value": label}``).
+    # ``voting_ended_at`` on the team row ends step 1: set when every
+    # present member has picked, or when the teacher taps Move on.
+    # ------------------------------------------------------------------
+
+    def _group_mc_picks_flow(self, item: dict[str, Any]) -> bool:
+        """True for group MC, which always runs pick-then-agree.
+
+        Args:
+            item: Lifecycle row.
+        """
+        return (
+            str(item.get("response_mode") or "") == "group_submit"
+            and self._question_answer_kind(item) == "mc"
+        )
+
+    def _group_mc_pick_rows(
+        self, item: dict[str, Any], team_id: int
+    ) -> list[dict[str, Any]]:
+        """Own-pick rows for one team, oldest first.
+
+        Args:
+            item: Lifecycle row.
+            team_id: Team.
+        """
+        return [
+            vote
+            for vote in self._group_vote_rows(int(item["id"]), int(team_id))
+            if (vote.get("answer") or {}).get("kind") == "pick"
+        ]
+
+    def _end_group_mc_pick_step(self, live_item_id: int, team_id: int) -> None:
+        """Close step 1 for one team. Idempotent.
+
+        Args:
+            live_item_id: ``live_session_items.id``.
+            team_id: Team.
+        """
+        now = _now()
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_group_responses
+                SET voting_ended_at = ?, updated_at = ?
+                WHERE live_item_id = ? AND team_id = ?
+                  AND voting_ended_at IS NULL
+                """,
+                (now, now, int(live_item_id), int(team_id)),
+            )
+            self.conn.commit()
+
+    def _group_mc_pick_step_open(
+        self,
+        item: dict[str, Any],
+        team_id: int,
+        row: dict[str, Any] | None = None,
+    ) -> bool:
+        """True while this team is still on step 1 (everyone picks alone).
+
+        Absent members never block: only present teammates
+        (``_active_team_member_ids``) must pick. When they all have, step 1
+        is closed on the row so a late joiner cannot reopen it.
+
+        Args:
+            item: Lifecycle row.
+            team_id: Team.
+            row: Team row, when the caller already has it.
+        """
+        if not self._group_mc_picks_flow(item):
+            return False
+        if str(item.get("status") or "") != "active":
+            return False
+        state = row if row is not None else (
+            self._group_response_row(int(item["id"]), int(team_id)) or {}
+        )
+        if state.get("voting_ended_at") or int(state.get("submit_count") or 0) > 0:
+            return False
+        picked = {
+            int(vote["student_id"])
+            for vote in self._group_mc_pick_rows(item, int(team_id))
+        }
+        active = self._active_team_member_ids(
+            int(item["live_session_id"]), int(team_id)
+        )
+        if active and set(active).issubset(picked):
+            self._end_group_mc_pick_step(int(item["id"]), int(team_id))
+            return False
+        return True
+
+    def _first_name(self, class_id: int, student_id: int) -> str:
+        """First word of the roster codename (same rule as S5 waiting names).
+
+        Args:
+            class_id: Game-show class id.
+            student_id: Roster id.
+        """
+        name = self._roster_codename(int(class_id), int(student_id)) if class_id else ""
+        parts = name.split()
+        return parts[0] if parts else ""
+
+    def submit_group_mc_pick(
+        self,
+        session_id: int,
+        live_item_id: int,
+        student_id: int,
+        *,
+        choice: Any,
+    ) -> dict[str, Any]:
+        """Store one member's own pick (step 1). No why, no points.
+
+        A pick can be changed while step 1 is open. Once step 1 is over the
+        pick is ignored and the current card comes back.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            live_item_id: ``live_session_items.id``.
+            student_id: Roster id.
+            choice: One of the option labels.
+
+        Returns:
+            The public group-submit card for this student.
+
+        Raises:
+            ValueError: Not group MC, not a member, or not an option.
+        """
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, live_item_id)
+        if not self._group_mc_picks_flow(item):
+            raise ValueError("This question has no pick step.")
+        team_id = self._require_group_submit_member(item, student_id)
+        choice_text = str(choice or "").strip()[:500]
+        labels = self._mc_option_labels(item)
+        if not choice_text or (labels and choice_text not in labels):
+            raise ValueError("Choose one of the options.")
+        if not self._group_mc_pick_step_open(item, team_id):
+            return self.student_group_submit_state(item, student_id) or {}
+        now = _now()
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT OR IGNORE INTO live_group_members (
+                    live_item_id, team_id, student_id, joined_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (int(item["id"]), int(team_id), int(student_id), now),
+            )
+            self.conn.execute(
+                """
+                INSERT INTO live_group_votes (
+                    live_item_id, team_id, student_id, response_json,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(live_item_id, team_id, student_id) DO UPDATE SET
+                    response_json = excluded.response_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    int(item["id"]),
+                    int(team_id),
+                    int(student_id),
+                    json.dumps({"kind": "pick", "value": choice_text}),
+                    now,
+                    now,
+                ),
+            )
+            # Touch the team row so light polls and teammates refresh.
+            self.conn.execute(
+                "UPDATE live_group_responses SET updated_at = ? WHERE live_item_id = ? AND team_id = ?",
+                (now, int(item["id"]), int(team_id)),
+            )
+            self.conn.commit()
+        self._group_mc_pick_step_open(item, team_id)
+        return self.student_group_submit_state(item, student_id) or {}
+
+    def end_group_mc_pick_step(
+        self, session_id: int, placement_or_item: str | int
+    ) -> dict[str, Any]:
+        """Teacher Move on: every team still picking goes to step 2.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            placement_or_item: Placement key, item id, or lifecycle id.
+
+        Returns:
+            The staff group-submit view.
+        """
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, placement_or_item)
+        if not self._group_mc_picks_flow(item) or item["status"] != "active":
+            raise ValueError("Group picks are not open for this item.")
+        for team_id, _name, state in self._iter_group_submit_teams(session_id, item):
+            if state and not state.get("voting_ended_at"):
+                self._end_group_mc_pick_step(int(item["id"]), int(team_id))
+        item = self.get_live_session_item(session_id, int(item["id"]))
+        return self.group_submit_teacher_view(session_id, item)
+
+    def _group_mc_member_picks(
+        self,
+        item: dict[str, Any],
+        team_id: int,
+        class_id: int,
+        *,
+        viewer_id: int | None = None,
+        with_marks: bool = False,
+    ) -> list[dict[str, Any]]:
+        """``[{name, value, mine?, correct?}]`` for one team, oldest first.
+
+        Args:
+            item: Lifecycle row.
+            team_id: Team.
+            class_id: Game-show class id, for first names.
+            viewer_id: Student viewing (sets ``mine``); None for staff.
+            with_marks: Staff only: add ``correct`` on keyed MC.
+        """
+        keyed = with_marks and bool(self._mc_key_letter(item))
+        out: list[dict[str, Any]] = []
+        for vote in self._group_mc_pick_rows(item, team_id):
+            sid = int(vote["student_id"])
+            value = str((vote.get("answer") or {}).get("value") or "").strip()
+            row: dict[str, Any] = {"name": self._first_name(class_id, sid), "value": value}
+            if viewer_id is not None:
+                row["mine"] = sid == int(viewer_id)
+            if keyed:
+                row["correct"] = self._group_mc_answer_correct(item, value)
+            out.append(row)
+        return out
+
+    # ------------------------------------------------------------------
+    # MCK-155 "Take turns" group rank (approved). State lives on the team
+    # row's ``proposed_answer_json`` (``mode: "turns"``); see live_rank.py
+    # for the first-come, no-repeat rule. The order sends itself when the
+    # last spot fills.
+    # ------------------------------------------------------------------
+
+    def _group_rank_mode(self, item: dict[str, Any]) -> str:
+        """``together`` (today's shared order) or ``turns``.
+
+        Args:
+            item: Lifecycle row.
+        """
+        if self._question_answer_kind(item) != "rank":
+            return "together"
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        return normalize_rank_mode(question.get("group_rank_mode"))
+
+    def _rank_turns_for_row(
+        self, item: dict[str, Any], row: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Normalized take-turns draft for one team row.
+
+        Args:
+            item: Lifecycle row.
+            row: Normalized team row.
+        """
+        allowed = [opt["id"] for opt in self._rank_option_rows(item)]
+        return turns_state(row.get("proposed_answer"), allowed)
+
+    def _rank_turns_public(
+        self,
+        item: dict[str, Any],
+        team_id: int,
+        class_id: int,
+        state: dict[str, Any],
+        *,
+        viewer_id: int | None,
+    ) -> dict[str, Any]:
+        """Take-turns card block for a student (``viewer_id``) or staff.
+
+        Args:
+            item: Lifecycle row.
+            team_id: Team.
+            class_id: Game-show class id, for first names.
+            state: Normalized take-turns draft.
+            viewer_id: Student viewing, or None for staff.
+        """
+        options = self._rank_option_rows(item)
+        labels = {opt["id"]: opt["label"] for opt in options}
+        active = self._active_team_member_ids(int(item["live_session_id"]), int(team_id))
+        placers = [
+            (int(event[0]), str(event[2]))
+            for event in state.get("events") or []
+            if event[1] == "place"
+        ]
+        spots = []
+        for sid, opt in placers:
+            spot: dict[str, Any] = {
+                "option_id": opt,
+                "label": labels.get(opt, opt),
+                "by_name": self._first_name(class_id, sid),
+            }
+            if viewer_id is not None:
+                spot["mine"] = sid == int(viewer_id)
+            spots.append(spot)
+        next_ids = turn_next_ids(state, active)
+        events = state.get("events") or []
+        last = events[-1] if events else None
+        block: dict[str, Any] = {
+            "mode": "turns",
+            "spots": spots,
+            "total": len(options),
+            "done": bool(state.get("complete")),
+            "rev": int(state.get("rev") or 0),
+            "next_names": [
+                name for name in (self._first_name(class_id, sid) for sid in next_ids) if name
+            ],
+            "skipped_names": [
+                name
+                for name in (
+                    self._first_name(class_id, sid) for sid in turn_recent_skips(state)
+                )
+                if name
+            ],
+        }
+        if viewer_id is not None:
+            block["can_place"] = turn_can_place(state, int(viewer_id), active) and (
+                str(item.get("status") or "") == "active"
+            )
+            block["waiting_names"] = [
+                name
+                for name in (
+                    self._first_name(class_id, sid)
+                    for sid in next_ids
+                    if sid != int(viewer_id)
+                )
+                if name
+            ]
+            mine_last = bool(
+                last and last[1] == "place" and int(last[0]) == int(viewer_id)
+            )
+            block["can_undo"] = bool(
+                mine_last and not state.get("complete")
+                and str(item.get("status") or "") == "active"
+            )
+            block["placed_spot"] = len(placers) if mine_last else 0
+        return block
+
+    def rank_turn_place(
+        self,
+        session_id: int,
+        live_item_id: int,
+        student_id: int,
+        *,
+        option_id: Any = None,
+        undo: bool = False,
+    ) -> dict[str, Any]:
+        """Place one option in the next spot, or undo my last placement.
+
+        Runs under the school lock, so two teammates tapping at once get
+        one placement and one :class:`RankTurnConflict` (409). A retry of
+        my own last placement is a safe no-op. The last spot sends the
+        order as the team's answer (same columns as a group rank submit).
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            live_item_id: ``live_session_items.id``.
+            student_id: Roster id.
+            option_id: Option to place.
+            undo: Take back my last placement instead.
+
+        Returns:
+            The public group card.
+
+        Raises:
+            ValueError: Not a take-turns rank, or not a member.
+            RankTurnConflict: Out of turn, already placed, or locked.
+        """
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, live_item_id)
+        if self._group_rank_mode(item) != "turns":
+            raise ValueError("This question does not take turns.")
+        team_id = self._require_group_submit_member(item, student_id)
+        allowed = [opt["id"] for opt in self._rank_option_rows(item)]
+        active = self._active_team_member_ids(session_id, int(team_id))
+        now = _now()
+        conflict: TurnConflict | None = None
+        with self._lock:
+            current = self.conn.execute(
+                """
+                SELECT proposed_answer_json, submit_count, submitter_ids_json
+                FROM live_group_responses
+                WHERE live_item_id = ? AND team_id = ?
+                """,
+                (int(item["id"]), int(team_id)),
+            ).fetchone()
+            try:
+                parsed = json.loads((current["proposed_answer_json"] if current else None) or "null")
+            except (TypeError, json.JSONDecodeError):
+                parsed = None
+            state = turns_state(parsed, allowed)
+            changed = False
+            try:
+                if undo:
+                    state = apply_turn_undo(state, int(student_id))
+                    changed = True
+                else:
+                    state, changed = apply_turn_place(
+                        state, int(student_id), str(option_id or ""), allowed, active
+                    )
+            except TurnConflict as exc:
+                conflict = exc
+            if conflict is None and changed:
+                if state.get("complete"):
+                    try:
+                        ids = json.loads((current["submitter_ids_json"] if current else None) or "[]")
+                    except (TypeError, json.JSONDecodeError):
+                        ids = []
+                    ids = [int(x) for x in ids if str(x).lstrip("-").isdigit()] if isinstance(ids, list) else []
+                    ids.append(int(student_id))
+                    stored = {"kind": "rank", "order": list(state["order"]), "why": ""}
+                    self.conn.execute(
+                        """
+                        UPDATE live_group_responses
+                        SET status = 'submitted', proposed_answer_json = ?,
+                            final_answer_json = ?,
+                            submit_count = COALESCE(submit_count, 0) + 1,
+                            last_submitter_student_id = ?,
+                            submitter_ids_json = ?, updated_at = ?
+                        WHERE live_item_id = ? AND team_id = ?
+                        """,
+                        (
+                            json.dumps(state),
+                            json.dumps(stored),
+                            int(student_id),
+                            json.dumps(ids),
+                            now,
+                            int(item["id"]),
+                            int(team_id),
+                        ),
+                    )
+                else:
+                    self.conn.execute(
+                        """
+                        UPDATE live_group_responses
+                        SET status = 'drafting', proposed_answer_json = ?,
+                            updated_at = ?
+                        WHERE live_item_id = ? AND team_id = ?
+                        """,
+                        (json.dumps(state), now, int(item["id"]), int(team_id)),
+                    )
+                self.conn.commit()
+        card = self.student_group_submit_state(item, student_id) or {}
+        if conflict is not None:
+            if conflict.reason == "turn_taken" and conflict.by is not None:
+                session_row = self.get_live_session(session_id)
+                name = self._first_name(int(session_row["class_id"]), int(conflict.by)) if session_row else ""
+                message = (
+                    f"{name} just placed that one. Pick another."
+                    if name
+                    else "That one was just placed. Pick another."
+                )
+            else:
+                message = str(conflict)
+            raise RankTurnConflict(message, conflict.reason, card)
+        return card
+
+    def rank_turn_skip(
+        self, session_id: int, placement_or_item: str | int, *, team_id: int
+    ) -> dict[str, Any]:
+        """Teacher Skip: pass the turn the group is waiting on.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            placement_or_item: Placement key, item id, or lifecycle id.
+            team_id: Team to move on.
+
+        Returns:
+            ``{"skipped": [first names], "view": staff view}``.
+        """
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, placement_or_item)
+        if self._group_rank_mode(item) != "turns" or item["status"] != "active":
+            raise ValueError("This question does not take turns.")
+        allowed = [opt["id"] for opt in self._rank_option_rows(item)]
+        active = self._active_team_member_ids(session_id, int(team_id))
+        now = _now()
+        with self._lock:
+            current = self.conn.execute(
+                """
+                SELECT proposed_answer_json FROM live_group_responses
+                WHERE live_item_id = ? AND team_id = ?
+                """,
+                (int(item["id"]), int(team_id)),
+            ).fetchone()
+            if current is None:
+                raise ValueError("This group is not on the question.")
+            try:
+                parsed = json.loads(current["proposed_answer_json"] or "null")
+            except (TypeError, json.JSONDecodeError):
+                parsed = None
+            state, skipped = apply_turn_skip(turns_state(parsed, allowed), active)
+            if skipped:
+                self.conn.execute(
+                    """
+                    UPDATE live_group_responses
+                    SET proposed_answer_json = ?, updated_at = ?
+                    WHERE live_item_id = ? AND team_id = ?
+                    """,
+                    (json.dumps(state), now, int(item["id"]), int(team_id)),
+                )
+                self.conn.commit()
+        session_row = self.get_live_session(session_id)
+        class_id = int(session_row["class_id"]) if session_row else 0
+        return {
+            "skipped": [self._first_name(class_id, sid) for sid in skipped],
+            "view": self.group_submit_teacher_view(
+                session_id, self.get_live_session_item(session_id, int(item["id"]))
+            ),
+        }
+
+    def _rank_turns_teacher_rows(
+        self, session_id: int, item: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """One progress row per team: placed, total, who is next, done.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item: Take-turns rank lifecycle row.
+        """
+        session_row = self.get_live_session(session_id)
+        class_id = int(session_row["class_id"]) if session_row else 0
+        rows: list[dict[str, Any]] = []
+        for team_id, team_name, state_row in self._iter_group_submit_teams(session_id, item):
+            state = self._rank_turns_for_row(item, state_row or {})
+            block = self._rank_turns_public(
+                item, int(team_id), class_id, state, viewer_id=None
+            )
+            active = self._active_team_member_ids(session_id, int(team_id))
+            next_ids = turn_next_ids(state, active)
+            rows.append(
+                {
+                    "team_id": int(team_id),
+                    "team_name": team_name,
+                    "placed": len(block["spots"]),
+                    "total": block["total"],
+                    "next_names": block["next_names"],
+                    "done": block["done"],
+                    "can_skip": bool(
+                        str(item.get("status") or "") == "active"
+                        and not block["done"]
+                        and next_ids
+                        and len(next_ids) < len(active)
+                    ),
+                }
+            )
+        return rows
+
     def save_group_mc_draft(
         self,
         session_id: int,
@@ -15170,6 +15840,16 @@ class SchoolDB(LovesDB):
         if choice_text and labels and choice_text not in labels:
             raise ValueError("Choose one of the options.")
         row = self._group_response_row(int(item["id"]), team_id) or {}
+        if self._group_mc_picks_flow(item):
+            # MCK-155 option B: no shared draft until everyone has picked,
+            # and nothing changes once the group answer is sent.
+            if int(row.get("submit_count") or 0) > 0:
+                raise GroupAnswerLocked(
+                    "Your group's answer is locked.",
+                    self.student_group_submit_state(item, student_id),
+                )
+            if self._group_mc_pick_step_open(item, team_id, row):
+                raise ValueError("Send your own pick first.")
         preview = dict(row)
         preview["proposed_answer"] = (
             {"kind": "choice", "value": choice_text} if choice_text else None
@@ -15230,6 +15910,26 @@ class SchoolDB(LovesDB):
             return self._submit_group_rank_answer(
                 session_id, item, student_id, order=order
             )
+        if self._group_mc_picks_flow(item):
+            # MCK-155 option B: sending locks the answer for the team. A
+            # repeat tap of the same answer is a safe no-op; anything else
+            # after the first send is a 409 with the locked card.
+            team_id = self._require_group_submit_member(item, student_id)
+            row = self._group_response_row(int(item["id"]), team_id) or {}
+            if int(row.get("submit_count") or 0) > 0:
+                final = row.get("final_answer") if isinstance(row.get("final_answer"), dict) else {}
+                card = self.student_group_submit_state(item, student_id) or {}
+                same = (
+                    str(final.get("value") or "").strip() == str(choice or "").strip()
+                    and str(final.get("why") or "").strip() == str(why or "").strip()
+                    and row.get("last_submitter_student_id") not in (None, "")
+                    and int(row["last_submitter_student_id"]) == int(student_id)
+                )
+                if same:
+                    return card
+                raise GroupAnswerLocked("Your group's answer is locked.", card)
+            if not str(why or "").strip():
+                raise ValueError("Add your why to send.")
         self.save_group_mc_draft(
             session_id,
             live_item_id,
@@ -15255,8 +15955,14 @@ class SchoolDB(LovesDB):
         ids.append(int(student_id))
         final = {"kind": "choice", "value": choice_text, "why": why_text}
         now = _now()
+        # MCK-155 option B: the first send wins under the lock.
+        lock_guard = (
+            " AND COALESCE(submit_count, 0) = 0"
+            if self._group_mc_picks_flow(item)
+            else ""
+        )
         with self._lock:
-            self.conn.execute(
+            cursor = self.conn.execute(
                 """
                 UPDATE live_group_responses
                 SET status = 'submitted',
@@ -15266,7 +15972,8 @@ class SchoolDB(LovesDB):
                     submitter_ids_json = ?,
                     updated_at = ?
                 WHERE live_item_id = ? AND team_id = ?
-                """,
+                """
+                + lock_guard,
                 (
                     json.dumps(final),
                     int(student_id),
@@ -15277,6 +15984,11 @@ class SchoolDB(LovesDB):
                 ),
             )
             self.conn.commit()
+        if lock_guard and cursor.rowcount != 1:
+            raise GroupAnswerLocked(
+                "Your group's answer is locked.",
+                self.student_group_submit_state(item, student_id),
+            )
         return self.student_group_submit_state(item, student_id) or {}
 
     def _submit_group_rank_answer(
@@ -15456,6 +16168,7 @@ class SchoolDB(LovesDB):
         class_id = int(session_row["class_id"]) if session_row else 0
         revealed = str(item.get("status") or "") == "closed"
         keyed = bool(self._mc_key_letter(item))
+        picks_flow = self._group_mc_picks_flow(item)
         status_board: list[dict[str, Any]] = []
         submitter_log: list[dict[str, Any]] = []
         for team_id, team_name, state in self._iter_group_submit_teams(session_id, item):
@@ -15480,6 +16193,18 @@ class SchoolDB(LovesDB):
                 # text itself still waits for reveal.
                 board_row["correct"] = self._group_mc_answer_correct(
                     item, str(final.get("value") or "").strip()
+                )
+            if picks_flow and state:
+                # MCK-155 option B: staff see each member's own pick (with
+                # a mark on keyed MC) while live, like other group work.
+                board_row["pick_step"] = self._group_mc_pick_step_open(
+                    item, int(team_id)
+                )
+                board_row["picks"] = self._group_mc_member_picks(
+                    item, int(team_id), class_id, with_marks=True
+                )
+                board_row["member_count"] = len(
+                    self._active_team_member_ids(session_id, int(team_id))
                 )
             status_board.append(board_row)
             submitter_log.append(
@@ -15506,10 +16231,16 @@ class SchoolDB(LovesDB):
             view["correct_count"] = sum(
                 1 for row in status_board if row.get("correct") is True
             )
+        if picks_flow:
+            view["flow"] = "pick_then_agree"
+            view["any_picking"] = any(row.get("pick_step") for row in status_board)
         if revealed:
             view["reveal"] = self.group_submit_reveal_rows(session_id, int(item["id"]))
         if self._question_answer_kind(item) == "rank":
             view["rank"] = self._rank_group_collate(session_id, item)
+            if self._group_rank_mode(item) == "turns":
+                view["rank_mode"] = "turns"
+                view["turns"] = self._rank_turns_teacher_rows(session_id, item)
         return view
 
     def _rank_group_collate(
@@ -16268,15 +16999,34 @@ class SchoolDB(LovesDB):
                         team["correct"] = self._group_mc_answer_correct(
                             item, str(final.get("value") or "").strip()
                         )
+                if self._group_mc_picks_flow(item):
+                    for team in teams:
+                        team_id = int(team["team_id"])
+                        team["pick_step"] = self._group_mc_pick_step_open(item, team_id)
+                        team["picks"] = self._group_mc_member_picks(
+                            item, team_id, class_id, with_marks=True
+                        )
             else:
                 teams = self._light_group_consensus_teams(
                     item_id, class_id, order, member_counts
                 )
-            out[str(item_id)] = {
+            entry: dict[str, Any] = {
                 "response_mode": mode,
                 "response_seq": self._group_results_seq(teams),
                 "teams": teams,
             }
+            if mode == "group_submit" and self._group_rank_mode(item) == "turns":
+                # MCK-155 PR C: take-turns progress (no option text) so the
+                # teacher sees placements and Skip without a full refresh.
+                turns = self._rank_turns_teacher_rows(session_id, item)
+                entry["rank_mode"] = "turns"
+                entry["turns"] = turns
+                entry["response_seq"] += ":t" + ",".join(
+                    f"{row['placed']}{'d' if row['done'] else ''}{'s' if row['can_skip'] else ''}"
+                    f"{'|'.join(row['next_names'])}"
+                    for row in turns
+                )
+            out[str(item_id)] = entry
         return out
 
     @staticmethod
@@ -16300,7 +17050,15 @@ class SchoolDB(LovesDB):
             if isinstance(last, dict):
                 stamps.append(str(last.get("at") or ""))
         latest = max(stamps) if stamps else ""
-        return f"{votes}:{','.join(marks)}:{latest}"
+        seq = f"{votes}:{','.join(marks)}:{latest}"
+        # MCK-155 option B: own picks and step changes repaint the teacher.
+        if any("picks" in team for team in teams):
+            pick_marks = "".join(
+                f"{len(team.get('picks') or [])}{'p' if team.get('pick_step') else 'a'}"
+                for team in teams
+            )
+            seq += f":{pick_marks}"
+        return seq
 
     def _light_group_submit_teams(
         self,

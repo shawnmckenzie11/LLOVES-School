@@ -40,6 +40,13 @@ import {
   consensusWaitHtml,
   groupInstructionHtml,
 } from "/static/group_instructions.js";
+import {
+  mcAgreeStepHtml,
+  mcFlowStep,
+  mcLockedHtml,
+  mcPickStepHtml,
+  rankTurnsHtml,
+} from "/static/group_flows.js";
 
 const waitEl = document.getElementById("student-wait");
 const gameShowWelcomeEl = document.getElementById("game-show-welcome");
@@ -2809,6 +2816,22 @@ function studentGroupCardHtml(item) {
     </table>`;
   }
   const group = item?.group_submit || {};
+  if (rank && String(group.rank_mode || "") === "turns") {
+    // MCK-155 PR C: Take turns. The server decides whose turn it is.
+    const members = Array.isArray(group.members)
+      ? group.members.map((name) => String(name || "").trim()).filter(Boolean)
+      : [];
+    const strip = [String(group.team_name || "").trim(), ...members].filter(Boolean).join(" · ");
+    const itemId = Number(item.id) || 0;
+    return `<div class="student-group-card" data-live-action="group" data-rank-turns-card="1">
+      ${strip ? `<p class="student-group-strip">${escapeText(strip)}</p>` : ""}
+      ${rankTurnsHtml(group, {
+        options: rankOptionsFromContent(content),
+        itemId,
+        note: groupFlowNotes.get(itemId) || "",
+      })}
+    </div>`;
+  }
   if (rank) {
     const options = rankOptionsFromContent(content);
     const order = Array.isArray(group.order) ? group.order.map((id) => String(id)) : [];
@@ -2840,6 +2863,36 @@ function studentGroupCardHtml(item) {
   const draft = liveCardDrafts.get(`${Number(item.id)}:group`) || {};
   const choice = draft.choice != null ? String(draft.choice) : String(group.choice || "");
   const why = draft.why != null ? String(draft.why) : String(group.why || "");
+  const flowStep = mcFlowStep(group);
+  if (flowStep) {
+    // MCK-155 PR C option B: pick alone, then agree; sending locks it.
+    const members = Array.isArray(group.members)
+      ? group.members.map((name) => String(name || "").trim()).filter(Boolean)
+      : [];
+    const strip = [String(group.team_name || "").trim(), ...members].filter(Boolean).join(" · ");
+    const itemId = Number(item.id) || 0;
+    const pickDraft = liveCardDrafts.get(`${itemId}:group-pick`) || {};
+    const body =
+      flowStep === "locked"
+        ? mcLockedHtml(group)
+        : flowStep === "agree"
+          ? mcAgreeStepHtml(group, { choices, optionsHtml, choice, why, itemId })
+          : mcPickStepHtml(group, {
+              choices,
+              optionsHtml,
+              draftChoice: String(pickDraft.choice || ""),
+              itemId,
+            });
+    const note = groupFlowNotes.get(itemId) || "";
+    return `<div class="student-group-card" data-live-action="group" data-mc-flow="${escapeText(flowStep)}"
+        data-group-submitted="${group.submitted ? "1" : "0"}"
+        data-submitted-choice="${escapeText(group.submitted_choice || "")}"
+        data-submitted-why="${escapeText(group.submitted_why || "")}">
+      ${strip ? `<p class="student-group-strip">${escapeText(strip)}</p>` : ""}
+      ${body}
+      ${note ? `<p class="rank-turn-note" role="status">${escapeText(note)}</p>` : ""}
+    </div>`;
+  }
   const phase = groupSubmitPhase(choice, why, {
     submitted: Boolean(group.submitted),
     submittedChoice: String(group.submitted_choice || ""),
@@ -2901,6 +2954,54 @@ function syncGroupSubmitGate(card) {
   if (phaseEl) phaseEl.textContent = groupSubmitPhaseLabel(phase);
   const submit = card.querySelector('[data-live-submit="group"]');
   if (submit instanceof HTMLButtonElement) submit.disabled = phase !== "ready";
+  // MCK-155 option B: "Add your why to send." while Send is disabled.
+  const reason = card.querySelector("[data-group-send-reason]");
+  if (reason instanceof HTMLElement) reason.hidden = phase === "ready" || phase === "submitted";
+}
+
+/**
+ * One-off server lines per item (a 409 conflict on a take-turns pick).
+ * Cleared on the next successful write.
+ * @type {Map<number, string>}
+ */
+const groupFlowNotes = new Map();
+
+/**
+ * MCK-155 PR C: POST a pick / turn and repaint from the returned card.
+ * A 409 carries the fresh card and a calm line; it is not an error toast.
+ * @param {HTMLElement} card
+ * @param {string} path ``group-pick`` or ``rank-turn``
+ * @param {Record<string, unknown>} body
+ */
+async function postGroupFlow(card, path, body) {
+  const itemId = Number(card.dataset.liveCardId) || 0;
+  if (!itemId) return;
+  const res = await fetch(
+    `/api/student/live-items/${itemId}/${path}`,
+    visitFetchInit({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(body),
+    })
+  );
+  const data = await res.json().catch(() => ({}));
+  if (data.group_submit && lastStudentPayload) {
+    for (const pool of [lastStudentPayload.active_questions, lastStudentPayload.live_items]) {
+      if (!Array.isArray(pool)) continue;
+      const row = pool.find((row) => Number(row.id) === itemId);
+      if (row) row.group_submit = data.group_submit;
+    }
+  }
+  if (res.ok && data.ok !== false) {
+    groupFlowNotes.delete(itemId);
+    liveCardDrafts.delete(`${itemId}:group-pick`);
+  } else if (res.status === 409 && data.group_submit) {
+    groupFlowNotes.set(itemId, String(data.error || ""));
+  } else {
+    groupFlowNotes.set(itemId, String(data.error || "Couldn't save that. Try again."));
+  }
+  if (lastStudentPayload) paintLifecycleQuestionStack(lastStudentPayload);
 }
 
 /** @type {Map<number, number>} */
@@ -3314,6 +3415,13 @@ async function submitLifecycleAnswer(card, action) {
       })
     );
     const data = await res.json();
+    if (res.status === 409 && data.locked && data.group_submit && lastStudentPayload) {
+      // MCK-155 option B: a teammate sent first. Show the locked answer.
+      liveCardDrafts.delete(`${itemId}:${action}`);
+      lastStudentPayload = mergeLifecycleSubmitResponse(lastStudentPayload, item, data);
+      paintLifecycleQuestionStack(lastStudentPayload);
+      return;
+    }
     if (!res.ok || data.ok === false) {
       throw new Error(data.error || "Could not submit that answer.");
     }
@@ -4799,6 +4907,36 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
     }
     return;
   }
+  const pickSend = event.target.closest("[data-group-pick-send]");
+  if (pickSend instanceof HTMLButtonElement) {
+    const card = pickSend.closest("[data-live-card-id]");
+    const selected = card?.querySelector('[data-live-action="group-pick"] [data-live-choice].is-selected');
+    if (card instanceof HTMLElement && selected instanceof HTMLButtonElement && !pickSend.disabled) {
+      pickSend.disabled = true;
+      void postGroupFlow(card, "group-pick", { choice: selected.getAttribute("data-live-choice") || "" });
+    }
+    return;
+  }
+  const turnPick = event.target.closest("[data-rank-turn]");
+  if (turnPick instanceof HTMLButtonElement) {
+    const card = turnPick.closest("[data-live-card-id]");
+    if (card instanceof HTMLElement && !turnPick.disabled) {
+      card.querySelectorAll("[data-rank-turn]").forEach((button) => {
+        if (button instanceof HTMLButtonElement) button.disabled = true;
+      });
+      void postGroupFlow(card, "rank-turn", { option_id: turnPick.getAttribute("data-rank-turn") || "" });
+    }
+    return;
+  }
+  const turnUndo = event.target.closest("[data-rank-turn-undo]");
+  if (turnUndo instanceof HTMLButtonElement) {
+    const card = turnUndo.closest("[data-live-card-id]");
+    if (card instanceof HTMLElement) {
+      turnUndo.disabled = true;
+      void postGroupFlow(card, "rank-turn", { undo: true });
+    }
+    return;
+  }
   const rankClear = event.target.closest("[data-rank-clear]");
   if (rankClear instanceof HTMLButtonElement) {
     const card = rankClear.closest("[data-live-card-id]");
@@ -4866,6 +5004,10 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
         queueGroupDraft(card);
       } else {
         liveCardDrafts.set(`${Number(card.dataset.liveCardId)}:${action}`, next);
+        if (action === "group-pick") {
+          const send = card.querySelector("[data-group-pick-send]");
+          if (send instanceof HTMLButtonElement) send.disabled = false;
+        }
       }
     }
     return;

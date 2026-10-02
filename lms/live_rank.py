@@ -353,3 +353,227 @@ def build_rank_tally(
         "class_order": class_order,
         "response_seq": rank_fingerprint(class_order, responded),
     }
+
+
+# ---------------------------------------------------------------------------
+# MCK-155: "Take turns" group rank (pure helpers; the server owns the state).
+#
+# Rule (Shawn, approved): first come, no repeats. Anyone who has not placed
+# yet takes the next spot. After that, nobody places again until every other
+# present teammate has placed (or been skipped) since their own last turn.
+# Absent members are not in ``active_ids``, so they never hold the group up.
+# ---------------------------------------------------------------------------
+
+RANK_MODE_TOGETHER = "together"
+RANK_MODE_TURNS = "turns"
+RANK_MODES = (RANK_MODE_TOGETHER, RANK_MODE_TURNS)
+
+
+class TurnConflict(ValueError):
+    """A take-turns write lost a race or is out of turn.
+
+    Attributes:
+        reason: ``turn_taken``, ``not_your_turn``, ``done``, or ``no_undo``.
+        by: Roster id that placed the option, for ``turn_taken``.
+    """
+
+    def __init__(self, reason: str, message: str, by: int | None = None) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.by = by
+
+
+def normalize_rank_mode(raw: Any) -> str:
+    """Return ``together`` or ``turns`` (anything else is ``together``).
+
+    Args:
+        raw: Stored or posted mode token.
+    """
+    token = str(raw or "").strip().lower()
+    return RANK_MODE_TURNS if token == RANK_MODE_TURNS else RANK_MODE_TOGETHER
+
+
+def empty_turns_state() -> dict[str, Any]:
+    """A fresh take-turns draft."""
+    return {"kind": "rank", "mode": RANK_MODE_TURNS, "order": [], "events": [], "rev": 0, "complete": False}
+
+
+def turns_state(raw: Any, allowed: list[str]) -> dict[str, Any]:
+    """Normalize a stored take-turns draft. Bad rows become a fresh draft.
+
+    Args:
+        raw: ``proposed_answer`` dict (or anything).
+        allowed: Option ids for the item.
+    """
+    if not isinstance(raw, dict) or raw.get("mode") != RANK_MODE_TURNS:
+        return empty_turns_state()
+    events: list[list[Any]] = []
+    order: list[str] = []
+    for event in raw.get("events") or []:
+        if not isinstance(event, (list, tuple)) or len(event) < 2:
+            continue
+        try:
+            sid = int(event[0])
+        except (TypeError, ValueError):
+            continue
+        kind = str(event[1])
+        if kind == "place":
+            opt = str(event[2] if len(event) > 2 else "")
+            if opt not in allowed or opt in order:
+                continue
+            order.append(opt)
+            events.append([sid, "place", opt])
+        elif kind == "skip":
+            events.append([sid, "skip", None])
+    try:
+        rev = int(raw.get("rev") or 0)
+    except (TypeError, ValueError):
+        rev = 0
+    return {
+        "kind": "rank",
+        "mode": RANK_MODE_TURNS,
+        "order": order,
+        "events": events,
+        "rev": rev,
+        "complete": bool(allowed) and len(order) == len(allowed),
+    }
+
+
+def _last_event_index(events: list[list[Any]], student_id: int) -> int:
+    for index in range(len(events) - 1, -1, -1):
+        if int(events[index][0]) == int(student_id):
+            return index
+    return -1
+
+
+def turn_can_place(state: dict[str, Any], student_id: int, active_ids: list[int]) -> bool:
+    """True when this student may place the next option now.
+
+    Args:
+        state: Normalized take-turns draft.
+        student_id: Roster id asking.
+        active_ids: Present teammates (absent members are auto-skipped).
+    """
+    if state.get("complete"):
+        return False
+    events = state.get("events") or []
+    last = _last_event_index(events, student_id)
+    if last < 0:
+        return True
+    for other in active_ids:
+        if int(other) == int(student_id):
+            continue
+        if _last_event_index(events, other) <= last:
+            return False
+    return True
+
+
+def turn_next_ids(state: dict[str, Any], active_ids: list[int]) -> list[int]:
+    """Present teammates who may place right now, in ``active_ids`` order.
+
+    Args:
+        state: Normalized take-turns draft.
+        active_ids: Present teammates.
+    """
+    if state.get("complete"):
+        return []
+    return [int(sid) for sid in active_ids if turn_can_place(state, int(sid), active_ids)]
+
+
+def apply_turn_place(
+    state: dict[str, Any],
+    student_id: int,
+    option_id: str,
+    allowed: list[str],
+    active_ids: list[int],
+) -> tuple[dict[str, Any], bool]:
+    """Place one option into the next spot.
+
+    Args:
+        state: Normalized take-turns draft.
+        student_id: Roster id placing.
+        option_id: Option to place.
+        allowed: Item option ids.
+        active_ids: Present teammates.
+
+    Returns:
+        ``(new_state, changed)``. ``changed`` is False for a safe retry
+        (this student's own last placement of the same option).
+
+    Raises:
+        TurnConflict: Done, unknown option, already placed, or out of turn.
+    """
+    opt = str(option_id or "")
+    if opt not in allowed:
+        raise TurnConflict("bad_option", "Choose one of the items.")
+    events = list(state.get("events") or [])
+    order = list(state.get("order") or [])
+    if opt in order:
+        placer = next((int(e[0]) for e in events if e[1] == "place" and e[2] == opt), None)
+        if placer == int(student_id) and events and events[-1][1] == "place" and events[-1][2] == opt:
+            return state, False
+        raise TurnConflict("turn_taken", "That one was just placed. Pick another.", by=placer)
+    if state.get("complete"):
+        raise TurnConflict("done", "Your group's order is in.")
+    if not turn_can_place(state, student_id, active_ids):
+        raise TurnConflict("not_your_turn", "Wait for your teammates to place theirs.")
+    order.append(opt)
+    events.append([int(student_id), "place", opt])
+    new_state = {
+        **state,
+        "order": order,
+        "events": events,
+        "rev": int(state.get("rev") or 0) + 1,
+        "complete": len(order) == len(allowed),
+    }
+    return new_state, True
+
+
+def apply_turn_undo(state: dict[str, Any], student_id: int) -> dict[str, Any]:
+    """Take back this student's placement while it is still the last move.
+
+    Raises:
+        TurnConflict: Nothing to undo, someone moved since, or the order is in.
+    """
+    events = list(state.get("events") or [])
+    if state.get("complete") or not events:
+        raise TurnConflict("no_undo", "That spot is locked now.")
+    last = events[-1]
+    if last[1] != "place" or int(last[0]) != int(student_id):
+        raise TurnConflict("no_undo", "That spot is locked now.")
+    events.pop()
+    order = [str(e[2]) for e in events if e[1] == "place"]
+    return {**state, "order": order, "events": events, "rev": int(state.get("rev") or 0) + 1, "complete": False}
+
+
+def apply_turn_skip(state: dict[str, Any], active_ids: list[int]) -> tuple[dict[str, Any], list[int]]:
+    """Teacher Skip: pass the turn of everyone the group is waiting on.
+
+    The members who could place now are skipped, but only when someone
+    else is blocked on them. At the very start everyone may place, so Skip
+    does nothing.
+
+    Returns:
+        ``(new_state, skipped_ids)``. ``skipped_ids`` is empty when nothing
+        was waiting.
+    """
+    if state.get("complete"):
+        return state, []
+    events = list(state.get("events") or [])
+    waiting = turn_next_ids(state, active_ids)
+    targets = waiting if len(waiting) < len(active_ids) else []
+    if not targets:
+        return state, []
+    for sid in targets:
+        events.append([int(sid), "skip", None])
+    return {**state, "events": events, "rev": int(state.get("rev") or 0) + 1}, targets
+
+
+def turn_recent_skips(state: dict[str, Any]) -> list[int]:
+    """Skips since the latest placement (for "{name}'s turn was skipped.")."""
+    out: list[int] = []
+    for event in reversed(state.get("events") or []):
+        if event[1] == "place":
+            break
+        out.append(int(event[0]))
+    return list(reversed(out))

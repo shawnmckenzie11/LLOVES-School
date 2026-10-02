@@ -89,6 +89,7 @@ import {
   groupSetupHtml,
   groupSetupOptionsHtml,
   groupStyleFor,
+  groupSubmitVariant,
   groupTokenNeedsTeamsShown,
   isGroupModeToken,
   mediaRowPublishMode,
@@ -1296,6 +1297,83 @@ function groupCorrectSummaryHtml(result) {
 }
 
 /**
+ * MCK-155 PR C option B: each member's own pick, staff only, with a small
+ * ✓ / ✗ on keyed MC (hidden by Hide key like every other mark).
+ * @param {any} row Status-board row with ``picks``.
+ * @returns {string}
+ */
+function groupPicksHtml(row) {
+  if (!Array.isArray(row?.picks)) return "";
+  const picks = row.picks;
+  const total = Math.max(Number(row.member_count) || 0, picks.length);
+  const progress = row.pick_step
+    ? `<span class="group-picks-progress">${escapeHtml(
+        PICKS_COPY.progress.replace("{k}", String(picks.length)).replace("{n}", String(total))
+      )}</span>`
+    : "";
+  const list = picks
+    .map((pick) => {
+      const mark =
+        pick.correct === true
+          ? `<span class="live-mark is-correct is-small" data-key-mark><span aria-hidden="true">✓</span><span class="sr-only"> ${MARK_COPY.correct}</span></span>`
+          : pick.correct === false
+            ? `<span class="live-mark is-incorrect is-small" data-key-mark><span aria-hidden="true">✗</span><span class="sr-only"> ${MARK_COPY.incorrect}</span></span>`
+            : "";
+      return `<span class="group-pick">${escapeHtml(pick.name || "")} ${escapeHtml(pick.value || "")}${mark}</span>`;
+    })
+    .join(" · ");
+  return `<span class="group-picks" aria-label="${escapeHtml(PICKS_COPY.label)}">${progress}${list}</span>`;
+}
+
+/** MCK-155 PR C: optimistic rank Group mode picks, by live item id. @type {Map<number, string>} */
+const rankModeIntent = new Map();
+
+/** MCK-155 PR C teacher copy (NEW strings; listed in the change note). */
+const PICKS_COPY = Object.freeze({
+  progress: "{k} of {n} picked · ",
+  label: "Own picks",
+  moveOn: "Move on",
+});
+
+/** MCK-155 PR C take-turns teacher copy (Wonder v2 where it exists). */
+const TURNS_COPY = Object.freeze({
+  progress: "{k} of {n} placed",
+  holder: " · {name}'s turn",
+  skip: "Skip",
+  sent: "Sent",
+});
+
+/**
+ * One progress line per group for a take-turns rank, with Skip.
+ * @param {any} result
+ * @param {number} liveItemId
+ * @returns {string}
+ */
+function rankTurnsTeacherHtml(result, liveItemId) {
+  const rows = Array.isArray(result?.turns) ? result.turns : [];
+  if (!rows.length) return "";
+  return `<ul class="rank-turns-teacher" aria-label="Take turns">${rows
+    .map((row) => {
+      const total = Number(row.total) || 0;
+      const placed = Math.min(total, Number(row.placed) || 0);
+      const dots = `<span class="rank-turn-dots" aria-hidden="true">${"●".repeat(placed)}${"○".repeat(
+        Math.max(0, total - placed)
+      )}</span>`;
+      const names = Array.isArray(row.next_names) ? row.next_names : [];
+      const text = row.done
+        ? TURNS_COPY.sent
+        : `${TURNS_COPY.progress.replace("{k}", String(placed)).replace("{n}", String(total))}${
+            names.length === 1 ? TURNS_COPY.holder.replace("{name}", String(names[0])) : ""
+          }`;
+      const skip = row.can_skip
+        ? `<button type="button" class="secondary live-q-btn" data-rank-turn-skip="${Number(liveItemId) || 0}" data-team-id="${Number(row.team_id) || 0}">${TURNS_COPY.skip}</button>`
+        : "";
+      return `<li data-turn-team="${Number(row.team_id) || 0}"><span>${escapeHtml(row.team_name || "Group")}</span>${dots}<span class="rank-turn-progress">${escapeHtml(text)}</span>${skip}</li>`;
+    })
+    .join("")}</ul>`;
+}
+
+/**
  * Waiting / check board with a soft submitter line. Answers stay out.
  * @param {any} result
  * @returns {string}
@@ -1321,6 +1399,7 @@ function groupStatusBoardHtml(result) {
         <span class="group-status-mark">${mark}</span>
         ${keyMark}
         ${line ? `<span class="group-submitter-log">${escapeHtml(line)}</span>` : ""}
+        ${groupPicksHtml(row)}
       </li>`;
     })
     .join("")}</ul>`;
@@ -1388,7 +1467,16 @@ function adoptLightGroupResults(bag) {
           submitted: team.status === "submitted",
           // MCK-155 S3: staff-only right/wrong on keyed group MC.
           ...(typeof team.correct === "boolean" ? { correct: team.correct } : {}),
+          // MCK-155 PR C option B: own picks, staff only.
+          ...(Array.isArray(team.picks)
+            ? { picks: team.picks, pick_step: Boolean(team.pick_step), member_count: Number(team.eligible_count) || 0 }
+            : {}),
         })),
+        ...(teams.some((team) => Array.isArray(team.picks))
+          ? { any_picking: teams.some((team) => team.pick_step) }
+          : {}),
+        // MCK-155 PR C take turns: progress rows + Skip ride the light poll.
+        ...(Array.isArray(entry.turns) ? { rank_mode: "turns", turns: entry.turns } : {}),
         submitter_log: teams.map((team) => ({
           team_id: Number(team.team_id) || 0,
           team_name: String(team.team_name || "Group"),
@@ -3729,7 +3817,10 @@ function groupSubmitTeacherHtml(result, revealed, liveItemId) {
   const open = `<div class="group-submit-teacher" data-group-results="${hostId}" data-group-seq="${seq}">`;
   if (result?.rank) {
     const log = Array.isArray(result?.submitter_log) ? result.submitter_log : [];
-    const rankHtml = rankCollateHtml(result.rank, Number(result?.item?.id) || hostId);
+    const rankHtml = `${rankTurnsTeacherHtml(result, Number(result?.item?.id) || hostId)}${rankCollateHtml(
+      result.rank,
+      Number(result?.item?.id) || hostId
+    )}`;
     const lines = log
       .map((row) => {
         const line = groupSubmitterLine(row);
@@ -4002,6 +4093,15 @@ function paintLiveQuestionCards() {
             : "";
       const teamsReady = Boolean(teacherState.groups_configured);
       const groupKey = `q:${liveItemId}`;
+      // MCK-155 PR C: MC = pick, then agree; rank = together or take turns.
+      const groupVariant =
+        groupStyle === "submit"
+          ? rankModeIntent.has(liveItemId) && isRank
+            ? rankModeIntent.get(liveItemId) === "turns"
+              ? "rank_turns"
+              : "rank_together"
+            : groupSubmitVariant(item, card)
+          : "";
       const groupSetup = liveItemId
         ? groupSetupHtml({
             key: groupKey,
@@ -4009,6 +4109,7 @@ function paintLiveQuestionCards() {
             status,
             mode: groupPick,
             teamsReady,
+            variant: groupVariant,
           })
         : "";
       const groupOpts = liveItemId
@@ -4019,6 +4120,7 @@ function paintLiveQuestionCards() {
             mode: groupPick,
             teamsReady,
             teamNames: groupTeamNames(),
+            variant: groupVariant,
           })
         : "";
       const publishToken = groupPublishToken(groupStyle, groupPick, teamsReady);
@@ -4048,9 +4150,13 @@ function paintLiveQuestionCards() {
             playlistItemId
           )}" aria-label="Move or remove question">(Re)move</button>`
         : "";
+      const moveOnHtml =
+        active && groupChrome && result?.any_picking
+          ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">${PICKS_COPY.moveOn}</button>`
+          : "";
       const revealHtml =
         active && groupChrome
-          ? `<button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Reveal</button>`
+          ? `${moveOnHtml}<button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Reveal</button>`
           : active && card.response_mode === "group_consensus"
             ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">Reveal answers</button>`
             : "";
@@ -4626,11 +4732,56 @@ async function endLifecycleVoting(liveItemId) {
     `/api/live-sessions/${sessionId}/items/${liveItemId}/end-voting`,
     { method: "POST", body: "{}" }
   );
+  if (result?.group_submit) {
+    // MCK-155 PR C option B: Move on returns the staff group view.
+    lifecycleResults.set(liveItemId, { ...result.group_submit, live_item_id: liveItemId });
+    paintLiveQuestionCards();
+    return;
+  }
   lifecycleResults.set(liveItemId, {
     ...(result && typeof result === "object" ? result : {}),
     live_item_id: liveItemId,
     answers_revealed: true,
   });
+  paintLiveQuestionCards();
+}
+
+/**
+ * MCK-155 PR C: teacher Skip on one take-turns group.
+ * @param {number} liveItemId
+ * @param {number} teamId
+ */
+async function skipRankTurn(liveItemId, teamId) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId || !liveItemId || !teamId) return;
+  const result = await api(
+    `/api/live-sessions/${sessionId}/items/${liveItemId}/rank-turn/skip`,
+    { method: "POST", body: JSON.stringify({ team_id: teamId }) }
+  );
+  if (result?.view) lifecycleResults.set(liveItemId, { ...result.view, live_item_id: liveItemId });
+  paintLiveQuestionCards();
+}
+
+/**
+ * MCK-155 PR C: save the rank Group mode (Rank together / Take turns).
+ * @param {number} liveItemId
+ * @param {"together"|"turns"} mode
+ */
+async function persistRankMode(liveItemId, mode) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId || !liveItemId) return;
+  rankModeIntent.set(liveItemId, mode);
+  paintLiveQuestionCards();
+  try {
+    const result = await api(`/api/live-sessions/${sessionId}/items/${liveItemId}/settings`, {
+      method: "PATCH",
+      body: JSON.stringify({ group_rank_mode: mode }),
+    });
+    adoptLiveItem(result?.item);
+  } catch (_err) {
+    rankModeIntent.delete(liveItemId);
+    showError("#ap-overlay-error", new Error(GROUP_SETUP_COPY.saveFailed));
+  }
   paintLiveQuestionCards();
 }
 
@@ -10660,6 +10811,13 @@ async function onGroupSetupChange(event) {
     }
     return;
   }
+  const rankMode = target?.closest("input[data-group-rank-mode]");
+  if (rankMode instanceof HTMLInputElement) {
+    if (!rankMode.checked) return;
+    const [, rankId] = String(rankMode.getAttribute("data-group-rank-mode") || "").split(":");
+    await persistRankMode(Number(rankId) || 0, rankMode.value === "turns" ? "turns" : "together");
+    return;
+  }
   const radio = target?.closest("input[data-group-setup]");
   if (!(radio instanceof HTMLInputElement) || !radio.checked) return;
   const key = radio.getAttribute("data-group-setup") || "";
@@ -10779,6 +10937,7 @@ $("live-question-list")?.addEventListener("click", async (event) => {
   const publish = event.target.closest("button[data-publish-live-item]");
   const close = event.target.closest("button[data-close-live-item]");
   const endVoting = event.target.closest("button[data-end-voting]");
+  const turnSkip = event.target.closest("button[data-rank-turn-skip]");
   const award = event.target.closest("button[data-award-consensus]");
   const openRelocate = event.target.closest("button[data-open-relocate-dialog]");
   const button = event.target.closest("button[data-view-responses]");
@@ -10805,6 +10964,11 @@ $("live-question-list")?.addEventListener("click", async (event) => {
     }
     if (endVoting instanceof HTMLButtonElement) {
       await endLifecycleVoting(Number(endVoting.dataset.endVoting) || 0);
+      return;
+    }
+    if (turnSkip instanceof HTMLButtonElement) {
+      turnSkip.disabled = true;
+      await skipRankTurn(Number(turnSkip.dataset.rankTurnSkip) || 0, Number(turnSkip.dataset.teamId) || 0);
       return;
     }
     if (award instanceof HTMLButtonElement) {

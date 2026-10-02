@@ -86,7 +86,14 @@ from local_dev_seed import (  # noqa: E402
     local_dev_login_enabled,
     seed_local_dev_school,
 )
-from school_db import STAFF_2FA_MODE_LABELS, DeckReplaceNotConfirmed, SchoolDB, json_safe  # noqa: E402
+from school_db import (  # noqa: E402
+    STAFF_2FA_MODE_LABELS,
+    DeckReplaceNotConfirmed,
+    GroupAnswerLocked,
+    RankTurnConflict,
+    SchoolDB,
+    json_safe,
+)
 from celebration import (  # noqa: E402
     AwardTallyBusy,
     AwardTallyShared,
@@ -5736,6 +5743,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 tap=body.get("tap"),
                 clear=bool(body.get("clear")),
             )
+        except GroupAnswerLocked as exc:
+            return jsonify({"ok": False, "error": str(exc), "locked": True, "group_submit": exc.card}), 409
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         return jsonify({"ok": True, "ack": True, "group_submit": card})
@@ -5765,6 +5774,81 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 why=body.get("why"),
                 order=body.get("order"),
             )
+        except GroupAnswerLocked as exc:
+            return jsonify({"ok": False, "error": str(exc), "locked": True, "group_submit": exc.card}), 409
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        emit_answer_landed(
+            school,
+            int(ctx["live_session_id"]),
+            student_id=int(ident[2]),
+            team_id=card.get("team_id") if isinstance(card, dict) else None,
+            scope="group",
+        )
+        return jsonify({"ok": True, "ack": True, "group_submit": card})
+
+    @app.route(
+        "/api/student/live-items/<int:live_item_id>/group-pick",
+        methods=["POST"],
+    )
+    @student_required
+    def api_student_group_pick(live_item_id: int):
+        """MCK-155 option B step 1: store my own MC pick (no why)."""
+
+        denied = _require_active_live_attendee(as_json=True)
+        if denied is not None:
+            return denied
+        ident = _student_identity()
+        ctx = _student_live_context()
+        if ident is None or ctx is None or ident[2] in (None, ""):
+            return jsonify({"ok": False, "error": "Roster student required"}), 403
+        body = request.get_json(silent=True) or {}
+        try:
+            card = school.submit_group_mc_pick(
+                int(ctx["live_session_id"]),
+                live_item_id,
+                int(ident[2]),
+                choice=body.get("choice"),
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        emit_answer_landed(
+            school,
+            int(ctx["live_session_id"]),
+            student_id=int(ident[2]),
+            team_id=card.get("team_id") if isinstance(card, dict) else None,
+            scope="group",
+        )
+        return jsonify({"ok": True, "ack": True, "group_submit": card})
+
+    @app.route(
+        "/api/student/live-items/<int:live_item_id>/rank-turn",
+        methods=["POST"],
+    )
+    @student_required
+    def api_student_rank_turn(live_item_id: int):
+        """MCK-155 take turns: place one item, or undo my last placement."""
+
+        denied = _require_active_live_attendee(as_json=True)
+        if denied is not None:
+            return denied
+        ident = _student_identity()
+        ctx = _student_live_context()
+        if ident is None or ctx is None or ident[2] in (None, ""):
+            return jsonify({"ok": False, "error": "Roster student required"}), 403
+        body = request.get_json(silent=True) or {}
+        try:
+            card = school.rank_turn_place(
+                int(ctx["live_session_id"]),
+                live_item_id,
+                int(ident[2]),
+                option_id=body.get("option_id"),
+                undo=bool(body.get("undo")),
+            )
+        except RankTurnConflict as exc:
+            return jsonify(
+                {"ok": False, "error": str(exc), "reason": exc.reason, "group_submit": exc.card}
+            ), 409
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         emit_answer_landed(
@@ -6650,7 +6734,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         has_save = "save_to_card" in body
         has_publish = "publish_mode" in body
         has_response = "response_mode" in body
-        if not any((has_results, has_save, has_publish, has_response)):
+        has_rank_mode = "group_rank_mode" in body
+        if not any((has_results, has_save, has_publish, has_response, has_rank_mode)):
             return jsonify(
                 {
                     "ok": False,
@@ -6668,6 +6753,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 save_to_card=body.get("save_to_card") if has_save else None,
                 publish_mode=body.get("publish_mode") if has_publish else None,
                 response_mode=body.get("response_mode") if has_response else None,
+                group_rank_mode=body.get("group_rank_mode") if has_rank_mode else None,
             )
             teacher_state = school.live_session_teacher_state_payload(session_id)
         except (KeyError, ValueError) as exc:
@@ -6710,12 +6796,45 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         if error is not None:
             return error
         try:
+            item = school.get_live_session_item(session_id, live_item_id)
+            if str(item.get("response_mode") or "") == "group_submit":
+                # MCK-155 option B: Move on sends every group still
+                # picking to the agree step.
+                view = school.end_group_mc_pick_step(session_id, live_item_id)
+                return jsonify({"ok": True, "item": view.get("item"), "group_submit": view})
             summary = school.end_group_consensus_voting(
                 session_id, live_item_id
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         return jsonify({"ok": True, **summary})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/rank-turn/skip",
+        methods=["POST"],
+    )
+    @login_required
+    def api_rank_turn_skip(session_id: int, live_item_id: int):
+        """MCK-155 take turns: teacher Skip for one group."""
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        body = request.get_json(silent=True) or {}
+        try:
+            result = school.rank_turn_skip(
+                session_id, live_item_id, team_id=int(body.get("team_id"))
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return _json_error(exc)
+        emit_answer_landed(
+            school,
+            session_id,
+            student_id=None,
+            team_id=int(body.get("team_id")),
+            scope="group",
+        )
+        return jsonify({"ok": True, **result})
 
     @app.route(
         "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/points",

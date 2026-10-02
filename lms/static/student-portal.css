@@ -2616,3 +2616,107 @@ body.rw-open { overflow: hidden; }
 .group-reveal-mark.is-incorrect {
   color: #fca5a5;
 }
+/* MCK-155 PR C option B: own pick, teammates' picks, locked answer. */
+.student-group-my-pick {
+  margin: 0;
+  font-weight: 600;
+}
+.student-group-picks {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0 0 0.6rem;
+  padding: 0;
+  list-style: none;
+  font-size: 0.92rem;
+}
+.student-group-picks li.is-mine .student-group-pick-name {
+  font-weight: 700;
+}
+.student-group-send-reason {
+  margin: 0.35rem 0 0;
+  font-size: 0.88rem;
+  color: #cbd5e1;
+}
+.student-group-locked {
+  display: grid;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+.student-group-locked p {
+  margin: 0;
+}
+.student-group-sent {
+  font-weight: 600;
+  color: #5eead4;
+}
+.student-group-locked-note {
+  font-size: 0.88rem;
+  color: #94a3b8;
+}
+/* MCK-155 PR C take turns: spots, options (44px rows), one cue line. */
+.rank-turn-spots {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0 0 0.6rem;
+  padding: 0;
+  list-style: none;
+}
+.rank-turn-spot {
+  display: grid;
+  grid-template-columns: 1.6rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 10px;
+}
+.rank-turn-spot.is-filled {
+  background: rgba(15, 118, 110, 0.18);
+}
+.rank-turn-spot.is-next {
+  outline: 2px solid #5eead4;
+  outline-offset: 1px;
+}
+.rank-turn-n {
+  font-weight: 700;
+  text-align: center;
+}
+.rank-turn-label.is-empty {
+  color: #94a3b8;
+}
+.rank-turn-by {
+  font-size: 0.8rem;
+  color: #cbd5e1;
+}
+.rank-turn-options {
+  display: grid;
+  gap: 0.35rem;
+}
+.rank-turn-option {
+  min-height: 44px;
+}
+.rank-turn-option[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.rank-turn-cue,
+.rank-turn-skipped,
+.rank-turn-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
+  color: #cbd5e1;
+}
+.rank-turn-cue {
+  font-weight: 600;
+}
+.rank-turn-undo {
+  margin-left: 0.4rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #5eead4;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}

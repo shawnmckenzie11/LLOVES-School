@@ -6283,3 +6283,59 @@ body.staff-shell .live-question-list.is-key-hidden .live-item-chart-row.is-corre
 body.staff-shell .live-question-list.is-key-hidden .live-item-chart-row.is-correct .live-item-chart-track > span {
   background: #0f766e;
 }
+
+/* MCK-155 PR C: own picks per group (option B), take-turns progress, Skip. */
+body.staff-shell .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+body.staff-shell .group-picks {
+  flex-basis: 100%;
+  font-size: 0.8rem;
+  color: #475569;
+}
+body.staff-shell .group-pick {
+  white-space: nowrap;
+}
+body.staff-shell .group-picks-progress {
+  font-weight: 600;
+}
+body.staff-shell .live-mark.is-small {
+  margin-left: 0.15rem;
+  font-size: 0.75rem;
+}
+body.staff-shell .rank-turns-teacher {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0 0 0.6rem;
+  padding: 0;
+  list-style: none;
+}
+body.staff-shell .rank-turns-teacher li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 8px;
+  background: #f1f5f9;
+  font-size: 0.85rem;
+}
+body.staff-shell .rank-turns-teacher li > span:first-child {
+  min-width: 6rem;
+  font-weight: 600;
+}
+body.staff-shell .rank-turn-dots {
+  letter-spacing: 0.1rem;
+  color: #0f766e;
+}
+body.staff-shell .live-group-rank-mode {
+  margin-bottom: 0.35rem;
+}
