@@ -291,6 +291,42 @@ class LiveNewsRouteTests(unittest.TestCase):
             {"Aspen": True, "Birch": False},
         )
 
+    def test_guest_join_does_not_tick_the_roster_row_with_its_attendee_id(
+        self,
+    ) -> None:
+        """MCK-119 MED-1: a guest's attendee PK must not tick roster id = PK.
+
+        On a fresh session the first attendee row is id 1 and the first
+        roster student is id 1. A guest joining first must leave that
+        roster row unticked after the overlay.
+        """
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node is not installed")
+        allowed = self.client.post(
+            f"/api/live-sessions/{self.session_id}/guests",
+            json={"allow_unmatched_guests": True},
+        )
+        self.assertEqual(allowed.status_code, 200, allowed.get_json())
+        cached = self.client.get(
+            f"/api/live-sessions/{self.session_id}/state"
+        ).get_json()["class_list"]
+        code = str(self.school.get_live_session(self.session_id)["session_code"])
+        joined = self.app.test_client().post(
+            "/auth/student-code", json={"code": code, "name": "Quill"}
+        )
+        self.assertLess(joined.status_code, 400, joined.get_data(as_text=True))
+        light = self.client.get(
+            f"/api/live-sessions/{self.session_id}/state?light=1"
+        ).get_json()
+        guests = [row for row in light["attendees"] if row.get("student_id") is None]
+        self.assertEqual(len(guests), 1, light["attendees"])
+        roster_ids = {int(row["student_id"]) for row in cached}
+        # The collision this test exists for: attendee PK is a roster id.
+        self.assertIn(int(guests[0]["id"]), roster_ids)
+        got = _run_class_list_overlay(node, cached, light["attendees"])
+        self.assertEqual([row for row in got if row["present"]], [])
+
     def test_shed_is_busy_not_a_reload(self) -> None:
         """A worker at the stream cap returns one busy postcard."""
         for _ in range(STREAMS_PER_WORKER):
