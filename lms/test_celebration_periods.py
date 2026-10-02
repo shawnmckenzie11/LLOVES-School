@@ -59,8 +59,10 @@ class PeriodHelperTests(unittest.TestCase):
         self.assertEqual(label(None, None, WONDER_COPY), "This semester")
         # An end before the start (clock skew) collapses to one day.
         self.assertEqual(
-            label(date(2026, 10, 2), date(2026, 10, 1), WONDER_COPY), "Oct 2 – Oct 2, 2026"
+            label(date(2026, 10, 2), date(2026, 10, 1), WONDER_COPY), "Oct 2, 2026"
         )
+        # LOW-6: a one-day period is one date, not "Oct 2 – Oct 2".
+        self.assertEqual(label(date(2026, 10, 2), date(2026, 10, 2), WONDER_COPY), "Oct 2, 2026")
 
     def test_session_in_period(self) -> None:
         """No start counts all; afterwards only sessions at/after the start."""
@@ -102,11 +104,11 @@ class StartFreshTests(unittest.TestCase):
 
     _now = _at
 
-    def _other_teacher_class(self) -> int:
-        """A class owned by a second teacher (MCR3U section), with Oak."""
+    def _other_teacher_class(self, code: str = "SBI3U") -> int:
+        """A class owned by a second teacher (section 1 of ``code``), with Elm."""
         other = self.school.register_staff("other@gmail.com")
         offering = self.school.assign_course(
-            teacher_user_id=int(other["id"]), ontario_code="MCR3U"
+            teacher_user_id=int(other["id"]), ontario_code=code
         )
         client = self.app.test_client()
         client.get("/auth/google?portal=staff")
@@ -160,10 +162,12 @@ class StartFreshTests(unittest.TestCase):
             ]
 
     def test_one_class_restarts_only_that_class(self) -> None:
-        """Live board: the reset class counts from now; the other is unchanged.
+        """Freeze off, no snapshot: the reset class counts from now (HIGH-1).
 
-        Saved attendance and points stay in the database and the class
-        dashboard, untouched.
+        The reset course's pre-click card stays on show (held, first-period
+        timeframe, same reward key) until the new period has a winner. The
+        other course is unchanged. Saved attendance and points stay in the
+        database and the class dashboard, untouched.
         """
         os.environ[CELEBRATIONS_FROZEN_ENV] = "0"
         rows = self._two_courses()
@@ -185,7 +189,13 @@ class StartFreshTests(unittest.TestCase):
         self.assertEqual(body["periods"][0]["starts_at"], "2026-09-15T12:00:00")
 
         board = self._board()
-        self.assertNotIn("MCF3M", board)  # nobody yet in the new period
+        # Nobody yet in the new period: the old card stays, first period
+        # ending at the click (Sep 15 here, before Oct 1).
+        self.assertEqual(board["MCF3M"]["names"], ["Maple"])
+        self.assertEqual(board["MCF3M"]["period_label"], "Sep 8 – Sep 15, 2026")
+        held = [r for r in celebrated_students(self.school) if r["course"] == "MCF3M"]
+        self.assertEqual([(r["student_id"], r["period"]) for r in held], [(ids["Maple"], 0)])
+        self.assertIsNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))
         self.assertEqual(board["MCR3U"]["names"], ["Oak"])
         self.assertEqual(board["MCR3U"]["period_label"], "Sep 8 – Oct 1, 2026")
         self.assertEqual(self._session_rows(mcf), saved)
@@ -203,6 +213,9 @@ class StartFreshTests(unittest.TestCase):
         by_course = {r["course"]: r for r in engaged}
         self.assertEqual(by_course["MCF3M"]["period"], body["periods"][0]["id"])
         self.assertEqual(by_course["MCR3U"]["period"], 0)
+        # The held card is dropped once the course has its own card.
+        held = json.loads(self.school.get_school_setting("celebration_held_cards"))
+        self.assertEqual(held["cards"], [])
 
     def test_all_scope_restarts_every_class_of_this_teacher(self) -> None:
         """``scope=all`` opens a period for each of the teacher's classes only."""
@@ -220,7 +233,12 @@ class StartFreshTests(unittest.TestCase):
         )
         self.assertEqual(sorted(current), mine)
         self.assertNotIn(foreign, current)
-        self.assertEqual(self._board(), {})
+        board = self._board()
+        self.assertEqual(
+            {c: (card["names"], card["period_label"]) for c, card in board.items()},
+            {"MCF3M": (["Maple"], "Sep 8 – Sep 15, 2026"),
+             "MCR3U": (["Oak"], "Sep 8 – Sep 15, 2026")},
+        )
         listed = self.client.get("/api/staff/celebrations/periods").get_json()["classes"]
         self.assertEqual(
             {c["class_id"]: c["period_label"] for c in listed},
@@ -363,7 +381,7 @@ class StartFreshTests(unittest.TestCase):
         self.assertIn('id="award-fresh-go"', page)
         for class_id, _ids in rows.values():
             self.assertIn(f'<option value="{class_id}">', page)
-        self.assertIn("award tally Sep 8 – Oct 1, 2026", page)
+        self.assertIn("MCF3M — Award tally Sep 8 – Oct 1, 2026", page)
 
     def test_deleting_teacher_removes_their_periods(self) -> None:
         """Permanent staff delete clears that teacher's period rows."""
@@ -435,11 +453,9 @@ class StartFreshTests(unittest.TestCase):
         self.assertEqual(board["MCF3M"]["period_label"], "Sep 8 – Sep 30, 2026")
         self.school.set_school_setting(periods.SETTING_FIRST_AWARD_PERIOD_END, "not a date")
         self._assert_first_period(self._board())
-        # An end before semester day 1 (a later semester) is ignored: open.
+        # LOW-6: an end before semester day 1 falls back to the constant.
         self.school.set_school_setting(periods.SETTING_FIRST_AWARD_PERIOD_END, "2026-01-31")
-        board = self._board()
-        self.assertEqual(board["MCF3M"]["period_label"], "Since Sep 8, 2026")
-        self.assertIsNone(board["MCF3M"]["period_end"])
+        self._assert_first_period(self._board())
 
     def test_label_never_blank_or_crashes(self) -> None:
         """No semester day 1, or a failing lookup, still gives a label."""
@@ -490,7 +506,9 @@ class StartFreshTests(unittest.TestCase):
         self.assertEqual(self._board()["MCF3M"]["names"], ["Maple"])
         self._at("2026-09-22T08:00:00")
         self.assertEqual(self._fresh(scope="class", class_id=class_id).status_code, 200)
-        self.assertNotIn("MCF3M", self._board())  # Sep 21 is not in the new period
+        # Sep 21 is in no period: the held first-period card stays (Maple).
+        card = self._board()["MCF3M"]
+        self.assertEqual((card["names"], card["period_label"]), (["Maple"], "Sep 8 – Sep 20, 2026"))
         self._log_day(class_id, "2026-09-23", [ids["Cedar"]], {ids["Cedar"]: 2})
         card = self._board()["MCF3M"]
         self.assertEqual(card["names"], ["Cedar"])
@@ -498,20 +516,199 @@ class StartFreshTests(unittest.TestCase):
         self.assertEqual(card["period_label"], "Since Sep 22, 2026")
 
     def test_staff_list_shows_first_period_range_then_since(self) -> None:
-        """Staff line: first period Sep 8 – Oct 1, 2026; after Start fresh, Since."""
-        class_id = self._populate(["Maple"])
-        listed = self.client.get("/api/staff/celebrations/periods").get_json()["classes"]
+        """Staff line matches the public card (LOW-6).
+
+        First period: the range (ended after Oct 1). After Start fresh, while
+        the board still shows the old card: both. After a new winner: the
+        new period only.
+        """
+        class_id = self._populate(["Maple", "Birch"])
+        ids = self._ids(class_id)
+        self._log_day(class_id, "2026-09-09", [ids["Maple"]], {ids["Maple"]: 1})
+
+        def listed():
+            clear_public_celebration_memo()
+            rows = self.client.get("/api/staff/celebrations/periods").get_json()["classes"]
+            return [(c["period_label"], c["period_end"], c["status_line"]) for c in rows]
+
+        self._at("2026-09-30T09:00:00")
         self.assertEqual(
-            [(c["period_label"], c["period_end"]) for c in listed],
-            [("Sep 8 – Oct 1, 2026", "2026-10-01")],
+            listed(),
+            [("Sep 8 – Oct 1, 2026", "2026-10-01", "Award tally Sep 8 – Oct 1, 2026")],
         )
-        self._at("2026-10-02T15:30:00")
+        self._at("2026-10-02T08:00:00")
+        self.assertEqual(
+            listed()[0][2],
+            "Award tally Sep 8 – Oct 1, 2026 (ended; Start fresh to count new classes)",
+        )
         self.assertEqual(self._fresh(scope="class", class_id=class_id).status_code, 200)
-        listed = self.client.get("/api/staff/celebrations/periods").get_json()["classes"]
         self.assertEqual(
-            [(c["period_label"], c["period_end"]) for c in listed],
-            [("Since Oct 2, 2026", None)],
+            listed(),
+            [("Since Oct 2, 2026", None,
+              # The board's card is the frozen Sep 30 read: it says so.
+              "New period since Oct 2, 2026; board shows Sep 8 – Sep 30, 2026 until a new winner")],
         )
+        self._log_day(class_id, "2026-10-02", [ids["Birch"]], {ids["Birch"]: 1})
+        self.assertEqual(listed()[0][2], "New period since Oct 2, 2026")
+
+    # --- Ops gate @ ef4cd8e fixes -----------------------------------------
+
+    def test_high1_frozen_no_stored_snapshot_keeps_old_card(self) -> None:
+        """Prod state: frozen, no snapshot row, Start fresh before any read.
+
+        The reset course keeps its pre-click card (first period, Sep 8 –
+        Oct 1, 2026) until the first saved class after the click has a
+        winner; the new card (a one-day period, LOW-6) then replaces it.
+        """
+        rows = self._two_courses()
+        mcf, ids = rows["MCF3M"]
+        self.assertIsNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))
+        self._at("2026-10-02T08:00:00")
+        rv = self._fresh(scope="all")
+        self.assertEqual(rv.status_code, 200, rv.get_json())
+        board = self._board()
+        for course, name in (("MCF3M", "Maple"), ("MCR3U", "Oak")):
+            self.assertEqual(board[course]["names"], [name])
+            self.assertEqual(board[course]["period_label"], "Sep 8 – Oct 1, 2026")
+        engaged = {r["course"]: r for r in celebrated_students(self.school) if r["card"] == "engaged"}
+        self.assertEqual(engaged["MCF3M"]["period"], 0)
+        self._log_day(mcf, "2026-10-02", [ids["Birch"]], {ids["Birch"]: 1})
+        board = self._board()
+        self.assertEqual(board["MCF3M"]["names"], ["Birch"])
+        self.assertEqual(board["MCF3M"]["period_label"], "Oct 2, 2026")
+        self.assertEqual(board["MCR3U"]["names"], ["Oak"])  # still held
+        held = json.loads(self.school.get_school_setting("celebration_held_cards"))
+        self.assertEqual([c["course"] for c in held["cards"]], ["MCR3U"])
+
+    def test_high1_frozen_live_class_elsewhere_keeps_old_card(self) -> None:
+        """Frozen with another class live (nothing can be stored) at the click."""
+        rows = self._two_courses()
+        mcf, _ids = rows["MCF3M"]
+        mcr, _ = rows["MCR3U"]
+        started = self.client.post(f"/api/classes/{mcr}/live-session/start", json={})
+        self.assertEqual(started.status_code, 200, started.get_json())
+        self._board()
+        self.assertIsNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))
+        self._at("2026-10-02T08:00:00")
+        self.assertEqual(self._fresh(scope="class", class_id=mcf).status_code, 200)
+        self.assertEqual(self._board()["MCF3M"]["names"], ["Maple"])
+        self.client.post(f"/staff/class/{mcr}/end-live", data={"end_options": "1"})
+        board = self._board()  # now the snapshot is stored; Maple still held
+        self.assertIsNotNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))
+        self.assertEqual(board["MCF3M"]["names"], ["Maple"])
+        self.assertEqual(board["MCF3M"]["period_label"], "Sep 8 – Oct 1, 2026")
+
+    def test_med2_class_begun_after_the_click_counts(self) -> None:
+        """2pm class; Start fresh Mon Oct 5 14:10; Begin 14:12 and save: counts.
+
+        Its slot is stored as 14:00 (before the click), but it was begun after
+        the click on the click's day. Attendance back-filled after the click
+        for an earlier day, or a class begun before the click, does not count.
+        """
+        os.environ[CELEBRATIONS_FROZEN_ENV] = "0"
+        class_id = self._populate(["Maple", "Birch", "Cedar"])
+        ids = self._ids(class_id)
+
+        def begun(stamp: str):
+            wall = datetime.fromisoformat(stamp).replace(tzinfo=periods.SCHOOL_TZ)
+            local = wall.astimezone().replace(tzinfo=None).isoformat()
+            return patch.object(self.school.game, "_now", return_value=local)
+
+        with begun("2026-10-05T14:05:00"):  # begun before the click
+            self._log_day(class_id, "2026-10-05", [ids["Cedar"]], {ids["Cedar"]: 9})
+        self._at("2026-10-05T14:10:00")
+        self.assertEqual(self._fresh(scope="class", class_id=class_id).status_code, 200)
+        with begun("2026-10-05T14:12:00"):  # back-fill for Oct 2 after the click
+            self._log_day(class_id, "2026-10-02", [ids["Birch"]], {ids["Birch"]: 9})
+        with begun("2026-10-05T14:12:00"):  # the 2pm class, begun after the click
+            self._log_day(class_id, "2026-10-05", [ids["Maple"]], {ids["Maple"]: 1})
+        with self.school.game._lock:
+            slots = [
+                r[0] for r in self.school.game.conn.execute(
+                    "SELECT starts_at FROM sessions WHERE class_id = ? AND status = 'ended'"
+                    " ORDER BY id", (class_id,),
+                )
+            ]
+        self.assertIn("2026-10-05T14:00:00", slots)
+        card = self._board()["MCF3M"]
+        self.assertEqual(card["names"], ["Maple"])
+        self.assertEqual(card["detail"], "1 class present · 1 pts")
+        self.assertEqual(card["period_label"], "Since Oct 5, 2026")
+
+    def test_med4_shared_course_code_is_refused(self) -> None:
+        """Another teacher's class shares the MCR3U card: 409, nothing written."""
+        rows = self._two_courses()
+        mcr, _ = rows["MCR3U"]
+        mcf, _ = rows["MCF3M"]
+        foreign = self._other_teacher_class("MCR3U")
+        semester_id = int(self.school.get_active_semester()["id"])
+        before_snapshot = self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None)
+        for body in ({"scope": "class", "class_id": mcr}, {"scope": "all"}):
+            rv = self._fresh(**body)
+            self.assertEqual(rv.status_code, 409, rv.get_json())
+            self.assertIn("MCR3U is shared with another teacher", rv.get_json()["error"])
+        self.assertEqual(periods.current_periods(self.school, semester_id), {})
+        self.assertEqual(
+            self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None), before_snapshot
+        )
+        self.assertIsNone(self.school.get_school_setting("celebration_held_cards", None))
+        # An unshared course of the same teacher still works.
+        self.assertEqual(self._fresh(scope="class", class_id=mcf).status_code, 200)
+        self.assertEqual(sorted(periods.current_periods(self.school, semester_id)), [mcf])
+        del foreign
+
+    def test_low5_repeat_and_concurrent_start_fresh_open_one_period(self) -> None:
+        """Double click, 8 concurrent calls, and a second connection: one row each."""
+        import sqlite3
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        from types import SimpleNamespace
+
+        rows = self._two_courses()
+        mine = sorted(cid for cid, _ in rows.values())
+        semester_id = int(self.school.get_active_semester()["id"])
+
+        def count() -> int:
+            with self.school._lock:
+                return int(self.school.conn.execute(
+                    "SELECT COUNT(*) FROM celebration_award_periods").fetchone()[0])
+
+        first = self._fresh(scope="all")
+        self.assertEqual(first.status_code, 200)
+        again = self._fresh(scope="all")
+        self.assertEqual(again.status_code, 200)
+        self.assertEqual(count(), 2)
+        self.assertEqual([p["reused"] for p in again.get_json()["periods"]], [True, True])
+        self.assertEqual(
+            [p["id"] for p in again.get_json()["periods"]],
+            [p["id"] for p in first.get_json()["periods"]],
+        )
+        # Concurrent calls (each its own client) after the window has passed.
+        with self.school._lock:
+            self.school.conn.execute(
+                "UPDATE celebration_award_periods SET created_at = '2026-01-01T00:00:00+00:00'"
+            )
+        clients = [self.app.test_client() for _ in range(8)]
+        for c in clients:
+            with c.session_transaction() as sess, self.client.session_transaction() as mine_sess:
+                sess.update(dict(mine_sess))
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            codes = list(pool.map(
+                lambda c: c.post("/api/staff/celebrations/start-fresh", json={"scope": "all"}).status_code,
+                clients,
+            ))
+        self.assertEqual(codes, [200] * 8)
+        self.assertEqual(count(), 4)
+        # Another worker's connection (same file) sees the recent row too.
+        other = sqlite3.connect(str(self.school.db_path), isolation_level=None,
+                                check_same_thread=False, timeout=5)
+        other.row_factory = sqlite3.Row
+        self.addCleanup(other.close)
+        shim = SimpleNamespace(_lock=threading.Lock(), conn=other)
+        out = periods.open_periods(shim, semester_id=semester_id, class_ids=mine,
+                                   user_id=None, starts_at=datetime(2026, 10, 2, 9, 0))
+        self.assertEqual([r["reused"] for r in out], [True, True])
+        self.assertEqual(count(), 4)
 
 
 if __name__ == "__main__":

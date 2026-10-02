@@ -59,17 +59,26 @@ function bindStartFresh() {
   const button = document.getElementById("award-fresh-go");
   const scope = document.getElementById("award-fresh-scope");
   if (!button || !scope) return;
+  let busy = false;
   button.addEventListener("click", () => {
+    // LOW-5: one request at a time; disabled before the confirm so a double
+    // click cannot open two dialogs.
+    if (busy) return;
+    busy = true;
+    button.disabled = true;
     const value = scope.value || "all";
     const label = value === "all" ? "all your classes" : scope.options[scope.selectedIndex].text;
     // TODO(Wonder): confirm copy.
     const ok = window.confirm(
       `Start the award tally fresh for ${label}? Past attendance and points stay saved.`,
     );
-    if (!ok) return;
+    if (!ok) {
+      busy = false;
+      button.disabled = false;
+      return;
+    }
     const payload = value === "all" ? { scope: "all" } : { scope: "class", class_id: Number(value) };
     hideError("#error");
-    button.disabled = true;
     api("/api/staff/celebrations/start-fresh", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -79,6 +88,7 @@ function bindStartFresh() {
         window.location.reload();
       })
       .catch((err) => {
+        busy = false;
         button.disabled = false;
         showError("#error", err.message || "Could not start fresh.");
       });

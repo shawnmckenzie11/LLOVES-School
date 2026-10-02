@@ -87,7 +87,12 @@ from local_dev_seed import (  # noqa: E402
     seed_local_dev_school,
 )
 from school_db import STAFF_2FA_MODE_LABELS, DeckReplaceNotConfirmed, SchoolDB, json_safe  # noqa: E402
-from celebration import AwardTallyBusy, staff_award_periods, start_fresh_award_tally  # noqa: E402
+from celebration import (  # noqa: E402
+    AwardTallyBusy,
+    AwardTallyShared,
+    staff_award_periods,
+    start_fresh_award_tally,
+)
 from serve_capacity import (  # noqa: E402
     PollBudgetExceeded,
     is_live_state_poll,
@@ -2652,7 +2657,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         except PermissionError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 403
-        except AwardTallyBusy as exc:
+        except (AwardTallyBusy, AwardTallyShared) as exc:
             return jsonify({"ok": False, "error": str(exc)}), 409
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
