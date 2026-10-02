@@ -6,14 +6,20 @@ already lists (untagged and contest rows). Warmups, Custom (stored
 ``standard``) and the staff-authored bank are left out, because they are
 not pack content.
 
-**Top 6** is the existing Import order (linked banks by title, then pack
-ingest order), after the same duplicate filter. The pack carries no rank
-field, so nothing is re-ranked here. A module with fewer than six shows
-what it has.
+**Top 6** is the existing Import order: linked banks by bank title (byte
+order), then insertion id, after the same duplicate filter. It is not a
+quality or difficulty rank; the pack carries no rank field, so nothing is
+re-ranked here. A module with fewer than six shows what it has.
+
+Loading is lazy and read-only. The list call returns every selectable
+module's linked flag (cheap SQL) plus one module's top 6. Other modules
+load when the teacher expands them. Nothing here links banks: the picker
+still links the class's current module the way it did before MCK-79.
 
 Reads go through ``search_module_bank_mcs`` so warmup, overlay and
 duplicate rules are not forked. Imports go through
-``import_mc_to_class_playlist``, the path Import already uses.
+``import_mc_to_class_playlist``, the path Import already uses, and a batch
+is all-or-nothing (see ``import_content_questions``).
 """
 
 from __future__ import annotations
@@ -34,6 +40,21 @@ CONTENT_QUESTIONS_PER_MODULE = 6
 NON_PACK_BANK_KEYS = ("staff-authored", COURSE_WIDE_WARMUP_BANK_KEY)
 # Eight modules × six questions.
 MAX_CONTENT_PICKS = 48
+
+
+class ContentImportFailed(RuntimeError):
+    """A batch placement failed; the batch was rolled back.
+
+    Attributes:
+        landed: Question ids that could not be rolled back (normally empty).
+        rolled_back: How many placements were removed again.
+    """
+
+    def __init__(self, message: str, *, landed: list[int], rolled_back: int) -> None:
+        """Keep the failure text plus what is still on the deck."""
+        super().__init__(message)
+        self.landed = landed
+        self.rolled_back = rolled_back
 
 
 def selectable_live_modules(course: Any) -> list[str]:
@@ -71,50 +92,44 @@ def _non_pack_bank_ids(school: Any, library_id: int) -> set[int]:
     return {int(row["id"]) for row in rows}
 
 
-def link_recommended_banks_if_unlinked(
-    school: Any,
-    library_id: int,
-    module_number: int,
-    *,
-    skip_bank_ids: set[int] | None = None,
+def _pack_bank_linked(
+    school: Any, library_id: int, module_number: int, skip: set[int]
 ) -> bool:
-    """Link a module's recommended ``Module N Test`` banks when it has no pack bank.
+    """True when any content-pack bank is linked to the module."""
+    return any(
+        int(row["bank_id"]) not in skip
+        for row in school.list_module_bank_links(int(library_id), int(module_number))
+    )
 
-    Import from bank already links these for the class's own module when
-    the picker opens. Here it only runs when no content-pack bank is linked
-    (a staff-authored or Course Wide warmup link does not count). Existing
-    links are kept, so a teacher's own choices never change.
+
+def module_summaries(
+    school: Any, library_id: int, modules: list[str]
+) -> list[dict[str, Any]]:
+    """Cheap per-module rows for the collapsed groups (no question scan).
 
     Args:
         school: ``SchoolDB``.
         library_id: ``content_libraries.id``.
-        module_number: One-based module index.
-        skip_bank_ids: Non-pack bank ids, when the caller already has them.
+        modules: Selectable module tokens.
 
     Returns:
-        True when links were written.
+        ``{module, module_number, label, linked}`` per module, in order.
     """
-    skip = (
-        skip_bank_ids
-        if skip_bank_ids is not None
-        else _non_pack_bank_ids(school, int(library_id))
-    )
-    linked = [
-        int(row["bank_id"])
-        for row in school.list_module_bank_links(int(library_id), int(module_number))
-    ]
-    if any(bank_id not in skip for bank_id in linked):
-        return False
-    recommended = school.recommended_module_test_banks(
-        int(library_id), int(module_number)
-    )
-    ids = [int(row["bank_id"]) for row in recommended]
-    if not ids:
-        return False
-    school.confirm_module_bank_links(
-        int(library_id), int(module_number), [*linked, *ids]
-    )
-    return True
+    skip = _non_pack_bank_ids(school, int(library_id))
+    out: list[dict[str, Any]] = []
+    for token in modules:
+        number = parse_module_token(token)
+        if number is None:
+            continue
+        out.append(
+            {
+                "module": f"M{number}",
+                "module_number": number,
+                "label": f"Module {number}",
+                "linked": _pack_bank_linked(school, int(library_id), number, skip),
+            }
+        )
+    return out
 
 
 def module_content_questions(
@@ -128,6 +143,10 @@ def module_content_questions(
 ) -> dict[str, Any]:
     """Return one module's top Content Questions in Import order.
 
+    Read-only apart from the existing Module 2 retag inside
+    ``search_module_bank_mcs``. A module with no linked pack bank is not
+    searched and never linked here.
+
     Args:
         school: ``SchoolDB``.
         library_id: ``content_libraries.id``.
@@ -138,8 +157,7 @@ def module_content_questions(
 
     Returns:
         ``module``, ``module_number``, ``label``, ``items`` (each tagged with
-        ``module`` and a 1-based ``content_rank``), ``available`` (pack
-        content count before the cap) and ``linked`` (a pack bank is linked).
+        ``module`` and a 1-based ``content_rank``) and ``linked``.
     """
     number = int(module_number)
     key = f"M{number}"
@@ -148,10 +166,15 @@ def module_content_questions(
         if skip_bank_ids is not None
         else _non_pack_bank_ids(school, int(library_id))
     )
-    linked = any(
-        int(row["bank_id"]) not in skip
-        for row in school.list_module_bank_links(int(library_id), number)
-    )
+    group: dict[str, Any] = {
+        "module": key,
+        "module_number": number,
+        "label": f"Module {number}",
+        "items": [],
+        "linked": _pack_bank_linked(school, int(library_id), number, skip),
+    }
+    if not group["linked"]:
+        return group
     result = school.search_module_bank_mcs(
         int(library_id), number, "", limit=500, class_id=class_id, kind=""
     )
@@ -161,66 +184,19 @@ def module_content_questions(
         if int(row.get("bank_id") or 0) not in skip
         and int(row.get("question_id") or 0) > 0
     ]
-    items: list[dict[str, Any]] = []
     for rank, row in enumerate(content[: max(0, int(limit))], start=1):
         item = dict(row)
         item["module"] = key
         item["content_rank"] = rank
-        items.append(item)
-    return {
-        "module": key,
-        "module_number": number,
-        "label": f"Module {number}",
-        "items": items,
-        "available": len(content),
-        "linked": linked,
-    }
-
-
-def content_questions_by_module(
-    school: Any,
-    library_id: int,
-    modules: list[str],
-    *,
-    class_id: int | None = None,
-    link_unlinked: bool = True,
-) -> list[dict[str, Any]]:
-    """Top Content Questions for every selectable module, grouped by module.
-
-    Args:
-        school: ``SchoolDB``.
-        library_id: ``content_libraries.id``.
-        modules: ``M1``–``M8`` tokens from ``selectable_live_modules``.
-        class_id: Class id for image URL resolution.
-        link_unlinked: Link recommended test banks for a module with none.
-
-    Returns:
-        One group per module, in Module-select order.
-    """
-    skip = _non_pack_bank_ids(school, int(library_id))
-    groups: list[dict[str, Any]] = []
-    for token in modules:
-        number = parse_module_token(token)
-        if number is None:
-            continue
-        if link_unlinked:
-            link_recommended_banks_if_unlinked(
-                school, int(library_id), number, skip_bank_ids=skip
-            )
-        groups.append(
-            module_content_questions(
-                school,
-                int(library_id),
-                number,
-                class_id=class_id,
-                skip_bank_ids=skip,
-            )
-        )
-    return groups
+        group["items"].append(item)
+    return group
 
 
 def clean_content_picks(raw: Any, modules: list[str]) -> list[tuple[int, str]]:
     """Validate posted picks into ``(question_id, module)`` pairs.
+
+    The same question id twice in one batch (even under two modules whose
+    banks overlap) keeps only the first pick.
 
     Args:
         raw: ``picks`` list of ``{question_id, module}``.
@@ -238,7 +214,7 @@ def clean_content_picks(raw: Any, modules: list[str]) -> list[tuple[int, str]]:
         raise ValueError(f"Pick at most {MAX_CONTENT_PICKS} Content Questions.")
     allowed = set(modules)
     picks: list[tuple[int, str]] = []
-    seen: set[tuple[int, str]] = set()
+    seen: set[int] = set()
     for row in raw:
         if not isinstance(row, dict):
             raise ValueError("Each pick needs question_id and module.")
@@ -250,12 +226,39 @@ def clean_content_picks(raw: Any, modules: list[str]) -> list[tuple[int, str]]:
         key = f"M{number}" if number is not None else ""
         if question_id <= 0 or key not in allowed:
             raise ValueError("Each pick needs question_id and module.")
-        pair = (question_id, key)
-        if pair in seen:
+        if question_id in seen:
             continue
-        seen.add(pair)
-        picks.append(pair)
+        seen.add(question_id)
+        picks.append((question_id, key))
     return picks
+
+
+def _roll_back_placements(
+    school: Any, class_id: int, module: str, slot: str, placement_ids: list[int]
+) -> int:
+    """Delete this batch's placement rows by id and resync the live deck.
+
+    Deletes by row id, not item id, so an earlier copy of the same
+    question on the deck is left alone.
+
+    Returns:
+        Rows deleted.
+    """
+    if not placement_ids:
+        return 0
+    placeholders = ",".join("?" for _ in placement_ids)
+    with school._lock:
+        cur = school.conn.execute(
+            f"""
+            DELETE FROM class_live_playlist_placements
+            WHERE class_id = ? AND id IN ({placeholders})
+            """,
+            (int(class_id), *[int(pid) for pid in placement_ids]),
+        )
+        school.conn.commit()
+        deleted = int(cur.rowcount or 0)
+    school._sync_playlist_change(int(class_id), module, slot)
+    return deleted
 
 
 def import_content_questions(
@@ -271,10 +274,14 @@ def import_content_questions(
 ) -> list[dict[str, Any]]:
     """Import picked Content Questions onto one class live-lesson page.
 
-    Every pick is checked against its module's current top six before
-    anything is written, so a stale or hand-made id cannot import an
-    arbitrary bank row. A pick from another module is allowed because that
-    module's banks are named as the source.
+    All-or-nothing. Every pick is checked against its module's current top
+    six before anything is written, so a stale or hand-made id cannot
+    import an arbitrary bank row. Then each pick goes through the shared
+    ``import_mc_to_class_playlist``. That function commits per call and
+    resyncs the live session, so one SQL transaction is not possible
+    without forking it; instead, if any placement fails, this batch's rows
+    are deleted again by id and the deck is resynced before the error is
+    raised.
 
     Args:
         school: ``SchoolDB``.
@@ -290,7 +297,9 @@ def import_content_questions(
         Placement rows in pick order.
 
     Raises:
-        KeyError: A pick is not in its module's top Content Questions.
+        KeyError: A pick is not in its module's top Content Questions
+            (nothing written).
+        ContentImportFailed: A placement failed and the batch was rolled back.
     """
     skip = _non_pack_bank_ids(school, int(library_id))
     top_by_module: dict[str, set[int]] = {}
@@ -312,17 +321,43 @@ def import_content_questions(
                 f"question {question_id} is not a {key} Content Question"
             )
     placements: list[dict[str, Any]] = []
-    for question_id, key in picks:
-        placements.append(
-            school.import_mc_to_class_playlist(
-                int(class_id),
-                module,
-                slot,
-                int(question_id),
-                library_id=int(library_id),
-                page_number=int(page_number),
-                stage=stage,
-                source_module=key,
+    try:
+        for question_id, key in picks:
+            placements.append(
+                school.import_mc_to_class_playlist(
+                    int(class_id),
+                    module,
+                    slot,
+                    int(question_id),
+                    library_id=int(library_id),
+                    page_number=int(page_number),
+                    stage=stage,
+                    source_module=key,
+                )
             )
-        )
+    except Exception as exc:  # noqa: BLE001 - any failure rolls the batch back
+        ids = [int(row["id"]) for row in placements if row.get("id")]
+        deleted = _roll_back_placements(school, int(class_id), module, slot, ids)
+        landed: list[int] = []
+        if ids and deleted < len(ids):
+            placeholders = ",".join("?" for _ in ids)
+            with school._lock:
+                rows = school.conn.execute(
+                    f"""
+                    SELECT source_question_id FROM class_live_playlist_placements
+                    WHERE class_id = ? AND id IN ({placeholders})
+                    """,
+                    (int(class_id), *ids),
+                ).fetchall()
+            landed = [int(row["source_question_id"] or 0) for row in rows]
+        reason = str(exc).strip("'\"")
+        message = f"Import stopped and was undone; nothing was imported. {reason}"
+        if landed:
+            message = (
+                f"Import stopped: {reason}. Could not undo questions "
+                f"{', '.join(map(str, landed))}; they are on the deck."
+            )
+        raise ContentImportFailed(
+            message, landed=landed, rolled_back=deleted
+        ) from exc
     return placements

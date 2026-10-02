@@ -5236,8 +5236,9 @@ body.staff-shell .bank-mc-picker-title {
 }
 /* MCK-79: Content Questions (top 6 per module) above the bank search. */
 body.staff-shell .bank-mc-content {
-  flex: 0 1 auto;
-  max-height: 16rem;
+  /* Don't let the dialog's flex column squeeze it (was 126px at 390). */
+  flex: none;
+  max-height: min(16rem, 32vh);
   overflow-y: auto;
   margin: 0 0 0.55rem;
   padding: 0.45rem 0.55rem;
@@ -5278,8 +5279,33 @@ body.staff-shell .bank-mc-content-row label {
   cursor: pointer;
 }
 body.staff-shell .bank-mc-content-row input[type="checkbox"] {
+  /* lloves.css sets every input to width 100%; keep this checkbox-sized. */
+  width: auto;
+  flex: none;
   margin-top: 0.2rem;
-  flex: 0 0 auto;
+}
+body.staff-shell .bank-mc-content-row .bank-mc-picker-row-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+body.staff-shell .bank-mc-content-row.is-on-deck .bank-mc-picker-text {
+  color: #64748b;
+}
+@media (max-width: 640px) {
+  /* Phones: one scroll for the whole picker, Content Questions flow in it. */
+  body.staff-shell .bank-mc-picker.has-content-questions {
+    overflow-y: auto;
+  }
+  body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-content {
+    max-height: none;
+    overflow-y: visible;
+  }
+  body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-list {
+    flex: none;
+    overflow-y: visible;
+  }
 }
 body.staff-shell .live-question-card-head {
   display: flex;

@@ -3742,29 +3742,43 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/staff/class/<int:class_id>/live-lessons/content-questions")
     @staff_required
     def staff_live_content_questions(class_id: int):
-        """MCK-79: top 6 Content Questions for every Run Live Class module."""
+        """MCK-79: module list plus one module's top 6 Content Questions.
+
+        Read-only and lazy: ``?module=M2`` returns every selectable module's
+        linked flag and only M2's questions. Links no banks.
+        """
         library_id, modules, failed = _content_questions_scope(class_id)
         if failed is not None:
             return failed
         try:
             from live_content_questions import (
                 CONTENT_QUESTIONS_PER_MODULE,
-                content_questions_by_module,
+                module_content_questions,
+                module_summaries,
             )
+            from bank_mc_normalize import parse_module_token
         except ImportError:
             from lms.live_content_questions import (
                 CONTENT_QUESTIONS_PER_MODULE,
-                content_questions_by_module,
+                module_content_questions,
+                module_summaries,
             )
-        groups = content_questions_by_module(
-            school, int(library_id), modules, class_id=int(class_id)
-        )
+            from lms.bank_mc_normalize import parse_module_token
+        wanted = str(request.args.get("module") or "").strip()
+        group = None
+        if wanted:
+            number = parse_module_token(wanted.upper())
+            if number is None or f"M{number}" not in modules:
+                return jsonify({"ok": False, "error": "module must be a Run Live Class module"}), 400
+            group = module_content_questions(
+                school, int(library_id), number, class_id=int(class_id)
+            )
         response = jsonify(
             {
                 "ok": True,
                 "per_module": CONTENT_QUESTIONS_PER_MODULE,
-                "modules": modules,
-                "groups": groups,
+                "modules": module_summaries(school, int(library_id), modules),
+                "group": group,
             }
         )
         response.headers["Cache-Control"] = "no-store"
@@ -3786,11 +3800,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return failed
         try:
             from live_content_questions import (
+                ContentImportFailed,
                 clean_content_picks,
                 import_content_questions,
             )
         except ImportError:
             from lms.live_content_questions import (
+                ContentImportFailed,
                 clean_content_picks,
                 import_content_questions,
             )
@@ -3820,9 +3836,20 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 stage=stage,
             )
         except KeyError as exc:
-            return jsonify({"ok": False, "error": str(exc).strip("'\"")}), 404
-        except ValueError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
+            return jsonify({"ok": False, "error": str(exc).strip("'\""), "imported": 0}), 404
+        except ContentImportFailed as exc:
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": str(exc),
+                        "imported": 0,
+                        "landed": exc.landed,
+                        "rolled_back": exc.rolled_back,
+                    }
+                ),
+                409,
+            )
         return jsonify(
             {
                 "ok": True,

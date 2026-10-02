@@ -2848,6 +2848,21 @@ async function importLiveContentQuestions(picks) {
 }
 
 /**
+ * MCK-79: after a failed Content Questions batch, reload the deck so the
+ * cards and on-deck marks match the server (the batch is rolled back).
+ * @returns {Promise<void>}
+ */
+async function refreshLiveDeckAfterContentImportError() {
+  try {
+    await refreshLessonDeckMetadata();
+  } catch {
+    /* keep the current cards */
+  }
+  paintLiveQuestionCards();
+  paintQuestionArtifact();
+}
+
+/**
  * Open the shared module-bank picker in import mode for the active lesson.
  */
 function openLiveMcImportPicker() {
@@ -2863,9 +2878,19 @@ function openLiveMcImportPicker() {
             mode: "import",
             onSelect: (item) => importLiveMcFromBank(item),
             contentQuestions: {
-              load: () => api(`/api/staff/class/${classId}/live-lessons/content-questions`),
+              load: (module) =>
+                api(
+                  `/api/staff/class/${classId}/live-lessons/content-questions?module=${encodeURIComponent(
+                    String(module || "")
+                  )}`
+                ),
               currentModule: String(teacherState.live_module || "M1").toUpperCase(),
+              onDeckIds: () =>
+                metadataMatchesCurrentPack() && Array.isArray(lastLiveMetadata?.questions)
+                  ? lastLiveMetadata.questions
+                  : [],
               onImport: (picks) => importLiveContentQuestions(picks),
+              onError: () => refreshLiveDeckAfterContentImportError(),
             },
           })
         )

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """MCK-79: Import from bank lists each module's top 6 Content Questions.
 
-Server: the list endpoint groups every Run Live Class module, keeps pack
-order, caps at six, and leaves out warmups, Custom and staff-authored rows.
-The batch import uses the same placement path as ``import-mc`` and only
-accepts a module's current top six.
+Server: the list endpoint is lazy and read-only. It returns every Run Live
+Class module's linked flag plus one module's top six (pack order, no
+warmups, Custom or staff-authored rows) and links no banks. The batch
+import uses the same placement path as ``import-mc``, only accepts a
+module's current top six, de-duplicates question ids and is all-or-nothing.
 
 Client: ``content_questions_help.js`` grouping, labels and pick payload run
 in node; the picker and the Run Live Class wiring are checked as source.
@@ -156,15 +157,35 @@ class ContentQuestionsApiTests(unittest.TestCase):
         assert user is not None
         self.client.post("/verify-email", data={"code": user["verification_code"]})
 
-    def _list(self) -> dict[str, Any]:
-        """GET the Content Questions list as JSON."""
-        rv = self.client.get(f"/api/staff/class/{self.class_id}/live-lessons/content-questions")
+    def _list(self, module: str = "") -> dict[str, Any]:
+        """GET the Content Questions list (optionally one module's top 6)."""
+        query = f"?module={module}" if module else ""
+        rv = self.client.get(
+            f"/api/staff/class/{self.class_id}/live-lessons/content-questions{query}"
+        )
         self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
         return rv.get_json()
 
-    def _group(self, payload: dict[str, Any], module: str) -> dict[str, Any]:
-        """Return one module's group from a list payload."""
-        return next(g for g in payload["groups"] if g["module"] == module)
+    def _group(self, module: str) -> dict[str, Any]:
+        """Return one module's loaded group."""
+        group = self._list(module)["group"]
+        self.assertIsNotNone(group)
+        return group
+
+    def _links(self) -> dict[int, list[int]]:
+        """Module bank links for every module, for before/after checks."""
+        return {
+            n: sorted(int(r["bank_id"]) for r in self.school.list_module_bank_links(self.library_id, n))
+            for n in range(1, 9)
+        }
+
+    def _placement_count(self) -> int:
+        """Placement rows on this class's decks."""
+        row = self.school.conn.execute(
+            "SELECT COUNT(*) AS n FROM class_live_playlist_placements WHERE class_id = ?",
+            (self.class_id,),
+        ).fetchone()
+        return int(row["n"])
 
     def _import(self, picks: list[dict[str, Any]], module: str = "M1", slot: str = "C1"):
         """POST a batch Content Questions import onto page 4."""
@@ -187,50 +208,78 @@ class ContentQuestionsApiTests(unittest.TestCase):
                 ids.append(int(token.rsplit("-", 1)[1]))
         return ids
 
-    def test_every_selectable_module_is_grouped_in_select_order(self) -> None:
-        """One labelled group per Run Live Class module, M1 first."""
-        payload = self._list()
+    def test_list_is_lazy_module_summaries_plus_one_group(self) -> None:
+        """No module: summaries only. ?module=M2: only M2's rows."""
         modules = selectable_live_modules("MCR3U")
-        self.assertEqual(payload["modules"], modules)
-        self.assertEqual([g["module"] for g in payload["groups"]], modules)
-        self.assertEqual(payload["groups"][0]["label"], "Module 1")
-        self.assertEqual(payload["per_module"], 6)
+        bare = self._list()
+        self.assertEqual([m["module"] for m in bare["modules"]], modules)
+        self.assertEqual(bare["modules"][0]["label"], "Module 1")
+        self.assertIsNone(bare["group"])
+        self.assertEqual(bare["per_module"], 6)
         self.assertEqual(CONTENT_QUESTIONS_PER_MODULE, 6)
+        linked = {m["module"]: m["linked"] for m in bare["modules"]}
+        # M1 only has the staff-authored bank (not pack content); M2 is linked.
+        self.assertFalse(linked["M1"])
+        self.assertTrue(linked["M2"])
+        self.assertFalse(linked["M3"])
+        one = self._list("M2")
+        self.assertEqual(one["group"]["module"], "M2")
+        self.assertNotIn("groups", one)
+
+    def test_one_module_load_runs_one_search(self) -> None:
+        """Opening the picker searches the current module only (was 8)."""
+        calls: list[int] = []
+        real = self.school.search_module_bank_mcs
+
+        def counting(library_id, module_number, *args, **kwargs):
+            """Count module searches."""
+            calls.append(int(module_number))
+            return real(library_id, module_number, *args, **kwargs)
+
+        self.school.search_module_bank_mcs = counting
+        try:
+            self._list("M2")
+            self._list("M3")  # unlinked: not searched at all
+        finally:
+            self.school.search_module_bank_mcs = real
+        self.assertEqual(calls, [2])
 
     def test_top_six_in_pack_order_without_warmup_custom_or_staff(self) -> None:
-        """M1 shows its first six pack MCs, ranked 1–6, tagged M1."""
-        m1 = self._group(self._list(), "M1")
+        """M1 (once linked) shows its first six pack MCs, ranked 1–6."""
+        self.school.confirm_module_bank_links(self.library_id, 1, [self.m1_bank])
+        m1 = self._group("M1")
         ids = [int(item["question_id"]) for item in m1["items"]]
         self.assertEqual(ids, self.m1_qs[:6])
         self.assertEqual([item["content_rank"] for item in m1["items"]], [1, 2, 3, 4, 5, 6])
         self.assertTrue(all(item["module"] == "M1" for item in m1["items"]))
-        self.assertEqual(m1["available"], 8)
+        self.assertTrue(m1["linked"])
         for hidden in (self.m1_warmup, self.m1_custom, self.staff_q):
             self.assertNotIn(hidden, ids)
 
-    def test_fewer_than_six_shows_what_exists_and_empty_modules_say_so(self) -> None:
-        """M2 has three; M3 has no banks and reports unlinked."""
-        payload = self._list()
-        m2 = self._group(payload, "M2")
+    def test_fewer_than_six_shows_what_exists_and_unlinked_says_so(self) -> None:
+        """M2 has three; M3 has no banks and reports unlinked, no rows."""
+        m2 = self._group("M2")
         self.assertEqual([int(i["question_id"]) for i in m2["items"]], self.m2_qs)
-        m3 = self._group(payload, "M3")
+        m3 = self._group("M3")
         self.assertEqual(m3["items"], [])
         self.assertFalse(m3["linked"])
 
-    def test_list_links_unlinked_test_bank_but_keeps_teacher_links(self) -> None:
-        """M1 (staff link only) gains Module 1 Test; M2 keeps the teacher's bank."""
-        staff_bank = int(self.school._ensure_staff_authored_bank(self.library_id))
-        before_m2 = self.school.list_module_bank_links(self.library_id, 2)
+    def test_list_never_links_banks(self) -> None:
+        """Loading every module, unlinked ones included, writes no links."""
+        before = self._links()
         self._list()
-        m1_banks = {int(r["bank_id"]) for r in self.school.list_module_bank_links(self.library_id, 1)}
-        self.assertEqual(m1_banks, {self.m1_bank, staff_bank})
-        m2_banks = [int(r["bank_id"]) for r in self.school.list_module_bank_links(self.library_id, 2)]
-        self.assertEqual(m2_banks, [int(r["bank_id"]) for r in before_m2])
-        self.assertNotIn(self.m2_test, m2_banks)
-        # A second open writes nothing new.
-        self._list()
-        again = {int(r["bank_id"]) for r in self.school.list_module_bank_links(self.library_id, 1)}
-        self.assertEqual(again, m1_banks)
+        for module in selectable_live_modules("MCR3U"):
+            self._list(module)
+        self.assertEqual(self._links(), before)
+        self.assertNotIn(self.m1_bank, before[1])
+        self.assertFalse(self._group("M1")["linked"])
+
+    def test_bad_module_query_is_400(self) -> None:
+        """Only Run Live Class modules can be loaded."""
+        rv = self.client.get(
+            f"/api/staff/class/{self.class_id}/live-lessons/content-questions?module=M9"
+        )
+        self.assertEqual(rv.status_code, 400)
 
     def test_import_selected_from_two_modules_onto_current_page(self) -> None:
         """Picks from M1 and M2 land on M1 C1 page 4 as bank imports."""
@@ -286,6 +335,84 @@ class ContentQuestionsApiTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             clean_content_picks([{"question_id": 1, "module": "M1"}] * 49, ["M1"])
 
+    def test_same_question_under_two_modules_imports_once(self) -> None:
+        """A bank linked to two modules can't double a question in one batch."""
+        self.school.confirm_module_bank_links(self.library_id, 1, [self.m1_bank])
+        self.school.confirm_module_bank_links(self.library_id, 3, [self.m1_bank])
+        rv = self._import(
+            [
+                {"question_id": self.m1_qs[1], "module": "M1"},
+                {"question_id": self.m1_qs[1], "module": "M3"},
+            ]
+        )
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        self.assertEqual(rv.get_json()["imported"], 1)
+        self.assertEqual(self._deck_bank_ids(), [self.m1_qs[1]])
+
+    def test_failed_placement_rolls_back_the_whole_batch(self) -> None:
+        """2nd placement fails: nothing from the batch stays; earlier copy survives."""
+        self.school.confirm_module_bank_links(self.library_id, 1, [self.m1_bank])
+        first = self._import([{"question_id": self.m1_qs[0], "module": "M1"}])
+        self.assertEqual(first.status_code, 200, first.get_data(as_text=True))
+        before = self._placement_count()
+        real = self.school.import_mc_to_class_playlist
+        calls = {"n": 0}
+
+        def flaky(*args, **kwargs):
+            """Place the first pick, then fail like a vanished question."""
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise KeyError("question vanished")
+            return real(*args, **kwargs)
+
+        self.school.import_mc_to_class_playlist = flaky
+        try:
+            rv = self._import(
+                [
+                    {"question_id": self.m1_qs[0], "module": "M1"},
+                    {"question_id": self.m1_qs[1], "module": "M1"},
+                    {"question_id": self.m2_qs[0], "module": "M2"},
+                ]
+            )
+        finally:
+            self.school.import_mc_to_class_playlist = real
+        self.assertEqual(rv.status_code, 409, rv.get_data(as_text=True))
+        body = rv.get_json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["imported"], 0)
+        self.assertEqual(body["landed"], [])
+        self.assertEqual(body["rolled_back"], 1)
+        self.assertIn("nothing was imported", body["error"])
+        self.assertEqual(calls["n"], 2)
+        self.assertEqual(self._placement_count(), before)
+        # The copy imported before the batch is still on the deck, once.
+        self.assertEqual(self._deck_bank_ids(), [self.m1_qs[0]])
+
+    def test_validation_failure_places_nothing(self) -> None:
+        """A bad pick anywhere in the batch is refused before any placement."""
+        self.school.confirm_module_bank_links(self.library_id, 1, [self.m1_bank])
+        calls = {"n": 0}
+        real = self.school.import_mc_to_class_playlist
+
+        def counting(*args, **kwargs):
+            """Count placements."""
+            calls["n"] += 1
+            return real(*args, **kwargs)
+
+        self.school.import_mc_to_class_playlist = counting
+        try:
+            rv = self._import(
+                [
+                    {"question_id": self.m1_qs[0], "module": "M1"},
+                    {"question_id": self.m1_qs[7], "module": "M1"},
+                ]
+            )
+        finally:
+            self.school.import_mc_to_class_playlist = real
+        self.assertEqual(rv.status_code, 404)
+        self.assertEqual(calls["n"], 0)
+        self.assertEqual(self._placement_count(), 0)
+
     def test_single_import_mc_guard_is_unchanged(self) -> None:
         """import-mc still refuses another module's question."""
         self.school.confirm_module_bank_links(self.library_id, 1, [self.m1_bank])
@@ -308,34 +435,49 @@ class ContentQuestionsApiTests(unittest.TestCase):
 
 HELPER_CASES = r"""
 import {
-  contentGroupView, contentPickSummary, contentPicksPayload, contentImportDoneText,
+  contentModuleView, contentRowsView, contentGroupHeading, contentPickSummary,
+  contentPicksPayload, contentImportDoneText, deckBankQuestionIds,
 } from "./static/content_questions_help.js";
-const groups = [
-  { module: "M1", label: "Module 1", linked: true, items: [
-    { question_id: 11, content_rank: 1, correct_answer: "B", points: 1 },
-    { question_id: 12, content_rank: 2, curriculum_open: true },
-  ] },
-  { module: "M2", label: "Module 2", linked: true, items: Array.from({ length: 8 }, (_, i) => ({ question_id: 20 + i, correct_answer: "A", points: 2 })) },
-  { module: "M3", label: "Module 3", linked: false, items: [] },
-  { module: "M4", label: "Module 4", linked: true, items: [] },
-  { module: "M9", label: "Module 9", items: [{ question_id: 99 }] },
+const modules = [
+  { module: "M1", label: "Module 1", linked: true },
+  { module: "M2", label: "Module 2", linked: true },
+  { module: "M3", label: "Module 3", linked: false },
+  { module: "M9", label: "Module 9", linked: true },
 ];
-const view = contentGroupView(groups, "m2", 6);
+const view = contentModuleView(modules, "m2");
+const m1 = contentRowsView({ module: "M1", label: "Module 1", linked: true, items: [
+  { question_id: 11, content_rank: 1, correct_answer: "B", points: 1 },
+  { question_id: 12, content_rank: 2, curriculum_open: true },
+] }, 6, [12]);
+const m2 = contentRowsView({ module: "M2", label: "Module 2", linked: true,
+  items: Array.from({ length: 8 }, (_, i) => ({ question_id: 20 + i, correct_answer: "A", points: 2 })) }, 6);
+const m3 = contentRowsView({ module: "M3", label: "Module 3", linked: false, items: [] }, 6);
+const m4 = contentRowsView({ module: "M4", label: "Module 4", linked: true, items: [] }, 6);
 const out = {
   modules: view.map((g) => g.module),
   headings: view.map((g) => g.heading),
   open: view.map((g) => g.open),
-  m1Meta: view[0].rows.map((r) => r.meta),
-  m2Ids: view[1].rows.map((r) => r.id),
-  m2Ranks: view[1].rows.map((r) => r.rank),
-  empty: [view[2].empty, view[3].empty],
+  loaded: [
+    contentGroupHeading("Module 2", true, true, 6),
+    contentGroupHeading("Module 4", false, true, 0),
+    contentGroupHeading("Module 1", false, true, 1),
+  ],
+  m1Meta: m1.rows.map((r) => r.meta),
+  m1OnDeck: m1.rows.map((r) => r.onDeck),
+  m2Ids: m2.rows.map((r) => r.id),
+  m2Ranks: m2.rows.map((r) => r.rank),
+  empty: [m3.empty, m4.empty],
   none: contentPickSummary([]),
   two: contentPickSummary([{ id: 1 }, { id: 2 }]),
   payload: contentPicksPayload([
-    { id: "11", module: "M1" }, { id: "11", module: "m1" }, { id: "21", module: "M2" },
+    { id: "11", module: "M1" }, { id: "11", module: "m3" }, { id: "21", module: "M2" },
     { id: "0", module: "M1" }, { id: "5", module: "X" },
   ]),
   done: [contentImportDoneText(1), contentImportDoneText(3)],
+  deck: [...deckBankQuestionIds([
+    { id: "bank-import-41" }, { item_id: "bank-import-7" }, { id: "staff-q-abc" },
+    { id: "bank-import-9", removed: true }, { source_question_id: 5 }, null,
+  ])].sort((a, b) => a - b),
 };
 console.log(JSON.stringify(out));
 """
@@ -343,7 +485,7 @@ console.log(JSON.stringify(out));
 
 @unittest.skipUnless(NODE, "node is required for content_questions_help.js")
 class ContentQuestionsHelperTests(unittest.TestCase):
-    """Pure helper: grouping, labels, caps and the pick payload."""
+    """Pure helper: module list, lazy rows, labels, caps and the pick payload."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -356,38 +498,42 @@ class ContentQuestionsHelperTests(unittest.TestCase):
             raise AssertionError(proc.stderr)
         cls.got = json.loads(proc.stdout.strip().splitlines()[-1])
 
-    def test_groups_by_module_and_opens_the_class_module(self) -> None:
-        """Server order kept, bad module dropped, this class's module open."""
-        self.assertEqual(self.got["modules"], ["M1", "M2", "M3", "M4"])
+    def test_module_list_opens_only_the_class_module(self) -> None:
+        """Server order kept, bad module dropped, unlinked says so up front."""
+        self.assertEqual(self.got["modules"], ["M1", "M2", "M3"])
         self.assertEqual(
             self.got["headings"],
             [
-                "Module 1 · 2 questions",
-                "Module 2 · this class · 6 questions",
-                "Module 3 · none yet",
-                "Module 4 · none yet",
+                "Module 1 · open to load",
+                "Module 2 · this class · open to load",
+                "Module 3 · no bank linked yet",
             ],
         )
-        self.assertEqual(self.got["open"], [False, True, False, False])
+        self.assertEqual(self.got["open"], [False, True, False])
+        self.assertEqual(
+            self.got["loaded"],
+            ["Module 2 · this class · 6 questions", "Module 4 · none yet", "Module 1 · 1 question"],
+        )
 
-    def test_caps_at_six_and_labels_rows(self) -> None:
-        """Eight rows trim to six, ranks fall back to position."""
+    def test_caps_at_six_labels_rows_and_marks_on_deck(self) -> None:
+        """Eight rows trim to six, ranks fall back to position, deck rows marked."""
         self.assertEqual(self.got["m2Ids"], [20, 21, 22, 23, 24, 25])
         self.assertEqual(self.got["m2Ranks"], [1, 2, 3, 4, 5, 6])
-        self.assertEqual(self.got["m1Meta"], ["Answer B · 1 pt", "Open prompt"])
+        self.assertEqual(self.got["m1Meta"], ["Answer B · 1 pt", "Open prompt · on deck"])
+        self.assertEqual(self.got["m1OnDeck"], [False, True])
 
     def test_empty_state_copy(self) -> None:
         """Unlinked and linked-but-empty modules read differently."""
         self.assertEqual(
             self.got["empty"],
             [
-                "No banks linked to Module 3 yet. Pick Module 3 under Bank scope to link them.",
+                "No bank linked yet for Module 3. Pick Module 3 under Bank scope to link it.",
                 "Module 4 has no Content Questions yet.",
             ],
         )
 
     def test_pick_summary_payload_and_done_line(self) -> None:
-        """Button holds until a pick; payload de-duplicates per module."""
+        """Button holds until a pick; payload keeps one pick per question id."""
         self.assertEqual(self.got["none"], {"label": "Import selected", "disabled": True, "count": 0})
         self.assertEqual(self.got["two"], {"label": "Import selected (2)", "disabled": False, "count": 2})
         self.assertEqual(
@@ -402,6 +548,10 @@ class ContentQuestionsHelperTests(unittest.TestCase):
             ],
         )
 
+    def test_deck_bank_question_ids(self) -> None:
+        """Bank imports on the deck by item id or source id; removed skipped."""
+        self.assertEqual(self.got["deck"], [5, 7, 41])
+
 
 class ContentQuestionsWiringTests(unittest.TestCase):
     """Picker and Run Live Class wiring, as source checks."""
@@ -415,11 +565,34 @@ class ContentQuestionsWiringTests(unittest.TestCase):
         self.assertIn("/static/content_questions_help.js", src)
 
     def test_run_live_class_passes_content_questions(self) -> None:
-        """Import from bank loads the list and posts the batch import."""
+        """Import from bank loads one module at a time and posts the batch."""
         src = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
-        self.assertIn("/live-lessons/content-questions", src)
+        self.assertIn("/live-lessons/content-questions?module=", src)
         self.assertIn("/import-content-questions", src)
         self.assertIn("onImport: (picks) => importLiveContentQuestions(picks)", src)
+        self.assertIn("onError: () => refreshLiveDeckAfterContentImportError()", src)
+        self.assertIn("onDeckIds:", src)
+
+    def test_picker_loads_lazily_after_the_first_search(self) -> None:
+        """Other modules fetch on expand; the section mounts after refreshSearch."""
+        src = (LMS_DIR / "static" / "bank_mc_picker.js").read_text(encoding="utf-8")
+        self.assertIn('details.addEventListener("toggle"', src)
+        self.assertIn("contentOpts.load(module)", src)
+        self.assertLess(
+            src.index("  await refreshSearch();\n  if (contentOpts) {"),
+            src.index("void mountContentQuestions(shell"),
+        )
+
+    def test_checkbox_width_reset(self) -> None:
+        """lloves.css input{width:100%} must not stretch the content checkbox."""
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        start = css.index('.bank-mc-content-row input[type="checkbox"] {')
+        rule = css[start : css.index("}", start)]
+        self.assertIn("width: auto;", rule)
+        self.assertIn("flex: none;", rule)
+        start = css.index(".bank-mc-content-row .bank-mc-picker-row-main {")
+        rule = css[start : css.index("}", start)]
+        self.assertIn("min-width: 0;", rule)
 
 
 if __name__ == "__main__":
