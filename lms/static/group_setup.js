@@ -149,6 +149,57 @@ export function groupTokenNeedsTeamsShown(token, opts = {}) {
 }
 
 /**
+ * MCK-112 follow-up: what turning "Wait until teammates match" (Group Q)
+ * on or off may do right now. Group Q only makes sense while artifact
+ * Media runs as Group, so it must never reach students while they are on
+ * Individual (that was "Individual + match teammates" before the teacher
+ * answered "Show teams and publish").
+ *
+ * - ``patch``: write it now (turning it off, or Group is already live).
+ * - ``switch``: switch live Media to Group first (asking "Show teams and
+ *   publish" when teams are hidden), then write it. Cancel writes nothing.
+ * - ``hold``: Media is not published yet; keep it with the held Group pick
+ *   and write it at Publish.
+ * - ``refuse``: no teams (no Group to wait on), or Media is closed.
+ *
+ * @param {{on: boolean, mediaView?: string, mediaStatus?: string, teamsReady?: boolean}} opts
+ *   ``mediaView`` is ``student_view.media``; ``mediaStatus`` the Media row status.
+ * @returns {"patch"|"switch"|"hold"|"refuse"}
+ */
+export function artifactGroupQPlan(opts) {
+  if (!opts?.on) return "patch";
+  if (String(opts.mediaView || "") === "team") return "patch";
+  const status = String(opts.mediaStatus || "").toLowerCase();
+  if (!opts.teamsReady || status === "closed") return "refuse";
+  if (status === "inactive") return "hold";
+  return "switch";
+}
+
+/**
+ * Publish token the Media lifecycle row records for a Students work pick,
+ * so the row shows the mode Media is really running in (MCK-112 follow-up).
+ * @param {"individual"|"group"} pick
+ * @returns {"group_shared"|"individual"}
+ */
+export function mediaRowPublishMode(pick) {
+  return pick === "group" ? "group_shared" : "individual";
+}
+
+/**
+ * Group Q to send with a (re-)mint. The teacher's current setting on the
+ * live artifact wins over the iframe's mirror box (which can be stale
+ * right after the iframe remounts), and it is only on while Media runs as
+ * Group (MCK-112 follow-up).
+ * @param {{mediaView?: string, storedGroupQ?: unknown, frameGroupQ?: unknown}} opts
+ * @returns {boolean}
+ */
+export function mintGroupQ(opts) {
+  if (String(opts?.mediaView || "") !== "team") return false;
+  if (typeof opts.storedGroupQ === "boolean") return opts.storedGroupQ;
+  return Boolean(opts.frameGroupQ);
+}
+
+/**
  * Escape text for HTML.
  * @param {unknown} value
  * @returns {string}

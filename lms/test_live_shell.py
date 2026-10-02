@@ -2924,7 +2924,7 @@ class LiveShellTests(unittest.TestCase):
         )
         self.assertIn("groupSetupHtml({ key, style, status, mode, teamsReady, surface, liveSwitch })", paint)
         live = js.split("async function applyLiveArtifactMediaPick(")[1].split(
-            "async function syncMediaPickFromGroupQ("
+            "async function persistMediaRowMode("
         )[0]
         self.assertLess(
             live.index('await confirmGroupPublish("s:media")'),
@@ -2932,6 +2932,11 @@ class LiveShellTests(unittest.TestCase):
         )
         self.assertIn('media: pick === "group" ? "team" : "student"', live)
         self.assertIn('if (pick !== "group") await clearArtifactGroupQ();', live)
+        # #215 gate LOW-1: Individual clears Group Q before the view flips.
+        self.assertLess(
+            live.index('if (pick !== "group") await clearArtifactGroupQ();'),
+            live.index("await patchTeacherState({ student_view: next });"),
+        )
         change = js.split("async function onGroupSetupChange(")[1].split(
             "function focusTeamSetup("
         )[0]
@@ -2943,8 +2948,15 @@ class LiveShellTests(unittest.TestCase):
         )[0]
         self.assertIn('if (surface === "media" && selected !== "team") {', surface_publish)
         self.assertIn("await clearArtifactGroupQ();", surface_publish)
-        self.assertIn(
-            ".then(() => syncMediaPickFromGroupQ(Boolean(data.group_q)))", js
+        # MCK-112 follow-up: the iframe Group Q tick goes through one gate
+        # that switches Media to Group (confirm first) before Group Q.
+        self.assertIn("requestArtifactGroupQ(data)", js)
+        gate = js.split("async function requestArtifactGroupQ(")[1].split(
+            "async function applyHeldArtifactGroupQ("
+        )[0]
+        self.assertLess(
+            gate.index('ok = await applyLiveArtifactMediaPick("group");'),
+            gate.index("await patchArtifactTeacherFlags({ ...flags, group_q: true });"),
         )
         shared = (LMS_DIR / "static" / "group_setup.js").read_text(encoding="utf-8")
         self.assertIn("data-group-setup-live", shared)

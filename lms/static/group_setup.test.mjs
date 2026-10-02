@@ -4,12 +4,15 @@
 import {
   GROUP_SETUP_COPY,
   RANK_DEFAULTS_TO_GROUP,
+  artifactGroupQPlan,
   groupPublishConfirmHtml,
   groupPublishToken,
   groupSetupHtml,
   groupSetupOptionsHtml,
   groupStyleFor,
   groupTokenNeedsTeamsShown,
+  mediaRowPublishMode,
+  mintGroupQ,
 } from "./group_setup.js";
 
 let failures = 0;
@@ -110,6 +113,25 @@ check(art.includes("Wait until teammates match"), "Group Q copy");
 const confirm = groupPublishConfirmHtml("q:7");
 check(confirm.includes("Show teams and publish") && confirm.includes(">Cancel<"), "confirm buttons");
 check(confirm.includes(GROUP_SETUP_COPY.confirmText.replace(/'/g, "&#39;")), "confirm text");
+
+// MCK-112 follow-up 1 (MED): Group Q never reaches students on Individual.
+check(artifactGroupQPlan({ on: false, mediaView: "student", mediaStatus: "active", teamsReady: true }) === "patch", "Group Q off always writes");
+check(artifactGroupQPlan({ on: true, mediaView: "team", mediaStatus: "active", teamsReady: true }) === "patch", "Group live: Group Q writes now");
+check(artifactGroupQPlan({ on: true, mediaView: "student", mediaStatus: "active", teamsReady: true }) === "switch", "live Individual: Group first (confirm), then Group Q");
+check(artifactGroupQPlan({ on: true, mediaView: "none", mediaStatus: "inactive", teamsReady: true }) === "hold", "unpublished Media: hold until Publish");
+check(artifactGroupQPlan({ on: true, mediaView: "student", mediaStatus: "inactive", teamsReady: true }) === "hold", "minted, Media row unpublished: hold");
+check(artifactGroupQPlan({ on: true, mediaView: "student", mediaStatus: "active", teamsReady: false }) === "refuse", "no teams: refuse");
+check(artifactGroupQPlan({ on: true, mediaView: "none", mediaStatus: "closed", teamsReady: true }) === "refuse", "closed Media: refuse");
+
+// Follow-up 2 (LOW): the Media row records the mode it runs in.
+check(mediaRowPublishMode("group") === "group_shared", "Group -> group_shared row");
+check(mediaRowPublishMode("individual") === "individual", "Individual -> individual row");
+
+// Follow-up 3 (LOW): a re-mint keeps the teacher's Group Q.
+check(mintGroupQ({ mediaView: "team", storedGroupQ: true, frameGroupQ: false }) === true, "re-mint keeps stored Group Q over a stale iframe box");
+check(mintGroupQ({ mediaView: "team", storedGroupQ: false, frameGroupQ: true }) === false, "teacher's stored off wins");
+check(mintGroupQ({ mediaView: "team", frameGroupQ: true }) === true, "first mint on Group uses the iframe box");
+check(mintGroupQ({ mediaView: "student", storedGroupQ: true, frameGroupQ: true }) === false, "never Individual + match teammates");
 
 if (failures) process.exit(1);
 console.log("ok");
