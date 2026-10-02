@@ -10761,6 +10761,7 @@ class SchoolDB(LovesDB):
         bank_scope: str = "module",
         bank_kind: str | None = None,
         library_id: int | None = None,
+        extra_item: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Add one staff-authored question to the current class overlay page.
 
@@ -10788,6 +10789,8 @@ class SchoolDB(LovesDB):
             bank_kind: Staff Kind. Empty is Core Math (untagged). ``custom``
                 stores as ``standard``. Does not overwrite question ``type``.
             library_id: Attached pack library, required when saving to bank.
+            extra_item: MCK-79. Extra item fields (``live_problem_id``, a
+                batch token). Cannot override ids, order or placement key.
 
         Returns:
             Inserted placement row including parsed ``item`` payload.
@@ -10880,6 +10883,9 @@ class SchoolDB(LovesDB):
             from lms.bank_kinds import apply_stored_bank_kind
 
         apply_stored_bank_kind(item_payload, bank_kind)
+        for extra_key, extra_value in (extra_item or {}).items():
+            if str(extra_key) not in {"id", "item_id", "order", "placement_key"}:
+                item_payload[str(extra_key)] = extra_value
         if kind == "rank":
             rank_rows = build_rank_options(option_list)
             labels = [row["label"] for row in rank_rows]

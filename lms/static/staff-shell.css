@@ -5254,6 +5254,74 @@ body.staff-shell .bank-mc-picker-title {
   margin: 0 0 0.15rem;
   font-weight: 650;
 }
+/* MCK-79: Contest Questions (top 6 per module) above the bank search. */
+body.staff-shell .bank-mc-content {
+  /* Don't let the dialog's flex column squeeze it (was 126px at 390). */
+  flex: none;
+  margin: 0 0 0.55rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.45rem;
+  background: #f8fafc;
+}
+body.staff-shell .bank-mc-content-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  margin: 0 0 0.35rem;
+}
+body.staff-shell .bank-mc-content-head h4 {
+  margin: 0;
+  font-size: 0.85rem;
+}
+body.staff-shell .bank-mc-content-group summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 650;
+  padding: 0.2rem 0;
+}
+body.staff-shell .bank-mc-content-list {
+  list-style: none;
+  margin: 0 0 0.35rem;
+  padding: 0;
+  background: #fff;
+  border: 1px solid #f1f5f9;
+  border-radius: 0.35rem;
+}
+body.staff-shell .bank-mc-content-row label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  width: 100%;
+  cursor: pointer;
+}
+body.staff-shell .bank-mc-content-row input[type="checkbox"] {
+  /* lloves.css sets every input to width 100%; keep this checkbox-sized. */
+  width: auto;
+  flex: none;
+  margin-top: 0.2rem;
+}
+body.staff-shell .bank-mc-content-row .bank-mc-picker-row-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+body.staff-shell .bank-mc-content-row.is-on-deck .bank-mc-picker-text {
+  color: #64748b;
+}
+/* One scroll for the whole picker at every size (phones and short laptops,
+   e.g. 1366x650): Contest Questions and the search list flow in it, so the
+   last search row's Import is always reachable. */
+body.staff-shell .bank-mc-picker.has-content-questions {
+  overflow-y: auto;
+}
+body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-list {
+  flex: none;
+  min-height: 0;
+  overflow-y: visible;
+}
 body.staff-shell .live-question-card-head {
   display: flex;
   align-items: flex-start;

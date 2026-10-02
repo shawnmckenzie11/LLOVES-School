@@ -16,6 +16,15 @@ function friendlyApiError(err) {
 }
 
 import { api, escapeHtml, formatQuestionHtml, questionFieldHtml, questionImageHtml, renderLiveQuestionMath } from "/static/common.js";
+import {
+  contentGroupHeading,
+  contentImportDoneText,
+  contentModuleView,
+  contentPickSummary,
+  contentPicksPayload,
+  contentRowsView,
+  deckLiveProblemIds,
+} from "/static/content_questions_help.js";
 
 /** @type {HTMLElement | null} */
 let modalRoot = null;
@@ -146,6 +155,17 @@ async function loadModuleBankStatus(classId, moduleToken) {
  * @param {(item: Record<string, unknown>) => void | Promise<void>} opts.onSelect
  * @param {HTMLElement} [opts.mount] When set, render inline instead of modal.
  * @param {boolean} [opts.showModuleSelector] Allow changing module (browse tab).
+ * @param {{
+ *   load: (module: string) => Promise<{modules?: Array<Record<string, unknown>>,
+ *     group?: Record<string, unknown> | null, per_module?: number}>,
+ *   currentModule: string,
+ *   onDeckIds?: () => Array<Record<string, unknown>>,
+ *   onImport: (picks: Array<{question_id: number, module: string}>) => Promise<number>,
+ *   onError?: () => Promise<void> | void,
+ * }} [opts.contentQuestions] MCK-79: Contest Questions (contest live problems,
+ *   top 6 per module or in the course-wide Contest group), import mode only.
+ *   Loads the current module on open and each other group only when the
+ *   teacher expands it.
  */
 export async function mountBankMcPicker(opts) {
   const classId = Number(opts.classId || 0);
@@ -156,9 +176,16 @@ export async function mountBankMcPicker(opts) {
   const showKind = mode === "import";
   let moduleNumber = normalizeBankScope(opts.moduleNumber || "M1");
   let kindFilter = "";
+  const contentOpts =
+    mode === "import" &&
+    opts.contentQuestions &&
+    typeof opts.contentQuestions.load === "function" &&
+    typeof opts.contentQuestions.onImport === "function"
+      ? opts.contentQuestions
+      : null;
 
   const shell = document.createElement("div");
-  shell.className = "bank-mc-picker";
+  shell.className = contentOpts ? "bank-mc-picker has-content-questions" : "bank-mc-picker";
   shell.innerHTML = `
     <div class="bank-mc-picker-head">
       ${
@@ -186,6 +213,18 @@ export async function mountBankMcPicker(opts) {
         <input type="search" data-bank-mc-query placeholder="Stem or option text" autocomplete="off">
       </label>
     </div>
+    ${
+      contentOpts
+        ? `<section class="bank-mc-content" data-bank-mc-content aria-label="Contest Questions">
+            <div class="bank-mc-content-head">
+              <h4>Contest Questions · top ${CONTENT_PER_MODULE} per module</h4>
+              <button type="button" class="compact" data-bank-mc-content-import disabled>Import selected</button>
+            </div>
+            <p class="hint compact" data-bank-mc-content-status>Loading Contest Questions…</p>
+            <div data-bank-mc-content-groups></div>
+          </section>`
+        : ""
+    }
     <p class="hint compact bank-mc-picker-count" data-bank-mc-count></p>
     <p class="hint compact" data-bank-mc-status hidden></p>
     <ul class="bank-mc-picker-list" data-bank-mc-list></ul>
@@ -431,7 +470,249 @@ export async function mountBankMcPicker(opts) {
   });
 
   await refreshSearch();
+  if (contentOpts) {
+    // After the first search so the current module's usual bank
+    // auto-confirm has run; Contest Questions never link banks itself.
+    void mountContentQuestions(shell, contentOpts, () => {
+      if (!mountTarget) closePickerModal();
+    });
+  }
   queryEl?.focus();
+}
+
+/** Default cap shown in the heading until the API answers. */
+const CONTENT_PER_MODULE = 6;
+
+/**
+ * MCK-79: list Contest Questions groups (modules with contest live
+ * problems, this class's module, and the course-wide Contest group) as
+ * collapsed groups; load a group's top 6 only when it opens (the class's
+ * module opens first, or Contest when that is empty). Ticked rows import
+ * through ``onImport`` as one batch.
+ * @param {HTMLElement} shell
+ * @param {{load: Function, currentModule: string, onImport: Function,
+ *   onDeckIds?: Function, onError?: Function}} contentOpts
+ * @param {() => void} onDone
+ */
+async function mountContentQuestions(shell, contentOpts, onDone) {
+  const section = shell.querySelector("[data-bank-mc-content]");
+  const groupsEl = shell.querySelector("[data-bank-mc-content-groups]");
+  const statusEl = shell.querySelector("[data-bank-mc-content-status]");
+  const importBtn = shell.querySelector("[data-bank-mc-content-import]");
+  if (!(section instanceof HTMLElement) || !(groupsEl instanceof HTMLElement)) return;
+  const setStatus = (text) => {
+    if (!(statusEl instanceof HTMLElement)) return;
+    statusEl.hidden = !text;
+    statusEl.textContent = text || "";
+  };
+  const onDeck = () =>
+    deckLiveProblemIds(
+      typeof contentOpts.onDeckIds === "function" ? contentOpts.onDeckIds() : []
+    );
+  const checkedPicks = () =>
+    [...groupsEl.querySelectorAll("input[data-content-pick]:checked")].map((node) => ({
+      id: node.getAttribute("data-content-pick"),
+      module: node.getAttribute("data-content-module"),
+    }));
+  const paintButton = () => {
+    if (!(importBtn instanceof HTMLButtonElement)) return;
+    const summary = contentPickSummary(contentPicksPayload(checkedPicks()));
+    importBtn.textContent = summary.label;
+    importBtn.disabled = summary.disabled;
+  };
+  const current = String(contentOpts.currentModule || "").toUpperCase();
+  let first;
+  try {
+    first = await contentOpts.load(current);
+  } catch (err) {
+    setStatus(friendlyApiError(err));
+    return;
+  }
+  const perModule = Number(first?.per_module) || CONTENT_PER_MODULE;
+  const view = contentModuleView(first?.modules, current);
+  if (!view.length) {
+    setStatus("No modules to show yet.");
+    return;
+  }
+  setStatus("");
+  groupsEl.innerHTML = view
+    .map(
+      (group) => `<details class="bank-mc-content-group" data-content-group="${escapeHtml(
+        group.module
+      )}" data-content-label="${escapeHtml(group.label)}" data-content-count="${group.count}"${group.current ? ' data-content-current="1"' : ""}${group.open ? " open" : ""}>
+        <summary>${escapeHtml(group.heading)}</summary>
+        <div data-content-body></div>
+      </details>`
+    )
+    .join("");
+  /** @type {Map<string, Record<string, unknown> | null>} */
+  const loaded = new Map();
+  /** @type {Map<string, Promise<void>>} */
+  const loading = new Map();
+
+  /**
+   * Paint one loaded group's rows (or its empty line) into its body.
+   * @param {HTMLDetailsElement} details
+   * @param {Record<string, unknown> | null} group
+   */
+  const paintGroup = (details, group) => {
+    const body = details.querySelector("[data-content-body]");
+    const summary = details.querySelector("summary");
+    if (!(body instanceof HTMLElement)) return;
+    const label = details.getAttribute("data-content-label") || "This module";
+    const rowsView = contentRowsView(group, perModule, onDeck());
+    if (summary) {
+      summary.textContent = contentGroupHeading(
+        label,
+        details.hasAttribute("data-content-current"),
+        rowsView.rows.length
+      );
+    }
+    if (!rowsView.rows.length) {
+      body.innerHTML = `<p class="hint compact">${escapeHtml(rowsView.empty)}</p>`;
+      return;
+    }
+    const ticked = new Set(
+      [...body.querySelectorAll("input[data-content-pick]:checked")].map((node) =>
+        node.getAttribute("data-content-pick")
+      )
+    );
+    body.innerHTML = `<ul class="bank-mc-content-list">${rowsView.rows
+      .map((row) => {
+        const stem =
+          questionFieldHtml(row.item, "text") || formatQuestionHtml(itemPreview(row.item));
+        const checked = ticked.has(String(row.id)) ? " checked" : "";
+        return `<li class="bank-mc-picker-row bank-mc-content-row${
+          row.onDeck ? " is-on-deck" : ""
+        }">
+          <label>
+            <input type="checkbox" data-content-pick="${row.id}" data-content-module="${escapeHtml(
+              row.module
+            )}" aria-label="${escapeHtml(`${label} question ${row.rank}`)}"${checked}>
+            <span class="bank-mc-picker-row-main">
+              ${row.title ? `<span class="bank-mc-picker-title">${escapeHtml(row.title)}</span>` : ""}
+              <span class="bank-mc-picker-text live-question-html">${stem}</span>
+              <span class="hint compact">${escapeHtml(`${label} · #${row.rank} · ${row.meta}`)}</span>
+            </span>
+          </label>
+        </li>`;
+      })
+      .join("")}</ul>`;
+    void renderLiveQuestionMath(body);
+  };
+
+  /**
+   * Fetch one module's top questions once, then paint them.
+   * @param {HTMLDetailsElement} details
+   * @param {Record<string, unknown> | null} [preloaded]
+   * @returns {Promise<void>}
+   */
+  const ensureGroup = (details, preloaded) => {
+    const module = details.getAttribute("data-content-group") || "";
+    if (loaded.has(module)) return Promise.resolve();
+    if (loading.has(module)) return loading.get(module);
+    const body = details.querySelector("[data-content-body]");
+    if (!Number(details.getAttribute("data-content-count") || 0)) {
+      loaded.set(module, null);
+      paintGroup(details, { module, label: details.getAttribute("data-content-label"), items: [] });
+      return Promise.resolve();
+    }
+    if (preloaded !== undefined) {
+      loaded.set(module, preloaded);
+      paintGroup(details, preloaded);
+      return Promise.resolve();
+    }
+    if (body instanceof HTMLElement) body.innerHTML = `<p class="hint compact">Loading…</p>`;
+    const job = Promise.resolve(contentOpts.load(module))
+      .then((payload) => {
+        const group = payload?.group || null;
+        loaded.set(module, group);
+        paintGroup(details, group);
+      })
+      .catch((err) => {
+        if (body instanceof HTMLElement) {
+          body.innerHTML = `<p class="hint compact">${escapeHtml(friendlyApiError(err))}</p>`;
+        }
+      })
+      .finally(() => {
+        loading.delete(module);
+      });
+    loading.set(module, job);
+    return job;
+  };
+
+  /** Repaint loaded groups (keeps ticks) so "on deck" marks are current. */
+  const repaintLoaded = () => {
+    groupsEl.querySelectorAll("details[data-content-group]").forEach((details) => {
+      const module = details.getAttribute("data-content-group") || "";
+      if (loaded.has(module) && details instanceof HTMLDetailsElement) {
+        paintGroup(details, loaded.get(module) || null);
+      }
+    });
+  };
+
+  groupsEl.querySelectorAll("details[data-content-group]").forEach((details) => {
+    if (!(details instanceof HTMLDetailsElement)) return;
+    const module = details.getAttribute("data-content-group") || "";
+    if (module === current && first?.group) {
+      void ensureGroup(details, first.group);
+    } else if (details.open) {
+      void ensureGroup(details);
+    }
+    details.addEventListener("toggle", () => {
+      if (details.open) void ensureGroup(details);
+    });
+  });
+  groupsEl.addEventListener("change", paintButton);
+  paintButton();
+  importBtn?.addEventListener("click", async () => {
+    const picks = contentPicksPayload(checkedPicks());
+    if (!picks.length || !(importBtn instanceof HTMLButtonElement)) return;
+    importBtn.disabled = true;
+    setStatus("Importing…");
+    const deckBefore = onDeck();
+    try {
+      const count = await contentOpts.onImport(picks);
+      setStatus(contentImportDoneText(Number(count) || picks.length));
+      groupsEl
+        .querySelectorAll("input[data-content-pick]:checked")
+        .forEach((node) => {
+          if (node instanceof HTMLInputElement) node.checked = false;
+        });
+      onDone();
+    } catch (err) {
+      // The batch is all-or-nothing: the server rolled it back. Reload the
+      // deck so cards and "on deck" marks match. Ticks stay for a retry
+      // unless a pick is now on the deck (then clear those so a retry
+      // can't double it).
+      if (typeof contentOpts.onError === "function") {
+        try {
+          await contentOpts.onError();
+        } catch {
+          /* status below still explains */
+        }
+      }
+      const deckNow = onDeck();
+      const landed = picks.filter(
+        (pick) => deckNow.has(pick.question_id) && !deckBefore.has(pick.question_id)
+      );
+      landed.forEach((pick) => {
+        groupsEl
+          .querySelectorAll(`input[data-content-pick="${pick.question_id}"]`)
+          .forEach((node) => {
+            if (node instanceof HTMLInputElement) node.checked = false;
+          });
+      });
+      repaintLoaded();
+      setStatus(
+        landed.length
+          ? `${friendlyApiError(err)} ${landed.length} landed and stay on the deck; their ticks were cleared.`
+          : friendlyApiError(err)
+      );
+    } finally {
+      paintButton();
+    }
+  });
 }
 
 /**
