@@ -163,6 +163,14 @@
         var heading = document.createElement("h3");
         heading.textContent = card.title || "";
         article.appendChild(heading);
+        if (card.period_label) {
+          // MCK-133: the timeframe this award covers, a small muted line
+          // directly under the title (Mobbin IA v0; Wonder v1 format).
+          var period = document.createElement("p");
+          period.className = "hint calc-period";
+          period.textContent = card.period_label;
+          article.appendChild(period);
+        }
         // MCK-118: a tie lists every tied student as its own wrapping chip.
         var names = (Array.isArray(card.names) ? card.names : [])
           .map(function (name) { return String(name || "").trim(); })

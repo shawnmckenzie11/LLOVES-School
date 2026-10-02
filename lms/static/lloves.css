@@ -624,3 +624,8 @@ body.landing-page .calc-card[data-card="cooking"] {
 .staff-celebrate .row-actions {
   margin-top: 0.85rem;
 }
+/* MCK-133: the award period is a small muted line under the card title. */
+body.landing-page .calc-period {
+  margin: 0.1rem 0 0.35rem;
+  font-size: 0.8rem;
+}

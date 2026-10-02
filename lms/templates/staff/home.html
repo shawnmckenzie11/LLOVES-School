@@ -192,7 +192,24 @@
     {% if celebration_candidates %}
     <section id="staff-celebrate" class="card staff-celebrate">
       <p class="kicker">alc.mckenzian.com#celebrations</p>
-      <h2>Celebrate a student</h2>
+      <div class="staff-celebrate-head">
+        <h2>Celebrate a student</h2>
+        {% if celebration_periods %}
+        {# MCK-133 Start fresh: one quiet control in the header (Mobbin IA v0),
+           never inside a card. Copy: Wonder v1. #}
+        <div id="award-start-fresh" class="award-fresh-controls">
+          <label class="field" for="award-fresh-scope">Start fresh for</label>
+          <select id="award-fresh-scope">
+            <option value="all">All my classes</option>
+            {% for c in celebration_periods %}
+            <option value="{{ c.class_id }}" data-class-name="{{ c.course }}"{% if c.shared %} disabled{% endif %}>Only {{ c.course }}</option>
+            {% endfor %}
+          </select>
+          <button type="button" class="secondary award-fresh-quiet" id="award-fresh-go">Start fresh…</button>
+        </div>
+        {% endif %}
+      </div>
+      <p id="award-fresh-toast" class="award-fresh-success" role="status" hidden></p>
       <p class="hint">Posts the Shoutout card on the public #celebrations board.</p>
       {% if celebration_award and celebration_award.name %}
       <p class="sub">Now featuring <strong>{{ celebration_award.name }}</strong>{% if celebration_award.detail %} — {{ celebration_award.detail }}{% endif %}</p>
@@ -217,6 +234,33 @@
           <a class="btn secondary" href="/#celebrations">View public page</a>
         </div>
       </form>
+      {% if celebration_periods %}
+      {# MCK-133 award period per class: a small muted line under each class. #}
+      <div class="award-periods">
+        <h3>Most Engaged</h3>
+        <ul id="award-period-list">
+          {% for c in celebration_periods %}
+          <li data-class-id="{{ c.class_id }}"><span class="award-period-class">{{ c.course }}</span><span class="award-period-label">{{ c.status_line or c.period_label or 'This semester' }}</span></li>
+          {% endfor %}
+        </ul>
+      </div>
+      <dialog id="award-fresh-dialog" class="end-live-dialog" aria-labelledby="award-fresh-title">
+        <form class="end-live-dialog-form" method="dialog">
+          <h2 id="award-fresh-title">Start Celebrations fresh?</h2>
+          <ul id="award-fresh-summary" class="award-fresh-summary">
+            {% for c in celebration_periods %}
+            <li data-class-id="{{ c.class_id }}"{% if c.shared %} data-shared="1"{% endif %}>{{ c.course }} · {{ c.closing_label }}</li>
+            {% endfor %}
+          </ul>
+          <p class="award-fresh-restarts">Awards start counting again from today.</p>
+          <p class="award-fresh-stays">Attendance and participation records stay in each course.</p>
+          <div class="end-live-dialog-actions">
+            <button type="submit" class="secondary" value="cancel" id="award-fresh-cancel" autofocus>Cancel</button>
+            <button type="submit" value="confirm" id="award-fresh-confirm">Start fresh</button>
+          </div>
+        </form>
+      </dialog>
+      {% endif %}
     </section>
     {% endif %}
   </div>

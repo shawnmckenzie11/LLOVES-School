@@ -319,6 +319,58 @@ class AvatarRewardTests(unittest.TestCase):
         self.assertEqual(owned.status_code, 400)
         self.assertEqual(self._grants(self.maple)[1]["status"], "pending")
 
+    def test_new_award_period_is_a_new_appearance(self) -> None:
+        """MCK-133: a repeat winner after Start fresh gets a second reward.
+
+        Period 0 keeps the bare key and never grants twice; the new period's
+        key gains ``:p<period>``, granted once however often they log in.
+        """
+        from datetime import datetime
+
+        import celebration_periods
+
+        client = self._login("Maple")
+        self._landing(client)
+        for _ in range(2):
+            self._landing(self._next_login("Maple"))
+        first = self._grants(self.maple)
+        self.assertEqual(len(first), 1)
+        self.assertNotIn(":p", first[0]["source_ref"])
+        self.assertTrue(first[0]["source_ref"].endswith(":MCF3M"))
+        self._end_live()
+        clock = patch.object(
+            celebration_periods, "school_now", return_value=datetime(2026, 9, 10, 8, 0)
+        )
+        clock.start()
+        self.addCleanup(clock.stop)
+        fresh = self.staff.post(
+            "/api/staff/celebrations/start-fresh",
+            json={"scope": "class", "class_id": self.class_id},
+        )
+        self.assertEqual(fresh.status_code, 200, fresh.get_json())
+        period = int(fresh.get_json()["periods"][0]["id"])
+        self.assertGreater(period, 0)
+        # Still the retired period-0 card: same key, nothing new.
+        self._run_live()
+        self._landing(self._login("Maple"))
+        self.assertEqual(len(self._grants(self.maple)), 1)
+        self._end_live()
+        # Maple wins the new period at its first saved class.
+        self._log_day("2026-09-11", [self.maple])
+        clear_public_celebration_memo()
+        board = self.app.test_client().get("/api/celebrations").get_json()
+        engaged = [c for c in board["cards"] if c.get("key") == "engaged"]
+        self.assertEqual([c.get("names") for c in engaged], [["Maple"]])
+        self._run_live()
+        self._landing(self._login("Maple"))
+        for _ in range(2):
+            self._landing(self._next_login("Maple"))
+        grants = self._grants(self.maple)
+        self.assertEqual(len(grants), 2)
+        self.assertEqual(grants[0]["source_ref"], first[0]["source_ref"])
+        self.assertEqual(grants[1]["source_ref"], first[0]["source_ref"] + f":p{period}")
+        self.assertEqual(self._grants(self.aspen), [])
+
     def test_shoutout_once_per_feature_and_blurb_edit_does_not_regrant(self) -> None:
         """Shoutout Aspen: one grant; a new blurb keeps it; re-featuring is new."""
         set_featured_award(
