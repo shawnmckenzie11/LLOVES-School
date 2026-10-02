@@ -23,7 +23,7 @@ import {
   contentPickSummary,
   contentPicksPayload,
   contentRowsView,
-  deckBankQuestionIds,
+  deckLiveProblemIds,
 } from "/static/content_questions_help.js";
 
 /** @type {HTMLElement | null} */
@@ -162,9 +162,10 @@ async function loadModuleBankStatus(classId, moduleToken) {
  *   onDeckIds?: () => Array<Record<string, unknown>>,
  *   onImport: (picks: Array<{question_id: number, module: string}>) => Promise<number>,
  *   onError?: () => Promise<void> | void,
- * }} [opts.contentQuestions] MCK-79: Contest Questions (Kind = Contest, top 6 per module),
- *   import mode only. Loads the current module on open and each other
- *   module only when the teacher expands it.
+ * }} [opts.contentQuestions] MCK-79: Contest Questions (contest live problems,
+ *   top 6 per module or in the course-wide Contest group), import mode only.
+ *   Loads the current module on open and each other group only when the
+ *   teacher expands it.
  */
 export async function mountBankMcPicker(opts) {
   const classId = Number(opts.classId || 0);
@@ -483,9 +484,11 @@ export async function mountBankMcPicker(opts) {
 const CONTENT_PER_MODULE = 6;
 
 /**
- * MCK-79: list modules with collapsed groups; load a module's top Contest
- * Questions only when its group opens (the class's current module opens
- * first). Ticked rows import through ``onImport`` as one batch.
+ * MCK-79: list Contest Questions groups (modules with contest live
+ * problems, this class's module, and the course-wide Contest group) as
+ * collapsed groups; load a group's top 6 only when it opens (the class's
+ * module opens first, or Contest when that is empty). Ticked rows import
+ * through ``onImport`` as one batch.
  * @param {HTMLElement} shell
  * @param {{load: Function, currentModule: string, onImport: Function,
  *   onDeckIds?: Function, onError?: Function}} contentOpts
@@ -503,7 +506,7 @@ async function mountContentQuestions(shell, contentOpts, onDone) {
     statusEl.textContent = text || "";
   };
   const onDeck = () =>
-    deckBankQuestionIds(
+    deckLiveProblemIds(
       typeof contentOpts.onDeckIds === "function" ? contentOpts.onDeckIds() : []
     );
   const checkedPicks = () =>
@@ -536,9 +539,7 @@ async function mountContentQuestions(shell, contentOpts, onDone) {
     .map(
       (group) => `<details class="bank-mc-content-group" data-content-group="${escapeHtml(
         group.module
-      )}" data-content-label="${escapeHtml(group.label)}" data-content-linked="${
-        group.linked ? "1" : "0"
-      }"${group.current ? ' data-content-current="1"' : ""}${group.open ? " open" : ""}>
+      )}" data-content-label="${escapeHtml(group.label)}" data-content-count="${group.count}"${group.current ? ' data-content-current="1"' : ""}${group.open ? " open" : ""}>
         <summary>${escapeHtml(group.heading)}</summary>
         <div data-content-body></div>
       </details>`
@@ -564,8 +565,7 @@ async function mountContentQuestions(shell, contentOpts, onDone) {
       summary.textContent = contentGroupHeading(
         label,
         details.hasAttribute("data-content-current"),
-        rowsView.linked,
-        rowsView.linked ? rowsView.rows.length : null
+        rowsView.rows.length
       );
     }
     if (!rowsView.rows.length) {
@@ -590,6 +590,7 @@ async function mountContentQuestions(shell, contentOpts, onDone) {
               row.module
             )}" aria-label="${escapeHtml(`${label} question ${row.rank}`)}"${checked}>
             <span class="bank-mc-picker-row-main">
+              ${row.title ? `<span class="bank-mc-picker-title">${escapeHtml(row.title)}</span>` : ""}
               <span class="bank-mc-picker-text live-question-html">${stem}</span>
               <span class="hint compact">${escapeHtml(`${label} · #${row.rank} · ${row.meta}`)}</span>
             </span>
@@ -611,9 +612,9 @@ async function mountContentQuestions(shell, contentOpts, onDone) {
     if (loaded.has(module)) return Promise.resolve();
     if (loading.has(module)) return loading.get(module);
     const body = details.querySelector("[data-content-body]");
-    if (details.getAttribute("data-content-linked") !== "1") {
+    if (!Number(details.getAttribute("data-content-count") || 0)) {
       loaded.set(module, null);
-      paintGroup(details, { module, label: details.getAttribute("data-content-label"), linked: false, items: [] });
+      paintGroup(details, { module, label: details.getAttribute("data-content-label"), items: [] });
       return Promise.resolve();
     }
     if (preloaded !== undefined) {

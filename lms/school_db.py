@@ -10277,7 +10277,6 @@ class SchoolDB(LovesDB):
         page_number: int,
         stage: str | None = None,
         order: int | None = None,
-        source_module: str | None = None,
     ) -> dict[str, Any]:
         """Import one module-bank MC onto a class live-lesson overlay.
 
@@ -10290,9 +10289,6 @@ class SchoolDB(LovesDB):
             page_number: Teacher page index for the placement.
             stage: Optional lifecycle stage; defaults to ``round``.
             order: Optional sort order on the page; defaults to next slot.
-            source_module: MCK-79. Module whose confirmed banks hold the
-                question, when it is not ``module`` (a Contest Question
-                from another module). Defaults to ``module``.
 
         Returns:
             Inserted placement row including parsed ``item`` payload.
@@ -10347,19 +10343,14 @@ class SchoolDB(LovesDB):
                     normalize_course_warmup,
                 )
 
-            bank_module = module_number
-            if source_module not in (None, ""):
-                bank_module = parse_module_token(str(source_module).strip().upper())
-                if bank_module is None:
-                    raise ValueError("source_module must be M1–M8")
-            confirmed = self.list_module_bank_links(int(library_id), int(bank_module))
+            confirmed = self.list_module_bank_links(int(library_id), int(module_number))
             allowed_banks = {int(link["bank_id"]) for link in confirmed}
             course_warmup_bank = (
                 str(row["bank_import_key"] or "") == COURSE_WIDE_WARMUP_BANK_KEY
             )
             if int(row["bank_id"]) not in allowed_banks and not course_warmup_bank:
                 raise KeyError(
-                    f"question {question_id} is not in confirmed banks for M{bank_module}"
+                    f"question {question_id} is not in confirmed banks for {module_key}"
                 )
             try:
                 payload = json.loads(row["payload_json"] or "{}")
@@ -10749,6 +10740,7 @@ class SchoolDB(LovesDB):
         bank_scope: str = "module",
         bank_kind: str | None = None,
         library_id: int | None = None,
+        extra_item: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Add one staff-authored question to the current class overlay page.
 
@@ -10776,6 +10768,8 @@ class SchoolDB(LovesDB):
             bank_kind: Staff Kind. Empty is Core Math (untagged). ``custom``
                 stores as ``standard``. Does not overwrite question ``type``.
             library_id: Attached pack library, required when saving to bank.
+            extra_item: MCK-79. Extra item fields (``live_problem_id``, a
+                batch token). Cannot override ids, order or placement key.
 
         Returns:
             Inserted placement row including parsed ``item`` payload.
@@ -10868,6 +10862,9 @@ class SchoolDB(LovesDB):
             from lms.bank_kinds import apply_stored_bank_kind
 
         apply_stored_bank_kind(item_payload, bank_kind)
+        for extra_key, extra_value in (extra_item or {}).items():
+            if str(extra_key) not in {"id", "item_id", "order", "placement_key"}:
+                item_payload[str(extra_key)] = extra_value
         if kind == "rank":
             rank_rows = build_rank_options(option_list)
             labels = [row["label"] for row in rank_rows]

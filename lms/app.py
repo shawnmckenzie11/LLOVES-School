@@ -3716,10 +3716,14 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         return jsonify(response)
 
     def _content_questions_scope(class_id: int):
-        """MCK-79: class, library and selectable modules for Contest Questions.
+        """MCK-79: course code and selectable modules for Contest Questions.
+
+        Contest Questions come from ``live_problems`` (by course), but the
+        section lives in Import from bank, so a ready module pack is still
+        required, as for the rest of the picker.
 
         Returns:
-            ``(library_id, modules, None)`` or ``(None, [], error_response)``.
+            ``(ontario_code, modules, None)`` or ``(None, [], error_response)``.
         """
         user = current_user()
         assert user is not None
@@ -3736,49 +3740,50 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             from live_content_questions import selectable_live_modules
         except ImportError:
             from lms.live_content_questions import selectable_live_modules
-        modules = selectable_live_modules(cls.get("ontario_code") or "MCF3M")
-        return int(library_id), modules, None
+        code = str(cls.get("ontario_code") or "MCF3M").strip().upper()
+        return code, selectable_live_modules(code), None
 
     @app.route("/api/staff/class/<int:class_id>/live-lessons/contest-questions")
     @staff_required
     def staff_live_content_questions(class_id: int):
-        """MCK-79: module list plus one module's top 6 Contest Questions.
+        """MCK-79: Contest Questions groups plus one group's top 6.
 
-        Read-only and lazy: ``?module=M2`` returns every selectable module's
-        linked flag and only M2's questions. Links no banks.
+        Read-only. ``?module=M2`` (or ``COURSE``) returns the group list
+        (modules with contest ``live_problems``, the requested module, and
+        the course-wide Contest group) and that group's rows.
         """
-        library_id, modules, failed = _content_questions_scope(class_id)
+        ontario_code, modules, failed = _content_questions_scope(class_id)
         if failed is not None:
             return failed
         try:
             from live_content_questions import (
                 CONTENT_QUESTIONS_PER_MODULE,
+                group_key,
                 module_content_questions,
                 module_summaries,
             )
-            from bank_mc_normalize import parse_module_token
         except ImportError:
             from lms.live_content_questions import (
                 CONTENT_QUESTIONS_PER_MODULE,
+                group_key,
                 module_content_questions,
                 module_summaries,
             )
-            from lms.bank_mc_normalize import parse_module_token
         wanted = str(request.args.get("module") or "").strip()
-        group = None
-        if wanted:
-            number = parse_module_token(wanted.upper())
-            if number is None or f"M{number}" not in modules:
-                return jsonify({"ok": False, "error": "module must be a Run Live Class module"}), 400
-            group = module_content_questions(
-                school, int(library_id), number, class_id=int(class_id)
-            )
+        key = group_key(wanted, modules) if wanted else ""
+        if wanted and not key:
+            return jsonify({"ok": False, "error": "module must be a Run Live Class module"}), 400
         response = jsonify(
             {
                 "ok": True,
+                "source": "live_problems",
                 "per_module": CONTENT_QUESTIONS_PER_MODULE,
-                "modules": module_summaries(school, int(library_id), modules),
-                "group": group,
+                "modules": module_summaries(school, ontario_code, modules, key),
+                "group": (
+                    module_content_questions(school, ontario_code, key, modules)
+                    if key
+                    else None
+                ),
             }
         )
         response.headers["Cache-Control"] = "no-store"
@@ -3792,10 +3797,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     def staff_import_live_content_questions(class_id: int, module: str, slot: str):
         """MCK-79: import picked Contest Questions onto the current page.
 
-        Same placement path as ``import-mc``. Each pick names its module, and
-        must be in that module's current top 6.
+        Each pick names its group and must be in that group's current top 6.
+        Cards go through the deck's Add New path (open prompt, Kind Contest).
+        All-or-nothing: 409 when undone, 500 when the undo failed.
         """
-        library_id, modules, failed = _content_questions_scope(class_id)
+        ontario_code, modules, failed = _content_questions_scope(class_id)
         if failed is not None:
             return failed
         try:
@@ -3831,7 +3837,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 module_key,
                 slot_key,
                 picks,
-                library_id=int(library_id),
+                ontario_code=ontario_code,
+                modules=modules,
                 page_number=page_number,
                 stage=stage,
             )
@@ -3848,7 +3855,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                         "rolled_back": exc.rolled_back,
                     }
                 ),
-                409,
+                exc.status,
             )
         return jsonify(
             {

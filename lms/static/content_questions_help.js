@@ -1,19 +1,21 @@
 /**
  * MCK-79: pure helpers for the Contest Questions section of Import from bank.
- * (Kind = Contest only; identifiers keep the earlier ``content`` spelling.)
+ * Rows are contest ``live_problems`` (see ``live_content_questions.py``),
+ * grouped by module or in one course-wide ``COURSE`` "Contest" group.
+ * Identifiers keep the earlier ``content`` spelling.
  *
  * bank_mc_picker.js owns the DOM. These stay pure so grouping, labels and
  * the selection summary can be checked in node without a browser.
  */
 
 /**
- * Normalize a module token to ``M1``–``M8``, or "".
+ * Normalize a group token to ``M1``–``M8``, ``COURSE`` (the Contest group), or "".
  * @param {unknown} raw
  * @returns {string}
  */
 export function contentModuleKey(raw) {
   const token = String(raw || "").trim().toUpperCase();
-  return /^M[1-8]$/.test(token) ? token : "";
+  return /^M[1-8]$/.test(token) || token === "COURSE" ? token : "";
 }
 
 /**
@@ -30,52 +32,58 @@ export function contentQuestionMeta(item) {
 }
 
 /**
- * Summary line for one module group.
- * @param {string} label ``Module 2``.
+ * Summary line for one group.
+ * @param {string} label ``Module 2`` or ``Contest``.
  * @param {boolean} current The class's Run Live Class module.
- * @param {boolean} linked A content-pack bank is linked.
- * @param {number | null} count Rows loaded, or null before loading.
+ * @param {number} count Contest Questions in the group (capped at 6).
  * @returns {string}
  */
-export function contentGroupHeading(label, current, linked, count) {
+export function contentGroupHeading(label, current, count) {
   const parts = [label];
   if (current) parts.push("this class");
-  if (!linked) parts.push("no bank linked yet");
-  else if (count === null || count === undefined) parts.push("open to load");
-  else parts.push(count ? `${count} question${count === 1 ? "" : "s"}` : "none yet");
+  const n = Number(count) || 0;
+  parts.push(n ? `${n} question${n === 1 ? "" : "s"}` : "none yet");
   return parts.join(" · ");
 }
 
 /**
- * Collapsed-group view model from the cheap module list, in server order.
+ * Collapsed-group view model from the group list, in server order.
  *
- * Only the class's current module starts open (and is loaded on open).
- * The others load when the teacher expands them.
+ * The class's current module starts open. When it has none, the
+ * course-wide Contest group opens instead. Rows load when a group opens.
  *
  * @param {Array<Record<string, unknown>>} modules ``modules`` from the API.
  * @param {string} currentModule Run Live Class module, such as ``M2``.
- * @returns {Array<{module: string, label: string, linked: boolean,
+ * @returns {Array<{module: string, label: string, count: number,
  *   current: boolean, open: boolean, heading: string}>}
  */
 export function contentModuleView(modules, currentModule) {
   const current = contentModuleKey(currentModule);
-  return (Array.isArray(modules) ? modules : [])
+  const rows = (Array.isArray(modules) ? modules : [])
     .map((row) => {
       const module = contentModuleKey(row?.module);
       if (!module) return null;
-      const label = String(row?.label || `Module ${module.slice(1)}`);
-      const linked = Boolean(row?.linked);
+      const label = String(
+        row?.label || (module === "COURSE" ? "Contest" : `Module ${module.slice(1)}`)
+      );
+      const count = Math.max(0, Number(row?.count) || 0);
       const isCurrent = module === current;
       return {
         module,
         label,
-        linked,
+        count,
         current: isCurrent,
         open: isCurrent,
-        heading: contentGroupHeading(label, isCurrent, linked, null),
+        heading: contentGroupHeading(label, isCurrent, count),
       };
     })
     .filter(Boolean);
+  const currentRow = rows.find((row) => row.current);
+  if (!currentRow || !currentRow.count) {
+    const course = rows.find((row) => row.module === "COURSE" && row.count);
+    if (course) course.open = true;
+  }
+  return rows;
 }
 
 /**
@@ -83,14 +91,16 @@ export function contentModuleView(modules, currentModule) {
  *
  * @param {Record<string, unknown> | null} group ``group`` from the API.
  * @param {number} [perModule] Cap (6).
- * @param {Iterable<number>} [onDeck] Question ids already on this deck.
+ * @param {Iterable<number>} [onDeck] Live problem ids already on this deck.
  * @returns {{rows: Array<{id: number, module: string, rank: number, meta: string,
- *   onDeck: boolean, item: Record<string, unknown>}>, empty: string, linked: boolean}}
+ *   title: string, onDeck: boolean, item: Record<string, unknown>}>, empty: string}}
  */
 export function contentRowsView(group, perModule = 6, onDeck = []) {
   const module = contentModuleKey(group?.module);
-  const label = String(group?.label || (module ? `Module ${module.slice(1)}` : "This module"));
-  const linked = Boolean(group?.linked);
+  const label = String(
+    group?.label ||
+      (module === "COURSE" ? "Contest" : module ? `Module ${module.slice(1)}` : "This module")
+  );
   const cap = Math.max(1, Number(perModule) || 6);
   const deck = new Set([...(onDeck || [])].map((id) => Number(id)));
   const items = Array.isArray(group?.items) ? group.items.slice(0, cap) : [];
@@ -104,18 +114,14 @@ export function contentRowsView(group, perModule = 6, onDeck = []) {
         module,
         rank: Number(item?.content_rank || index + 1),
         meta: isOnDeck ? `${meta} · on deck` : meta,
+        title: String(item?.question_title || "").trim(),
         onDeck: isOnDeck,
         item: item || {},
       };
     })
     .filter((row) => row.id > 0 && row.module);
-  let empty = "";
-  if (!rows.length) {
-    empty = linked
-      ? `${label} has no Contest questions yet.`
-      : `No bank linked yet for ${label}. Pick ${label} under Bank scope to link it.`;
-  }
-  return { rows, empty, linked };
+  const empty = rows.length ? "" : `${label} has no Contest questions yet.`;
+  return { rows, empty };
 }
 
 /**
@@ -159,22 +165,18 @@ export function contentImportDoneText(count) {
 }
 
 /**
- * Bank question ids already on a deck, from live metadata ``questions``.
- * Bank imports carry ``bank-import-<question id>`` item ids.
+ * Live problem ids already on a deck, from live metadata ``questions``.
+ * Imported Contest Questions carry ``live_problem_id`` on the card.
  * @param {Array<Record<string, unknown>>} questions
  * @returns {Set<number>}
  */
-export function deckBankQuestionIds(questions) {
+export function deckLiveProblemIds(questions) {
   const ids = new Set();
   for (const question of Array.isArray(questions) ? questions : []) {
     if (!question || typeof question !== "object") continue;
     if (question.removed || question.hidden) continue;
-    const source = Number(question.source_question_id || 0);
-    if (source > 0) ids.add(source);
-    for (const key of ["id", "item_id"]) {
-      const match = /^bank-import-(\d+)/.exec(String(question[key] || ""));
-      if (match) ids.add(Number(match[1]));
-    }
+    const id = Number(question.live_problem_id || 0);
+    if (id > 0) ids.add(id);
   }
   return ids;
 }

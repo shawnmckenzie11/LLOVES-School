@@ -5238,8 +5238,6 @@ body.staff-shell .bank-mc-picker-title {
 body.staff-shell .bank-mc-content {
   /* Don't let the dialog's flex column squeeze it (was 126px at 390). */
   flex: none;
-  max-height: min(16rem, 32vh);
-  overflow-y: auto;
   margin: 0 0 0.55rem;
   padding: 0.45rem 0.55rem;
   border: 1px solid #e2e8f0;
@@ -5293,19 +5291,16 @@ body.staff-shell .bank-mc-content-row .bank-mc-picker-row-main {
 body.staff-shell .bank-mc-content-row.is-on-deck .bank-mc-picker-text {
   color: #64748b;
 }
-@media (max-width: 640px) {
-  /* Phones: one scroll for the whole picker, Contest Questions flow in it. */
-  body.staff-shell .bank-mc-picker.has-content-questions {
-    overflow-y: auto;
-  }
-  body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-content {
-    max-height: none;
-    overflow-y: visible;
-  }
-  body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-list {
-    flex: none;
-    overflow-y: visible;
-  }
+/* One scroll for the whole picker at every size (phones and short laptops,
+   e.g. 1366x650): Contest Questions and the search list flow in it, so the
+   last search row's Import is always reachable. */
+body.staff-shell .bank-mc-picker.has-content-questions {
+  overflow-y: auto;
+}
+body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-list {
+  flex: none;
+  min-height: 0;
+  overflow-y: visible;
 }
 body.staff-shell .live-question-card-head {
   display: flex;
