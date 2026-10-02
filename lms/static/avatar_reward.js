@@ -4,7 +4,9 @@
  * One calm screen: pick one of the 20 reward avatars. "Pick later", the
  * scrim and Esc all keep the reward waiting (no request). Stacked rewards
  * play one after the other on the same screen. Never stays open once the
- * class leaves its waiting room (body ``is-live`` / not waiting).
+ * class is under way (MCK-116 MED-1): body ``is-live`` / not waiting, a
+ * teacher-pushed question or TEAMS (``reward_window`` false on
+ * /api/student/state, body ``is-reward-shut``), or a 409 from the claim.
  * Copy is Wonder v1.1, word for word.
  */
 (function () {
@@ -25,6 +27,9 @@
   let busy = false;
   let opener = null;
   let closeTimer = 0;
+  let shut = false;
+  let pollTimer = 0;
+  const POLL_MS = 4000;
 
   const modal = root.querySelector(".rw-modal");
   const titleEl = document.getElementById("rw-title");
@@ -55,7 +60,9 @@
 
   /** True while the class is under way (never show the pop-up then). */
   function midClass() {
+    if (shut) return true;
     if (body.classList.contains("is-live")) return true;
+    if (body.classList.contains("is-reward-shut")) return true;
     if (!body.classList.contains("student-home")) return false;
     return (
       !body.classList.contains("is-waiting-room") &&
@@ -116,10 +123,47 @@
     body.classList.add("rw-open");
     setInert(true);
     titleEl.focus();
+    watchState();
+  }
+
+  /** Class got going: close, hide the slot / chip, never reopen this page. */
+  function shutDown() {
+    shut = true;
+    close();
+    paintEntries();
+  }
+
+  /**
+   * While the pop-up is open, watch /api/student/state (``reward_window``).
+   * The picker page has no live poll of its own, and on home a pushed
+   * question does not always repaint the page before its next full poll.
+   */
+  function watchState() {
+    window.clearTimeout(pollTimer);
+    if (root.hidden || shut) return;
+    pollTimer = window.setTimeout(async () => {
+      if (root.hidden || shut) return;
+      try {
+        const init = { credentials: "same-origin", headers: { "X-Student-Visit-Token": token } };
+        const res = await fetch(
+          "/api/student/state",
+          typeof window.studentVisitFetchInit === "function" ? window.studentVisitFetchInit(init) : init
+        );
+        const data = res.ok ? await res.json().catch(() => null) : null;
+        if (data && (data.scoring || data.reward_window === false)) {
+          shutDown();
+          return;
+        }
+      } catch (_err) {
+        /* keep the pop-up; the claim route still says 409 mid-class */
+      }
+      watchState();
+    }, POLL_MS);
   }
 
   function close() {
     if (root.hidden) return;
+    window.clearTimeout(pollTimer);
     window.clearTimeout(closeTimer);
     root.hidden = true;
     body.classList.remove("rw-open");
@@ -202,6 +246,7 @@
     later.setAttribute("aria-disabled", "true");
     grid.classList.add("is-inert");
     let data = null;
+    let underWay = false;
     try {
       const res = await fetch("/api/student/avatar-reward/claim", {
         method: "POST",
@@ -213,6 +258,8 @@
         body: JSON.stringify({ grant_id: g.id, avatar_key: key, visit_token: token }),
       });
       data = await res.json().catch(() => null);
+      // 409: class is under way (MED-1). The reward keeps waiting.
+      underWay = res.status === 409;
       if (!res.ok || !data || !data.ok) data = null;
     } catch (_err) {
       data = null;
@@ -223,6 +270,10 @@
     keep.classList.remove("is-busy");
     later.removeAttribute("aria-disabled");
     grid.classList.remove("is-inert");
+    if (underWay) {
+      shutDown();
+      return;
+    }
     if (!data) {
       errorEl.hidden = false;
       paintSelection();

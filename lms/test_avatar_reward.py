@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -20,8 +21,12 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 from app import create_app  # noqa: E402
 from celebration import (  # noqa: E402
     CELEBRATIONS_FROZEN_ENV,
+    SETTING_FEATURED_AWARD,
+    SETTING_FEATURED_AWARD_ID,
     SETTING_FREEZE_EPOCH,
+    build_celebration_board,
     clear_public_celebration_memo,
+    reward_appearances,
     set_featured_award,
 )
 from db import EARNED_CHARACTERS  # noqa: E402
@@ -154,6 +159,56 @@ class AvatarRewardTests(unittest.TestCase):
 
     def _claim(self, client, grant_id: int, key: str):
         return client.post(CLAIM, json={"grant_id": grant_id, "avatar_key": key})
+
+    def _push_question(self) -> None:
+        """Teacher pushes an MC question to students (still in JOIN)."""
+        res = self.staff.post(
+            f"/api/live-sessions/{self.live_id}/prompts",
+            json={
+                "slide_index": 20,
+                "kind": "mc",
+                "payload": {"question": "Slope of y=2x?", "choices": ["1", "2", "3"]},
+            },
+        )
+        self.assertEqual(res.status_code, 200, res.get_data(as_text=True)[:200])
+
+    def _advance(self) -> str:
+        """Teacher Next: JOIN -> TEAMS -> MEET ..."""
+        res = self.staff.post(
+            f"/api/live-sessions/{self.live_id}/teacher-state", json={"advance": "next"}
+        )
+        self.assertEqual(res.status_code, 200, res.get_data(as_text=True)[:200])
+        return str((res.get_json().get("teacher_state") or {}).get("stage") or "")
+
+    def _state(self, client) -> dict:
+        res = client.get("/api/student/state")
+        self.assertEqual(res.status_code, 200)
+        return res.get_json()
+
+    def _assert_shut(self, client, student_id: int) -> None:
+        """MED-1: no pop-up or entry point, state says shut, claim is 409."""
+        html = self._landing(client)
+        self.assertNotIn('id="avatar-reward"', html)
+        self.assertNotIn("Pick your reward", html)
+        home = client.get("/student/home").get_data(as_text=True)
+        self.assertNotIn('id="avatar-reward"', home)
+        self.assertNotIn("Reward waiting", home)
+        self.assertIs(self._state(client).get("reward_window"), False)
+        before = self.school.game.get_student(self.class_id, student_id).get("character_key")
+        grant = self._grants(student_id)[0]
+        res = self._claim(client, int(grant["id"]), "fox_scarf")
+        self.assertEqual(res.status_code, 409)
+        self.assertTrue(res.get_json()["closed"])
+        self.assertEqual(self._grants(student_id)[0]["status"], "pending")
+        self.assertEqual(self.school.earned_avatar_keys(self.class_id, student_id), [])
+        self.assertEqual(
+            self.school.game.get_student(self.class_id, student_id).get("character_key"), before
+        )
+
+    def _add_student(self, name: str) -> int:
+        res = self.staff.post(f"/api/classes/{self.class_id}/students", json={"codename": name})
+        self.assertEqual(res.status_code, 200, res.get_data(as_text=True)[:200])
+        return self._sid(name)
 
     # tests -------------------------------------------------------------------
 
@@ -334,11 +389,11 @@ class AvatarRewardTests(unittest.TestCase):
 
     def test_never_shown_once_the_class_is_under_way(self) -> None:
         """Out of the waiting room (game, Meet, media...): grant kept, no pop-up or chip."""
-        self.assertTrue(self.school.live_session_in_waiting_room(self.live_id))
+        self.assertTrue(self.school.live_session_reward_window_open(self.live_id))
         # Stand-in for "the class is under way": the app's own waiting-room
         # test (game live, Meet/round/play, media or canvas frames, ...).
         with patch.object(type(self.school), "_session_left_waiting_room", return_value=True):
-            self.assertFalse(self.school.live_session_in_waiting_room(self.live_id))
+            self.assertFalse(self.school.live_session_reward_window_open(self.live_id))
             client = self._login("Maple")
             html = self._landing(client)
             self.assertNotIn('id="avatar-reward"', html)
@@ -388,6 +443,219 @@ class AvatarRewardTests(unittest.TestCase):
         self.assertTrue(
             {"class_id", "student_id", "source", "source_ref", "status", "avatar_key"} <= cols
         )
+
+    # MED-1: JOIN with Minds-On idle only ----------------------------------
+
+    def test_med1_waiting_room_minds_on_keeps_it_open(self) -> None:
+        """JOIN with the waiting-room Minds-On showing is still the reward window."""
+        self.school.ensure_waiting_room_minds_on(self.live_id)
+        self.assertTrue(self.school.live_session_reward_window_open(self.live_id))
+        client = self._login("Maple")
+        self.assertIn('data-auto-open="1"', self._landing(client))
+        self.assertIs(self._state(client).get("reward_window"), True)
+
+    def test_med1_pushed_question_in_join_no_popup_and_claim_409(self) -> None:
+        """A teacher-pushed question in JOIN: no auto-open, no chip, claim 409."""
+        open_client = self._login("Maple")
+        self.assertIn('data-auto-open="1"', self._landing(open_client))
+        self._push_question()
+        self.assertFalse(self.school.live_session_reward_window_open(self.live_id))
+        # The page that was already open learns it from the state poll.
+        self.assertIs(self._state(open_client).get("reward_window"), False)
+        self._assert_shut(open_client, self.maple)
+        # Question cleared, still JOIN: the window opens again.
+        self.school.clear_active_live_prompt(self.live_id)
+        self.assertTrue(self.school.live_session_reward_window_open(self.live_id))
+        self.assertIs(self._state(open_client).get("reward_window"), True)
+
+    def test_med1_fresh_join_while_a_question_is_pushed(self) -> None:
+        """Joining while the question is up: grant recorded, nothing shown."""
+        self._push_question()
+        client = self._login("Maple")
+        self._assert_shut(client, self.maple)
+
+    def test_med1_teams_counts_as_live(self) -> None:
+        """TEAMS stage: no auto-open, no chip, claim 409."""
+        client = self._login("Maple")
+        self.assertIn('data-auto-open="1"', self._landing(client))
+        self.assertEqual(self._advance(), "teams")
+        self.assertFalse(self.school.live_session_reward_window_open(self.live_id))
+        self._assert_shut(client, self.maple)
+
+    def test_med1_meet_is_live(self) -> None:
+        """MEET (and later): no auto-open, no chip, claim 409."""
+        client = self._login("Maple")
+        self._landing(client)
+        self.assertEqual(self._advance(), "teams")
+        self.assertEqual(self._advance(), "meet")
+        self.assertFalse(self.school.live_session_reward_window_open(self.live_id))
+        self._assert_shut(client, self.maple)
+
+    def test_med1_client_closes_on_reward_window_or_409(self) -> None:
+        """avatar_reward.js shuts on is-reward-shut / reward_window false / 409."""
+        js = (LMS_DIR / "static" / "avatar_reward.js").read_text(encoding="utf-8")
+        self.assertIn('classList.contains("is-reward-shut")', js)
+        self.assertIn("data.reward_window === false", js)
+        self.assertIn("res.status === 409", js)
+        portal = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertIn('body.classList.toggle("is-reward-shut", !payload.reward_window)', portal)
+        css = (LMS_DIR / "static" / "student-portal.css").read_text(encoding="utf-8")
+        self.assertIn(".me-meet-chip[hidden] {\n  display: none;", css)
+
+    # MED-2: a reused student id never inherits the Shoutout ---------------
+
+    def _feature_zara(self) -> int:
+        """Ops repro setup: Zara (highest id) gets the Shoutout and claims it."""
+        self._end_live()
+        zara = self._add_student("Zara")
+        set_featured_award(
+            self.school, teacher_user_id=self.teacher_id,
+            class_id=self.class_id, student_id=zara, blurb="",
+        )
+        self._run_live()
+        client = self._login("Zara")
+        self._landing(client)
+        grant = [g for g in self._grants(zara) if g["source"] == "shoutout"][0]
+        self.assertEqual(self._claim(client, int(grant["id"]), "lion_cub_laurel").status_code, 200)
+        self._end_live()
+        return zara
+
+    def _assert_yuri_gets_nothing(self, zara: int) -> None:
+        self._run_live()
+        client = self._login("Yuri")
+        html = self._landing(client)
+        self.assertNotIn('id="avatar-reward"', html)
+        self.assertEqual(self._grants(zara), [])
+        self.assertEqual(self.school.earned_avatar_keys(self.class_id, zara), [])
+        self.assertNotIn(
+            zara, [r["student_id"] for r in reward_appearances(self.school)]
+        )
+        award = build_celebration_board(self.school)["cards"][0]
+        self.assertFalse(award.get("name"))
+        refused = client.post("/student/character", data={"character": "lion_cub_laurel"})
+        self.assertIn("Choose an avatar.", refused.get_data(as_text=True))
+        clear_public_celebration_memo()
+        board = self.app.test_client().get("/api/celebrations").get_json()
+        self.assertNotIn("Yuri", json.dumps(board))
+
+    def test_med2_deleted_featured_student_id_reused_by_new_student(self) -> None:
+        """Delete featured Zara, add Yuri on her id: no Shoutout, grant or claim."""
+        zara = self._feature_zara()
+        res = self.staff.post(
+            f"/api/classes/{self.class_id}/students/delete", json={"student_id": zara}
+        )
+        self.assertEqual(res.status_code, 200, res.get_data(as_text=True)[:200])
+        self.assertEqual(self.school.get_school_setting(SETTING_FEATURED_AWARD, ""), "")
+        self.assertEqual(self.school.get_school_setting(SETTING_FEATURED_AWARD_ID, ""), "")
+        self.assertEqual(self._add_student("Yuri"), zara)  # SQLite reused the id
+        self._assert_yuri_gets_nothing(zara)
+
+    def test_med2_roster_replace_drops_the_featured_student(self) -> None:
+        """Roster replace that drops featured Zara clears the Shoutout too."""
+        zara = self._feature_zara()
+        res = self.staff.put(
+            f"/api/staff/classes/{self.class_id}/roster",
+            json={"codenames": ["Maple", "Aspen"]},
+        )
+        self.assertEqual(res.status_code, 200, res.get_data(as_text=True)[:200])
+        self.assertEqual(self.school.get_school_setting(SETTING_FEATURED_AWARD, ""), "")
+        self.assertEqual(self._add_student("Yuri"), zara)
+        self._assert_yuri_gets_nothing(zara)
+
+    def test_med2_stale_pointer_fails_the_fingerprint(self) -> None:
+        """Even if the pointer survives (no hook ran), the fp check refuses Yuri."""
+        zara = self._feature_zara()
+        self.school.game.delete_student(self.class_id, zara)  # no app hook
+        self.school.delete_avatar_reward_grants(self.class_id, [zara])
+        self.assertNotEqual(self.school.get_school_setting(SETTING_FEATURED_AWARD, ""), "")
+        self.assertEqual(self._add_student("Yuri"), zara)
+        self._assert_yuri_gets_nothing(zara)
+
+    def test_med2_legacy_shoutout_is_pinned_before_reuse(self) -> None:
+        """A pre-#221 Shoutout (no fp) is pinned on first read, then guarded."""
+        self._end_live()
+        zara = self._add_student("Zara")
+        self.school.set_school_setting(
+            SETTING_FEATURED_AWARD,
+            json.dumps({"class_id": self.class_id, "student_id": zara, "blurb": "old"}),
+        )
+        self.assertIn(zara, [r["student_id"] for r in reward_appearances(self.school)])
+        self.assertTrue(json.loads(self.school.get_school_setting(SETTING_FEATURED_AWARD_ID))["fp"])
+        self.school.game.delete_student(self.class_id, zara)  # no app hook
+        self.assertEqual(self._add_student("Yuri"), zara)
+        self._assert_yuri_gets_nothing(zara)
+
+    # LOW-4: one Shoutout, one grant, across a rollback ---------------------
+
+    def _shoutout_grants(self, student_id: int) -> list[dict]:
+        return [g for g in self._grants(student_id) if g["source"] == "shoutout"]
+
+    def test_low4_rollback_rewrite_then_roll_forward_does_not_regrant(self) -> None:
+        """Base rewrites the setting without featured_at: still one grant."""
+        set_featured_award(
+            self.school, teacher_user_id=self.teacher_id,
+            class_id=self.class_id, student_id=self.aspen, blurb="Great work",
+        )
+        self._landing(self._login("Aspen"))
+        first = self._shoutout_grants(self.aspen)
+        self.assertEqual(len(first), 1)
+        self.assertNotIn(":c", first[0]["source_ref"])
+        # Rollback build edits the blurb: only class_id/student_id/blurb remain.
+        legacy = {"class_id": self.class_id, "student_id": self.aspen, "blurb": "Edited on base"}
+        self.school.set_school_setting(SETTING_FEATURED_AWARD, json.dumps(legacy))
+        self._landing(self._next_login("Aspen"))
+        self.assertEqual(self._shoutout_grants(self.aspen), first)
+        # Even with the identity setting gone, the fallback key cannot mint.
+        self.school.set_school_setting(SETTING_FEATURED_AWARD_ID, "")
+        self._landing(self._next_login("Aspen"))
+        self.assertEqual(self._shoutout_grants(self.aspen), first)
+        # Back on head, a blurb edit keeps the same Shoutout.
+        set_featured_award(
+            self.school, teacher_user_id=self.teacher_id,
+            class_id=self.class_id, student_id=self.aspen, blurb="Edited on head",
+        )
+        self._landing(self._next_login("Aspen"))
+        self.assertEqual(len(self._shoutout_grants(self.aspen)), 1)
+
+    def test_low4_fallback_grant_then_featured_at_key_does_not_regrant(self) -> None:
+        """Fallback grant made after featured_at: the featured_at key is the same Shoutout."""
+        set_featured_award(
+            self.school, teacher_user_id=self.teacher_id,
+            class_id=self.class_id, student_id=self.aspen, blurb="",
+        )
+        stamped = self.school.get_school_setting(SETTING_FEATURED_AWARD)
+        stamped_id = self.school.get_school_setting(SETTING_FEATURED_AWARD_ID)
+        legacy = {"class_id": self.class_id, "student_id": self.aspen, "blurb": ""}
+        self.school.set_school_setting(SETTING_FEATURED_AWARD, json.dumps(legacy))
+        self.school.set_school_setting(SETTING_FEATURED_AWARD_ID, "")
+        self._landing(self._login("Aspen"))
+        grants = self._shoutout_grants(self.aspen)
+        self.assertEqual([g["source_ref"] for g in grants], [f"shoutout:c{self.class_id}:s{self.aspen}"])
+        self.school.set_school_setting(SETTING_FEATURED_AWARD, stamped)
+        self.school.set_school_setting(SETTING_FEATURED_AWARD_ID, stamped_id)
+        self._landing(self._next_login("Aspen"))
+        self.assertEqual(self._shoutout_grants(self.aspen), grants)
+
+    def test_low4_a_real_new_shoutout_still_grants(self) -> None:
+        """Legacy Shoutout grant, then featured again later: that is a new reward."""
+        legacy = {"class_id": self.class_id, "student_id": self.aspen, "blurb": ""}
+        self.school.set_school_setting(SETTING_FEATURED_AWARD, json.dumps(legacy))
+        self._landing(self._login("Aspen"))
+        self.assertEqual(len(self._shoutout_grants(self.aspen)), 1)
+        with self.school._lock:  # that legacy grant was made last week
+            self.school.conn.execute(
+                "UPDATE avatar_reward_grants SET created_at = '2026-09-25T10:00:00'"
+                " WHERE class_id = ? AND student_id = ?",
+                (self.class_id, self.aspen),
+            )
+            self.school.conn.commit()
+        for sid in (self.maple, self.aspen):
+            set_featured_award(
+                self.school, teacher_user_id=self.teacher_id,
+                class_id=self.class_id, student_id=sid, blurb="",
+            )
+        self._landing(self._next_login("Aspen"))
+        self.assertEqual(len(self._shoutout_grants(self.aspen)), 2)
 
 
 def _pg_admin_url() -> str:

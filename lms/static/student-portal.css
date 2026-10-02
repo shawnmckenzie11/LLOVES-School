@@ -1337,6 +1337,11 @@ body.student-home.is-live .student-live-response {
   font-weight: 650;
 }
 
+/* MCK-116 LOW-7: display above beats the UA [hidden] rule (empty teal pill). */
+.me-meet-chip[hidden] {
+  display: none;
+}
+
 .prompt-numeric,
 .prompt-share {
   display: flex;

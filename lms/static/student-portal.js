@@ -1534,6 +1534,10 @@ function applyLayout(payload) {
   body.classList.toggle("has-media", hasMedia);
   body.classList.toggle("is-waiting-room", waitingRoom && !welcomeOn);
   body.classList.toggle("is-game-show-welcome", welcomeOn);
+  // MCK-116 MED-1: a pushed question or TEAMS shuts the avatar reward pop-up.
+  if (typeof payload.reward_window === "boolean") {
+    body.classList.toggle("is-reward-shut", !payload.reward_window);
+  }
   const hasPrompt = Boolean(payload.prompt && payload.prompt.kind && payload.prompt.kind !== "idle");
   if (waitEl) {
     // Waiting-room keeps Wonder's line even when the Minds-On question is showing.

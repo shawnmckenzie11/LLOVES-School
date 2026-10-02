@@ -73,6 +73,7 @@ from celebration import (  # noqa: E402
     bind_celebration_secret,
     build_celebration_board,
     celebration_candidates,
+    forget_featured_students,
     note_celebrations_unfrozen,
     public_celebration_board,
     reward_appearances,
@@ -2733,6 +2734,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         )
         # Reward rows follow the roster row; SQLite can reuse its id (MCK-116).
         school.delete_avatar_reward_grants(class_id, [sid for sid, _ in removed])
+        forget_featured_students(school, class_id, [sid for sid, _ in removed])
         dash["class"] = school.enrich_class(dash["class"])
         return jsonify({"ok": True, "class": dash["class"], "students": dash.get("students")})
 
@@ -4413,8 +4415,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         appearance on the Celebrations board (``reward_appearances``; the
         frozen board while frozen). Grants are idempotent per appearance, so
         another login never re-grants. The pop-up itself only shows while the
-        live session is still in its waiting room, never mid-class, and opens
-        on its own once per join; the slot or chip reopens it.
+        live session is in JOIN with no live question (Minds-On idle;
+        ``live_session_reward_window_open``), never mid-class or in TEAMS, and
+        opens on its own once per join; the slot or chip reopens it.
 
         Args:
             ctx: ``_student_live_context()`` for the request.
@@ -4450,7 +4453,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return None
         try:
             live_id = int(ctx.get("live_session_id") or 0)
-            open_now = bool(live_id) and school.live_session_in_waiting_room(live_id)
+            open_now = bool(live_id) and school.live_session_reward_window_open(live_id)
         except Exception:  # noqa: BLE001 - unknown state counts as mid-class
             open_now = False
         if not open_now:
@@ -4831,7 +4834,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         Body ``{grant_id, avatar_key, visit_token}``. Only the caller's own
         pending grant can be claimed, once; a repeat returns the stored pick
         (``already``). The pick is a permanent unlock and also becomes the
-        current avatar (best effort).
+        current avatar (best effort). 409 once the class is under way (the
+        pop-up's MED-1 rule): no claim and no avatar change mid-class.
         """
         denied = _require_active_live_attendee(as_json=True)
         if denied is not None:
@@ -4854,6 +4858,16 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": "Choose an avatar."}), 400
         if key not in EARNED_CHARACTERS:
             return jsonify({"ok": False, "error": "Choose an avatar."}), 400
+        try:
+            live_id = int((_student_live_context() or {}).get("live_session_id") or 0)
+            open_now = bool(live_id) and school.live_session_reward_window_open(live_id)
+        except Exception:  # noqa: BLE001 - unknown state counts as mid-class
+            logger.exception("avatar reward window check failed class=%s", class_id)
+            open_now = False
+        if not open_now:
+            return jsonify(
+                {"ok": False, "error": "Class is under way.", "closed": True}
+            ), 409
         result = school.claim_avatar_reward(grant_id, class_id, student_id, key)
         status = result["status"]
         if status == "missing":
@@ -8496,6 +8510,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             # Saved End-of-class answers carry the name; drop them too.
             school.delete_student_live_result_snapshots(class_id, [student_id])
             school.delete_avatar_reward_grants(class_id, [student_id])
+            # MCK-116 MED-2: a reused id must not inherit the Shoutout.
+            forget_featured_students(school, class_id, [student_id])
             dash["class"] = school.enrich_class(dash["class"])
             return dash
 

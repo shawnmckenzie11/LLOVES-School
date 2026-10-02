@@ -44,6 +44,12 @@ except ImportError:  # ``lms`` package import
     from lms.gradebook import session_meeting_date
 
 SETTING_FEATURED_AWARD = "celebration_featured_award"
+# MCK-116: identity of the current Shoutout, ``{class_id, student_id, fp,
+# featured_at}``. Its own setting, so a rollback build that rewrites
+# SETTING_FEATURED_AWARD without these keys cannot drop them (the same
+# Shoutout keeps one reward key), and ``fp`` stops a reused ``students.id``
+# from inheriting the Shoutout.
+SETTING_FEATURED_AWARD_ID = "celebration_featured_award_id"
 # Section codes (``section_code``) that each get their own Most Engaged card.
 ENGAGED_COURSES: tuple[str, ...] = ("MCR3U", "MCR3U-2", "MCF3M")
 PUBLIC_BOARD_TTL_SECONDS = 60.0
@@ -380,28 +386,15 @@ def _featured_card(school: Any) -> dict[str, Any]:
         "",
         "A teacher will feature someone here.",
     )
-    raw = school.get_school_setting(SETTING_FEATURED_AWARD, "")
-    if not raw.strip():
+    award = _award_payload(school)
+    if award is None:
         return card
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError:
-        return card
-    if not isinstance(payload, dict):
-        return card
-    try:
-        class_id = int(payload.get("class_id"))
-        student_id = int(payload.get("student_id"))
-    except (TypeError, ValueError):
-        return card
-    blurb = str(payload.get("blurb") or "").strip()
-    try:
-        student = school.game.get_student(class_id, student_id)
-    except (KeyError, TypeError):
-        student = None
+    class_id = award["class_id"]
+    student_id = award["student_id"]
+    blurb = str(award.get("blurb") or "").strip()
+    # MCK-116 MED-2: a stale pointer (id reused by a new student) shows nobody.
+    student = _award_owner_row(school, award)
     if not student:
-        return card
-    if int(student.get("class_id") or 0) != class_id:
         return card
     course = ""
     try:
@@ -1082,12 +1075,13 @@ def set_featured_award(
     """
     if class_id is None or student_id is None:
         school.set_school_setting(SETTING_FEATURED_AWARD, "")
+        school.set_school_setting(SETTING_FEATURED_AWARD_ID, "")
         return _featured_card(school)
     if not school.teacher_owns_class(int(teacher_user_id), int(class_id)):
         raise ValueError("That class is not yours to celebrate.")
     with school.game._lock:
         row = school.game.conn.execute(
-            "SELECT id FROM students WHERE id = ? AND class_id = ?",
+            "SELECT id, canvas_id FROM students WHERE id = ? AND class_id = ?",
             (int(student_id), int(class_id)),
         ).fetchone()
     if row is None:
@@ -1096,26 +1090,26 @@ def set_featured_award(
         "class_id": int(class_id),
         "student_id": int(student_id),
         "blurb": str(blurb or "").strip()[:240],
+        "fp": _student_fp(school, int(class_id), int(student_id), row[1]),
     }
     # MCK-116: ``featured_at`` marks one featured appearance for the avatar
     # reward. Re-saving the same student (a new blurb) keeps it, so it never
-    # re-grants; featuring someone new starts a new appearance.
+    # re-grants; featuring someone new (or a new student on a reused id)
+    # starts a new appearance.
     previous = _award_payload(school)
-    if previous and (previous["class_id"], previous["student_id"]) == (
-        payload["class_id"],
-        payload["student_id"],
-    ):
+    if previous and _same_award_student(previous, payload):
         if previous.get("featured_at"):
             payload["featured_at"] = previous["featured_at"]
     else:
         payload["featured_at"] = datetime.now(timezone.utc).isoformat(timespec="microseconds")
     school.set_school_setting(SETTING_FEATURED_AWARD, json.dumps(payload))
+    _set_award_identity(school, payload)
     return _featured_card(school)
 
 
-def _award_payload(school: Any) -> dict[str, Any] | None:
-    """The stored Shoutout setting with int ids, or None when unset or bad."""
-    raw = school.get_school_setting(SETTING_FEATURED_AWARD, "") or ""
+def _setting_ids(school: Any, key: str) -> dict[str, Any] | None:
+    """One JSON setting with int ``class_id`` / ``student_id``, or None."""
+    raw = school.get_school_setting(key, "") or ""
     if not str(raw).strip():
         return None
     try:
@@ -1131,6 +1125,91 @@ def _award_payload(school: Any) -> dict[str, Any] | None:
         return None
 
 
+def _same_award_student(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Same roster row: same ids and, when both carry one, the same ``fp``."""
+    if (a["class_id"], a["student_id"]) != (b["class_id"], b["student_id"]):
+        return False
+    fa, fb = str(a.get("fp") or ""), str(b.get("fp") or "")
+    return not (fa and fb) or hmac.compare_digest(fa, fb)
+
+
+def _set_award_identity(school: Any, award: dict[str, Any]) -> None:
+    """Store the Shoutout identity (MCK-116) beside the Shoutout setting."""
+    ident = {
+        "class_id": int(award["class_id"]),
+        "student_id": int(award["student_id"]),
+        "fp": str(award.get("fp") or ""),
+    }
+    if award.get("featured_at"):
+        ident["featured_at"] = str(award["featured_at"])
+    school.set_school_setting(SETTING_FEATURED_AWARD_ID, json.dumps(ident))
+
+
+def _award_payload(school: Any) -> dict[str, Any] | None:
+    """The stored Shoutout with int ids, or None when unset or bad.
+
+    MCK-116: ``fp`` and ``featured_at`` come from the identity setting when
+    the Shoutout setting lost them (rewritten by a rollback build) and the
+    identity names the same student, so one Shoutout keeps one reward key.
+    """
+    award = _setting_ids(school, SETTING_FEATURED_AWARD)
+    if award is None:
+        return None
+    ident = _setting_ids(school, SETTING_FEATURED_AWARD_ID)
+    if ident is not None and _same_award_student(ident, award):
+        for key in ("fp", "featured_at"):
+            if not award.get(key) and ident.get(key):
+                award[key] = ident[key]
+    return award
+
+
+def _award_owner_row(school: Any, award: dict[str, Any]) -> dict[str, Any] | None:
+    """Live roster row the Shoutout points at, or None when it is stale.
+
+    None when the student was deleted or moved, or (MCK-116 MED-2) the id
+    now belongs to someone else: ``fp`` (``_student_fp``, the #212 frozen
+    board check) no longer matches the row's never-changing ``canvas_id``.
+    """
+    row = _roster_row(school, award.get("class_id"), award.get("student_id"))
+    if row is None or int(row.get("class_id") or 0) != int(award["class_id"]):
+        return None
+    want = str(award.get("fp") or "")
+    if want:
+        have = _student_fp(
+            school, int(award["class_id"]), int(award["student_id"]), row.get("canvas_id")
+        )
+        if not hmac.compare_digest(want, have):
+            return None
+    return row
+
+
+def forget_featured_students(school: Any, class_id: int, student_ids: Any) -> bool:
+    """Clear the Shoutout when its roster row is deleted or replaced (MED-2).
+
+    ``students.id`` can be reused, so a pointer left behind would hand the
+    Shoutout (and its avatar reward) to the next new student on that id.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        class_id: Class the rows were removed from.
+        student_ids: Removed ``students.id`` values.
+
+    Returns:
+        True when the Shoutout pointed at one of them and was cleared.
+    """
+    ids = {int(x) for x in student_ids or []}
+    award = _setting_ids(school, SETTING_FEATURED_AWARD)
+    ident = _setting_ids(school, SETTING_FEATURED_AWARD_ID)
+    hit = False
+    for key, row in ((SETTING_FEATURED_AWARD, award), (SETTING_FEATURED_AWARD_ID, ident)):
+        if row is not None and row["class_id"] == int(class_id) and row["student_id"] in ids:
+            school.set_school_setting(key, "")
+            hit = True
+    if hit:
+        clear_public_celebration_memo()
+    return hit
+
+
 def reward_appearances(school: Any) -> list[dict[str, Any]]:
     """Featured appearances that earn a Celebrations avatar reward (MCK-116 S1).
 
@@ -1142,8 +1221,11 @@ def reward_appearances(school: Any) -> list[dict[str, Any]]:
       a reload or a re-taken snapshot in the same epoch is the same
       appearance; a new epoch (board unfrozen and frozen again) is a new one.
     * Shoutout: ``shoutout:<featured_at>`` (set when a teacher features a new
-      student; a blurb edit keeps it). An older setting without
-      ``featured_at`` uses ``shoutout:c<class>:s<student>``.
+      student; a blurb edit keeps it, and so does a rollback build's rewrite,
+      via the identity setting). An older setting without ``featured_at``
+      uses ``shoutout:c<class>:s<student>``; ``sync_avatar_reward_grants``
+      never lets both keys grant the same Shoutout (LOW-4). The Shoutout
+      only counts while its ``fp`` still matches the roster row (MED-2).
 
     Args:
         school: ``SchoolDB`` instance.
@@ -1157,18 +1239,33 @@ def reward_appearances(school: Any) -> list[dict[str, Any]]:
     semester_id = _active_semester_id(school)
     epoch = _freeze_epoch(school) or "-"
     award = _award_payload(school)
+    if award is not None and not award.get("fp"):
+        # A pre-#221 Shoutout has no fingerprint: pin the row it names now so
+        # a later id reuse cannot inherit it.
+        owner = _award_owner_row(school, award)
+        if owner is not None:
+            award["fp"] = _student_fp(
+                school, award["class_id"], award["student_id"], owner.get("canvas_id")
+            )
+            _set_award_identity(school, award)
     out: list[dict[str, Any]] = []
     for row in rows:
         ids = {"class_id": int(row["class_id"]), "student_id": int(row["student_id"])}
         if row.get("card") == "award":
-            if award is None:
+            if award is None or (award["class_id"], award["student_id"]) != (
+                ids["class_id"], ids["student_id"]
+            ):
                 continue
-            if award.get("featured_at"):
-                ref = f"shoutout:{award['featured_at']}"
+            if _award_owner_row(school, award) is None:
+                continue
+            featured_at = str(award.get("featured_at") or "")
+            if featured_at:
+                ref = f"shoutout:{featured_at}"
             else:
-                ref = f"shoutout:c{ids['class_id']}:s{ids['student_id']}"
+                ref = shoutout_fallback_ref(ids["class_id"], ids["student_id"])
             out.append(
                 {**ids, "source": "shoutout", "source_ref": ref,
+                 "featured_at": featured_at or None,
                  "award_title": WONDER_COPY["award_title"]}
             )
         elif row.get("card") == "engaged":
@@ -1181,6 +1278,11 @@ def reward_appearances(school: Any) -> list[dict[str, Any]]:
                  "award_title": WONDER_COPY["engaged_title"]}
             )
     return out
+
+
+def shoutout_fallback_ref(class_id: int, student_id: int) -> str:
+    """Reward key of a Shoutout saved without ``featured_at`` (pre-#221)."""
+    return f"shoutout:c{int(class_id)}:s{int(student_id)}"
 
 
 def reward_title(source: str) -> str:

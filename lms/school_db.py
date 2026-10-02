@@ -872,6 +872,20 @@ CREATE INDEX IF NOT EXISTS idx_access_requests_status
 """
 
 
+def _reward_stage_open(teacher: dict[str, Any] | None) -> bool:
+    """MCK-116: the reward pop-up only shows in JOIN (TEAMS counts as live)."""
+    return str((teacher or {}).get("stage") or "join").strip().lower() == "join"
+
+
+def _reward_quiet_prompt(prompt: dict[str, Any] | None) -> bool:
+    """MCK-116: no prompt, an idle one, or the waiting-room Minds-On."""
+    if not prompt:
+        return True
+    if str(prompt.get("kind") or "idle").strip().lower() == "idle":
+        return True
+    return is_minds_on_payload(prompt.get("payload"))
+
+
 def _now() -> str:
     """Return a local ISO timestamp without microseconds."""
     return datetime.now().replace(microsecond=0).isoformat()
@@ -20718,6 +20732,12 @@ class SchoolDB(LovesDB):
         waiting_room = False if meet_live else not self._session_left_waiting_room(
             session_id
         )
+        # MCK-116 MED-1: the reward pop-up closes once this goes false.
+        reward_window = bool(
+            waiting_room
+            and _reward_stage_open(teacher)
+            and self._reward_prompts_quiet(session_id, prompt)
+        )
         poll_closed = False
         view = (teacher or {}).get("student_view") or {}
         questions_mode = str(view.get("questions") or "none")
@@ -20725,6 +20745,7 @@ class SchoolDB(LovesDB):
             "prompt": None,
             "my_response": None,
             "waiting_room": waiting_room,
+            "reward_window": reward_window,
             "poll_closed": poll_closed,
             "question_view": questions_mode,
         }
@@ -20825,6 +20846,7 @@ class SchoolDB(LovesDB):
             },
             "my_response": my_response,
             "waiting_room": waiting_room,
+            "reward_window": reward_window,
             "poll_closed": poll_closed,
             "question_view": questions_mode,
             "meet_chip": meet_chip_for(
@@ -23817,6 +23839,10 @@ class SchoolDB(LovesDB):
                 ref = str(row.get("source_ref") or "")
                 if source not in {"shoutout", "engaged"} or not ref:
                     continue
+                if source == "shoutout" and self._shoutout_already_granted(
+                    int(class_id), int(student_id), ref, row.get("featured_at")
+                ):
+                    continue
                 counts = self.conn.execute(
                     """
                     SELECT
@@ -23842,6 +23868,55 @@ class SchoolDB(LovesDB):
                 added += int(cur.rowcount or 0)
             self.conn.commit()
         return added
+
+    def _shoutout_already_granted(
+        self,
+        class_id: int,
+        student_id: int,
+        ref: str,
+        featured_at: Any,
+    ) -> bool:
+        """True when this Shoutout already has a grant under its other key.
+
+        MCK-116 LOW-4: one Shoutout is keyed ``shoutout:<featured_at>``, or
+        ``shoutout:c<class>:s<student>`` when the setting has no
+        ``featured_at`` (pre-#221, or rewritten by a rollback build). So:
+
+        * the fallback key never grants once the student holds any Shoutout
+          grant (without ``featured_at`` it cannot be told apart);
+        * a ``featured_at`` key does not grant when the fallback grant was
+          made at or after ``featured_at`` (the same Shoutout).
+
+        Callers hold ``self._lock``.
+        """
+        rows = self.conn.execute(
+            """
+            SELECT source_ref, created_at FROM avatar_reward_grants
+            WHERE class_id = ? AND student_id = ? AND source = 'shoutout'
+            """,
+            (int(class_id), int(student_id)),
+        ).fetchall()
+        if not rows:
+            return False
+        fallback = f"shoutout:c{int(class_id)}:s{int(student_id)}"
+        if ref == fallback or not featured_at:
+            return True
+        try:
+            since = datetime.fromisoformat(str(featured_at))
+            if since.tzinfo is None:
+                since = since.astimezone()
+        except ValueError:
+            return False
+        for row in rows:
+            if str(row["source_ref"]) != fallback:
+                continue
+            try:
+                made = datetime.fromisoformat(str(row["created_at"])).astimezone()
+            except ValueError:
+                continue
+            if made >= since.replace(microsecond=0):
+                return True
+        return False
 
     def pending_avatar_reward_grants(
         self, class_id: int, student_id: int
@@ -23968,15 +24043,38 @@ class SchoolDB(LovesDB):
             self.conn.commit()
         return int(cur.rowcount or 0)
 
-    def live_session_in_waiting_room(self, session_id: int) -> bool:
-        """True before the class gets going (no game, Meet, media or canvas).
+    def live_session_reward_window_open(self, session_id: int) -> bool:
+        """True while the avatar reward pop-up may show (MCK-116 MED-1).
 
-        The reward pop-up only opens here (MCK-116), never mid-class.
+        Only in the waiting room proper: stage JOIN (TEAMS counts as live),
+        nothing past the waiting room (``_session_left_waiting_room``), and
+        no teacher-pushed question: the student-facing prompt and the active
+        prompt are idle or the waiting-room Minds-On. Read-only.
 
         Args:
             session_id: ``live_class_sessions.id``.
         """
-        return not self._session_left_waiting_room(int(session_id))
+        sid = int(session_id)
+        try:
+            if self._session_left_waiting_room(sid):
+                return False
+            teacher = self.live_session_teacher_state_payload(sid)
+        except KeyError:
+            return False
+        if not _reward_stage_open(teacher):
+            return False
+        facing = self._student_stage_prompt(
+            sid, teacher=teacher, student_id=None, participant_uuid=""
+        )
+        return self._reward_prompts_quiet(sid, facing)
+
+    def _reward_prompts_quiet(
+        self, session_id: int, facing: dict[str, Any] | None
+    ) -> bool:
+        """No live question: facing and active prompts idle or Minds-On."""
+        if not _reward_quiet_prompt(facing):
+            return False
+        return _reward_quiet_prompt(self.get_active_live_prompt(int(session_id)))
 
     def class_roster_pairs(self, class_id: int) -> set[tuple[int, str]]:
         """Return ``(students.id, codename-or-first-name)`` for a class roster."""
