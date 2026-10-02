@@ -6065,6 +6065,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "hide_absent",
             "timer_closes_answers",
             "class_set",
+            "eyes_up",
             "layout_preset",
             "frames",
             "active_tab",
