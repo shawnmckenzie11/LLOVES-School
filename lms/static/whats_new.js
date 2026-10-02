@@ -115,11 +115,13 @@ export function renderRelease(doc, dialog, release) {
       list.appendChild(li);
     }
   }
+  // Optional footer: a missing, null or blank ``not_yet`` renders nothing.
+  const notYetLine = String(release.not_yet || "").trim();
   const notYet = dialog.querySelector("[data-whats-new-notyet]");
   if (notYet) {
     const text = notYet.querySelector("[data-whats-new-notyet-text]");
-    if (text) text.textContent = release.not_yet ? String(release.not_yet) : "";
-    notYet.hidden = !release.not_yet;
+    if (text) text.textContent = notYetLine;
+    notYet.hidden = !notYetLine;
   }
 }
 

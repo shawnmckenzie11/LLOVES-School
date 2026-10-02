@@ -5,7 +5,8 @@ Three groups:
 
 * the ``releases.json`` limits from the spec (Wonder's copy rules);
 * server pages: the panel is on the staff Dashboard only, never on the
-  Live tab (``body.course-live``) and never on a student page;
+  Live tab (``body.course-live``), never on a student page, and held off
+  the Dashboard while any of the teacher's classes is live;
 * the real ``whats_new.js`` in node with a small fake DOM: it opens once
   per user per release, and on ``body.course-live`` it renders nothing,
   fetches nothing and never opens, not even from the link.
@@ -81,12 +82,13 @@ class ReleaseNotesDataTests(unittest.TestCase):
                     self.assertIn("screenshot", item)
 
     def test_not_yet_footer_is_optional_and_short(self) -> None:
-        """The footer is its own field, so it can be dropped without edits elsewhere."""
+        """The footer is its own field; absent or empty means no footer."""
         for release in _releases():
             if "not_yet" not in release:
                 self.assertNotIn("not_yet_refs", release)
                 continue
             self.assertIsInstance(release["not_yet"], str)
+            self.assertIsInstance(release.get("not_yet_refs", ""), str)
             self.assertLessEqual(len(release["not_yet"]), 120)
             self.assertNotRegex(release["not_yet"], r"[<>]")
 
@@ -108,6 +110,9 @@ class ReleaseNotesDataTests(unittest.TestCase):
             ],
         )
         self.assertTrue(all(i["image"] is None for i in oldest["items"]))
+        # Wonder dropped the #214 footer (#214 merged before this ships).
+        self.assertEqual(oldest.get("not_yet", ""), "")
+        self.assertEqual(oldest.get("not_yet_refs", ""), "")
 
 
 class WhatsNewPagesTests(unittest.TestCase):
@@ -178,6 +183,81 @@ class WhatsNewPagesTests(unittest.TestCase):
         live = self.staff.get(f"/staff/class/{self.class_id}?tab=live").get_data(as_text=True)
         self.assertRegex(re.search(r"<body[^>]*>", live).group(0), r"\bcourse-live\b")
         self.assertNoPanel(live, "the running Live tab")
+
+    def _end_live(self) -> None:
+        """End Live Class through the staff route (the real Dashboard form)."""
+        ended = self.staff.post(
+            f"/staff/class/{self.class_id}/end-live",
+            data={"end_options": "1"},
+            follow_redirects=False,
+        )
+        self.assertEqual(ended.status_code, 302)
+        self.assertIsNone(self.school.get_active_live_session_for_class(self.class_id))
+
+    def test_dashboard_holds_the_panel_while_a_class_is_live(self) -> None:
+        """Run Live Class: no panel on /staff; End Live Class: it is back."""
+        self.assertIn("whats-new-dialog", self.staff.get("/staff").get_data(as_text=True))
+        run = self.staff.post(f"/staff/class/{self.class_id}/run-live", follow_redirects=False)
+        self.assertEqual(run.status_code, 302)
+        self.assertIsNotNone(self.school.get_active_live_session_for_class(self.class_id))
+        during = self.staff.get("/staff")
+        self.assertEqual(during.status_code, 200)
+        self.assertNoPanel(during.get_data(as_text=True), "/staff while a class is live")
+        self._end_live()
+        after = self.staff.get("/staff").get_data(as_text=True)
+        self.assertIn('<dialog id="whats-new-dialog"', after)
+        self.assertIn('id="whats-new-open"', after)
+        self.assertIn('src="/static/whats_new.js?v=', after)
+
+    def test_dashboard_holds_the_panel_when_someone_else_runs_my_class(self) -> None:
+        """A session on this teacher's class counts even if another user started it."""
+        other = self.school.register_staff("helper@gmail.com")
+        self.school.start_live_class_session(self.class_id, int(other["id"]))
+        self.assertNoPanel(self.staff.get("/staff").get_data(as_text=True), "/staff (my class, other starter)")
+
+    def _signed_in_staff(self, email: str):
+        """Return a test client signed in as a fresh staff user with a class.
+
+        Args:
+            email: New staff email.
+
+        Returns:
+            ``(client, class_id)``.
+        """
+        user = self.school.register_staff(email)
+        offering = self.school.assign_course(
+            teacher_user_id=int(user["id"]), ontario_code="MCF3M"
+        )
+        client = self.app.test_client()
+        client.get("/auth/google?portal=staff")
+        client.get(f"/auth/google/callback?email={email}&name=O")
+        client.post(
+            "/verify-email",
+            data={"code": self.school.get_user_by_email(email)["verification_code"]},
+        )
+        created = client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": offering["id"],
+                "days": "T/Th/F",
+                "time": "9:15am",
+                "codenames": ["Cedar"],
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.get_json())
+        return client, int(created.get_json()["class"]["id"])
+
+    def test_another_teachers_live_class_does_not_hold_my_panel(self) -> None:
+        other, other_class_id = self._signed_in_staff("other@gmail.com")
+        run = other.post(f"/staff/class/{other_class_id}/run-live", follow_redirects=False)
+        self.assertEqual(run.status_code, 302)
+        self.assertIsNotNone(self.school.get_active_live_session_for_class(other_class_id))
+        # The other teacher's own Dashboard is held...
+        self.assertNoPanel(other.get("/staff").get_data(as_text=True), "other teacher's /staff")
+        # ...mine is not.
+        html = self.staff.get("/staff").get_data(as_text=True)
+        self.assertIn('<dialog id="whats-new-dialog"', html)
+        self.assertIn('id="whats-new-open"', html)
 
     def test_course_tabs_wait_for_slice_2(self) -> None:
         """Slice 1 is Dashboard only; course tabs get it in slice 2."""
@@ -372,6 +452,13 @@ const storage = makeStorage();
   const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch(trimmed), storage: makeStorage() });
   out.noFooter = { result, notYetHidden: p.notYet.hidden, ...snapshot(p) };
 }
+// Footer variants: blank text renders nothing; a real line still renders.
+for (const [key, value] of [["blankFooter", "   "], ["withFooter", "Fixture footer line for the harness."]]) {
+  const p = makePage({ live: false, userId: 7 });
+  const variant = { releases: [{ ...releases.releases[0], not_yet: value, not_yet_refs: "" }] };
+  const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch(variant), storage: makeStorage() });
+  out[key] = { result, notYet: p.notYetText.textContent, notYetHidden: p.notYet.hidden };
+}
 {
   const p = makePage({ live: false, userId: 7, withDialog: false });
   const fetch = makeFetch(releases);
@@ -440,9 +527,13 @@ class WhatsNewScriptTests(unittest.TestCase):
             ],
         )
         self.assertFalse(first["linkHidden"], first)
-        if self.newest.get("not_yet"):
-            self.assertEqual(first["notYet"], self.newest["not_yet"])
+        if str(self.newest.get("not_yet") or "").strip():
+            self.assertEqual(first["notYet"], self.newest["not_yet"].strip())
             self.assertFalse(first["notYetHidden"])
+        else:
+            # Empty footer (Wonder dropped the #214 line): nothing renders.
+            self.assertEqual(first["notYet"], "", first)
+            self.assertTrue(first["notYetHidden"], first)
 
     def test_got_it_marks_seen_and_reload_does_not_reopen(self) -> None:
         first, reload = self.out["first"], self.out["reload"]
@@ -466,9 +557,16 @@ class WhatsNewScriptTests(unittest.TestCase):
         self.assertEqual(self.out["noDialog"], {"result": "absent", "fetches": 0})
 
     def test_footer_drops_out_cleanly_when_removed(self) -> None:
+        """Keys deleted or blank: no footer. A real line still renders."""
         got = self.out["noFooter"]
         self.assertEqual(got["result"], "opened", got)
         self.assertTrue(got["notYetHidden"], got)
+        blank = self.out["blankFooter"]
+        self.assertTrue(blank["notYetHidden"], blank)
+        self.assertEqual(blank["notYet"], "", blank)
+        shown = self.out["withFooter"]
+        self.assertFalse(shown["notYetHidden"], shown)
+        self.assertEqual(shown["notYet"], "Fixture footer line for the harness.", shown)
 
     def test_script_writes_text_only(self) -> None:
         src = WHATS_NEW_JS.read_text(encoding="utf-8")

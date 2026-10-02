@@ -2519,6 +2519,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         active_live_session = school.get_active_live_session_for_teacher(
             int(user["id"])
         )
+        # MCK-124: hold the What's new panel while any class this teacher
+        # teaches is live (they may be projecting the Dashboard). Decided
+        # here, so the page never carries the panel or its script.
+        whats_new_hold = active_live_session is not None or any(
+            school.get_active_live_session_for_class(int(row["id"])) is not None
+            for row in classes
+        )
         html = render_template(
             "staff/home.html",
             user=user,
@@ -2526,6 +2533,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             offerings=offerings,
             classes=classes,
             active_live_session=active_live_session,
+            whats_new_hold=whats_new_hold,
             nav_courses=_staff_nav_courses(int(user["id"])),
             time_options=list(TIME_OPTIONS),
             school_name=SCHOOL_NAME,
