@@ -54,6 +54,7 @@ OFFENSIVE_CODE_PARTS: tuple[str, ...] = (
     "VAG", "BJ", "HJ", "69", "420", "GUN", "BOMB", "ISIS", "JEW",
     "NGGR", "KUNT", "WANK", "BTCH", "PRCK", "GAY", "G4Y", "SUCK", "CRAP",
     "TURD", "NUDE", "SEMEN", "METH", "WEED", "H8",
+    "NGGA", "HUMP", "JERK", "SHAG", "DRUG",
 )
 _CODE_LETTER_READING = str.maketrans(
     {"4": "A", "3": "E", "5": "S", "7": "T", "8": "B", "6": "G", "9": "G", "2": "Z", "V": "U"}
