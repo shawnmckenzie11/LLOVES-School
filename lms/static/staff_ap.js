@@ -2811,6 +2811,43 @@ async function importLiveMcFromBank(item) {
 }
 
 /**
+ * MCK-79: import picked Content Questions (any module) onto the current page.
+ * Same placement path and refresh as a single bank import.
+ * @param {Array<{question_id: number, module: string}>} picks
+ * @returns {Promise<number>} Imported count.
+ */
+async function importLiveContentQuestions(picks) {
+  const module = String(teacherState.live_module || "M1").toUpperCase();
+  const slot = String(teacherState.live_slot || "C1").toUpperCase();
+  if (!classId || !Array.isArray(picks) || !picks.length) {
+    throw new Error("Pick at least one Content Question.");
+  }
+  const payload = await api(
+    `/api/staff/class/${classId}/live-lessons/${module}/${slot}/import-content-questions`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        picks,
+        page_number: currentLivePageNumber(),
+        stage: String(teacherState.stage || "round"),
+      }),
+    }
+  );
+  applyLiveMcImportPayload(payload);
+  await refreshLessonDeckMetadata();
+  paintLiveQuestionCards();
+  paintQuestionArtifact();
+  staffStateNeedsFull = true;
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (sessionId) {
+    await pollLiveSessionAttendees({ full: true, force: true });
+    paintLiveQuestionCards();
+    paintQuestionArtifact();
+  }
+  return Number(payload?.imported) || picks.length;
+}
+
+/**
  * Open the shared module-bank picker in import mode for the active lesson.
  */
 function openLiveMcImportPicker() {
@@ -2825,6 +2862,11 @@ function openLiveMcImportPicker() {
             moduleNumber: String(teacherState.live_module || "M1").toUpperCase(),
             mode: "import",
             onSelect: (item) => importLiveMcFromBank(item),
+            contentQuestions: {
+              load: () => api(`/api/staff/class/${classId}/live-lessons/content-questions`),
+              currentModule: String(teacherState.live_module || "M1").toUpperCase(),
+              onImport: (picks) => importLiveContentQuestions(picks),
+            },
           })
         )
         .catch((err) => showError("#ap-overlay-error", err));

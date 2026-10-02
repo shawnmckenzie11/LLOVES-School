@@ -10233,6 +10233,7 @@ class SchoolDB(LovesDB):
         page_number: int,
         stage: str | None = None,
         order: int | None = None,
+        source_module: str | None = None,
     ) -> dict[str, Any]:
         """Import one module-bank MC onto a class live-lesson overlay.
 
@@ -10245,6 +10246,9 @@ class SchoolDB(LovesDB):
             page_number: Teacher page index for the placement.
             stage: Optional lifecycle stage; defaults to ``round``.
             order: Optional sort order on the page; defaults to next slot.
+            source_module: MCK-79. Module whose confirmed banks hold the
+                question, when it is not ``module`` (a Content Question
+                from another module). Defaults to ``module``.
 
         Returns:
             Inserted placement row including parsed ``item`` payload.
@@ -10299,14 +10303,19 @@ class SchoolDB(LovesDB):
                     normalize_course_warmup,
                 )
 
-            confirmed = self.list_module_bank_links(int(library_id), int(module_number))
+            bank_module = module_number
+            if source_module not in (None, ""):
+                bank_module = parse_module_token(str(source_module).strip().upper())
+                if bank_module is None:
+                    raise ValueError("source_module must be M1–M8")
+            confirmed = self.list_module_bank_links(int(library_id), int(bank_module))
             allowed_banks = {int(link["bank_id"]) for link in confirmed}
             course_warmup_bank = (
                 str(row["bank_import_key"] or "") == COURSE_WIDE_WARMUP_BANK_KEY
             )
             if int(row["bank_id"]) not in allowed_banks and not course_warmup_bank:
                 raise KeyError(
-                    f"question {question_id} is not in confirmed banks for {module_key}"
+                    f"question {question_id} is not in confirmed banks for M{bank_module}"
                 )
             try:
                 payload = json.loads(row["payload_json"] or "{}")

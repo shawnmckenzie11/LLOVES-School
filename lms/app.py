@@ -3707,6 +3707,123 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         }
         return jsonify(response)
 
+    def _content_questions_scope(class_id: int):
+        """MCK-79: class, library and selectable modules for Content Questions.
+
+        Returns:
+            ``(library_id, modules, None)`` or ``(None, [], error_response)``.
+        """
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return None, [], (jsonify({"ok": False, "error": "Forbidden"}), 403)
+        cls = school.enrich_class(school.game.get_class(class_id))
+        library_id, error = _ready_library(school, cls)
+        if not library_id:
+            return None, [], (
+                jsonify({"ok": False, "error": error or "No module pack"}),
+                404,
+            )
+        try:
+            from live_content_questions import selectable_live_modules
+        except ImportError:
+            from lms.live_content_questions import selectable_live_modules
+        modules = selectable_live_modules(cls.get("ontario_code") or "MCF3M")
+        return int(library_id), modules, None
+
+    @app.route("/api/staff/class/<int:class_id>/live-lessons/content-questions")
+    @staff_required
+    def staff_live_content_questions(class_id: int):
+        """MCK-79: top 6 Content Questions for every Run Live Class module."""
+        library_id, modules, failed = _content_questions_scope(class_id)
+        if failed is not None:
+            return failed
+        try:
+            from live_content_questions import (
+                CONTENT_QUESTIONS_PER_MODULE,
+                content_questions_by_module,
+            )
+        except ImportError:
+            from lms.live_content_questions import (
+                CONTENT_QUESTIONS_PER_MODULE,
+                content_questions_by_module,
+            )
+        groups = content_questions_by_module(
+            school, int(library_id), modules, class_id=int(class_id)
+        )
+        response = jsonify(
+            {
+                "ok": True,
+                "per_module": CONTENT_QUESTIONS_PER_MODULE,
+                "modules": modules,
+                "groups": groups,
+            }
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.route(
+        "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/import-content-questions",
+        methods=["POST"],
+    )
+    @staff_required
+    def staff_import_live_content_questions(class_id: int, module: str, slot: str):
+        """MCK-79: import picked Content Questions onto the current page.
+
+        Same placement path as ``import-mc``. Each pick names its module, and
+        must be in that module's current top 6.
+        """
+        library_id, modules, failed = _content_questions_scope(class_id)
+        if failed is not None:
+            return failed
+        try:
+            from live_content_questions import (
+                clean_content_picks,
+                import_content_questions,
+            )
+        except ImportError:
+            from lms.live_content_questions import (
+                clean_content_picks,
+                import_content_questions,
+            )
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            picks = clean_content_picks(body.get("picks"), modules)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        try:
+            page_number = int(body.get("page_number") or body.get("pageNumber") or 1)
+        except (TypeError, ValueError):
+            page_number = 1
+        stage = str(body.get("stage") or "round").strip().lower()
+        module_key = str(module or "").strip().upper()
+        slot_key = str(slot or "").strip().upper()
+        try:
+            placements = import_content_questions(
+                school,
+                int(class_id),
+                module_key,
+                slot_key,
+                picks,
+                library_id=int(library_id),
+                page_number=page_number,
+                stage=stage,
+            )
+        except KeyError as exc:
+            return jsonify({"ok": False, "error": str(exc).strip("'\"")}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify(
+            {
+                "ok": True,
+                "imported": len(placements),
+                "placements": placements,
+                **school.playlist_staff_snapshot(int(class_id), module_key, slot_key),
+            }
+        )
+
     @app.route(
         "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/add-question",
         methods=["POST"],
