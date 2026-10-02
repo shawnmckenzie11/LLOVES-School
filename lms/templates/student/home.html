@@ -19,6 +19,7 @@
         <span class="student-avatar" id="me-avatar" aria-hidden="true" hidden></span>
         <p class="me-name" id="me-name">Student</p>
         <p class="me-meet-chip" id="me-meet-chip" hidden></p>
+        {% if reward and reward.grants %}<button type="button" class="rw-chip" id="rw-chip" data-reward-open>Reward waiting</button>{% endif %}
       </div>
       <div class="me-save-slot" id="me-save-slot">
         <button type="button" class="save-work" id="save-work">Save View</button>
@@ -133,5 +134,6 @@
   <script src="/static/student-visit-token.js"></script>
   <script src="/static/student-live-session.js"></script>
   <script type="module" src="/static/student-portal.js"></script>
+  {% include "student/_avatar_reward.html" %}
 </body>
 </html>
