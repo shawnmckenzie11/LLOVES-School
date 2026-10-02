@@ -6181,6 +6181,10 @@ async function applyLiveArtifactMediaPick(pick) {
       }
     }
   }
+  // Back to Individual: clear match-teammates first, the mirror of the
+  // Group path (Group, then Group Q), so students never see Individual
+  // with Group Q still on (#215 gate LOW-1).
+  if (pick !== "group") await clearArtifactGroupQ();
   const next = {
     ...(teacherState.student_view || {}),
     media: pick === "group" ? "team" : "student",
@@ -6188,7 +6192,6 @@ async function applyLiveArtifactMediaPick(pick) {
   teacherState.student_view = next;
   await patchTeacherState({ student_view: next });
   await persistMediaRowMode(pick);
-  if (pick !== "group") await clearArtifactGroupQ();
   paintGroupSetupSurfaces();
   return true;
 }
@@ -6342,7 +6345,8 @@ async function applyHeldArtifactGroupQ(asGroup) {
   heldArtifactGroupQ = null;
   if (!held || !asGroup) return;
   const artifact = (lastActiveMedia && lastActiveMedia.artifact) || {};
-  if (artifact.group_q) return;
+  // Publish can drop the artifact (C2 parent deck): never write a stub.
+  if (!artifact.artifact_id || artifact.group_q) return;
   await patchArtifactTeacherFlags({
     hot_cold_visible: Boolean(artifact.hot_cold_visible),
     group_q: true,

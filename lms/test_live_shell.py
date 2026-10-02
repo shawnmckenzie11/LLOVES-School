@@ -2932,6 +2932,11 @@ class LiveShellTests(unittest.TestCase):
         )
         self.assertIn('media: pick === "group" ? "team" : "student"', live)
         self.assertIn('if (pick !== "group") await clearArtifactGroupQ();', live)
+        # #215 gate LOW-1: Individual clears Group Q before the view flips.
+        self.assertLess(
+            live.index('if (pick !== "group") await clearArtifactGroupQ();'),
+            live.index("await patchTeacherState({ student_view: next });"),
+        )
         change = js.split("async function onGroupSetupChange(")[1].split(
             "function focusTeamSetup("
         )[0]

@@ -227,6 +227,30 @@ const tick = async (n = 12) => { for (let i = 0; i < n; i += 1) await new Promis
     out.rowAfterIndividual = mediaRow.publish_mode;
     out.viewAfterIndividual = ctx.teacherState.student_view.media;
     out.settings = log.filter((e) => e.kind === "api" && e.url.endsWith("/items/11/settings")).map((e) => e.body.publish_mode);
+  } else if (input.scenario === "back-to-individual") {
+    // Group live with Group Q on, then the live Media radio to Individual.
+    mediaRow.publish_mode = "group_shared";
+    const ok = await ctx.applyLiveArtifactMediaPick("individual");
+    out.ok = ok;
+    out.groupQAfter = Boolean(ctx.lastActiveMedia.artifact.group_q);
+    out.mediaViewAfter = ctx.teacherState.student_view.media;
+    out.mediaRowMode = mediaRow.publish_mode;
+    out.order = log.map((e) => {
+      if (e.kind === "teacher") return `view:${e.patch.student_view && e.patch.student_view.media}`;
+      if (e.kind === "api") return `row:${e.body.publish_mode}`;
+      return `${e.kind}:${e.group_q}`;
+    });
+  } else if (input.scenario === "held-after-publish") {
+    // A held tick applied after Publish; Publish may have dropped the artifact.
+    if (input.artifactAfterPublish === "none") ctx.lastActiveMedia = { url: ctx.lastActiveMedia.url };
+    else if (input.artifactAfterPublish === "no-id") {
+      ctx.lastActiveMedia = { url: ctx.lastActiveMedia.url, artifact: { hot_cold_visible: false, group_q: false } };
+    }
+    ctx.heldArtifactGroupQ = true;
+    await ctx.applyHeldArtifactGroupQ(true);
+    out.mediaWrites = log.filter((e) => e.kind === "media").map((e) => e.group_q);
+    out.artifact = ctx.lastActiveMedia.artifact || null;
+    out.heldAfter = ctx.heldArtifactGroupQ;
   } else if (input.scenario === "remint") {
     await ctx.mintArtifactFromMedia({
       artifact_id: "mcf3m-m1-c2-transformations",
@@ -249,9 +273,11 @@ def _run_staff(scenario: str, **opts: object) -> dict:
     """Run one harness scenario against the real staff_ap.js functions.
 
     Args:
-        scenario: ``tick-cancel``, ``tick-confirm``, ``live-switch`` or ``remint``.
+        scenario: ``tick-cancel``, ``tick-confirm``, ``live-switch``,
+            ``back-to-individual``, ``held-after-publish`` or ``remint``.
         **opts: ``runAsGroup``, ``mediaView``, ``mediaStatus``,
-            ``storedGroupQ``, ``frameGroupQ``.
+            ``storedGroupQ``, ``frameGroupQ``, ``artifactAfterPublish``
+            (``kept``, ``no-id`` or ``none``).
     """
     js = STAFF_JS.read_text(encoding="utf-8")
     src = "\n".join(
@@ -266,6 +292,7 @@ def _run_staff(scenario: str, **opts: object) -> dict:
         "mediaStatus": "active",
         "storedGroupQ": False,
         "frameGroupQ": False,
+        "artifactAfterPublish": "kept",
         **opts,
     }
     result = subprocess.run(
@@ -354,6 +381,24 @@ class MediaRowLabelClientTests(unittest.TestCase):
         self.assertEqual(out["rowAfterIndividual"], "individual", out)
         self.assertEqual(out["settings"], ["group_shared", "individual"], out)
 
+    def test_back_to_individual_clears_group_q_before_the_view(self) -> None:
+        """#215 gate LOW-1: Group Q off first, then Individual, then the row.
+
+        The mirror of the Group path (Group, then Group Q), so no student
+        poll lands on Individual with match-teammates still on.
+        """
+        out = _run_staff(
+            "back-to-individual", runAsGroup=True, mediaView="team", storedGroupQ=True
+        )
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(
+            out["order"], ["media:false", "view:student", "row:individual"], out
+        )
+        self.assertFalse(out["groupQAfter"], out)
+        self.assertEqual(out["mediaViewAfter"], "student", out)
+        self.assertEqual(out["mediaRowMode"], "individual", out)
+        self.assertEqual(out["errors"], [], out)
+
     def test_publish_surface_records_group_on_media(self) -> None:
         js = STAFF_JS.read_text(encoding="utf-8")
         publish = js.split("async function publishSurface(")[1].split(
@@ -364,6 +409,31 @@ class MediaRowLabelClientTests(unittest.TestCase):
             in publish,
             "publishSurface must publish artifact Media Group as group_shared",
         )
+
+
+@unittest.skipUnless(shutil.which("node"), "node is required for the staff_ap.js harness")
+class HeldGroupQAfterPublishTests(unittest.TestCase):
+    """#215 gate INFO: a held Group Q never writes a stub artifact."""
+
+    def test_held_group_q_skips_when_publish_dropped_the_artifact(self) -> None:
+        """No artifact (or one with no id) after Publish: nothing is written."""
+        for after in ("none", "no-id"):
+            with self.subTest(artifact_after_publish=after):
+                out = _run_staff(
+                    "held-after-publish",
+                    runAsGroup=True,
+                    mediaView="team",
+                    artifactAfterPublish=after,
+                )
+                self.assertEqual(out["mediaWrites"], [], out)
+                self.assertFalse((out["artifact"] or {}).get("group_q"), out)
+                self.assertIsNone(out["heldAfter"], out)
+
+    def test_held_group_q_still_lands_on_a_real_artifact(self) -> None:
+        out = _run_staff("held-after-publish", runAsGroup=True, mediaView="team")
+        self.assertEqual(out["mediaWrites"], [True], out)
+        self.assertEqual(out["artifact"]["artifact_id"], "mcf3m-m1-c2-transformations", out)
+        self.assertIs(out["artifact"]["group_q"], True, out)
 
 
 @unittest.skipUnless(shutil.which("node"), "node is required for the staff_ap.js harness")
