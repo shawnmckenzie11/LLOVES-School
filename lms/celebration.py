@@ -1491,9 +1491,13 @@ def reward_appearances(school: Any) -> list[dict[str, Any]]:
     features right now: the Shoutout, plus every tied Most Engaged winner per
     course (frozen snapshot while frozen). Each row names its appearance:
 
-    * Most Engaged: ``engaged:<semester>:<freeze epoch>:<course>``. A login,
-      a reload or a re-taken snapshot in the same epoch is the same
-      appearance; a new epoch (board unfrozen and frozen again) is a new one.
+    * Most Engaged: ``engaged:<semester>:<freeze epoch>:<course>``, plus
+      ``:p<period>`` once the class has had a Start fresh (MCK-133 award
+      period id; the first period, 0, keeps the bare key so grants made
+      before MCK-133 are never repeated). A login, a reload or a re-taken
+      snapshot in the same epoch and period is the same appearance; a new
+      epoch (board unfrozen and frozen again) or a new award period is a
+      new one.
     * Shoutout: ``shoutout:<featured_at>`` (set when a teacher features a new
       student; a blurb edit keeps it, and so does a rollback build's rewrite,
       via the identity setting). An older setting without ``featured_at``
@@ -1546,9 +1550,12 @@ def reward_appearances(school: Any) -> list[dict[str, Any]]:
             course = str(row.get("course") or "")
             if not course or semester_id is None:
                 continue
+            # MCK-133: a new award period is a new appearance.
+            period = int(row.get("period") or 0)
+            suffix = f":p{period}" if period else ""
             out.append(
                 {**ids, "source": "engaged",
-                 "source_ref": f"engaged:{semester_id}:{epoch}:{course}",
+                 "source_ref": f"engaged:{semester_id}:{epoch}:{course}{suffix}",
                  "award_title": WONDER_COPY["engaged_title"]}
             )
     return out
