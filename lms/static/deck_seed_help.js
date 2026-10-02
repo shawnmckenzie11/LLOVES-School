@@ -183,3 +183,314 @@ export function deckSeedResponseIsCurrent(response, selection) {
     slot === String(selection.slot || "").trim().toUpperCase()
   );
 }
+
+/* ===== MCK-132: Course deck copy between sections (From → Source deck → confirm) =====
+ * Every user-facing string below is placeholder copy from the Mobbin spec
+ * (set-class-course-deck-copy-ia-v0.md) and is tagged "copy: Wonder" so
+ * Wonder can swap the text without touching logic.
+ */
+
+/**
+ * Natural sort key for a deck, read from its tokens (never from a label).
+ * ``M2``/``C3`` -> ``[2, 3]``; M2 sorts before M10. Missing digits -> 0.
+ *
+ * @param {string} module
+ * @param {string} slot
+ * @returns {[number, number]}
+ */
+export function deckNaturalKey(module, slot) {
+  const num = (token) => {
+    const digits = String(token || "").replace(/\D+/g, "");
+    return digits ? Number.parseInt(digits, 10) : 0;
+  };
+  return [num(module), num(slot)];
+}
+
+/** Plain deck name built from tokens, such as ``M2 C3``. */
+function deckName(module, slot) {
+  return `${String(module || "").toUpperCase()} ${String(slot || "").toUpperCase()}`.trim();
+}
+
+/** ``9 questions`` / ``1 question``. copy: Wonder */
+function questionCount(n) {
+  const count = Number(n) || 0;
+  return `${count} ${count === 1 ? "question" : "questions"}`; // copy: Wonder
+}
+
+/** ``11 decks`` / ``1 deck`` / ``no decks``. copy: Wonder */
+function deckCount(n) {
+  const count = Number(n) || 0;
+  if (!count) return "no decks"; // copy: Wonder
+  return `${count} ${count === 1 ? "deck" : "decks"}`; // copy: Wonder
+}
+
+/**
+ * Whether a deck row belongs to one class.
+ * @param {any} deck
+ * @param {number|string} classId
+ */
+function deckInClass(deck, classId) {
+  return String(deck?.class_id ?? deck?.classId ?? "") === String(classId ?? "");
+}
+
+/**
+ * The From list: sibling sections first (by section index), then this class.
+ *
+ * Uses the server's ``sources`` when present. An older server without
+ * ``sources`` falls back to the sections that appear in ``decks``.
+ *
+ * @param {any[]|undefined} sources Server ``sources`` rows.
+ * @param {any[]|undefined} decks Server ``decks`` rows.
+ * @returns {{classId: string, sectionCode: string, label: string, count: number, isThisClass: boolean, sectionIndex: number}[]}
+ */
+export function deckCopySources(sources, decks) {
+  const rows = Array.isArray(decks) ? decks : [];
+  const countFor = (classId) => rows.filter((deck) => deckInClass(deck, classId)).length;
+  let list = Array.isArray(sources) ? sources : [];
+  if (!list.length) {
+    const seen = new Map();
+    for (const deck of rows) {
+      const id = String(deck.class_id ?? deck.classId ?? "");
+      if (!id || seen.has(id)) continue;
+      seen.set(id, {
+        class_id: id,
+        section_code: deck.section_code || deck.sectionCode || "",
+        section_index: deck.section_index ?? 1,
+        is_this_class: Boolean(deck.same_class ?? deck.sameClass),
+      });
+    }
+    list = [...seen.values()];
+  }
+  const shaped = list.map((row) => {
+    const classId = String(row.class_id ?? row.classId ?? "");
+    const sectionCode = String(row.section_code || row.sectionCode || "");
+    const isThisClass = Boolean(row.is_this_class ?? row.isThisClass);
+    const count = countFor(classId);
+    const label = isThisClass
+      ? `This class (${sectionCode}) · ${deckCount(count)}` // copy: Wonder
+      : `${sectionCode} · ${deckCount(count)}`; // copy: Wonder
+    return {
+      classId,
+      sectionCode,
+      label,
+      count,
+      isThisClass,
+      sectionIndex: Number(row.section_index ?? row.sectionIndex ?? 1) || 1,
+    };
+  });
+  shaped.sort((a, b) => {
+    if (a.isThisClass !== b.isThisClass) return a.isThisClass ? 1 : -1;
+    if (a.sectionIndex !== b.sectionIndex) return a.sectionIndex - b.sectionIndex;
+    return Number(a.classId) - Number(b.classId);
+  });
+  return shaped;
+}
+
+/**
+ * Default From: the first sibling with a deck in the target M·C, otherwise
+ * the first sibling, otherwise this class.
+ *
+ * @param {{classId: string, isThisClass: boolean}[]} srcs From ``deckCopySources``.
+ * @param {any[]} decks Server ``decks`` rows.
+ * @param {{module?: string, slot?: string}} pack Target module and slot.
+ * @returns {string} class id, or ``""`` when there is no source.
+ */
+export function defaultCopySource(srcs, decks, pack = {}) {
+  const list = Array.isArray(srcs) ? srcs : [];
+  const rows = Array.isArray(decks) ? decks : [];
+  const moduleName = String(pack.module || "").toUpperCase();
+  const slot = String(pack.slot || "").toUpperCase();
+  const siblings = list.filter((src) => !src.isThisClass);
+  const sameSlot = siblings.find((src) =>
+    rows.some(
+      (deck) =>
+        deckInClass(deck, src.classId) &&
+        String(deck.module || "").toUpperCase() === moduleName &&
+        String(deck.slot || "").toUpperCase() === slot
+    )
+  );
+  if (sameSlot) return sameSlot.classId;
+  if (siblings.length) return siblings[0].classId;
+  const own = list.find((src) => src.isThisClass);
+  return own ? own.classId : "";
+}
+
+/**
+ * Source deck options for one section, grouped by module in natural order.
+ * Values stay ``classId:M:C`` (unchanged from MCK-51). The deck in the
+ * target slot gets a ``· same slot`` suffix.
+ *
+ * @param {any[]} decks Server ``decks`` rows.
+ * @param {string|number} classId Chosen From section.
+ * @param {{module?: string, slot?: string}} pack Target module and slot.
+ * @returns {{group: string, options: {value: string, label: string, name: string, count: number, sameSlot: boolean}[]}[]}
+ */
+export function deckOptionsBySource(decks, classId, pack = {}) {
+  const rows = (Array.isArray(decks) ? decks : []).filter((deck) => deckInClass(deck, classId));
+  const moduleName = String(pack.module || "").toUpperCase();
+  const slot = String(pack.slot || "").toUpperCase();
+  rows.sort((a, b) => {
+    const [am, as] = deckNaturalKey(a.module, a.slot);
+    const [bm, bs] = deckNaturalKey(b.module, b.slot);
+    return am - bm || as - bs;
+  });
+  /** @type {Map<string, any>} */
+  const groups = new Map();
+  for (const deck of rows) {
+    const mod = String(deck.module || "").toUpperCase();
+    const s = String(deck.slot || "").toUpperCase();
+    const [modNumber] = deckNaturalKey(mod, s);
+    const group = `Module ${modNumber}`; // copy: Wonder
+    if (!groups.has(group)) groups.set(group, { group, options: [] });
+    const sameSlot = mod === moduleName && s === slot;
+    const name = deckName(mod, s);
+    const count = Number(deck.question_count ?? deck.questionCount ?? 0) || 0;
+    groups.get(group).options.push({
+      value: `${String(classId)}:${mod}:${s}`,
+      label: `${name} · ${questionCount(count)}${sameSlot ? " · same slot" : ""}`, // copy: Wonder
+      name,
+      count,
+      sameSlot,
+    });
+  }
+  return [...groups.values()];
+}
+
+/**
+ * Default Source deck: the target M·C when the section has it, otherwise
+ * ``""`` (the placeholder), so an overwrite is never preselected by
+ * accident.
+ *
+ * @param {any[]} decks
+ * @param {string|number} classId
+ * @param {{module?: string, slot?: string}} pack
+ * @returns {string}
+ */
+export function defaultCopyDeck(decks, classId, pack = {}) {
+  for (const group of deckOptionsBySource(decks, classId, pack)) {
+    const hit = group.options.find((opt) => opt.sameSlot);
+    if (hit) return hit.value;
+  }
+  return "";
+}
+
+/** Placeholder option text for the Source deck select. */
+export const DECK_COPY_PLACEHOLDER = "Choose a deck…"; // copy: Wonder
+
+/**
+ * Helper line under the chips while Course deck is on, for the two empty
+ * states. Returns ``""`` when the normal helper line applies.
+ *
+ * @param {{sources?: any[], chosen?: string, course?: string}} state
+ * @returns {string}
+ */
+export function deckCopyHelpText(state = {}) {
+  const list = Array.isArray(state.sources) ? state.sources : [];
+  const chosen = list.find((src) => String(src.classId) === String(state.chosen ?? ""));
+  if (chosen && !chosen.isThisClass && !chosen.count) {
+    return `${chosen.sectionCode} has no saved decks yet. Pick another section.`; // copy: Wonder
+  }
+  if (list.length && list.every((src) => src.isThisClass)) {
+    const course = String(state.course || chosen?.sectionCode || "this course");
+    return `No other current sections of ${course}. Pick a deck from this class.`; // copy: Wonder
+  }
+  return "";
+}
+
+/**
+ * State of the inline confirm strip under the Set Class row.
+ *
+ * @param {{
+ *   mode?: string,
+ *   chosen?: boolean,
+ *   deck?: {value?: string, name?: string, count?: number}|null,
+ *   source?: {sectionCode?: string, isThisClass?: boolean}|null,
+ *   target?: {sectionCode?: string, name?: string},
+ *   current?: {available?: boolean, question_count?: number},
+ *   phase?: "idle"|"copying"|"nudge"|"error",
+ *   error?: string,
+ *   done?: {text?: string}|null,
+ * }} state
+ * @returns {{hidden: boolean, variant: string, route: string, text: string,
+ *   goLabel: string, showGo: boolean, showKeep: boolean, busy: boolean,
+ *   holdsNext: boolean, replace: boolean}}
+ */
+export function deckCopyConfirmState(state = {}) {
+  const base = {
+    hidden: true,
+    variant: "",
+    route: "",
+    text: "",
+    goLabel: "",
+    showGo: false,
+    showKeep: false,
+    busy: false,
+    holdsNext: false,
+    replace: false,
+  };
+  if (state.done && state.done.text) {
+    return { ...base, hidden: false, variant: "success", text: String(state.done.text) };
+  }
+  const mode = String(state.mode || "current");
+  if (mode !== "course" || !state.chosen) return base;
+  const phase = String(state.phase || "idle");
+  const deck = state.deck || null;
+  if (!deck || !deck.value) {
+    // A clicked Course deck with no deck picked used to fail after /begin.
+    // Hold Next here instead.
+    if (phase === "nudge") {
+      return {
+        ...base,
+        hidden: false,
+        variant: "nudge",
+        text: "Choose a deck to copy first.", // copy: Wonder
+        holdsNext: true,
+      };
+    }
+    return { ...base, holdsNext: true };
+  }
+  const source = state.source || {};
+  const target = state.target || {};
+  const sourceSection = String(source.sectionCode || "");
+  const route = `${sourceSection} · ${deck.name} → ${target.sectionCode || ""} · ${target.name || ""}.`; // copy: Wonder
+  const current = state.current || {};
+  const replace = Boolean(current.available);
+  const qs = questionCount(deck.count);
+  let variant = replace ? "replace" : "info";
+  let text = replace
+    ? `Replaces this class's current ${target.name} deck (${questionCount(current.question_count)}) with ${qs}, pages, media and team challenge. ${source.isThisClass ? `${sourceSection} · ${deck.name}` : sourceSection} is not changed. Can't be undone.` // copy: Wonder
+    : `Copies ${qs}, pages, media and team challenge.`; // copy: Wonder
+  const goLabel = replace ? "Replace deck" : "Copy deck"; // copy: Wonder
+  if (phase === "copying") {
+    text = "Copying…"; // copy: Wonder
+  } else if (phase === "nudge" && replace) {
+    variant = "nudge";
+    text = "Replace the deck or keep current first."; // copy: Wonder
+  } else if (phase === "error") {
+    variant = "nudge";
+    text = String(state.error || "Couldn't copy the deck. Try again."); // copy: Wonder
+  }
+  return {
+    ...base,
+    hidden: false,
+    variant,
+    route,
+    text,
+    goLabel,
+    showGo: true,
+    showKeep: replace,
+    busy: phase === "copying",
+    // An empty target loses nothing, so Next may still copy (as today).
+    holdsNext: replace,
+    replace,
+  };
+}
+
+/**
+ * Success line after a copy.
+ * @param {{sourceSection: string, deckName: string, targetSection: string, targetName: string, count: number}} info
+ * @returns {string}
+ */
+export function deckCopySuccessText(info) {
+  return `✓ Copied ${info.sourceSection} · ${info.deckName} → ${info.targetSection} · ${info.targetName} (${questionCount(info.count)}).`; // copy: Wonder
+}

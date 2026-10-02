@@ -248,6 +248,9 @@ results.beforeExplicitClick = checked();
 clickChip('course');
 await switchSlot('C3');
 results.explicitCourseKept = checked();
+// MCK-132: Source deck now defaults to "Choose a deck…" when the section
+// has no deck in the target M·C, so the teacher picks one.
+els['live-deck-seed-source'].value = '5:M2:C1';
 posts.length = 0;
 await mod.applyDeckSeedChoice();
 results.explicitConfirmPosts = posts.map((p) => p.body);
@@ -536,12 +539,26 @@ class DeckSeedKeepExistingServerTests(unittest.TestCase):
         self.assertFalse(seeded.get_json().get("kept_existing", False))
         self.assertEqual(self._deck("M2", "C1"), source)
 
-    def test_explicit_course_still_replaces_existing_deck(self) -> None:
-        """Without keep_existing (a clicked chip) the copy goes through."""
+    def test_explicit_course_replaces_existing_deck_only_after_confirm(self) -> None:
+        """A clicked chip replaces a deck only with replace: true (MCK-132)."""
 
         source = self._deck("M1", "C2")
-        seeded = self._seed(
+        before = self._deck("M1", "C3")
+        held = self._seed(
             "M1", "C3", {"mode": "course", "source_module": "M1", "source_slot": "C2"}
+        )
+        self.assertEqual(held.status_code, 409, held.get_json())
+        self.assertTrue(held.get_json()["needs_confirm"])
+        self.assertEqual(self._deck("M1", "C3"), before)
+        seeded = self._seed(
+            "M1",
+            "C3",
+            {
+                "mode": "course",
+                "source_module": "M1",
+                "source_slot": "C2",
+                "replace": True,
+            },
         )
         self.assertEqual(seeded.status_code, 200, seeded.get_json())
         self.assertEqual(seeded.get_json()["mode"], "course")

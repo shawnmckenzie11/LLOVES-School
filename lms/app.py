@@ -83,7 +83,7 @@ from local_dev_seed import (  # noqa: E402
     local_dev_login_enabled,
     seed_local_dev_school,
 )
-from school_db import STAFF_2FA_MODE_LABELS, SchoolDB, json_safe  # noqa: E402
+from school_db import STAFF_2FA_MODE_LABELS, DeckReplaceNotConfirmed, SchoolDB, json_safe  # noqa: E402
 from serve_capacity import (  # noqa: E402
     PollBudgetExceeded,
     is_live_state_poll,
@@ -3607,6 +3607,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         also writes nothing when the slot already has a deck. A cross-section source is refused unless this staff
         member can manage that class. The source challenge and the course
         seed JSON are not rewritten.
+
+        MCK-132: a cross-section source must be one of this teacher's own
+        current (non-archived) sections of the same course, admins
+        included. A ``course`` copy onto a slot that already has a deck
+        needs ``replace: true``; otherwise 409 with ``needs_confirm``.
         """
 
         user = current_user()
@@ -3634,9 +3639,15 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 source_class_id=source_class_id,
                 teacher_user_id=int(user["id"]),
                 keep_existing=body.get("keep_existing") is True or body.get("keepExisting") is True,
+                # MCK-132: a clicked Course deck never silently replaces a
+                # deck. The client sends replace: true only from Replace deck.
+                require_replace_confirm=True,
+                replace=body.get("replace") is True,
             )
         except KeyError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 404
+        except DeckReplaceNotConfirmed as exc:
+            return jsonify({"ok": False, "error": str(exc), "needs_confirm": True}), 409
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         except PermissionError as exc:

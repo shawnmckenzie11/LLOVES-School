@@ -64,11 +64,19 @@ import {
   newsPaintsBoardInPlace,
 } from "/static/live_news_wire.js";
 import {
+  DECK_COPY_PLACEHOLDER,
   courseDeckChoiceDisabled,
+  deckCopyConfirmState,
+  deckCopyHelpText,
+  deckCopySources,
+  deckCopySuccessText,
+  deckOptionsBySource,
   deckSeedConfirmMode,
   deckSeedDefaultMode,
   deckSeedHelpText,
   deckSeedResponseIsCurrent,
+  defaultCopyDeck,
+  defaultCopySource,
 } from "/static/deck_seed_help.js";
 import { overlayClassListPresence } from "/static/class_list_presence.js";
 import {
@@ -318,6 +326,7 @@ function enterSetClassPhase() {
   lockClassListPane();
   deckSeedMode = "current";
   deckSeedModeChosen = false;
+  resetDeckCopyState();
   refreshDeckSeedOptions();
 }
 
@@ -366,6 +375,37 @@ let deckSeedCatalog = null;
 let deckSeedPhase = "ready";
 /** Latest deck-seed fetch. A smaller number is a late reply. */
 let deckSeedFetchSeq = 0;
+/** MCK-132: From section the teacher picked (null = use the default). */
+let deckCopyFromChosen = null;
+/** MCK-132: true once the teacher picks a Source deck themselves. */
+let deckCopyDeckChosen = false;
+/** @type {"idle"|"copying"|"nudge"|"error"} */
+let deckCopyPhase = "idle";
+let deckCopyError = "";
+/** @type {{text: string}|null} Success line after Copy deck / Replace deck. */
+let deckCopyDone = null;
+
+/**
+ * Forget the From / Source deck picks and the confirm strip state.
+ */
+function resetDeckCopyState() {
+  deckCopyFromChosen = null;
+  deckCopyDeckChosen = false;
+  deckCopyPhase = "idle";
+  deckCopyError = "";
+  deckCopyDone = null;
+}
+
+/**
+ * Clear the success line and any nudge after a change in the Set Class row.
+ */
+function clearDeckCopyStatus() {
+  deckCopyDone = null;
+  if (deckCopyPhase !== "copying") {
+    deckCopyPhase = "idle";
+    deckCopyError = "";
+  }
+}
 
 /**
  * Read the Set Class module and challenge currently selected.
@@ -401,6 +441,18 @@ function paintDeckSeedHelp() {
   const previous = deckSeedCatalog?.previous || {};
   const decks = Array.isArray(deckSeedCatalog?.decks) ? deckSeedCatalog.decks : [];
   note.hidden = false;
+  if (deckSeedMode === "course" && deckSeedPhase === "ready") {
+    // MCK-132 states F and G: no other current section / chosen section empty.
+    const copyNote = deckCopyHelpText({
+      sources: deckCopySources(deckSeedCatalog?.sources, decks),
+      chosen: String($("live-deck-copy-from")?.value || ""),
+      course: String(deckSeedCatalog?.course || ""),
+    });
+    if (copyNote) {
+      note.textContent = copyNote;
+      return;
+    }
+  }
   note.textContent = deckSeedHelpText({
     phase: deckSeedPhase,
     mode: deckSeedMode,
@@ -419,7 +471,10 @@ function paintDeckSeedHelp() {
 function paintDeckSeedPicker() {
   const picker = $("live-deck-seed-picker");
   if (picker) picker.hidden = deckSeedMode !== "course";
+  const from = $("live-deck-copy-from-field");
+  if (from) from.hidden = deckSeedMode !== "course";
   paintDeckSeedHelp();
+  paintDeckCopyConfirm();
 }
 
 /**
@@ -472,22 +527,10 @@ function paintDeckSeedOptions(data) {
     const label = String(previous.label || "").trim();
     previousLabel.title = available && label ? `${base} (${label})` : base;
   }
-  const select = $("live-deck-seed-source");
   const decks = Array.isArray(data?.decks) ? data.decks : [];
-  if (select instanceof HTMLSelectElement) {
-    const currentValue = select.value;
-    select.replaceChildren();
-    if (!decks.length) {
-      const empty = new Option("No other decks in this course", "");
-      empty.disabled = true;
-      select.add(empty);
-    } else {
-      paintDeckSourceOptions(select, decks);
-      if ([...select.options].some((opt) => opt.value === currentValue)) {
-        select.value = currentValue;
-      }
-    }
-  }
+  // MCK-132: two steps, From (section) then Source deck (by module).
+  paintDeckCopyFrom();
+  paintDeckCopyDecks();
   const currentInfo = data?.current || {};
   const currentAvailable = Boolean(currentInfo.available);
   setDeckSeedChipDisabled("live-deck-seed-current", !currentAvailable);
@@ -517,42 +560,250 @@ function paintDeckSeedOptions(data) {
 }
 
 /**
- * Fill the Source deck select, grouped by section when more than one appears.
- * Option values are ``classId:module:slot``.
- * @param {HTMLSelectElement} select
- * @param {any[]} decks
+ * Fill the From select (MCK-132): this teacher's current sections of the
+ * course, siblings first, then this class. A section the teacher picked is
+ * kept while it is still listed; otherwise the default is worked out again.
+ * Only this class listed (state F) disables the select.
  */
-function paintDeckSourceOptions(select, decks) {
-  const sections = [
-    ...new Set(decks.map((deck) => String(deck.section_code || deck.sectionCode || ""))),
-  ].filter(Boolean);
-  const grouped = sections.length > 1;
-  const addOption = (parent, deck) => {
-    const module = String(deck.module || "").toUpperCase();
-    const slot = String(deck.slot || "").toUpperCase();
-    const sourceClass = deck.class_id ?? deck.classId ?? "";
-    const label = String(deck.label || `${module} ${slot}`);
-    const value = sourceClass !== "" && sourceClass != null
-      ? `${sourceClass}:${module}:${slot}`
-      : `${module}:${slot}`;
-    parent.append(new Option(label, value));
-  };
-  if (!grouped) {
-    for (const deck of decks) addOption(select, deck);
+function paintDeckCopyFrom() {
+  const select = $("live-deck-copy-from");
+  if (!(select instanceof HTMLSelectElement)) return;
+  const decks = Array.isArray(deckSeedCatalog?.decks) ? deckSeedCatalog.decks : [];
+  const sources = deckCopySources(deckSeedCatalog?.sources, decks);
+  select.replaceChildren();
+  for (const src of sources) select.add(new Option(src.label, src.classId));
+  const ids = sources.map((src) => src.classId);
+  const picked =
+    deckCopyFromChosen != null && ids.includes(String(deckCopyFromChosen))
+      ? String(deckCopyFromChosen)
+      : defaultCopySource(sources, decks, selectedSetClassPack());
+  select.value = picked;
+  select.disabled = !sources.some((src) => !src.isThisClass);
+}
+
+/**
+ * Fill the Source deck select for the chosen From section, grouped by
+ * module in natural order. Option values stay ``classId:module:slot``.
+ * A deck the teacher picked is kept while it is still listed; otherwise the
+ * same M·C is preselected, or the "Choose a deck…" placeholder.
+ */
+function paintDeckCopyDecks() {
+  const select = $("live-deck-seed-source");
+  if (!(select instanceof HTMLSelectElement)) return;
+  const decks = Array.isArray(deckSeedCatalog?.decks) ? deckSeedCatalog.decks : [];
+  const pack = selectedSetClassPack();
+  const fromId = String($("live-deck-copy-from")?.value || "");
+  const currentValue = select.value;
+  select.replaceChildren();
+  if (!decks.length) {
+    const empty = new Option("No other decks in this course", "");
+    empty.disabled = true;
+    select.add(empty);
+    select.disabled = true;
     return;
   }
-  const buckets = new Map();
-  for (const deck of decks) {
-    const section = String(deck.section_code || deck.sectionCode || "This section");
-    if (!buckets.has(section)) buckets.set(section, []);
-    buckets.get(section).push(deck);
+  const groups = deckOptionsBySource(decks, fromId, pack);
+  if (!groups.length) {
+    const src = deckCopySources(deckSeedCatalog?.sources, decks).find(
+      (row) => row.classId === fromId
+    );
+    const empty = new Option(`No decks in ${src?.sectionCode || "this section"} yet`, ""); // copy: Wonder
+    empty.disabled = true;
+    select.add(empty);
+    select.disabled = true;
+    return;
   }
-  for (const [section, rows] of buckets) {
+  select.disabled = false;
+  select.add(new Option(DECK_COPY_PLACEHOLDER, ""));
+  for (const block of groups) {
     const group = document.createElement("optgroup");
-    group.label = section;
-    for (const deck of rows) addOption(group, deck);
+    group.label = block.group;
+    for (const opt of block.options) group.append(new Option(opt.label, opt.value));
     select.append(group);
   }
+  const values = groups.flatMap((block) => block.options.map((opt) => opt.value));
+  select.value =
+    deckCopyDeckChosen && values.includes(currentValue)
+      ? currentValue
+      : defaultCopyDeck(decks, fromId, pack);
+}
+
+/**
+ * Inputs for ``deckCopyConfirmState`` read from the catalog and the row.
+ * @returns {any}
+ */
+function currentDeckCopyState() {
+  const pack = selectedSetClassPack();
+  const decks = Array.isArray(deckSeedCatalog?.decks) ? deckSeedCatalog.decks : [];
+  const sources = deckCopySources(deckSeedCatalog?.sources, decks);
+  const raw = String($("live-deck-seed-source")?.value || "");
+  const deckClass = raw.split(":").length >= 3 ? raw.split(":")[0] : "";
+  let deck = null;
+  if (deckClass) {
+    for (const block of deckOptionsBySource(decks, deckClass, pack)) {
+      const hit = block.options.find((opt) => opt.value === raw);
+      if (hit) deck = hit;
+    }
+  }
+  const own = sources.find((src) => src.isThisClass);
+  return {
+    mode: deckSeedMode,
+    chosen: deckSeedModeChosen,
+    deck,
+    source: sources.find((src) => src.classId === deckClass) || null,
+    target: {
+      sectionCode: own?.sectionCode || String(deckSeedCatalog?.course || ""),
+      name: `${pack.module} ${pack.slot}`,
+    },
+    current: deckSeedCatalog?.current || {},
+    phase: deckCopyPhase,
+    error: deckCopyError,
+    done: deckCopyDone,
+  };
+}
+
+/**
+ * The confirm strip view for the current row (MCK-132).
+ * @returns {ReturnType<typeof deckCopyConfirmState>}
+ */
+function deckCopyView() {
+  return deckCopyConfirmState(currentDeckCopyState());
+}
+
+/**
+ * Paint the inline confirm / success strip under the Set Class row.
+ */
+function paintDeckCopyConfirm() {
+  const strip = $("live-deck-copy-confirm");
+  if (!strip) return;
+  const view = deckCopyView();
+  strip.hidden = view.hidden;
+  strip.setAttribute("aria-busy", view.busy ? "true" : "false");
+  if (view.hidden) {
+    strip.removeAttribute("data-variant");
+  } else {
+    strip.setAttribute("data-variant", view.variant);
+  }
+  const text = $("live-deck-copy-text");
+  if (text) {
+    const parts = [];
+    if (view.route) {
+      const route = document.createElement("span");
+      route.className = "live-deck-copy-route";
+      route.textContent = view.route;
+      parts.push(route, document.createTextNode(" "));
+    }
+    parts.push(document.createTextNode(view.text));
+    text.replaceChildren(...(view.hidden ? [] : parts));
+  }
+  const go = $("live-deck-copy-go");
+  if (go) {
+    go.hidden = !view.showGo;
+    go.textContent = view.goLabel || "Copy deck"; // copy: Wonder
+    go.disabled = view.busy;
+  }
+  const keep = $("live-deck-copy-keep");
+  if (keep) {
+    keep.hidden = !view.showKeep;
+    keep.disabled = view.busy;
+  }
+}
+
+/**
+ * Copy deck / Replace deck: POST the copy now, without /begin (MCK-132).
+ * On success the chip returns to Use current and a success line shows.
+ * @returns {Promise<void>}
+ */
+async function copyDeckNow() {
+  const view = deckCopyView();
+  if (view.hidden || !view.showGo || view.busy) return;
+  const state = currentDeckCopyState();
+  const raw = String($("live-deck-seed-source")?.value || "");
+  const [sourceClass, sourceModule, sourceSlot] = raw.split(":");
+  if (!sourceModule || !sourceSlot || !state.deck) return;
+  const pack = selectedSetClassPack();
+  /** @type {Record<string, string|boolean>} */
+  const body = {
+    mode: "course",
+    source_module: sourceModule,
+    source_slot: sourceSlot,
+    source_class_id: sourceClass,
+  };
+  // Only the Replace deck button may replace an existing deck.
+  if (view.replace) body.replace = true;
+  deckCopyPhase = "copying";
+  deckCopyError = "";
+  paintDeckCopyConfirm();
+  try {
+    await api(
+      `/api/staff/class/${classId}/live-lessons/${pack.module}/${pack.slot}/deck-seed`,
+      { method: "POST", body: JSON.stringify(body) }
+    );
+  } catch (err) {
+    deckCopyPhase = "error";
+    deckCopyError = err instanceof Error ? err.message : String(err || "");
+    paintDeckCopyConfirm();
+    $("live-deck-copy-go")?.focus();
+    return;
+  }
+  deckCopyPhase = "idle";
+  deckCopyDone = {
+    text: deckCopySuccessText({
+      sourceSection: state.source?.sectionCode || "",
+      deckName: state.deck.name,
+      targetSection: state.target.sectionCode,
+      targetName: state.target.name,
+      count: state.deck.count,
+    }),
+  };
+  // The slot now has a deck: the row returns to Use current and Next
+  // writes nothing (applyDeckSeedChoice returns early on "current").
+  deckSeedMode = "current";
+  deckSeedModeChosen = false;
+  deckCopyFromChosen = null;
+  deckCopyDeckChosen = false;
+  await refreshDeckSeedOptions();
+  paintDeckCopyConfirm();
+  $("live-deck-seed-current")?.focus();
+}
+
+/**
+ * Keep current: leave the target deck alone and hide the strip.
+ */
+function keepCurrentDeck() {
+  const current = $("live-deck-seed-current");
+  if (current instanceof HTMLInputElement && !current.disabled) current.checked = true;
+  deckSeedMode = "current";
+  deckSeedModeChosen = true;
+  deckCopyPhase = "idle";
+  deckCopyError = "";
+  paintDeckSeedPicker();
+  $("live-deck-seed-current")?.focus();
+}
+
+/**
+ * Hold Next while a clicked Course deck would replace a deck (or no deck
+ * is picked yet). Paints the nudge and sends nothing (no /begin).
+ * @param {{ reservedWin?: Window|null }} [opts]
+ * @returns {boolean} true when Next must stop here.
+ */
+function holdSetClassNextForDeckCopy(opts = {}) {
+  if (!setupPhase || !$("live-deck-seed")) return false;
+  const view = deckCopyView();
+  if (!view.holdsNext) return false;
+  deckCopyPhase = "nudge";
+  paintDeckCopyConfirm();
+  const go = $("live-deck-copy-go");
+  if (go && !go.hidden) go.focus();
+  else $("live-deck-seed-source")?.focus();
+  if (opts.reservedWin && !opts.reservedWin.closed) {
+    try {
+      opts.reservedWin.close();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  return true;
 }
 
 /**
@@ -647,8 +898,44 @@ $("live-deck-seed")?.addEventListener("change", (event) => {
   if (target instanceof HTMLInputElement && target.name === "live-deck-seed") {
     deckSeedMode = /** @type {"previous"|"course"|"current"} */ (target.value);
     deckSeedModeChosen = true;
+    clearDeckCopyStatus();
     paintDeckSeedPicker();
   }
+});
+// MCK-132: From repaints the decks for that section; any row change
+// clears the success line and the nudge.
+$("live-deck-copy-from")?.addEventListener("change", () => {
+  deckCopyFromChosen = String($("live-deck-copy-from")?.value || "");
+  deckCopyDeckChosen = false;
+  clearDeckCopyStatus();
+  paintDeckCopyDecks();
+  paintDeckSeedPicker();
+});
+$("live-deck-seed-source")?.addEventListener("change", () => {
+  deckCopyDeckChosen = true;
+  clearDeckCopyStatus();
+  paintDeckCopyConfirm();
+});
+for (const id of ["live-module-select", "live-class-select"]) {
+  $(id)?.addEventListener("change", () => {
+    deckCopyFromChosen = null;
+    deckCopyDeckChosen = false;
+    clearDeckCopyStatus();
+    paintDeckCopyConfirm();
+  });
+}
+$("live-deck-copy-go")?.addEventListener("click", () => {
+  copyDeckNow();
+});
+$("live-deck-copy-keep")?.addEventListener("click", () => {
+  keepCurrentDeck();
+});
+$("live-deck-copy-confirm")?.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  const keep = $("live-deck-copy-keep");
+  if (!keep || keep.hidden || keep.disabled) return;
+  event.preventDefault();
+  keepCurrentDeck();
 });
 // Clicking the chip that is already auto-selected fires no change event,
 // but it is still the teacher's choice.
@@ -6563,6 +6850,9 @@ async function ensureLiveSessionMinted(opts = {}) {
  * @returns {Promise<void>}
  */
 async function applyValidateDateChoice(opts = {}) {
+  // MCK-132: a clicked Course deck that would replace a deck holds Next
+  // until Replace deck or Keep current. Nothing (no /begin) is sent.
+  if (holdSetClassNextForDeckCopy(opts)) return;
   const gridIso = gridSelectedIso($("ap-day-grid"));
   const hiddenIso = String($("ap-valid-date")?.value || "").trim();
   const iso = gridIso || pickerValue($("ap-valid-date"), logContext) || hiddenIso;
