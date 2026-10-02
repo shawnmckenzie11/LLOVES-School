@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import ipaddress
 import json
 import os
 import random
@@ -48,11 +49,33 @@ from student_portal import (
     visit_token_from_request,
 )
 
-# Shared school NATs put a whole live class on one IP. Only guessed /
-# mistyped session codes count; name typos and the roster picker do not.
-# A valid live-session code always bypasses the lockout.
-STUDENT_JOIN_WRONG_CODE_LIMIT = 80
+# MCK-120 Student Code join limiter. Every failed submission counts: a
+# wrong code, a name miss, "already in class", a permanent class code, an
+# empty name. Successful joins never count. All windows are rolling.
+#
+# A whole class shares one school IP, so the per-IP limits are sized for
+# ~30 students with typos, and a quiet key keeps one safe path: the right
+# live code plus a roster-matched name (or the roster picker, or a guest
+# name where the teacher allows guests) still joins.
+#
+# Quiet: every failure gets the same 429 body, so valid and invalid codes
+#   look identical. Reached by a key (IP) or by the whole site.
+# Blocked: even the safe path is refused. Reached by one IP (gets the 429)
+#   or one live session (its code then answers exactly like an invalid
+#   code) failing far more than a class could. A visit-token rejoin to the
+#   same session still works.
 STUDENT_JOIN_WRONG_CODE_WINDOW_S = 600
+# Failures from one client IP (IPv6 by /64) before that IP goes quiet.
+STUDENT_JOIN_WRONG_CODE_LIMIT = 80
+# Failures from one client IP before it is blocked. 30 students x 8 misses.
+STUDENT_JOIN_IP_BLOCK_LIMIT = 240
+# Failed joins naming one live session's code before new joins to it are
+# blocked (name guessing after a code is found). 30 students x 5 misses.
+STUDENT_JOIN_SESSION_FAIL_LIMIT = 150
+# Failures across every IP before the whole site goes quiet (spread-out
+# guessing). A busy period start is a few hundred.
+STUDENT_JOIN_GLOBAL_FAIL_LIMIT = 2000
+STUDENT_JOIN_LOCKED_MSG = "Too many attempts. Try again in a few minutes."
 
 VERIFY_SEND_COOLDOWN_SEC = 15 * 60
 VERIFY_RESEND_COOLDOWN_SEC = 90
@@ -119,15 +142,79 @@ def staff_2fa_challenge_required(user: dict[str, Any]) -> bool:
     return False
 
 
-def request_client_ip() -> str:
-    """Best-effort client IP for audit rows (first X-Forwarded-For hop)."""
+def _valid_ip(raw: str | None) -> str:
+    """``raw`` stripped when it parses as an IP address, else ""."""
+    text = str(raw or "").strip()
     try:
-        forwarded = request.headers.get("X-Forwarded-For", "")
-        if forwarded:
-            return forwarded.split(",")[0].strip()[:120]
-        return (request.remote_addr or "")[:120]
+        ipaddress.ip_address(text)
+    except ValueError:
+        return ""
+    return text
+
+
+def _socket_peer() -> str:
+    """The TCP peer address, before any ``ProxyFix`` rewrite.
+
+    ``ProxyFix`` (production) copies the rightmost ``X-Forwarded-For`` hop
+    into ``remote_addr`` and keeps the real peer under
+    ``werkzeug.proxy_fix.orig``. Reading the original means no XFF value
+    is ever used, even on a host that runs with ``FLASK_ENV=production``
+    and no proxy in front.
+    """
+    orig = request.environ.get("werkzeug.proxy_fix.orig") or {}
+    return str(orig.get("REMOTE_ADDR") or request.environ.get("REMOTE_ADDR") or "")[:120]
+
+
+def trusted_client_ip() -> str:
+    """Client IP for the join limiter and audit rows (MCK-120).
+
+    Never reads ``X-Forwarded-For``: its leftmost hop is whatever the
+    client sent, and the rightmost is Fly's own anycast IP.
+
+    * On Fly (``FLY_APP_NAME`` set), Fly's proxy sets ``Fly-Client-IP`` to
+      the address it accepted the connection from. Production sits behind
+      Fly's proxy only (Cloudflare is DNS-only, see DEPLOY.md).
+    * Otherwise, or if that header is missing: the TCP socket peer. On the
+      box tip hosts and in tests that is the client's own address, so
+      clients on different loopback addresses (127.0.0.2, 127.0.0.3...) or
+      test-client ``REMOTE_ADDR`` values get separate limiter keys. A
+      client-sent ``Fly-Client-IP`` is ignored off Fly.
+
+    Returns:
+        IP string (may be "" outside a request).
+    """
+    try:
+        if os.environ.get("FLY_APP_NAME"):
+            fly = _valid_ip(request.headers.get("Fly-Client-IP"))
+            if fly:
+                return fly
+        return _socket_peer()
     except RuntimeError:
         return ""
+
+
+def join_limit_ip_key(ip: str) -> str:
+    """Limiter key for one client: IPv4 as is, IPv6 by its /64.
+
+    One home, phone, or school gets a whole IPv6 /64, so keying on the full
+    address would let a single client rotate through 2**64 keys.
+    """
+    text = str(ip or "").strip()
+    try:
+        addr = ipaddress.ip_address(text)
+    except ValueError:
+        return f"ip:{text[:120] or 'unknown'}"
+    if addr.version == 6:
+        mapped = addr.ipv4_mapped
+        if mapped is not None:
+            return f"ip:{mapped}"
+        return f"ip:{ipaddress.ip_network(f'{addr}/64', strict=False)}"
+    return f"ip:{addr}"
+
+
+def request_client_ip() -> str:
+    """Client IP for audit rows (``trusted_client_ip``, MCK-120)."""
+    return trusted_client_ip()
 
 
 def _verification_age_seconds(user: dict[str, Any]) -> float | None:
@@ -1143,8 +1230,9 @@ def register_auth_routes(app: Flask) -> None:
         from flask import jsonify
 
         db = school_db()
-        ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown")
-        ip = ip.split(",")[0].strip()
+        ip = trusted_client_ip()
+        ip_key = join_limit_ip_key(ip)
+        window = STUDENT_JOIN_WRONG_CODE_WINDOW_S
 
         payload = request.get_json(silent=True) or {}
         raw = request.form.get("code") or payload.get("code") or ""
@@ -1155,21 +1243,70 @@ def register_auth_routes(app: Flask) -> None:
         code = str(raw).strip().upper()
         resume_token = visit_token_from_request() or rejoin_token_from_cookie()
         known_session = db.get_active_live_session_by_code(code) if code else None
-        # Lock guessed codes only. A real class code must still admit the
-        # 20–30 students who share one school IP after a few typos.
-        if (
-            known_session is None
-            and db.count_recent_code_attempts(
-                ip, seconds=STUDENT_JOIN_WRONG_CODE_WINDOW_S
-            )
-            >= STUDENT_JOIN_WRONG_CODE_LIMIT
-        ):
-            body = {"ok": False, "error": "Too many attempts. Try again in a few minutes."}
+
+        # MCK-120: every request runs the same counts in the same order, so
+        # a quiet key cannot tell a valid code from an invalid one.
+        session_key = (
+            f"session:{int(known_session['id'])}" if known_session is not None else None
+        )
+        ip_fails = db.count_join_failures(ip_key, seconds=window)
+        site_fails = db.count_join_failures(prefix="ip:", seconds=window)
+        session_fails = db.count_join_failures(
+            session_key or "session:none", seconds=window
+        )
+        quiet = (
+            ip_fails >= STUDENT_JOIN_WRONG_CODE_LIMIT
+            or site_fails >= STUDENT_JOIN_GLOBAL_FAIL_LIMIT
+        )
+        blocked = ip_fails >= STUDENT_JOIN_IP_BLOCK_LIMIT or (
+            session_key is not None and session_fails >= STUDENT_JOIN_SESSION_FAIL_LIMIT
+        )
+        failed_session: dict[str, Any] = {"key": session_key}
+
+        def _record_failure() -> None:
+            """Count one failed submission for this IP and the named session.
+
+            Stops adding once a key is blocked, so a class that keeps
+            retrying is not locked out longer than the window.
+            """
+            keys = []
+            if ip_fails < STUDENT_JOIN_IP_BLOCK_LIMIT:
+                keys.append(ip_key)
+            fkey = failed_session["key"]
+            if fkey and (fkey != session_key or session_fails < STUDENT_JOIN_SESSION_FAIL_LIMIT):
+                keys.append(fkey)
+            if keys:
+                db.record_join_failures(keys)
+
+        def _locked():
+            """The one quiet/blocked response: same status and body for all."""
+            body = {"ok": False, "error": STUDENT_JOIN_LOCKED_MSG}
             if request.is_json:
                 return jsonify(body), 429
             return render_template(
-                "landing.html", **landing_kwargs(student_error=body["error"])
+                "landing.html", **landing_kwargs(student_error=STUDENT_JOIN_LOCKED_MSG)
             ), 429
+
+        if blocked:
+            resumed = (
+                db.resolve_student_visit_token(resume_token, allow_left=True)
+                if resume_token
+                else None
+            )
+            same_session = resumed is not None and (
+                known_session is None
+                or int(resumed["session"]["id"]) == int(known_session["id"])
+            )
+            # A visit-token rejoin to the same session is the one way past a
+            # block: the token is unguessable and the student was admitted.
+            if not same_session:
+                if ip_fails >= STUDENT_JOIN_IP_BLOCK_LIMIT:
+                    _record_failure()
+                    return _locked()
+                # Session block only: answer exactly as for an invalid code,
+                # so a blocked session's code is not singled out either.
+                known_session = None
+                failed_session["key"] = None
 
         no_session_msg = (
             "No live class is running right now. Ask your teacher to start "
@@ -1179,6 +1316,10 @@ def register_auth_routes(app: Flask) -> None:
             "Double-check the code with your teacher, or make sure your "
             "username matches the roster for this course."
         )
+        class_code_msg = (
+            "That’s your class code, not the live code. Type the code on "
+            "your teacher’s screen."
+        )
         pick_msg = "More than one student matches that name. Pick yours."
 
         def _fail(
@@ -1186,19 +1327,21 @@ def register_auth_routes(app: Flask) -> None:
             status: int = 401,
             *,
             candidates: list[dict[str, Any]] | None = None,
-            count_attempt: bool = False,
         ):
-            """Return a join error.
+            """Return a join error and count it (MCK-120: every failure counts).
+
+            While quiet, every failure returns ``_locked()`` instead, except
+            the roster picker, which needs the right code and a matching
+            name, the same knowledge as a successful join.
 
             Args:
                 msg: Student-facing error.
                 status: HTTP status.
                 candidates: Roster picker rows, if any.
-                count_attempt: True only for a submitted code that matched
-                    no active session. Name/picker/idle errors stay free.
             """
-            if count_attempt:
-                db.record_code_attempt(ip)
+            _record_failure()
+            if quiet and not candidates:
+                return _locked()
             extra: dict[str, Any] = {}
             if candidates:
                 extra["candidates"] = candidates
@@ -1219,9 +1362,8 @@ def register_auth_routes(app: Flask) -> None:
             return _fail(no_session_msg)
 
         if not name and not resume_token:
-            peek = db.get_active_live_session_by_code(code) if code else None
-            if peek is not None and db.live_session_allows_unmatched_guests(
-                int(peek["id"])
+            if known_session is not None and db.live_session_allows_unmatched_guests(
+                int(known_session["id"])
             ):
                 return _fail("First name only — then you’re in.")
             return _fail("Enter the first name or Codename on your class roster.")
@@ -1230,24 +1372,23 @@ def register_auth_routes(app: Flask) -> None:
 
         display_name = first_name_only(name)
 
-        live_session = None
-        if code:
-            live_session = db.get_active_live_session_by_code(code)
+        live_session = known_session
         if live_session is None and resume_token:
             resolved = db.resolve_student_visit_token(
                 resume_token, allow_left=True
             )
             if resolved is not None:
                 live_session = resolved["session"]
+                failed_session["key"] = f"session:{int(live_session['id'])}"
                 if not display_name:
                     display_name = first_name_only(
                         str(resolved["attendee"].get("codename") or "")
                     )
         if live_session is None:
-            return _fail(
-                mismatch_msg if name else no_session_msg,
-                count_attempt=bool(code),
-            )
+            typed = code.replace(" ", "")
+            if len(typed) == 8 and db.class_live_code_taken(typed):
+                return _fail(class_code_msg)
+            return _fail(mismatch_msg if name else no_session_msg)
 
         class_id = int(live_session["class_id"])
         try:
@@ -1308,21 +1449,13 @@ def register_auth_routes(app: Flask) -> None:
                 unmatched=unmatched,
             )
         except ValueError as exc:
+            # Only reachable with the right code and a roster-matched name.
+            # Counted, and quiet keys get the locked response (MCK-120).
             msg = str(exc) or (
                 "That name’s already in class. If it’s you, reopen the "
                 "tab that’s still open — or wait a beat and try again."
             )
-            if request.is_json:
-                return jsonify({"ok": False, "error": msg}), 409
-            return render_template(
-                "landing.html",
-                **landing_kwargs(
-                    student_error=msg,
-                    student_code=code,
-                    student_name=name,
-                ),
-            ), 409
-        db.clear_recent_code_attempts(ip)
+            return _fail(msg, 409)
         attendee = join_result.get("attendee") or {}
         visit_token = str(attendee.get("visit_token") or "")
         participant_uuid = str(attendee.get("participant_uuid") or "")
