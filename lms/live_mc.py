@@ -469,23 +469,29 @@ def build_numeric_tally(
     right_labels = {label for label, _n, ok in entries if ok}
     wrong_labels = {label for label, _n, ok in entries if not ok}
     mixed = right_labels & wrong_labels
-    # A key finer than six places (e.g. 1e-7) buckets into a bar that
-    # prints as something else ("0"). Label its ✓ bar with the key at full
-    # precision, and wrong answers in that bar at full precision too, so
-    # the bars don't read "0 ✓" and "≈0 ✗" (MCK-83).
+    # A key with more places than its bar (3.14159, 0.125, 1e-7) buckets
+    # into a bar that prints as something else ("3.14", "0"). Label its ✓
+    # bar with the key at full precision, and wrong answers in that bar at
+    # full precision too, so the bars don't read "3.14 ✓" and "≈3.14 ✗"
+    # (MCK-83). Only correct answers in the key's own bar move to it; other
+    # correct answers (inside a tolerance) keep their bars.
     key_label: str | None = None
+    key_bucket: str | None = None
     if expected is not None and not integer_only:
         full_key = _numeric_full_label(float(expected))
-        if _numeric_exact_label(float(expected)) != full_key:
+        key_bucket = _numeric_bucket_label(float(expected), integer_only=False)
+        if key_bucket != full_key:
             key_label = full_key
     bars: dict[str, dict[str, Any]] = {}
     for label, number, ok in entries:
         bar_label = label
         value = float(label)
-        if ok and key_label is not None:
+        if ok and key_label is not None and label == key_bucket:
             bar_label = key_label
             value = float(expected)
-        elif label in mixed and not ok and key_label is not None:
+        elif label in mixed and not ok and key_label is not None and label == key_bucket:
+            # The key's right answers moved to the key's bar, so the plain
+            # bucket label is free ("3.14" next to "3.14159").
             bar_label = _numeric_full_label(number)
             if bar_label == key_label:
                 bar_label = f"\u2248{key_label}"
