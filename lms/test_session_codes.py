@@ -124,6 +124,15 @@ class SessionCodeUnitTests(unittest.TestCase):
             self.assertFalse(is_offensive_code(pick_session_code(lambda _c: False)))
         self.assertIn("KKK", OFFENSIVE_CODE_PARTS)
 
+    def test_blocklist_extension_from_ops_gate(self) -> None:
+        """Ops #213-on-#217 L-M1: more words, as typed and as digit look-alikes."""
+        for bad in ("NGGR", "KUNT", "WANK", "W4NK", "BTCH", "B7CH", "PRCK", "GAYX", "G4YQ",
+                    "6AYS", "SUCK", "5UCK", "CRAP", "CR4P", "TURD", "7URD", "NUDE", "NUD3",
+                    "SEMEN", "S3M3N", "METH", "M37H", "WEED", "W33D", "XH8Q", "H8", "wank"):
+            self.assertTrue(is_offensive_code(bad), bad)
+        for fine in ("AB2C", "QR7K", "MXPW", "Z3RT", "HB2C", "GA2Y", "NQGR"):
+            self.assertFalse(is_offensive_code(fine), fine)
+
     def test_normalize_accepts_supported_lengths(self) -> None:
         self.assertEqual(normalize_live_access_code(" ab2c "), "AB2C")
         self.assertEqual(normalize_live_access_code("ab 2c"), "AB2C")
