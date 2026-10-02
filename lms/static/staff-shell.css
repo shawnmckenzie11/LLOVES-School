@@ -6088,3 +6088,69 @@ body.staff-shell .whats-new-ok:hover {
     margin: 0.5rem 0.9rem 0;
   }
 }
+/* MCK-133 Start fresh (Mobbin IA v0): one quiet control in the Celebrations
+   header; per-class award period as a small muted line. */
+body.staff-shell .staff-celebrate-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+body.staff-shell .staff-celebrate-head h2 {
+  margin: 0;
+}
+body.staff-shell .award-fresh-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+body.staff-shell .award-fresh-controls .field {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted, #64748b);
+}
+body.staff-shell .award-fresh-controls select {
+  width: auto;
+  min-width: 10rem;
+}
+body.staff-shell .award-fresh-quiet {
+  font-size: 0.9rem;
+}
+body.staff-shell .award-fresh-success {
+  margin: 0.5rem 0 0;
+  color: #166534;
+  font-size: 0.9rem;
+}
+body.staff-shell .award-periods h3 {
+  margin: 1rem 0 0.35rem;
+  font-size: 1rem;
+}
+body.staff-shell #award-period-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+body.staff-shell #award-period-list li {
+  display: flex;
+  flex-direction: column;
+}
+body.staff-shell .award-period-class {
+  font-weight: 600;
+}
+body.staff-shell .award-period-label {
+  font-size: 0.8rem;
+  color: var(--muted, #64748b);
+}
+body.staff-shell .award-fresh-summary {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  list-style: none;
+  border-radius: 8px;
+  background: #f1f5f9;
+  font-weight: 600;
+}

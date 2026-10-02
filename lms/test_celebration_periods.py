@@ -54,7 +54,7 @@ class PeriodHelperTests(unittest.TestCase):
             label(date(2026, 12, 1), date(2027, 1, 15), WONDER_COPY),
             "Dec 1, 2026 – Jan 15, 2027",
         )
-        self.assertEqual(label(date(2026, 10, 2), None, WONDER_COPY), "Since Oct 2, 2026")
+        self.assertEqual(label(date(2026, 10, 2), None, WONDER_COPY), "Since Oct 2")
         self.assertEqual(label(None, date(2026, 10, 1), WONDER_COPY), "Through Oct 1, 2026")
         self.assertEqual(label(None, None, WONDER_COPY), "This semester")
         # An end before the start (clock skew) collapses to one day.
@@ -206,7 +206,7 @@ class StartFreshTests(unittest.TestCase):
         self.assertEqual(board["MCF3M"]["names"], ["Birch"])
         self.assertEqual(board["MCF3M"]["detail"], "1 class present · 1 pts")
         # A later period with no snapshot is still open.
-        self.assertEqual(board["MCF3M"]["period_label"], "Since Sep 15, 2026")
+        self.assertEqual(board["MCF3M"]["period_label"], "Since Sep 15")
         self.assertIsNone(board["MCF3M"]["period_end"])
         self.assertEqual(board["MCF3M"]["period_start"], "2026-09-15")
         engaged = [r for r in celebrated_students(self.school) if r["card"] == "engaged"]
@@ -242,7 +242,7 @@ class StartFreshTests(unittest.TestCase):
         listed = self.client.get("/api/staff/celebrations/periods").get_json()["classes"]
         self.assertEqual(
             {c["class_id"]: c["period_label"] for c in listed},
-            {cid: "Since Sep 15, 2026" for cid in mine},
+            {cid: "Since Sep 15" for cid in mine},
         )
 
     def test_frozen_board_keeps_old_card_until_new_winner(self) -> None:
@@ -374,14 +374,50 @@ class StartFreshTests(unittest.TestCase):
         self.assertNotEqual(rv.status_code, 200)
 
     def test_staff_home_shows_start_fresh(self) -> None:
-        """The staff home has the plain Start fresh control per class."""
+        """Staff home: quiet header control, per-class period lines, confirm."""
+        self._at("2026-09-15T12:00:00")
         rows = self._two_courses()
         page = self.client.get("/staff").get_data(as_text=True)
         self.assertIn('id="award-start-fresh"', page)
         self.assertIn('id="award-fresh-go"', page)
         for class_id, _ids in rows.values():
-            self.assertIn(f'<option value="{class_id}">', page)
-        self.assertIn("MCF3M — Award tally Sep 8 – Oct 1, 2026", page)
+            self.assertIn(f'<option value="{class_id}" data-class-name=', page)
+        mcf = rows["MCF3M"][0]
+        # Per class: the course, then a small muted line with its period.
+        self.assertIn(
+            '<span class="award-period-class">MCF3M</span>'
+            '<span class="award-period-label">Sep 8 – Oct 1, 2026</span>',
+            page,
+        )
+        # One quiet header control (Mobbin IA v0), Wonder v1 copy.
+        self.assertEqual(page.count('id="award-fresh-go"'), 1)
+        self.assertIn(">Start fresh…</button>", page)
+        head = page.index('class="staff-celebrate-head"')
+        self.assertLess(head, page.index('id="award-fresh-go"'))
+        self.assertLess(page.index('id="award-fresh-go"'), page.index('id="celebrate-form"'))
+        self.assertIn('<label class="field" for="award-fresh-scope">Start fresh for</label>', page)
+        self.assertIn('<option value="all">All my classes</option>', page)
+        self.assertIn(f'<option value="{mcf}" data-class-name="MCF3M">Only MCF3M</option>', page)
+        # Confirm: title, scope + the period it closes, what restarts and
+        # what stays, Cancel focused by default.
+        self.assertIn('<h2 id="award-fresh-title">Start Celebrations fresh?</h2>', page)
+        self.assertIn(f'<li data-class-id="{mcf}">MCF3M · Sep 8 – Sep 15, 2026</li>', page)
+        self.assertIn("Awards start counting again from today.", page)
+        self.assertIn("Attendance and participation records stay in each course.", page)
+        self.assertIn('id="award-fresh-cancel" autofocus>Cancel</button>', page)
+        self.assertIn('id="award-fresh-confirm">Start fresh</button>', page)
+        self.assertIn('id="award-fresh-toast"', page)
+        # After Oct 1 the first period closes at Oct 1; a new period at today.
+        self._at("2026-10-05T09:00:00")
+        page = self.client.get("/staff").get_data(as_text=True)
+        self.assertIn(f'<li data-class-id="{mcf}">MCF3M · Sep 8 – Oct 1, 2026</li>', page)
+        self.assertEqual(self._fresh(scope="class", class_id=mcf).status_code, 200)
+        self._at("2026-10-07T09:00:00")
+        page = self.client.get("/staff").get_data(as_text=True)
+        self.assertIn(f'<li data-class-id="{mcf}">MCF3M · Oct 5 – Oct 7, 2026</li>', page)
+        # Staff-only strings never reach the public copy payload.
+        copy = self.app.test_client().get("/api/celebrations").get_json()["copy"]
+        self.assertFalse([k for k in copy if k.startswith(("staff_", "start_fresh"))])
 
     def test_deleting_teacher_removes_their_periods(self) -> None:
         """Permanent staff delete clears that teacher's period rows."""
@@ -513,7 +549,7 @@ class StartFreshTests(unittest.TestCase):
         card = self._board()["MCF3M"]
         self.assertEqual(card["names"], ["Cedar"])
         self.assertEqual(card["detail"], "1 class present · 2 pts")
-        self.assertEqual(card["period_label"], "Since Sep 22, 2026")
+        self.assertEqual(card["period_label"], "Since Sep 22")
 
     def test_staff_list_shows_first_period_range_then_since(self) -> None:
         """Staff line matches the public card (LOW-6).
@@ -534,22 +570,22 @@ class StartFreshTests(unittest.TestCase):
         self._at("2026-09-30T09:00:00")
         self.assertEqual(
             listed(),
-            [("Sep 8 – Oct 1, 2026", "2026-10-01", "Award tally Sep 8 – Oct 1, 2026")],
+            [("Sep 8 – Oct 1, 2026", "2026-10-01", "Sep 8 – Oct 1, 2026")],
         )
         self._at("2026-10-02T08:00:00")
         self.assertEqual(
             listed()[0][2],
-            "Award tally Sep 8 – Oct 1, 2026 (ended; Start fresh to count new classes)",
+            "Sep 8 – Oct 1, 2026. Ended. Start fresh to count new classes.",
         )
         self.assertEqual(self._fresh(scope="class", class_id=class_id).status_code, 200)
         self.assertEqual(
             listed(),
-            [("Since Oct 2, 2026", None,
+            [("Since Oct 2", None,
               # The board's card is the frozen Sep 30 read: it says so.
-              "New period since Oct 2, 2026; board shows Sep 8 – Sep 30, 2026 until a new winner")],
+              "Since Oct 2. The board shows Sep 8 – Sep 30, 2026 until there's a new winner.")],
         )
         self._log_day(class_id, "2026-10-02", [ids["Birch"]], {ids["Birch"]: 1})
-        self.assertEqual(listed()[0][2], "New period since Oct 2, 2026")
+        self.assertEqual(listed()[0][2], "Since Oct 2")
 
     # --- Ops gate @ ef4cd8e fixes -----------------------------------------
 
@@ -633,7 +669,7 @@ class StartFreshTests(unittest.TestCase):
         card = self._board()["MCF3M"]
         self.assertEqual(card["names"], ["Maple"])
         self.assertEqual(card["detail"], "1 class present · 1 pts")
-        self.assertEqual(card["period_label"], "Since Oct 5, 2026")
+        self.assertEqual(card["period_label"], "Since Oct 5")
 
     def test_med4_shared_course_code_is_refused(self) -> None:
         """Another teacher's class shares the MCR3U card: 409, nothing written."""
@@ -646,7 +682,11 @@ class StartFreshTests(unittest.TestCase):
         for body in ({"scope": "class", "class_id": mcr}, {"scope": "all"}):
             rv = self._fresh(**body)
             self.assertEqual(rv.status_code, 409, rv.get_json())
-            self.assertIn("MCR3U is shared with another teacher", rv.get_json()["error"])
+            self.assertEqual(
+                rv.get_json()["error"],
+                "Couldn't start fresh. MCR3U is shared with another teacher's class."
+                " Nothing changed.",
+            )
         self.assertEqual(periods.current_periods(self.school, semester_id), {})
         self.assertEqual(
             self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None), before_snapshot

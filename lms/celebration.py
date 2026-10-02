@@ -94,17 +94,25 @@ WONDER_COPY: dict[str, str] = {
     "coming_soon_sub": "Good work deserves a spotlight. We're still setting up the lights.",  # Wonder copy slot
     "award_title": "Shoutout",  # Wonder copy slot
     "engaged_title": "Most Engaged",  # Wonder copy slot
-    # MCK-133 award timeframe on each Most Engaged card. Placeholders.
+    # MCK-133 award timeframe on each Most Engaged card (Wonder v1 format:
+    # "Sep 8 – Oct 1, 2026" closed, "Since Oct 2" current).
     "period_range": "{start} – {end}",  # Wonder copy slot
-    "period_since": "Since {start}",  # Wonder copy slot
+    "period_since": "Since {start}",  # Wonder copy slot (no year, Wonder v1)
     "period_through": "Through {end}",  # Wonder copy slot (no semester day 1)
     "period_unknown": "This semester",  # Wonder copy slot (last-resort label)
     "period_day": "{day}",  # Wonder copy slot (a one-day period)
-    # MCK-133 staff "Start fresh" status line per class. Placeholders.
-    "staff_period_first": "Award tally {label}",  # Wonder copy slot
-    "staff_period_first_ended": "Award tally {label} (ended; Start fresh to count new classes)",  # Wonder copy slot
-    "staff_period_new": "New period since {start}",  # Wonder copy slot
-    "staff_period_new_board": "New period since {start}; board shows {board} until a new winner",  # Wonder copy slot
+}
+
+# MCK-133 staff-only strings (kept out of the public ``copy`` payload).
+STAFF_COPY: dict[str, str] = {
+    # Per-class award period line on the staff page, in Wonder v1 style
+    # (Wonder's file has no line for it). Same dates as the public card.
+    "staff_period_first": "{label}",  # Wonder copy slot
+    "staff_period_first_ended": "{label}. Ended. Start fresh to count new classes.",  # Wonder copy slot
+    "staff_period_new": "{since}",  # Wonder copy slot
+    "staff_period_new_board": "{since}. The board shows {board} until there's a new winner.",  # Wonder copy slot
+    # Start fresh refused: the course card covers another teacher's class.
+    "start_fresh_shared": "Couldn't start fresh. {courses} is shared with another teacher's class. Nothing changed.",  # Wonder copy slot
 }
 
 _public_board_lock = Lock()
@@ -1143,7 +1151,8 @@ def staff_award_periods(school: Any, teacher_user_id: int) -> list[dict[str, Any
 
     Returns:
         ``{class_id, course, period_id, period_start, period_started_at,
-        period_end, period_label, board_label, status_line}`` rows in
+        period_end, period_label, board_label, status_line, closing_label}``
+        rows in
         ``list_staff_classes`` order. Dates are school date ISO; the first
         period runs from semester day 1 to ``FIRST_AWARD_PERIOD_END``, a
         later one is open (``period_end`` None). ``board_label`` is the
@@ -1156,6 +1165,7 @@ def staff_award_periods(school: Any, teacher_user_id: int) -> list[dict[str, Any
     first_day = award_periods.semester_first_day(semester)
     first_end = award_periods.first_period_end(school, first_day)
     closed = _first_period_closed(school)
+    today = award_periods.school_now().date()
     try:
         board = {
             str(c.get("course") or ""): c
@@ -1172,20 +1182,22 @@ def staff_award_periods(school: Any, teacher_user_id: int) -> list[dict[str, Any
         start = award_periods.school_date(period.get("starts_at")) or first_day
         end = None if period else first_end
         label = award_periods.period_label(start, end, WONDER_COPY)
+        # The period a Start fresh now would close (named in the confirm).
+        closing_end = today if end is None else min(end, today)
         card = board.get(course)
         board_label = card.get("period_label") if card else None
         if not period:
             key = "staff_period_first_ended" if closed else "staff_period_first"
-            status = WONDER_COPY[key].format(label=label)
+            status = STAFF_COPY[key].format(label=label)
         else:
-            since = award_periods.period_label(start, start, WONDER_COPY)
+            since = award_periods.period_label(start, None, WONDER_COPY)
             card_start = award_periods.school_date(card.get("period_start")) if card else None
             if card and (card_start is None or start is None or card_start < start):
-                status = WONDER_COPY["staff_period_new_board"].format(
-                    start=since, board=board_label
+                status = STAFF_COPY["staff_period_new_board"].format(
+                    since=since, board=board_label
                 )
             else:
-                status = WONDER_COPY["staff_period_new"].format(start=since)
+                status = STAFF_COPY["staff_period_new"].format(since=since)
         out.append(
             {
                 "class_id": class_id,
@@ -1197,6 +1209,7 @@ def staff_award_periods(school: Any, teacher_user_id: int) -> list[dict[str, Any
                 "period_label": label,
                 "board_label": board_label,
                 "status_line": status,
+                "closing_label": award_periods.period_label(start, closing_end, WONDER_COPY),
             }
         )
     return out
@@ -1367,8 +1380,7 @@ def start_fresh_award_tally(
     shared = _shared_courses(school, int(teacher_user_id), targets)
     if shared:
         raise AwardTallyShared(
-            f"{', '.join(shared)} is shared with another teacher's class, so Start fresh "
-            "would change their award too. Nothing was changed."
+            STAFF_COPY["start_fresh_shared"].format(courses=", ".join(shared))
         )
     busy = [cid for cid in targets if _class_running(school, cid)]
     if busy:

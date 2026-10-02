@@ -459,7 +459,9 @@ class CelebrationTests(unittest.TestCase):
         home = self.client.get("/staff").get_data(as_text=True)
         self.assertIn("Celebrate a student", home)
         self.assertIn("Post to Shoutout", home)
-        self.assertNotIn("Awards", home)
+        # The old "Awards" heading is gone (MCK-133's Wonder confirm body
+        # "Awards start counting again…" is a different string).
+        self.assertNotIn(">Awards<", home)
         self.assertIn("Now featuring", home)
         self.assertIn("Birch", home)
         self.assertIn("/#celebrations", home)

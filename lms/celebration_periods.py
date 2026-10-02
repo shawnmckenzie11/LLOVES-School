@@ -296,7 +296,7 @@ def period_label(start: date | None, end: date | None, copy: dict[str, str]) -> 
 
     ``Sep 8 – Oct 1, 2026``, ``Dec 1, 2026 – Jan 15, 2027``, one day as
     ``Oct 2, 2026`` (LOW-6), or, with no end (an open period on the live
-    board), ``Since Oct 2, 2026``. With no known start (no semester day 1):
+    board), ``Since Oct 2`` (Wonder v1: no year). With no known start (no semester day 1):
     ``Through Oct 1, 2026``, else ``This semester``. Never empty.
     """
     if start is None:
@@ -304,7 +304,7 @@ def period_label(start: date | None, end: date | None, copy: dict[str, str]) -> 
             return copy["period_through"].format(end=f"{_day(end)}, {end.year}")
         return copy["period_unknown"]
     if end is None:
-        return copy["period_since"].format(start=f"{_day(start)}, {start.year}")
+        return copy["period_since"].format(start=_day(start))
     if end <= start:
         return copy["period_day"].format(day=f"{_day(start)}, {start.year}")
     first = _day(start) if start.year == end.year else f"{_day(start)}, {start.year}"
