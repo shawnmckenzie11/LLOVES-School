@@ -1709,6 +1709,14 @@ body.live-overlay.is-celebrating .live-overlay-teams {
   font-size: 1.15em;
 }
 
+/* MCK-116 reward avatar SVGs next to names: 1.15em of the emoji size. */
+.student-avatar .avatar-img {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: middle;
+}
+
 .live-overlay-list li.is-guest {
   border-left-color: #f59e0b;
 }

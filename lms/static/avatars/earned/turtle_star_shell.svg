@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="72" height="72" role="img" aria-label="Turtle with a star shell">
+  <title>Turtle with a star shell</title>
+  <ellipse cx="6.8" cy="18.2" rx="3.4" ry="2.4" fill="#5cc46a"/>
+  <ellipse cx="29.2" cy="18.2" rx="3.4" ry="2.4" fill="#5cc46a"/>
+  <ellipse cx="8.4" cy="30.6" rx="3.4" ry="2.6" fill="#5cc46a"/>
+  <ellipse cx="27.6" cy="30.6" rx="3.4" ry="2.6" fill="#5cc46a"/>
+  <circle cx="18" cy="9.4" r="6.6" fill="#5cc46a"/>
+  <circle cx="15.2" cy="8.8" r="1.5" fill="#1f2937"/><circle cx="20.8" cy="8.8" r="1.5" fill="#1f2937"/>
+  <path d="M16.2 12 Q18 13.4 19.8 12" fill="none" stroke="#2f8f46" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="13.6" cy="11.2" r="1" fill="#f6a6c1"/><circle cx="22.4" cy="11.2" r="1" fill="#f6a6c1"/>
+  <ellipse cx="18" cy="24.2" rx="12.4" ry="9.6" fill="#2f8f46"/>
+  <ellipse cx="18" cy="23.8" rx="10.4" ry="7.8" fill="#5cc46a"/>
+  <path d="M9.4 19.6 L13 21.2 M26.6 19.6 L23 21.2 M10.6 28.6 L13.8 26.6 M25.4 28.6 L22.2 26.6" fill="none" stroke="#2f8f46" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <ellipse cx="18" cy="32.2" rx="7.6" ry="1.6" fill="#c8f0c4"/>
+  <path d="M18 18.2 L19.5 21.8 23.3 22.1 20.4 24.6 21.3 28.3 18 26.3 14.7 28.3 15.6 24.6 12.7 22.1 16.5 21.8 Z" fill="#f5c518"/>
+  <path d="M18 21.6 L18.6 23.1 20.3 23.3 19 24.3 19.4 25.9 18 25.1 16.6 25.9 17 24.3 15.7 23.3 17.4 23.1 Z" fill="#c99a06"/>
+</svg>

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="72" height="72" role="img" aria-label="Panda in a leaf crown">
+  <title>Panda in a leaf crown</title>
+  <circle cx="7.6" cy="10.4" r="4.6" fill="#3a4559"/>
+  <circle cx="28.4" cy="10.4" r="4.6" fill="#3a4559"/>
+  <ellipse cx="18" cy="20.5" rx="13.6" ry="12.2" fill="#f4f6fb"/>
+  <path d="M10.4 23.7 A4.5 3.3 120 1 1 14.8 15.9 A4.5 3.3 120 1 1 10.4 23.7 Z" fill="#3a4559"/>
+  <path d="M25.6 23.7 A4.5 3.3 60 1 1 21.1 15.9 A4.5 3.3 60 1 1 25.6 23.7 Z" fill="#3a4559"/>
+  <circle cx="12.7" cy="19.3" r="1.5" fill="#f4f6fb"/>
+  <circle cx="23.3" cy="19.3" r="1.5" fill="#f4f6fb"/>
+  <circle cx="12.8" cy="19.5" r="0.8" fill="#1f2937"/>
+  <circle cx="23.2" cy="19.5" r="0.8" fill="#1f2937"/>
+  <ellipse cx="18" cy="24.6" rx="2.2" ry="1.5" fill="#3a4559"/>
+  <path d="M15.6 27.2 Q18 29.2 20.4 27.2" fill="none" stroke="#3a4559" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="9.4" cy="25.4" r="1.3" fill="#f6a6c1"/><circle cx="26.6" cy="25.4" r="1.3" fill="#f6a6c1"/>
+  <path d="M7.4 15.6 Q18 4.6 28.6 15.6" fill="none" stroke="#c99a06" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M11 15.5 Q9.4 12.1 5.6 12.4 Q7.3 15.7 11 15.5 Z" fill="#f5c518"/>
+  <path d="M13.7 12.6 Q13.8 8.9 10.4 7.4 Q10.3 11.1 13.7 12.6 Z" fill="#f5c518"/>
+  <path d="M18 11.4 Q20.1 8.3 18 5.2 Q15.9 8.3 18 11.4 Z" fill="#f5c518"/>
+  <path d="M22.3 12.6 Q25.7 11.1 25.6 7.4 Q22.2 8.9 22.3 12.6 Z" fill="#f5c518"/>
+  <path d="M25 15.5 Q28.7 15.7 30.4 12.4 Q26.6 12.1 25 15.5 Z" fill="#f5c518"/>
+</svg>

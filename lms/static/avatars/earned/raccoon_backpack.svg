@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="72" height="72" role="img" aria-label="Raccoon with a backpack">
+  <title>Raccoon with a backpack</title>
+  <path d="M3.5 36 C3.5 29.4 9 26 18 26 C27 26 32.5 29.4 32.5 36 Z" fill="#9aa6b8"/>
+  <path d="M8.6 27.6 L12.6 26.6 L13.2 36 L9.2 36 Z" fill="#f5c518"/>
+  <path d="M27.4 27.6 L23.4 26.6 L22.8 36 L26.8 36 Z" fill="#f5c518"/>
+  <rect x="9.4" y="30.6" width="4" height="2" rx="0.6" fill="#c99a06"/>
+  <rect x="22.6" y="30.6" width="4" height="2" rx="0.6" fill="#c99a06"/>
+  <path d="M4.6 3.6 L13.6 8.4 7.4 14.6 Z" fill="#9aa6b8"/>
+  <path d="M31.4 3.6 L22.4 8.4 28.6 14.6 Z" fill="#9aa6b8"/>
+  <path d="M6.6 6.4 L11.2 8.8 8 12 Z" fill="#3a4559"/>
+  <path d="M29.4 6.4 L24.8 8.8 28 12 Z" fill="#3a4559"/>
+  <ellipse cx="18" cy="16.4" rx="12.4" ry="10.6" fill="#9aa6b8"/>
+  <path d="M5.8 15 C9 12 14 12.6 18 15 C22 12.6 27 12 30.2 15 C29.6 19.4 25.6 20.6 22 19.6 C20.4 19 19 18.6 18 18.6 C17 18.6 15.6 19 14 19.6 C10.4 20.6 6.4 19.4 5.8 15 Z" fill="#3a4559"/>
+  <path d="M18 7.4 L18 11.6" fill="none" stroke="#3a4559" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="12.4" cy="16" r="2.4" fill="#f4f6fb"/>
+  <circle cx="23.6" cy="16" r="2.4" fill="#f4f6fb"/>
+  <circle cx="12.6" cy="16.2" r="1.4" fill="#1f2937"/>
+  <circle cx="23.4" cy="16.2" r="1.4" fill="#1f2937"/>
+  <path d="M18 19.6 C21.6 19.6 23.4 21.6 23.4 23.4 C23.4 25.8 21 27 18 27 C15 27 12.6 25.8 12.6 23.4 C12.6 21.6 14.4 19.6 18 19.6 Z" fill="#f4f6fb"/>
+  <ellipse cx="18" cy="21.8" rx="2" ry="1.4" fill="#1f2937"/>
+  <path d="M16.2 24.6 Q18 26 19.8 24.6" fill="none" stroke="#3a4559" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

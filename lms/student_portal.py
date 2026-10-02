@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from db import STUDENT_CHARACTERS
+from db import EARNED_CHARACTERS, STUDENT_CHARACTERS
 
 # Faces shown on /student/mood (one row). Other stored mood keys stay valid in the DB.
 CHECKIN_MOODS = ("good", "ok", "low")
@@ -30,6 +30,34 @@ CHARACTER_AVATARS = {
     "dragon": {"label": "Dragon", "emoji": "🐲"},
     "owl": {"label": "Owl", "emoji": "🦉"},
 }
+
+# MCK-116 Celebrations reward avatars: key -> name. The name is also the alt text.
+# Keys match EARNED_CHARACTERS (db.py), EARNED_AVATAR_KEYS (student_avatars.js)
+# and the file lms/static/avatars/earned/<key>.svg.
+EARNED_AVATARS = {
+    "fox_scarf": "Fox in a scarf",
+    "owl_glasses": "Owl in round glasses",
+    "penguin_beanie": "Penguin in a beanie",
+    "frog_crown": "Frog in a tiny crown",
+    "panda_leaf_crown": "Panda in a leaf crown",
+    "unicorn_ribbon": "Unicorn with a ribbon",
+    "octopus_star": "Octopus holding a star",
+    "dragon_lantern": "Dragon with a lantern",
+    "cat_bow_tie": "Cat in a bow tie",
+    "bear_medal": "Bear with a medal",
+    "rabbit_headphones": "Rabbit in headphones",
+    "hedgehog_acorn": "Hedgehog with an acorn",
+    "koala_pencil": "Koala with a pencil",
+    "lion_cub_laurel": "Lion cub in a laurel",
+    "turtle_star_shell": "Turtle with a star shell",
+    "axolotl_seashell": "Axolotl with a seashell",
+    "raccoon_backpack": "Raccoon with a backpack",
+    "whale_star_spout": "Whale with a star spout",
+    "phoenix_chick_spark": "Phoenix chick with a spark",
+    "narwhal_star_horn": "Narwhal with a star horn",
+}
+
+EARNED_AVATAR_SRC = "/static/avatars/earned/{key}.svg"
 
 EXIT_FEEDBACK_SESSION_KEY = "student_exit_feedback_token"
 HOW_WAS_CLASS = "How was class?"
@@ -377,16 +405,58 @@ def next_student_endpoint(
     return "student_mood"
 
 
-def character_choices() -> list[dict[str, str]]:
-    """Six emoji avatars for the join screen."""
-    return [
+def earned_avatar_keys(school: Any, class_id: int, student_id: int) -> tuple[str, ...]:
+    """Reward avatars this roster row has earned (MCK-116 seam for slice S1).
+
+    S1 has not landed: the earned-avatar store (SQLite vs Postgres) is still
+    Shawn's call, so this returns nothing earned and the picker shows only the
+    six emoji. S1 plugs in by replacing the ``owned`` line with its store read,
+    for example ``set(school.earned_avatar_keys(student_id))``. Keep the filter
+    below: it drops unknown keys and returns them in grid order.
+
+    Args:
+        school: ``SchoolDB`` for the request (unused until S1).
+        class_id: Classes primary key of the roster row.
+        student_id: Students primary key (one roster row per class).
+
+    Returns:
+        Owned keys from ``EARNED_CHARACTERS``, in grid order. Empty for now.
+    """
+    del school, class_id, student_id  # S1: read the earned-avatar store here.
+    owned: set[str] = set()
+    return tuple(key for key in EARNED_CHARACTERS if key in owned)
+
+
+def character_choices(earned_keys: tuple[str, ...] | list[str] = ()) -> list[dict[str, Any]]:
+    """Avatars for the join screen: six emoji, then this student's earned SVGs.
+
+    Args:
+        earned_keys: Reward avatar keys the student owns (``earned_avatar_keys``).
+
+    Returns:
+        One dict per tile. Earned tiles carry ``earned: True`` and an ``img`` path.
+    """
+    choices: list[dict[str, Any]] = [
         {
             "key": key,
             "label": CHARACTER_AVATARS[key]["label"],
             "emoji": CHARACTER_AVATARS[key]["emoji"],
+            "earned": False,
         }
         for key in STUDENT_CHARACTERS
     ]
+    owned = set(earned_keys or ())
+    choices.extend(
+        {
+            "key": key,
+            "label": EARNED_AVATARS[key],
+            "img": EARNED_AVATAR_SRC.format(key=key),
+            "earned": True,
+        }
+        for key in EARNED_CHARACTERS
+        if key in owned
+    )
+    return choices
 
 
 def mood_choices() -> list[dict[str, str]]:

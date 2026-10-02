@@ -33,7 +33,7 @@ import {
   opsAboveCursor,
   showBoardRefreshCue,
 } from "/static/live_whiteboard.js";
-import { avatarGlyph, nameWithAvatar } from "/static/student_avatars.js";
+import { nameWithAvatar, paintAvatar } from "/static/student_avatars.js";
 
 const waitEl = document.getElementById("student-wait");
 const gameShowWelcomeEl = document.getElementById("game-show-welcome");
@@ -298,9 +298,7 @@ function paintMe(payload) {
   if (!meEl) return;
   const me = payload.me || {};
   if (meAvatarEl) {
-    const face = avatarGlyph(me.character);
-    meAvatarEl.textContent = face;
-    meAvatarEl.hidden = !face;
+    meAvatarEl.hidden = !paintAvatar(meAvatarEl, me.character);
   }
   if (meNameEl) meNameEl.textContent = String(me.codename || "Student");
   const chip = String(payload.meet_chip || "").trim();

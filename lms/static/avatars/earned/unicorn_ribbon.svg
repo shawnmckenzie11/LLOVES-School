@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="72" height="72" role="img" aria-label="Unicorn with a ribbon">
+  <title>Unicorn with a ribbon</title>
+  <path d="M9 10 C5 14 4.5 22 6 29 C7.5 26 9 24 10.5 23 Z" fill="#a78bfa"/>
+  <path d="M27 10 C31 14 31.5 22 30 29 C28.5 26 27 24 25.5 23 Z" fill="#a78bfa"/>
+  <path d="M9.5 4 L15 9.5 10.5 13.5 Z" fill="#f4f6fb"/>
+  <path d="M26.5 4 L21 9.5 25.5 13.5 Z" fill="#f4f6fb"/>
+  <path d="M11 6.6 L13.6 9.6 11.4 11.6 Z" fill="#f6a6c1"/>
+  <path d="M25 6.6 L22.4 9.6 24.6 11.6 Z" fill="#f6a6c1"/>
+  <path d="M18 7.5 C25 7.5 27.5 12.5 27.5 18 C27.5 23 25.5 26 24.8 29 C24 32.5 21.5 34 18 34 C14.5 34 12 32.5 11.2 29 C10.5 26 8.5 23 8.5 18 C8.5 12.5 11 7.5 18 7.5 Z" fill="#f4f6fb"/>
+  <path d="M15.6 9.2 L18 0.8 20.4 9.2 Z" fill="#fff4e0"/>
+  <path d="M16.5 6.4 L19.2 5.4 M16 8.4 L19.8 7" fill="none" stroke="#d9779b" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M13 8.6 C15.5 7 20.5 7 23 8.6 C21.5 9.6 20 12 18.4 13.6 C17.2 11.6 15 9.8 13 8.6 Z" fill="#a78bfa"/>
+  <circle cx="13.2" cy="18" r="1.7" fill="#1f2937"/><circle cx="22.8" cy="18" r="1.7" fill="#1f2937"/>
+  <ellipse cx="18" cy="29.2" rx="5" ry="3.6" fill="#f6a6c1"/>
+  <path d="M16 28.6 L16.2 29.4 M20 28.6 L19.8 29.4" fill="none" stroke="#d9779b" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="11.2" cy="23.4" r="1.2" fill="#f6a6c1"/><circle cx="24.8" cy="23.4" r="1.2" fill="#f6a6c1"/>
+  <path d="M27.4 10.4 L33.4 6.8 33.2 13.6 Z" fill="#f5c518"/>
+  <path d="M27.4 10.4 L22.6 5.8 22.2 12.4 Z" fill="#f5c518"/>
+  <circle cx="27.4" cy="10.4" r="1.7" fill="#c99a06"/>
+  <path d="M26.9 11.6 L25.4 16.6 27.4 15.6 Z" fill="#c99a06"/>
+  <path d="M28 11.6 L30.6 16.2 28.8 15.8 Z" fill="#c99a06"/>
+</svg>

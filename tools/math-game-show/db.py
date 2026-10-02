@@ -240,6 +240,30 @@ STUDENT_MOODS = (
     "excited",
 )
 STUDENT_CHARACTERS = ("fox", "panda", "unicorn", "octopus", "dragon", "owl")
+# MCK-116: Celebrations reward avatars (SVG in lms/static/avatars/earned/<key>.svg).
+# Only a student who has earned one may pick it; the LMS route checks ownership.
+EARNED_CHARACTERS = (
+    "fox_scarf",
+    "owl_glasses",
+    "penguin_beanie",
+    "frog_crown",
+    "panda_leaf_crown",
+    "unicorn_ribbon",
+    "octopus_star",
+    "dragon_lantern",
+    "cat_bow_tie",
+    "bear_medal",
+    "rabbit_headphones",
+    "hedgehog_acorn",
+    "koala_pencil",
+    "lion_cub_laurel",
+    "turtle_star_shell",
+    "axolotl_seashell",
+    "raccoon_backpack",
+    "whale_star_spout",
+    "phoenix_chick_spark",
+    "narwhal_star_horn",
+)
 STAT_WINDOWS = ("last_class", "last_week", "year")
 DEFAULT_STAT_WINDOW = "last_class"
 STAT_WINDOW_LABELS = {
@@ -1409,10 +1433,11 @@ class GameShowDB:
         Args:
             class_id: Classes primary key.
             student_id: Students primary key.
-            character_key: One of ``STUDENT_CHARACTERS``.
+            character_key: One of ``STUDENT_CHARACTERS`` or ``EARNED_CHARACTERS``.
+                Callers must check that an earned key is owned (MCK-116).
         """
         key = (character_key or "").strip()
-        if key not in STUDENT_CHARACTERS:
+        if key not in STUDENT_CHARACTERS and key not in EARNED_CHARACTERS:
             raise ValueError("Choose an avatar.")
         self.get_student(class_id, student_id)
         with self._lock:

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="72" height="72" role="img" aria-label="Narwhal with a star horn">
+  <title>Narwhal with a star horn</title>
+  <path d="M15.8 14 L18 4.6 20.2 14 Z" fill="#fff4e0"/>
+  <path d="M16.6 12.2 L19.6 11 M17.2 9.6 L19 8.8" fill="none" stroke="#e7c9a0" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M18 12.6 C27 12.6 31.6 17.6 31.6 23.4 C31.6 29.6 25.6 33.6 18 33.6 C10.4 33.6 4.4 29.6 4.4 23.4 C4.4 17.6 9 12.6 18 12.6 Z" fill="#60a5fa"/>
+  <circle cx="11" cy="16.8" r="1.1" fill="#2f6fc0"/>
+  <circle cx="14.6" cy="15" r="0.9" fill="#2f6fc0"/>
+  <circle cx="24.6" cy="16.2" r="1.1" fill="#2f6fc0"/>
+  <circle cx="21.4" cy="14.8" r="0.8" fill="#2f6fc0"/>
+  <ellipse cx="18" cy="28.8" rx="8.6" ry="4.8" fill="#fff4e0"/>
+  <circle cx="12.2" cy="21.8" r="1.8" fill="#1f2937"/><circle cx="23.8" cy="21.8" r="1.8" fill="#1f2937"/>
+  <path d="M15.4 24.4 Q18 26.2 20.6 24.4" fill="none" stroke="#2f6fc0" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="9.2" cy="24.4" r="1.3" fill="#f6a6c1"/><circle cx="26.8" cy="24.4" r="1.3" fill="#f6a6c1"/>
+  <path d="M6.9 30.1 A3 1.5 40 1 1 2.3 26.3 A3 1.5 40 1 1 6.9 30.1 Z" fill="#2f6fc0"/>
+  <path d="M29.1 30.1 A3 1.5 140 1 1 33.7 26.3 A3 1.5 140 1 1 29.1 30.1 Z" fill="#2f6fc0"/>
+  <path d="M18 0.3 L19.1 2.7 21.7 3 19.7 4.8 20.3 7.4 18 6 15.7 7.4 16.3 4.8 14.3 3 16.9 2.7 Z" fill="#f5c518"/>
+  <circle cx="18" cy="4.5" r="0.8" fill="#c99a06"/>
+</svg>

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="72" height="72" role="img" aria-label="Whale with a star spout">
+  <title>Whale with a star spout</title>
+  <path d="M3 15.6 C1.2 12 2.2 9.2 4.6 8.6 C5.6 11 7.2 12.8 9.2 13.8 Z" fill="#60a5fa"/>
+  <path d="M33 15.6 C34.8 12 33.8 9.2 31.4 8.6 C30.4 11 28.8 12.8 26.8 13.8 Z" fill="#60a5fa"/>
+  <path d="M18 12.4 C27.6 12.4 33 17.6 33 23.4 C33 29.8 26.4 33.6 18 33.6 C9.6 33.6 3 29.8 3 23.4 C3 17.6 8.4 12.4 18 12.4 Z" fill="#2f6fc0"/>
+  <path d="M8.4 27.8 C12 26.4 24 26.4 27.6 27.8 C25.6 31.6 22 33.4 18 33.4 C14 33.4 10.4 31.6 8.4 27.8 Z" fill="#f4f6fb"/>
+  <circle cx="11.6" cy="20.8" r="2.3" fill="#f4f6fb"/>
+  <circle cx="24.4" cy="20.8" r="2.3" fill="#f4f6fb"/>
+  <circle cx="11.9" cy="21" r="1.4" fill="#1f2937"/>
+  <circle cx="24.1" cy="21" r="1.4" fill="#1f2937"/>
+  <path d="M14.2 24.4 Q18 26.8 21.8 24.4" fill="none" stroke="#f4f6fb" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M7.4 28.6 A3.2 1.7 30 1 1 1.8 25.4 A3.2 1.7 30 1 1 7.4 28.6 Z" fill="#60a5fa"/>
+  <path d="M28.6 28.6 A3.2 1.7 150 1 1 34.2 25.4 A3.2 1.7 150 1 1 28.6 28.6 Z" fill="#60a5fa"/>
+  <path d="M18 12.4 Q18 9.6 18 8" fill="none" stroke="#f4f6fb" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M17 11.4 Q14.4 10.2 13.6 7.8 M19 11.4 Q21.6 10.2 22.4 7.8" fill="none" stroke="#f4f6fb" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M18 0.8 L19.2 3.7 22.4 4 20 6 20.7 9.1 18 7.5 15.3 9.1 16 6 13.6 4 16.8 3.7 Z" fill="#f5c518"/>
+  <circle cx="18" cy="5.7" r="1" fill="#c99a06"/>
+</svg>

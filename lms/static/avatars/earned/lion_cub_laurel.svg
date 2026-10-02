@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="72" height="72" role="img" aria-label="Lion cub in a laurel">
+  <title>Lion cub in a laurel</title>
+  <circle cx="29.2" cy="19.6" r="4.2" fill="#a86b3c"/><circle cx="26.2" cy="24.8" r="4.2" fill="#a86b3c"/><circle cx="21" cy="27.8" r="4.2" fill="#a86b3c"/><circle cx="15" cy="27.8" r="4.2" fill="#a86b3c"/><circle cx="9.8" cy="24.8" r="4.2" fill="#a86b3c"/><circle cx="6.8" cy="19.6" r="4.2" fill="#a86b3c"/><circle cx="6.8" cy="13.6" r="4.2" fill="#a86b3c"/><circle cx="9.8" cy="8.4" r="4.2" fill="#a86b3c"/><circle cx="15" cy="5.4" r="4.2" fill="#a86b3c"/><circle cx="21" cy="5.4" r="4.2" fill="#a86b3c"/><circle cx="26.2" cy="8.4" r="4.2" fill="#a86b3c"/><circle cx="29.2" cy="13.6" r="4.2" fill="#a86b3c"/>
+  <circle cx="18" cy="16.6" r="11.4" fill="#a86b3c"/>
+  <circle cx="9.4" cy="8.4" r="3.2" fill="#f28a2e"/>
+  <circle cx="26.6" cy="8.4" r="3.2" fill="#f28a2e"/>
+  <circle cx="9.4" cy="8.4" r="1.6" fill="#7a3f12"/>
+  <circle cx="26.6" cy="8.4" r="1.6" fill="#7a3f12"/>
+  <ellipse cx="18" cy="17.4" rx="9.4" ry="8.8" fill="#f28a2e"/>
+  <ellipse cx="18" cy="21.4" rx="4.8" ry="3.6" fill="#fff4e0"/>
+  <path d="M16.2 19.2 L19.8 19.2 18 21.2 Z" fill="#7a3f12"/>
+  <path d="M18 21.2 L18 22.4 M16.2 23 Q17.1 23.9 18 22.4 Q18.9 23.9 19.8 23" fill="none" stroke="#7a3f12" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="14.2" cy="15.8" r="1.6" fill="#1f2937"/><circle cx="21.8" cy="15.8" r="1.6" fill="#1f2937"/>
+  <path d="M31.4 19 Q30 31 19.6 33.4" fill="none" stroke="#c99a06" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M31.1 23.9 Q33.5 21.5 32.1 18.5 Q29.7 20.9 31.1 23.9 Z" fill="#f5c518"/>
+  <path d="M28.7 28.6 Q31.8 27.5 31.7 24.2 Q28.6 25.3 28.7 28.6 Z" fill="#f5c518"/>
+  <path d="M24.2 31.5 Q27.4 32.1 29 29.3 Q25.8 28.7 24.2 31.5 Z" fill="#f5c518"/>
+  <path d="M19.5 32.8 Q22.4 34.5 24.9 32.4 Q22 30.7 19.5 32.8 Z" fill="#f5c518"/>
+  <path d="M4.6 19 Q6 31 16.4 33.4" fill="none" stroke="#c99a06" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M4.9 23.9 Q6.3 20.9 3.9 18.5 Q2.5 21.5 4.9 23.9 Z" fill="#f5c518"/>
+  <path d="M7.3 28.6 Q7.4 25.3 4.3 24.2 Q4.2 27.5 7.3 28.6 Z" fill="#f5c518"/>
+  <path d="M11.8 31.5 Q10.2 28.7 7 29.3 Q8.6 32.1 11.8 31.5 Z" fill="#f5c518"/>
+  <path d="M16.5 32.8 Q14 30.7 11.1 32.4 Q13.6 34.5 16.5 32.8 Z" fill="#f5c518"/>
+</svg>

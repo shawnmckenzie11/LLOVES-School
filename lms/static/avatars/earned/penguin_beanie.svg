@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="72" height="72" role="img" aria-label="Penguin in a beanie">
+  <title>Penguin in a beanie</title>
+  <!-- head -->
+  <path d="M18 7 C26.5 7 31 13 31 20.5 C31 28.5 25.5 33.5 18 33.5 C10.5 33.5 5 28.5 5 20.5 C5 13 9.5 7 18 7 Z" fill="#3a4559"/>
+  <!-- white face -->
+  <path d="M18 15.5 C21 13.5 26.5 14 27.5 19 C28.5 25 24 31.5 18 31.5 C12 31.5 7.5 25 8.5 19 C9.5 14 15 13.5 18 15.5 Z" fill="#f4f6fb"/>
+  <circle cx="13.6" cy="20" r="1.7" fill="#1f2937"/>
+  <circle cx="22.4" cy="20" r="1.7" fill="#1f2937"/>
+  <path d="M15.6 23.2 L20.4 23.2 L18 26.4 Z" fill="#f28a2e"/>
+  <circle cx="11" cy="24.4" r="1.3" fill="#f6a6c1"/>
+  <circle cx="25" cy="24.4" r="1.3" fill="#f6a6c1"/>
+  <!-- keepsake: gold knit beanie with pom -->
+  <path d="M6.4 15 C6 9.6 11 5.8 18 5.8 C25 5.8 30 9.6 29.6 15 Z" fill="#f5c518"/>
+  <path d="M5.6 14.6 C10 12.4 26 12.4 30.4 14.6 L30.2 17.6 C26 15.6 10 15.6 5.8 17.6 Z" fill="#c99a06"/>
+  <circle cx="18" cy="4.6" r="3" fill="#f5c518"/>
+  <path d="M10.5 11.6 Q11.2 9.4 12.6 8 M18 11 L18 7.6 M25.5 11.6 Q24.8 9.4 23.4 8" fill="none" stroke="#c99a06" stroke-width="1" stroke-linecap="round"/>
+</svg>
