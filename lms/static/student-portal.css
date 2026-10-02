@@ -2570,3 +2570,77 @@ body.rw-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .rw-modal { animation: none; }
 }
+
+/* MCK-154 S1: closed rank results as one stack (rank_stack.js). */
+.rank-stack-status {
+  margin: 0.35rem 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.rank-stack-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.rank-stack {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.rank-stack-caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+.rank-stack th,
+.rank-stack td {
+  padding: 0.35rem 0.3rem;
+  border-bottom: 1px solid #234;
+  text-align: left;
+  vertical-align: middle;
+}
+.rank-stack thead th {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #94a3b8;
+}
+.rank-stack .rank-stack-place {
+  width: 2.4ch;
+  font-weight: 700;
+  text-align: right;
+}
+.rank-stack .rank-stack-option {
+  font-weight: 500;
+}
+.rank-stack .rank-stack-option > span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.rank-stack .rank-stack-team {
+  width: 3.4rem;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+}
+.rank-stack thead .rank-stack-team {
+  font-family: inherit;
+}
+.rank-stack .rank-stack-team.is-own {
+  font-weight: 700;
+  color: #5eead4;
+}
+.rank-stack .rank-stack-team.is-waiting {
+  color: #64748b;
+}
+/* MCK-154 S1: a closed group rank card mounts the stack straight in the
+   card; line it up with the card's text column. */
+.student-live-card > .rank-stack-wrap {
+  margin: 0 1.25rem 0.85rem;
+}
+.rank-stack td.is-waiting > span {
+  font-size: 1.25rem;
+  line-height: 1;
+}

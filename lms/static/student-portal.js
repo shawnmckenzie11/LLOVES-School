@@ -35,6 +35,7 @@ import {
   showBoardRefreshCue,
 } from "/static/live_whiteboard.js";
 import { nameWithAvatar, paintAvatar } from "/static/student_avatars.js";
+import { rankStackHtml } from "/static/rank_stack.js";
 
 const waitEl = document.getElementById("student-wait");
 const gameShowWelcomeEl = document.getElementById("game-show-welcome");
@@ -2171,6 +2172,20 @@ function rankWaitingHtml(options, order, changeLabel) {
 }
 
 /**
+ * MCK-154 S1: a closed card's own order, once, when results are hidden.
+ * No waiting cue and no Change button (nothing can change after Close).
+ * @param {{id: string, label: string}[]} options
+ * @param {string[]} order
+ * @returns {string}
+ */
+function rankClosedOwnOrderHtml(options, order) {
+  if (!Array.isArray(order) || !order.length) return "";
+  const labels = new Map(options.map((row) => [row.id, row.label]));
+  const line = order.map((id, index) => `${index + 1} ${labels.get(id) || id}`).join(" · ");
+  return `<p class="student-live-own-answer rank-closed-own">Your order: ${escapeText(line)}</p>`;
+}
+
+/**
  * Paint rank badges in authored-row order. Position in ``order`` is the rank.
  * @param {HTMLElement} card
  * @param {string[]} order
@@ -2275,16 +2290,13 @@ function lifecycleResultsHtml(results) {
         ? results.rank.class_order
         : [];
   if ((results?.kind === "rank" || Array.isArray(results?.class_order)) && rankRows.length) {
+    // MCK-154 S1: the same vertical stack as the teacher, place + option
+    // only (no score on student screens).
     return `<section class="student-live-results" aria-label="Class order">
-      <p class="student-live-card-kicker">Class order</p>
-      <ol class="rank-class-order">${rankRows
-        .map((row) => {
-          const pct = Math.max(0, Math.min(100, Number(row.bar_pct) || 0));
-          return `<li><span class="rank-place">${Number(row.rank) || 0}</span> <span>${escapeText(
-            row.label || ""
-          )}</span> <span class="rank-bar" aria-hidden="true"><span style="width:${pct}%"></span></span></li>`;
-        })
-        .join("")}</ol>
+      ${rankStackHtml(
+        { ...(results?.rank || {}), ...results, unit: "student", class_order: rankRows },
+        { audience: "student", rows: rankRows, showStatus: false }
+      )}
     </section>`;
   }
   const choices = Array.isArray(results?.choices) ? results.choices : [];
@@ -2728,16 +2740,23 @@ function groupSubmitPhaseLabel(phase) {
 }
 
 /**
- * One Reveal table for a closed group rank card.
+ * One result for a closed group rank card (MCK-154 S1).
  *
- * Each team is one row. A miss leaves the Order cell blank. Class-order
- * summary is not mounted beside this table.
+ * One stack: a row per option in class order and a place column per
+ * group, the student's own group first as "You". A group that never sent
+ * shows "·". No score on student screens. Falls back to the older
+ * Group | Order table when the payload has no class order.
  *
- * @param {any[]} rows
+ * @param {any} results Closed-card ``results`` (``rank`` and ``reveal``).
+ * @param {number} [ownTeamId] This student's team.
  * @returns {string}
  */
-function rankGroupRevealHtml(rows) {
-  const list = Array.isArray(rows) ? rows : [];
+function rankGroupRevealHtml(results, ownTeamId) {
+  const rank = results?.rank;
+  if (rank && Array.isArray(rank.class_order) && rank.class_order.length) {
+    return rankStackHtml(rank, { audience: "student", ownTeamId });
+  }
+  const list = Array.isArray(results?.reveal) ? results.reveal : [];
   if (!list.length) return "";
   return `<table class="group-reveal-board">
       <caption>Teams</caption>
@@ -2768,14 +2787,14 @@ function studentGroupCardHtml(item) {
   const content = item?.content || item?.prompt?.payload || {};
   const rank = String(content.type || content.kind || "").toLowerCase() === "rank";
   if (status === "closed" && rank) {
-    const options = rankOptionsFromContent(content);
+    // MCK-154 S1: a closed card is final. No "Submitted — waiting." and
+    // no Change button; the stack already shows this group's column.
+    const stack = rankGroupRevealHtml(item?.results, item?.group_submit?.team_id);
+    if (stack) return stack;
     const own = Array.isArray(item?.group_submit?.submitted_order)
       ? item.group_submit.submitted_order
-      : Array.isArray(item?.group_submit?.order)
-        ? item.group_submit.order
-        : [];
-    const teams = rankGroupRevealHtml(item?.results?.reveal);
-    return `${teams}${own.length ? rankWaitingHtml(options, own.map(String), "Change team order") : ""}`;
+      : [];
+    return rankClosedOwnOrderHtml(rankOptionsFromContent(content), own.map(String));
   }
   if (status === "closed") {
     const rows = Array.isArray(item?.results?.reveal) ? item.results.reveal : [];
@@ -3024,8 +3043,19 @@ function paintLifecycleQuestionStack(payload) {
       const groupSubmit = item.response_mode === "group_submit";
       const rankKind = lifecycleAnswerKind(item) === "rank";
       const rankEdit = rankEditing.has(Number(item.id) || 0);
+      // MCK-154 S1: a closed rank card never says "Submitted — waiting."
+      // and never offers Change answer; the class-order stack is the result.
       const individualControls =
-        !groupMode && !groupSubmit && rankKind && item.my_response && !rankEdit
+        !groupMode && !groupSubmit && rankKind && status === "closed"
+          ? item.results
+            ? ""
+            : rankClosedOwnOrderHtml(
+                rankOptionsFromContent(content),
+                Array.isArray(item.my_response?.response?.order)
+                  ? item.my_response.response.order.map((id) => String(id))
+                  : []
+              )
+          : !groupMode && !groupSubmit && rankKind && item.my_response && !rankEdit
           ? rankWaitingHtml(
               rankOptionsFromContent(content),
               Array.isArray(item.my_response.response?.order)
