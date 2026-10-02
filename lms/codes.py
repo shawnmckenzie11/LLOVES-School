@@ -9,6 +9,9 @@ Two kinds of code share this module:
 * **Durable offering and class codes** (``live_access_code``). These stay 8
   characters from ``ALPHABET``.
 
+Session codes are re-picked when they spell a word on
+``OFFENSIVE_CODE_PARTS`` (including digit look-alikes such as 5EXY).
+
 ``normalize_live_access_code`` accepts every length either kind uses, so
 8-character session codes minted before MCK-117 keep working until their
 sessions end.
@@ -32,6 +35,46 @@ SESSION_CODE_GROW_AT_ACTIVE: dict[int, int] = {4: 300, 5: 3000}
 SESSION_CODE_TRIES_PER_LENGTH = 8
 # Every code length ``normalize_live_access_code`` accepts.
 LIVE_ACCESS_CODE_LENGTHS: frozenset[int] = frozenset((*SESSION_CODE_LENGTHS, 8))
+# Last resort after every 4/5/6 try collided: an 8-character session code
+# (join already accepts 8). Only then does Start give up with a clean error.
+SESSION_CODE_FALLBACK_LENGTH = 8
+
+# MCK-117 M1: a 4-character code is a whole word on the projector. A code is
+# re-picked when it, or its letter reading (4->A, 3->E, 5->S, 7->T, 8->B,
+# 6/9->G, 2->Z, V->U), contains any of these. Kept short and generic; add to
+# it freely, since each entry removes only a sliver of the code space.
+OFFENSIVE_CODE_PARTS: tuple[str, ...] = (
+    "KKK", "NAZI", "HEIL", "SS88", "HH88", "88", "666",
+    "FUCK", "FUK", "FCK", "FUQ", "PHUK", "SHIT", "SHT", "CUNT", "TWAT", "DICK",
+    "COCK", "PUSSY", "PUSY", "TITS", "TIT", "BOOB", "ANUS", "ANAL", "ARSE", "ASS",
+    "CUM", "JIZZ", "PORN", "SEX", "SEXY", "RAPE", "SLUT", "WHORE", "HOE", "HOR",
+    "FAG", "DYKE", "TRANNY", "NIG", "NGR", "NGA", "NEGRO", "COON", "SPIC", "SPIK",
+    "CHINK", "GOOK", "KIKE", "WOP", "RETARD", "TARD", "KYS", "KILL", "DIE", "DED",
+    "WTF", "STFU", "GTFO", "DAMN", "PISS", "BUTT", "POOP", "PEE", "PENIS",
+    "VAG", "BJ", "HJ", "69", "420", "GUN", "BOMB", "ISIS", "JEW",
+)
+_CODE_LETTER_READING = str.maketrans(
+    {"4": "A", "3": "E", "5": "S", "7": "T", "8": "B", "6": "G", "9": "G", "2": "Z", "V": "U"}
+)
+
+
+def is_offensive_code(code: str) -> bool:
+    """True when a code spells, or reads like, a word on the blocklist.
+
+    Args:
+        code: Candidate code (any case).
+
+    Returns:
+        True to re-pick.
+    """
+    text = str(code or "").upper()
+    readings = {text, text.translate(_CODE_LETTER_READING)}
+    return any(part in reading for reading in readings for part in OFFENSIVE_CODE_PARTS)
+
+
+class SessionCodeUnavailable(ValueError):
+    """Start could not find a free join code. A ``ValueError`` so the Start
+    routes show it as a normal 400 message instead of a 500."""
 
 
 def generate_live_access_code(length: int = 8, alphabet: str = ALPHABET) -> str:
@@ -68,11 +111,13 @@ def pick_session_code(
     *,
     generate: Callable[[int], str] | None = None,
 ) -> str:
-    """Pick a live-session join code that ``taken`` reports free.
+    """Pick a live-session join code that is free and not offensive.
 
     Starts at ``session_code_start_length(active_sessions)``. After
-    ``SESSION_CODE_TRIES_PER_LENGTH`` collisions it moves to the next
-    length. The longest length gets the same budget again.
+    ``SESSION_CODE_TRIES_PER_LENGTH`` rejected picks it moves to the next
+    length; the longest gets the budget twice, then
+    ``SESSION_CODE_FALLBACK_LENGTH`` gets one more. A pick on the
+    ``OFFENSIVE_CODE_PARTS`` blocklist is re-picked and uses up one try.
 
     Args:
         taken: True when a candidate is already in use.
@@ -84,7 +129,7 @@ def pick_session_code(
         A free code.
 
     Raises:
-        RuntimeError: If every try at every length collided.
+        SessionCodeUnavailable: If every try at every length was rejected.
     """
     make = generate or (
         lambda length: generate_live_access_code(length, SESSION_CODE_ALPHABET)
@@ -92,12 +137,17 @@ def pick_session_code(
     start = session_code_start_length(active_sessions)
     lengths = [n for n in SESSION_CODE_LENGTHS if n >= start]
     lengths.append(SESSION_CODE_LENGTHS[-1])
+    lengths.append(SESSION_CODE_FALLBACK_LENGTH)
     for length in lengths:
         for _ in range(SESSION_CODE_TRIES_PER_LENGTH):
             code = make(length)
+            if is_offensive_code(code):
+                continue
             if not taken(code):
                 return code
-    raise RuntimeError("Could not pick a free live-session join code")
+    raise SessionCodeUnavailable(
+        "Couldn’t make a free join code just now. Press Start again."
+    )
 
 
 def normalize_live_access_code(raw: str) -> str:

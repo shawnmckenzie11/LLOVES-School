@@ -11403,7 +11403,12 @@ class SchoolDB(LovesDB):
         stays unambiguous.
 
         Returns:
-            Uppercase code from ``codes.SESSION_CODE_ALPHABET``.
+            Uppercase code from ``codes.SESSION_CODE_ALPHABET``, never one on
+            ``codes.OFFENSIVE_CODE_PARTS``.
+
+        Raises:
+            codes.SessionCodeUnavailable: A ``ValueError``; Start shows it as
+                a 400 message.
         """
         try:
             from codes import pick_session_code

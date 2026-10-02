@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import unittest
+from pathlib import Path
 from html.parser import HTMLParser
 from typing import Any
 from unittest.mock import patch
@@ -18,10 +19,14 @@ import codes
 import test_auth
 from codes import (
     ALPHABET,
+    OFFENSIVE_CODE_PARTS,
     SESSION_CODE_ALPHABET,
+    SESSION_CODE_FALLBACK_LENGTH,
     SESSION_CODE_GROW_AT_ACTIVE,
     SESSION_CODE_LENGTHS,
     SESSION_CODE_TRIES_PER_LENGTH,
+    SessionCodeUnavailable,
+    is_offensive_code,
     normalize_live_access_code,
     pick_session_code,
     session_code_start_length,
@@ -65,7 +70,8 @@ class SessionCodeUnitTests(unittest.TestCase):
             tried.append(code)
             return len(code) < 6
 
-        code = pick_session_code(taken)
+        with patch.object(codes, "is_offensive_code", return_value=False):
+            code = pick_session_code(taken)
         self.assertEqual(len(code), 6)
         lengths = [len(c) for c in tried]
         tries = SESSION_CODE_TRIES_PER_LENGTH
@@ -85,9 +91,38 @@ class SessionCodeUnitTests(unittest.TestCase):
         self.assertEqual(code, "BBBB")
         self.assertEqual(seen, ["AAAA", "BBBB"])
 
-    def test_every_length_full_raises(self) -> None:
-        with self.assertRaises(RuntimeError):
-            pick_session_code(lambda _c: True)
+    def test_every_length_full_falls_back_then_clean_error(self) -> None:
+        """Past 6 characters it tries 8; then a ValueError, never a 500."""
+        tried: list[int] = []
+
+        def taken(code: str) -> bool:
+            tried.append(len(code))
+            return len(code) < SESSION_CODE_FALLBACK_LENGTH
+
+        with patch.object(codes, "is_offensive_code", return_value=False):
+            self.assertEqual(len(pick_session_code(taken)), 8)
+            tries = SESSION_CODE_TRIES_PER_LENGTH
+            self.assertEqual(tried, [4] * tries + [5] * tries + [6] * (2 * tries) + [8])
+            with self.assertRaises(SessionCodeUnavailable) as caught:
+                pick_session_code(lambda _c: True)
+        self.assertIsInstance(caught.exception, ValueError)
+        self.assertIn("Press Start again", str(caught.exception))
+
+    def test_offensive_codes_are_repicked(self) -> None:
+        """M1: blocklisted words, KKK runs, and digit look-alikes never ship."""
+        for bad in ("FUCK", "KKKK", "KKK7", "CUNT", "TWAT", "FAGS", "DYKE", "SEXY",
+                    "ANUS", "5EXY", "FVCK", "N4ZI", "SH7T", "A88B", "HH88", "fuck"):
+            self.assertTrue(is_offensive_code(bad), bad)
+        for fine in ("AB2C", "QR7K", "MXPW", "Z3RT"):
+            self.assertFalse(is_offensive_code(fine), fine)
+        picks = iter(["FUCK", "KKK7", "5EXY", "AB2C"])
+        seen: list[str] = []
+        code = pick_session_code(lambda c: seen.append(c) or False, generate=lambda _n: next(picks))
+        self.assertEqual(code, "AB2C")
+        self.assertEqual(seen, ["AB2C"])
+        for _ in range(3000):
+            self.assertFalse(is_offensive_code(pick_session_code(lambda _c: False)))
+        self.assertIn("KKK", OFFENSIVE_CODE_PARTS)
 
     def test_normalize_accepts_supported_lengths(self) -> None:
         self.assertEqual(normalize_live_access_code(" ab2c "), "AB2C")
@@ -215,13 +250,44 @@ class SessionCodeJoinTests(test_auth.AuthTests):
         finder.feed(page)
         attrs = finder.attrs
         self.assertEqual(attrs.get("minlength"), "4")
-        self.assertEqual(attrs.get("maxlength"), "8")
         self.assertNotIn("8-character", page)
+        self.assertIn("4 to 6", attrs["title"])
+        self.assertIn("8", attrs["title"])
         pattern = re.compile(attrs["pattern"])
-        for ok in ("AB2C", "ab2c", "AB2CD", "AB2CDE", "LMNP2345", "AB 2C"):
+        maxlength = int(attrs["maxlength"])
+        for ok in ("AB2C", "ab2c", "AB2CD", "AB2CDE", "LMNP2345", "AB 2C",
+                   "PBQ7 B6FQ", " pbq7 B6FQ ", "a z z q"):
             self.assertIsNotNone(pattern.fullmatch(ok), ok)
-        for bad in ("AB2", "AB-2C", ""):
+            # maxlength must not cut a spaced code short.
+            self.assertLessEqual(len(ok), maxlength, ok)
+        for bad in ("AB2", "AB-2C", "", "AB2CDEF", "AB2 CDEF", "AB2CDEFGH"):
             self.assertIsNone(pattern.fullmatch(bad), bad)
+
+    def test_start_exhaustion_is_a_clean_error(self) -> None:
+        """L1: every candidate taken gives a 400 message, not a 500."""
+        self.school.end_live_class_session(int(self.live["id"]))
+        teacher = self.app.test_client()
+        teacher.get("/auth/google?portal=staff")
+        teacher.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+        teacher.post(
+            "/verify-email",
+            data={"code": self.school.get_user_by_email("teacher@gmail.com")["verification_code"]},
+        )
+        class_id = int(self.live["class_id"])
+        with patch.object(self.school, "active_session_code_taken", return_value=True):
+            api = teacher.post(f"/api/classes/{class_id}/live-session/start", json={})
+            form = teacher.post(f"/staff/class/{class_id}/run-live")
+        self.assertEqual(api.status_code, 400, api.get_data(as_text=True)[:300])
+        self.assertIn("Press Start again", api.get_json()["error"])
+        self.assertEqual(form.status_code, 400)
+        self.assertIn("Press Start again", form.get_data(as_text=True))
+        self.assertIsNone(self.school.get_active_live_session_for_class(class_id))
+
+    def test_projector_code_is_large(self) -> None:
+        """L4: the overlay code reaches 5rem (80px) on a 1080p projector."""
+        css = (Path(__file__).resolve().parent.parent / "tools/math-game-show/static/app.css").read_text()
+        rule = css.split(".live-overlay-code {", 1)[1].split("}", 1)[0]
+        self.assertIn("clamp(1.6rem, min(9vw, 11vh), 5rem)", rule)
 
     def _set_code(self, code: str) -> None:
         with self.school._lock:
