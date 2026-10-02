@@ -5,8 +5,11 @@ name: Deploy LLOVES LMS
 # Deploy to Fly job runs flyctl deploy. The required reviewer is a repo
 # setting (shawnmckenzie11), not this file.
 #
-# workflow_dispatch uses the same test job. Approval and deploy still
-# require refs/heads/main, the production environment, and the SHA guard.
+# workflow_dispatch runs the same three jobs (test, approve, deploy).
+# Only refs/heads/main gets past test: approve holds the production
+# environment and runs the SHA guard; deploy needs approve from the same
+# run attempt and re-runs the SHA guard before flyctl. Deploy itself has
+# no environment.
 # Feature branches never run this workflow; they test via ci.yml.
 #
 # Concurrency (MCK-126): only the newest run waits at the Production gate.
@@ -26,6 +29,9 @@ name: Deploy LLOVES LMS
 # Backstops: the SHA guard refuses flyctl unless GITHUB_SHA is still
 # origin/main, and deploy refuses unless approve ran in this run attempt
 # (a "Re-run failed jobs" of deploy alone does not skip approval).
+# Re-run only the newest run. Re-running an older run re-enters the gate
+# group and cancels whatever newer run is waiting there; the SHA guard
+# then fails the older one, leaving nothing to approve.
 #
 # Not a code deploy: attach-live-postgres.yml is workflow_dispatch only.
 # It does not flyctl deploy. It can restart lloves-lms and waits on the

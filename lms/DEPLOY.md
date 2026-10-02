@@ -95,10 +95,11 @@ A push to `main` runs **Deploy LLOVES LMS** (`.github/workflows/deploy.yml`) thr
 3. **Deploy to Fly**: `flyctl deploy` (group `deploy-lloves-lms-fly`, never cancelled).
 
 **What this means for Shawn:**
-- **Stale runs clear themselves.** A newer push cancels any older run still testing or waiting at **Production approval**. Only the newest run asks for review, so there is no need to reject old ones.
+- **Older runs should clear themselves; if an older run is still waiting, reject it.** A newer push is meant to cancel any older run still testing or waiting at **Production approval**, so only the newest run asks for review. Until the first post-merge test on `main` proves that cancel works, check Actions before approving: if an older run is still "Waiting for review", reject it and approve only the newest.
 - **A deploy in progress is never cancelled.** If a newer run is approved while Fly is still deploying, it waits as *pending* and starts when that deploy ends.
 - **Stale SHAs are still refused.** Both approval and deploy fail when the run's SHA is no longer `origin/main`.
 - **To retry a failed deploy, use "Re-run all jobs".** "Re-run failed jobs" on Deploy to Fly alone is refused, because approval must happen in the same attempt.
+- **Only re-run the newest run.** Re-running an older run puts it back in the approval group, where it cancels the newer run that is waiting there. Its SHA guard then fails, so nothing is left to approve and you have to re-run the newest run anyway.
 - **The GitHub deployment record is set by the approval job.** The environment's deployment shows success once approval passes. Check the Deploy to Fly job (or `/health`) for the real result.
 - **One-time switch:** runs started before this change use the old single job and group. Reject any that are still "Waiting for review" once. They don't block new runs, because the Fly group has a new name.
 
@@ -166,7 +167,7 @@ the process is serving.
 
 Recovery under live poll load:
 
-- Image deploy (a merge to `main` runs tests, then the Fly deploy waits for Shawn's approval on the `production` environment), or `fly machines update` on the one machine.
+- Image deploy (a merge to `main` runs tests, then the **Production approval** job holds the `production` environment gate for Shawn; once approved, the Deploy to Fly job waits its turn and runs `flyctl deploy`), or `fly machines update` on the one machine.
 - Do not use `fly machines restart` while student and staff polls are attached.
 
 The image also refuses connections past backlog 64 (gunicorn's default
@@ -200,7 +201,7 @@ Fly secrets, after Shawn's GO (this tip does not deploy):
 fly secrets set SENTRY_DSN='…' SENTRY_DSN_LIVE='…' --app lloves-lms
 ```
 
-Paste each DSN at the prompt. The next approved deploy from `main` ships the SDK (tests run, then the Fly deploy waits for Shawn's approval on the `production` environment). Events appear once those secrets exist on the machine.
+Paste each DSN at the prompt. The next approved deploy from `main` ships the SDK (tests run, then the **Production approval** job holds the `production` environment gate for Shawn; once approved, the Deploy to Fly job waits its turn and runs `flyctl deploy`). Events appear once those secrets exist on the machine.
 
 ### Tip smoke on :8787
 
