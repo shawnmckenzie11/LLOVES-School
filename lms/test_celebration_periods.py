@@ -672,30 +672,64 @@ class StartFreshTests(unittest.TestCase):
         self.assertEqual(card["period_label"], "Since Oct 5")
 
     def test_med4_shared_course_code_is_refused(self) -> None:
-        """Another teacher's class shares the MCR3U card: 409, nothing written."""
+        """Another teacher's class shares the MCR3U card (MED-4).
+
+        One class: 409, nothing written. All: MCR3U is skipped (listed in
+        ``skipped``), the unshared course starts fresh. A teacher whose only
+        course is shared gets 409 for All too. The staff line says Start
+        fresh isn't available rather than "Start fresh to count new classes".
+        """
+        from celebration import AwardTallyShared, start_fresh_award_tally
+
         rows = self._two_courses()
         mcr, _ = rows["MCR3U"]
         mcf, _ = rows["MCF3M"]
         foreign = self._other_teacher_class("MCR3U")
         semester_id = int(self.school.get_active_semester()["id"])
+        self._at("2026-10-02T08:00:00")
         before_snapshot = self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None)
-        for body in ({"scope": "class", "class_id": mcr}, {"scope": "all"}):
-            rv = self._fresh(**body)
-            self.assertEqual(rv.status_code, 409, rv.get_json())
-            self.assertEqual(
-                rv.get_json()["error"],
-                "Couldn't start fresh. MCR3U is shared with another teacher's class."
-                " Nothing changed.",
-            )
+        rv = self._fresh(scope="class", class_id=mcr)
+        self.assertEqual(rv.status_code, 409, rv.get_json())
+        self.assertEqual(
+            rv.get_json()["error"],
+            "Couldn't start fresh. MCR3U is shared with another teacher's class."
+            " Nothing changed.",
+        )
         self.assertEqual(periods.current_periods(self.school, semester_id), {})
         self.assertEqual(
             self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None), before_snapshot
         )
         self.assertIsNone(self.school.get_school_setting("celebration_held_cards", None))
-        # An unshared course of the same teacher still works.
-        self.assertEqual(self._fresh(scope="class", class_id=mcf).status_code, 200)
+        # Staff page: the shared course's line and option say so.
+        listed = {
+            c["course"]: c
+            for c in self.client.get("/api/staff/celebrations/periods").get_json()["classes"]
+        }
+        self.assertTrue(listed["MCR3U"]["shared"])
+        self.assertFalse(listed["MCF3M"]["shared"])
+        self.assertEqual(
+            listed["MCR3U"]["status_line"],
+            "Sep 8 – Oct 1, 2026. Start fresh isn't available for courses shared with"
+            " another teacher.",
+        )
+        self.assertEqual(
+            listed["MCF3M"]["status_line"],
+            "Sep 8 – Oct 1, 2026. Ended. Start fresh to count new classes.",
+        )
+        page = self.client.get("/staff").get_data(as_text=True)
+        self.assertIn(f'<option value="{mcr}" data-class-name="MCR3U" disabled>Only MCR3U</option>', page)
+        self.assertIn(f'<li data-class-id="{mcr}" data-shared="1">MCR3U · ', page)
+        # All: the shared course is skipped, the other starts fresh.
+        rv = self._fresh(scope="all")
+        self.assertEqual(rv.status_code, 200, rv.get_json())
+        self.assertEqual(rv.get_json()["skipped"], [{"class_id": mcr, "course": "MCR3U"}])
+        self.assertEqual([p["class_id"] for p in rv.get_json()["periods"]], [mcf])
         self.assertEqual(sorted(periods.current_periods(self.school, semester_id)), [mcf])
-        del foreign
+        # The other teacher's only course is shared: All is refused.
+        other_id = int(self.school.get_user_by_email("other@gmail.com")["id"])
+        with self.assertRaises(AwardTallyShared):
+            start_fresh_award_tally(self.school, teacher_user_id=other_id)
+        self.assertNotIn(foreign, periods.current_periods(self.school, semester_id))
 
     def test_low5_repeat_and_concurrent_start_fresh_open_one_period(self) -> None:
         """Double click, 8 concurrent calls, and a second connection: one row each."""

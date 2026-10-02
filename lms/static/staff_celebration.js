@@ -58,7 +58,17 @@ const FRESH_COPY = {
   toastAll: "Celebrations started fresh for all your classes. Past records are kept.",
   toastOne: "Celebrations started fresh for {class}. Past records are kept.",
   error: "Couldn't start fresh. Try again.",
+  skipped: "{courses} skipped: shared with another teacher's class.",
 };
+
+/**
+ * LOW-7: bring a message into view (at 390 px it can sit far above).
+ * @param {Element | null} el
+ */
+function revealMessage(el) {
+  if (!el || typeof el.scrollIntoView !== "function") return;
+  el.scrollIntoView({ block: "center", behavior: "smooth" });
+}
 const FRESH_TOAST_KEY = "mck133-start-fresh-toast";
 
 /**
@@ -72,7 +82,8 @@ const FRESH_TOAST_KEY = "mck133-start-fresh-toast";
 function confirmStartFresh(value) {
   const dialog = document.getElementById("award-fresh-dialog");
   const rows = dialog ? Array.from(dialog.querySelectorAll("#award-fresh-summary li")) : [];
-  const shown = rows.filter((row) => value === "all" || row.dataset.classId === value);
+  // "All" skips courses shared with another teacher (the server does too).
+  const shown = rows.filter((row) => (value === "all" ? !row.dataset.shared : row.dataset.classId === value));
   rows.forEach((row) => {
     row.hidden = !shown.includes(row);
   });
@@ -102,6 +113,7 @@ function showStartFreshToast() {
   if (!toast || !text) return;
   toast.textContent = text;
   toast.hidden = false;
+  revealMessage(toast);
 }
 
 /**
@@ -123,7 +135,13 @@ function bindStartFresh() {
     const value = scope.value || "all";
     const option = scope.options[scope.selectedIndex];
     const name = (option && option.dataset.className) || "";
-    const ok = await confirmStartFresh(value);
+    // The button stays disabled from the first click until the dialog closes.
+    let ok = false;
+    try {
+      ok = await confirmStartFresh(value);
+    } catch {
+      ok = false;
+    }
     if (!ok) {
       busy = false;
       button.disabled = false;
@@ -132,12 +150,16 @@ function bindStartFresh() {
     const payload = value === "all" ? { scope: "all" } : { scope: "class", class_id: Number(value) };
     hideError("#error");
     try {
-      await api("/api/staff/celebrations/start-fresh", {
+      const result = await api("/api/staff/celebrations/start-fresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const toast = value === "all" ? FRESH_COPY.toastAll : FRESH_COPY.toastOne.replace("{class}", name);
+      let toast = value === "all" ? FRESH_COPY.toastAll : FRESH_COPY.toastOne.replace("{class}", name);
+      const skipped = (result && Array.isArray(result.skipped) ? result.skipped : [])
+        .map((row) => String((row && row.course) || "").trim())
+        .filter(Boolean);
+      if (skipped.length) toast = `${toast} ${FRESH_COPY.skipped.replace("{courses}", skipped.join(", "))}`;
       try {
         window.sessionStorage.setItem(FRESH_TOAST_KEY, toast);
       } catch {
@@ -152,6 +174,7 @@ function bindStartFresh() {
       const fromServer = err instanceof Error && !(err instanceof TypeError) && !/^HTTP \d+$/.test(err.message);
       const msg = fromServer && err.message ? err.message : FRESH_COPY.error;
       showError("#error", msg);
+      revealMessage(document.getElementById("error"));
     }
   });
 }

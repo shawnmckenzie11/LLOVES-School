@@ -202,7 +202,7 @@
           <select id="award-fresh-scope">
             <option value="all">All my classes</option>
             {% for c in celebration_periods %}
-            <option value="{{ c.class_id }}" data-class-name="{{ c.course }}">Only {{ c.course }}</option>
+            <option value="{{ c.class_id }}" data-class-name="{{ c.course }}"{% if c.shared %} disabled{% endif %}>Only {{ c.course }}</option>
             {% endfor %}
           </select>
           <button type="button" class="secondary award-fresh-quiet" id="award-fresh-go">Start fresh…</button>
@@ -249,7 +249,7 @@
           <h2 id="award-fresh-title">Start Celebrations fresh?</h2>
           <ul id="award-fresh-summary" class="award-fresh-summary">
             {% for c in celebration_periods %}
-            <li data-class-id="{{ c.class_id }}">{{ c.course }} · {{ c.closing_label }}</li>
+            <li data-class-id="{{ c.class_id }}"{% if c.shared %} data-shared="1"{% endif %}>{{ c.course }} · {{ c.closing_label }}</li>
             {% endfor %}
           </ul>
           <p class="award-fresh-restarts">Awards start counting again from today.</p>

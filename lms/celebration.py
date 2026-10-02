@@ -111,6 +111,9 @@ STAFF_COPY: dict[str, str] = {
     "staff_period_first_ended": "{label}. Ended. Start fresh to count new classes.",  # Wonder copy slot
     "staff_period_new": "{since}",  # Wonder copy slot
     "staff_period_new_board": "{since}. The board shows {board} until there's a new winner.",  # Wonder copy slot
+    # Appended (after the line's own text) for a course whose card also
+    # covers another teacher's class: Start fresh is not offered (MED-4).
+    "staff_period_shared": "{line}. Start fresh isn't available for courses shared with another teacher.",  # Wonder copy slot
     # Start fresh refused: the course card covers another teacher's class.
     "start_fresh_shared": "Couldn't start fresh. {courses} is shared with another teacher's class. Nothing changed.",  # Wonder copy slot
 }
@@ -1151,7 +1154,8 @@ def staff_award_periods(school: Any, teacher_user_id: int) -> list[dict[str, Any
 
     Returns:
         ``{class_id, course, period_id, period_start, period_started_at,
-        period_end, period_label, board_label, status_line, closing_label}``
+        period_end, period_label, board_label, status_line, closing_label,
+        shared}``
         rows in
         ``list_staff_classes`` order. Dates are school date ISO; the first
         period runs from semester day 1 to ``FIRST_AWARD_PERIOD_END``, a
@@ -1166,6 +1170,14 @@ def staff_award_periods(school: Any, teacher_user_id: int) -> list[dict[str, Any
     first_end = award_periods.first_period_end(school, first_day)
     closed = _first_period_closed(school)
     today = award_periods.school_now().date()
+    classes = list(school.list_staff_classes(int(teacher_user_id)))
+    try:
+        shared = {
+            c.upper()
+            for c in _shared_courses(school, int(teacher_user_id), [int(c["id"]) for c in classes])
+        }
+    except Exception:  # noqa: BLE001 - the staff page must still load
+        shared = set()
     try:
         board = {
             str(c.get("course") or ""): c
@@ -1175,9 +1187,10 @@ def staff_award_periods(school: Any, teacher_user_id: int) -> list[dict[str, Any
     except Exception:  # noqa: BLE001 - the staff page must still load
         board = {}
     out: list[dict[str, Any]] = []
-    for cls in school.list_staff_classes(int(teacher_user_id)):
+    for cls in classes:
         class_id = int(cls["id"])
         course = str(cls.get("section_code") or cls.get("course_code") or "")
+        is_shared = course.upper() in shared
         period = periods.get(class_id) or {}
         start = award_periods.school_date(period.get("starts_at")) or first_day
         end = None if period else first_end
@@ -1187,7 +1200,7 @@ def staff_award_periods(school: Any, teacher_user_id: int) -> list[dict[str, Any
         card = board.get(course)
         board_label = card.get("period_label") if card else None
         if not period:
-            key = "staff_period_first_ended" if closed else "staff_period_first"
+            key = "staff_period_first_ended" if closed and not is_shared else "staff_period_first"
             status = STAFF_COPY[key].format(label=label)
         else:
             since = award_periods.period_label(start, None, WONDER_COPY)
@@ -1198,6 +1211,8 @@ def staff_award_periods(school: Any, teacher_user_id: int) -> list[dict[str, Any
                 )
             else:
                 status = STAFF_COPY["staff_period_new"].format(since=since)
+        if is_shared:
+            status = STAFF_COPY["staff_period_shared"].format(line=status.rstrip("."))
         out.append(
             {
                 "class_id": class_id,
@@ -1210,6 +1225,7 @@ def staff_award_periods(school: Any, teacher_user_id: int) -> list[dict[str, Any
                 "board_label": board_label,
                 "status_line": status,
                 "closing_label": award_periods.period_label(start, closing_end, WONDER_COPY),
+                "shared": is_shared,
             }
         )
     return out
@@ -1356,14 +1372,17 @@ def start_fresh_award_tally(
         class_id: One class, or None for all of this teacher's classes.
 
     Returns:
-        ``{periods: [...], classes: staff_award_periods(...)}``.
+        ``{periods: [...], skipped: [{class_id, course}], classes: ...}``.
+        With ``class_id`` None, classes whose course is shared with another
+        teacher are skipped (listed in ``skipped``) rather than refusing all.
 
     Raises:
         ValueError: No active semester or no classes in scope.
         PermissionError: ``class_id`` is not one of this teacher's classes.
         AwardTallyBusy: A class in scope has a live or unsaved session.
-        AwardTallyShared: A course card in scope also covers another
-            teacher's class (MED-4); nothing is written.
+        AwardTallyShared: The one class's course card (or every course in
+            scope) also covers another teacher's class (MED-4); nothing is
+            written.
     """
     semester_id = _active_semester_id(school)
     if semester_id is None:
@@ -1377,15 +1396,23 @@ def start_fresh_award_tally(
         targets = sorted(mine)
     if not targets:
         raise ValueError("You have no classes this semester.")
+    course_of = {int(row["class_id"]): str(row["course"]) for row in _active_class_rows(school)}
     shared = _shared_courses(school, int(teacher_user_id), targets)
+    skipped: list[dict[str, Any]] = []
     if shared:
-        raise AwardTallyShared(
-            STAFF_COPY["start_fresh_shared"].format(courses=", ".join(shared))
-        )
+        shared_upper = {c.upper() for c in shared}
+        keep = [c for c in targets if str(course_of.get(c) or "").upper() not in shared_upper]
+        if class_id is not None or not keep:
+            raise AwardTallyShared(
+                STAFF_COPY["start_fresh_shared"].format(courses=", ".join(shared))
+            )
+        skipped = [
+            {"class_id": c, "course": course_of.get(c) or ""} for c in targets if c not in keep
+        ]
+        targets = keep
     busy = [cid for cid in targets if _class_running(school, cid)]
     if busy:
         raise AwardTallyBusy("A class is running. Save or end it, then try again.")
-    course_of = {int(row["class_id"]): str(row["course"]) for row in _active_class_rows(school)}
     repeat = award_periods.recent_periods(school, semester_id, targets)
     new_courses = {course_of[c] for c in targets if c not in repeat and course_of.get(c)}
     # The reset courses' cards as the board shows them now, before the
@@ -1402,7 +1429,11 @@ def start_fresh_award_tally(
     covered = _retire_snapshot_courses(school, reset)
     _hold_cards(school, pre, reset - covered)
     clear_public_celebration_memo()
-    return {"periods": opened, "classes": staff_award_periods(school, int(teacher_user_id))}
+    return {
+        "periods": opened,
+        "skipped": skipped,
+        "classes": staff_award_periods(school, int(teacher_user_id)),
+    }
 
 
 def _assemble_public_board(school: Any) -> dict[str, Any]:
