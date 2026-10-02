@@ -550,6 +550,97 @@ class NumericTallyTests(unittest.TestCase):
         )
         self.assertTrue(all("\u2248" not in label for label, _c, _ok in rows))
 
+    def _rows(self, key: str, *values: object, **extra: object) -> list[tuple]:
+        tally = build_numeric_tally(
+            self._prompt(integer_only=False, correct_answer=key, **extra),
+            responses=self._answers(*values),
+            present=len(values),
+        )
+        assert tally is not None
+        rows = [(row["label"], row["count"], row["correct"]) for row in tally["choices"]]
+        self.assertTrue(all("\u2248" not in label for label, _c, _ok in rows), rows)
+        self.assertEqual(sum(count for _l, count, _ok in rows), len(values))
+        self.assertEqual(
+            [row["id"] for row in tally["choices"]], [label for label, _c, _ok in rows]
+        )
+        return rows
+
+    def test_key_with_more_places_than_its_bar_labels_at_full_precision(self) -> None:
+        """Ops MED on 41acf60: 3-6 place keys read "3.14 ✓ · ≈3.14 ✗".
+
+        Bars round to 2 places, so the fix triggers whenever the key prints
+        differently from its 2-place bar, not only past 6 places.
+        """
+        self.assertEqual(
+            self._rows("3.14159", 3.14159, 3.14159, 3.14, 3.142, 3.1416),
+            [
+                ("3.14", 1, False),
+                ("3.14159", 2, True),
+                ("3.1416", 1, False),
+                ("3.142", 1, False),
+            ],
+        )
+        self.assertEqual(
+            self._rows("0.125", 0.125, 0.13, 0.12),
+            [("0.12", 1, False), ("0.125", 1, True), ("0.13", 1, False)],
+        )
+        self.assertEqual(
+            self._rows("0.001", 0.001, 0),
+            [("0", 1, False), ("0.001", 1, True)],
+        )
+        self.assertEqual(
+            self._rows("123456.789", 123456.789, 123456.789, 123456.79),
+            [("123456.789", 2, True), ("123456.79", 1, False)],
+        )
+        # Keys that already print as their bar are unchanged.
+        self.assertEqual(
+            self._rows("2.5", 2.5, "2.50", 2.4),
+            [("2.4", 1, False), ("2.5", 2, True)],
+        )
+
+    def test_fine_key_with_tolerance_keeps_the_spread_of_right_answers(self) -> None:
+        """Ops LOW: correct answers outside the key's bar keep their own bars."""
+        self.assertEqual(
+            self._rows(
+                "1.0000001", 1.005, 1, 0.995, 1.0000001, tolerance=0.01,
+                tolerance_kind="absolute",
+            ),
+            [("1.0000001", 3, True), ("1.01", 1, True)],
+        )
+        self.assertEqual(
+            self._rows(
+                "2.505", 2.5, 2.505, 2.51, 2.52, tolerance=0.01,
+                tolerance_kind="absolute",
+            ),
+            # 2.51 shares the key's 2-place bar, so it joins the key's bar.
+            [("2.5", 1, True), ("2.505", 2, True), ("2.52", 1, False)],
+        )
+        # A right answer in the key's bar joins it; an exact wrong one there
+        # keeps its plain label (no "≈3.14").
+        self.assertEqual(
+            self._rows(
+                "3.14159", 3.141, 3.14, tolerance=0.001, tolerance_kind="absolute"
+            ),
+            [("3.14", 1, False), ("3.14159", 1, True)],
+        )
+        # A right and a wrong answer sharing another bar never share a label.
+        tally = build_numeric_tally(
+            self._prompt(
+                integer_only=False,
+                correct_answer="2.505",
+                tolerance=0.003,
+                tolerance_kind="absolute",
+            ),
+            responses=self._answers(2.503, 2.5),
+            present=2,
+        )
+        assert tally is not None
+        rows = sorted(
+            (row["label"], row["count"], row["correct"]) for row in tally["choices"]
+        )
+        self.assertEqual(len(rows), 2, rows)
+        self.assertEqual(sorted(ok for _l, _c, ok in rows), [False, True], rows)
+
     def test_bar_of_only_wrong_answers_still_rounds(self) -> None:
         """Wrong answers keep sharing a rounded bar when no right one is there."""
         tally = build_numeric_tally(
