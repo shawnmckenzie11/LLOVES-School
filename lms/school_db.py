@@ -1010,6 +1010,64 @@ def boot_schema_lock(db_path: Path | str) -> Iterator[None]:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+#: Longest a Start waits for another worker's Start before going ahead on
+#: the ``BEGIN IMMEDIATE`` re-check alone (MCK-114).
+LIVE_START_LOCK_WAIT_SECONDS = 10.0
+
+
+@contextmanager
+def live_start_lock(db_path: Path | str) -> Iterator[bool]:
+    """Run one live-class Start at a time across worker processes (MCK-114).
+
+    Gunicorn's workers each hold their own sqlite connection, so a
+    double-click on Run Live Class (or two teacher tabs) could send two
+    Starts that both passed the "already active?" check and both inserted
+    a session, with two join codes. This holds an exclusive ``flock`` on a
+    sidecar file around the whole Start, so the second Start sees the
+    first one's row and reuses it. Separate opens of the file conflict, so
+    it also serializes threads in one process. Do not nest it.
+
+    Starts are rare and short. If the lock is not free within
+    ``LIVE_START_LOCK_WAIT_SECONDS`` (a stuck worker), the Start goes ahead
+    and relies on the transactional re-check in the insert.
+
+    Args:
+        db_path: The shared sqlite file. ``:memory:`` takes no lock.
+
+    Yields:
+        True when the lock is held.
+    """
+    raw = str(db_path)
+    if not raw or raw == ":memory:" or raw.startswith("file:"):
+        yield False
+        return
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover - Windows dev box, single process
+        yield False
+        return
+    lock_path = Path(raw).with_name(Path(raw).name + ".live-start.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "a+b") as handle:
+        deadline = time.monotonic() + LIVE_START_LOCK_WAIT_SECONDS
+        held = False
+        while True:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                held = True
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    logger.warning("live start lock busy; using the re-check only")
+                    break
+                time.sleep(0.01)
+        try:
+            yield held
+        finally:
+            if held:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def retry_if_db_locked(fn, *, attempts: int = 4, delay_s: float = 0.4):
     """Retry a sqlite write when the class-size poll storm holds the lock.
 
@@ -25101,9 +25159,15 @@ class SchoolDB(LovesDB):
     ) -> dict[str, Any]:
         """Mint a new active live session for this teacher.
 
-        A teacher may have only one active session at a time (any course).
-        End Class / End Game / Quit must finish the current session before
-        Run Live Class can start another.
+        A teacher may have only one active session at a time (any course),
+        and a class only one. End Class / End Game / Quit must finish the
+        current session before Run Live Class can start another.
+
+        Start is atomic across worker processes (MCK-114). A cross-process
+        lock serializes Starts, and the insert re-checks for an active row
+        inside ``BEGIN IMMEDIATE``. A second Start for the same class at the
+        same moment (double-click, two tabs) gets the session the first one
+        made, with the same join code, instead of a second session.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -25112,33 +25176,175 @@ class SchoolDB(LovesDB):
             live_slot: Optional live class (``C1`` / ``C2`` / ``C3``).
 
         Returns:
-            The newly created active session row.
+            The newly created active session row, or this teacher's
+            session already running for this class.
 
         Raises:
             KeyError: If the class is missing or has no offering link.
-            ValueError: If this teacher already has an active live session.
+            ValueError: If this teacher already has an active live session
+                for another class, or another teacher is live in this class.
         """
         cls = self.game.get_class(class_id)
         offering_id = cls.get("offering_id")
         if offering_id is None:
             raise KeyError(f"class {class_id} has no offering_id")
-        existing = self.get_active_live_session_for_teacher(int(teacher_user_id))
-        if existing is not None:
-            if int(existing["class_id"]) == int(class_id):
-                if self._restore_live_team_lock(int(class_id), create=False):
-                    self._publish_restored_team_lock(int(existing["id"]))
-                if live_module is not None or live_slot is not None:
-                    self.set_live_session_teacher_state(
-                        int(existing["id"]),
-                        live_module=live_module,
-                        live_slot=live_slot,
-                    )
-                    refreshed = self.get_live_session(int(existing["id"]))
-                    return refreshed or existing
-                return existing
+        with live_start_lock(self.db_path):
+            return self._start_live_class_session_locked(
+                int(class_id),
+                int(teacher_user_id),
+                int(offering_id),
+                live_module=live_module,
+                live_slot=live_slot,
+            )
+
+    def _active_live_session_blocking_start(
+        self, class_id: int, teacher_user_id: int
+    ) -> dict[str, Any] | None:
+        """Active session for this teacher or this class, if any.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            teacher_user_id: Staff ``users.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_class_sessions
+                WHERE status = 'active'
+                  AND (teacher_user_id = ? OR class_id = ?)
+                ORDER BY (class_id = ?) DESC, id DESC
+                LIMIT 1
+                """,
+                (int(teacher_user_id), int(class_id), int(class_id)),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def _reuse_active_live_session(
+        self,
+        existing: dict[str, Any],
+        class_id: int,
+        teacher_user_id: int,
+        *,
+        live_module: Any,
+        live_slot: Any,
+    ) -> dict[str, Any]:
+        """Return the running session for a repeat Start, or refuse it.
+
+        Args:
+            existing: Active ``live_class_sessions`` row.
+            class_id: Class the Start asked for.
+            teacher_user_id: Staff user starting.
+            live_module: Optional catalogue module.
+            live_slot: Optional live class.
+
+        Raises:
+            ValueError: The active row belongs to another class or teacher.
+        """
+        same_class = int(existing["class_id"]) == int(class_id)
+        same_teacher = int(existing["teacher_user_id"]) == int(teacher_user_id)
+        if same_class and same_teacher:
+            if self._restore_live_team_lock(int(class_id), create=False):
+                self._publish_restored_team_lock(int(existing["id"]))
+            if live_module is not None or live_slot is not None:
+                self.set_live_session_teacher_state(
+                    int(existing["id"]),
+                    live_module=live_module,
+                    live_slot=live_slot,
+                )
+                refreshed = self.get_live_session(int(existing["id"]))
+                return refreshed or existing
+            return existing
+        if same_class:
             raise ValueError(
-                "You already have a live class running. "
-                "Use End Live Class to finish it before starting another."
+                "This class already has a live class running. "
+                "End it before starting another."
+            )
+        raise ValueError(
+            "You already have a live class running. "
+            "Use End Live Class to finish it before starting another."
+        )
+
+    def _insert_active_live_session(
+        self,
+        class_id: int,
+        teacher_user_id: int,
+        offering_id: int,
+        code: str,
+        meeting_iso: Any,
+    ) -> tuple[int | None, dict[str, Any] | None]:
+        """Insert the new active row unless one appeared meanwhile.
+
+        The re-check and the insert share one ``BEGIN IMMEDIATE``, so two
+        connections cannot both pass the check (MCK-114).
+
+        Returns:
+            ``(new_id, None)``, or ``(None, clash_row)`` when a session for
+            this teacher or class is already active.
+        """
+        with self._lock:
+            if self.conn.in_transaction:
+                self.conn.execute("COMMIT")
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                clash = self.conn.execute(
+                    """
+                    SELECT * FROM live_class_sessions
+                    WHERE status = 'active'
+                      AND (teacher_user_id = ? OR class_id = ?)
+                    ORDER BY (class_id = ?) DESC, id DESC
+                    LIMIT 1
+                    """,
+                    (int(teacher_user_id), int(class_id), int(class_id)),
+                ).fetchone()
+                if clash is not None:
+                    self.conn.execute("ROLLBACK")
+                    return None, dict(clash)
+                cur = self.conn.execute(
+                    """
+                    INSERT INTO live_class_sessions (
+                        class_id, offering_id, teacher_user_id, session_code,
+                        status, started_at, ended_at, mgs_session_id,
+                        meeting_date, run_key
+                    ) VALUES (?, ?, ?, ?, 'active', ?, NULL, NULL, ?, ?)
+                    """,
+                    (
+                        int(class_id),
+                        int(offering_id),
+                        int(teacher_user_id),
+                        code,
+                        _now(),
+                        meeting_iso,
+                        uuid.uuid4().hex,
+                    ),
+                )
+                session_id = int(cur.lastrowid)
+            except BaseException:
+                if self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                raise
+            self.conn.execute("COMMIT")
+        return session_id, None
+
+    def _start_live_class_session_locked(
+        self,
+        class_id: int,
+        teacher_user_id: int,
+        offering_id: int,
+        *,
+        live_module: Any,
+        live_slot: Any,
+    ) -> dict[str, Any]:
+        """Body of :meth:`start_live_class_session` under the Start lock."""
+        existing = self._active_live_session_blocking_start(
+            class_id, teacher_user_id
+        )
+        if existing is not None:
+            return self._reuse_active_live_session(
+                existing,
+                class_id,
+                teacher_user_id,
+                live_module=live_module,
+                live_slot=live_slot,
             )
         # Drop a leftover End-Live celebration SID; keep historical ended rows.
         prior_rows = self.list_live_sessions_for_class(int(class_id))
@@ -25156,29 +25362,21 @@ class SchoolDB(LovesDB):
             self.wipe_live_sessions_for_class(int(class_id), session_ids=celebrating)
         self.game.clear_class_moods_and_characters(int(class_id))
         code = self.mint_unique_active_session_code()
-        now = _now()
         meeting_iso = self._open_game_meeting_iso(int(class_id))
-        with self._lock:
-            cur = self.conn.execute(
-                """
-                INSERT INTO live_class_sessions (
-                    class_id, offering_id, teacher_user_id, session_code,
-                    status, started_at, ended_at, mgs_session_id, meeting_date,
-                    run_key
-                ) VALUES (?, ?, ?, ?, 'active', ?, NULL, NULL, ?, ?)
-                """,
-                (
-                    int(class_id),
-                    int(offering_id),
-                    int(teacher_user_id),
-                    code,
-                    now,
-                    meeting_iso,
-                    uuid.uuid4().hex,
-                ),
+        new_id, clash = self._insert_active_live_session(
+            class_id, teacher_user_id, offering_id, code, meeting_iso
+        )
+        if clash is not None or new_id is None:
+            # Only without the Start lock (busy past its wait): another
+            # Start won between our check and insert. Join its session.
+            return self._reuse_active_live_session(
+                clash or {},
+                class_id,
+                teacher_user_id,
+                live_module=live_module,
+                live_slot=live_slot,
             )
-            self.conn.commit()
-            session_id = int(cur.lastrowid)
+        session_id = new_id
         session_row = self.get_live_session(session_id)
         assert session_row is not None
         # A reused id may carry another run's saved floor and tape.
