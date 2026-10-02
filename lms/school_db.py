@@ -678,6 +678,31 @@ CREATE TABLE IF NOT EXISTS live_seq_floors (
     max_seq INTEGER NOT NULL DEFAULT 0
 );
 
+-- MCK-116 S1: one Celebrations avatar reward per featured appearance.
+-- (class_id, student_id) is the roster row; no names are stored. source_ref
+-- names the appearance: 'engaged:<semester>:<freeze epoch>:<course>' or
+-- 'shoutout:<featured_at>'. A claimed row is the permanent unlock of
+-- avatar_key; rows go only when the roster row or class is deleted.
+CREATE TABLE IF NOT EXISTS avatar_reward_grants (
+    id INTEGER PRIMARY KEY,
+    class_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
+    source TEXT NOT NULL CHECK (source IN ('shoutout', 'engaged')),
+    source_ref TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'claimed')),
+    avatar_key TEXT,
+    created_at TEXT NOT NULL,
+    claimed_at TEXT,
+    UNIQUE (class_id, student_id, source, source_ref)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_avatar_reward_grants_owned
+    ON avatar_reward_grants(class_id, student_id, avatar_key)
+    WHERE avatar_key IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_avatar_reward_grants_student
+    ON avatar_reward_grants(class_id, student_id, status);
+
 CREATE TABLE IF NOT EXISTS live_class_feedback (
     id INTEGER PRIMARY KEY,
     class_id INTEGER NOT NULL,
@@ -845,6 +870,20 @@ CREATE INDEX IF NOT EXISTS idx_access_requests_email
 CREATE INDEX IF NOT EXISTS idx_access_requests_status
     ON access_requests(status);
 """
+
+
+def _reward_stage_open(teacher: dict[str, Any] | None) -> bool:
+    """MCK-116: the reward pop-up only shows in JOIN (TEAMS counts as live)."""
+    return str((teacher or {}).get("stage") or "join").strip().lower() == "join"
+
+
+def _reward_quiet_prompt(prompt: dict[str, Any] | None) -> bool:
+    """MCK-116: no prompt, an idle one, or the waiting-room Minds-On."""
+    if not prompt:
+        return True
+    if str(prompt.get("kind") or "idle").strip().lower() == "idle":
+        return True
+    return is_minds_on_payload(prompt.get("payload"))
 
 
 def _now() -> str:
@@ -3618,6 +3657,11 @@ class LovesDB:
                 # Saved End-of-class answers carry names; no FK (MCK-45).
                 self.conn.execute(
                     f"DELETE FROM live_result_snapshots WHERE class_id IN ({placeholders})",
+                    class_ids,
+                )
+                # Reward rows are keyed by roster ids SQLite can reuse (MCK-116).
+                self.conn.execute(
+                    f"DELETE FROM avatar_reward_grants WHERE class_id IN ({placeholders})",
                     class_ids,
                 )
                 has_weights = self.conn.execute(
@@ -20982,6 +21026,12 @@ class SchoolDB(LovesDB):
         waiting_room = False if meet_live else not self._session_left_waiting_room(
             session_id
         )
+        # MCK-116 MED-1: the reward pop-up closes once this goes false.
+        reward_window = bool(
+            waiting_room
+            and _reward_stage_open(teacher)
+            and self._reward_prompts_quiet(session_id, prompt)
+        )
         poll_closed = False
         view = (teacher or {}).get("student_view") or {}
         questions_mode = str(view.get("questions") or "none")
@@ -20989,6 +21039,7 @@ class SchoolDB(LovesDB):
             "prompt": None,
             "my_response": None,
             "waiting_room": waiting_room,
+            "reward_window": reward_window,
             "poll_closed": poll_closed,
             "question_view": questions_mode,
         }
@@ -21089,6 +21140,7 @@ class SchoolDB(LovesDB):
             },
             "my_response": my_response,
             "waiting_room": waiting_room,
+            "reward_window": reward_window,
             "poll_closed": poll_closed,
             "question_view": questions_mode,
             "meet_chip": meet_chip_for(
@@ -24044,6 +24096,279 @@ class SchoolDB(LovesDB):
             )
             self.conn.commit()
         return int(cur.rowcount or 0)
+
+    # MCK-116 S1: Celebrations avatar rewards ------------------------------
+
+    AVATAR_REWARD_PENDING_CAP = 3
+
+    def sync_avatar_reward_grants(
+        self,
+        class_id: int,
+        student_id: int,
+        appearances: list[dict[str, Any]],
+        *,
+        catalogue_size: int,
+    ) -> int:
+        """Record one pending reward per featured appearance (idempotent).
+
+        ``INSERT OR IGNORE`` on ``(class_id, student_id, source, source_ref)``
+        means a login, a reload, or a second worker never grants the same
+        appearance twice. Nothing is added once the student has
+        ``AVATAR_REWARD_PENDING_CAP`` rewards waiting, or when owned plus
+        waiting would pass ``catalogue_size`` (nothing left to pick).
+
+        Args:
+            class_id: Game-show ``classes.id`` of the roster row.
+            student_id: Game-show ``students.id`` (one row per class).
+            appearances: ``{source, source_ref}`` rows for this student.
+            catalogue_size: Number of reward avatars that exist.
+
+        Returns:
+            Rows inserted.
+        """
+        added = 0
+        with self._lock:
+            for row in appearances:
+                source = str(row.get("source") or "")
+                ref = str(row.get("source_ref") or "")
+                if source not in {"shoutout", "engaged"} or not ref:
+                    continue
+                if source == "shoutout" and self._shoutout_already_granted(
+                    int(class_id), int(student_id), ref, row.get("featured_at")
+                ):
+                    continue
+                counts = self.conn.execute(
+                    """
+                    SELECT
+                        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+                        COUNT(*) AS total
+                    FROM avatar_reward_grants
+                    WHERE class_id = ? AND student_id = ?
+                    """,
+                    (int(class_id), int(student_id)),
+                ).fetchone()
+                pending = int(counts["pending"] or 0)
+                total = int(counts["total"] or 0)
+                if pending >= self.AVATAR_REWARD_PENDING_CAP or total >= int(catalogue_size):
+                    break
+                cur = self.conn.execute(
+                    """
+                    INSERT OR IGNORE INTO avatar_reward_grants
+                        (class_id, student_id, source, source_ref, status, created_at)
+                    VALUES (?, ?, ?, ?, 'pending', ?)
+                    """,
+                    (int(class_id), int(student_id), source, ref, _now()),
+                )
+                added += int(cur.rowcount or 0)
+            self.conn.commit()
+        return added
+
+    def _shoutout_already_granted(
+        self,
+        class_id: int,
+        student_id: int,
+        ref: str,
+        featured_at: Any,
+    ) -> bool:
+        """True when this Shoutout already has a grant under its other key.
+
+        MCK-116 LOW-4: one Shoutout is keyed ``shoutout:<featured_at>``, or
+        ``shoutout:c<class>:s<student>`` when the setting has no
+        ``featured_at`` (pre-#221, or rewritten by a rollback build). So:
+
+        * the fallback key never grants once the student holds any Shoutout
+          grant (without ``featured_at`` it cannot be told apart);
+        * a ``featured_at`` key does not grant when the fallback grant was
+          made at or after ``featured_at`` (the same Shoutout).
+
+        Callers hold ``self._lock``.
+        """
+        rows = self.conn.execute(
+            """
+            SELECT source_ref, created_at FROM avatar_reward_grants
+            WHERE class_id = ? AND student_id = ? AND source = 'shoutout'
+            """,
+            (int(class_id), int(student_id)),
+        ).fetchall()
+        if not rows:
+            return False
+        fallback = f"shoutout:c{int(class_id)}:s{int(student_id)}"
+        if ref == fallback or not featured_at:
+            return True
+        try:
+            since = datetime.fromisoformat(str(featured_at))
+            if since.tzinfo is None:
+                since = since.astimezone()
+        except ValueError:
+            return False
+        for row in rows:
+            if str(row["source_ref"]) != fallback:
+                continue
+            try:
+                made = datetime.fromisoformat(str(row["created_at"])).astimezone()
+            except ValueError:
+                continue
+            if made >= since.replace(microsecond=0):
+                return True
+        return False
+
+    def pending_avatar_reward_grants(
+        self, class_id: int, student_id: int
+    ) -> list[dict[str, Any]]:
+        """Rewards waiting to be picked, oldest first.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            student_id: Game-show ``students.id``.
+
+        Returns:
+            ``{id, source, source_ref, created_at}`` rows.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT id, source, source_ref, created_at
+                FROM avatar_reward_grants
+                WHERE class_id = ? AND student_id = ? AND status = 'pending'
+                ORDER BY id
+                """,
+                (int(class_id), int(student_id)),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def earned_avatar_keys(self, class_id: int, student_id: int) -> list[str]:
+        """Reward avatar keys this roster row has picked (permanent unlocks).
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            student_id: Game-show ``students.id``.
+
+        Returns:
+            Claimed ``avatar_key`` values, in claim order.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT avatar_key FROM avatar_reward_grants
+                WHERE class_id = ? AND student_id = ? AND status = 'claimed'
+                  AND avatar_key IS NOT NULL
+                ORDER BY claimed_at, id
+                """,
+                (int(class_id), int(student_id)),
+            ).fetchall()
+        return [str(row["avatar_key"]) for row in rows]
+
+    def claim_avatar_reward(
+        self, grant_id: int, class_id: int, student_id: int, avatar_key: str
+    ) -> dict[str, Any]:
+        """Turn one pending reward into a permanent avatar unlock.
+
+        The update only matches this student's still-pending row, so a double
+        tap or a second tab cannot claim twice; the unique owned index stops
+        the same avatar being unlocked twice. Callers validate the key.
+
+        Args:
+            grant_id: ``avatar_reward_grants.id``.
+            class_id: Roster class of the caller.
+            student_id: Roster student of the caller.
+            avatar_key: Reward avatar to unlock.
+
+        Returns:
+            ``{status: "claimed" | "already" | "owned" | "missing", avatar_key}``.
+            ``already`` carries the key picked earlier for this grant.
+        """
+        key = str(avatar_key or "")
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT id, status, avatar_key FROM avatar_reward_grants
+                WHERE id = ? AND class_id = ? AND student_id = ?
+                """,
+                (int(grant_id), int(class_id), int(student_id)),
+            ).fetchone()
+            if row is None:
+                return {"status": "missing", "avatar_key": None}
+            if row["status"] == "claimed":
+                return {"status": "already", "avatar_key": row["avatar_key"]}
+            try:
+                cur = self.conn.execute(
+                    """
+                    UPDATE avatar_reward_grants
+                    SET status = 'claimed', avatar_key = ?, claimed_at = ?
+                    WHERE id = ? AND class_id = ? AND student_id = ?
+                      AND status = 'pending'
+                    """,
+                    (key, _now(), int(grant_id), int(class_id), int(student_id)),
+                )
+            except sqlite3.IntegrityError:
+                self.conn.rollback()
+                return {"status": "owned", "avatar_key": key}
+            self.conn.commit()
+            if not cur.rowcount:
+                again = self.conn.execute(
+                    "SELECT avatar_key FROM avatar_reward_grants WHERE id = ?",
+                    (int(grant_id),),
+                ).fetchone()
+                return {"status": "already", "avatar_key": again["avatar_key"] if again else None}
+        return {"status": "claimed", "avatar_key": key}
+
+    def delete_avatar_reward_grants(self, class_id: int, student_ids: list[int]) -> int:
+        """Drop reward rows for removed roster students (ids SQLite may reuse).
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            student_ids: Removed ``students.id`` values.
+
+        Returns:
+            Rows deleted.
+        """
+        ids = sorted({int(x) for x in student_ids})
+        if not ids:
+            return 0
+        placeholders = ",".join("?" * len(ids))
+        with self._lock:
+            cur = self.conn.execute(
+                f"""
+                DELETE FROM avatar_reward_grants
+                WHERE class_id = ? AND student_id IN ({placeholders})
+                """,
+                (int(class_id), *ids),
+            )
+            self.conn.commit()
+        return int(cur.rowcount or 0)
+
+    def live_session_reward_window_open(self, session_id: int) -> bool:
+        """True while the avatar reward pop-up may show (MCK-116 MED-1).
+
+        Only in the waiting room proper: stage JOIN (TEAMS counts as live),
+        nothing past the waiting room (``_session_left_waiting_room``), and
+        no teacher-pushed question: the student-facing prompt and the active
+        prompt are idle or the waiting-room Minds-On. Read-only.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        sid = int(session_id)
+        try:
+            if self._session_left_waiting_room(sid):
+                return False
+            teacher = self.live_session_teacher_state_payload(sid)
+        except KeyError:
+            return False
+        if not _reward_stage_open(teacher):
+            return False
+        facing = self._student_stage_prompt(
+            sid, teacher=teacher, student_id=None, participant_uuid=""
+        )
+        return self._reward_prompts_quiet(sid, facing)
+
+    def _reward_prompts_quiet(
+        self, session_id: int, facing: dict[str, Any] | None
+    ) -> bool:
+        """No live question: facing and active prompts idle or Minds-On."""
+        if not _reward_quiet_prompt(facing):
+            return False
+        return _reward_quiet_prompt(self.get_active_live_prompt(int(session_id)))
 
     def class_roster_pairs(self, class_id: int) -> set[tuple[int, str]]:
         """Return ``(students.id, codename-or-first-name)`` for a class roster."""

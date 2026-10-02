@@ -1,0 +1,39 @@
+{#- MCK-116: Celebrations avatar reward pop-up. Copy is Wonder v1.1, word for word. -#}
+{% if reward and reward.grants %}
+<div class="rw-root" id="avatar-reward" hidden
+     data-auto-open="{{ '1' if reward.auto_open else '0' }}"
+     data-next-url="{{ reward_next_url or '' }}"
+     data-visit-token="{{ visit_token or '' }}">
+  <div class="rw-scrim" aria-hidden="true"></div>
+  <div class="rw-modal" role="dialog" aria-modal="true" aria-labelledby="rw-title" aria-describedby="rw-reason rw-prompt">
+    <div class="rw-scroll" id="rw-body">
+      <p class="rw-count" id="rw-count"{% if reward.grants|length < 2 %} hidden{% endif %}>Reward 1 of {{ reward.grants|length }}</p>
+      <h2 class="rw-title" id="rw-title" tabindex="-1">You made Celebrations!</h2>
+      <p class="rw-reason" id="rw-reason">You're on the board for {{ reward.grants[0].award_title }}.</p>
+      <p class="rw-prompt" id="rw-prompt">Pick a new avatar. It's yours to keep.</p>
+      <div class="rw-grid" id="rw-grid" role="radiogroup" aria-labelledby="rw-prompt">
+        {% for avatar in reward.choices %}
+        <label class="rw-card{% if avatar.owned %} is-owned{% endif %}" title="{{ avatar.label }}">
+          <input type="radio" name="rw-avatar" value="{{ avatar.key }}"{% if avatar.owned %} disabled{% endif %}>
+          <img class="rw-img" src="{{ avatar.img }}" alt="" width="72" height="72">
+          <span class="visually-hidden">{{ avatar.label }}</span>
+          {% if avatar.owned %}<span class="tag-earned">Earned</span>{% endif %}
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="rw-claimed" id="rw-claimed" role="status" hidden>
+      <img class="rw-big" id="rw-claimed-img" src="" alt="" width="112" height="112">
+      <p>Added to your avatars.</p>
+    </div>
+    <div class="rw-foot" id="rw-foot">
+      <p class="rw-error" id="rw-error" role="alert" hidden>Couldn't save that. Try again.</p>
+      <button type="button" class="rw-keep" id="rw-keep" aria-disabled="true">Keep this one</button>
+      <button type="button" class="rw-later" id="rw-later">Pick later</button>
+      <p class="rw-help">Your reward will wait for you.</p>
+    </div>
+  </div>
+  <script type="application/json" id="avatar-reward-data">{{ reward.grants|tojson }}</script>
+</div>
+<script src="/static/avatar_reward.js"></script>
+{% endif %}
