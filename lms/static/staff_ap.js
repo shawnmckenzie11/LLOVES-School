@@ -676,6 +676,7 @@ let teacherState = {
   run_as_group: false,
   scoreboard_visible: false,
   hide_absent: false,
+  timer_closes_answers: false,
   layout_preset: "questions_full",
   frames: { A: "questions" },
   active_tab: "questions",
@@ -1364,6 +1365,10 @@ function paintGlobalGroupControls() {
   const hideAbsent = $("live-hide-absent");
   if (hideAbsent instanceof HTMLInputElement) {
     hideAbsent.checked = Boolean(teacherState.hide_absent);
+  }
+  const timerCloses = $("live-timer-closes");
+  if (timerCloses instanceof HTMLInputElement) {
+    timerCloses.checked = Boolean(teacherState.timer_closes_answers);
   }
   const scoreboard = $("ap-scoreboard-toggle");
   if (scoreboard instanceof HTMLInputElement) {
@@ -7539,7 +7544,71 @@ function paintSessionClock() {
   if (!clock) return;
   if (btn?.dataset.meetState !== "running") return;
   if (!sessionEndsAtMs) return;
-  clock.textContent = formatCountdown(remainingUntilMs(sessionEndsAtMs));
+  const left = remainingUntilMs(sessionEndsAtMs);
+  clock.textContent = formatCountdown(left);
+  if (left <= 0) void closeAnswersAtZero(sessionEndsAtMs);
+}
+
+/** Deadline (epoch ms) already sent to ``timer-expired``. */
+let timerCloseSentFor = 0;
+/** Calls made for ``timerCloseSentFor``; a safety cap so 0:00 never spams. */
+let timerCloseTries = 0;
+const TIMER_CLOSE_MAX_TRIES = 12;
+let timerCloseInFlight = false;
+let timerCloseDone = false;
+/** ``Date.now()`` before which clock ticks do not call again. */
+let timerCloseNextAt = 0;
+
+/**
+ * Opt-in "Close answers at 0:00" (MCK-27). Ask the server to close open
+ * questions once per deadline. The server re-checks its own clock and the
+ * flag, so an early tick closes nothing. When nothing closed, the server's
+ * ``due_in_ms`` says when to ask again, so a fast or slow teacher clock
+ * still lands the close (M2). The server also closes on its own from the
+ * state polls; this call just makes the teacher board flip at once.
+ * @param {number} deadlineMs
+ */
+async function closeAnswersAtZero(deadlineMs) {
+  if (!teacherState.timer_closes_answers || !deadlineMs) return;
+  if (timerCloseSentFor !== deadlineMs) {
+    timerCloseSentFor = deadlineMs;
+    timerCloseTries = 0;
+    timerCloseDone = false;
+    timerCloseNextAt = 0;
+  } else if (timerCloseInFlight || timerCloseDone) {
+    return;
+  }
+  if (Date.now() < timerCloseNextAt) return;
+  if (timerCloseTries >= TIMER_CLOSE_MAX_TRIES) return;
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId) return;
+  timerCloseTries += 1;
+  timerCloseInFlight = true;
+  try {
+    const result = await api(`/api/live-sessions/${sessionId}/timer-expired`, {
+      method: "POST",
+      body: "{}",
+    });
+    const due = Number(result?.due_in_ms);
+    if (Array.isArray(result?.closed) && result.closed.length) {
+      timerCloseDone = true;
+      await refreshLiveQuestionCards();
+      await refreshLifecycleResults();
+    } else if (result?.due_in_ms != null && Number.isFinite(due) && due > 0) {
+      // The server's 0:00 is still ahead (teacher clock runs fast).
+      timerCloseNextAt = Date.now() + Math.min(due, 60000) + 250;
+    } else {
+      // Past 0:00 on the server with nothing left (a poll may have closed
+      // it already), or the switch is off or the clock paused. Stop and
+      // repaint so the board matches the server.
+      timerCloseDone = true;
+      await refreshLiveQuestionCards();
+    }
+  } catch (_) {
+    timerCloseNextAt = Date.now() + 2000;
+  } finally {
+    timerCloseInFlight = false;
+  }
 }
 
 $("ap-assign-random")?.addEventListener("click", () => {
@@ -7923,6 +7992,14 @@ $("live-run-as-group")?.addEventListener("change", (event) => {
   teacherState.run_as_group = input.checked;
   renderAttendanceList();
   patchTeacherState({ run_as_group: input.checked }, { silent: true });
+});
+$("live-timer-closes")?.addEventListener("change", (event) => {
+  const input = event.currentTarget;
+  if (!(input instanceof HTMLInputElement)) return;
+  teacherState.timer_closes_answers = input.checked;
+  timerCloseSentFor = 0;
+  timerCloseDone = false;
+  patchTeacherState({ timer_closes_answers: input.checked }, { silent: true });
 });
 $("live-hide-absent")?.addEventListener("change", (event) => {
   const input = event.currentTarget;
