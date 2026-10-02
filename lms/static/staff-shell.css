@@ -5872,3 +5872,188 @@ body.staff-shell .attendance-grid td.name .roster-name-form {
   white-space: normal;
   min-width: 12rem;
 }
+
+/* MCK-124 slice 1: staff "What's new" panel (Dashboard). Same family as
+   .live-relocate-dialog. Never on body.course-live (whats_new.js guards). */
+body.staff-shell.staff-home button.staff-corner-link {
+  font: inherit;
+  font-weight: 650;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+body.staff-shell.staff-home .staff-corner-link[hidden] {
+  display: none;
+}
+body.staff-shell .whats-new-dialog {
+  position: fixed;
+  inset: 0;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 1rem;
+  border: 0;
+  background: transparent;
+}
+body.staff-shell .whats-new-dialog[open] {
+  display: grid;
+  place-items: center;
+}
+body.staff-shell .whats-new-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.45);
+}
+body.staff-shell.course-live .whats-new-dialog {
+  display: none !important;
+}
+body.staff-shell .whats-new-card {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: min(720px, calc(100vw - 2rem));
+  max-height: 86vh;
+  margin: 0;
+  background: #fff;
+  color: #12202e;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.32);
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+body.staff-shell .whats-new-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 1rem 1.25rem 0.7rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+body.staff-shell .whats-new-head h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #0f172a;
+}
+body.staff-shell .whats-new-date {
+  color: #64748b;
+  font-size: 0.875rem;
+}
+body.staff-shell .whats-new-x {
+  margin-left: auto;
+  align-self: center;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #334155;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+body.staff-shell .whats-new-x:hover,
+body.staff-shell .whats-new-x:focus-visible {
+  border-color: #94a3b8;
+}
+body.staff-shell .whats-new-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem 1.25rem;
+}
+body.staff-shell .whats-new-item {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #eef2f7;
+}
+body.staff-shell .whats-new-item:last-child {
+  border-bottom: 0;
+}
+body.staff-shell .whats-new-item-title {
+  margin: 0 0 0.25rem;
+  font-size: 0.97rem;
+  color: #0f172a;
+}
+body.staff-shell .whats-new-item-line {
+  margin: 0 0 0.4rem;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: #334155;
+}
+body.staff-shell .whats-new-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+body.staff-shell .whats-new-aud {
+  display: inline-flex;
+  padding: 0.05rem 0.5rem;
+  border: 1px solid #94a3b8;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 650;
+}
+body.staff-shell .whats-new-aud.is-both {
+  border-color: #0f766e;
+  background: #ecfdf5;
+  color: #0b5f59;
+}
+body.staff-shell .whats-new-notyet {
+  margin: 0.5rem 1.25rem 0;
+  padding: 0.55rem 0.75rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: #334155;
+}
+body.staff-shell .whats-new-notyet b {
+  color: #12202e;
+}
+body.staff-shell .whats-new-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.85rem 1.25rem 1rem;
+}
+body.staff-shell .whats-new-build {
+  margin-right: auto;
+  color: #64748b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+}
+body.staff-shell .whats-new-ok {
+  padding: 0.45rem 1rem;
+  border: 1px solid #0b5f59;
+  border-radius: 8px;
+  background: #0f766e;
+  color: #fff;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+body.staff-shell .whats-new-ok:hover {
+  background: #0b5f59;
+}
+@media (max-width: 480px) {
+  body.staff-shell .whats-new-dialog {
+    padding: 0.5rem;
+  }
+  body.staff-shell .whats-new-card {
+    width: calc(100vw - 1rem);
+    max-height: 92vh;
+  }
+  body.staff-shell .whats-new-head,
+  body.staff-shell .whats-new-foot {
+    padding-left: 0.9rem;
+    padding-right: 0.9rem;
+  }
+  body.staff-shell .whats-new-list {
+    padding: 0.25rem 0.9rem;
+  }
+  body.staff-shell .whats-new-notyet {
+    margin: 0.5rem 0.9rem 0;
+  }
+}

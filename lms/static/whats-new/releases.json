@@ -1,0 +1,69 @@
+{
+  "releases": [
+    {
+      "id": "2026-10-02",
+      "date": "2026-10-02",
+      "covers_main": "ac2fcf0",
+      "items": [
+        {
+          "refs": "#209 · MCK-112",
+          "title": "Group work is one switch",
+          "line": "Every question card, whiteboard and artifact now has the same \"Students work: Individual · Group\" control.",
+          "audience": "Teacher",
+          "screenshot": "A question card set to Group, with the options row showing",
+          "image": null
+        },
+        {
+          "refs": "#208 · MCK-112",
+          "title": "No surprise team reveals",
+          "line": "\"Run as Group\" is now \"Show teams to students\", and publishing as a group with teams hidden asks you first.",
+          "audience": "Both",
+          "screenshot": "The \"Students can't see teams yet…\" confirm with its two buttons",
+          "image": null
+        },
+        {
+          "refs": "#198 · MCK-72",
+          "title": "End Class adds, never replaces",
+          "line": "Participation credit goes on top of points you gave by hand, and ending twice doesn't count it twice.",
+          "audience": "Teacher",
+          "screenshot": null,
+          "image": null
+        },
+        {
+          "refs": "#202 (+#200) · MCK-46",
+          "title": "Export class results to CSV",
+          "line": "A new \"Export results (CSV)\" button on the Participation tab downloads every saved answer, with names, for marking.",
+          "audience": "Teacher",
+          "screenshot": "The Participation toolbar with the Export button",
+          "image": null
+        },
+        {
+          "refs": "#207 · MCK-111",
+          "title": "Hidden names stay hidden",
+          "line": "In Responses & points, each student keeps one number all class, the Class List blurs, and ticks stay put.",
+          "audience": "Teacher",
+          "screenshot": "The Responses window with names hidden and the blurred Class List behind it",
+          "image": null
+        },
+        {
+          "refs": "#210 · MCK-114",
+          "title": "One join code per class",
+          "line": "A double-click on Run Live Class, or a second tab, no longer splits the class across two codes.",
+          "audience": "Both",
+          "screenshot": null,
+          "image": null
+        },
+        {
+          "refs": "#211 · MCK-83",
+          "title": "Long decimals marked correctly",
+          "line": "In a numeric question's live answer chart, keys like 3.14159 now mark the full key correct, not a rounded one.",
+          "audience": "Both (projector)",
+          "screenshot": "The answer bars for a 3.14159 key",
+          "image": null
+        }
+      ],
+      "not_yet": "",
+      "not_yet_refs": ""
+    }
+  ]
+}
