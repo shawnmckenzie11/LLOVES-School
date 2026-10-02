@@ -12,6 +12,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import shutil
 import sqlite3
 import sys
@@ -120,6 +121,7 @@ from live_media import (  # noqa: E402
     live_media_url_swap_allowed,
 )
 from live_class_packs import live_class_registry  # noqa: E402
+from live_results_csv import live_results_csv  # noqa: E402
 from live_teacher_state import LAYOUT_PRESETS, default_teacher_state  # noqa: E402
 from meet_team import is_meet_team_payload  # noqa: E402
 from live_prompt_feedback import public_feedback_fragment  # noqa: E402
@@ -2690,6 +2692,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     "error": "End the live class before editing the roster.",
                 }
             ), 409
+        before = school.class_roster_pairs(class_id)
         try:
             dash = school.game.replace_codename_roster(
                 class_id,
@@ -2700,6 +2703,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": str(exc)}), 400
         except KeyError:
             abort(404)
+        # Match id and name: a new student can reuse a removed id.
+        removed = before - school.class_roster_pairs(class_id)
+        school.delete_student_live_result_snapshots(
+            class_id, [sid for sid, _ in removed]
+        )
         dash["class"] = school.enrich_class(dash["class"])
         return jsonify({"ok": True, "class": dash["class"], "students": dash.get("students")})
 
@@ -2762,6 +2770,50 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 live_session_id=live_session["id"],
             )
         )
+
+    @app.route("/staff/class/<int:class_id>/results.csv")
+    @staff_required
+    def staff_class_results_csv(class_id: int):
+        """Download saved End-of-class answers for one class (MCK-46).
+
+        One row per saved answer, read per run (``run_key``) from the End
+        results snapshot. ``?run_key=`` limits the file to one run;
+        otherwise every kept run is included, newest run first.
+        """
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            abort(403)
+        cls = school.game.get_class(class_id)
+        wanted = str(request.args.get("run_key") or "").strip()
+        runs = school.live_result_snapshot_runs(class_id)
+        if wanted:
+            runs = [run for run in runs if run["run_key"] == wanted]
+            if not runs:
+                abort(404)
+        body = live_results_csv(
+            [
+                (run, school.live_result_snapshot_rows(class_id, run_key=run["run_key"]))
+                for run in runs
+            ]
+        )
+        label = re.sub(
+            r"[^A-Za-z0-9_-]+",
+            "-",
+            str(cls.get("section_code") or cls.get("ontario_code") or f"class-{class_id}"),
+        ).strip("-") or f"class-{class_id}"
+        suffix = f"-{runs[0]['snapshot_at'][:10]}" if wanted and runs else ""
+        resp = Response(
+            body,
+            mimetype="text/csv",
+            headers={
+                "Content-Disposition": (
+                    f"attachment; filename=lloves-results-{label}{suffix}.csv"
+                ),
+                "Cache-Control": "no-store",
+            },
+        )
+        return resp
 
     @app.route("/staff/class/<int:class_id>/end-live", methods=["POST"])
     @staff_required
@@ -8211,11 +8263,14 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
         def run(body):
             """Apply one staff JSON mutation for this class."""
+            student_id = int(body.get("student_id") or 0)
             dash = school.game.delete_student(
                 class_id,
-                int(body.get("student_id") or 0),
+                student_id,
                 sort=str(body.get("sort") or "az"),
             )
+            # Saved End-of-class answers carry the name; drop them too.
+            school.delete_student_live_result_snapshots(class_id, [student_id])
             dash["class"] = school.enrich_class(dash["class"])
             return dash
 

@@ -642,6 +642,14 @@ CREATE INDEX IF NOT EXISTS idx_live_result_snapshots_class
 CREATE INDEX IF NOT EXISTS idx_live_result_snapshots_session
     ON live_result_snapshots(live_session_id, run_key);
 
+-- Reads key on the run, not the session id: Start reuses the id (MCK-45).
+CREATE INDEX IF NOT EXISTS idx_live_result_snapshots_run
+    ON live_result_snapshots(class_id, run_key, id);
+
+-- Retention prune walks the oldest rows first.
+CREATE INDEX IF NOT EXISTS idx_live_result_snapshots_snapshot_at
+    ON live_result_snapshots(snapshot_at);
+
 -- Highest teacher state_seq a wiped run reached (MCK-108 follow-up #2).
 -- Quit deletes live_class_sessions rows, so the next Start reads its seq
 -- floor here. scope is 'class:<class_id>' or 'sid:<session_id>'.
@@ -827,6 +835,9 @@ def _now() -> str:
 # Missed heartbeats after this window mark an attendee left (tab close / drop).
 # ~10s client beat; 90s survives Chrome background timer throttling.
 LIVE_HEARTBEAT_INTERVAL_SECONDS = 10
+#: Days an End-of-class results snapshot is kept (MCK-45). No other data
+#: store has a retention rule yet; 365 is a default for Shawn to confirm.
+LIVE_RESULT_SNAPSHOT_RETENTION_DAYS = 365
 LIVE_HEARTBEAT_STALE_SECONDS = 90
 # Skip a write when the last beat is newer than this (class-size sqlite load).
 LIVE_HEARTBEAT_WRITE_SECONDS = 20
@@ -1364,6 +1375,10 @@ class LovesDB:
             self._seed()
             self._seed_live_class_features()
             self.conn.commit()
+            try:
+                self.prune_live_result_snapshots()
+            except Exception:  # noqa: BLE001 - retention must never block boot
+                logger.exception("live result snapshot prune at boot failed")
         self._install_sqlite_board_ops()
         self._attach_live_presence()
 
@@ -3514,6 +3529,11 @@ class LovesDB:
 
             if class_ids:
                 placeholders = ",".join("?" * len(class_ids))
+                # Saved End-of-class answers carry names; no FK (MCK-45).
+                self.conn.execute(
+                    f"DELETE FROM live_result_snapshots WHERE class_id IN ({placeholders})",
+                    class_ids,
+                )
                 has_weights = self.conn.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' "
                     "AND name='grade_category_weights'"
@@ -23422,32 +23442,145 @@ class SchoolDB(LovesDB):
         return max(0, written)
 
     def live_result_snapshot_rows(
-        self, class_id: int, *, live_session_id: int | None = None
+        self, class_id: int, *, run_key: str
     ) -> list[dict[str, Any]]:
-        """Return saved End-of-class answers for one class, oldest first.
+        """Return one class run's saved End-of-class answers, oldest first.
+
+        Reads key on ``run_key``. The session id is reused by the next
+        Start, so filtering by it would mix runs (MCK-45 Ops MED-1). Use
+        ``live_result_snapshot_runs`` to list a class's runs.
 
         Args:
             class_id: Game-show ``classes.id``.
-            live_session_id: Optional filter to one session id.
+            run_key: ``live_class_sessions.run_key`` of the run.
+
+        Raises:
+            ValueError: ``run_key`` is blank.
         """
-        sql = "SELECT * FROM live_result_snapshots WHERE class_id = ?"
-        params: list[Any] = [int(class_id)]
-        if live_session_id is not None:
-            sql += " AND live_session_id = ?"
-            params.append(int(live_session_id))
-        sql += " ORDER BY id"
+        key = str(run_key or "").strip()
+        if not key:
+            raise ValueError("run_key is required")
         with self._lock:
-            rows = self.conn.execute(sql, params).fetchall()
+            rows = self.conn.execute(
+                """
+                SELECT * FROM live_result_snapshots
+                WHERE class_id = ? AND run_key = ?
+                ORDER BY id
+                """,
+                (int(class_id), key),
+            ).fetchall()
         out = []
         for row in rows:
             item = dict(row)
-            for key in ("question_json", "answer_json"):
+            for col in ("question_json", "answer_json"):
                 try:
-                    item[key.replace("_json", "")] = json.loads(item[key] or "{}")
+                    item[col.replace("_json", "")] = json.loads(item[col] or "{}")
                 except (TypeError, ValueError):
-                    item[key.replace("_json", "")] = {}
+                    item[col.replace("_json", "")] = {}
             out.append(item)
         return out
+
+    def live_result_snapshot_runs(self, class_id: int) -> list[dict[str, Any]]:
+        """List a class's saved runs, newest first. No answers or names.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            ``{run_key, live_session_id, session_code, live_module,
+            live_slot, snapshot_at, rows}`` per run.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT run_key,
+                       MIN(live_session_id) AS live_session_id,
+                       MIN(session_code) AS session_code,
+                       MIN(live_module) AS live_module,
+                       MIN(live_slot) AS live_slot,
+                       MAX(snapshot_at) AS snapshot_at,
+                       COUNT(*) AS rows
+                FROM live_result_snapshots
+                WHERE class_id = ? AND run_key != ''
+                GROUP BY run_key
+                ORDER BY MAX(snapshot_at) DESC, MAX(id) DESC
+                """,
+                (int(class_id),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_student_live_result_snapshots(
+        self, class_id: int, student_ids: list[int]
+    ) -> int:
+        """Delete one class's End-of-class snapshot rows for removed students.
+
+        Roster delete and roster replace call this after the game-show
+        delete, so a removed student's name and answers go too (MCK-45).
+        Pass the ids captured before the delete: SQLite can hand a removed
+        student's id to the next new student, so "not on the roster now"
+        cannot tell them apart.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            student_ids: Removed ``students.id`` values.
+
+        Returns:
+            Rows deleted.
+        """
+        ids = sorted({int(x) for x in student_ids})
+        if not ids:
+            return 0
+        placeholders = ",".join("?" * len(ids))
+        with self._lock:
+            cur = self.conn.execute(
+                f"""
+                DELETE FROM live_result_snapshots
+                WHERE class_id = ? AND student_id IN ({placeholders})
+                """,
+                (int(class_id), *ids),
+            )
+            self.conn.commit()
+        return int(cur.rowcount or 0)
+
+    def class_roster_pairs(self, class_id: int) -> set[tuple[int, str]]:
+        """Return ``(students.id, codename-or-first-name)`` for a class roster."""
+        with self._lock:
+            rows = self.game.conn.execute(
+                "SELECT id, codename, first_name FROM students WHERE class_id = ?",
+                (int(class_id),),
+            ).fetchall()
+        return {
+            (int(row["id"]), str(row["codename"] or row["first_name"] or "").lower())
+            for row in rows
+        }
+
+    def prune_live_result_snapshots(
+        self,
+        *,
+        days: int | None = None,
+        now: datetime | None = None,
+    ) -> int:
+        """Delete End-of-class snapshots older than the retention window.
+
+        Args:
+            days: Window in days. Default ``LIVE_RESULT_SNAPSHOT_RETENTION_DAYS``.
+            now: Reference time (tests). Default: local now.
+
+        Returns:
+            Rows deleted.
+        """
+        window = LIVE_RESULT_SNAPSHOT_RETENTION_DAYS if days is None else int(days)
+        if window <= 0:
+            return 0
+        ref = now or datetime.now()
+        cutoff = (ref - timedelta(days=window)).replace(microsecond=0).isoformat()
+        with self._lock:
+            cur = self.conn.execute(
+                "DELETE FROM live_result_snapshots WHERE snapshot_at < ?",
+                (cutoff,),
+            )
+            self.conn.commit()
+        return int(cur.rowcount or 0)
 
     def cleanup_live_session_response_data(self, session_id: int) -> None:
         """Delete ephemeral individual votes, group responses, and board ops.
@@ -23478,6 +23611,10 @@ class SchoolDB(LovesDB):
                 self.conn.execute("ROLLBACK")
                 raise
             self.conn.execute("COMMIT")
+        try:
+            self.prune_live_result_snapshots()
+        except Exception:  # noqa: BLE001 - retention must never fail End
+            logger.exception("live result snapshot prune failed")
 
     def _delete_live_session_response_rows_unlocked(self, session_id: int) -> None:
         """Delete votes, group rows, and prompt responses for one session.

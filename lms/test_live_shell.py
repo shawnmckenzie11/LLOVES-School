@@ -2100,6 +2100,7 @@ class LiveShellTests(unittest.TestCase):
                 (sid, student_id),
             ).fetchall()
         self.assertGreaterEqual(len(live_rows), 2)
+        run_key = self.school.get_live_session(sid)["run_key"]
         ended = self.client.post(
             f"/staff/class/{self.class_id}/end-live",
             follow_redirects=False,
@@ -2115,7 +2116,7 @@ class LiveShellTests(unittest.TestCase):
                 (sid,),
             ).fetchone()[0]
         self.assertEqual(left, 0)
-        rows = self.school.live_result_snapshot_rows(self.class_id)
+        rows = self.school.live_result_snapshot_rows(self.class_id, run_key=run_key)
         mine = [
             row for row in rows
             if row["source"] == "prompt" and row["student_id"] == student_id
