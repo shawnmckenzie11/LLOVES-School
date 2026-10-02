@@ -12210,6 +12210,14 @@ class SchoolDB(LovesDB):
         if kind == "whiteboard":
             enriched = self._with_whiteboard_publish_modes(question)
             return list(enriched.get("publish_modes") or ["individual", "group_shared"])
+        if kind == "media":
+            # MCK-112 follow-up: artifact Media runs as Group ("Each group
+            # shares one view"), so its row may record ``group_shared``
+            # and show the mode it is really running in.
+            modes = self._question_publish_modes(question)
+            if "group_shared" not in modes:
+                modes.append("group_shared")
+            return modes
         return self._question_publish_modes(question)
 
     def _sync_whiteboard_collab(self, session_id: int, publish_mode: str) -> None:
@@ -16794,6 +16802,8 @@ class SchoolDB(LovesDB):
             slide_index: Optional page number override.
             hot_cold_visible: Students see slider heat hints when true.
             group_q: Submit waits for every teammate to match when groups run.
+                ``None`` keeps the current artifact's setting while Media
+                runs as Group (a re-mint never resets it).
             accuracy_margin: Match band ``0.10`` or ``0.20`` (default 10%).
 
         Returns:
@@ -16811,6 +16821,8 @@ class SchoolDB(LovesDB):
         if wanted not in REGISTERED_ARTIFACT_IDS:
             raise ValueError(f"unknown artifact: {wanted}")
         teacher = self.live_session_teacher_state_payload(session_id)
+        if group_q is None:
+            group_q = self._inherited_artifact_group_q(session_row, teacher)
         class_id = int(session_row["class_id"])
         module_key = str(teacher.get("live_module") or "M1").upper()
         slot_key = str(teacher.get("live_slot") or "C1").upper()
@@ -17034,6 +17046,32 @@ class SchoolDB(LovesDB):
             "toast": MATCH_CHALLENGE_TOAST if first_mint else "",
             "match_index": match_index,
         }
+
+    @staticmethod
+    def _inherited_artifact_group_q(
+        session_row: dict[str, Any], teacher: dict[str, Any]
+    ) -> bool:
+        """Group Q a re-mint keeps when the request does not say.
+
+        MCK-112 follow-up: a re-mint replaces the active-media artifact
+        (``merge=False``), so "Wait until teammates match" used to fall back
+        to off while Media stayed on Group. Keep the teacher's setting from
+        the current artifact, but only while Media runs as Group, so a
+        re-mint never leaves students on Individual + match teammates.
+
+        Args:
+            session_row: ``get_live_session`` row (raw ``active_media``).
+            teacher: Teacher-state payload for the session.
+
+        Returns:
+            True when the current artifact has Group Q on and Media is Group.
+        """
+        view = teacher.get("student_view") if isinstance(teacher, dict) else None
+        if not isinstance(view, dict) or str(view.get("media") or "") != "team":
+            return False
+        media = session_row.get("active_media") if isinstance(session_row, dict) else None
+        artifact = media.get("artifact") if isinstance(media, dict) else None
+        return bool(isinstance(artifact, dict) and artifact.get("group_q"))
 
     def record_artifact_slider_preview(
         self,

@@ -73,6 +73,7 @@ import {
 import {
   GROUP_SETUP_COPY,
   RANK_DEFAULTS_TO_GROUP,
+  artifactGroupQPlan,
   groupModeToken,
   groupPublishConfirmHtml,
   groupPublishToken,
@@ -81,6 +82,8 @@ import {
   groupStyleFor,
   groupTokenNeedsTeamsShown,
   isGroupModeToken,
+  mediaRowPublishMode,
+  mintGroupQ,
 } from "/static/group_setup.js";
 
 const root = document.getElementById("ap-root");
@@ -1113,6 +1116,17 @@ const groupPublishConfirms = new Map();
 /** @type {Map<string, string>} Last HTML painted per surface host. */
 const groupSetupSurfacePainted = new Map();
 
+/**
+ * MCK-112 follow-up: "Wait until teammates match" held with a Group pick
+ * on Media that is not published yet (``null`` when nothing is held). It
+ * reaches students only after Publish goes out as Group.
+ * @type {boolean|null}
+ */
+let heldArtifactGroupQ = null;
+
+/** True while a Group Q tick waits on the "Show teams and publish" confirm. */
+let artifactGroupQPending = false;
+
 
 /**
  * Map a setup step onto the StageRail id.
@@ -1610,8 +1624,11 @@ async function publishSurface(surface) {
   }
   const item = lifecycleItemForSurface(surface);
   if (item && item.status === "inactive") {
+    // MCK-112 follow-up: Media records Group too, so its row shows the mode.
     const publishMode =
-      surface === "canvas" && selected === "team" ? "group_shared" : "individual";
+      (surface === "canvas" || surface === "media") && selected === "team"
+        ? "group_shared"
+        : "individual";
     const result = await api(
       `/api/live-sessions/${sessionId}/items/${Number(item.id)}/publish`,
       {
@@ -1640,6 +1657,7 @@ async function publishSurface(surface) {
   }
   teacherState.student_view = next;
   await patchTeacherState({ student_view: next });
+  if (surface === "media") await applyHeldArtifactGroupQ(selected === "team");
   paintSurfacePublishing();
 }
 
@@ -5504,7 +5522,7 @@ function staffLiveMediaState(media, params) {
     frozen: Boolean(row.frozen),
     unlock_flags: row.unlock_flags || {},
     params: params || row.params || { a: 1, b: 0, c: 0 },
-    artifact: row.artifact || null,
+    artifact: teacherFrameArtifact(row.artifact),
     stem: row.stem || SEED_MEDIA_STEM,
     entry_chip: row.entry_chip || "",
     artifact_kind: row.artifact_kind || "",
@@ -6065,7 +6083,13 @@ async function mintArtifactFromMedia(data) {
         page_number: currentLivePageNumber(),
         slide_index: currentLivePageNumber(),
         hot_cold_visible: Boolean(data.hot_cold_visible),
-        group_q: Boolean(data.group_q),
+        // MCK-112 follow-up: a re-mint keeps the teacher's Group Q (the
+        // live artifact's setting, not a possibly stale iframe box).
+        group_q: mintGroupQ({
+          mediaView: currentStudentView().media,
+          storedGroupQ: lastActiveMedia?.artifact?.group_q,
+          frameGroupQ: data.group_q,
+        }),
         accuracy_margin: data.accuracy_margin,
       }),
     });
@@ -6126,6 +6150,7 @@ async function patchArtifactTeacherFlags(data) {
  * @returns {Promise<void>}
  */
 async function clearArtifactGroupQ() {
+  heldArtifactGroupQ = null;
   const artifact = lastActiveMedia && lastActiveMedia.artifact;
   if (!artifact || typeof artifact !== "object" || !artifact.group_q) return;
   await patchArtifactTeacherFlags({
@@ -6162,28 +6187,167 @@ async function applyLiveArtifactMediaPick(pick) {
   };
   teacherState.student_view = next;
   await patchTeacherState({ student_view: next });
+  await persistMediaRowMode(pick);
   if (pick !== "group") await clearArtifactGroupQ();
   paintGroupSetupSurfaces();
   return true;
 }
 
 /**
- * The iframe's own Group Q box picks Group on the Students work row, so
- * Media never runs Individual with "Wait until teammates match" on.
- * @param {boolean} on
+ * MCK-112 follow-up: record a live Students work switch on the active
+ * Media row (``group_shared`` / ``individual``) so the row says the mode
+ * Media is running in. Only the label: students already follow
+ * ``student_view.media``, so a failed write is logged, not surfaced.
+ * @param {"individual"|"group"} pick
  * @returns {Promise<void>}
  */
-async function syncMediaPickFromGroupQ(on) {
-  if (!on || !teacherState.groups_configured) return;
-  if (surfacePublishSelection("media") === "team") return;
-  if (surfaceStatus("media") === "inactive") {
+async function persistMediaRowMode(pick) {
+  const item = lifecycleItemForSurface("media");
+  const id = Number(item?.id) || 0;
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!id || !sessionId || String(item?.status || "") !== "active") return;
+  const publishMode = mediaRowPublishMode(pick);
+  if (String(item?.publish_mode || "") === publishMode) return;
+  try {
+    const result = await api(`/api/live-sessions/${sessionId}/items/${id}/settings`, {
+      method: "PATCH",
+      body: JSON.stringify({ publish_mode: publishMode }),
+    });
+    adoptLiveItem(result?.item);
+  } catch (err) {
+    console.warn("Media row mode not saved", err);
+  }
+}
+
+/**
+ * Artifact for the teacher iframe's mirror boxes: the stored artifact,
+ * with a held (not yet published) Group Q shown as ticked.
+ * @param {any} artifact
+ * @returns {any}
+ */
+function teacherFrameArtifact(artifact) {
+  const row = artifact && typeof artifact === "object" ? artifact : null;
+  if (!row) return null;
+  // Keep the box ticked while its confirm is open or it is held for Publish.
+  if (artifactGroupQPending) return { ...row, group_q: true };
+  if (heldArtifactGroupQ == null) return row;
+  return { ...row, group_q: Boolean(heldArtifactGroupQ) };
+}
+
+/**
+ * Re-send the stored media state to the teacher iframe so its Group Q box
+ * mirrors what students really have (after a Cancel, Esc or refusal).
+ */
+function syncTeacherMediaFrame() {
+  const preview = $("ap-media-preview");
+  if (!preview || !lastActiveMedia) return;
+  try {
+    preview.contentWindow?.postMessage(
+      staffLiveMediaState(lastActiveMedia, lastActiveMedia.params),
+      window.location.origin
+    );
+  } catch (_) {
+    /* preview may still be loading */
+  }
+}
+
+/**
+ * MCK-112 follow-up: one gate for "Wait until teammates match", from the
+ * iframe box and the Media options row alike. Nothing students see
+ * changes until Group is really live: with teams hidden the tick waits on
+ * "Show teams and publish", and Cancel or Esc writes nothing at all.
+ * Hot/cold and accuracy from the same iframe message still save at once.
+ * @param {{hot_cold_visible?: unknown, group_q?: unknown, accuracy_margin?: unknown}} flags
+ * @returns {Promise<void>}
+ */
+async function requestArtifactGroupQ(flags) {
+  const stored = (lastActiveMedia && lastActiveMedia.artifact) || {};
+  const on = Boolean(flags.group_q);
+  const storedOn = Boolean(stored.group_q);
+  const plan = artifactGroupQPlan({
+    on,
+    mediaView: currentStudentView().media,
+    mediaStatus: surfaceStatus("media"),
+    teamsReady: Boolean(teacherState.groups_configured),
+  });
+  const othersChanged =
+    (flags.hot_cold_visible !== undefined &&
+      Boolean(flags.hot_cold_visible) !== Boolean(stored.hot_cold_visible)) ||
+    (flags.accuracy_margin != null &&
+      Number(flags.accuracy_margin) !== Number(stored.accuracy_margin));
+  if (plan === "patch") {
+    if (!on) {
+      // Unticking cancels a pending tick's confirm and drops a held tick.
+      if (artifactGroupQPending) settleGroupPublishConfirm("s:media", false);
+      const wasHeld = heldArtifactGroupQ != null;
+      heldArtifactGroupQ = null;
+      if (!storedOn && !othersChanged) {
+        if (wasHeld) paintGroupSetupSurfaces();
+        return;
+      }
+    }
+    await patchArtifactTeacherFlags(flags);
+    return;
+  }
+  // Group Q stays as students have it; other flags in the message save now.
+  const keepStored = () =>
+    othersChanged
+      ? patchArtifactTeacherFlags({ ...flags, group_q: storedOn })
+      : Promise.resolve();
+  if (plan === "refuse") {
+    await keepStored();
+    syncTeacherMediaFrame();
+    paintGroupSetupSurfaces();
+    return;
+  }
+  if (plan === "hold") {
+    await keepStored();
+    heldArtifactGroupQ = true;
     groupModeIntent.set("s:media", "group");
     saveSurfaceModeIntent();
     paintGroupSetupSurfaces();
     return;
   }
-  const ok = await applyLiveArtifactMediaPick("group");
-  if (!ok) await clearArtifactGroupQ();
+  // plan === "switch": Group first (confirm when teams are hidden), then Group Q.
+  if (artifactGroupQPending) return;
+  artifactGroupQPending = true;
+  let ok = false;
+  try {
+    await keepStored();
+    ok = await applyLiveArtifactMediaPick("group");
+  } catch (err) {
+    artifactGroupQPending = false;
+    syncTeacherMediaFrame();
+    paintGroupSetupSurfaces();
+    throw err;
+  } finally {
+    artifactGroupQPending = false;
+  }
+  if (!ok) {
+    syncTeacherMediaFrame();
+    paintGroupSetupSurfaces();
+    return;
+  }
+  await patchArtifactTeacherFlags({ ...flags, group_q: true });
+}
+
+/**
+ * After Publish: write a held Group Q once Media went out as Group, or
+ * drop it when Media went out Individual.
+ * @param {boolean} asGroup
+ * @returns {Promise<void>}
+ */
+async function applyHeldArtifactGroupQ(asGroup) {
+  const held = heldArtifactGroupQ;
+  heldArtifactGroupQ = null;
+  if (!held || !asGroup) return;
+  const artifact = (lastActiveMedia && lastActiveMedia.artifact) || {};
+  if (artifact.group_q) return;
+  await patchArtifactTeacherFlags({
+    hot_cold_visible: Boolean(artifact.hot_cold_visible),
+    group_q: true,
+    accuracy_margin: artifact.accuracy_margin,
+  });
 }
 
 /**
@@ -6209,9 +6373,7 @@ function bindActiveMediaControls() {
       (data.source === "lloves-m1c2-transforms" ||
         data.source === "lloves-mcr3u-m1c3-parents")
     ) {
-      patchArtifactTeacherFlags(data)
-        .then(() => syncMediaPickFromGroupQ(Boolean(data.group_q)))
-        .catch((err) => showError("#ap-overlay-error", err));
+      requestArtifactGroupQ(data).catch((err) => showError("#ap-overlay-error", err));
       return;
     }
     if (!data || data.source !== "lloves-m1c1-c1" || data.type !== "params") return;
@@ -9837,7 +9999,7 @@ function paintGroupSetupSurfaces() {
           teamNames: groupTeamNames(),
           groupQ:
             surface === "media" && artifact && typeof artifact === "object"
-              ? Boolean(artifact.group_q)
+              ? Boolean(heldArtifactGroupQ ?? artifact.group_q)
               : null,
         });
     const signature = `${html}\u0000${opts}`;
@@ -9963,7 +10125,7 @@ async function onGroupSetupChange(event) {
   if (groupQ instanceof HTMLInputElement) {
     const artifact = (lastActiveMedia && lastActiveMedia.artifact) || {};
     try {
-      await patchArtifactTeacherFlags({
+      await requestArtifactGroupQ({
         hot_cold_visible: Boolean(artifact.hot_cold_visible),
         group_q: groupQ.checked,
         accuracy_margin: artifact.accuracy_margin,
