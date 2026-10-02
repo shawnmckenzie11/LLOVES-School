@@ -106,7 +106,9 @@ WONDER_COPY: dict[str, str] = {
 # MCK-133 staff-only strings (kept out of the public ``copy`` payload).
 STAFF_COPY: dict[str, str] = {
     # Per-class award period line on the staff page, in Wonder v1 style
-    # (Wonder's file has no line for it). Same dates as the public card.
+    # (Wonder's file has no line for it). Same dates as the public card:
+    # when the course's card is from the class's current period, the line
+    # uses the card's own label (MCK-160 LOW-12).
     "staff_period_first": "{label}",  # Wonder copy slot
     "staff_period_first_ended": "{label}. Ended. Start fresh to count new classes.",  # Wonder copy slot
     "staff_period_new": "{since}",  # Wonder copy slot
@@ -116,7 +118,28 @@ STAFF_COPY: dict[str, str] = {
     "staff_period_shared": "{line}. Start fresh isn't available for courses shared with another teacher.",  # Wonder copy slot
     # Start fresh refused: the course card covers another teacher's class.
     "start_fresh_shared": "Couldn't start fresh. {courses} is shared with another teacher's class. Nothing changed.",  # Wonder copy slot
+    "start_fresh_shared_many": "Couldn't start fresh. {courses} are shared with other teachers' classes. Nothing changed.",  # Wonder copy slot
+    # MCK-160 LOW-10: every course this teacher has is shared.
+    "start_fresh_all_shared": "Start fresh isn't available: all your courses are shared with another teacher.",  # Wonder copy slot
+    # MCK-160 LOW-11: an unexpected server error (always sent as JSON).
+    "start_fresh_failed": "Couldn't start fresh. Try again.",  # Wonder copy slot
 }
+
+START_FRESH_FAILED = STAFF_COPY["start_fresh_failed"]
+
+
+def course_list(courses: list[str]) -> str:
+    """``MCR3U``, ``MCR3U and SBI3U``, ``MCF3M, MCR3U and SBI3U``."""
+    names = [str(c) for c in courses if str(c)]
+    if len(names) <= 1:
+        return "".join(names)
+    return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def shared_refusal(courses: list[str]) -> str:
+    """The 409 text for shared courses, singular or plural (MCK-160)."""
+    key = "start_fresh_shared" if len(courses) <= 1 else "start_fresh_shared_many"
+    return STAFF_COPY[key].format(courses=course_list(courses))
 
 _public_board_lock = Lock()
 _public_board_memo: dict[str, Any] = {
@@ -1199,13 +1222,21 @@ def staff_award_periods(school: Any, teacher_user_id: int) -> list[dict[str, Any
         closing_end = today if end is None else min(end, today)
         card = board.get(course)
         board_label = card.get("period_label") if card else None
+        card_start = award_periods.school_date(card.get("period_start")) if card else None
+        # LOW-12: the card is this period's own card (frozen: a stored
+        # "through" date; freeze off: the same label we would build).
+        card_is_current = bool(
+            card and board_label and card_start is not None and start is not None
+            and card_start >= start
+        )
         if not period:
             key = "staff_period_first_ended" if closed and not is_shared else "staff_period_first"
-            status = STAFF_COPY[key].format(label=label)
+            status = STAFF_COPY[key].format(label=board_label if card_is_current else label)
         else:
             since = award_periods.period_label(start, None, WONDER_COPY)
-            card_start = award_periods.school_date(card.get("period_start")) if card else None
-            if card and (card_start is None or start is None or card_start < start):
+            if card_is_current:
+                status = STAFF_COPY["staff_period_new"].format(since=board_label)
+            elif card:
                 status = STAFF_COPY["staff_period_new_board"].format(
                     since=since, board=board_label
                 )
@@ -1404,7 +1435,7 @@ def start_fresh_award_tally(
         keep = [c for c in targets if str(course_of.get(c) or "").upper() not in shared_upper]
         if class_id is not None or not keep:
             raise AwardTallyShared(
-                STAFF_COPY["start_fresh_shared"].format(courses=", ".join(shared))
+                shared_refusal(list(shared))
             )
         skipped = [
             {"class_id": c, "course": course_of.get(c) or ""} for c in targets if c not in keep

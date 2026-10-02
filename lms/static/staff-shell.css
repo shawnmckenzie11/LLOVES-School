@@ -6270,6 +6270,12 @@ body.staff-shell .award-fresh-summary {
   background: #f1f5f9;
   font-weight: 600;
 }
+/* MCK-160 LOW-10: why Start fresh is off (every course is shared). */
+body.staff-shell .award-fresh-unavailable {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.8rem;
+}
 /* MCK-161 LOW-6: Contest Questions sit above the bank list, so keep the
    Bank scope / Kind / Search row in view while the picker scrolls
    (the safest default until the product call on LOW-6 is made). */

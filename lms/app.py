@@ -88,6 +88,8 @@ from local_dev_seed import (  # noqa: E402
 )
 from school_db import STAFF_2FA_MODE_LABELS, DeckReplaceNotConfirmed, SchoolDB, json_safe  # noqa: E402
 from celebration import (  # noqa: E402
+    START_FRESH_FAILED,
+    STAFF_COPY as CELEBRATION_STAFF_COPY,
     AwardTallyBusy,
     AwardTallyShared,
     staff_award_periods,
@@ -2564,6 +2566,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             ),
             celebration_award=build_celebration_board(school)["cards"][0],
             celebration_periods=staff_award_periods(school, int(user["id"])),
+            celebration_staff_copy=CELEBRATION_STAFF_COPY,
         )
         resp = make_response(html)
         resp.set_cookie("lloves_seen", "1", max_age=86400 * 400, samesite="Lax")
@@ -2626,9 +2629,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """MCK-133: this teacher's classes and their current award period."""
         user = current_user()
         assert user is not None
-        return jsonify(
-            {"ok": True, "classes": staff_award_periods(school, int(user["id"]))}
-        )
+        try:
+            classes = staff_award_periods(school, int(user["id"]))
+        except Exception:  # noqa: BLE001 - MCK-160 LOW-11: always JSON
+            logger.exception("MCK-160 award periods failed (user %s)", user.get("id"))
+            return jsonify({"ok": False, "error": START_FRESH_FAILED}), 500
+        return jsonify({"ok": True, "classes": classes})
 
     @app.route("/api/staff/celebrations/start-fresh", methods=["POST"])
     @staff_required
@@ -2641,7 +2647,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """
         user = current_user()
         assert user is not None
-        payload = request.get_json(silent=True) or {}
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            payload = {}
         scope = str(payload.get("scope") or "").strip().lower()
         class_id = None
         if scope == "class":
@@ -2661,6 +2669,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": str(exc)}), 409
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
+        except Exception:  # noqa: BLE001 - MCK-160 LOW-11: always JSON
+            logger.exception("MCK-160 start fresh failed (user %s)", user.get("id"))
+            return jsonify({"ok": False, "error": START_FRESH_FAILED}), 500
         return jsonify({"ok": True, "scope": scope, **result})
 
     @app.route("/api/staff/defaults")
