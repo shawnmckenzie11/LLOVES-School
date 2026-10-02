@@ -70,6 +70,7 @@ import {
   deckSeedHelpText,
   deckSeedResponseIsCurrent,
 } from "/static/deck_seed_help.js";
+import { overlayClassListPresence } from "/static/class_list_presence.js";
 import {
   GROUP_SETUP_COPY,
   RANK_DEFAULTS_TO_GROUP,
@@ -5363,6 +5364,13 @@ async function pollLiveSessionAttendees(opts = {}) {
     }
     paintStageRail();
     const rows = Array.isArray(payload?.attendees) ? payload.attendees : [];
+    if (Array.isArray(payload?.attendees)) {
+      // MCK-119: light /state omits class_list, so the cached rows keep the
+      // present flag from the last full snapshot. A join tap (or any light
+      // poll) must tick the joiner and untick a leaver from attendees.
+      lastClassListFull = overlayClassListPresence(lastClassListFull, rows);
+      lastClassList = lastClassListFull;
+    }
     const present = rows.filter((row) => !row?.left_at);
     const guests = present.filter((row) => Boolean(row.unmatched) || row.student_id == null);
     sessionGuests = guests.map((row) => ({

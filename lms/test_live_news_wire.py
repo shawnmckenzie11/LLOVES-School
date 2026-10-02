@@ -257,6 +257,40 @@ class LiveNewsRouteTests(unittest.TestCase):
         ]
         self.assertIn("Aspen", present)
 
+    def test_join_tap_light_state_ticks_the_cached_class_list_row(self) -> None:
+        """MCK-119: the ClassList row for a joiner flips present on a light poll.
+
+        The staff tab caches ``class_list`` from a full ``/state``. The join
+        tap only light-fetches, and light ``/state`` has no ``class_list``.
+        The cached ``present: false`` must be overlaid from ``attendees``,
+        or the joiner stays unticked (hidden under Hide Absent) until a
+        ``state_seq`` bump forces a full snapshot.
+        """
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node is not installed")
+        full = self.client.get(f"/api/live-sessions/{self.session_id}/state")
+        cached = full.get_json()["class_list"]
+        self.assertEqual(
+            {row["codename"]: row["present"] for row in cached},
+            {"Aspen": False, "Birch": False},
+        )
+        code = str(self.school.get_live_session(self.session_id)["session_code"])
+        joined = self.app.test_client().post(
+            "/auth/student-code", json={"code": code, "name": "Aspen"}
+        )
+        self.assertLess(joined.status_code, 400, joined.get_data(as_text=True))
+        light = self.client.get(
+            f"/api/live-sessions/{self.session_id}/state?light=1"
+        ).get_json()
+        self.assertNotIn("class_list", light)
+        self.assertEqual(light["state_seq"], full.get_json()["state_seq"])
+        got = _run_class_list_overlay(node, cached, light["attendees"])
+        self.assertEqual(
+            {row["codename"]: row["present"] for row in got},
+            {"Aspen": True, "Birch": False},
+        )
+
     def test_shed_is_busy_not_a_reload(self) -> None:
         """A worker at the stream cap returns one busy postcard."""
         for _ in range(STREAMS_PER_WORKER):
@@ -462,3 +496,89 @@ console.log(JSON.stringify(out));
         helper = wire.split("export function studentFallbackPollMs(")[1]
         self.assertIn("fallbackPollMs(wire)", helper.split("\n}")[0])
         self.assertNotIn(": STUDENT_POLL_BASE_MS;", schedule)
+
+
+def _run_class_list_overlay(
+    node: str, rows: list, attendees: list
+) -> list:
+    """Run ``overlayClassListPresence`` under node and return its rows.
+
+    Args:
+        node: Path to the node binary.
+        rows: Cached ``class_list`` rows.
+        attendees: ``attendees`` from a ``/state`` body.
+    """
+    module = (LMS_DIR / "static" / "class_list_presence.js").resolve().as_uri()
+    script = f"""
+import {{ overlayClassListPresence }} from {json.dumps(module)};
+const rows = {json.dumps(rows)};
+const attendees = {json.dumps(attendees)};
+console.log(JSON.stringify(overlayClassListPresence(rows, attendees)));
+"""
+    done = subprocess.run(
+        [node, "--input-type=module", "-e", script],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    if done.returncode != 0:
+        raise AssertionError(done.stderr)
+    return json.loads(done.stdout.strip().splitlines()[-1])
+
+
+class ClassListLightPresenceTests(unittest.TestCase):
+    """MCK-119: light polls keep ClassList ticks in step with attendees."""
+
+    def setUp(self) -> None:
+        """Skip without node; the overlay is a browser module."""
+        self.node = shutil.which("node")
+        if self.node is None:
+            self.skipTest("node is not installed")
+
+    def test_overlay_ticks_joiner_unticks_leaver_and_skips_guests(self) -> None:
+        """Join ticks, leave unticks, never-joined stays absent, guests skip."""
+        cached = [
+            {"student_id": 1, "codename": "Aspen", "present": False, "joined": False},
+            {"student_id": 2, "codename": "Birch", "present": True, "joined": True},
+            {"student_id": 3, "codename": "Cedar", "present": False, "joined": False},
+            {"student_id": 4, "codename": "Dogwood", "present": False, "joined": True,
+             "left_at": "2026-10-02T09:20:00"},
+        ]
+        attendees = [
+            {"student_id": 1, "codename": "Aspen", "left_at": None},
+            {"student_id": 2, "codename": "Birch", "left_at": "2026-10-02T09:30:00"},
+            {"student_id": 4, "codename": "Dogwood", "left_at": "2026-10-02T09:20:00"},
+            {"student_id": 4, "codename": "Dogwood", "left_at": None},
+            {"student_id": None, "codename": "Guest", "unmatched": 1, "left_at": None},
+        ]
+        got = {
+            row["codename"]: row
+            for row in _run_class_list_overlay(self.node, cached, attendees)
+        }
+        self.assertEqual(len(got), 4)
+        self.assertTrue(got["Aspen"]["present"])
+        self.assertTrue(got["Aspen"]["joined"])
+        self.assertFalse(got["Birch"]["present"])
+        self.assertEqual(got["Birch"]["left_at"], "2026-10-02T09:30:00")
+        self.assertFalse(got["Cedar"]["present"])
+        self.assertFalse(got["Cedar"]["joined"])
+        self.assertTrue(got["Dogwood"]["present"])
+        self.assertIsNone(got["Dogwood"]["left_at"])
+
+    def test_staff_poll_overlays_presence_before_the_classlist_repaint(self) -> None:
+        """``pollLiveSessionAttendees`` syncs the cache before painting ticks."""
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn(
+            'import { overlayClassListPresence } from "/static/class_list_presence.js";',
+            js,
+        )
+        body = js.split("async function pollLiveSessionAttendees(")[1].split(
+            "\nasync function "
+        )[0]
+        overlay = body.find(
+            "lastClassListFull = overlayClassListPresence(lastClassListFull, rows);"
+        )
+        repaint = body.find("await applySessionPresentTicks(")
+        self.assertGreater(overlay, 0)
+        self.assertGreater(repaint, overlay)
