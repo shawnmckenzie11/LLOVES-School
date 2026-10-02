@@ -29,10 +29,19 @@ for (const type of ["numeric", "open", "text", "share", "poll"]) {
 check(groupStyleFor({ id: "meet-a", type: "mc" }) === null, "meet-a -> null");
 check(groupStyleFor({ id: "meet_team", type: "numeric" }) === null, "meet-team -> null");
 check(groupStyleFor({ type: "artifact" }) === null, "artifact question w/o group_consensus -> null");
+// Gate LOW: artifact cards never get a question-level Group (no "Individual
+// in Group"); their Group is the Media row's Group Q.
 check(
-  groupStyleFor({ type: "artifact", publish_modes: ["individual", "group_consensus"] }) === "consensus",
+  groupStyleFor({ type: "artifact", publish_modes: ["individual", "group_consensus"] }) === null,
+  "artifact question with catalogue group_consensus -> still null"
+);
+check(groupStyleFor({ type: "mc", artifact_id: "m1c2-transformations" }) === null, "artifact_id -> null");
+check(
+  groupStyleFor({ type: "estimate", publish_modes: ["individual", "group_consensus"] }) === "consensus",
   "catalogue group_consensus -> consensus"
 );
+// Gate LOW: "why" is not a server consensus type, so no Group offer.
+check(groupStyleFor({ type: "why" }) === null, "why -> null (server rejects group_consensus)");
 check(groupStyleFor({ surface: "canvas" }) === "shared", "whiteboard -> shared");
 check(groupStyleFor({ surface: "media" }) === null, "plain media -> null");
 check(groupStyleFor({ surface: "media", artifact: true }) === "shared", "artifact media -> shared");
@@ -68,6 +77,11 @@ check(surface.includes('name="group-setup-surface-canvas"'), "surface radio name
 
 // Not group-capable: nothing.
 check(groupSetupHtml({ key: "q:8", style: null, status: "inactive", mode: "individual", teamsReady: true }) === "", "null style -> empty");
+
+// Live artifact Media keeps the switch (publish, then mint).
+const liveArt = groupSetupHtml({ key: "s:media", style: "shared", status: "active", mode: "individual", teamsReady: true, surface: "media", liveSwitch: true });
+check((liveArt.match(/type="radio"/g) || []).length === 2 && liveArt.includes('data-group-setup-live="1"') && !liveArt.includes("● Individual"), "live artifact media keeps radios");
+check(groupSetupHtml({ key: "s:media", style: "shared", status: "active", mode: "individual", teamsReady: false, surface: "media", liveSwitch: true }).includes("● Individual"), "live switch needs teams");
 
 // Live / closed chips.
 const live = groupSetupHtml({ key: "q:7", style: "consensus", status: "active", mode: "group", teamsReady: true });

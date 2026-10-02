@@ -1501,6 +1501,9 @@ function surfacePublishSelection(surface) {
   if (surfaceStatus(surface) === "inactive" && groupModeIntent.has(key)) {
     return groupModeIntent.get(key) === "group" ? "team" : "student";
   }
+  // MCK-112: Media rows always publish ``individual``; artifact Media Group
+  // is the projection (``student_view.media = team``), so read that.
+  if (surface === "media") return currentStudentView().media === "team" ? "team" : "student";
   const held = id ? teacherSettingHold.get(`${id}:publish_mode`) : undefined;
   const stored = String(held || item?.publish_mode || "");
   if (stored === "group_shared") return "team";
@@ -1588,6 +1591,10 @@ async function publishSurface(surface) {
   }
   groupModeIntent.delete(`s:${surface}`);
   saveSurfaceModeIntent();
+  if (surface === "media" && selected !== "team") {
+    // Individual Media never keeps "Wait until teammates match" on.
+    await clearArtifactGroupQ();
+  }
   const item = lifecycleItemForSurface(surface);
   if (item && item.status === "inactive") {
     const publishMode =
@@ -5898,6 +5905,72 @@ async function patchArtifactTeacherFlags(data) {
 }
 
 /**
+ * Turn "Wait until teammates match" off on the Artifact media (and its
+ * prompt). Used when artifact Media runs Individual.
+ * @returns {Promise<void>}
+ */
+async function clearArtifactGroupQ() {
+  const artifact = lastActiveMedia && lastActiveMedia.artifact;
+  if (!artifact || typeof artifact !== "object" || !artifact.group_q) return;
+  await patchArtifactTeacherFlags({
+    hot_cold_visible: Boolean(artifact.hot_cold_visible),
+    group_q: false,
+    accuracy_margin: artifact.accuracy_margin,
+  });
+}
+
+/**
+ * MCK-112: switch live artifact Media between Individual and Group in place
+ * (the normal order is publish the media, then mint). Group asks first
+ * when teams are hidden, exactly like Publish. Individual also turns
+ * Group Q off so students are never told to match teammates alone.
+ * @param {"individual"|"group"} pick
+ * @returns {Promise<boolean>} False when the teacher cancelled.
+ */
+async function applyLiveArtifactMediaPick(pick) {
+  if (pick === "group") {
+    if (!teacherState.groups_configured) return false;
+    if (!teacherState.run_as_group) {
+      const confirmed = await confirmGroupPublish("s:media");
+      if (!confirmed) return false;
+      if (!teacherState.run_as_group) {
+        teacherState.run_as_group = true;
+        teacherState.teams_mode = "teams";
+        await patchTeacherState({ run_as_group: true }, { silent: true });
+      }
+    }
+  }
+  const next = {
+    ...(teacherState.student_view || {}),
+    media: pick === "group" ? "team" : "student",
+  };
+  teacherState.student_view = next;
+  await patchTeacherState({ student_view: next });
+  if (pick !== "group") await clearArtifactGroupQ();
+  paintGroupSetupSurfaces();
+  return true;
+}
+
+/**
+ * The iframe's own Group Q box picks Group on the Students work row, so
+ * Media never runs Individual with "Wait until teammates match" on.
+ * @param {boolean} on
+ * @returns {Promise<void>}
+ */
+async function syncMediaPickFromGroupQ(on) {
+  if (!on || !teacherState.groups_configured) return;
+  if (surfacePublishSelection("media") === "team") return;
+  if (surfaceStatus("media") === "inactive") {
+    groupModeIntent.set("s:media", "group");
+    saveSurfaceModeIntent();
+    paintGroupSetupSurfaces();
+    return;
+  }
+  const ok = await applyLiveArtifactMediaPick("group");
+  if (!ok) await clearArtifactGroupQ();
+}
+
+/**
  * Bind iframe → session patches. Artifact mint and C1 peel tools live in-frame.
  */
 function bindActiveMediaControls() {
@@ -5920,7 +5993,9 @@ function bindActiveMediaControls() {
       (data.source === "lloves-m1c2-transforms" ||
         data.source === "lloves-mcr3u-m1c3-parents")
     ) {
-      patchArtifactTeacherFlags(data).catch((err) => showError("#ap-overlay-error", err));
+      patchArtifactTeacherFlags(data)
+        .then(() => syncMediaPickFromGroupQ(Boolean(data.group_q)))
+        .catch((err) => showError("#ap-overlay-error", err));
       return;
     }
     if (!data || data.source !== "lloves-m1c1-c1" || data.type !== "params") return;
@@ -9458,9 +9533,10 @@ function paintGroupSetupSurfaces() {
     const status = surfaceStatus(surface);
     const mode = surfacePublishSelection(surface) === "team" ? "group" : "individual";
     const confirming = groupPublishConfirms.has(key);
+    const liveSwitch = surface === "media" && Boolean(artifact) && status === "active";
     const html = confirming
       ? groupPublishConfirmHtml(key)
-      : groupSetupHtml({ key, style, status, mode, teamsReady, surface });
+      : groupSetupHtml({ key, style, status, mode, teamsReady, surface, liveSwitch });
     const opts = confirming
       ? ""
       : groupSetupOptionsHtml({
@@ -9620,8 +9696,13 @@ async function onGroupSetupChange(event) {
   groupModeIntent.set(key, pick);
   const [scope, id] = key.split(":");
   try {
-    if (scope === "s") {
+    if (scope === "s" && id === "media" && radio.closest("[data-group-setup-live]")) {
+      groupModeIntent.delete(key);
+      saveSurfaceModeIntent();
+      await applyLiveArtifactMediaPick(pick);
+    } else if (scope === "s") {
       await persistSurfacePublishMode(id, pick === "group" ? "team" : "student");
+      if (id === "media" && pick !== "group") await clearArtifactGroupQ();
     } else {
       const token =
         pick === "group"

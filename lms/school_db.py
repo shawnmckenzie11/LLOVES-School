@@ -16869,7 +16869,10 @@ class SchoolDB(LovesDB):
         view = dict(teacher.get("student_view") or {})
         frames = dict(teacher.get("student_frames") or {})
         view["questions"] = "student"
-        view["media"] = "student"
+        # MCK-112: a re-mint keeps Media on Group ("team") when the teacher
+        # already chose it; only a hidden or Individual view becomes Individual.
+        if str(view.get("media") or "") != "team":
+            view["media"] = "student"
         frames["questions"] = True
         frames["media"] = True
         self.set_live_session_teacher_state(
@@ -20878,12 +20881,30 @@ class SchoolDB(LovesDB):
         )
         explicit_url = url is not None and str(url).strip()
         text_only = slot == "C3" and not explicit_url
+        # MCK-112: Show hot/cold, Group Q ("Wait until teammates match") and
+        # accuracy arrive as an artifact-only patch with no url. On C3 that
+        # used to fall into the text-only clear below and wipe the minted
+        # Artifact media, so Group was lost and the prompt still said Group Q.
+        # A flag patch on media that already holds an Artifact merges instead.
+        artifact_flag_patch = (
+            text_only
+            and challenge is None
+            and not clear
+            and artifact is not None
+            and isinstance(current, dict)
+            and isinstance(current.get("artifact"), dict)
+        )
         if text_only:
             payload = None
-            if challenge is not None or current is not None:
-                payload = apply_active_media_update(
-                    current, challenge=slot, updated_at=_now()
-                )
+            if artifact_flag_patch or challenge is not None or current is not None:
+                if artifact_flag_patch:
+                    payload = apply_active_media_update(
+                        current, artifact=artifact, updated_at=_now()
+                    )
+                else:
+                    payload = apply_active_media_update(
+                        current, challenge=slot, updated_at=_now()
+                    )
                 encoded = json.dumps(payload) if payload else None
                 with self._lock:
                     self.conn.execute(
@@ -20929,7 +20950,7 @@ class SchoolDB(LovesDB):
                     caption=caption,
                     payload=None,
                 )
-            return None
+            return payload if artifact_flag_patch else None
         if slot == "C2":
             media_kwargs = {
                 key: value

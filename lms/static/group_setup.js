@@ -54,8 +54,15 @@ export const RANK_DEFAULTS_TO_GROUP = false;
 /** Item ids that never run as a group (Meet chain, Meet team). */
 const NOT_GROUP_IDS = new Set(["meet-team", "meet-a", "meet-b", "meet-c"]);
 
-/** Question types that run as a consensus group. */
-const CONSENSUS_TYPES = new Set(["numeric", "text", "open", "share", "poll", "why"]);
+/**
+ * Question types that run as a consensus group. Must match the server's
+ * open-response check (``SchoolDB._question_is_open_response``) so the
+ * control never offers a Group the server would reject (MCK-112 gate).
+ */
+const CONSENSUS_TYPES = new Set(["numeric", "text", "open", "share", "poll"]);
+
+/** Artifact question cards: Group lives on the Media row (Group Q), never here. */
+const ARTIFACT_TYPE = "artifact";
 
 /**
  * Group style for one item, or null when it is not group-capable.
@@ -77,6 +84,7 @@ export function groupStyleFor(item, card) {
     .replace(/_/g, "-");
   if (NOT_GROUP_IDS.has(id)) return null;
   const type = String(item?.type || card?.type || item?.kind || "").toLowerCase();
+  if (type === ARTIFACT_TYPE || item?.artifact_id || card?.item?.artifact_id) return null;
   if (type === "mc" || type === "rank") return "submit";
   if (CONSENSUS_TYPES.has(type) || Boolean(item?.integer_only || card?.integer_only)) {
     return "consensus";
@@ -186,7 +194,10 @@ export function groupSetupRadioName(key) {
  *   mode: "individual"|"group",
  *   teamsReady: boolean,
  *   surface?: string,
+ *   liveSwitch?: boolean,
  * }} opts ``mode`` is the pick (or, when live/closed, what it ran as).
+ *   ``liveSwitch`` keeps the Individual/Group choice on a live item that
+ *   can switch in place (artifact Media: publish, then mint).
  * @returns {string} Empty when the item is not group-capable.
  */
 export function groupSetupHtml(opts) {
@@ -196,7 +207,8 @@ export function groupSetupHtml(opts) {
   const key = String(opts.key || "");
   const status = String(opts.status || "inactive").toLowerCase();
   const group = opts.mode === "group";
-  if (status === "active") {
+  const liveSwitch = status === "active" && Boolean(opts.liveSwitch) && Boolean(opts.teamsReady);
+  if (status === "active" && !liveSwitch) {
     const text = group ? C.liveChip[styleCopyKey(style, opts.surface)] : C.liveChip.individual;
     return `<span class="live-group-setup-chip is-live" role="status" data-group-setup-chip="${esc(key)}">${esc(text)}</span>`;
   }
@@ -213,7 +225,8 @@ export function groupSetupHtml(opts) {
     const on = (value === "group") === group;
     return `<label class="live-group-setup-choice${on ? " is-on" : ""}"><input type="radio" name="${name}" value="${value}" data-group-setup="${esc(key)}"${on ? " checked" : ""}><span>${esc(label)}</span></label>`;
   };
-  return `<fieldset class="live-group-setup" data-group-setup-key="${esc(key)}" data-group-token="${esc(groupModeToken(style))}"><legend>${esc(C.legend)}</legend><span class="live-group-setup-seg">${choice("individual", C.individual)}${choice("group", C.group)}</span></fieldset>`;
+  const live = liveSwitch ? ' data-group-setup-live="1"' : "";
+  return `<fieldset class="live-group-setup" data-group-setup-key="${esc(key)}" data-group-token="${esc(groupModeToken(style))}"${live}><legend>${esc(C.legend)}</legend><span class="live-group-setup-seg">${choice("individual", C.individual)}${choice("group", C.group)}</span></fieldset>`;
 }
 
 /**

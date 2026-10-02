@@ -2896,5 +2896,86 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("saveSurfaceModeIntent();", surface_publish)
 
 
+    def test_mck112_artifact_media_group_reachable_and_consistent(self) -> None:
+        """MCK-112 gate HIGH on #209: artifact Media Group is reachable.
+
+        Normal order is publish the Media, then mint, so the Media is live
+        before it has an Artifact; it used to show only a "● Individual"
+        chip. Live artifact Media now keeps the Students work switch,
+        switches in place (confirm first when teams are hidden), and never
+        runs Individual with "Wait until teammates match" on.
+        """
+
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        selection = js.split("function surfacePublishSelection(")[1].split(
+            "function surfaceStatus("
+        )[0]
+        self.assertIn(
+            'if (surface === "media") return currentStudentView().media === "team"',
+            selection,
+        )
+        paint = js.split("function paintGroupSetupSurfaces(")[1].split(
+            "async function persistSurfacePublishMode("
+        )[0]
+        self.assertIn(
+            'const liveSwitch = surface === "media" && Boolean(artifact) && status === "active";',
+            paint,
+        )
+        self.assertIn("groupSetupHtml({ key, style, status, mode, teamsReady, surface, liveSwitch })", paint)
+        live = js.split("async function applyLiveArtifactMediaPick(")[1].split(
+            "async function syncMediaPickFromGroupQ("
+        )[0]
+        self.assertLess(
+            live.index('await confirmGroupPublish("s:media")'),
+            live.index("patchTeacherState({ run_as_group: true }"),
+        )
+        self.assertIn('media: pick === "group" ? "team" : "student"', live)
+        self.assertIn('if (pick !== "group") await clearArtifactGroupQ();', live)
+        change = js.split("async function onGroupSetupChange(")[1].split(
+            "function focusTeamSetup("
+        )[0]
+        self.assertIn('radio.closest("[data-group-setup-live]")', change)
+        self.assertIn("await applyLiveArtifactMediaPick(pick);", change)
+        self.assertIn('if (id === "media" && pick !== "group") await clearArtifactGroupQ();', change)
+        surface_publish = js.split("async function publishSurface(")[1].split(
+            "async function closeSurface("
+        )[0]
+        self.assertIn('if (surface === "media" && selected !== "team") {', surface_publish)
+        self.assertIn("await clearArtifactGroupQ();", surface_publish)
+        self.assertIn(
+            ".then(() => syncMediaPickFromGroupQ(Boolean(data.group_q)))", js
+        )
+        shared = (LMS_DIR / "static" / "group_setup.js").read_text(encoding="utf-8")
+        self.assertIn("data-group-setup-live", shared)
+
+    def test_mck112_client_group_types_match_server(self) -> None:
+        """MCK-112 gate LOWs: never offer a Group the server rejects.
+
+        The client consensus types must all pass the server's open-response
+        check, and artifact question cards never get a question-level Group
+        (the old "Individual in Group"); their Group is the Media Group Q.
+        """
+
+        import re
+
+        from school_db import SchoolDB
+
+        shared = (LMS_DIR / "static" / "group_setup.js").read_text(encoding="utf-8")
+        found = re.search(r"const CONSENSUS_TYPES = new Set\(\[([^\]]*)\]\)", shared)
+        assert found is not None
+        client = {token.strip().strip('"') for token in found.group(1).split(",")}
+        self.assertTrue(client)
+        self.assertNotIn("why", client)
+        for qtype in sorted(client):
+            self.assertTrue(
+                SchoolDB._question_is_open_response({"type": qtype}),
+                f"client offers consensus Group for {qtype!r}; server rejects it",
+            )
+        self.assertFalse(SchoolDB._question_is_open_response({"type": "why"}))
+        self.assertIn('if (type === ARTIFACT_TYPE || item?.artifact_id', shared)
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertNotIn("Individual in Group", js)
+        self.assertNotIn("Individual in Group", shared)
+
 if __name__ == "__main__":
     unittest.main()
