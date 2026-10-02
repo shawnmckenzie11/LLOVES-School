@@ -30,6 +30,9 @@
         </label>
         {% endfor %}
       </div>
+      {% if reward and reward.grants %}
+      <button type="button" class="rw-slot" data-reward-open>Pick your reward</button>
+      {% endif %}
       <div class="row-actions char-join">
         <button type="submit">Join Class</button>
       </div>
@@ -37,5 +40,6 @@
   </div>
   <script src="/static/student-visit-token.js"></script>
   <script src="/static/student-live-session.js"></script>
+  {% include "student/_avatar_reward.html" %}
 </body>
 </html>

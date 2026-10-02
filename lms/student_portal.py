@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -406,24 +407,29 @@ def next_student_endpoint(
 
 
 def earned_avatar_keys(school: Any, class_id: int, student_id: int) -> tuple[str, ...]:
-    """Reward avatars this roster row has earned (MCK-116 seam for slice S1).
+    """Reward avatars this roster row has earned (MCK-116).
 
-    S1 has not landed: the earned-avatar store (SQLite vs Postgres) is still
-    Shawn's call, so this returns nothing earned and the picker shows only the
-    six emoji. S1 plugs in by replacing the ``owned`` line with its store read,
-    for example ``set(school.earned_avatar_keys(student_id))``. Keep the filter
-    below: it drops unknown keys and returns them in grid order.
+    Reads the claimed rows of ``avatar_reward_grants`` (S1). A pick is a
+    permanent unlock: nothing here ever removes one. The filter drops unknown
+    keys and returns them in grid order. A school without the store (or a
+    failed read) owns nothing, so the picker falls back to the six emoji.
 
     Args:
-        school: ``SchoolDB`` for the request (unused until S1).
+        school: ``SchoolDB`` for the request.
         class_id: Classes primary key of the roster row.
         student_id: Students primary key (one roster row per class).
 
     Returns:
-        Owned keys from ``EARNED_CHARACTERS``, in grid order. Empty for now.
+        Owned keys from ``EARNED_CHARACTERS``, in grid order.
     """
-    del school, class_id, student_id  # S1: read the earned-avatar store here.
+    reader = getattr(school, "earned_avatar_keys", None)
     owned: set[str] = set()
+    if callable(reader):
+        try:
+            owned = set(reader(int(class_id), int(student_id)))
+        except Exception:  # noqa: BLE001 - the join flow must not break
+            logging.getLogger(__name__).exception("earned avatar read failed")
+            owned = set()
     return tuple(key for key in EARNED_CHARACTERS if key in owned)
 
 

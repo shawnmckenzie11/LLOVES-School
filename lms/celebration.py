@@ -1097,5 +1097,92 @@ def set_featured_award(
         "student_id": int(student_id),
         "blurb": str(blurb or "").strip()[:240],
     }
+    # MCK-116: ``featured_at`` marks one featured appearance for the avatar
+    # reward. Re-saving the same student (a new blurb) keeps it, so it never
+    # re-grants; featuring someone new starts a new appearance.
+    previous = _award_payload(school)
+    if previous and (previous["class_id"], previous["student_id"]) == (
+        payload["class_id"],
+        payload["student_id"],
+    ):
+        if previous.get("featured_at"):
+            payload["featured_at"] = previous["featured_at"]
+    else:
+        payload["featured_at"] = datetime.now(timezone.utc).isoformat(timespec="microseconds")
     school.set_school_setting(SETTING_FEATURED_AWARD, json.dumps(payload))
     return _featured_card(school)
+
+
+def _award_payload(school: Any) -> dict[str, Any] | None:
+    """The stored Shoutout setting with int ids, or None when unset or bad."""
+    raw = school.get_school_setting(SETTING_FEATURED_AWARD, "") or ""
+    if not str(raw).strip():
+        return None
+    try:
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            return None
+        return {
+            **payload,
+            "class_id": int(payload.get("class_id")),
+            "student_id": int(payload.get("student_id")),
+        }
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+
+
+def reward_appearances(school: Any) -> list[dict[str, Any]]:
+    """Featured appearances that earn a Celebrations avatar reward (MCK-116 S1).
+
+    Built on ``celebrated_students``, so it is exactly who the public board
+    features right now: the Shoutout, plus every tied Most Engaged winner per
+    course (frozen snapshot while frozen). Each row names its appearance:
+
+    * Most Engaged: ``engaged:<semester>:<freeze epoch>:<course>``. A login,
+      a reload or a re-taken snapshot in the same epoch is the same
+      appearance; a new epoch (board unfrozen and frozen again) is a new one.
+    * Shoutout: ``shoutout:<featured_at>`` (set when a teacher features a new
+      student; a blurb edit keeps it). An older setting without
+      ``featured_at`` uses ``shoutout:c<class>:s<student>``.
+
+    Args:
+        school: ``SchoolDB`` instance.
+
+    Returns:
+        ``{class_id, student_id, source, source_ref, award_title}`` rows.
+    """
+    rows = celebrated_students(school)
+    if not rows:
+        return []
+    semester_id = _active_semester_id(school)
+    epoch = _freeze_epoch(school) or "-"
+    award = _award_payload(school)
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        ids = {"class_id": int(row["class_id"]), "student_id": int(row["student_id"])}
+        if row.get("card") == "award":
+            if award is None:
+                continue
+            if award.get("featured_at"):
+                ref = f"shoutout:{award['featured_at']}"
+            else:
+                ref = f"shoutout:c{ids['class_id']}:s{ids['student_id']}"
+            out.append(
+                {**ids, "source": "shoutout", "source_ref": ref,
+                 "award_title": WONDER_COPY["award_title"]}
+            )
+        elif row.get("card") == "engaged":
+            course = str(row.get("course") or "")
+            if not course or semester_id is None:
+                continue
+            out.append(
+                {**ids, "source": "engaged",
+                 "source_ref": f"engaged:{semester_id}:{epoch}:{course}",
+                 "award_title": WONDER_COPY["engaged_title"]}
+            )
+    return out
+
+
+def reward_title(source: str) -> str:
+    """Board card title for a grant source, as the board shows it (Wonder copy)."""
+    return WONDER_COPY["award_title"] if source == "shoutout" else WONDER_COPY["engaged_title"]
