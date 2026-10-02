@@ -527,6 +527,137 @@ console.log(JSON.stringify(overlayClassListPresence(rows, attendees)));
     return json.loads(done.stdout.strip().splitlines()[-1])
 
 
+# Real staff_ap.js ClassList functions the guest-first harness runs.
+CLASS_LIST_FUNCTIONS = (
+    "projectedClassListStudents",
+    "classListVisibleStudents",
+    "classListRosterOrder",
+    "appendAttendanceStudentRow",
+    "renderAttendanceList",
+    "selectedPresent",
+    "updateAttCount",
+)
+
+
+def _staff_function_source(js: str, name: str) -> str:
+    """Return the full source of a top-level ``function name(...) {...}``.
+
+    Args:
+        js: Whole staff_ap.js text.
+        name: Function name to extract.
+    """
+    start = js.index(f"\nfunction {name}(") + 1
+    open_at = js.index("{", js.index(")", start))
+    depth = 0
+    for index in range(open_at, len(js)):
+        char = js[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return js[start : index + 1]
+    raise AssertionError(f"unbalanced {name}")
+
+
+CLASS_LIST_HARNESS = r"""
+import vm from "node:vm";
+import fs from "node:fs";
+const input = JSON.parse(fs.readFileSync(0, "utf8"));
+const { overlayClassListPresence } = await import(input.module);
+class El {
+  constructor(id) { this.id = id || ""; this.children = []; this.className = ""; this.dataset = {}; this.attrs = {}; this.style = { setProperty() {} }; this.innerHTML = ""; this.textContent = ""; this.hidden = false; }
+  get classList() { const el = this; return { add(c) { el.className = `${el.className} ${c}`.trim(); } }; }
+  setAttribute(k, v) { this.attrs[k] = String(v); }
+  appendChild(child) { this.children.push(child); return child; }
+  set innerHTML(v) { this._html = v; if (v === "") this.children = []; }
+  get innerHTML() { return this._html || ""; }
+}
+const els = Object.fromEntries(["ap-att-list", "ap-att-cols", "ap-att-count", "ap-att-summary", "live-header-present"].map((id) => [id, new El(id)]));
+const list = els["ap-att-list"];
+const ctx = {
+  Number, String, Boolean, Map, Set, Object, Array, JSON,
+  $: (id) => els[id] || null,
+  document: {
+    createElement: () => new El(),
+    querySelectorAll: (sel) => (sel === "#ap-att-list .ap-att-row.is-present" ? list.children.filter((c) => /\bis-present\b/.test(c.className)) : []),
+  },
+  teacherState: { hide_absent: input.hideAbsent },
+  overlayState: { students: input.roster.map((r) => ({ id: r.student_id, codename: r.codename })) },
+  lastClassListFull: input.roster,
+  lastClassList: input.roster,
+  sessionPresentIds: new Set(),
+  sessionGuests: [],
+  sessionLateIds: new Set(),
+  sessionCareerTotals: {},
+  sessionGamePoints: {},
+  sortStudents: (rows) => rows,
+  nameSort: null,
+  classListGroupsByTeam: () => false,
+  previewRosterTeams: () => [],
+  assignedRosterTeams: () => [],
+  studentTeamColor: () => "",
+  classListPts: (n) => String(n),
+  displayName: (s) => s.codename,
+  escapeHtml: (v) => String(v),
+  paintDivisionMeter: () => {},
+};
+vm.createContext(ctx);
+vm.runInContext(input.src, ctx);
+// One light /state body, applied the way pollLiveSessionAttendees does.
+const rows = input.attendees;
+ctx.lastClassListFull = overlayClassListPresence(ctx.lastClassListFull, rows);
+ctx.lastClassList = ctx.lastClassListFull;
+const present = rows.filter((row) => !row.left_at);
+ctx.sessionGuests = present
+  .filter((row) => Boolean(row.unmatched) || row.student_id == null)
+  .map((row) => ({ participant_uuid: String(row.participant_uuid || ""), codename: row.codename, unmatched: true }));
+ctx.sessionPresentIds = new Set(present.map((row) => Number(row.student_id)).filter((n) => Number.isFinite(n) && n > 0));
+ctx.renderAttendanceList();
+console.log(JSON.stringify({
+  ticked: list.children.filter((c) => /\bis-present\b/.test(c.className) && !/is-guest/.test(c.className)).map((c) => Number(c.dataset.studentId)),
+  listed: list.children.filter((c) => !/is-guest/.test(c.className)).map((c) => Number(c.dataset.studentId)),
+  header: els["live-header-present"].textContent,
+}));
+"""
+
+
+def _run_class_list_render(
+    node: str, roster: list, attendees: list, *, hide_absent: bool
+) -> dict:
+    """Overlay one light poll and render the ClassList with staff_ap.js code.
+
+    Args:
+        node: Path to the node binary.
+        roster: Cached ``class_list`` rows from the last full ``/state``.
+        attendees: ``attendees`` from a light ``/state`` body.
+        hide_absent: Teacher's Hide Absent switch.
+
+    Returns:
+        ``{ticked, listed, header}``: roster ids shown ticked, roster ids
+        listed, and the "Present N" header text.
+    """
+    js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+    payload = {
+        "module": (LMS_DIR / "static" / "class_list_presence.js").resolve().as_uri(),
+        "src": "\n".join(_staff_function_source(js, name) for name in CLASS_LIST_FUNCTIONS),
+        "roster": roster,
+        "attendees": attendees,
+        "hideAbsent": hide_absent,
+    }
+    done = subprocess.run(
+        [node, "--input-type=module", "-e", CLASS_LIST_HARNESS],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    if done.returncode != 0:
+        raise AssertionError(done.stderr)
+    return json.loads(done.stdout.strip().splitlines()[-1])
+
+
 class ClassListLightPresenceTests(unittest.TestCase):
     """MCK-119: light polls keep ClassList ticks in step with attendees."""
 
@@ -545,12 +676,14 @@ class ClassListLightPresenceTests(unittest.TestCase):
             {"student_id": 4, "codename": "Dogwood", "present": False, "joined": True,
              "left_at": "2026-10-02T09:20:00"},
         ]
+        # Real /state attendees carry their own row key as ``id``. The
+        # guest's attendee id 3 equals Cedar's roster id (gate MED-1).
         attendees = [
-            {"student_id": 1, "codename": "Aspen", "left_at": None},
-            {"student_id": 2, "codename": "Birch", "left_at": "2026-10-02T09:30:00"},
-            {"student_id": 4, "codename": "Dogwood", "left_at": "2026-10-02T09:20:00"},
-            {"student_id": 4, "codename": "Dogwood", "left_at": None},
-            {"student_id": None, "codename": "Guest", "unmatched": 1, "left_at": None},
+            {"id": 11, "student_id": 1, "codename": "Aspen", "left_at": None},
+            {"id": 12, "student_id": 2, "codename": "Birch", "left_at": "2026-10-02T09:30:00"},
+            {"id": 13, "student_id": 4, "codename": "Dogwood", "left_at": "2026-10-02T09:20:00"},
+            {"id": 14, "student_id": 4, "codename": "Dogwood", "left_at": None},
+            {"id": 3, "student_id": None, "codename": "Guest", "unmatched": 1, "left_at": None},
         ]
         got = {
             row["codename"]: row
@@ -582,3 +715,52 @@ class ClassListLightPresenceTests(unittest.TestCase):
         repaint = body.find("await applySessionPresentTicks(")
         self.assertGreater(overlay, 0)
         self.assertGreater(repaint, overlay)
+
+    def test_guest_joining_first_never_ticks_the_roster_student_with_its_id(self) -> None:
+        """Gate MED-1: a guest's attendee id is not a roster id.
+
+        The guest is the session's first attendee, so its row key is 1,
+        the same as Alder's roster id. Alder never joined: he must stay
+        unticked (and hidden under Hide Absent), and "Present N" must not
+        go up: it matches the same guest with an id no roster row has.
+        Fails on 331e411, where ``student_id ?? id`` ticked Alder and the
+        header read one higher than that.
+        """
+        roster = [
+            {"id": 1, "student_id": 1, "codename": "Alder", "present": False, "joined": False},
+            {"id": 2, "student_id": 2, "codename": "Birch", "present": False, "joined": False},
+            {"id": 3, "student_id": 3, "codename": "Clover", "present": False, "joined": False},
+        ]
+        guest = {
+            "id": 1,
+            "student_id": None,
+            "unmatched": 1,
+            "codename": "Visitor Quill",
+            "participant_uuid": "g-1",
+            "left_at": None,
+        }
+        overlay = {
+            row["codename"]: row
+            for row in _run_class_list_overlay(self.node, roster, [guest])
+        }
+        self.assertFalse(overlay["Alder"]["present"])
+        self.assertFalse(overlay["Alder"]["joined"])
+        for hide_absent in (False, True):
+            with self.subTest(hide_absent=hide_absent):
+                got = _run_class_list_render(
+                    self.node, roster, [guest], hide_absent=hide_absent
+                )
+                # Same guest, but its row key matches no roster row.
+                control = _run_class_list_render(
+                    self.node, roster, [{**guest, "id": 999}], hide_absent=hide_absent
+                )
+                self.assertEqual(got["ticked"], [])
+                self.assertEqual(control["ticked"], [])
+                self.assertEqual(got["header"], control["header"])
+                if hide_absent:
+                    self.assertEqual(got["listed"], [])
+        # A real roster joiner next to the guest: only Birch ticks.
+        birch = {"id": 2, "student_id": 2, "codename": "Birch", "left_at": None}
+        got = _run_class_list_render(self.node, roster, [guest, birch], hide_absent=False)
+        self.assertEqual(got["ticked"], [2])
+        self.assertEqual(got["header"], "Present 2")
