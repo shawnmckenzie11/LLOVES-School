@@ -39,6 +39,11 @@ from threading import Lock
 from typing import Any
 
 try:
+    import celebration_periods as award_periods
+except ImportError:  # ``lms`` package import
+    from lms import celebration_periods as award_periods
+
+try:
     from gradebook import session_meeting_date
 except ImportError:  # ``lms`` package import
     from lms.gradebook import session_meeting_date
@@ -83,6 +88,9 @@ WONDER_COPY: dict[str, str] = {
     "coming_soon_sub": "Good work deserves a spotlight. We're still setting up the lights.",  # Wonder copy slot
     "award_title": "Shoutout",  # Wonder copy slot
     "engaged_title": "Most Engaged",  # Wonder copy slot
+    # MCK-133 award timeframe on each Most Engaged card. Placeholders.
+    "period_range": "{start} – {end}",  # Wonder copy slot
+    "period_since": "Since {start}",  # Wonder copy slot
 }
 
 _public_board_lock = Lock()
@@ -232,6 +240,10 @@ def _gather_stats(school: Any) -> list[dict[str, Any]]:
     Students are ``students`` rows owned by one ``class_id``, so a learner
     rostered in two sections gets two separate entries, never a merged one.
 
+    MCK-133: only sessions scheduled at or after the class's current award
+    period start count (``celebration_periods``). Start fresh opens a new
+    period; nothing is deleted, so course views still show every session.
+
     Args:
         school: ``SchoolDB`` instance.
 
@@ -241,11 +253,15 @@ def _gather_stats(school: Any) -> list[dict[str, Any]]:
     stats: list[dict[str, Any]] = []
     game = school.game
     seen_classes: set[int] = set()
+    # MCK-133: one query for every class's current award period.
+    periods = award_periods.current_periods(school, _active_semester_id(school))
     for cls in _active_class_rows(school):
         class_id = int(cls["class_id"])
         if class_id in seen_classes:
             continue
         seen_classes.add(class_id)
+        period = periods.get(class_id) or {}
+        period_start = period.get("starts_at")
         with game._lock:
             students = [
                 dict(row)
@@ -283,9 +299,14 @@ def _gather_stats(school: Any) -> list[dict[str, Any]]:
             continue
         # Meeting day per non-template session in this class.
         session_days: dict[int, str] = {}
+        counted: set[int] = set()
         for session in sessions:
             if str(session.get("status") or "") not in COUNTED_SESSION_STATUSES:
                 continue
+            # MCK-133: only sessions in the class's current award period.
+            if not award_periods.session_in_period(session.get("starts_at"), period_start):
+                continue
+            counted.add(int(session["id"]))
             meeting = session_meeting_date(session.get("starts_at"))
             if meeting is None:
                 continue
@@ -294,6 +315,8 @@ def _gather_stats(school: Any) -> list[dict[str, Any]]:
         points_by_student: dict[int, float] = {}
         for row in score_rows:
             if str(row.get("session_status") or "") not in COUNTED_SESSION_STATUSES:
+                continue
+            if int(row["session_id"]) not in counted:
                 continue
             stid = int(row["student_id"])
             points_by_student[stid] = points_by_student.get(stid, 0.0) + float(
@@ -314,6 +337,8 @@ def _gather_stats(school: Any) -> list[dict[str, Any]]:
                     "present": len(present_days.get(stid, set())),
                     "session_count": len(held_days),
                     "points": round(points_by_student.get(stid, 0.0), 1),
+                    "period_id": int(period.get("id") or 0),
+                    "period_start": str(period_start or ""),
                 }
             )
     return stats
@@ -437,8 +462,56 @@ def build_celebration_board(school: Any) -> dict[str, Any]:
         in_course = [
             s for s in stats if str(s.get("course") or "").upper() == course
         ]
-        cards.append(_engaged_card(course, _top_tied(in_course)))
+        card = _engaged_card(course, _top_tied(in_course))
+        card.update(_course_period(in_course))
+        cards.append(card)
     return {"cards": cards}
+
+
+def _course_period(in_course: list[dict[str, Any]]) -> dict[str, Any]:
+    """Award period of one course's card (MCK-133).
+
+    ``period_id`` is the newest period id among the course's classes (0 for
+    the first period). ``period_start`` is the earliest period start date
+    (school date ISO), "" when any class is still in its first period
+    (semester day 1).
+    """
+    ids = [int(s.get("period_id") or 0) for s in in_course]
+    starts = [str(s.get("period_start") or "") for s in in_course]
+    first = (not starts) or any(not start for start in starts)
+    start_day = None if first else min(
+        (d for d in (award_periods.school_date(x) for x in starts) if d is not None),
+        default=None,
+    )
+    return {
+        "period_id": max(ids) if ids else 0,
+        "period_start": start_day.isoformat() if start_day else "",
+    }
+
+
+def _period_fields(school: Any, card: dict[str, Any], end: Any) -> dict[str, Any]:
+    """Public timeframe fields for a Most Engaged card (MCK-133).
+
+    Args:
+        school: ``SchoolDB`` instance.
+        card: Live or snapshot card with ``period_start`` ("" = semester
+            day 1).
+        end: Last day the card's tally covers (date, ISO text, or None for
+            the live board).
+
+    Returns:
+        ``period_start`` / ``period_end`` (ISO date or None) and the
+        placeholder ``period_label``.
+    """
+    start = award_periods.school_date(card.get("period_start"))
+    if start is None:
+        start = award_periods.semester_first_day(school.get_active_semester())
+    end_day = award_periods.school_date(end) if end is not None else None
+    return {
+        "period_start": start.isoformat() if start else None,
+        "period_end": end_day.isoformat() if end_day else None,
+        "period_label": award_periods.period_label(start, end_day, WONDER_COPY),
+    }
 
 
 def celebrations_frozen() -> bool:
@@ -657,6 +730,11 @@ def _engaged_snapshot_cards(
                 "course": str(card.get("course") or ""),
                 "detail": str(card.get("detail") or ""),
                 "students": refs,
+                # MCK-133: the award period this card covers. ``through``
+                # is the school date the tally was frozen.
+                "period_id": int(card.get("period_id") or 0),
+                "period_start": str(card.get("period_start") or ""),
+                "through": award_periods.school_now().date().isoformat(),
             }
         )
     return out
@@ -812,11 +890,19 @@ def frozen_celebration_snapshot(school: Any) -> dict[str, Any]:
         and saved["cards"]
     ):
         cards, changed = _prune_cards(school, saved["cards"])
-        have = {str(card.get("course") or "") for card in cards}
+        # MCK-133: a card retired by Start fresh stays on show until its
+        # course's new period has a winner, then the new card replaces it.
+        have = {str(card.get("course") or "") for card in cards if not card.get("retired")}
         missing = [] if live else [c for c in ENGAGED_COURSES if c not in have]
         extra = _engaged_snapshot_cards(school, missing) if missing else []
         if not changed and not extra:
             return saved
+        replaced = {str(card.get("course") or "") for card in extra}
+        cards = [
+            card
+            for card in cards
+            if not (card.get("retired") and str(card.get("course") or "") in replaced)
+        ]
         merged = dict(saved)
         merged["cards"] = sorted(
             cards + extra,
@@ -867,6 +953,150 @@ def refresh_public_celebration_snapshot(school: Any) -> dict[str, Any]:
     return fresh
 
 
+class AwardTallyBusy(RuntimeError):
+    """Start fresh refused: a class in scope is running right now."""
+
+
+def staff_award_periods(school: Any, teacher_user_id: int) -> list[dict[str, Any]]:
+    """This teacher's classes with their current award period (MCK-133).
+
+    Args:
+        school: ``SchoolDB`` instance.
+        teacher_user_id: Staff user id.
+
+    Returns:
+        ``{class_id, course, period_id, period_start, since_label}`` rows in
+        ``list_staff_classes`` order. ``period_start`` is a school date ISO
+        (semester day 1 for the first period).
+    """
+    semester = school.get_active_semester()
+    semester_id = _active_semester_id(school)
+    periods = award_periods.current_periods(school, semester_id)
+    first_day = award_periods.semester_first_day(semester)
+    out: list[dict[str, Any]] = []
+    for cls in school.list_staff_classes(int(teacher_user_id)):
+        class_id = int(cls["id"])
+        period = periods.get(class_id) or {}
+        start = award_periods.school_date(period.get("starts_at")) or first_day
+        out.append(
+            {
+                "class_id": class_id,
+                "course": str(cls.get("section_code") or cls.get("course_code") or ""),
+                "period_id": int(period.get("id") or 0),
+                "period_start": start.isoformat() if start else None,
+                "period_started_at": str(period.get("starts_at") or "") or None,
+                "since_label": award_periods.period_label(start, None, WONDER_COPY),
+            }
+        )
+    return out
+
+
+def _class_running(school: Any, class_id: int) -> bool:
+    """True while a live class or an unsaved game session is open.
+
+    A failed check counts as running (fail closed).
+    """
+    try:
+        if school.get_active_live_session_for_class(int(class_id)):
+            return True
+        with school.game._lock:
+            row = school.game.conn.execute(
+                "SELECT 1 FROM sessions WHERE class_id = ? AND status = 'active' LIMIT 1",
+                (int(class_id),),
+            ).fetchone()
+        return row is not None
+    except Exception:  # noqa: BLE001 - fail closed
+        return True
+
+
+def _retire_snapshot_courses(school: Any, courses: set[str]) -> None:
+    """Mark these courses' frozen cards as retired (MCK-133).
+
+    A retired card stays on show with its old timeframe until the course's
+    new period has a winner; ``frozen_celebration_snapshot`` then swaps it
+    for the new card. Other courses stay frozen as they are. Compare-and-set
+    so a racing snapshot write is not lost; gives up after a few tries (the
+    next Start fresh or read is still correct, only the swap waits).
+    """
+    if not courses:
+        return
+    for _attempt in range(3):
+        raw = school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None)
+        saved = _parse_snapshot(raw)
+        if saved is None:
+            return
+        changed = False
+        cards = []
+        for card in saved["cards"]:
+            if (
+                isinstance(card, dict)
+                and not card.get("retired")
+                and str(card.get("course") or "") in courses
+            ):
+                card = {**card, "retired": True}
+                changed = True
+            cards.append(card)
+        if not changed:
+            return
+        text = json.dumps({**saved, "cards": cards})
+        if school.compare_and_set_school_setting(SETTING_PUBLIC_SNAPSHOT, raw, text):
+            return
+
+
+def start_fresh_award_tally(
+    school: Any,
+    *,
+    teacher_user_id: int,
+    class_id: int | None = None,
+) -> dict[str, Any]:
+    """Restart the Celebrations award tally from now (MCK-133).
+
+    Opens a new award period starting now for one class, or for every class
+    this teacher has in the active semester. Saved attendance and points
+    are not touched; only sessions from now on count toward the board.
+    The Shoutout is not affected.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        teacher_user_id: Acting staff user.
+        class_id: One class, or None for all of this teacher's classes.
+
+    Returns:
+        ``{periods: [...], classes: staff_award_periods(...)}``.
+
+    Raises:
+        ValueError: No active semester or no classes in scope.
+        PermissionError: ``class_id`` is not one of this teacher's classes.
+        AwardTallyBusy: A class in scope has a live or unsaved session.
+    """
+    semester_id = _active_semester_id(school)
+    if semester_id is None:
+        raise ValueError("There is no active semester.")
+    mine = {int(cls["id"]): cls for cls in school.list_staff_classes(int(teacher_user_id))}
+    if class_id is not None:
+        if int(class_id) not in mine:
+            raise PermissionError("That class is not yours.")
+        targets = [int(class_id)]
+    else:
+        targets = sorted(mine)
+    if not targets:
+        raise ValueError("You have no classes this semester.")
+    busy = [cid for cid in targets if _class_running(school, cid)]
+    if busy:
+        raise AwardTallyBusy("A class is running. Save or end it, then try again.")
+    opened = award_periods.open_periods(
+        school,
+        semester_id=semester_id,
+        class_ids=targets,
+        user_id=int(teacher_user_id),
+        starts_at=award_periods.school_now(),
+    )
+    course_of = {int(row["class_id"]): str(row["course"]) for row in _active_class_rows(school)}
+    _retire_snapshot_courses(school, {course_of[c] for c in targets if course_of.get(c)})
+    clear_public_celebration_memo()
+    return {"periods": opened, "classes": staff_award_periods(school, int(teacher_user_id))}
+
+
 def _assemble_public_board(school: Any) -> dict[str, Any]:
     """Build the public card list.
 
@@ -885,17 +1115,24 @@ def _assemble_public_board(school: Any) -> dict[str, Any]:
         award = _public_card(school, _featured_card(school))
         if award is not None:
             cards.append(award)
-        for card in frozen_celebration_snapshot(school).get("cards") or []:
+        snapshot = frozen_celebration_snapshot(school)
+        for card in snapshot.get("cards") or []:
             if not isinstance(card, dict):
                 continue
             public = _frozen_public_card(school, card)
             if public is not None:
+                # Snapshots from before MCK-133 have no ``through``: their
+                # tally ends the day the snapshot was taken.
+                through = card.get("through") or snapshot.get("taken_at")
+                public.update(_period_fields(school, card, through))
                 cards.append(public)
         return {"cards": cards}
     note_celebrations_unfrozen(school)
     for card in build_celebration_board(school).get("cards") or []:
         public = _public_card(school, card)
         if public is not None:
+            if card.get("key") == "engaged":
+                public.update(_period_fields(school, card, None))
             cards.append(public)
     return {"cards": cards}
 
@@ -915,6 +1152,8 @@ def celebrated_students(school: Any) -> list[dict[str, Any]]:
 
     Returns:
         ``{card, course, class_id, student_id, name}`` rows in board order.
+        Most Engaged rows also carry ``period`` (MCK-133 award period id,
+        0 for the first period) so a new period is a new appearance.
     """
     rows: list[dict[str, Any]] = []
     award = _featured_card(school)
@@ -937,6 +1176,7 @@ def celebrated_students(school: Any) -> list[dict[str, Any]]:
                             "class_id": int(ref["class_id"]),
                             "student_id": int(ref["student_id"]),
                             "name": public_student_label(row, course),
+                            "period": int(card.get("period_id") or 0),
                         }
                     )
             rows.extend(sorted(found, key=lambda r: name_sort_key(r["name"])))
@@ -946,7 +1186,13 @@ def celebrated_students(school: Any) -> list[dict[str, Any]]:
             continue
         for ids, label in _public_labels(school, card):
             rows.append(
-                {"card": "engaged", "course": str(card.get("course") or ""), **ids, "name": label}
+                {
+                    "card": "engaged",
+                    "course": str(card.get("course") or ""),
+                    **ids,
+                    "name": label,
+                    "period": int(card.get("period_id") or 0),
+                }
             )
     return rows
 

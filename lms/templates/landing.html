@@ -195,6 +195,13 @@
           detail.textContent = card.detail;
           article.appendChild(detail);
         }
+        if (card.period_label) {
+          // MCK-133: the timeframe this award covers (Wonder copy pending).
+          var period = document.createElement("p");
+          period.className = "hint calc-period";
+          period.textContent = card.period_label;
+          article.appendChild(period);
+        }
         return article;
       }
 

@@ -84,6 +84,7 @@ from local_dev_seed import (  # noqa: E402
     seed_local_dev_school,
 )
 from school_db import STAFF_2FA_MODE_LABELS, DeckReplaceNotConfirmed, SchoolDB, json_safe  # noqa: E402
+from celebration import AwardTallyBusy, staff_award_periods, start_fresh_award_tally  # noqa: E402
 from serve_capacity import (  # noqa: E402
     PollBudgetExceeded,
     is_live_state_poll,
@@ -2552,6 +2553,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 school, int(user["id"])
             ),
             celebration_award=build_celebration_board(school)["cards"][0],
+            celebration_periods=staff_award_periods(school, int(user["id"])),
         )
         resp = make_response(html)
         resp.set_cookie("lloves_seen", "1", max_age=86400 * 400, samesite="Lax")
@@ -2607,6 +2609,49 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         return jsonify({"ok": True, "award": award})
+
+    @app.route("/api/staff/celebrations/periods")
+    @staff_required
+    def staff_celebration_periods():
+        """MCK-133: this teacher's classes and their current award period."""
+        user = current_user()
+        assert user is not None
+        return jsonify(
+            {"ok": True, "classes": staff_award_periods(school, int(user["id"]))}
+        )
+
+    @app.route("/api/staff/celebrations/start-fresh", methods=["POST"])
+    @staff_required
+    def staff_celebration_start_fresh():
+        """MCK-133: restart the Celebrations award tally from now.
+
+        Body ``{"scope": "all"}`` (every class this teacher has this
+        semester) or ``{"scope": "class", "class_id": N}``. Saved
+        attendance and points are kept; only the award tally restarts.
+        """
+        user = current_user()
+        assert user is not None
+        payload = request.get_json(silent=True) or {}
+        scope = str(payload.get("scope") or "").strip().lower()
+        class_id = None
+        if scope == "class":
+            try:
+                class_id = int(payload.get("class_id"))
+            except (TypeError, ValueError):
+                return jsonify({"ok": False, "error": "Pick a class."}), 400
+        elif scope != "all":
+            return jsonify({"ok": False, "error": "Pick all classes or one class."}), 400
+        try:
+            result = start_fresh_award_tally(
+                school, teacher_user_id=int(user["id"]), class_id=class_id
+            )
+        except PermissionError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 403
+        except AwardTallyBusy as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 409
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, "scope": scope, **result})
 
     @app.route("/api/staff/defaults")
     @staff_required

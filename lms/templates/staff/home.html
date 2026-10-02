@@ -217,6 +217,28 @@
           <a class="btn secondary" href="/#celebrations">View public page</a>
         </div>
       </form>
+      {% if celebration_periods %}
+      {# MCK-133 Start fresh. Plain placeholder UI and copy; Mobbin Sites / Wonder pending. #}
+      <div id="award-start-fresh" class="award-start-fresh">
+        <h3>Start fresh</h3>
+        <p class="hint">Restarts the award tally from now. Saved attendance and points stay in your course views.</p>
+        <ul id="award-period-list" class="hint">
+          {% for c in celebration_periods %}
+          <li data-class-id="{{ c.class_id }}">{{ c.course }} — award tally {{ c.since_label or 'since semester start' }}</li>
+          {% endfor %}
+        </ul>
+        <label class="field" for="award-fresh-scope">Classes</label>
+        <select id="award-fresh-scope">
+          <option value="all">All my classes</option>
+          {% for c in celebration_periods %}
+          <option value="{{ c.class_id }}">{{ c.course }}</option>
+          {% endfor %}
+        </select>
+        <div class="row-actions">
+          <button type="button" class="secondary" id="award-fresh-go">Start fresh</button>
+        </div>
+      </div>
+      {% endif %}
     </section>
     {% endif %}
   </div>

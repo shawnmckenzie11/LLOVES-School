@@ -302,9 +302,15 @@ class CelebrationTests(unittest.TestCase):
         ):
             self.assertNotIn(gone, dumped)
         for card in cards:
+            # MCK-133: Most Engaged also carries its award timeframe.
+            extra = (
+                {"period_start", "period_end", "period_label"}
+                if card["key"] == "engaged"
+                else set()
+            )
             self.assertEqual(
                 set(card),
-                {"key", "name", "names", "course", "detail", "title", "kicker"},
+                {"key", "name", "names", "course", "detail", "title", "kicker"} | extra,
             )
             self.assertEqual(card["names"], [card["name"]])
 

@@ -51,4 +51,39 @@ function bindCelebrateForm() {
   }
 }
 
+/**
+ * MCK-133: "Start fresh" restarts the Celebrations award tally for all of
+ * this teacher's classes or one class. Placeholder copy (Wonder pending).
+ */
+function bindStartFresh() {
+  const button = document.getElementById("award-fresh-go");
+  const scope = document.getElementById("award-fresh-scope");
+  if (!button || !scope) return;
+  button.addEventListener("click", () => {
+    const value = scope.value || "all";
+    const label = value === "all" ? "all your classes" : scope.options[scope.selectedIndex].text;
+    // TODO(Wonder): confirm copy.
+    const ok = window.confirm(
+      `Start the award tally fresh for ${label}? Past attendance and points stay saved.`,
+    );
+    if (!ok) return;
+    const payload = value === "all" ? { scope: "all" } : { scope: "class", class_id: Number(value) };
+    hideError("#error");
+    button.disabled = true;
+    api("/api/staff/celebrations/start-fresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+      .then(() => {
+        window.location.reload();
+      })
+      .catch((err) => {
+        button.disabled = false;
+        showError("#error", err.message || "Could not start fresh.");
+      });
+  });
+}
+
 bindCelebrateForm();
+bindStartFresh();
