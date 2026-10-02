@@ -11,7 +11,7 @@ import logging
 import sqlite3
 import threading
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -749,6 +749,8 @@ class GameShowDB:
         self.conn.executescript(SCHEMA)
         self._migrate()
         self.conn.commit()
+        # Old End claims are pruned at startup too, not only on a new End.
+        self._prune_live_end_claims()
         # Short stampede cache: class id → (monotonic time, membership index).
         self._team_index_cache: dict[int, tuple[float, dict[str, Any]]] = {}
 
@@ -3877,9 +3879,26 @@ class GameShowDB:
             if n > 0:
                 credit_map[sid] = n
         claim = str(run_key or "").strip() or None
-        if claim is not None and not self._claim_live_end(claim, int(class_id)):
-            # Another End for this run already wrote (or is writing) the
-            # column. A second write would add a new class-day column.
+        state = (
+            self._claim_live_end_state(claim, int(class_id))
+            if claim is not None
+            else "claimed"
+        )
+        if state == "busy":
+            # Another End holds a fresh claim and the game is still open:
+            # it is writing now, or it crashed less than
+            # LIVE_END_CLAIM_STALE_SECONDS ago. Closing here would lose the
+            # day (the next End would merge it into tomorrow's column), so
+            # the caller must not close; the teacher retries (MCK-72).
+            return {
+                "ok": False,
+                "class_id": int(class_id),
+                "session_id": None,
+                "in_progress": True,
+            }
+        if state == "done":
+            # Another End for this run already wrote the column. A second
+            # write would add a new class-day column.
             return {
                 "ok": True,
                 "class_id": int(class_id),
@@ -3904,27 +3923,80 @@ class GameShowDB:
     def _claim_live_end(self, run_key: str, class_id: int | None = None) -> bool:
         """Take this run's one End write. ``False`` when already taken.
 
-        ``INSERT OR IGNORE`` on the primary key is atomic across workers.
-        A claim older than ``LIVE_END_CLAIM_STALE_SECONDS`` whose class game
-        is still open was left by a worker that died before its write
-        committed (a successful write ends the game), so it is retaken with
-        a compare-and-set on ``claimed_at``. Claims older than
-        ``LIVE_END_CLAIM_KEEP_DAYS`` are pruned here.
-
         Args:
             run_key: ``live_class_sessions.run_key``.
             class_id: Class of the run, for the stale-claim check.
         """
-        now = datetime.now()
+        return self._claim_live_end_state(run_key, class_id) == "claimed"
+
+    @staticmethod
+    def _live_end_claim_time(raw: Any) -> datetime | None:
+        """Parse a stored ``claimed_at`` as an aware UTC time.
+
+        Claims are written in UTC (``+00:00``). A naive stamp from an
+        older build is local time.
+        """
+        try:
+            stamp = datetime.fromisoformat(str(raw))
+        except ValueError:
+            return None
+        if stamp.tzinfo is None:
+            stamp = stamp.astimezone()  # naive = local wall time
+        return stamp.astimezone(timezone.utc)
+
+    def _prune_live_end_claims(self, keep: str | None = None) -> None:
+        """Delete claims older than ``LIVE_END_CLAIM_KEEP_DAYS``.
+
+        Runs at startup and on every End, so an idle install does not
+        keep old rows. Best effort: a failed prune never blocks an End.
+
+        Args:
+            keep: Run key never pruned (the End in progress).
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(days=LIVE_END_CLAIM_KEEP_DAYS)
+        try:
+            with self._lock:
+                rows = self.conn.execute(
+                    "SELECT run_key, claimed_at FROM live_end_claims"
+                ).fetchall()
+                old = [
+                    str(row["run_key"])
+                    for row in rows
+                    if str(row["run_key"]) != str(keep or "")
+                    and (stamp := self._live_end_claim_time(row["claimed_at"]))
+                    is not None
+                    and stamp < cutoff
+                ]
+                for key in old:
+                    self.conn.execute(
+                        "DELETE FROM live_end_claims WHERE run_key = ?", (key,)
+                    )
+        except sqlite3.Error:
+            logger.warning("live end claim prune failed")
+
+    def _claim_live_end_state(self, run_key: str, class_id: int | None = None) -> str:
+        """Try to take this run's one End write.
+
+        ``INSERT OR IGNORE`` on the primary key is atomic across workers.
+        A claim older than ``LIVE_END_CLAIM_STALE_SECONDS`` whose class game
+        is still open was left by a worker that died before its write
+        committed (a successful write ends the game), so it is retaken with
+        a compare-and-set on ``claimed_at``. Claim times are UTC.
+
+        Args:
+            run_key: ``live_class_sessions.run_key``.
+            class_id: Class of the run, for the open-game check.
+
+        Returns:
+            ``"claimed"`` (this End writes), ``"done"`` (another End's write
+            committed: the game is closed) or ``"busy"`` (another End holds
+            a fresh claim and the game is still open: writing now, or it
+            crashed under ``LIVE_END_CLAIM_STALE_SECONDS`` ago).
+        """
+        now = datetime.now(timezone.utc)
         stamp = now.isoformat(timespec="seconds")
-        cutoff = (now - timedelta(days=LIVE_END_CLAIM_KEEP_DAYS)).isoformat(
-            timespec="seconds"
-        )
+        self._prune_live_end_claims(keep=run_key)
         with self._lock:
-            self.conn.execute(
-                "DELETE FROM live_end_claims WHERE claimed_at < ? AND run_key != ?",
-                (cutoff, run_key),
-            )
             cur = self.conn.execute(
                 """
                 INSERT OR IGNORE INTO live_end_claims (run_key, claimed_at)
@@ -3933,25 +4005,27 @@ class GameShowDB:
                 (run_key, stamp),
             )
             if int(cur.rowcount or 0) == 1:
-                return True
+                return "claimed"
             if class_id is None:
-                return False
+                return "done"
             row = self.conn.execute(
                 "SELECT claimed_at FROM live_end_claims WHERE run_key = ?",
                 (run_key,),
             ).fetchone()
             if row is None:
-                return False
-            try:
-                claimed = datetime.fromisoformat(str(row["claimed_at"]))
-            except ValueError:
-                return False
-            if (now - claimed).total_seconds() < LIVE_END_CLAIM_STALE_SECONDS:
-                return False
+                return "done"
             try:
                 self._game_row(int(class_id))
             except KeyError:
-                return False  # the claimed write ended the game
+                return "done"  # the claimed write ended the game
+            claimed = self._live_end_claim_time(row["claimed_at"])
+            # An unreadable stamp is treated as stale, so it cannot block
+            # End forever.
+            if (
+                claimed is not None
+                and (now - claimed).total_seconds() < LIVE_END_CLAIM_STALE_SECONDS
+            ):
+                return "busy"
             retake = self.conn.execute(
                 """
                 UPDATE live_end_claims SET claimed_at = ?
@@ -3961,8 +4035,8 @@ class GameShowDB:
             )
             if int(retake.rowcount or 0) == 1:
                 logger.warning("live end claim retaken after a stale claim")
-                return True
-        return False
+                return "claimed"
+        return "busy"  # another End retook it first; it is writing now
 
     def _release_live_end(self, run_key: str) -> None:
         """Drop a claim after a failed write so a retry can persist.

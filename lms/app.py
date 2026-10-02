@@ -2761,13 +2761,30 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             save_participation = True
         # The run this request saw as active. If another End closes it
         # first, this one is a no-op instead of a new column (MCK-72).
-        school.finish_live_class(
+        ended = school.finish_live_class(
             int(class_id),
             save_attendance=save_attendance,
             save_participation=save_participation,
             celebrate=True,
             run_key=str(active.get("run_key") or "") or None,
         )
+        if isinstance(ended, dict) and ended.get("in_progress"):
+            # Another End holds this run and the game is still open (it is
+            # stuck, or its worker died mid-write). The session stays open
+            # so nothing is lost; the teacher presses End again.
+            back = url_for("staff_course", class_id=int(class_id), tab="live")
+            body = (
+                "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+                "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+                "<title>End in progress</title>"
+                "<link rel=\"stylesheet\" href=\"/static/lloves.css\"></head>"
+                "<body><div class=\"wrap\"><h1>End in progress, try again</h1>"
+                "<p class=\"sub\">The class is still open and nothing was lost. "
+                "Wait a moment, then press End Live Class again.</p>"
+                f"<p><a class=\"btn\" href=\"{html_escape(back)}\">Back to the class</a></p>"
+                "</div></body></html>"
+            )
+            return body, 409, {"Content-Type": "text/html; charset=utf-8"}
         # Streaming tabs fetch the celebration now, not at the safety poll.
         ended_id = int(active["id"])
         emit_session_news(

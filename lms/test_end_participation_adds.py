@@ -13,7 +13,8 @@ import importlib.util
 import multiprocessing
 import sys
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from unittest import mock
 from pathlib import Path
 from typing import Any
 
@@ -192,7 +193,13 @@ class EndParticipationAddsTests(shell.LiveShellTests):
         self.assertEqual([kind for kind, _ in results], ["ok"] * workers, results)
         self.assertEqual(float(self._cell(column, student_id)["points"]), 8.0)
         self.assertEqual(self._columns(), columns_before, "duplicate class-day column")
-        wrote = [r for _, r in results if r and not r.get("already_persisted")]
+        # Losers follow the winner (already_persisted) or saw it still
+        # writing (in_progress); exactly one End wrote.
+        wrote = [
+            r
+            for _, r in results
+            if r and not r.get("already_persisted") and not r.get("in_progress")
+        ]
         self.assertEqual(len(wrote), 1, results)
 
     def test_second_end_for_a_run_adds_no_column(self) -> None:
@@ -367,6 +374,124 @@ class EndParticipationAddsTests(shell.LiveShellTests):
         self.assertTrue(game._claim_live_end("run-fresh", self.class_id))
         self.assertFalse(game._claim_live_end("run-fresh", self.class_id))
         self.assertNotIn("run-ancient", self._claims())
+
+    # --- Ops re-gate on a4147fd: retry soon after a crashed End -------
+
+    def _plant_claim(self, run_key: str, age: timedelta) -> None:
+        """A claim left by an End whose worker died before its write."""
+        stamp = (datetime.now(timezone.utc) - age).isoformat(timespec="seconds")
+        with self.school.game._lock:
+            self.school.game.conn.execute(
+                "INSERT INTO live_end_claims (run_key, claimed_at) VALUES (?, ?)",
+                (run_key, stamp),
+            )
+
+    def test_retry_soon_after_a_crashed_end_refuses_and_keeps_the_day(self) -> None:
+        """MED-1: End again 60 s after a worker died mid-write.
+
+        The fresh claim is not ours and the game is still open, so the
+        retry must not celebrate or close: it answers 409 "End in progress,
+        try again" and the session stays live. Once the claim is stale the
+        next End writes the day. On a4147fd the retry closed the session,
+        wrote nothing and left the game open (tomorrow merged both days).
+        """
+        import school_db
+
+        _sid, student_id = self._open_live_with_aspen_answers()
+        column = self._live_game_with_award(student_id, 5)
+        active = self.school.get_active_live_session_for_class(self.class_id)
+        assert active is not None
+        run = str(active["run_key"])
+        self._plant_claim(run, timedelta(seconds=60))
+        columns = self._columns()
+        with mock.patch.object(
+            school_db, "LIVE_END_BUSY_WAIT_SECONDS", 0.0, create=True
+        ):
+            retry = self.client.post(
+                f"/staff/class/{self.class_id}/end-live", follow_redirects=False
+            )
+        self.assertEqual(retry.status_code, 409)
+        self.assertIn(b"End in progress, try again", retry.data)
+        still = self.school.get_active_live_session_for_class(self.class_id)
+        self.assertIsNotNone(still, "the retry closed the session")
+        self.assertEqual(str(still["run_key"]), run)
+        self.school.game._game_row(self.class_id)  # game still open
+        self.assertEqual(float(self._cell(column, student_id)["points"]), 5.0)
+        self.assertEqual(self._columns(), columns)
+        # After LIVE_END_CLAIM_STALE_SECONDS the claim is retaken: End writes.
+        with self.school.game._lock:
+            self.school.game.conn.execute(
+                "UPDATE live_end_claims SET claimed_at = ? WHERE run_key = ?",
+                (
+                    (datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat(
+                        timespec="seconds"
+                    ),
+                    run,
+                ),
+            )
+        ended = self.client.post(
+            f"/staff/class/{self.class_id}/end-live", follow_redirects=False
+        )
+        self.assertEqual(ended.status_code, 302)
+        self.assertGreater(float(self._cell(column, student_id)["points"]), 5.0)
+        self.assertEqual(self._columns(), columns, "phantom class-day column")
+        with self.assertRaises(KeyError):
+            self.school.game._game_row(self.class_id)
+
+    def test_end_waits_for_a_concurrent_end_then_follows_it(self) -> None:
+        """A double click: the second End waits for the first, then closes."""
+        _sid, _student_id = self._open_live_with_aspen_answers()
+        active = self.school.get_active_live_session_for_class(self.class_id)
+        assert active is not None
+        game = self.school.game
+        real = game.persist_end_class_column
+        calls: list[dict[str, Any]] = []
+
+        def busy_then_done(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            if not calls:
+                calls.append({"in_progress": True})
+                return {"ok": False, "class_id": self.class_id, "in_progress": True}
+            out = real(*args, **kwargs)
+            calls.append(out or {})
+            return out
+
+        game.persist_end_class_column = busy_then_done  # type: ignore[method-assign]
+        try:
+            result = self.school.finish_live_class(
+                self.class_id, celebrate=True, run_key=str(active["run_key"])
+            )
+        finally:
+            del game.persist_end_class_column
+        self.assertEqual(len(calls), 2, calls)
+        self.assertFalse(result.get("in_progress"), result)
+        self.assertIsNone(self.school.get_active_live_session_for_class(self.class_id))
+
+    def test_claims_are_utc_and_pruned_without_a_new_end(self) -> None:
+        """LOW-2/3: claim stamps are UTC; old claims go at startup too."""
+        student_id = self._aspen_id()
+        self._live_game_with_award(student_id, 5)
+        game = self.school.game
+        self.assertTrue(game._claim_live_end("run-utc", self.class_id))
+        stamp = self._claims()["run-utc"]
+        self.assertTrue(stamp.endswith("+00:00"), stamp)
+        # A naive stamp from an older build is read as local time.
+        naive = (datetime.now() - timedelta(seconds=30)).isoformat(timespec="seconds")
+        parsed = game._live_end_claim_time(naive)
+        assert parsed is not None
+        self.assertLess(
+            abs((datetime.now(timezone.utc) - parsed).total_seconds() - 30), 5
+        )
+        self._plant_claim("run-ancient", timedelta(days=40))
+        self._plant_claim("run-recent", timedelta(days=29))
+        db_path = str(game.conn.execute("PRAGMA database_list").fetchone()["file"])
+        fresh = type(game)(Path(db_path), Path(self.tmp.name))
+        try:
+            claims = self._claims()
+        finally:
+            fresh.conn.close()
+        self.assertNotIn("run-ancient", claims)
+        self.assertIn("run-recent", claims)
+        self.assertIn("run-utc", claims)
 
 
 def load_tests(

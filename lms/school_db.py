@@ -23,6 +23,11 @@ from name_match import first_token_key, loose_name_key, name_key, same_name  # n
 
 logger = logging.getLogger(__name__)
 
+#: End waits this long for another End of the same run (double click) to
+#: finish before refusing with "End in progress, try again" (MCK-72).
+LIVE_END_BUSY_WAIT_SECONDS = 3.0
+LIVE_END_BUSY_POLL_SECONDS = 0.1
+
 from serve_capacity import (  # noqa: E402
     begin_poll_budget,
     end_poll_budget,
@@ -24433,19 +24438,40 @@ class SchoolDB(LovesDB):
         run_key = active_key
         wrote = None
         if save_attendance or save_participation:
-            try:
-                wrote = self.game.persist_end_class_column(
-                    int(class_id),
-                    present_ids,
-                    credits,
-                    include_attendance=bool(save_attendance),
-                    include_participation=bool(save_participation),
-                    run_key=run_key,
-                    # No live run: never begin a new game (phantom column).
-                    create_game=run_key is not None,
-                )
-            except Exception:  # noqa: BLE001 — close still happens
-                wrote = None
+            deadline = time.monotonic() + LIVE_END_BUSY_WAIT_SECONDS
+            while True:
+                try:
+                    wrote = self.game.persist_end_class_column(
+                        int(class_id),
+                        present_ids,
+                        credits,
+                        include_attendance=bool(save_attendance),
+                        include_participation=bool(save_participation),
+                        run_key=run_key,
+                        # No live run: never begin a new game (phantom column).
+                        create_game=run_key is not None,
+                    )
+                except Exception:  # noqa: BLE001 — close still happens
+                    wrote = None
+                if not (wrote and wrote.get("in_progress")):
+                    break
+                # Another End is writing this run (a double click): give it
+                # a moment to finish, then follow it as already persisted.
+                if time.monotonic() >= deadline:
+                    # Still open: that End is stuck or its worker died
+                    # mid-write. Closing now would celebrate with nothing
+                    # saved and leave the game open, so tomorrow's End
+                    # would merge both days (Ops MED on a4147fd).
+                    logger.warning(
+                        "End for class=%s refused: another End holds the run",
+                        class_id,
+                    )
+                    return {
+                        "ok": False,
+                        "class_id": int(class_id),
+                        "in_progress": True,
+                    }
+                time.sleep(LIVE_END_BUSY_POLL_SECONDS)
         if wrote is None and not save_attendance and not save_participation:
             try:
                 self.game.cancel_setup(int(class_id))
