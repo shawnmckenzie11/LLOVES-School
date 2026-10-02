@@ -1598,8 +1598,8 @@ class StudentPortalTests(unittest.TestCase):
         paint = js.split("function paintMe(")[1].split("function paintMyTeam(")[0]
         self.assertNotIn("innerHTML", paint)
         self.assertNotIn("save-work", paint)
-        self.assertIn("meAvatarEl.textContent", paint)
-        self.assertIn("avatarGlyph", paint)
+        # MCK-116: emoji or earned SVG via DOM calls (still no innerHTML).
+        self.assertIn("paintAvatar(meAvatarEl, me.character)", paint)
         self.assertIn("meNameEl.textContent", paint)
         self.assertIn("function saveStudentWork()", js)
         self.assertIn("Saved to your downloads.", js)
@@ -1670,7 +1670,7 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("avatarGlyph", avatars)
         self.assertIn("nameWithAvatar", avatars)
         self.assertIn("student_avatars.js", portal)
-        self.assertIn("avatarGlyph", portal)
+        self.assertIn("paintAvatar", portal)
 
     def test_student_state_tick_sends_seq_and_handles_unchanged(self) -> None:
         """Student poll sends seq/stamp and returns early when unchanged."""

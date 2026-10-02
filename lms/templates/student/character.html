@@ -17,10 +17,16 @@
       <input type="hidden" name="visit_token" value="{{ visit_token or '' }}">
       <div class="char-grid" role="radiogroup" aria-label="Avatars">
         {% for avatar in characters %}
-        <label class="char-card" title="{{ avatar.label }}">
+        <label class="char-card{% if avatar.earned %} is-earned{% endif %}" title="{{ avatar.label }}">
           <input type="radio" name="character" value="{{ avatar.key }}" required>
+          {% if avatar.earned %}
+          <img class="avatar-img" src="{{ avatar.img }}" alt="" width="72" height="72">
+          <span class="visually-hidden">{{ avatar.label }}</span>
+          <span class="tag-earned">Earned</span>
+          {% else %}
           <span class="char-emoji" aria-hidden="true">{{ avatar.emoji }}</span>
           <span class="visually-hidden">{{ avatar.label }}</span>
+          {% endif %}
         </label>
         {% endfor %}
       </div>

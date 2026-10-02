@@ -198,12 +198,14 @@ from paths import (  # noqa: E402
     public_brand,
 )
 from student_portal import (  # noqa: E402
+    EARNED_CHARACTERS,
     EXIT_FEEDBACK_SESSION_KEY,
     HOW_WAS_CLASS,
     bind_student_session,
     character_choices,
     clear_rejoin_cookie,
     clear_student_session_keys,
+    earned_avatar_keys,
     mood_choices,
     next_student_endpoint,
     rejoin_token_from_cookie,
@@ -4623,15 +4625,19 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if nxt != "student_character":
             return _student_advance()
         student_id = int(student_id)
+        # MCK-116: reward avatars this student owns (empty until slice S1 lands).
+        earned = earned_avatar_keys(school, class_id, student_id)
         if request.method == "POST":
             character = (request.form.get("character") or "").strip()
             try:
+                if character in EARNED_CHARACTERS and character not in earned:
+                    raise ValueError("Choose an avatar.")
                 school.game.set_character(class_id, student_id, character)
             except ValueError as exc:
                 return render_template(
                     "student/character.html",
                     offering=offering,
-                    characters=character_choices(),
+                    characters=character_choices(earned),
                     error=str(exc),
                     school_name=SCHOOL_NAME,
                     visit_token=visit_token,
@@ -4641,7 +4647,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         return render_template(
             "student/character.html",
             offering=offering,
-            characters=character_choices(),
+            characters=character_choices(earned),
             error=None,
             school_name=SCHOOL_NAME,
             visit_token=visit_token,

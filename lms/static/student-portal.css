@@ -130,6 +130,41 @@ body.student-portal .sub {
   line-height: 1;
 }
 
+/* MCK-116 reward avatars: SVG at 1.15em of the emoji size (emoji bleed past the em box). */
+.avatar-img {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: middle;
+}
+
+.char-card .avatar-img {
+  width: 2.9rem;
+  height: 2.9rem;
+}
+
+.char-card.is-earned {
+  padding-bottom: 1.45rem;
+}
+
+/* Picker label on reward avatars (copy: "Earned"). Gold = keepsake colour. */
+.tag-earned {
+  position: absolute;
+  bottom: 0.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: #3b2f06;
+  color: #fde68a;
+  border: 1px solid #c99a06;
+  white-space: nowrap;
+}
+
 .char-card input {
   position: absolute;
   opacity: 0;

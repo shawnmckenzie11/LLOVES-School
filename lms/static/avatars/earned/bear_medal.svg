@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="72" height="72" role="img" aria-label="Bear with a medal">
+  <title>Bear with a medal</title>
+  <path d="M3.5 36 C3.5 29 9 25 18 25 C27 25 32.5 29 32.5 36 Z" fill="#a86b3c"/>
+  <circle cx="8.4" cy="6.6" r="4.4" fill="#a86b3c"/>
+  <circle cx="27.6" cy="6.6" r="4.4" fill="#a86b3c"/>
+  <circle cx="8.4" cy="6.6" r="2.3" fill="#7a4a26"/>
+  <circle cx="27.6" cy="6.6" r="2.3" fill="#7a4a26"/>
+  <ellipse cx="18" cy="15.4" rx="11.6" ry="10.6" fill="#a86b3c"/>
+  <ellipse cx="18" cy="19.8" rx="5.4" ry="4.2" fill="#fff4e0"/>
+  <ellipse cx="18" cy="18.2" rx="2.2" ry="1.6" fill="#1f2937"/>
+  <path d="M16 21.2 Q18 23 20 21.2" fill="none" stroke="#7a4a26" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="13.2" cy="13.6" r="1.7" fill="#1f2937"/><circle cx="22.8" cy="13.6" r="1.7" fill="#1f2937"/>
+  <path d="M12 25.6 L14.6 25.2 L18.6 30.4 L17.4 32 Z" fill="#c99a06"/>
+  <path d="M24 25.6 L21.4 25.2 L17.4 30.4 L18.6 32 Z" fill="#c99a06"/>
+  <circle cx="18" cy="31.2" r="3.8" fill="#f5c518"/>
+  <path d="M18 29.2 L18.6 30.5 20 30.7 18.9 31.6 19.2 33 18 32.2 16.8 33 17.1 31.6 16 30.7 17.4 30.5 Z" fill="#c99a06"/>
+</svg>
