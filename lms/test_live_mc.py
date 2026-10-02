@@ -488,6 +488,79 @@ class NumericTallyTests(unittest.TestCase):
         self.assertTrue(percent_marks["10.5"])
         self.assertFalse(percent_marks["12"])
 
+    def test_wrong_answer_rounding_into_the_correct_bar_gets_its_own_bar(self) -> None:
+        """MCK-83: 3.141 is wrong for key 3.14 and must not count on the ✓ bar."""
+        tally = build_numeric_tally(
+            self._prompt(integer_only=False, correct_answer="3.14"),
+            responses=self._answers(3.14, "3.140", 3.141, 3.138, 2.5),
+            present=5,
+        )
+        assert tally is not None
+        rows = [(row["label"], row["count"], row["correct"]) for row in tally["choices"]]
+        self.assertEqual(
+            rows,
+            [
+                ("2.5", 1, False),
+                ("3.138", 1, False),
+                ("3.14", 2, True),
+                ("3.141", 1, False),
+            ],
+        )
+        self.assertEqual(tally["responded"], 5)
+        self.assertEqual(sum(row["count"] for row in tally["choices"]), 5)
+        self.assertEqual(len({row["id"] for row in tally["choices"]}), 4)
+
+    def test_near_miss_past_six_places_gets_a_distinct_label(self) -> None:
+        """Ops LOW-1 on #199: 2.5000001 vs key 2.5 must not print as a second "2.5"."""
+        tally = build_numeric_tally(
+            self._prompt(integer_only=False, correct_answer="2.5"),
+            responses=self._answers(2.5, 2.5000001, 3.0000001),
+            present=3,
+        )
+        assert tally is not None
+        rows = [(row["id"], row["label"], row["count"], row["correct"]) for row in tally["choices"]]
+        self.assertEqual(
+            rows,
+            [
+                ("2.5", "2.5", 1, True),
+                ("2.5000001", "2.5000001", 1, False),
+                ("3", "3", 1, False),
+            ],
+        )
+        labels = [row["label"] for row in tally["choices"]]
+        self.assertEqual(len(set(labels)), len(labels), "duplicate-looking bars")
+        self.assertTrue(all("~" not in str(row["id"]) for row in tally["choices"]))
+
+    def test_key_finer_than_six_places_labels_bars_at_full_precision(self) -> None:
+        """Ops LOW on 54fdc0e: key 1e-7 read "0 ✓" and an exact 0 read "≈0 ✗"."""
+        tally = build_numeric_tally(
+            self._prompt(integer_only=False, correct_answer="0.0000001"),
+            responses=self._answers(1e-7, 1.1e-7, 0),
+            present=3,
+        )
+        assert tally is not None
+        rows = [(row["label"], row["count"], row["correct"]) for row in tally["choices"]]
+        self.assertEqual(
+            rows,
+            [
+                ("0", 1, False),
+                ("0.0000001", 1, True),
+                ("0.00000011", 1, False),
+            ],
+        )
+        self.assertTrue(all("\u2248" not in label for label, _c, _ok in rows))
+
+    def test_bar_of_only_wrong_answers_still_rounds(self) -> None:
+        """Wrong answers keep sharing a rounded bar when no right one is there."""
+        tally = build_numeric_tally(
+            self._prompt(integer_only=False, correct_answer="5"),
+            responses=self._answers(3.141, 3.138),
+            present=2,
+        )
+        assert tally is not None
+        rows = [(row["label"], row["count"], row["correct"]) for row in tally["choices"]]
+        self.assertEqual(rows, [("3.14", 2, False)])
+
     def test_missing_integer_only_keeps_decimal_buckets(self) -> None:
         """A numeric prompt with no integer_only flag still charts decimals."""
         tally = build_numeric_tally(

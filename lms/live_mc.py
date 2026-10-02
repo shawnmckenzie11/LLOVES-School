@@ -316,6 +316,42 @@ def _numeric_bucket_label(number: float, *, integer_only: bool) -> str | None:
     return text
 
 
+def _numeric_exact_label(number: float) -> str:
+    """Label one answer at up to six decimal places (no bar rounding).
+
+    Args:
+        number: Finite parsed student value.
+    """
+    try:
+        quantized = Decimal(str(number)).quantize(
+            Decimal("0.000001"), rounding=ROUND_HALF_UP
+        )
+    except InvalidOperation:
+        return str(number)
+    text = format(quantized, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return "0" if text in {"", "-", "-0"} else text
+
+
+def _numeric_full_label(number: float) -> str:
+    """Label one answer at full float precision (shortest round-trip).
+
+    Used when even six places print the same as the correct bar, e.g.
+    2.5000001 against a key of 2.5 at zero tolerance.
+
+    Args:
+        number: Finite parsed student value.
+    """
+    try:
+        text = format(Decimal(repr(float(number))), "f")
+    except (InvalidOperation, ValueError, OverflowError):
+        return str(number)
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return "0" if text in {"", "-", "-0"} else text
+
+
 def _numeric_expected(payload: dict[str, Any]) -> float | None:
     """Parse the authored numeric key, if the prompt has one.
 
@@ -382,8 +418,9 @@ def build_numeric_tally(
 
     Whole-number prompts still drop fractions. Decimal prompts bucket
     equivalent values together, including negatives, and sort the bars
-    by number. A bar is correct when a response in it matches the
-    authored key, including any tolerance on the prompt.
+    by number. A bar is correct when its responses match the authored
+    key, including any tolerance on the prompt. A wrong answer that rounds
+    into a correct bar gets its own exact bar instead (MCK-83).
 
     Args:
         prompt: Active live-prompt row (``kind=numeric``).
@@ -403,9 +440,7 @@ def build_numeric_tally(
         return None
     integer_only = _prompt_requires_integer(payload)
     expected = _numeric_expected(payload)
-    counts: dict[str, int] = {}
-    correct_labels: set[str] = set()
-    responded = 0
+    entries: list[tuple[str, float, bool]] = []
     for row in responses or []:
         if not isinstance(row, dict):
             continue
@@ -420,31 +455,75 @@ def build_numeric_tally(
         label = _numeric_bucket_label(number, integer_only=integer_only)
         if label is None:
             continue
-        counts[label] = counts.get(label, 0) + 1
-        responded += 1
-        if expected is not None and _numeric_within_tolerance(
+        ok = expected is not None and _numeric_within_tolerance(
             number,
             expected,
             payload.get("tolerance"),
             payload.get("tolerance_kind"),
-        ):
-            correct_labels.add(label)
-    labels = sorted(counts.keys(), key=lambda token: float(token))
+        )
+        entries.append((label, number, bool(ok)))
+    responded = len(entries)
+    # A rounded bar can hold right and wrong answers (3.14 and 3.141 with a
+    # 0 tolerance). Wrong ones move to their own exact bar so a ✓ bar only
+    # counts correct answers (MCK-83).
+    right_labels = {label for label, _n, ok in entries if ok}
+    wrong_labels = {label for label, _n, ok in entries if not ok}
+    mixed = right_labels & wrong_labels
+    # A key finer than six places (e.g. 1e-7) buckets into a bar that
+    # prints as something else ("0"). Label its ✓ bar with the key at full
+    # precision, and wrong answers in that bar at full precision too, so
+    # the bars don't read "0 ✓" and "≈0 ✗" (MCK-83).
+    key_label: str | None = None
+    if expected is not None and not integer_only:
+        full_key = _numeric_full_label(float(expected))
+        if _numeric_exact_label(float(expected)) != full_key:
+            key_label = full_key
+    bars: dict[str, dict[str, Any]] = {}
+    for label, number, ok in entries:
+        bar_label = label
+        value = float(label)
+        if ok and key_label is not None:
+            bar_label = key_label
+            value = float(expected)
+        elif label in mixed and not ok and key_label is not None:
+            bar_label = _numeric_full_label(number)
+            if bar_label == key_label:
+                bar_label = f"\u2248{key_label}"
+            value = float(number)
+        elif label in mixed and not ok:
+            # Its own bar, labelled with enough digits to differ from the
+            # correct bar. The id is the label, so the student reveal and
+            # the class-results card (keyed by label) keep them apart.
+            bar_label = _numeric_exact_label(number)
+            if bar_label == label:
+                bar_label = _numeric_full_label(number)
+            if bar_label == label:
+                bar_label = f"\u2248{label}"
+            value = float(number)
+        bar = bars.get(bar_label)
+        if bar is None:
+            bar = {"label": bar_label, "count": 0, "correct": ok, "value": value}
+            bars[bar_label] = bar
+        bar["count"] += 1
+    ordered = sorted(
+        bars.items(),
+        key=lambda item: (item[1]["value"], not item[1]["correct"]),
+    )
     present_n = max(0, int(present), responded)
     denom = responded if responded > 0 else 0
     choices_out: list[dict[str, Any]] = []
     count_list: list[int] = []
-    for label in labels:
-        count = counts[label]
+    for bar_id, bar in ordered:
+        count = int(bar["count"])
         count_list.append(count)
         pct = int(round(100.0 * count / denom)) if denom else 0
         choices_out.append(
             {
-                "id": label,
-                "label": label,
+                "id": bar_id,
+                "label": bar["label"],
                 "count": count,
                 "pct": pct,
-                "correct": label in correct_labels,
+                "correct": bool(bar["correct"]),
             }
         )
     ref = prompt_ref_for(prompt, teacher_state)
