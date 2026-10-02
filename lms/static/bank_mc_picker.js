@@ -23,7 +23,11 @@ import {
   contentPickSummary,
   contentPicksPayload,
   contentRowsView,
+  contentSectionHeading,
+  contentStalePicks,
+  contentStaleText,
   deckLiveProblemIds,
+  searchResultsScroll,
 } from "/static/content_questions_help.js";
 
 /** @type {HTMLElement | null} */
@@ -217,7 +221,7 @@ export async function mountBankMcPicker(opts) {
       contentOpts
         ? `<section class="bank-mc-content" data-bank-mc-content aria-label="Contest Questions">
             <div class="bank-mc-content-head">
-              <h4>Contest Questions · top ${CONTENT_PER_MODULE} per module</h4>
+              <h4>${escapeHtml(contentSectionHeading(CONTENT_PER_MODULE))}</h4>
               <button type="button" class="compact" data-bank-mc-content-import disabled>Import selected</button>
             </div>
             <p class="hint compact" data-bank-mc-content-status>Loading Contest Questions…</p>
@@ -414,11 +418,34 @@ export async function mountBankMcPicker(opts) {
     }
   }
 
+  /**
+   * MCK-161 LOW-6: with Contest Questions above the bank list, typed
+   * search results can land below the fold. The search row is sticky
+   * (CSS); after a typed search, bring the results line up under it.
+   */
+  const revealSearchResults = () => {
+    if (!contentOpts || !(countEl instanceof HTMLElement)) return;
+    const head = shell.querySelector(".bank-mc-picker-head");
+    if (!(head instanceof HTMLElement)) return;
+    const delta = searchResultsScroll({
+      resultsTop: countEl.getBoundingClientRect().top,
+      headBottom: head.getBoundingClientRect().bottom,
+      viewBottom: shell.getBoundingClientRect().bottom,
+    });
+    if (delta) shell.scrollBy({ top: delta, behavior: "smooth" });
+  };
+
   let debounceTimer = 0;
   queryEl?.addEventListener("input", () => {
     window.clearTimeout(debounceTimer);
     debounceTimer = window.setTimeout(() => {
-      refreshSearch().catch(() => {});
+      refreshSearch()
+        .then(() => {
+          if (queryEl instanceof HTMLInputElement && queryEl.value.trim()) {
+            revealSearchResults();
+          }
+        })
+        .catch(() => {});
     }, 220);
   });
   moduleEl?.addEventListener("change", () => {
@@ -651,6 +678,37 @@ async function mountContentQuestions(shell, contentOpts, onDone) {
     });
   };
 
+  /**
+   * MCK-161 LOW-8: re-fetch every loaded group and repaint it (ticks on
+   * rows that are still listed are kept).
+   * @returns {Promise<Map<string, number[]>>} Ids now listed, per group.
+   */
+  const reloadLoadedGroups = async () => {
+    /** @type {Map<string, number[]>} */
+    const present = new Map();
+    const jobs = [];
+    groupsEl.querySelectorAll("details[data-content-group]").forEach((details) => {
+      const module = details.getAttribute("data-content-group") || "";
+      if (!loaded.has(module) || !(details instanceof HTMLDetailsElement)) return;
+      jobs.push(
+        Promise.resolve(contentOpts.load(module)).then((payload) => {
+          const group = payload?.group || null;
+          loaded.set(module, group);
+          paintGroup(details, group);
+          present.set(
+            module,
+            (Array.isArray(group?.items) ? group.items : [])
+              .slice(0, perModule)
+              .map((item) => Number(item?.question_id || 0))
+          );
+        })
+      );
+    });
+    await Promise.all(jobs);
+    paintButton();
+    return present;
+  };
+
   groupsEl.querySelectorAll("details[data-content-group]").forEach((details) => {
     if (!(details instanceof HTMLDetailsElement)) return;
     const module = details.getAttribute("data-content-group") || "";
@@ -703,11 +761,19 @@ async function mountContentQuestions(shell, contentOpts, onDone) {
             if (node instanceof HTMLInputElement) node.checked = false;
           });
       });
-      repaintLoaded();
+      // MCK-161 LOW-8: a pick may have left its group's top 6 since the
+      // list loaded. Reload the loaded groups; picks that vanished lose
+      // their tick (the repaint drops their rows) and the status says so.
+      const stale = await reloadLoadedGroups()
+        .then((present) => contentStalePicks(picks, present))
+        .catch(() => []);
+      if (!stale.length) repaintLoaded();
       setStatus(
-        landed.length
-          ? `${friendlyApiError(err)} ${landed.length} landed and stay on the deck; their ticks were cleared.`
-          : friendlyApiError(err)
+        stale.length
+          ? contentStaleText(stale.length)
+          : landed.length
+            ? `${friendlyApiError(err)} ${landed.length} landed and stay on the deck; their ticks were cleared.`
+            : friendlyApiError(err)
       );
     } finally {
       paintButton();

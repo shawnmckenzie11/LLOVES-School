@@ -2023,6 +2023,34 @@ body.staff-shell .live-header-end {
   border-radius: 8px;
   cursor: pointer;
 }
+/* MCK-159 (MED-2): below 1180px the stage rail no longer fits beside the
+   header actions, and its overflow sat on top of Eyes up / End Live Class /
+   Quit. Let the header wrap: the actions keep their own space on the first
+   row(s) and the rail moves to its own row, scrolling sideways if needed,
+   so nothing ever covers a header button. */
+@media (max-width: 1179px) {
+  body.staff-shell .live-header {
+    flex-wrap: wrap;
+    max-height: none;
+    row-gap: 0.35rem;
+  }
+  body.staff-shell .live-header-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    max-width: 100%;
+  }
+  body.staff-shell .live-stage-rail {
+    order: 10;
+    flex: 1 1 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+  }
+  body.staff-shell .live-stage-rail > * {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+}
 body.staff-shell .live-legacy-control {
   position: absolute;
   width: 1px;
@@ -6247,4 +6275,22 @@ body.staff-shell .award-fresh-unavailable {
   flex-basis: 100%;
   margin: 0;
   font-size: 0.8rem;
+}
+/* MCK-161 LOW-6: Contest Questions sit above the bank list, so keep the
+   Bank scope / Kind / Search row in view while the picker scrolls
+   (the safest default until the product call on LOW-6 is made). */
+body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: -0.65rem -0.85rem 0.45rem;
+  padding: 0.65rem 0.85rem 0.5rem;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+}
+/* MCK-161 INFO-2: plain prompt text with a blank line (a Contest
+   Question's stem, blank line, task) keeps its paragraphs. */
+body.staff-shell .live-question-html.is-paragraphs,
+.student-live-card .live-question-html.is-paragraphs {
+  white-space: pre-line;
 }

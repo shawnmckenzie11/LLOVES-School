@@ -120,7 +120,12 @@ export function contentRowsView(group, perModule = 6, onDeck = []) {
       };
     })
     .filter((row) => row.id > 0 && row.module);
-  const empty = rows.length ? "" : `${label} has no Contest questions yet.`;
+  // MCK-161: capital Q, and no "Contest has no Contest Questions".
+  const empty = rows.length
+    ? ""
+    : module === "COURSE"
+      ? "No course-wide Contest Questions yet."
+      : `${label} has no Contest Questions yet.`;
   return { rows, empty };
 }
 
@@ -136,8 +141,8 @@ export function contentPickSummary(picks) {
 }
 
 /**
- * Picks in on-screen order, one per question id (the first module wins
- * when two modules' banks share a question).
+ * Picks in on-screen order, one per question id (the first tick wins
+ * when the same problem is ticked twice).
  * @param {Array<{id: unknown, module: unknown}>} checked
  * @returns {Array<{question_id: number, module: string}>}
  */
@@ -179,4 +184,68 @@ export function deckLiveProblemIds(questions) {
     if (id > 0) ids.add(id);
   }
   return ids;
+}
+
+/**
+ * MCK-161: the section heading. Groups are per module plus one
+ * course-wide Contest group, so the cap is described for both.
+ * @param {number} [perModule]
+ * @returns {string}
+ */
+export function contentSectionHeading(perModule = 6) {
+  const n = Math.max(1, Number(perModule) || 6);
+  return `Contest Questions · top ${n} per module and course-wide`;
+}
+
+/**
+ * MCK-161 LOW-8: status after a refused import whose picks went stale.
+ * The picker has already reloaded the open groups and unticked them.
+ * @param {number} count Picks that were unticked.
+ * @returns {string}
+ */
+export function contentStaleText(count) {
+  const n = Math.max(1, Number(count) || 1);
+  if (n === 1) {
+    return "One pick is no longer in its group's top 6, so nothing was imported. The list is refreshed and that pick is unticked. Check your picks and import again.";
+  }
+  return `${n} picks are no longer in their group's top 6, so nothing was imported. The list is refreshed and those picks are unticked. Check your picks and import again.`;
+}
+
+/**
+ * MCK-161 LOW-8: which picks are gone after the open groups reload.
+ * @param {Array<{question_id: number, module: string}>} picks What was sent.
+ * @param {Map<string, Iterable<number>> | Record<string, Iterable<number>>} present
+ *   Reloaded ids per group token. Groups not reloaded are left alone.
+ * @returns {Array<{question_id: number, module: string}>}
+ */
+export function contentStalePicks(picks, present) {
+  const lookup =
+    present instanceof Map ? present : new Map(Object.entries(present || {}));
+  const out = [];
+  for (const pick of Array.isArray(picks) ? picks : []) {
+    const module = contentModuleKey(pick?.module);
+    if (!module || !lookup.has(module)) continue;
+    const ids = new Set([...(lookup.get(module) || [])].map((id) => Number(id)));
+    if (!ids.has(Number(pick?.question_id || 0))) out.push(pick);
+  }
+  return out;
+}
+
+/**
+ * MCK-161 LOW-6: how far to scroll the picker so typed-search results
+ * start just under the sticky search row. 0 when they are already visible.
+ * @param {{resultsTop: number, headBottom: number, viewBottom: number}} box
+ *   Client-rect numbers: top of the results count line, bottom of the
+ *   sticky head, bottom of the scrolling picker.
+ * @returns {number}
+ */
+export function searchResultsScroll(box) {
+  const top = Number(box?.resultsTop);
+  const head = Number(box?.headBottom);
+  const bottom = Number(box?.viewBottom);
+  if (![top, head, bottom].every(Number.isFinite)) return 0;
+  // Visible enough: the results line sits between the head and ~2 rows
+  // above the bottom edge.
+  if (top >= head && top <= bottom - 96) return 0;
+  return Math.round(top - head - 6);
 }

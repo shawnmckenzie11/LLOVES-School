@@ -378,7 +378,13 @@ class ContentQuestionsApiTests(unittest.TestCase):
         ):
             rv = self._import([pick])
             self.assertEqual(rv.status_code, 404, pick)
-        self.assertIn("is not a Module 1 Contest Question", rv.get_json()["error"])
+        body = rv.get_json()
+        self.assertEqual(
+            body["error"],
+            "One pick is no longer in Module 1's top 6 Contest Questions. "
+            "Nothing was imported. Reload the list and pick again.",
+        )
+        self.assertEqual(body["stale"], [{"question_id": self.course[0], "module": "M1"}])
         self.assertEqual(self._placement_count(), 0)
 
     def test_bad_bodies_are_400(self) -> None:
@@ -569,6 +575,215 @@ class ContentQuestionsApiTests(unittest.TestCase):
         rv = self._import([{"question_id": self.m1[0], "module": "M1"}])
         self.assertEqual(rv.status_code, 403)
 
+    # MCK-161: polish from the #225 gate (LOW-7, LOW-8, INFO-1..4).
+
+    def test_mck161_low7_noncanonical_target_lands_and_rolls_back(self) -> None:
+        """``/m01/c1/`` lands on M1/C1; a failed batch there is really undone."""
+        ok = self._import([{"question_id": self.m1[0], "module": "M1"}], module="m01", slot="c1")
+        self.assertEqual(ok.status_code, 200, ok.get_data(as_text=True))
+        self.assertEqual(self._deck_problem_ids(), [self.m1[0]])
+        before = self._placement_count()
+        self._flaky(3)
+        rv = self._import(
+            [
+                {"question_id": self.m1[1], "module": "M1"},
+                {"question_id": self.m1[2], "module": "M1"},
+                {"question_id": self.course[0], "module": "COURSE"},
+            ],
+            module="M01",
+            slot="c1",
+        )
+        self.assertEqual(rv.status_code, 409, rv.get_data(as_text=True))
+        self.assertEqual(rv.get_json()["rolled_back"], 2)
+        self.assertEqual(self._placement_count(), before)
+        self.assertEqual(self._deck_problem_ids(), [self.m1[0]])
+
+    def test_mck161_low7_unknown_module_is_400(self) -> None:
+        """A module Add New would refuse is a 400 before anything is read."""
+        for module in ("MX", "M9", "0"):
+            rv = self._import([{"question_id": self.m1[0], "module": "M1"}], module=module)
+            self.assertEqual(rv.status_code, 400, module)
+        self.assertEqual(self._placement_count(), 0)
+
+    def test_mck161_low8_stale_copy_has_no_ids_and_no_double_contest(self) -> None:
+        """Course-wide, one module, several groups: clean copy plus the stale list."""
+        self.school.conn.execute(
+            "UPDATE live_problems SET active = 0 WHERE id IN (?, ?)",
+            (self.course[1], self.m1[5]),
+        )
+        self.school.conn.commit()
+        one = self._import(
+            [
+                {"question_id": self.course[0], "module": "COURSE"},
+                {"question_id": self.course[1], "module": "COURSE"},
+            ]
+        )
+        self.assertEqual(one.status_code, 404)
+        body = one.get_json()
+        self.assertEqual(
+            body["error"],
+            "One pick is no longer in the course-wide Contest group's top 6. "
+            "Nothing was imported. Reload the list and pick again.",
+        )
+        self.assertEqual(body["stale"], [{"question_id": self.course[1], "module": "COURSE"}])
+        self.assertEqual(body["imported"], 0)
+        many = self._import(
+            [
+                {"question_id": self.m1[5], "module": "M1"},
+                {"question_id": self.course[1], "module": "COURSE"},
+                {"question_id": self.m1[0], "module": "M1"},
+            ]
+        ).get_json()
+        self.assertEqual(
+            many["error"],
+            "2 picks are no longer in their group's top 6 Contest Questions. "
+            "Nothing was imported. Reload the list and pick again.",
+        )
+        self.assertEqual(
+            many["stale"],
+            [
+                {"question_id": self.m1[5], "module": "M1"},
+                {"question_id": self.course[1], "module": "COURSE"},
+            ],
+        )
+        for text in (body["error"], many["error"]):
+            self.assertNotIn("Contest Contest", text)
+            self.assertNotIn("problem", text)
+            self.assertNotIn(str(self.course[1]), text)
+        self.assertEqual(self._placement_count(), 0)
+
+    def test_mck161_info1_extra_item_is_an_allowlist(self) -> None:
+        """Only live_problem_id / question_title / contest_batch reach item_json."""
+        placement = self.school.add_staff_question_to_class_playlist(
+            self.class_id,
+            "M1",
+            "C1",
+            question_type="poll",
+            text="Real text",
+            page_number=1,
+            stage="round",
+            bank_kind="contest",
+            extra_item={
+                "live_problem_id": 51,
+                "question_title": "Title",
+                "contest_batch": "mck79-x",
+                "stage": "join",
+                "page_number": 9,
+                "type": "mc",
+                "options": ["a"],
+                "correct_answer": "A",
+                "bank_kind": "warmup",
+                "import_source": "x",
+                "text": "OVERRIDE",
+                "id": "evil",
+            },
+        )
+        row = self.school.conn.execute(
+            "SELECT stage, page_number, item_json FROM class_live_playlist_placements WHERE id = ?",
+            (int(placement["id"]),),
+        ).fetchone()
+        item = json.loads(row["item_json"])
+        self.assertEqual(
+            (item["live_problem_id"], item["question_title"], item["contest_batch"]),
+            (51, "Title", "mck79-x"),
+        )
+        self.assertEqual(item["type"], "poll")
+        self.assertEqual(item["text"], "Real text")
+        self.assertEqual(item["bank_kind"], "contest")
+        self.assertEqual(item["stage"], row["stage"])
+        self.assertEqual(item.get("options"), [])
+        self.assertNotIn("correct_answer", item)
+        self.assertNotEqual(item.get("import_source"), "x")
+        self.assertNotEqual(item["id"], "evil")
+        self.assertEqual(int(row["page_number"]), 1)
+
+    def test_mck161_info2_card_text_keeps_the_blank_line(self) -> None:
+        """Stored text is stem, blank line, task; the cards render it as paragraphs."""
+        rv = self._import([{"question_id": self.m1[0], "module": "M1"}])
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        card = [q for q in self._deck_questions() if q.get("live_problem_id")][0]
+        self.assertIn("Module one contest 1 stem\n\nModule one contest 1 task", card["text"])
+        staff = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn('|| plainPromptHtml(item.title || item.text || item.prompt || card.text || "")', staff)
+        self.assertIn('live-question-html is-paragraphs', staff)
+        student = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertIn('const paragraphs = /\\n\\s*\\n/.test(raw) ? " is-paragraphs" : "";', student)
+        for css_name in ("staff-shell.css", "student-portal.css"):
+            css = (LMS_DIR / "static" / css_name).read_text(encoding="utf-8")
+            start = css.index(".live-question-html.is-paragraphs")
+            self.assertIn("white-space: pre-line;", css[start : css.index("}", start)], css_name)
+
+    def test_mck161_info3_resync_failure_drops_inactive_session_items(self) -> None:
+        """A failed rollback resync no longer leaves the batch's inactive live items."""
+        live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
+        session_id = int(live["id"])
+        self.school.set_live_session_teacher_state(
+            session_id, live_module="M1", live_slot="C1", stage="round"
+        )
+        self.school.ensure_live_session_items(session_id)
+        keep = self._import([{"question_id": self.m1[0], "module": "M1"}])
+        self.assertEqual(keep.status_code, 200, keep.get_data(as_text=True))
+        keep_key = keep.get_json()["placements"][0]["placement_key"]
+        before_items = self._session_item_keys(session_id)
+        self.assertIn(keep_key, before_items)
+
+        self._flaky(3)
+        real_sync = self.school._sync_playlist_change
+        state = {"undoing": False}
+        minted: set[str] = set()
+
+        def sync(*args, **kwargs):
+            """Fail only the rollback's resync."""
+            if state["undoing"]:
+                raise RuntimeError("live session gone")
+            return real_sync(*args, **kwargs)
+
+        real_add = self.school.add_staff_question_to_class_playlist
+
+        def mark(*args, **kwargs):
+            """Remember the live items each placement mints; flag the undo."""
+            try:
+                out = real_add(*args, **kwargs)
+            except KeyError:
+                state["undoing"] = True
+                raise
+            minted.update(self._session_item_keys(session_id) - before_items)
+            return out
+
+        self.school._sync_playlist_change = sync
+        self.school.add_staff_question_to_class_playlist = mark
+        self.addCleanup(setattr, self.school, "_sync_playlist_change", real_sync)
+        with self.assertLogs("live_content_questions", level="ERROR"):
+            rv = self._import(
+                [
+                    {"question_id": self.m1[1], "module": "M1"},
+                    {"question_id": self.m1[2], "module": "M1"},
+                    {"question_id": self.course[0], "module": "COURSE"},
+                ]
+            )
+        self.assertEqual(rv.status_code, 409, rv.get_data(as_text=True))
+        self.assertEqual(len(minted), 2, minted)
+        after = self._session_item_keys(session_id)
+        self.assertFalse(minted & after, minted & after)
+        self.assertIn(keep_key, after)
+
+    def _session_item_keys(self, session_id: int) -> set[str]:
+        """Placement keys of the session's live items."""
+        rows = self.school.conn.execute(
+            "SELECT placement_key FROM live_session_items WHERE live_session_id = ?",
+            (int(session_id),),
+        ).fetchall()
+        return {str(row["placement_key"]) for row in rows}
+
+    def test_mck161_info4_unicode_digit_hint_goes_to_contest(self) -> None:
+        """``M²C1`` no longer raises; it is course-wide like any unknown hint."""
+        self.assertEqual(problem_group("M²C1", ["M1", "M2"]), "COURSE")
+        self.assertEqual(problem_group("M١C1", ["M1"]), "COURSE")
+        self.assertEqual(problem_group("A/M2C1", ["M1", "M2"]), "M2")
+        odd = _problem(self.school, "MCR3U", "M²C1", "Superscript hint", sort_order=7)
+        listed = self._list("COURSE")
+        self.assertIn(odd, [i["question_id"] for i in listed["group"]["items"]])
+
 
 HELPER_CASES = r"""
 import {
@@ -668,7 +883,7 @@ class ContentQuestionsHelperTests(unittest.TestCase):
 
     def test_empty_state_copy(self) -> None:
         """An empty group says so; a filled one has no empty line."""
-        self.assertEqual(self.got["empty"], ["Module 3 has no Contest questions yet.", ""])
+        self.assertEqual(self.got["empty"], ["Module 3 has no Contest Questions yet.", ""])
 
     def test_pick_summary_payload_and_done_line(self) -> None:
         """Button holds until a pick; payload keeps one pick per id, COURSE allowed."""
@@ -703,7 +918,7 @@ class ContentQuestionsWiringTests(unittest.TestCase):
         self.assertIn("/static/content_questions_help.js", src)
         self.assertIn("deckLiveProblemIds(", src)
         self.assertIn('data-content-count="${group.count}"', src)
-        self.assertIn("<h4>Contest Questions · top ${CONTENT_PER_MODULE} per module</h4>", src)
+        self.assertIn("<h4>${escapeHtml(contentSectionHeading(CONTENT_PER_MODULE))}</h4>", src)
         self.assertIn('aria-label="Contest Questions"', src)
         for name in ("bank_mc_picker.js", "content_questions_help.js", "staff_ap.js"):
             text = (LMS_DIR / "static" / name).read_text(encoding="utf-8")
@@ -753,6 +968,34 @@ class ContentQuestionsWiringTests(unittest.TestCase):
         self.assertIn("flex: none;", rule)
         self.assertIn("overflow-y: visible;", rule)
         self.assertNotIn("max-height: min(16rem, 32vh)", css)
+
+    def test_mck161_low6_search_row_is_sticky(self) -> None:
+        """LOW-6 default: the search head sticks; typed results scroll into view."""
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        sel = "body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-head {"
+        start = css.index(sel)
+        rule = css[start : css.index("}", start)]
+        for decl in ("position: sticky;", "top: 0;", "z-index: 2;", "background: #fff;"):
+            self.assertIn(decl, rule)
+        src = (LMS_DIR / "static" / "bank_mc_picker.js").read_text(encoding="utf-8")
+        self.assertIn("searchResultsScroll({", src)
+        self.assertIn("revealSearchResults();", src)
+
+    def test_mck161_low8_picker_unticks_stale_picks(self) -> None:
+        """On a refused import the picker reloads loaded groups and says what happened."""
+        src = (LMS_DIR / "static" / "bank_mc_picker.js").read_text(encoding="utf-8")
+        self.assertIn("const stale = await reloadLoadedGroups()", src)
+        self.assertIn(".then((present) => contentStalePicks(picks, present))", src)
+        self.assertIn("contentStaleText(stale.length)", src)
+
+    @unittest.skipUnless(NODE, "node not installed")
+    def test_mck161_helper_node_cases(self) -> None:
+        """content_questions_help.test.mjs: copy, stale picks, search reveal."""
+        proc = subprocess.run(
+            [NODE, str(LMS_DIR / "static" / "content_questions_help.test.mjs")],
+            cwd=str(LMS_DIR), capture_output=True, text=True, timeout=30, check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
 
 
 if __name__ == "__main__":

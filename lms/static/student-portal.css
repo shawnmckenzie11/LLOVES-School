@@ -2570,3 +2570,8 @@ body.rw-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .rw-modal { animation: none; }
 }
+/* MCK-161 INFO-2: plain prompt text with a blank line (a Contest
+   Question's stem, blank line, task) keeps its paragraphs. */
+.live-question-html.is-paragraphs {
+  white-space: pre-line;
+}

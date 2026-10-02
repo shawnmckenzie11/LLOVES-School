@@ -27,6 +27,9 @@ logger = logging.getLogger(__name__)
 #: finish before refusing with "End in progress, try again" (MCK-72).
 LIVE_END_BUSY_WAIT_SECONDS = 3.0
 LIVE_END_BUSY_POLL_SECONDS = 0.1
+# MCK-161 INFO-1: the only extra item fields Add New accepts from a caller
+# (the Contest Questions import). Everything else in ``extra_item`` is dropped.
+EXTRA_ITEM_KEYS = frozenset({"live_problem_id", "question_title", "contest_batch"})
 
 from serve_capacity import (  # noqa: E402
     begin_poll_budget,
@@ -10789,8 +10792,9 @@ class SchoolDB(LovesDB):
             bank_kind: Staff Kind. Empty is Core Math (untagged). ``custom``
                 stores as ``standard``. Does not overwrite question ``type``.
             library_id: Attached pack library, required when saving to bank.
-            extra_item: MCK-79. Extra item fields (``live_problem_id``, a
-                batch token). Cannot override ids, order or placement key.
+            extra_item: MCK-79. Extra item fields. Only the keys in
+                ``EXTRA_ITEM_KEYS`` (``live_problem_id``, ``question_title``,
+                ``contest_batch``) are kept; anything else is ignored.
 
         Returns:
             Inserted placement row including parsed ``item`` payload.
@@ -10883,8 +10887,10 @@ class SchoolDB(LovesDB):
             from lms.bank_kinds import apply_stored_bank_kind
 
         apply_stored_bank_kind(item_payload, bank_kind)
+        # MCK-161 INFO-1: an allowlist, so a caller cannot make item_json
+        # disagree with the stage / page / type columns.
         for extra_key, extra_value in (extra_item or {}).items():
-            if str(extra_key) not in {"id", "item_id", "order", "placement_key"}:
+            if str(extra_key) in EXTRA_ITEM_KEYS:
                 item_payload[str(extra_key)] = extra_value
         if kind == "rank":
             rank_rows = build_rank_options(option_list)
