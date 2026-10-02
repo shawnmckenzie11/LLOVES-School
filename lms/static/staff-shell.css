@@ -1784,7 +1784,14 @@ body.staff-shell .live-deck-copy-confirm button { width: auto; height: 36px; pad
 body.staff-shell .live-deck-copy-confirm button.btn-warn { background: #b45309; border: 1px solid #92400e; color: #fff; font-weight: 650; }
 body.staff-shell .live-deck-copy-confirm button:focus-visible { outline: 2px solid #f5c518; outline-offset: 2px; }
 body.staff-shell .live-deck-copy-confirm .live-deck-copy-actions button[hidden] { display: none !important; }
-body.staff-shell .live-deck-copy-confirm[data-variant="replace"] #live-deck-copy-go { background: #b45309; border: 1px solid #92400e; color: #fff; font-weight: 650; }
+@media (max-width: 640px) {
+  body.staff-shell .live-deck-copy-confirm { flex-wrap: wrap; }
+  body.staff-shell .live-deck-copy-confirm .live-deck-copy-text { flex-basis: 100%; }
+  body.staff-shell .live-deck-copy-confirm .live-deck-copy-route { white-space: normal; }
+  body.staff-shell .live-deck-copy-confirm .live-deck-copy-actions { flex: 1 1 100%; flex-wrap: wrap; }
+  body.staff-shell .live-deck-copy-confirm .live-deck-copy-actions button { flex: 1 1 auto; }
+}
+body.staff-shell .live-deck-copy-confirm #live-deck-copy-go.is-replace { background: #b45309; border: 1px solid #92400e; color: #fff; font-weight: 650; }
 body.staff-shell .live-deck-copy-confirm[data-variant="info"] #live-deck-copy-go { background: #0f766e; border: 1px solid #115e59; color: #fff; font-weight: 650; }
 body.staff-shell .live-header {
   display: flex;

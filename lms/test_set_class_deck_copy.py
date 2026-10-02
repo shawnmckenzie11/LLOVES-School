@@ -630,6 +630,13 @@ for (const id of ['live-deck-copy-from-field', 'live-deck-copy-confirm', 'live-d
 el('live-deck-copy-from', HTMLSelectElement.prototype);
 el('live-deck-copy-go', HTMLButtonElement.prototype);
 el('live-deck-copy-keep', HTMLButtonElement.prototype);
+{
+  const cls = new Set();
+  els['live-deck-copy-go'].classList = {
+    add: (c) => cls.add(c), remove: (c) => cls.delete(c), contains: (c) => cls.has(c),
+    toggle: (c, on) => { const v = on === undefined ? !cls.has(c) : Boolean(on); if (v) cls.add(c); else cls.delete(c); return v; },
+  };
+}
 el('ap-valid-date').value = '2026-10-05';
 let lastFocus = '';
 for (const node of Object.values(els)) node.focus = () => { lastFocus = node.id; };
@@ -715,6 +722,7 @@ await mod.applyValidateDateChoice({});
 r.nextRequests = requests.slice();
 r.nudgeView = mod.deckCopyView();
 r.nudgeFocus = lastFocus;
+r.nudgeGoIsReplace = els['live-deck-copy-go'].classList.contains('is-replace');
 els['live-deck-copy-keep'].dispatch('click');
 r.afterKeep = checked();
 r.afterKeepStripHidden = els['live-deck-copy-confirm'].hidden;
@@ -824,7 +832,9 @@ class SetClassDeckCopyFlowTests(unittest.TestCase):
         self.assertEqual(r["nextRequests"], [])
         self.assertEqual(r["nudgeView"]["variant"], "nudge")
         self.assertEqual(r["nudgeView"]["text"], "Replace the deck or keep current first.")
-        self.assertEqual(r["nudgeFocus"], "live-deck-copy-go")
+        # MED-1: a second Enter/Space on Next lands on Keep current, not Replace.
+        self.assertEqual(r["nudgeFocus"], "live-deck-copy-keep")
+        self.assertTrue(r["nudgeGoIsReplace"])
 
     def test_keep_current_writes_nothing(self) -> None:
         """Keep current hides the strip and Next sends no deck-seed."""

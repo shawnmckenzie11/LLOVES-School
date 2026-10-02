@@ -701,6 +701,8 @@ function paintDeckCopyConfirm() {
     go.hidden = !view.showGo;
     go.textContent = view.goLabel || "Copy deck"; // copy: Wonder
     go.disabled = view.busy;
+    // Replace deck stays amber in every variant (replace, nudge, error).
+    go.classList.toggle("is-replace", Boolean(view.replace));
   }
   const keep = $("live-deck-copy-keep");
   if (keep) {
@@ -793,8 +795,10 @@ function holdSetClassNextForDeckCopy(opts = {}) {
   if (!view.holdsNext) return false;
   deckCopyPhase = "nudge";
   paintDeckCopyConfirm();
-  const go = $("live-deck-copy-go");
-  if (go && !go.hidden) go.focus();
+  // Focus the safe choice: a second Enter/Space (or key repeat) on Next
+  // must never land on Replace deck (MCK-132 gate MED-1).
+  const keep = $("live-deck-copy-keep");
+  if (keep && !keep.hidden) keep.focus();
   else $("live-deck-seed-source")?.focus();
   if (opts.reservedWin && !opts.reservedWin.closed) {
     try {
