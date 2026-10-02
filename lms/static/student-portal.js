@@ -122,6 +122,24 @@ const activePaneDrags = new Set();
 const paneHomes = new WeakMap();
 /** Unsaved per-card answers preserved across state polls. */
 const liveCardDrafts = new Map();
+
+/**
+ * A card closed (for example at 0:00, MCK-27) while this student still had
+ * an unsent answer typed. Say so and show what they typed, instead of the
+ * text silently disappearing.
+ * @param {any} item Lifecycle item from /state.
+ * @returns {string}
+ */
+function unsentDraftNoteHtml(item) {
+  if (String(item?.status || "") !== "closed" || item?.my_response) return "";
+  const draft = liveCardDrafts.get(`${Number(item?.id)}:individual`);
+  if (!draft || typeof draft !== "object") return "";
+  const typed = String(draft.text ?? draft.value ?? draft.choice ?? "").trim();
+  if (!typed) return "";
+  return `<p class="student-live-unsent" role="status">Answers closed before yours was sent. You typed: <q>${escapeText(
+    typed.slice(0, 300)
+  )}</q></p>`;
+}
 /** In-flight lifecycle submit keys (`itemId:action`) to block double posts. */
 const liveSubmitInFlight = new Set();
 /** @type {number} */
@@ -3086,6 +3104,7 @@ function paintLifecycleQuestionStack(payload) {
         ${lifecycleEquationHtml(content)}
         ${answerControls}
         ${ownAnswer}
+        ${unsentDraftNoteHtml(item)}
         ${results}
       </article>`;
     })

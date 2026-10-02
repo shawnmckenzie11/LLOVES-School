@@ -299,6 +299,42 @@ def _note_live_session_gone(session_id: int) -> None:
 from board_ops import BoardOpRejected, BoardSessionClosed, normalize_board_key  # noqa: E402
 
 
+def _start_live_and_wake(
+    school: SchoolDB, class_id: int, teacher_user_id: int, **kwargs: Any
+) -> dict[str, Any]:
+    """Start a live run, then wake tabs still on the last run's stream.
+
+    Tabs left on End's celebration keep their stream to that session id
+    and poll at the slow ended pace. A ``state_seq`` postcard on the old
+    ids and the new one makes those tabs fetch the new class now.
+    Resuming the teacher's open session sends nothing.
+
+    Args:
+        school: App SchoolDB.
+        class_id: Game-show ``classes.id``.
+        teacher_user_id: Staff user starting the run.
+        **kwargs: Passed to ``start_live_class_session``.
+    """
+    open_row = school.get_active_live_session_for_teacher(int(teacher_user_id))
+    celebrating = [
+        int(row["id"])
+        for row in school.list_live_sessions_for_class(int(class_id))
+        if school.session_is_celebrating(int(row["id"]))
+    ]
+    session_row = school.start_live_class_session(
+        class_id, teacher_user_id, **kwargs
+    )
+    new_id = int(session_row["id"])
+    if open_row is not None and int(open_row["id"]) == new_id:
+        return session_row
+    seq = teacher_state_seq(school, new_id)
+    for sid in sorted(set(celebrating) | {new_id}):
+        emit_session_news(
+            school, sid, [{"type": "state_seq", "state_seq": seq}]
+        )
+    return session_row
+
+
 def _optional_board_seq(raw: Any) -> int | None:
     """Parse a since-seq cursor. Missing means the caller wants a full view.
 
@@ -2714,7 +2750,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if not school.teacher_owns_class(int(user["id"]), class_id):
             abort(403)
         try:
-            live_session = school.start_live_class_session(class_id, int(user["id"]))
+            live_session = _start_live_and_wake(school, class_id, int(user["id"]))
         except ValueError as exc:
             return render_template("forbidden.html", message=str(exc)), 400
         return redirect(
@@ -4672,6 +4708,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         )
         pid = str((ctx or {}).get("participant_uuid") or "")
         unmatched = bool((ctx or {}).get("unmatched")) or student_id in (None, "")
+        # Opt-in 0:00 close on the server clock, before the unchanged
+        # short-circuit so the new stamp reaches this poll (MCK-27 M1).
+        school.close_answers_if_timer_due(live_session_id)
         try:
             unchanged = school.student_live_poll_unchanged(
                 live_session_id,
@@ -5410,6 +5449,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "true",
             "yes",
         }
+        # Opt-in 0:00 close on the server clock (MCK-27), throttled.
+        school.close_answers_if_timer_due(session_id)
         try:
             state = school.get_live_session_state(session_id, light=light)
         except PollBudgetExceeded:
@@ -5916,6 +5957,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "run_as_group",
             "scoreboard_visible",
             "hide_absent",
+            "timer_closes_answers",
             "class_set",
             "layout_preset",
             "frames",
@@ -6064,6 +6106,44 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             ],
         )
         return jsonify({"ok": True, "item": item, "results": results})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/timer-expired",
+        methods=["POST"],
+    )
+    @login_required
+    def api_live_timer_expired(session_id: int):
+        """Teacher clock reached 0:00: close answers if the opt-in is on.
+
+        The server re-checks the flag and its own clock, so an early or
+        repeated call closes nothing (MCK-27).
+        """
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        try:
+            # The close publishes its own news (same postcards as Close).
+            closed = school.close_answers_if_timer_expired(session_id)
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        flag, class_id = school._timer_closes_answers_on(session_id)
+        due_in_ms = (
+            school.session_timer_due_in_ms(class_id)
+            if flag and class_id is not None
+            else None
+        )
+        return jsonify(
+            {
+                "ok": True,
+                "closed": closed,
+                # Server clock: ms until 0:00, 0 once passed, null when the
+                # switch is off or the clock is paused/idle. The teacher tab
+                # retries on this, not on its own clock (MCK-27 M2).
+                "due_in_ms": due_in_ms,
+                "active_questions": school.list_active_live_questions(session_id),
+            }
+        )
 
     @app.route(
         "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/settings",
@@ -6762,7 +6842,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         assert user is not None
         try:
             body = request.get_json(silent=True) or {}
-            session_row = school.start_live_class_session(
+            session_row = _start_live_and_wake(
+                school,
                 class_id,
                 int(user["id"]),
                 live_module=body.get("live_module"),

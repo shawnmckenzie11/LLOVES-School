@@ -74,6 +74,11 @@ import {
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
 const nameSort = localStorage.getItem(`lloves-sort-${classId}`) === "za" ? "za" : "az";
+/** Hide names switch for projecting the Responses list (MCK-29). */
+const HIDE_NAMES_KEY = "lloves-hide-names";
+let hideResponseNames = localStorage.getItem(HIDE_NAMES_KEY) === "1";
+/** Last rows painted, so the switch can repaint without a fetch. */
+let lastResponseRows = [];
 const STUDENT_AMOUNTS = [1, 5, 10, -1];
 const TEAM_AMOUNTS = [1, 5, 10];
 const TEAM_RULES = [
@@ -671,6 +676,7 @@ let teacherState = {
   run_as_group: false,
   scoreboard_visible: false,
   hide_absent: false,
+  timer_closes_answers: false,
   layout_preset: "questions_full",
   frames: { A: "questions" },
   active_tab: "questions",
@@ -1359,6 +1365,10 @@ function paintGlobalGroupControls() {
   const hideAbsent = $("live-hide-absent");
   if (hideAbsent instanceof HTMLInputElement) {
     hideAbsent.checked = Boolean(teacherState.hide_absent);
+  }
+  const timerCloses = $("live-timer-closes");
+  if (timerCloses instanceof HTMLInputElement) {
+    timerCloses.checked = Boolean(teacherState.timer_closes_answers);
   }
   const scoreboard = $("ap-scoreboard-toggle");
   if (scoreboard instanceof HTMLInputElement) {
@@ -3953,6 +3963,19 @@ function applyQuestionResponseSelection(mode) {
 }
 
 /**
+ * Name shown for one response row. With Hide names on, rows are numbered
+ * in list order ("Student 3", "Guest 1") so the list is safe to project.
+ * @param {any} row
+ * @param {number} ordinal 1-based position among rows of the same kind
+ * @param {boolean} hidden
+ * @returns {string}
+ */
+function responseRowLabel(row, ordinal, hidden) {
+  if (!hidden) return String(row?.name || "");
+  return `${row?.student_id == null ? "Guest" : "Student"} ${ordinal}`;
+}
+
+/**
  * Render response rows in the same alphabetical/team order as Class list.
  * @param {any[]} responses
  */
@@ -3960,6 +3983,11 @@ function paintQuestionResponses(responses) {
   const host = $("live-responses-list");
   if (!host) return;
   const rows = Array.isArray(responses) ? responses : [];
+  lastResponseRows = rows;
+  const hidden = hideResponseNames;
+  host.classList.toggle("is-names-hidden", hidden);
+  let studentOrdinal = 0;
+  let guestOrdinal = 0;
   const byStudent = new Map(
     rows
       .filter((row) => row.student_id != null)
@@ -3983,7 +4011,7 @@ function paintQuestionResponses(responses) {
           <input type="checkbox" data-response-student="${Number(row.student_id)}"${
             Number(row.awarded_points || 0) ? " checked" : ""
           }>
-          <span class="live-response-name">${escapeHtml(row.name)}</span>
+          <span class="live-response-name">${escapeHtml(responseRowLabel(row, ++studentOrdinal, hidden))}</span>
           <span class="live-response-answer">${escapeHtml(row.answer || "—")}</span>
           <span class="live-response-mark">${row.correct === true ? "Correct" : row.correct === false ? "Incorrect" : "Answered"}</span>
           <span class="live-response-points">${row.awarded_points ? `+${escapeHtml(row.awarded_points)}` : ""}</span>
@@ -3993,7 +4021,7 @@ function paintQuestionResponses(responses) {
   }
   for (const row of rows.filter((item) => item.student_id == null)) {
     chunks.push(
-      `<div class="live-response-row"><span></span><span class="live-response-name">${escapeHtml(row.name)}</span><span class="live-response-answer">${escapeHtml(row.answer || "—")}</span><span class="live-response-mark">Guest</span><span></span></div>`
+      `<div class="live-response-row"><span></span><span class="live-response-name">${escapeHtml(responseRowLabel(row, ++guestOrdinal, hidden))}</span><span class="live-response-answer">${escapeHtml(row.answer || "—")}</span><span class="live-response-mark">Guest</span><span></span></div>`
     );
   }
   host.innerHTML =
@@ -7516,7 +7544,71 @@ function paintSessionClock() {
   if (!clock) return;
   if (btn?.dataset.meetState !== "running") return;
   if (!sessionEndsAtMs) return;
-  clock.textContent = formatCountdown(remainingUntilMs(sessionEndsAtMs));
+  const left = remainingUntilMs(sessionEndsAtMs);
+  clock.textContent = formatCountdown(left);
+  if (left <= 0) void closeAnswersAtZero(sessionEndsAtMs);
+}
+
+/** Deadline (epoch ms) already sent to ``timer-expired``. */
+let timerCloseSentFor = 0;
+/** Calls made for ``timerCloseSentFor``; a safety cap so 0:00 never spams. */
+let timerCloseTries = 0;
+const TIMER_CLOSE_MAX_TRIES = 12;
+let timerCloseInFlight = false;
+let timerCloseDone = false;
+/** ``Date.now()`` before which clock ticks do not call again. */
+let timerCloseNextAt = 0;
+
+/**
+ * Opt-in "Close answers at 0:00" (MCK-27). Ask the server to close open
+ * questions once per deadline. The server re-checks its own clock and the
+ * flag, so an early tick closes nothing. When nothing closed, the server's
+ * ``due_in_ms`` says when to ask again, so a fast or slow teacher clock
+ * still lands the close (M2). The server also closes on its own from the
+ * state polls; this call just makes the teacher board flip at once.
+ * @param {number} deadlineMs
+ */
+async function closeAnswersAtZero(deadlineMs) {
+  if (!teacherState.timer_closes_answers || !deadlineMs) return;
+  if (timerCloseSentFor !== deadlineMs) {
+    timerCloseSentFor = deadlineMs;
+    timerCloseTries = 0;
+    timerCloseDone = false;
+    timerCloseNextAt = 0;
+  } else if (timerCloseInFlight || timerCloseDone) {
+    return;
+  }
+  if (Date.now() < timerCloseNextAt) return;
+  if (timerCloseTries >= TIMER_CLOSE_MAX_TRIES) return;
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId) return;
+  timerCloseTries += 1;
+  timerCloseInFlight = true;
+  try {
+    const result = await api(`/api/live-sessions/${sessionId}/timer-expired`, {
+      method: "POST",
+      body: "{}",
+    });
+    const due = Number(result?.due_in_ms);
+    if (Array.isArray(result?.closed) && result.closed.length) {
+      timerCloseDone = true;
+      await refreshLiveQuestionCards();
+      await refreshLifecycleResults();
+    } else if (result?.due_in_ms != null && Number.isFinite(due) && due > 0) {
+      // The server's 0:00 is still ahead (teacher clock runs fast).
+      timerCloseNextAt = Date.now() + Math.min(due, 60000) + 250;
+    } else {
+      // Past 0:00 on the server with nothing left (a poll may have closed
+      // it already), or the switch is off or the clock paused. Stop and
+      // repaint so the board matches the server.
+      timerCloseDone = true;
+      await refreshLiveQuestionCards();
+    }
+  } catch (_) {
+    timerCloseNextAt = Date.now() + 2000;
+  } finally {
+    timerCloseInFlight = false;
+  }
 }
 
 $("ap-assign-random")?.addEventListener("click", () => {
@@ -7900,6 +7992,14 @@ $("live-run-as-group")?.addEventListener("change", (event) => {
   teacherState.run_as_group = input.checked;
   renderAttendanceList();
   patchTeacherState({ run_as_group: input.checked }, { silent: true });
+});
+$("live-timer-closes")?.addEventListener("change", (event) => {
+  const input = event.currentTarget;
+  if (!(input instanceof HTMLInputElement)) return;
+  teacherState.timer_closes_answers = input.checked;
+  timerCloseSentFor = 0;
+  timerCloseDone = false;
+  patchTeacherState({ timer_closes_answers: input.checked }, { silent: true });
 });
 $("live-hide-absent")?.addEventListener("change", (event) => {
   const input = event.currentTarget;
@@ -9419,6 +9519,18 @@ $("live-question-list")?.addEventListener("click", async (event) => {
     showError("#ap-overlay-error", err);
   }
 });
+
+{
+  const toggle = $("live-hide-names");
+  if (toggle instanceof HTMLInputElement) {
+    toggle.checked = hideResponseNames;
+    toggle.addEventListener("change", () => {
+      hideResponseNames = toggle.checked;
+      localStorage.setItem(HIDE_NAMES_KEY, hideResponseNames ? "1" : "0");
+      paintQuestionResponses(lastResponseRows);
+    });
+  }
+}
 
 $("live-responses-dialog")?.addEventListener("click", async (event) => {
   const select = event.target.closest("button[data-response-select]");
