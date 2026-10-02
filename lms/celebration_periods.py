@@ -25,6 +25,15 @@ from zoneinfo import ZoneInfo
 
 SCHOOL_TZ = ZoneInfo("America/Toronto")
 
+# The first award period (no Start fresh yet) runs from semester day 1 to
+# this school date, as Shawn defined it (MCK-133). It is the label's end
+# whenever no stored snapshot gives an earlier one. School setting
+# ``SETTING_FIRST_AWARD_PERIOD_END`` (ISO date) overrides it; a blank or
+# unreadable setting falls back to this constant. A date before the active
+# semester's day 1 is ignored (a later semester's first period is open).
+FIRST_AWARD_PERIOD_END = date(2026, 10, 1)
+SETTING_FIRST_AWARD_PERIOD_END = "celebration_first_award_period_end"
+
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
@@ -160,6 +169,24 @@ def semester_first_day(semester: dict[str, Any] | None) -> date | None:
     return school_date(semester.get("instructional_first"))
 
 
+def first_period_end(school: Any, start: date | None) -> date | None:
+    """Defined end of the first award period, or None when it does not apply.
+
+    Never raises: a missing or broken setting reads as the constant.
+    """
+    end = FIRST_AWARD_PERIOD_END
+    try:
+        raw = school.get_school_setting(SETTING_FIRST_AWARD_PERIOD_END, "")
+    except Exception:  # noqa: BLE001 - the label must not fail
+        raw = ""
+    override = school_date(raw)
+    if override is not None:
+        end = override
+    if start is not None and end < start:
+        return None
+    return end
+
+
 def _day(value: date) -> str:
     return f"{_MONTHS[value.month - 1]} {value.day}"
 
@@ -168,10 +195,14 @@ def period_label(start: date | None, end: date | None, copy: dict[str, str]) -> 
     """Placeholder timeframe text for one award card (Wonder replaces copy).
 
     ``Sep 8 – Oct 1, 2026``, ``Dec 1, 2026 – Jan 15, 2027``, or, with no
-    end (live board), ``Since Oct 2, 2026``. Empty when the start is unknown.
+    end (an open period on the live board), ``Since Oct 2, 2026``. With no
+    known start (no semester day 1): ``Through Oct 1, 2026``, else
+    ``This semester``. Never empty.
     """
     if start is None:
-        return ""
+        if end is not None:
+            return copy["period_through"].format(end=f"{_day(end)}, {end.year}")
+        return copy["period_unknown"]
     if end is None:
         return copy["period_since"].format(start=f"{_day(start)}, {start.year}")
     if end < start:

@@ -91,6 +91,8 @@ WONDER_COPY: dict[str, str] = {
     # MCK-133 award timeframe on each Most Engaged card. Placeholders.
     "period_range": "{start} – {end}",  # Wonder copy slot
     "period_since": "Since {start}",  # Wonder copy slot
+    "period_through": "Through {end}",  # Wonder copy slot (no semester day 1)
+    "period_unknown": "This semester",  # Wonder copy slot (last-resort label)
 }
 
 _public_board_lock = Lock()
@@ -489,28 +491,50 @@ def _course_period(in_course: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _period_fields(school: Any, card: dict[str, Any], end: Any) -> dict[str, Any]:
+def _period_fields(
+    school: Any, card: dict[str, Any], snapshot_end: Any = None
+) -> dict[str, Any]:
     """Public timeframe fields for a Most Engaged card (MCK-133).
+
+    * Start: the card's ``period_start``; "" (first period) is semester
+      day 1 from the active semester.
+    * First period (``period_id`` 0): ends at the stored snapshot's date
+      when there is one, but never after ``FIRST_AWARD_PERIOD_END``
+      (Oct 1, 2026, or the setting). No stored snapshot (freeze off, or a
+      read that stored nothing) ends at ``FIRST_AWARD_PERIOD_END``.
+    * Later periods: end at the stored snapshot's date; with no stored
+      snapshot the period is still open ("Since …").
+
+    Never raises and never returns an empty label.
 
     Args:
         school: ``SchoolDB`` instance.
-        card: Live or snapshot card with ``period_start`` ("" = semester
-            day 1).
-        end: Last day the card's tally covers (date, ISO text, or None for
-            the live board).
+        card: Live or snapshot card (``period_id``, ``period_start``).
+        snapshot_end: School date (or ISO text) the stored snapshot froze
+            this card, or None when no stored snapshot backs it.
 
     Returns:
         ``period_start`` / ``period_end`` (ISO date or None) and the
         placeholder ``period_label``.
     """
-    start = award_periods.school_date(card.get("period_start"))
-    if start is None:
-        start = award_periods.semester_first_day(school.get_active_semester())
-    end_day = award_periods.school_date(end) if end is not None else None
+    start = end = None
+    try:
+        start = award_periods.school_date(card.get("period_start"))
+        if start is None:
+            start = award_periods.semester_first_day(school.get_active_semester())
+        end = award_periods.school_date(snapshot_end) if snapshot_end else None
+        if not int(card.get("period_id") or 0):
+            defined = award_periods.first_period_end(school, start)
+            if defined is not None:
+                end = defined if end is None else min(end, defined)
+        label = award_periods.period_label(start, end, WONDER_COPY)
+    except Exception:  # noqa: BLE001 - a label must never break the board
+        start = end = None
+        label = WONDER_COPY["period_unknown"]
     return {
         "period_start": start.isoformat() if start else None,
-        "period_end": end_day.isoformat() if end_day else None,
-        "period_label": award_periods.period_label(start, end_day, WONDER_COPY),
+        "period_end": end.isoformat() if end else None,
+        "period_label": label or WONDER_COPY["period_unknown"],
     }
 
 
@@ -913,7 +937,8 @@ def frozen_celebration_snapshot(school: Any) -> dict[str, Any]:
         return _store_snapshot(school, raw, merged)
     fresh = _new_snapshot(school, semester_id, epoch)
     if not fresh["cards"] or live:
-        return fresh
+        # Served, not stored (MCK-133: no snapshot date for the label).
+        return {**fresh, "unsaved": True}
     return _store_snapshot(school, raw, fresh)
 
 
@@ -1122,8 +1147,11 @@ def _assemble_public_board(school: Any) -> dict[str, Any]:
             public = _frozen_public_card(school, card)
             if public is not None:
                 # Snapshots from before MCK-133 have no ``through``: their
-                # tally ends the day the snapshot was taken.
-                through = card.get("through") or snapshot.get("taken_at")
+                # tally ends the day the snapshot was taken. A snapshot
+                # served but not stored has no date of its own.
+                through = None
+                if not snapshot.get("unsaved"):
+                    through = card.get("through") or snapshot.get("taken_at")
                 public.update(_period_fields(school, card, through))
                 cards.append(public)
         return {"cards": cards}
@@ -1132,7 +1160,7 @@ def _assemble_public_board(school: Any) -> dict[str, Any]:
         public = _public_card(school, card)
         if public is not None:
             if card.get("key") == "engaged":
-                public.update(_period_fields(school, card, None))
+                public.update(_period_fields(school, card))
             cards.append(public)
     return {"cards": cards}
 

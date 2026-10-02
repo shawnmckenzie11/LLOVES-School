@@ -55,7 +55,8 @@ class PeriodHelperTests(unittest.TestCase):
             "Dec 1, 2026 – Jan 15, 2027",
         )
         self.assertEqual(label(date(2026, 10, 2), None, WONDER_COPY), "Since Oct 2, 2026")
-        self.assertEqual(label(None, date(2026, 10, 1), WONDER_COPY), "")
+        self.assertEqual(label(None, date(2026, 10, 1), WONDER_COPY), "Through Oct 1, 2026")
+        self.assertEqual(label(None, None, WONDER_COPY), "This semester")
         # An end before the start (clock skew) collapses to one day.
         self.assertEqual(
             label(date(2026, 10, 2), date(2026, 10, 1), WONDER_COPY), "Oct 2 – Oct 2, 2026"
@@ -169,9 +170,10 @@ class StartFreshTests(unittest.TestCase):
         mcf, ids = rows["MCF3M"]
         board = self._board()
         self.assertEqual(board["MCF3M"]["names"], ["Maple"])
-        self.assertEqual(board["MCF3M"]["period_label"], "Since Sep 8, 2026")
+        # First period, no snapshot: semester day 1 to FIRST_AWARD_PERIOD_END.
+        self.assertEqual(board["MCF3M"]["period_label"], "Sep 8 – Oct 1, 2026")
         self.assertEqual(board["MCF3M"]["period_start"], "2026-09-08")
-        self.assertIsNone(board["MCF3M"]["period_end"])
+        self.assertEqual(board["MCF3M"]["period_end"], "2026-10-01")
         saved = self._session_rows(mcf)
         dashboard = self.school.game.dashboard(mcf, sort="az")
 
@@ -185,7 +187,7 @@ class StartFreshTests(unittest.TestCase):
         board = self._board()
         self.assertNotIn("MCF3M", board)  # nobody yet in the new period
         self.assertEqual(board["MCR3U"]["names"], ["Oak"])
-        self.assertEqual(board["MCR3U"]["period_label"], "Since Sep 8, 2026")
+        self.assertEqual(board["MCR3U"]["period_label"], "Sep 8 – Oct 1, 2026")
         self.assertEqual(self._session_rows(mcf), saved)
         self.assertEqual(self.school.game.dashboard(mcf, sort="az"), dashboard)
 
@@ -193,7 +195,9 @@ class StartFreshTests(unittest.TestCase):
         board = self._board()
         self.assertEqual(board["MCF3M"]["names"], ["Birch"])
         self.assertEqual(board["MCF3M"]["detail"], "1 class present · 1 pts")
+        # A later period with no snapshot is still open.
         self.assertEqual(board["MCF3M"]["period_label"], "Since Sep 15, 2026")
+        self.assertIsNone(board["MCF3M"]["period_end"])
         self.assertEqual(board["MCF3M"]["period_start"], "2026-09-15")
         engaged = [r for r in celebrated_students(self.school) if r["card"] == "engaged"]
         by_course = {r["course"]: r for r in engaged}
@@ -371,6 +375,86 @@ class StartFreshTests(unittest.TestCase):
         self.school.delete_staff_permanently(int(self.teacher["id"]), 999999)
         self.assertEqual(periods.current_periods(self.school, semester_id), {})
         del rows
+
+    # --- First-period end date (prod has no stored snapshot) -------------
+
+    def _assert_first_period(self, board: dict[str, dict], courses=("MCF3M", "MCR3U")) -> None:
+        for course in courses:
+            self.assertEqual(board[course]["period_label"], "Sep 8 – Oct 1, 2026", course)
+            self.assertEqual(board[course]["period_start"], "2026-09-08")
+            self.assertEqual(board[course]["period_end"], "2026-10-01")
+
+    def test_no_snapshot_freeze_off_uses_defined_end(self) -> None:
+        """Freeze off, no snapshot row (prod v209): Sep 8 – Oct 1, 2026."""
+        os.environ[CELEBRATIONS_FROZEN_ENV] = "0"
+        self._at("2026-10-02T15:00:00")
+        self._two_courses()
+        self.assertIsNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))
+        self._assert_first_period(self._board())
+        self.assertIsNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))
+
+    def test_no_snapshot_freeze_on_uses_defined_end(self) -> None:
+        """Freeze on, nothing stored (a live class runs): Sep 8 – Oct 1, 2026."""
+        self._at("2026-10-02T15:00:00")
+        self._two_courses()
+        busy = self._populate(["Solo"])
+        started = self.client.post(f"/api/classes/{busy}/live-session/start", json={})
+        self.assertEqual(started.status_code, 200, started.get_json())
+        self._assert_first_period(self._board())
+        self.assertIsNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))
+
+    def test_first_snapshot_after_oct_1_keeps_defined_end(self) -> None:
+        """Freeze on, first snapshot taken after deploy (Oct 3): still Oct 1.
+
+        Prod has no snapshot row, so the first read after deploy stores
+        one. The first period's end is never later than Oct 1, 2026.
+        """
+        self._at("2026-10-03T09:00:00")
+        self._two_courses()
+        board = self._board()
+        stored = json.loads(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT))
+        self.assertEqual({c["through"] for c in stored["cards"]}, {"2026-10-03"})
+        self._assert_first_period(board)
+
+    def test_snapshot_before_defined_end_uses_snapshot_date(self) -> None:
+        """Snapshot present and taken Sep 20: Sep 8 – Sep 20, 2026."""
+        self._at("2026-09-20T16:00:00")
+        self._two_courses()
+        board = self._board()
+        self.assertIsNotNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))
+        for course in ("MCF3M", "MCR3U"):
+            self.assertEqual(board[course]["period_label"], "Sep 8 – Sep 20, 2026")
+            self.assertEqual(board[course]["period_end"], "2026-09-20")
+
+    def test_defined_end_setting_override_and_garbage(self) -> None:
+        """The setting overrides the constant; junk falls back; never blank."""
+        os.environ[CELEBRATIONS_FROZEN_ENV] = "0"
+        self._two_courses()
+        self.school.set_school_setting(periods.SETTING_FIRST_AWARD_PERIOD_END, "2026-09-30")
+        board = self._board()
+        self.assertEqual(board["MCF3M"]["period_label"], "Sep 8 – Sep 30, 2026")
+        self.school.set_school_setting(periods.SETTING_FIRST_AWARD_PERIOD_END, "not a date")
+        self._assert_first_period(self._board())
+        # An end before semester day 1 (a later semester) is ignored: open.
+        self.school.set_school_setting(periods.SETTING_FIRST_AWARD_PERIOD_END, "2026-01-31")
+        board = self._board()
+        self.assertEqual(board["MCF3M"]["period_label"], "Since Sep 8, 2026")
+        self.assertIsNone(board["MCF3M"]["period_end"])
+
+    def test_label_never_blank_or_crashes(self) -> None:
+        """No semester day 1, or a failing lookup, still gives a label."""
+        os.environ[CELEBRATIONS_FROZEN_ENV] = "0"
+        self._two_courses()
+        semester = dict(self.school.get_active_semester())
+        semester["instructional_first"] = None
+        with patch.object(self.school, "get_active_semester", return_value=semester):
+            board = self._board()
+        self.assertEqual(board["MCF3M"]["period_label"], "Through Oct 1, 2026")
+        self.assertIsNone(board["MCF3M"]["period_start"])
+        with patch.object(periods, "semester_first_day", side_effect=RuntimeError("boom")):
+            board = self._board()
+        self.assertEqual(board["MCF3M"]["period_label"], "This semester")
+        self.assertEqual(board["MCF3M"]["names"], ["Maple"])
 
 
 if __name__ == "__main__":
