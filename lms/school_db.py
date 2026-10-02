@@ -343,6 +343,12 @@ def normalize_staff_2fa_mode(raw: str | None) -> str:
 DEFAULT_TENANT_SLUG = "elc"
 DEFAULT_TENANT_NAME = "ELC (single school)"
 
+# MCK-112 (copy: Wonder v1). Raised when a group publish arrives while the
+# class-wide "Show teams to students" switch (``run_as_group``) is off.
+GROUP_PUBLISH_NEEDS_TEAMS_SHOWN = (
+    'Turn on "Show teams to students" before publishing to groups.'
+)
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tenants (
     id INTEGER PRIMARY KEY,
@@ -13587,13 +13593,10 @@ class SchoolDB(LovesDB):
             )
             if response_mode == "group_consensus":
                 teacher = self.live_session_teacher_state_payload(session_id)
-                if not (
-                    teacher.get("groups_configured")
-                    and teacher.get("run_as_group")
-                ):
-                    raise ValueError(
-                        "Set up groups and enable Run as Group before publishing."
-                    )
+                if not teacher.get("groups_configured"):
+                    raise ValueError("Set up groups before publishing to groups.")
+                if not teacher.get("run_as_group"):
+                    raise ValueError(GROUP_PUBLISH_NEEDS_TEAMS_SHOWN)
         prompt = self._ensure_prompt_for_live_item(item)
         now = _now()
         with self._lock:
@@ -14030,18 +14033,21 @@ class SchoolDB(LovesDB):
             self.conn.commit()
 
     def _require_group_mc_publish(self, session_id: int, item: dict[str, Any]) -> None:
-        """Allow group submit on multiple choice and turn Run as groups on.
+        """Allow group submit on multiple choice once teams are showing.
 
         Submission = Group is the only switch. Numeric and open items stay
         on the existing consensus alias. Groups must already exist; this
-        does not create them.
+        does not create them. MCK-112: publishing never turns class-wide
+        Run as Group ("Show teams to students") on by itself. The teacher
+        confirms that in the UI first, the same rule consensus already has.
 
         Args:
             session_id: ``live_class_sessions.id``.
             item: Lifecycle row about to be published.
 
         Raises:
-            ValueError: The item is not multiple choice, or groups are not set up.
+            ValueError: The item is not multiple choice, groups are not set
+                up, or Run as Group is off.
         """
 
         kind = self._question_answer_kind(item)
@@ -14051,7 +14057,7 @@ class SchoolDB(LovesDB):
         if not teacher.get("groups_configured"):
             raise ValueError("Set up groups before Group submission.")
         if not teacher.get("run_as_group"):
-            self.set_live_session_teacher_state(session_id, run_as_group=True)
+            raise ValueError(GROUP_PUBLISH_NEEDS_TEAMS_SHOWN)
 
     def _initialize_group_submit(self, item: dict[str, Any]) -> None:
         """Snapshot teams into a shared drafting row for one MC question.

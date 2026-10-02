@@ -1406,6 +1406,63 @@ function currentStudentView() {
 }
 
 /**
+ * MCK-112 S1: surface Publish-mode choices held client-side when the
+ * surface has no lifecycle row yet. Applied only at Publish.
+ * @type {Map<string, "student"|"team">}
+ */
+const surfaceModeIntent = new Map();
+
+/** sessionStorage key prefix for held surface picks (MCK-112 S1 LOW). */
+const SURFACE_INTENT_STORE = "alc.mck112.surfaceIntent";
+
+/** Session the held surface picks were last loaded for. */
+let surfaceIntentLoadedFor = "";
+
+/**
+ * Storage key for this tab's live session, or "" before a session exists.
+ * @returns {string}
+ */
+function surfaceIntentStoreKey() {
+  const id = liveSessionId || readLiveSessionId();
+  return id ? `${SURFACE_INTENT_STORE}:${id}` : "";
+}
+
+/**
+ * Restore held surface picks after a reload. Nothing reaches students;
+ * the pick still only applies at Publish.
+ */
+function loadSurfaceModeIntent() {
+  const key = surfaceIntentStoreKey();
+  if (!key || surfaceIntentLoadedFor === key) return;
+  surfaceIntentLoadedFor = key;
+  try {
+    const raw = JSON.parse(window.sessionStorage.getItem(key) || "{}");
+    for (const [surface, mode] of Object.entries(raw || {})) {
+      if (!["media", "canvas", "slides"].includes(surface)) continue;
+      if (mode !== "team" && mode !== "student") continue;
+      if (!surfaceModeIntent.has(surface)) surfaceModeIntent.set(surface, mode);
+    }
+  } catch (_err) {
+    // Private mode or bad JSON: the pick just lives in memory.
+  }
+}
+
+/** Write held surface picks so a reload keeps them. */
+function saveSurfaceModeIntent() {
+  const key = surfaceIntentStoreKey();
+  if (!key) return;
+  try {
+    if (surfaceModeIntent.size) {
+      window.sessionStorage.setItem(key, JSON.stringify(Object.fromEntries(surfaceModeIntent)));
+    } else {
+      window.sessionStorage.removeItem(key);
+    }
+  } catch (_err) {
+    // Storage full or blocked: keep the in-memory pick.
+  }
+}
+
+/**
  * Dropdown value for one surface. The lifecycle publish mode wins over the
  * projection map so Shared within Group survives a poll before Publish.
  * @param {"media"|"canvas"|"slides"} surface
@@ -1414,6 +1471,10 @@ function currentStudentView() {
 function surfacePublishSelection(surface) {
   const item = lifecycleItemForSurface(surface);
   const id = Number(item?.id) || 0;
+  loadSurfaceModeIntent();
+  if (!id && surfaceModeIntent.has(surface)) {
+    return surfaceModeIntent.get(surface) === "team" ? "team" : "student";
+  }
   const held = id ? teacherSettingHold.get(`${id}:publish_mode`) : undefined;
   const stored = String(held || item?.publish_mode || "");
   if (stored === "group_shared") return "team";
@@ -1509,6 +1570,8 @@ async function publishSurface(surface) {
     surface === "canvas" ||
     (Boolean(teacherState.run_as_group) && surfaceSupportsGroup(surface));
   const selected = picked && groupOk ? "team" : "student";
+  surfaceModeIntent.delete(surface);
+  saveSurfaceModeIntent();
   const item = lifecycleItemForSurface(surface);
   if (item && item.status === "inactive") {
     const publishMode =
@@ -3315,7 +3378,7 @@ function paintLiveQuestionCards() {
         : `<p class="hint compact">No questions in this lesson deck yet.</p>`;
     return;
   }
-  host.innerHTML = cards
+  writeQuestionCardsKeepingConfirms(host, cards
     .map((card, index) => {
       const item = card.item || card;
       const options = Array.isArray(item.options)
@@ -3456,10 +3519,10 @@ function paintLiveQuestionCards() {
               <button type="button" class="live-submission-choice${submissionValue === "group_submit" ? " is-on" : ""}" data-submission-mode="${liveItemId}" data-submission-value="group_submit" aria-pressed="${submissionValue === "group_submit" ? "true" : "false"}">Group</button>
               <input type="hidden" data-publish-live-mode="${liveItemId}" value="${submissionValue}">
             </div>
-            <button type="button" class="live-q-btn" data-publish-live-item="${liveItemId}">Publish</button>
+            ${groupPublishButtonHtml(liveItemId)}
           </div>`
           : `<div class="live-publish-split${canGroup ? " has-modes" : ""}">
-            <button type="button" class="live-q-btn" data-publish-live-item="${liveItemId}">Publish</button>
+            ${groupPublishButtonHtml(liveItemId)}
             ${
               canGroup
                 ? `<select data-publish-live-mode="${liveItemId}" aria-label="Publish mode">
@@ -3551,8 +3614,97 @@ function paintLiveQuestionCards() {
         </div>
       </article>`;
     })
-    .join("");
+    .join(""));
   void renderLiveQuestionMath(host);
+}
+
+/**
+ * Focused confirm button, as ``[attr, key]``, so a repaint can put focus
+ * back if it falls to the page body.
+ * @returns {[string, string]|null}
+ */
+function focusedGroupConfirmButton() {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement)) return null;
+  for (const attr of ["data-group-confirm-yes", "data-group-confirm-cancel"]) {
+    const key = active.getAttribute(attr);
+    if (key) return [attr, key];
+  }
+  return null;
+}
+
+/**
+ * Put focus back on a confirm button when a repaint dropped it.
+ * @param {[string, string]|null} focused
+ */
+function restoreGroupConfirmFocus(focused) {
+  if (!focused) return;
+  const active = document.activeElement;
+  if (active && active !== document.body && active !== document.documentElement) {
+    if (active instanceof HTMLElement && active.isConnected) return;
+  }
+  const [attr, key] = focused;
+  const escaped = CSS.escape ? CSS.escape(key) : key;
+  const button = document.querySelector(`[${attr}="${escaped}"]`);
+  if (button instanceof HTMLElement) button.focus();
+}
+
+/**
+ * MCK-112 S1: write the question list without repainting a card whose
+ * in-place "Show teams and publish" confirm is open. Live repaints (every
+ * student join/answer) used to replace that card, which dropped focus to
+ * the page body and broke Esc-to-cancel. The open card stays the same DOM
+ * node; every other card is replaced around it.
+ * @param {HTMLElement} host
+ * @param {string} html
+ */
+function writeQuestionCardsKeepingConfirms(host, html) {
+  const focused = focusedGroupConfirmButton();
+  /** @type {Map<string, Element>} */
+  const pinned = new Map();
+  for (const key of groupPublishConfirms.keys()) {
+    if (!key.startsWith("q:")) continue;
+    const id = key.slice(2);
+    const escaped = CSS.escape ? CSS.escape(key) : key;
+    const confirm = host.querySelector(`[data-group-confirm="${escaped}"]`);
+    const card = confirm?.closest(".live-question-card");
+    if (card && card.parentElement === host && card.getAttribute("data-live-item-id") === id) {
+      pinned.set(id, card);
+    }
+  }
+  if (!pinned.size) {
+    host.innerHTML = html;
+    restoreGroupConfirmFocus(focused);
+    return;
+  }
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const fresh = [...template.content.children];
+  const freshIds = new Set(fresh.map((el) => el.getAttribute("data-live-item-id") || ""));
+  for (const [id] of [...pinned]) {
+    if (!freshIds.has(id)) {
+      // The card left this page: its confirm can't be answered any more.
+      pinned.delete(id);
+      settleGroupPublishConfirm(`q:${id}`, false);
+    }
+  }
+  if (!pinned.size) {
+    host.innerHTML = html;
+    restoreGroupConfirmFocus(focused);
+    return;
+  }
+  const keep = new Set(pinned.values());
+  for (const node of [...host.childNodes]) {
+    if (!keep.has(node)) node.remove();
+  }
+  let prev = null;
+  for (const el of fresh) {
+    const node = pinned.get(el.getAttribute("data-live-item-id") || "") || el;
+    const at = prev ? prev.nextSibling : host.firstChild;
+    if (node !== at) host.insertBefore(node, at);
+    prev = node;
+  }
+  restoreGroupConfirmFocus(focused);
 }
 
 /**
@@ -3755,21 +3907,156 @@ function selectedPublishMode(liveItemId) {
 }
 
 /**
+ * MCK-112 copy (Wonder v1) for the Publish-on-Group confirm.
+ */
+const GROUP_PUBLISH_CONFIRM_COPY = Object.freeze({
+  text: "Students can't see teams yet. Publishing as a group will show team names to the class.",
+  confirm: "Show teams and publish",
+  cancel: "Cancel",
+});
+
+/**
+ * Pending in-place Publish confirms, keyed ``q:<liveItemId>``. Each value
+ * resolves the promise ``confirmGroupPublish`` returned.
+ * @type {Map<string, (ok: boolean) => void>}
+ */
+const groupPublishConfirms = new Map();
+
+/**
+ * True when a publish mode needs class-wide Run as Group on the server.
+ * @param {string} mode
+ * @returns {boolean}
+ */
+function groupModeNeedsTeamsShown(mode) {
+  return mode === "group_submit" || mode === "group_consensus";
+}
+
+/**
+ * Ask in place (the card's Publish button becomes the confirm) whether
+ * to show teams to students and publish. Cancel changes nothing.
+ * @param {string} key ``q:<liveItemId>``.
+ * @returns {Promise<boolean>}
+ */
+function confirmGroupPublish(key) {
+  const previous = groupPublishConfirms.get(key);
+  if (previous) previous(false);
+  return new Promise((resolve) => {
+    groupPublishConfirms.set(key, (ok) => {
+      groupPublishConfirms.delete(key);
+      resolve(Boolean(ok));
+      paintLiveQuestionCards();
+    });
+    paintLiveQuestionCards();
+    const yes = document.querySelector(
+      `[data-group-confirm-yes="${CSS.escape ? CSS.escape(key) : key}"]`
+    );
+    if (yes instanceof HTMLButtonElement) yes.focus();
+  });
+}
+
+/**
+ * The card's publish mode right now: the teacher's latest pick first (it
+ * wins before the settings PATCH lands), then the painted control.
+ * @param {number} liveItemId
+ * @returns {string}
+ */
+function questionPublishModeNow(liveItemId) {
+  const id = Number(liveItemId) || 0;
+  const mc = groupSubmissionIntent.get(id);
+  if (mc === "group_submit" || mc === "individual") return mc;
+  const open = openPublishIntent.get(id);
+  if (open === "group_consensus" || open === "individual") return open;
+  return selectedPublishMode(id);
+}
+
+/**
+ * Settle one pending confirm.
+ * @param {string} key
+ * @param {boolean} ok
+ */
+function settleGroupPublishConfirm(key, ok) {
+  const resolve = groupPublishConfirms.get(key);
+  if (resolve) resolve(ok);
+}
+
+/**
+ * Publish button for one card, or the in-place confirm while pending.
+ * @param {number} liveItemId
+ * @returns {string}
+ */
+function groupPublishButtonHtml(liveItemId) {
+  const key = `q:${Number(liveItemId)}`;
+  if (!groupPublishConfirms.has(key)) {
+    return `<button type="button" class="live-q-btn" data-publish-live-item="${liveItemId}">Publish</button>`;
+  }
+  const C = GROUP_PUBLISH_CONFIRM_COPY;
+  return `<span class="live-group-setup-confirm" role="group" aria-label="${escapeHtml(C.confirm)}" data-group-confirm="${escapeHtml(key)}">
+      <span class="live-group-setup-confirm-text">${escapeHtml(C.text)}</span>
+      <button type="button" class="live-q-btn" data-group-confirm-yes="${escapeHtml(key)}">${escapeHtml(C.confirm)}</button>
+      <button type="button" class="secondary live-q-btn" data-group-confirm-cancel="${escapeHtml(key)}">${escapeHtml(C.cancel)}</button>
+    </span>`;
+}
+
+document.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const yes = target?.closest("button[data-group-confirm-yes]");
+  if (yes instanceof HTMLButtonElement) {
+    settleGroupPublishConfirm(yes.getAttribute("data-group-confirm-yes") || "", true);
+    return;
+  }
+  const no = target?.closest("button[data-group-confirm-cancel]");
+  if (no instanceof HTMLButtonElement) {
+    settleGroupPublishConfirm(no.getAttribute("data-group-confirm-cancel") || "", false);
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !groupPublishConfirms.size) return;
+  const target = event.target instanceof Element ? event.target : null;
+  const host = target?.closest("[data-group-confirm]");
+  if (host) {
+    event.preventDefault();
+    settleGroupPublishConfirm(host.getAttribute("data-group-confirm") || "", false);
+    return;
+  }
+  // Esc still cancels when focus fell to the page (a repaint) or sits on
+  // the same card. Other dialogs keep their own Esc.
+  const active = document.activeElement;
+  const lost = !active || active === document.body || active === document.documentElement;
+  const card = target?.closest(".live-question-card, [data-surface-controls]");
+  if (lost || card?.querySelector("[data-group-confirm]")) {
+    event.preventDefault();
+    for (const key of [...groupPublishConfirms.keys()]) {
+      settleGroupPublishConfirm(key, false);
+    }
+  }
+});
+
+/**
  * Publish one inactive question using its selected supported mode.
  * @param {number} liveItemId
  */
 async function publishLifecycleItem(liveItemId) {
   const sessionId = liveSessionId || readLiveSessionId();
   if (!sessionId || !liveItemId) return;
-  const publishMode = selectedPublishMode(liveItemId);
+  let publishMode = selectedPublishMode(liveItemId);
   if (
-    publishMode === "group_submit" &&
+    groupModeNeedsTeamsShown(publishMode) &&
     teacherState.groups_configured &&
     !teacherState.run_as_group
   ) {
-    teacherState.run_as_group = true;
-    teacherState.teams_mode = "teams";
-    await patchTeacherState({ run_as_group: true }, { silent: true });
+    // MCK-112 S1: never a silent class-wide flip. Ask in place; only
+    // "Show teams and publish" turns Run as Group on, right before Publish.
+    const confirmed = await confirmGroupPublish(`q:${Number(liveItemId)}`);
+    if (!confirmed) return;
+    // Re-read the card's mode now: the teacher may have switched it back
+    // to Individual while the confirm was open.
+    publishMode = questionPublishModeNow(liveItemId);
+    if (groupModeNeedsTeamsShown(publishMode) && !teacherState.run_as_group) {
+      teacherState.run_as_group = true;
+      teacherState.teams_mode = "teams";
+      await patchTeacherState({ run_as_group: true }, { silent: true });
+    }
   }
   const result = await api(
     `/api/live-sessions/${sessionId}/items/${liveItemId}/publish`,
@@ -9454,9 +9741,10 @@ async function persistSurfacePublishMode(surface) {
   const item = lifecycleItemForSurface(surface);
   const id = Number(item?.id) || 0;
   if (!id) {
-    const next = { ...(teacherState.student_view || {}), [surface]: viewMode };
-    teacherState.student_view = next;
-    await patchTeacherState({ student_view: next });
+    // MCK-112 S1: no lifecycle row yet. Hold the choice until Publish;
+    // writing student_view here changed students' screens early.
+    surfaceModeIntent.set(surface, viewMode);
+    saveSurfaceModeIntent();
     return;
   }
   const index = lastLiveItems.findIndex((row) => Number(row.id) === id);
@@ -9588,16 +9876,11 @@ $("live-question-list")?.addEventListener("click", async (event) => {
     const value =
       submission.dataset.submissionValue === "group_submit" ? "group_submit" : "individual";
     groupSubmissionIntent.set(id, value);
+    // A mode change closes an open "Show teams and publish" confirm.
+    settleGroupPublishConfirm(`q:${id}`, false);
     try {
-      if (
-        value === "group_submit" &&
-        teacherState.groups_configured &&
-        !teacherState.run_as_group
-      ) {
-        teacherState.run_as_group = true;
-        teacherState.teams_mode = "teams";
-        await patchTeacherState({ run_as_group: true }, { silent: true });
-      }
+      // MCK-112 S1: picking Group only stores the choice on the inactive
+      // item. It never turns class-wide Run as Group on; Publish asks.
       await persistQuestionMode(id, value);
     } catch (err) {
       showError("#ap-overlay-error", err);
@@ -9640,6 +9923,7 @@ $("live-question-list")?.addEventListener("change", async (event) => {
       id,
       value === "group_consensus" ? "group_consensus" : "individual"
     );
+    settleGroupPublishConfirm(`q:${id}`, false);
     try {
       await persistQuestionMode(id, value);
     } catch (err) {

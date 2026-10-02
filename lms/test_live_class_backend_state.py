@@ -3356,6 +3356,11 @@ class LiveBackendStateTests(unittest.TestCase):
                 "run_as_group"
             ]
         )
+        # MCK-112 S1: the teacher confirms "Show teams to students" first;
+        # publish no longer flips it.
+        self.school.set_live_session_teacher_state(
+            self.session_id, run_as_group=True
+        )
         items = self.school.ensure_live_session_items(self.session_id)
         group_item = next(row for row in items if row["item_id"] == "q-one")
         published = self.school.publish_live_session_item(
@@ -3632,19 +3637,65 @@ class LiveBackendStateTests(unittest.TestCase):
                 publish_mode="group submit",
             )
 
-    def test_group_submit_spaced_alias_publishes(self) -> None:
-        """``group submit`` is the same Group MC publish as ``group_submit``.
+    def test_group_submit_without_run_as_group_raises_and_keeps_flag_off(
+        self,
+    ) -> None:
+        """MCK-112 S1: Group MC publish never flips class-wide Run as Group.
 
-        The page error ``publish mode is not supported: group submit`` was
-        the whitelist rejecting the spaced token before the group-submit
-        branch. Groups already configured must publish and turn run-as-groups
-        on.
+        With teams set up but "Show teams to students" off, publish raises
+        the Wonder v1 string, the item stays inactive, and the flag stays
+        off. Storing the Group choice on the inactive item does not touch
+        it either.
         """
 
         self._begin_and_join(4)
         self._setup_groups()
         self.school.set_live_session_teacher_state(
             self.session_id, run_as_group=False
+        )
+        items = self.school.ensure_live_session_items(self.session_id)
+        group_item = next(row for row in items if row["item_id"] == "q-one")
+        stored = self.school.update_live_session_item_settings(
+            self.session_id,
+            int(group_item["id"]),
+            publish_mode="group_submit",
+            response_mode="group_submit",
+        )
+        self.assertEqual(stored["status"], "inactive")
+        self.assertFalse(
+            self.school.live_session_teacher_state_payload(self.session_id)[
+                "run_as_group"
+            ]
+        )
+        with self.assertRaisesRegex(
+            ValueError, 'Turn on "Show teams to students" before publishing to groups.'
+        ):
+            self.school.publish_live_session_item(
+                self.session_id,
+                int(group_item["id"]),
+                publish_mode="group_submit",
+            )
+        self.assertFalse(
+            self.school.live_session_teacher_state_payload(self.session_id)[
+                "run_as_group"
+            ]
+        )
+        row = self.school.get_live_session_item(self.session_id, int(group_item["id"]))
+        self.assertEqual(row["status"], "inactive")
+
+    def test_group_submit_spaced_alias_publishes(self) -> None:
+        """``group submit`` is the same Group MC publish as ``group_submit``.
+
+        The page error ``publish mode is not supported: group submit`` was
+        the whitelist rejecting the spaced token before the group-submit
+        branch. Groups already configured must publish once the teacher
+        has turned "Show teams to students" (run-as-groups) on (MCK-112 S1).
+        """
+
+        self._begin_and_join(4)
+        self._setup_groups()
+        self.school.set_live_session_teacher_state(
+            self.session_id, run_as_group=True
         )
         items = self.school.ensure_live_session_items(self.session_id)
         group_item = next(row for row in items if row["item_id"] == "q-one")
