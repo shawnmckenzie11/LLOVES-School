@@ -835,6 +835,12 @@ SQLITE_BUSY_TIMEOUT_MS = 30_000
 #: Backoff (seconds) between ``PRAGMA journal_mode = WAL`` retries on BUSY.
 #: Sums to about 6 s, well under the gunicorn boot timeout.
 SQLITE_WAL_RETRY_DELAYS = (0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.0)
+#: ``busy_timeout`` (ms) for each WAL attempt. The connection's own timeout
+#: comes back afterwards. With 30 s per attempt, 8 attempts could pass the
+#: 120 s gunicorn worker timeout (MCK-109).
+SQLITE_WAL_ATTEMPT_TIMEOUT_MS = 2_000
+#: Cap (seconds) on the whole WAL switch: every wait and backoff sleep.
+SQLITE_WAL_BUDGET_SECONDS = 30.0
 
 
 def _sqlite_is_busy(exc: sqlite3.OperationalError) -> bool:
@@ -849,7 +855,22 @@ def _sqlite_is_busy(exc: sqlite3.OperationalError) -> bool:
     return "database is locked" in str(exc).lower()
 
 
-def enable_sqlite_wal(conn: sqlite3.Connection) -> None:
+def _sqlite_busy_timeout_ms(conn: sqlite3.Connection) -> int:
+    """Read a connection's ``busy_timeout``. Unknown reads as the app default.
+
+    Args:
+        conn: Open sqlite connection.
+    """
+    try:
+        row = conn.execute("PRAGMA busy_timeout").fetchone()
+        return int(row[0])
+    except (TypeError, ValueError, IndexError, sqlite3.Error):
+        return SQLITE_BUSY_TIMEOUT_MS
+
+
+def enable_sqlite_wal(
+    conn: sqlite3.Connection, *, restore_timeout_ms: int | None = None
+) -> None:
     """Switch one connection to WAL, retrying a busy file (MCK-104).
 
     On a brand-new file several gunicorn workers race the switch to WAL.
@@ -858,18 +879,39 @@ def enable_sqlite_wal(conn: sqlite3.Connection) -> None:
     fresh boots). This retries on BUSY with a short backoff. Any other
     error, or BUSY after the last retry, is raised.
 
+    Each attempt waits at most ``SQLITE_WAL_ATTEMPT_TIMEOUT_MS``, and the
+    whole switch stops inside ``SQLITE_WAL_BUDGET_SECONDS`` (MCK-109). The
+    connection's ``busy_timeout`` is restored afterwards, even on error.
+
     Args:
         conn: Open sqlite connection.
+        restore_timeout_ms: ``busy_timeout`` to set afterwards. ``None``
+            restores the value the connection had.
     """
-    for delay in (*SQLITE_WAL_RETRY_DELAYS, None):
-        try:
-            conn.execute("PRAGMA journal_mode = WAL").fetchone()
-            return
-        except sqlite3.OperationalError as exc:
-            if delay is None or not _sqlite_is_busy(exc):
-                raise
-            logger.warning("sqlite busy switching to WAL; retrying in %.2fs", delay)
-            time.sleep(delay)
+    restore = (
+        _sqlite_busy_timeout_ms(conn)
+        if restore_timeout_ms is None
+        else int(restore_timeout_ms)
+    )
+    attempt_s = SQLITE_WAL_ATTEMPT_TIMEOUT_MS / 1000
+    deadline = time.monotonic() + SQLITE_WAL_BUDGET_SECONDS
+    conn.execute(f"PRAGMA busy_timeout={int(SQLITE_WAL_ATTEMPT_TIMEOUT_MS)}")
+    try:
+        for delay in (*SQLITE_WAL_RETRY_DELAYS, None):
+            try:
+                conn.execute("PRAGMA journal_mode = WAL").fetchone()
+                return
+            except sqlite3.OperationalError as exc:
+                if delay is None or not _sqlite_is_busy(exc):
+                    raise
+                if time.monotonic() + delay + attempt_s > deadline:
+                    raise
+                logger.warning(
+                    "sqlite busy switching to WAL; retrying in %.2fs", delay
+                )
+                time.sleep(delay)
+    finally:
+        conn.execute(f"PRAGMA busy_timeout={int(restore)}")
 
 
 def configure_sqlite_connection(conn: sqlite3.Connection) -> sqlite3.Connection:

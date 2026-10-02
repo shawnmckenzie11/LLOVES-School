@@ -135,6 +135,10 @@ def _release_stream() -> None:
         _stream_count = max(0, _stream_count - 1)
 
 
+#: ``busy_timeout`` (ms) on the tape connection once it is open.
+NEWS_BUSY_TIMEOUT_MS = 2_000
+
+
 def news_db_path(data_dir: Path | str) -> Path:
     """Return the sqlite tape path beside the school data directory.
 
@@ -150,28 +154,36 @@ def _connect(path: Path) -> sqlite3.Connection:
     Args:
         path: ``live_news_wire.sqlite``.
     """
+    from school_db import boot_schema_lock, enable_sqlite_wal
+
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), timeout=2.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=2000")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS live_news_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id INTEGER NOT NULL,
-            event_type TEXT NOT NULL,
-            payload_json TEXT NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE INDEX IF NOT EXISTS live_news_session_id
-        ON live_news_events(session_id, id)
-        """
-    )
-    conn.commit()
+    try:
+        # A fresh data dir: workers race the WAL switch, and SQLite can answer
+        # BUSY at once. Same lock + retry as lloves.sqlite (MCK-104, MCK-109).
+        with boot_schema_lock(path):
+            enable_sqlite_wal(conn, restore_timeout_ms=NEWS_BUSY_TIMEOUT_MS)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS live_news_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL,
+                    event_type TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS live_news_session_id
+                ON live_news_events(session_id, id)
+                """
+            )
+            conn.commit()
+    except BaseException:
+        conn.close()
+        raise
     return conn
 
 
@@ -859,10 +871,16 @@ def live_news_response(
             mimetype="text/event-stream",
             headers=_sse_headers(),
         )
-    after_id = parse_last_event_id(last_event_header, last_event_arg)
-    hello_seq = teacher_state_seq(school, int(session_id))
-    hold_s = STREAM_HOLD_TESTING_S if testing else STREAM_HOLD_S
-    log = log_for(school.data_dir)
+    try:
+        after_id = parse_last_event_id(last_event_header, last_event_arg)
+        hello_seq = teacher_state_seq(school, int(session_id))
+        hold_s = STREAM_HOLD_TESTING_S if testing else STREAM_HOLD_S
+        log = log_for(school.data_dir)
+    except BaseException:
+        # A tape that won't open (after its bounded wait) must not keep
+        # this worker's stream slot until restart.
+        _release_stream()
+        raise
 
     def generate() -> Iterator[str]:
         """Yield frames and always return the thread slot."""
