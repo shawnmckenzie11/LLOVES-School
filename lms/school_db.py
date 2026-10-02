@@ -459,8 +459,10 @@ CREATE TABLE IF NOT EXISTS student_code_attempts (
     ts TEXT NOT NULL
 );
 
--- MCK-120: limiter keys are "ip:<addr>" and "session:<id>" (the column
--- keeps its old name). Counted by key and time window.
+-- MCK-120: limiter keys are "ip:<addr>", "session:<id>:<run_key>" and
+-- "session:<id>:<run_key>|ip:<addr>", plus "ok:ip:<addr>" rows for
+-- successful joins (the column keeps its old name).
+-- Counted by key and time window.
 CREATE INDEX IF NOT EXISTS idx_student_code_attempts_key_ts
     ON student_code_attempts(ip, ts);
 CREATE INDEX IF NOT EXISTS idx_student_code_attempts_ts
@@ -4224,7 +4226,7 @@ class LovesDB:
         Also prunes rows older than a day so the table stays small.
 
         Args:
-            keys: e.g. ``["ip:203.0.113.7", "session:12"]``.
+            keys: e.g. ``["ip:203.0.113.7", "session:12:<run_key>"]``.
         """
         stamp = _now()
         cutoff = (datetime.now() - timedelta(days=1)).replace(microsecond=0).isoformat()

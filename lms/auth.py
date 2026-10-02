@@ -67,11 +67,19 @@ from student_portal import (
 STUDENT_JOIN_WRONG_CODE_WINDOW_S = 600
 # Failures from one client IP (IPv6 by /64) before that IP goes quiet.
 STUDENT_JOIN_WRONG_CODE_LIMIT = 80
-# Failures from one client IP before it is blocked. 30 students x 8 misses.
+# Failures from one client IP before it is blocked, for an IP with no
+# successful join in the window. 30 students x 8 misses.
 STUDENT_JOIN_IP_BLOCK_LIMIT = 240
+# The block for an IP that has had a successful join in the window: a
+# school NAT at the bell (3 classes x 28 x 3 typos = 252) must not lock
+# out the students still joining. Still a hard backstop.
+STUDENT_JOIN_IP_JOINED_BLOCK_LIMIT = 600
 # Failed joins naming one live session's code before new joins to it are
 # blocked (name guessing after a code is found). 30 students x 5 misses.
 STUDENT_JOIN_SESSION_FAIL_LIMIT = 150
+# Most one client IP can add to one run's session count, so a single IP
+# (or one school NAT) cannot block a class on its own.
+STUDENT_JOIN_SESSION_PER_IP_LIMIT = 50
 # Failures across every IP before the whole site goes quiet (spread-out
 # guessing). A busy period start is a few hundred.
 STUDENT_JOIN_GLOBAL_FAIL_LIMIT = 2000
@@ -210,6 +218,38 @@ def join_limit_ip_key(ip: str) -> str:
             return f"ip:{mapped}"
         return f"ip:{ipaddress.ip_network(f'{addr}/64', strict=False)}"
     return f"ip:{addr}"
+
+
+def join_limit_session_key(session: Any) -> str:
+    """Limiter key for failed joins against one live run.
+
+    Keyed on the run, not the row: End then Start can reuse the same
+    ``live_class_sessions.id`` with a new code, and the new run must not
+    inherit the old run's failures. ``run_key`` is a fresh UUID on every
+    Start; rows from before that column fall back to their join code,
+    which also rotates on Start.
+
+    Args:
+        session: ``live_class_sessions`` row (dict or sqlite Row).
+
+    Returns:
+        ``"session:<id>:<run>"``.
+    """
+    row = dict(session)
+    run = str(row.get("run_key") or "").strip()
+    if not run:
+        run = "code-" + str(row.get("session_code") or "").strip().upper()
+    return f"session:{int(row['id'])}:{run}"
+
+
+def join_limit_ok_key(ip_key: str) -> str:
+    """Key counting one IP's successful joins (relaxes its hard block)."""
+    return f"ok:{ip_key}"
+
+
+def join_limit_pair_key(session_key: str, ip_key: str) -> str:
+    """Key counting one IP's failures against one run (per-IP session cap)."""
+    return f"{session_key}|{ip_key}"
 
 
 def request_client_ip() -> str:
@@ -1247,18 +1287,27 @@ def register_auth_routes(app: Flask) -> None:
         # MCK-120: every request runs the same counts in the same order, so
         # a quiet key cannot tell a valid code from an invalid one.
         session_key = (
-            f"session:{int(known_session['id'])}" if known_session is not None else None
+            join_limit_session_key(known_session) if known_session is not None else None
         )
         ip_fails = db.count_join_failures(ip_key, seconds=window)
         site_fails = db.count_join_failures(prefix="ip:", seconds=window)
         session_fails = db.count_join_failures(
             session_key or "session:none", seconds=window
         )
+        pair_fails = db.count_join_failures(
+            join_limit_pair_key(session_key or "session:none", ip_key), seconds=window
+        )
+        ip_joins = db.count_join_failures(join_limit_ok_key(ip_key), seconds=window)
+        # Only an IP with no successful join in the window gets the 240
+        # block; a school NAT with students getting in gets the backstop.
+        ip_block_limit = (
+            STUDENT_JOIN_IP_BLOCK_LIMIT if ip_joins == 0 else STUDENT_JOIN_IP_JOINED_BLOCK_LIMIT
+        )
         quiet = (
             ip_fails >= STUDENT_JOIN_WRONG_CODE_LIMIT
             or site_fails >= STUDENT_JOIN_GLOBAL_FAIL_LIMIT
         )
-        blocked = ip_fails >= STUDENT_JOIN_IP_BLOCK_LIMIT or (
+        blocked = ip_fails >= ip_block_limit or (
             session_key is not None and session_fails >= STUDENT_JOIN_SESSION_FAIL_LIMIT
         )
         failed_session: dict[str, Any] = {"key": session_key}
@@ -1270,11 +1319,22 @@ def register_auth_routes(app: Flask) -> None:
             retrying is not locked out longer than the window.
             """
             keys = []
-            if ip_fails < STUDENT_JOIN_IP_BLOCK_LIMIT:
+            if ip_fails < ip_block_limit:
                 keys.append(ip_key)
             fkey = failed_session["key"]
-            if fkey and (fkey != session_key or session_fails < STUDENT_JOIN_SESSION_FAIL_LIMIT):
-                keys.append(fkey)
+            if fkey:
+                pair = join_limit_pair_key(fkey, ip_key)
+                if fkey == session_key:
+                    run_fails, ip_run_fails = session_fails, pair_fails
+                else:  # session found via visit token, not the typed code
+                    run_fails = db.count_join_failures(fkey, seconds=window)
+                    ip_run_fails = db.count_join_failures(pair, seconds=window)
+                # One IP adds at most STUDENT_JOIN_SESSION_PER_IP_LIMIT.
+                if (
+                    run_fails < STUDENT_JOIN_SESSION_FAIL_LIMIT
+                    and ip_run_fails < STUDENT_JOIN_SESSION_PER_IP_LIMIT
+                ):
+                    keys.extend([fkey, pair])
             if keys:
                 db.record_join_failures(keys)
 
@@ -1300,7 +1360,7 @@ def register_auth_routes(app: Flask) -> None:
             # A visit-token rejoin to the same session is the one way past a
             # block: the token is unguessable and the student was admitted.
             if not same_session:
-                if ip_fails >= STUDENT_JOIN_IP_BLOCK_LIMIT:
+                if ip_fails >= ip_block_limit:
                     _record_failure()
                     return _locked()
                 # Session block only: answer exactly as for an invalid code,
@@ -1379,7 +1439,7 @@ def register_auth_routes(app: Flask) -> None:
             )
             if resolved is not None:
                 live_session = resolved["session"]
-                failed_session["key"] = f"session:{int(live_session['id'])}"
+                failed_session["key"] = join_limit_session_key(live_session)
                 if not display_name:
                     display_name = first_name_only(
                         str(resolved["attendee"].get("codename") or "")
@@ -1456,6 +1516,8 @@ def register_auth_routes(app: Flask) -> None:
                 "tab that’s still open — or wait a beat and try again."
             )
             return _fail(msg, 409)
+        # Same table as failures, under an "ok:" key (MCK-120).
+        db.record_join_failures([join_limit_ok_key(ip_key)])
         attendee = join_result.get("attendee") or {}
         visit_token = str(attendee.get("visit_token") or "")
         participant_uuid = str(attendee.get("participant_uuid") or "")

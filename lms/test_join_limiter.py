@@ -20,8 +20,13 @@ import auth
 import test_auth
 from auth import (
     STUDENT_JOIN_LOCKED_MSG,
+    STUDENT_JOIN_SESSION_FAIL_LIMIT,
+    STUDENT_JOIN_SESSION_PER_IP_LIMIT,
     STUDENT_JOIN_WRONG_CODE_LIMIT,
     join_limit_ip_key,
+    join_limit_ok_key,
+    join_limit_pair_key,
+    join_limit_session_key,
     trusted_client_ip,
 )
 
@@ -177,7 +182,7 @@ class JoinLimiterTests(test_auth.AuthTests):
         live = self._boot_live_class(["Maple"])
         code = str(live["session_code"])
         offering = self.school.get_offering(int(live["offering_id"]))
-        session_key = f"session:{int(live['id'])}"
+        session_key = join_limit_session_key(live)
         steps = [
             (code, "Nobody", 401),
             (code, "", 401),
@@ -266,6 +271,108 @@ class JoinLimiterTests(test_auth.AuthTests):
             self.assertEqual(quiet_blocked.get_data(), self._post(WRONG, "X", remote="127.0.2.3").get_data())
             back = self._post(code, "Maple", remote="127.0.2.2", headers={"X-Student-Visit-Token": token})
             self.assertEqual(back.status_code, 302, back.get_data(as_text=True)[:300])
+
+    def test_session_block_clears_on_end_and_start(self) -> None:
+        """Ops #217 HIGH: End then Start reuses the row id; the new run starts clean."""
+        live = self._boot_live_class(["Maple", "Birch"])
+        code = str(live["session_code"])
+        old_key = join_limit_session_key(live)
+        ips = STUDENT_JOIN_SESSION_FAIL_LIMIT // STUDENT_JOIN_SESSION_PER_IP_LIMIT
+        for n in range(ips):
+            for i in range(STUDENT_JOIN_SESSION_PER_IP_LIMIT):
+                self._post(code, f"Guess{i}", remote=f"127.0.5.{n}")
+        self.assertEqual(self._fails(old_key), STUDENT_JOIN_SESSION_FAIL_LIMIT)
+        blocked = self._post(code, "Maple", remote="127.0.6.1", json=True)
+        self.assertEqual(blocked.status_code, 401)
+        # Teacher presses End, then Start (the real routes).
+        class_id = int(live["class_id"])
+        self.client.get("/auth/google?portal=staff")
+        self.client.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+        self.assertEqual(self.client.post(f"/staff/class/{class_id}/end-live").status_code, 302)
+        self.client.post(f"/staff/class/{class_id}/run-live")
+        self.client.get("/logout")
+        fresh = self.school.get_active_live_session_for_class(class_id)
+        self.assertIsNotNone(fresh)
+        self.assertEqual(int(fresh["id"]), int(live["id"]))  # the row id is reused
+        self.assertNotEqual(str(fresh["session_code"]), code)
+        self.assertNotEqual(join_limit_session_key(fresh), old_key)
+        joined = self._post(str(fresh["session_code"]), "Maple", remote="127.0.6.1")
+        self.assertEqual(joined.status_code, 302, joined.get_data(as_text=True)[:300])
+        self.assertEqual(self._fails(join_limit_session_key(fresh)), 0)
+
+    def test_one_ip_cannot_block_a_session_alone(self) -> None:
+        """One IP (or one school NAT) adds at most 50 to a run's count."""
+        live = self._boot_live_class(["Maple"])
+        code = str(live["session_code"])
+        key = join_limit_session_key(live)
+        for i in range(STUDENT_JOIN_SESSION_PER_IP_LIMIT + 20):
+            self.assertEqual(self._post(code, f"Guess{i}").status_code, 401)
+        self.assertEqual(self._fails("ip:127.0.0.1"), STUDENT_JOIN_SESSION_PER_IP_LIMIT + 20)
+        self.assertEqual(self._fails(key), STUDENT_JOIN_SESSION_PER_IP_LIMIT)
+        self.assertEqual(
+            self._fails(join_limit_pair_key(key, "ip:127.0.0.1")), STUDENT_JOIN_SESSION_PER_IP_LIMIT
+        )
+        # Other sources still add, and the class still joins.
+        self._post(code, "Nobody", remote="127.0.0.8")
+        self.assertEqual(self._fails(key), STUDENT_JOIN_SESSION_PER_IP_LIMIT + 1)
+        self.assertEqual(self._post(code, "Maple").status_code, 302)
+
+    def _boot_another_class(self, email: str, codenames: list[str]) -> dict:
+        """A second teacher's live class, after ``_boot_live_class``."""
+        teacher = self.school.register_staff(email)
+        offering = self.school.assign_course(teacher_user_id=int(teacher["id"]), ontario_code="MCF3M")
+        client = self.app.test_client()
+        client.get("/auth/google?portal=staff")
+        client.get(f"/auth/google/callback?email={email}&name=T")
+        client.post("/verify-email", data={"code": self.school.get_user_by_email(email)["verification_code"]})
+        created = client.post(
+            "/api/staff/classes",
+            json={"offering_id": offering["id"], "days": "M/W/F", "time": "2:00pm", "codenames": codenames},
+        )
+        self.assertEqual(created.status_code, 200, created.get_data(as_text=True)[:300])
+        class_id = int(created.get_json()["class"]["id"])
+        client.post(f"/staff/class/{class_id}/run-live")
+        live = self.school.get_active_live_session_for_class(class_id)
+        assert live is not None
+        return live
+
+    def test_school_nat_three_classes_all_join(self) -> None:
+        """Ops #213-on-#217: 3 classes x 28 at the bell on one NAT, 3 typos each."""
+        rosters = [[f"C{c}Kid{n:02d}" for n in range(28)] for c in range(3)]
+        lives = [self._boot_live_class(rosters[0])]
+        lives += [self._boot_another_class(f"t{c}@gmail.com", rosters[c]) for c in (1, 2)]
+        codes = [str(live["session_code"]) for live in lives]
+        self.assertEqual(len(set(codes)), 3)
+        for n in range(28):
+            for c in range(3):
+                code, name = codes[c], rosters[c][n]
+                self._post(code[:-1] + ("A" if code[-1] != "A" else "B"), name)  # code typo
+                self._post(code, name + "x")  # name typo
+                self._post(code, "")  # empty name
+                rv = self._post(code.lower(), name)
+                self.assertEqual(rv.status_code, 302, (c, n, rv.get_data(as_text=True)[:200]))
+        self.assertEqual(self._fails("ip:127.0.0.1"), 252)
+        self.assertGreater(252, auth.STUDENT_JOIN_IP_BLOCK_LIMIT)
+        self.assertEqual(self._fails(join_limit_ok_key("ip:127.0.0.1")), 84)
+
+    def test_hard_block_depends_on_successful_joins(self) -> None:
+        """No joins: blocked at 240. Any join: only the 600 backstop blocks."""
+        live = self._boot_live_class(["Maple", "Birch", "Cedar"])
+        code = str(live["session_code"])
+        with patch.object(auth, "STUDENT_JOIN_IP_BLOCK_LIMIT", 90), \
+                patch.object(auth, "STUDENT_JOIN_IP_JOINED_BLOCK_LIMIT", 120):
+            # A guessing IP with no joins is blocked at 90.
+            self._lock("127.0.7.1", n=95)
+            self.assertEqual(self._fails("ip:127.0.7.1"), 90)
+            self.assertEqual(self._post(code, "Maple", remote="127.0.7.1").status_code, 429)
+            # A school IP whose students get in keeps going past 90 ...
+            self.assertEqual(self._post(code, "Birch", remote="127.0.7.2").status_code, 302)
+            self._lock("127.0.7.2", n=100)
+            self.assertEqual(self._post(code, "Maple", remote="127.0.7.2").status_code, 302)
+            # ... up to the backstop.
+            self._lock("127.0.7.2", n=30)
+            self.assertEqual(self._fails("ip:127.0.7.2"), 120)
+            self.assertEqual(self._post(code, "Cedar", remote="127.0.7.2").status_code, 429)
 
     def test_global_limit_quiets_every_ip(self) -> None:
         live = self._boot_live_class(["Maple"])
