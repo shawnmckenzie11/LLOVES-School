@@ -6242,3 +6242,9 @@ body.staff-shell .award-fresh-summary {
   background: #f1f5f9;
   font-weight: 600;
 }
+/* MCK-160 LOW-10: why Start fresh is off (every course is shared). */
+body.staff-shell .award-fresh-unavailable {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.8rem;
+}
