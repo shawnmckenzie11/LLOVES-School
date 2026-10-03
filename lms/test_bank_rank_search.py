@@ -178,7 +178,8 @@ class BankRankSearchTests(unittest.TestCase):
         self.assertEqual(row["type"], "rank")
         self.assertEqual(row["text"], "Order the features of a parabola")
         self.assertEqual(row["options"], ["Slope", "Intercept", "Vertex", "Axis"])
-        self.assertEqual(row["rank_key"], ["o4", "o3", "o2", "o1"])
+        ids = [r["id"] for r in row["rank_options"]]
+        self.assertEqual(row["rank_key"], [ids[3], ids[2], ids[1], ids[0]])
         self.assertEqual(len(row["rank_options"]), 4)
         self.assertEqual(row["question_type"], "rank")
         # Staff-authored rows share one bank, so module scope is per bank
@@ -223,7 +224,10 @@ class BankRankSearchTests(unittest.TestCase):
         item = rv.get_json()["placement"]["item"]
         self.assertEqual(item["id"], f"bank-import-{qid}")
         self.assertEqual(item["type"], "rank")
-        self.assertEqual(item["rank_key"], ["o2", "o1", "o4", "o3"])
+        # MCK-176: minted ids; a key sent as o1… still maps by position.
+        ids = [r["id"] for r in item["rank_options"]]
+        key = [ids[1], ids[0], ids[3], ids[2]]
+        self.assertEqual(item["rank_key"], key)
         self.assertEqual([r["label"] for r in item["rank_options"]], ["Slope", "Intercept", "Vertex", "Axis"])
         self.assertEqual(item["import_source"], "module_bank")
         self.assertFalse(self.school._bank_item_needs_rehydrate(item))
@@ -243,12 +247,12 @@ class BankRankSearchTests(unittest.TestCase):
         )
         self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
         published = self.school.get_live_session_item(session_id, int(row["id"]))
-        self.assertEqual(published["item"]["rank_key"], ["o2", "o1", "o4", "o3"])
+        self.assertEqual(published["item"]["rank_key"], key)
         prompt = self.school._prompt_for_live_item(published)
         assert prompt is not None
         self.assertEqual(prompt["kind"], "rank")
         payload = prompt["payload"]
-        self.assertEqual(payload["rank_key"], ["o2", "o1", "o4", "o3"])
+        self.assertEqual(payload["rank_key"], key)
         self.assertEqual(len(payload["rank_options"]), 4)
         guest = self.school.assemble_student_live_payload(
             session_id, self.class_id, None, participant_uuid="guest-zed", codename="Zed", unmatched=True
