@@ -300,20 +300,20 @@
     "NEL-C3-32-PR-p154-Q11"
    ],
    "payload": {
-    "stem_html": "<p>P(x) = −5x² + 550x − 5000 is profit (thousands of $) when x thousand $ is spent on advertising. Put the completing-the-square steps in order to find the maximum profit.</p>",
+    "stem_html": "<p>P(x) = −5x² + 550x − 5000 is profit (thousands of dollars) when x thousand dollars is spent on advertising. Put the completing-the-square steps in order to find the maximum profit.</p>",
     "points_possible": 1.0,
     "type": "rank",
     "kind": "rank",
     "options": [
      "P(x) = −5(x² − 110x + 3025 − 3025) − 5000",
-     "Maximum profit is $10 125 000 when $55 000 is spent on advertising",
+     "Maximum profit is 10 125 000 dollars when 55 000 dollars is spent on advertising",
      "P(x) = −5(x² − 110x) − 5000",
      "P(x) = −5(x² − 110x + 3025) + 15 125 − 5000",
      "P(x) = −5(x − 55)² + 10 125"
     ],
     "choices": [
      "P(x) = −5(x² − 110x + 3025 − 3025) − 5000",
-     "Maximum profit is $10 125 000 when $55 000 is spent on advertising",
+     "Maximum profit is 10 125 000 dollars when 55 000 dollars is spent on advertising",
      "P(x) = −5(x² − 110x) − 5000",
      "P(x) = −5(x² − 110x + 3025) + 15 125 − 5000",
      "P(x) = −5(x − 55)² + 10 125"
@@ -325,7 +325,7 @@
      },
      {
       "id": "o2",
-      "label": "Maximum profit is $10 125 000 when $55 000 is spent on advertising"
+      "label": "Maximum profit is 10 125 000 dollars when 55 000 dollars is spent on advertising"
      },
      {
       "id": "o3",
@@ -340,7 +340,7 @@
       "label": "P(x) = −5(x − 55)² + 10 125"
      }
     ],
-    "text": "P(x) = −5x² + 550x − 5000 is profit (thousands of $) when x thousand $ is spent on advertising. Put the completing-the-square steps in order to find the maximum profit.",
+    "text": "P(x) = −5x² + 550x − 5000 is profit (thousands of dollars) when x thousand dollars is spent on advertising. Put the completing-the-square steps in order to find the maximum profit.",
     "rank_key": [
      "o3",
      "o1",
@@ -1064,30 +1064,30 @@
     "NEL-C8-84-CK-p511-Q3"
    ],
    "payload": {
-    "stem_html": "<p>Lois invests $650 every 6 months at 4.6%/a compounded semi-annually for 25 years. Put the steps in order to find the interest she earns.</p>",
+    "stem_html": "<p>Lois invests 650 dollars every 6 months at 4.6%/a compounded semi-annually for 25 years. Put the steps in order to find the interest she earns.</p>",
     "points_possible": 1.0,
     "type": "rank",
     "kind": "rank",
     "options": [
-     "FV ≈ $59 837.37",
-     "Interest = FV − 50($650) ≈ $27 337.37",
+     "FV ≈ 59 837.37 dollars",
+     "Interest = FV − 50(650) ≈ 27 337.37 dollars",
      "i = 0.046 ÷ 2 = 0.023 and n = 25 × 2 = 50",
      "FV = 650[(1.023)⁵⁰ − 1] / 0.023"
     ],
     "choices": [
-     "FV ≈ $59 837.37",
-     "Interest = FV − 50($650) ≈ $27 337.37",
+     "FV ≈ 59 837.37 dollars",
+     "Interest = FV − 50(650) ≈ 27 337.37 dollars",
      "i = 0.046 ÷ 2 = 0.023 and n = 25 × 2 = 50",
      "FV = 650[(1.023)⁵⁰ − 1] / 0.023"
     ],
     "rank_options": [
      {
       "id": "o1",
-      "label": "FV ≈ $59 837.37"
+      "label": "FV ≈ 59 837.37 dollars"
      },
      {
       "id": "o2",
-      "label": "Interest = FV − 50($650) ≈ $27 337.37"
+      "label": "Interest = FV − 50(650) ≈ 27 337.37 dollars"
      },
      {
       "id": "o3",
@@ -1098,7 +1098,7 @@
       "label": "FV = 650[(1.023)⁵⁰ − 1] / 0.023"
      }
     ],
-    "text": "Lois invests $650 every 6 months at 4.6%/a compounded semi-annually for 25 years. Put the steps in order to find the interest she earns.",
+    "text": "Lois invests 650 dollars every 6 months at 4.6%/a compounded semi-annually for 25 years. Put the steps in order to find the interest she earns.",
     "rank_key": [
      "o3",
      "o4",
@@ -1245,20 +1245,20 @@
     "NEL-C8-83-PR-p498-Q6"
    ],
    "payload": {
-    "stem_html": "<p>Rico wants $15 000 in 10 years at 10%/a compounded quarterly. Put the steps in order to find how much he must invest now.</p>",
+    "stem_html": "<p>Rico wants 15 000 dollars in 10 years at 10%/a compounded quarterly. Put the steps in order to find how much he must invest now.</p>",
     "points_possible": 1.0,
     "type": "rank",
     "kind": "rank",
     "options": [
      "15 000 = PV(1.025)⁴⁰",
-     "PV ≈ $5586.46",
-     "FV = $15 000, i = 0.10 ÷ 4 = 0.025, n = 10 × 4 = 40",
+     "PV ≈ 5586.46 dollars",
+     "FV = 15 000 dollars, i = 0.10 ÷ 4 = 0.025, n = 10 × 4 = 40",
      "PV = 15 000 ÷ 1.025⁴⁰"
     ],
     "choices": [
      "15 000 = PV(1.025)⁴⁰",
-     "PV ≈ $5586.46",
-     "FV = $15 000, i = 0.10 ÷ 4 = 0.025, n = 10 × 4 = 40",
+     "PV ≈ 5586.46 dollars",
+     "FV = 15 000 dollars, i = 0.10 ÷ 4 = 0.025, n = 10 × 4 = 40",
      "PV = 15 000 ÷ 1.025⁴⁰"
     ],
     "rank_options": [
@@ -1268,18 +1268,18 @@
      },
      {
       "id": "o2",
-      "label": "PV ≈ $5586.46"
+      "label": "PV ≈ 5586.46 dollars"
      },
      {
       "id": "o3",
-      "label": "FV = $15 000, i = 0.10 ÷ 4 = 0.025, n = 10 × 4 = 40"
+      "label": "FV = 15 000 dollars, i = 0.10 ÷ 4 = 0.025, n = 10 × 4 = 40"
      },
      {
       "id": "o4",
       "label": "PV = 15 000 ÷ 1.025⁴⁰"
      }
     ],
-    "text": "Rico wants $15 000 in 10 years at 10%/a compounded quarterly. Put the steps in order to find how much he must invest now.",
+    "text": "Rico wants 15 000 dollars in 10 years at 10%/a compounded quarterly. Put the steps in order to find how much he must invest now.",
     "rank_key": [
      "o3",
      "o1",
@@ -1301,7 +1301,7 @@
     "NEL-C8-82-PR-p492-Q14"
    ],
    "payload": {
-    "stem_html": "<p>Rank these rates from most to least return on an investment: 6.6%/a compounded annually, 6.55%/a compounded semi-annually, 6.5%/a compounded quarterly, 6.45%/a compounded monthly. (Find the value of $1000 after one year to the nearest cent. Don't round the growth factor.)</p>",
+    "stem_html": "<p>Rank these rates from most to least return on an investment: 6.6%/a compounded annually, 6.55%/a compounded semi-annually, 6.5%/a compounded quarterly, 6.45%/a compounded monthly. (Find the value of 1000 dollars after one year to the nearest cent. Don't round the growth factor.)</p>",
     "points_possible": 1.0,
     "type": "rank",
     "kind": "rank",
@@ -1335,7 +1335,7 @@
       "label": "6.5%/a compounded quarterly"
      }
     ],
-    "text": "Rank these rates from most to least return on an investment: 6.6%/a compounded annually, 6.55%/a compounded semi-annually, 6.5%/a compounded quarterly, 6.45%/a compounded monthly. (Find the value of $1000 after one year to the nearest cent. Don't round the growth factor.)",
+    "text": "Rank these rates from most to least return on an investment: 6.6%/a compounded annually, 6.55%/a compounded semi-annually, 6.5%/a compounded quarterly, 6.45%/a compounded monthly. (Find the value of 1000 dollars after one year to the nearest cent. Don't round the growth factor.)",
     "rank_key": [
      "o4",
      "o1",
@@ -1344,10 +1344,10 @@
     ],
     "teacher_key": {
      "value_of_1000_after_1_year": {
-      "6.5%/a quarterly": "$1066.60",
-      "6.55%/a semi-annually": "$1066.57",
-      "6.45%/a monthly": "$1066.44",
-      "6.6%/a annually": "$1066.00"
+      "6.5%/a quarterly": "1066.60 dollars",
+      "6.55%/a semi-annually": "1066.57 dollars",
+      "6.45%/a monthly": "1066.44 dollars",
+      "6.6%/a annually": "1066.00 dollars"
      }
     }
    }
@@ -1364,7 +1364,7 @@
     "NEL-C8-83-PR-p499-Q8"
    ],
    "payload": {
-    "stem_html": "<p>Tia wants $2500 to grow to $6000 in 10 years, compounded quarterly. Put the steps in order to find the annual interest rate.</p>",
+    "stem_html": "<p>Tia wants 2500 dollars to grow to 6000 dollars in 10 years, compounded quarterly. Put the steps in order to find the annual interest rate.</p>",
     "points_possible": 1.0,
     "type": "rank",
     "kind": "rank",
@@ -1404,7 +1404,7 @@
       "label": "Take the 40th root: 1 + i = 2.4^(1/40)"
      }
     ],
-    "text": "Tia wants $2500 to grow to $6000 in 10 years, compounded quarterly. Put the steps in order to find the annual interest rate.",
+    "text": "Tia wants 2500 dollars to grow to 6000 dollars in 10 years, compounded quarterly. Put the steps in order to find the annual interest rate.",
     "rank_key": [
      "o4",
      "o3",
@@ -1426,26 +1426,26 @@
     "NEL-C8-82-PR-p491-Q11"
    ],
    "payload": {
-    "stem_html": "<p>Dieter deposits $9000 at 10%/a compounded quarterly. After 3 years the rate changes to 9%/a compounded semi-annually. Put the steps in order to find the value 2 years after the change.</p>",
+    "stem_html": "<p>Dieter deposits 9000 dollars at 10%/a compounded quarterly. After 3 years the rate changes to 9%/a compounded semi-annually. Put the steps in order to find the value 2 years after the change.</p>",
     "points_possible": 1.0,
     "type": "rank",
     "kind": "rank",
     "options": [
-     "A₁ ≈ $12 104.00",
+     "A₁ ≈ 12 104.00 dollars",
      "Stage 1: i = 0.025, n = 12, so A₁ = 9000(1.025)¹²",
-     "A₂ ≈ $14 434.25",
+     "A₂ ≈ 14 434.25 dollars",
      "Stage 2: i = 0.045, n = 4, so A₂ = 12 104.00(1.045)⁴"
     ],
     "choices": [
-     "A₁ ≈ $12 104.00",
+     "A₁ ≈ 12 104.00 dollars",
      "Stage 1: i = 0.025, n = 12, so A₁ = 9000(1.025)¹²",
-     "A₂ ≈ $14 434.25",
+     "A₂ ≈ 14 434.25 dollars",
      "Stage 2: i = 0.045, n = 4, so A₂ = 12 104.00(1.045)⁴"
     ],
     "rank_options": [
      {
       "id": "o1",
-      "label": "A₁ ≈ $12 104.00"
+      "label": "A₁ ≈ 12 104.00 dollars"
      },
      {
       "id": "o2",
@@ -1453,14 +1453,14 @@
      },
      {
       "id": "o3",
-      "label": "A₂ ≈ $14 434.25"
+      "label": "A₂ ≈ 14 434.25 dollars"
      },
      {
       "id": "o4",
       "label": "Stage 2: i = 0.045, n = 4, so A₂ = 12 104.00(1.045)⁴"
      }
     ],
-    "text": "Dieter deposits $9000 at 10%/a compounded quarterly. After 3 years the rate changes to 9%/a compounded semi-annually. Put the steps in order to find the value 2 years after the change.",
+    "text": "Dieter deposits 9000 dollars at 10%/a compounded quarterly. After 3 years the rate changes to 9%/a compounded semi-annually. Put the steps in order to find the value 2 years after the change.",
     "rank_key": [
      "o2",
      "o1",
