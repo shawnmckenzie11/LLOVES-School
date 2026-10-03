@@ -6490,6 +6490,9 @@ class SchoolDB(LovesDB):
                 normalize_bank_rank,
             )
 
+        # MCK-169: reviewed rank items live in per-module banks. Cheap when
+        # current (memo, then one small query); seeds only when stale.
+        self.ensure_rank_bank(int(library_id))
         if int(module_number) == 2:
             try:
                 from bank_kinds import retag_module2_teaching_today
@@ -6578,6 +6581,8 @@ class SchoolDB(LovesDB):
                 all_items.append(normalized)
                 continue
             if is_bank_rank_payload(payload):
+                if payload.get("retired"):
+                    continue
                 # MCK-169: rank items are essay_question rows with
                 # ``type: rank``. They keep ``rank_options`` and a valid
                 # ``rank_key`` so an import plays as a live rank prompt.
@@ -6677,6 +6682,28 @@ class SchoolDB(LovesDB):
             "filtered": len(filtered_items),
             "type_counts": counts,
         }
+
+    def ensure_rank_bank(self, library_id: int) -> dict[str, Any] | None:
+        """Seed the reviewed rank items for an MCR3U / MCF3M library if stale.
+
+        See ``rank_bank_seed.ensure_rank_bank``. A failure is logged and
+        never breaks the search that called it.
+
+        Args:
+            library_id: ``content_libraries.id``.
+
+        Returns:
+            Seed summary when a seed ran, else ``None``.
+        """
+        try:
+            from rank_bank_seed import ensure_rank_bank
+        except ImportError:
+            from lms.rank_bank_seed import ensure_rank_bank
+        try:
+            return ensure_rank_bank(self, int(library_id))
+        except sqlite3.Error:
+            logger.exception("rank bank seed failed for library %s", library_id)
+            return None
 
     def seed_course_wide_warmups(self, library_id: int) -> dict[str, Any]:
         """Insert or refresh the Course Wide warmup bank for one library.
@@ -10585,6 +10612,8 @@ class SchoolDB(LovesDB):
                     bank_title=str(row["bank_title"] or ""),
                 )
                 skip_reason = None if normalized else "empty_stem"
+            elif is_bank_rank_payload(payload) and payload.get("retired"):
+                normalized, skip_reason = None, "retired"
             elif is_bank_rank_payload(payload):
                 # MCK-169: a bank rank item imports as a live rank prompt
                 # with its options and a still-valid answer order.
