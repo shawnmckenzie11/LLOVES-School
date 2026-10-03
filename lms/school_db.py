@@ -15237,6 +15237,32 @@ class SchoolDB(LovesDB):
             question.get("rank_options") or question.get("options") or question.get("choices")
         )
 
+    def _rank_race_display_options(
+        self, item: dict[str, Any]
+    ) -> list[dict[str, str]]:
+        """Team challenge options in the order students see them.
+
+        MCK-171 hook for MCK-176 (server-stored shuffle, seeded per publish,
+        same for the whole group, never the key, stable across reloads).
+        Until MCK-176 lands this is the authored order. The projector header
+        and the phone both read ``race.options`` from here; scoring and
+        drafts always use option ids, never positions.
+
+        Args:
+            item: Team challenge lifecycle row.
+        """
+        # TODO(MCK-176): return the stored shuffled order once it lands.
+        return self._rank_option_rows(item)
+
+    def _rank_race_options_payload(
+        self, item: dict[str, Any]
+    ) -> list[dict[str, str]]:
+        """``race.options``: ``[{id, label}]`` in display order."""
+        return [
+            {"id": str(row["id"]), "label": str(row["label"])}
+            for row in self._rank_race_display_options(item)
+        ]
+
     def _team_member_names(
         self, session_id: int, class_id: int, team_id: int
     ) -> list[str]:
@@ -16629,6 +16655,7 @@ class SchoolDB(LovesDB):
             "locked_by": self._rank_race_locked_by(row),
             "teams_locked": teams_locked,
             "teams_total": teams_total,
+            "options": self._rank_race_options_payload(item),
         }
         if str(item.get("status") or "") == "closed" and not locked:
             # Scored on its draft. race.timesup only when the 0:00 timer
@@ -16734,6 +16761,7 @@ class SchoolDB(LovesDB):
         return {
             "mode": mode,
             "spots": total,
+            "options": self._rank_race_options_payload(item),
             "teams_locked": sum(1 for lane in teams if lane["locked"]),
             "teams_total": len(teams),
             "teams": teams,

@@ -363,9 +363,13 @@ export function groupSetupOptionsHtml(opts) {
   // MCK-171: Team challenge sits after Group mode, only with an answer order.
   const race =
     rankMode && opts.race && opts.race.available ? rankRaceHtml(key, Boolean(opts.race.on)) : "";
-  return `<div class="live-group-setup-opts" aria-live="polite" data-group-setup-opts="${esc(key)}">${rankMode}${race}<p class="live-group-setup-style">${esc(
-    C.styleLine[styleCopyKey(style, opts.surface, variant)]
-  )}</p>${status === "inactive" ? teamsLine : ""}${groupQ}</div>`;
+  // A Team challenge locks in by "I agree", so the race help replaces the
+  // "Anyone in the group can send it" style line.
+  const styleLine =
+    race && opts.race.on
+      ? ""
+      : `<p class="live-group-setup-style">${esc(C.styleLine[styleCopyKey(style, opts.surface, variant)])}</p>`;
+  return `<div class="live-group-setup-opts" aria-live="polite" data-group-setup-opts="${esc(key)}">${rankMode}${race}${styleLine}${status === "inactive" ? teamsLine : ""}${groupQ}</div>`;
 }
 
 /**

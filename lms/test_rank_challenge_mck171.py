@@ -624,5 +624,34 @@ class SetupClientTests(unittest.TestCase):
         self.assertIn("rankRaceSettings(item, card)", staff)
         self.assertNotIn("group_rank_race_bonus", staff)
 
+
+class DisplayOrderHookTests(ChallengeHarness):
+    """MCK-176 hook: lanes and phone read one display order; ids score."""
+
+    def test_race_options_follow_the_display_order_hook(self) -> None:
+        from unittest import mock
+
+        item = self._challenge()
+        live = self.school.get_live_session_item(self.session_id, int(item["id"]))
+        authored = self.school._rank_option_rows(live)
+        self.assertEqual(
+            [o["id"] for o in self._view(item)["race"]["options"]],
+            [o["id"] for o in authored],
+        )
+        shuffled = [authored[i] for i in (3, 1, 0, 2)]
+        with mock.patch.object(type(self.school), "_rank_race_display_options", return_value=shuffled):
+            teacher = self._view(item)["race"]["options"]
+            student = self._card("Ava", item)["race"]["options"]
+        want = [{"id": o["id"], "label": o["label"]} for o in shuffled]
+        self.assertEqual(teacher, want)
+        self.assertEqual(student, want)
+
+    def test_options_carry_no_key(self) -> None:
+        item = self._challenge()
+        race = self._card("Ava", item)["race"]
+        self.assertEqual({o["id"] for o in race["options"]}, set(KEY_IDS))
+        self.assertTrue(all(set(o) == {"id", "label"} for o in race["options"]))
+
+
 if __name__ == "__main__":
     unittest.main()

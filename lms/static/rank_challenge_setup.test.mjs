@@ -44,6 +44,8 @@ check(!off.includes("Teams lock in"), "help only when on");
 check(off.indexOf("Group mode") < off.indexOf("Team challenge"), "after Group mode");
 const on = groupSetupOptionsHtml({ ...base, race: { available: true, on: true } });
 check(on.includes("Teams lock in an order together.") && on.includes('data-group-rank-race="q:7" checked'), "on: checked + help");
+check(!on.includes(GROUP_SETUP_COPY.styleLine.submit), "on: help replaces the 'anyone can send it' line");
+check(off.includes(GROUP_SETUP_COPY.styleLine.submit), "off: style line stays");
 check(!/bonus|hardest/i.test(on + rankRaceHtml("q:7", true)), "no bonus control");
 check(!groupSetupOptionsHtml({ ...base, mode: "individual", race: { available: true, on: true } }), "only for Group");
 check(!groupSetupOptionsHtml({ ...base, status: "active", race: { available: true, on: true } }).includes("Team challenge"), "before Publish only");

@@ -6650,6 +6650,14 @@ body.staff-shell .live-group-race-check {
   font-weight: 650;
   color: #12202e;
 }
+body.staff-shell .live-group-race-check input {
+  flex: none;
+  width: auto;
+  margin: 0;
+}
+body.staff-shell .live-group-race-check span {
+  white-space: nowrap;
+}
 body.staff-shell .live-group-race-help {
   flex-basis: 100%;
   order: 3;
