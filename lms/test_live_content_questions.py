@@ -789,6 +789,7 @@ HELPER_CASES = r"""
 import {
   contentModuleView, contentRowsView, contentGroupHeading, contentPickSummary,
   contentPicksPayload, contentImportDoneText, deckLiveProblemIds,
+  contestEmptyText, contestKindView,
 } from "./static/content_questions_help.js";
 const modules = [
   { module: "M1", label: "Module 1", count: 2 },
@@ -798,6 +799,10 @@ const modules = [
 ];
 const view = contentModuleView(modules, "m1");
 const fallback = contentModuleView(modules, "M2");
+const noCourse = contentModuleView([
+  { module: "M2", count: 0 }, { module: "M3", count: 1 }, { module: "M5", count: 2 },
+], "M2");
+const allEmpty = contentModuleView([{ module: "M4", count: 0 }, { module: "COURSE", count: 0 }], "M4");
 const m1 = contentRowsView({ module: "M1", label: "Module 1", items: [
   { question_id: 11, content_rank: 1, type: "poll", question_title: " Fence garden " },
   { question_id: 12, content_rank: 2, curriculum_open: true },
@@ -822,6 +827,11 @@ const out = {
   courseRanks: course.rows.map((r) => r.rank),
   courseModule: course.rows[0].module,
   empty: [m3.empty, m1.empty],
+  noCourse: noCourse.map((g) => [g.module, g.open]),
+  allEmpty: allEmpty.length,
+  emptyText: [contestEmptyText("M4"), contestEmptyText("m2"), contestEmptyText(5), contestEmptyText("")],
+  kindView: ["contest", "CONTEST", "", "standard", "warmup"].map((k) => contestKindView(k, true)),
+  kindViewNoBlock: contestKindView("contest", false),
   none: contentPickSummary([]),
   two: contentPickSummary([{ id: 1 }, { id: 2 }]),
   payload: contentPicksPayload([
@@ -854,19 +864,23 @@ class ContentQuestionsHelperTests(unittest.TestCase):
         cls.got = json.loads(proc.stdout.strip().splitlines()[-1])
 
     def test_group_list_opens_the_class_module_or_contest(self) -> None:
-        """Server order kept, bad token dropped; Contest opens when the module is empty."""
-        self.assertEqual(self.got["modules"], ["M1", "M2", "COURSE"])
+        """Server order kept, bad token dropped; Contest opens when the module is empty.
+
+        MCK-175: groups with 0 Contest Questions are never listed, so the
+        empty class module (M2) has no row at all.
+        """
+        self.assertEqual(self.got["modules"], ["M1", "COURSE"])
         self.assertEqual(
             self.got["headings"],
             [
                 "Module 1 · this class · 2 questions",
-                "Module 2 · none yet",
                 "Contest · 6 questions",
             ],
         )
-        self.assertEqual(self.got["open"], [True, False, False])
-        # Empty class module stays open (shows "none yet") and Contest opens too.
-        self.assertEqual(self.got["fallbackOpen"], [False, True, True])
+        self.assertEqual(self.got["open"], [True, False])
+        self.assertEqual(self.got["fallbackOpen"], [False, True])
+        # No Contest group either: the first listed group opens.
+        self.assertEqual(self.got["noCourse"], [["M3", True], ["M5", False]])
         self.assertEqual(
             self.got["loaded"],
             ["Module 2 · this class · 6 questions", "Module 4 · none yet", "Contest · 1 question"],
@@ -883,7 +897,28 @@ class ContentQuestionsHelperTests(unittest.TestCase):
 
     def test_empty_state_copy(self) -> None:
         """An empty group says so; a filled one has no empty line."""
-        self.assertEqual(self.got["empty"], ["Module 3 has no Contest Questions yet.", ""])
+        self.assertEqual(self.got["empty"], ["No Contest Questions in Module 3 yet.", ""])
+
+    def test_mck175_all_empty_is_one_line(self) -> None:
+        """No group has any: an empty view, and bank.contest.empty word for word."""
+        self.assertEqual(self.got["allEmpty"], 0)
+        self.assertEqual(
+            self.got["emptyText"],
+            [
+                "No Contest Questions in Module 4 yet.",
+                "No Contest Questions in Module 2 yet.",
+                "No Contest Questions in Module 5 yet.",
+                "No Contest Questions in this module yet.",
+            ],
+        )
+
+    def test_mck175_kind_view(self) -> None:
+        """Only Kind = Contest Questions shows the block, hiding chips and list."""
+        on = {"contest": True, "chips": False, "list": False}
+        off = {"contest": False, "chips": True, "list": True}
+        self.assertEqual(self.got["kindView"], [on, on, off, off, off])
+        # Without the Contest block (browse mode), Contest filters bank rows.
+        self.assertEqual(self.got["kindViewNoBlock"], off)
 
     def test_pick_summary_payload_and_done_line(self) -> None:
         """Button holds until a pick; payload keeps one pick per id, COURSE allowed."""
@@ -935,14 +970,33 @@ class ContentQuestionsWiringTests(unittest.TestCase):
         self.assertIn("onDeckIds:", src)
 
     def test_picker_loads_lazily_after_the_first_search(self) -> None:
-        """Other groups fetch on expand; the section mounts after refreshSearch."""
+        """Other groups fetch on expand; the section mounts only on Kind = Contest.
+
+        MCK-175: nothing Contest renders on open. The block mounts when Kind
+        changes to "Contest Questions", replaces the chips and the list, and
+        is torn down (ticks cleared) when Kind changes back.
+        """
         src = (LMS_DIR / "static" / "bank_mc_picker.js").read_text(encoding="utf-8")
         self.assertIn('details.addEventListener("toggle"', src)
         self.assertIn("contentOpts.load(module)", src)
-        self.assertLess(
-            src.index("  await refreshSearch();\n  if (contentOpts) {"),
-            src.index("void mountContentQuestions(shell"),
-        )
+        self.assertIn('<option value="contest">Contest Questions</option>', src)
+        self.assertNotIn('<option value="contest">Contest</option>', src)
+        self.assertIn('aria-label="Contest Questions" hidden></section>', src)
+        self.assertEqual(src.count("void mountContentQuestions(shell"), 1)
+        apply = src.split("function applyKindView(kindValue) {", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("contestKindView(kindValue, Boolean(contentOpts && contentSection))", apply)
+        self.assertIn("typeHost.hidden = !view.chips;", apply)
+        self.assertIn("node.hidden = !view.list;", apply)
+        self.assertIn("void mountContentQuestions(shell", apply)
+        self.assertIn("contentSection.replaceChildren();", apply)
+        tail = src.split("  await refreshSearch();\n  queryEl?.focus();", 1)
+        self.assertEqual(len(tail), 2, "open runs only the bank search")
+        self.assertIn("if (applyKindView(kindFilter)) return;", src)
+        self.assertIn("if (contestShown) return;", src)
+        self.assertIn("setStatus(contestEmptyText(current));", src)
+        self.assertNotIn("No modules to show yet.", src)
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn("body.staff-shell .bank-mc-picker.is-contest-view .bank-mc-picker-list,", css)
 
     def test_checkbox_width_reset(self) -> None:
         """lloves.css input{width:100%} must not stretch the content checkbox."""

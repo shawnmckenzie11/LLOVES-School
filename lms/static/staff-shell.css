@@ -5339,6 +5339,14 @@ body.staff-shell .bank-mc-content-row .bank-mc-picker-row-main {
 body.staff-shell .bank-mc-content-row.is-on-deck .bank-mc-picker-text {
   color: #64748b;
 }
+/* MCK-175: Contest Questions show only while Kind is "Contest Questions",
+   in place of the type chips, the count line and the bank list. */
+body.staff-shell .bank-mc-picker.is-contest-view [data-bank-type-chips],
+body.staff-shell .bank-mc-picker.is-contest-view .bank-mc-picker-count,
+body.staff-shell .bank-mc-picker.is-contest-view .bank-mc-picker-list,
+body.staff-shell .bank-mc-content[hidden] {
+  display: none;
+}
 /* One scroll for the whole picker at every size (phones and short laptops,
    e.g. 1366x650): Contest Questions and the search list flow in it, so the
    last search row's Import is always reachable. */

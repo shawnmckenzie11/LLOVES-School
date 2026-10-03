@@ -26,6 +26,8 @@ import {
   contentSectionHeading,
   contentStalePicks,
   contentStaleText,
+  contestEmptyText,
+  contestKindView,
   deckLiveProblemIds,
   searchResultsScroll,
 } from "/static/content_questions_help.js";
@@ -185,8 +187,9 @@ async function loadModuleBankStatus(classId, moduleToken) {
  *   onError?: () => Promise<void> | void,
  * }} [opts.contentQuestions] MCK-79: Contest Questions (contest live problems,
  *   top 6 per module or in the course-wide Contest group), import mode only.
- *   Loads the current module on open and each other group only when the
- *   teacher expands it.
+ *   MCK-175: shown only while Kind is "Contest Questions", in place of the
+ *   type chips and bank list. Loads the current module when shown and each
+ *   other group only when the teacher expands it.
  */
 export async function mountBankMcPicker(opts) {
   const classId = Number(opts.classId || 0);
@@ -224,7 +227,7 @@ export async function mountBankMcPicker(opts) {
               <select data-bank-mc-kind aria-label="Kind">
                 <option value="" selected>Core Math</option>
                 <option value="standard">Custom</option>
-                <option value="contest">Contest</option>
+                <option value="contest">Contest Questions</option>
                 <option value="warmup">Warmup</option>
               </select>
             </label>`
@@ -237,14 +240,7 @@ export async function mountBankMcPicker(opts) {
     </div>
     ${
       contentOpts
-        ? `<section class="bank-mc-content" data-bank-mc-content aria-label="Contest Questions">
-            <div class="bank-mc-content-head">
-              <h4>${escapeHtml(contentSectionHeading(CONTENT_PER_MODULE))}</h4>
-              <button type="button" class="compact" data-bank-mc-content-import disabled>Import selected</button>
-            </div>
-            <p class="hint compact" data-bank-mc-content-status>Loading Contest Questions…</p>
-            <div data-bank-mc-content-groups></div>
-          </section>`
+        ? `<section class="bank-mc-content" data-bank-mc-content aria-label="Contest Questions" hidden></section>`
         : ""
     }
     <p class="hint compact bank-mc-picker-count" data-bank-mc-count></p>
@@ -294,6 +290,49 @@ export async function mountBankMcPicker(opts) {
         })
       : null;
   activeTypeChips = typeChips;
+  const contentSection = shell.querySelector("[data-bank-mc-content]");
+  /** MCK-175: Kind is "Contest Questions" and the block is showing. */
+  let contestShown = false;
+
+  /**
+   * MCK-175: show the Contest block only while Kind is "Contest Questions",
+   * in place of the type chips and the bank list. Each show remounts it
+   * fresh (ticks from an earlier visit are cleared); leaving it re-runs the
+   * bank search so the last results come back.
+   * @param {string} kindValue
+   * @returns {boolean} Whether the Contest view is on.
+   */
+  function applyKindView(kindValue) {
+    const view = contestKindView(kindValue, Boolean(contentOpts && contentSection));
+    const was = contestShown;
+    contestShown = view.contest;
+    shell.classList.toggle("is-contest-view", view.contest);
+    if (typeHost instanceof HTMLElement) typeHost.hidden = !view.chips;
+    [countEl, listEl].forEach((node) => {
+      if (node instanceof HTMLElement) node.hidden = !view.list;
+    });
+    if (view.contest && statusEl instanceof HTMLElement) {
+      statusEl.hidden = true;
+      statusEl.textContent = "";
+    }
+    if (!(contentSection instanceof HTMLElement) || !contentOpts) return view.contest;
+    contentSection.hidden = !view.contest;
+    if (view.contest && !was) {
+      contentSection.innerHTML = `
+        <div class="bank-mc-content-head">
+          <h4>${escapeHtml(contentSectionHeading(CONTENT_PER_MODULE))}</h4>
+          <button type="button" class="compact" data-bank-mc-content-import disabled>Import selected</button>
+        </div>
+        <p class="hint compact" data-bank-mc-content-status>Loading Contest Questions…</p>
+        <div data-bank-mc-content-groups></div>`;
+      void mountContentQuestions(shell, contentOpts, () => {
+        if (!mountTarget) closePickerModal();
+      });
+    } else if (!view.contest) {
+      contentSection.replaceChildren();
+    }
+    return view.contest;
+  }
 
   /**
    * Paint search hits into the list pane.
@@ -390,6 +429,8 @@ export async function mountBankMcPicker(opts) {
    * Run one debounced search against the module-scoped API.
    */
   async function refreshSearch() {
+    // MCK-175: the Contest view searches nothing (the block is not filtered).
+    if (contestShown) return;
     if (statusEl instanceof HTMLElement) {
       statusEl.hidden = false;
       statusEl.textContent = "Searching…";
@@ -475,7 +516,10 @@ export async function mountBankMcPicker(opts) {
    * (CSS); after a typed search, bring the results line up under it.
    */
   const revealSearchResults = () => {
-    if (!contentOpts || !(countEl instanceof HTMLElement)) return;
+    // MCK-175: the block only shows in place of the list, so this is a
+    // no-op unless both are ever on screen again.
+    if (!contentOpts || contestShown || !(countEl instanceof HTMLElement)) return;
+    if (!(contentSection instanceof HTMLElement) || contentSection.hidden) return;
     const head = shell.querySelector(".bank-mc-picker-head");
     if (!(head instanceof HTMLElement)) return;
     const delta = searchResultsScroll({
@@ -508,6 +552,7 @@ export async function mountBankMcPicker(opts) {
   kindEl?.addEventListener("change", () => {
     if (kindEl instanceof HTMLSelectElement) {
       kindFilter = String(kindEl.value || "");
+      if (applyKindView(kindFilter)) return;
       refreshSearch().catch(() => {});
     }
   });
@@ -548,14 +593,10 @@ export async function mountBankMcPicker(opts) {
     }
   });
 
+  // MCK-175: the first search runs the module's usual bank auto-confirm.
+  // Contest Questions wait until Kind is "Contest Questions" (they never
+  // link banks themselves).
   await refreshSearch();
-  if (contentOpts) {
-    // After the first search so the current module's usual bank
-    // auto-confirm has run; Contest Questions never link banks itself.
-    void mountContentQuestions(shell, contentOpts, () => {
-      if (!mountTarget) closePickerModal();
-    });
-  }
   queryEl?.focus();
 }
 
@@ -609,8 +650,14 @@ async function mountContentQuestions(shell, contentOpts, onDone) {
   }
   const perModule = Number(first?.per_module) || CONTENT_PER_MODULE;
   const view = contentModuleView(first?.modules, current);
+  /** MCK-175: one bank.contest.empty line, never per-module empty rows. */
+  const showAllEmpty = () => {
+    groupsEl.replaceChildren();
+    if (importBtn instanceof HTMLElement) importBtn.hidden = true;
+    setStatus(contestEmptyText(current));
+  };
   if (!view.length) {
-    setStatus("No modules to show yet.");
+    showAllEmpty();
     return;
   }
   setStatus("");
@@ -640,6 +687,13 @@ async function mountContentQuestions(shell, contentOpts, onDone) {
     if (!(body instanceof HTMLElement)) return;
     const label = details.getAttribute("data-content-label") || "This module";
     const rowsView = contentRowsView(group, perModule, onDeck());
+    // MCK-175: a group that comes back empty (it changed since the list
+    // loaded) drops out; when none are left, one empty line remains.
+    details.hidden = !rowsView.rows.length;
+    if (!groupsEl.querySelector("details[data-content-group]:not([hidden])")) {
+      showAllEmpty();
+      return;
+    }
     if (summary) {
       summary.textContent = contentGroupHeading(
         label,

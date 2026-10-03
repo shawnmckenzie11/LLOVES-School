@@ -49,8 +49,11 @@ export function contentGroupHeading(label, current, count) {
 /**
  * Collapsed-group view model from the group list, in server order.
  *
- * The class's current module starts open. When it has none, the
- * course-wide Contest group opens instead. Rows load when a group opens.
+ * MCK-175: groups with no Contest Questions are never listed (the server
+ * still sends the class's module at 0). The class's current module starts
+ * open. When it has none, the course-wide Contest group opens instead, or
+ * else the first listed group. Rows load when a group opens. An empty
+ * list means "show ``contestEmptyText`` instead".
  *
  * @param {Array<Record<string, unknown>>} modules ``modules`` from the API.
  * @param {string} currentModule Run Live Class module, such as ``M2``.
@@ -77,11 +80,10 @@ export function contentModuleView(modules, currentModule) {
         heading: contentGroupHeading(label, isCurrent, count),
       };
     })
-    .filter(Boolean);
-  const currentRow = rows.find((row) => row.current);
-  if (!currentRow || !currentRow.count) {
-    const course = rows.find((row) => row.module === "COURSE" && row.count);
-    if (course) course.open = true;
+    .filter((row) => row && row.count > 0);
+  if (rows.length && !rows.some((row) => row.current)) {
+    const course = rows.find((row) => row.module === "COURSE");
+    (course || rows[0]).open = true;
   }
   return rows;
 }
@@ -121,12 +123,43 @@ export function contentRowsView(group, perModule = 6, onDeck = []) {
     })
     .filter((row) => row.id > 0 && row.module);
   // MCK-161: capital Q, and no "Contest has no Contest Questions".
+  // MCK-175: a module says it with bank.contest.empty.
   const empty = rows.length
     ? ""
     : module === "COURSE"
       ? "No course-wide Contest Questions yet."
-      : `${label} has no Contest Questions yet.`;
+      : contestEmptyText(module || label);
   return { rows, empty };
+}
+
+/**
+ * MCK-175 ``bank.contest.empty``: the one line shown when no group has
+ * Contest Questions (or a module group comes back empty).
+ * @param {unknown} module Module token (``M2``), number, or label.
+ * @returns {string}
+ */
+export function contestEmptyText(module) {
+  const digits = String(module ?? "").match(/[1-8]/);
+  return digits
+    ? `No Contest Questions in Module ${digits[0]} yet.`
+    : "No Contest Questions in this module yet.";
+}
+
+/** MCK-175: value of the Kind select that shows Contest Questions. */
+export const CONTEST_KIND = "contest";
+
+/**
+ * MCK-175: what Import from bank shows for a Kind value. Contest
+ * Questions render only while Kind is "Contest Questions", in place of
+ * the type chips and the bank list. Without the Contest block (browse
+ * mode, or no loader) the Kind still filters bank rows as before.
+ * @param {unknown} kind Kind select value.
+ * @param {boolean} hasContest The picker was given Contest Questions.
+ * @returns {{contest: boolean, chips: boolean, list: boolean}}
+ */
+export function contestKindView(kind, hasContest) {
+  const contest = Boolean(hasContest) && String(kind || "").trim().toLowerCase() === CONTEST_KIND;
+  return { contest, chips: !contest, list: !contest };
 }
 
 /**
@@ -187,14 +220,13 @@ export function deckLiveProblemIds(questions) {
 }
 
 /**
- * MCK-161: the section heading. Groups are per module plus one
- * course-wide Contest group, so the cap is described for both.
+ * MCK-175 ``bank.contest.title``: the section heading.
  * @param {number} [perModule]
  * @returns {string}
  */
 export function contentSectionHeading(perModule = 6) {
   const n = Math.max(1, Number(perModule) || 6);
-  return `Contest Questions · top ${n} per module and course-wide`;
+  return `Contest Questions · top ${n} per module`;
 }
 
 /**
