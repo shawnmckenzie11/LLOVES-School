@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -33,9 +34,50 @@ from live_rank import (  # noqa: E402
 )
 
 OUT_DIR = LMS_DIR / "seeds" / "rank_items"
+#: MCK-178: a bare ``$`` is a TeX delimiter for the question renderer (two of
+#: them on one line, or across the stem and options, render as math). Money
+#: is written in words, like the course banks ("thousands of dollars").
+_MONEY_PHRASES = (
+    ("(thousands of $)", "(thousands of dollars)"),
+    ("thousand $ ", "thousand dollars "),
+    ("A $1300 stereo", "A 1300-dollar stereo"),
+)
+_MONEY_FACTOR_RE = re.compile(r"(\d)\(\$(\d+(?:\.\d+)?)\)")
+_MONEY_AMOUNT_RE = re.compile(r"\$(\d{1,3}(?: \d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)")
 COURSES = ("MCR3U", "MCF3M")
 SLOTS = ("C1", "C2", "C3", "C4")
 PAYLOAD_FIELDS = ("stem_html", "points_possible", "type", "kind", "options", "choices", "rank_options")
+
+
+def money_words(text: str) -> str:
+    """Write currency amounts in words so no ``$`` reaches the renderer.
+
+    ``$650`` becomes ``650 dollars``, ``50($650)`` becomes ``50(650)``, and
+    ``(thousands of $)`` becomes ``(thousands of dollars)``. Text with no
+    ``$`` is returned unchanged.
+
+    Args:
+        text: A stem, option label, or teacher note.
+    """
+    out = str(text)
+    if "$" not in out:
+        return out
+    for old, new in _MONEY_PHRASES:
+        out = out.replace(old, new)
+    out = _MONEY_FACTOR_RE.sub(r"\1(\2)", out)
+    out = _MONEY_AMOUNT_RE.sub(r"\1 dollars", out)
+    return out
+
+
+def _money_words_deep(value: Any) -> Any:
+    """Apply :func:`money_words` to every string (and dict key) in ``value``."""
+    if isinstance(value, str):
+        return money_words(value)
+    if isinstance(value, list):
+        return [_money_words_deep(item) for item in value]
+    if isinstance(value, dict):
+        return {money_words(str(k)): _money_words_deep(v) for k, v in value.items()}
+    return value
 
 
 def _fail(cid: str, why: str) -> None:
@@ -94,6 +136,9 @@ def convert_item(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     note = str(raw.get("teacher_note") or "").strip()
     if note:
         payload["teacher_note"] = note
+    # MCK-178: after validation, so the label checks above still compare
+    # the reviewed text.
+    payload = _money_words_deep(payload)
     source = raw.get("source") if isinstance(raw.get("source"), dict) else {}
     item = {
         "id": cid,

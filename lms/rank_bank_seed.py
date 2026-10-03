@@ -13,6 +13,9 @@ Re-running is safe:
 - each row records ``rank_catalogue_hash``, a hash of its stored content.
   A row whose content no longer matches its hash was edited by a teacher
   and is never overwritten;
+- a refreshed row's text reaches class imports (``class_live_playlist_placements``
+  with that ``source_question_id``) only when the import still shows exactly
+  what the old row produced; a teacher-edited import is never touched (MCK-178);
 - rows that leave the catalogue are flagged ``retired`` (never deleted,
   because class imports point at them) and search skips them;
 - banks and rows insert with ``ON CONFLICT DO NOTHING`` on the existing
@@ -169,6 +172,8 @@ def seed_rank_bank(
         "kept_edited": 0,
         "retired": 0,
         "restored": 0,
+        "imports_updated": 0,
+        "imports_kept_edited": 0,
     }
     if not version:
         return summary
@@ -236,7 +241,9 @@ def seed_rank_bank(
                         "SELECT id, title, payload_json FROM questions WHERE bank_id = ? AND import_key = ?",
                         (bank_id, q_key),
                     ).fetchone()
-                    _refresh_row(conn, row, title, payload, summary)
+                    old = _refresh_row(conn, row, title, payload, summary)
+                    if old is not None:
+                        _refresh_imports(conn, int(row["id"]), old, (title, payload), summary)
             # Retire rows that left the catalogue, in any of this course's
             # rank banks (including a module the catalogue no longer has).
             wanted = {
@@ -295,8 +302,13 @@ def _refresh_row(
     title: str,
     payload: dict[str, Any],
     summary: dict[str, Any],
-) -> None:
-    """Update one existing row unless a teacher edited it."""
+) -> tuple[str, dict[str, Any]] | None:
+    """Update one existing row unless a teacher edited it.
+
+    Returns:
+        ``(old_title, old_payload)`` when the row's content was replaced,
+        else ``None``.
+    """
     current_title = str(row["title"] or "")
     current = _loads(row["payload_json"])
     restore = bool(current.get("retired"))
@@ -308,20 +320,106 @@ def _refresh_row(
             current.pop("retired_at", None)
             _swap(conn, row, current_title, current)
             summary["restored"] += 1
-        return
+        return None
     if current_title == title and current.get("rank_catalogue_hash") == payload["rank_catalogue_hash"] and not restore:
         summary["unchanged"] += 1
-        return
+        return None
     # Compare-and-swap on the old JSON, so a concurrent teacher save wins.
-    _swap(conn, row, title, payload)
+    swapped = _swap(conn, row, title, payload)
     summary["restored" if restore else "updated"] += 1
+    if not swapped or restore:
+        return None
+    return current_title, current
 
 
-def _swap(conn: Any, row: Any, title: str, payload: dict[str, Any]) -> None:
-    conn.execute(
+#: Fields of a class import (``normalize_bank_rank`` output) that come from
+#: the bank row's content. Everything else (group mode, preset, publish
+#: settings, placement ids) belongs to the class and is kept.
+IMPORT_CONTENT_FIELDS = (
+    "text",
+    "prompt",
+    "rank_options",
+    "options",
+    "choices",
+    "rank_key",
+    "question_title",
+    "teacher_key",
+    "teacher_note",
+)
+
+
+def _import_content(question_id: int, bank_id: int, title: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+    try:
+        from bank_mc_normalize import normalize_bank_rank
+    except ImportError:
+        from lms.bank_mc_normalize import normalize_bank_rank
+    live, _reason = normalize_bank_rank(
+        question_id=question_id, bank_id=bank_id, title=title, payload=payload, bank_title=""
+    )
+    if live is None:
+        return None
+    return {field: live.get(field) for field in IMPORT_CONTENT_FIELDS}
+
+
+def _refresh_imports(
+    conn: Any,
+    question_id: int,
+    old: tuple[str, dict[str, Any]],
+    new: tuple[str, dict[str, Any]],
+    summary: dict[str, Any],
+) -> None:
+    """Carry a refreshed bank row into class imports that were not edited.
+
+    An import is rewritten only when every content field still equals what
+    the old row imported as, so a teacher's edit is never overwritten. The
+    lifecycle copies pick the new text up on the next deck refresh.
+
+    Args:
+        conn: School connection (inside the seeder's transaction).
+        question_id: ``questions.id`` that was refreshed.
+        old: ``(title, payload)`` before the refresh.
+        new: ``(title, payload)`` after the refresh.
+        summary: Seed summary (``imports_updated`` / ``imports_kept_edited``).
+    """
+    rows = conn.execute(
+        "SELECT id, item_json FROM class_live_playlist_placements WHERE source_question_id = ?",
+        (int(question_id),),
+    ).fetchall()
+    if not rows:
+        return
+    for row in rows:
+        item = _loads(row["item_json"])
+        if str(item.get("type") or "").strip().lower() != "rank":
+            continue
+        bank_id = int(item.get("source_bank_id") or item.get("bank_id") or 0)
+        before = _import_content(int(question_id), bank_id, old[0], old[1])
+        after = _import_content(int(question_id), bank_id, new[0], new[1])
+        if before is None or after is None or before == after:
+            continue
+        current = {field: item.get(field) for field in IMPORT_CONTENT_FIELDS}
+        if current != before:
+            summary["imports_kept_edited"] += 1
+            continue
+        updated = dict(item)
+        for field, value in after.items():
+            if value is None:
+                updated.pop(field, None)
+            else:
+                updated[field] = value
+        cur = conn.execute(
+            "UPDATE class_live_playlist_placements SET item_json = ? WHERE id = ? AND item_json = ?",
+            (json.dumps(updated, ensure_ascii=False), int(row["id"]), row["item_json"]),
+        )
+        if cur.rowcount == 1:
+            summary["imports_updated"] += 1
+
+
+def _swap(conn: Any, row: Any, title: str, payload: dict[str, Any]) -> bool:
+    cur = conn.execute(
         "UPDATE questions SET title = ?, payload_json = ? WHERE id = ? AND payload_json = ?",
         (title, json.dumps(payload, ensure_ascii=False), int(row["id"]), row["payload_json"]),
     )
+    return cur.rowcount == 1
 
 
 def rank_bank_is_current(
