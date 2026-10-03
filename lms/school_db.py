@@ -6574,6 +6574,8 @@ class SchoolDB(LovesDB):
                 if normalized is None:
                     continue
                 normalized["edited_in_lms"] = False
+                # MCK-170 type chips read this tag; untagged rows count as MC.
+                normalized["question_type"] = "rank"
                 problem_kind = self._problem_kind_from_payload(payload)
                 if problem_kind:
                     normalized["kind"] = problem_kind

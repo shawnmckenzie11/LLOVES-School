@@ -137,6 +137,7 @@ class BankRankSearchTests(unittest.TestCase):
         self.assertEqual(row["options"], ["Slope", "Intercept", "Vertex", "Axis"])
         self.assertEqual(row["rank_key"], ["o4", "o3", "o2", "o1"])
         self.assertEqual(len(row["rank_options"]), 4)
+        self.assertEqual(row["question_type"], "rank")
         # Staff-authored rows share one bank, so module scope is per bank
         # (same as MC today): the M3 rank shows wherever that bank is linked.
         m3 = self.school.search_module_bank_mcs(self.library_id, 3, "")
