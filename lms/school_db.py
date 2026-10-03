@@ -1469,6 +1469,10 @@ WHITEBOARD_REOPEN_ONLY_CLOSED = "Only a closed whiteboard can be reopened."
 # turns. The preset marker lives on the class placement only.
 RANK_IMPORT_GROUP_MODE = "turns"
 RANK_IMPORT_GROUP_PRESET = "rank_turns"
+
+
+class WhiteboardReopenConflict(ValueError):
+    """The whiteboard is not closed (or another tab reopened it first)."""
 GROUP_MC_PICK_THEN_AGREE = "pick_then_agree"
 
 
@@ -14652,7 +14656,7 @@ class SchoolDB(LovesDB):
             str(item.get("kind") or "") != "whiteboard"
             or str(item.get("status") or "") != "closed"
         ):
-            raise ValueError(WHITEBOARD_REOPEN_ONLY_CLOSED)
+            raise WhiteboardReopenConflict(WHITEBOARD_REOPEN_ONLY_CLOSED)
         publish_mode = str(item.get("publish_mode") or "individual")
         if token == "fresh" and publish_mode != "group_shared":
             # MCK-174 D1: Individual pen ink is client-only until S3, so a
@@ -14687,7 +14691,7 @@ class SchoolDB(LovesDB):
                 if cur.rowcount != 1:
                     # A second teacher tab already reopened it.
                     self.conn.execute("ROLLBACK")
-                    raise ValueError(WHITEBOARD_REOPEN_ONLY_CLOSED)
+                    raise WhiteboardReopenConflict(WHITEBOARD_REOPEN_ONLY_CLOSED)
                 if token == "fresh":
                     self.conn.execute(
                         """

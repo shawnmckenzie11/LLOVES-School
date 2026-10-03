@@ -92,6 +92,7 @@ from school_db import (  # noqa: E402
     GroupAnswerLocked,
     RankTurnConflict,
     SchoolDB,
+    WhiteboardReopenConflict,
     json_safe,
 )
 from celebration import (  # noqa: E402
@@ -6750,6 +6751,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 live_item_id,
                 start=str(body.get("start") or "last"),
             )
+        except WhiteboardReopenConflict as exc:
+            # Not closed (or a second tab already reopened it): 409.
+            return jsonify({"ok": False, "error": str(exc), "conflict": True}), 409
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         seq = teacher_state_seq(school, session_id)

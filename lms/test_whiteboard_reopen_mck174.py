@@ -360,7 +360,7 @@ class WhiteboardReopenTests(unittest.TestCase):
         """Active boards, unknown starts, and ended sessions are refused."""
         self._join_two_groups("group_shared")
         active = self._reopen("last")
-        self.assertEqual(active.status_code, 400, active.get_json())
+        self.assertEqual(active.status_code, 409, active.get_json())
         self.assertEqual(
             active.get_json()["error"], "Only a closed whiteboard can be reopened."
         )
@@ -370,11 +370,174 @@ class WhiteboardReopenTests(unittest.TestCase):
         first = self._reopen("last")
         self.assertEqual(first.status_code, 200, first.get_json())
         second = self._reopen("last")
-        self.assertEqual(second.status_code, 400, "a second tab gets 400")
+        self.assertEqual(second.status_code, 409, "a second tab gets 409")
+        self.assertTrue(second.get_json().get("conflict"))
         self._close()
         self.school.end_live_class_session(self.session_id)
         with self.assertRaises(ValueError):
             self.school.reopen_live_whiteboard(self.session_id, self._wb_id_any())
+
+    # -- follow-ups: permissions, degraded Fresh copy, hint line, labels --
+
+    def _login_staff(self, email: str):
+        """Return a test client logged in as another staff member."""
+        client = self.app.test_client()
+        self.school.register_staff(email)
+        client.get("/auth/google?portal=staff")
+        client.get(f"/auth/google/callback?email={email}&name=Other")
+        client.post(
+            "/verify-email",
+            data={"code": self.school.get_user_by_email(email)["verification_code"]},
+        )
+        return client
+
+    def test_reopen_permissions_and_status_codes(self) -> None:
+        """Anonymous/student 401, other teacher 403, wrong session 404,
+        not closed 409, ended 409. Nothing changes on a refused call."""
+        tokens = self._join_two_groups("group_shared")
+        wb_id = self._wb_id()
+        url = f"/api/live-sessions/{self.session_id}/items/{wb_id}/reopen"
+        self._close()
+        base_key = self.school.live_board_run_key(self.session_id)
+
+        anon = self.app.test_client().post(url, json={"start": "last"})
+        self.assertEqual(anon.status_code, 401)
+        student = self._student(tokens["Aspen"]).post(url, json={"start": "fresh"})
+        self.assertIn(student.status_code, (401, 403))
+
+        other = self._login_staff("other@gmail.com")
+        offering = self.school.assign_course(
+            teacher_user_id=int(self.school.get_user_by_email("other@gmail.com")["id"]),
+            ontario_code="MCR3U",
+        )
+        made = other.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": offering["id"],
+                "days": "M/W/F",
+                "time": "9:15am",
+                "codenames": ["Oak"],
+            },
+        )
+        self.assertEqual(made.status_code, 200, made.get_json())
+        other_class = int(made.get_json()["class"]["id"])
+        other_live = self.school.start_live_class_session(
+            other_class,
+            int(self.school.get_user_by_email("other@gmail.com")["id"]),
+        )
+        other_sid = int(other_live["id"])
+        for start in ("last", "fresh"):
+            foreign = other.post(url, json={"start": start})
+            self.assertEqual(foreign.status_code, 403, (start, foreign.get_json()))
+
+        # A whiteboard id from this class, used on the other class's session.
+        self.school.ensure_live_session_items(other_sid)
+        other_ids = {
+            int(row["id"]) for row in self.school.list_live_session_items(other_sid)
+        }
+        missing = max(other_ids | {wb_id}) + 1000
+        wrong = other.post(
+            f"/api/live-sessions/{other_sid}/items/{wb_id if wb_id not in other_ids else missing}/reopen",
+            json={"start": "last"},
+        )
+        self.assertEqual(wrong.status_code, 404, wrong.get_json())
+        gone = self.client.post(
+            f"/api/live-sessions/{self.session_id}/items/{missing}/reopen",
+            json={"start": "last"},
+        )
+        self.assertEqual(gone.status_code, 404, gone.get_json())
+
+        # Every refused call left the board closed on the same generation.
+        self.assertEqual(self._whiteboard()["status"], "closed")
+        self.assertEqual(self.school.live_board_run_key(self.session_id), base_key)
+
+        ok = self.client.post(url, json={"start": "last"})
+        self.assertEqual(ok.status_code, 200, ok.get_json())
+        active = self.client.post(url, json={"start": "fresh"})
+        self.assertEqual(active.status_code, 409, active.get_json())
+        self.assertEqual(self.school.live_board_run_key(self.session_id), base_key)
+        self._close()
+        self.school.end_live_class_session(self.session_id)
+        ended = self.client.post(url, json={"start": "last"})
+        self.assertEqual(ended.status_code, 409, ended.get_json())
+
+    def test_degraded_fresh_path_uses_fresh_copy(self) -> None:
+        """A run change onto a ~g key shows Wonder's Fresh line, not the
+        new-class line, on student and teacher tabs."""
+        wb_js = (LMS_DIR / "static" / "live_whiteboard.js").read_text(encoding="utf-8")
+        self.assertIn("export function isFreshBoardRunKey", wb_js)
+        self.assertIn("/~g[0-9]+$/", wb_js)
+        student_js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        refresh = student_js.split("function refreshStudentBoard()")[1].split(
+            "function ensureStudentBoardPoll()"
+        )[0]
+        self.assertIn("isFreshBoardRunKey(data.run_key)", refresh)
+        self.assertIn("WB_STUDENT_REOPEN_CUE.fresh", refresh)
+        staff_js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        teacher = staff_js.split("function refreshTeacherBoard()")[1].split(
+            "function ensureTeacherBoardPoll()"
+        )[0]
+        self.assertIn("isFreshBoardRunKey(data.run_key)", teacher)
+        # The key the server hands out after Fresh matches that rule.
+        self._join_two_groups("group_shared")
+        self._close()
+        self.assertEqual(self._reopen("fresh").status_code, 200)
+        self.assertRegex(self.school.live_board_run_key(self.session_id), r"~g[0-9]+$")
+
+    def test_teacher_hint_clears_on_next_action_and_failed_reopen_repaints(self) -> None:
+        """The reopen hint line has no timer; the next click/key or Close
+        clears it. A failed reopen repaints from /state; 409 stays quiet."""
+        staff_js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        show = staff_js.split("function showWhiteboardReopenToast(")[1].split(
+            "async function postWhiteboardReopen("
+        )[0]
+        self.assertNotIn("2800", show)
+        self.assertIn('addEventListener("pointerdown", reopenToastClear, true)', show)
+        self.assertIn('addEventListener("keydown", reopenToastClear, true)', show)
+        self.assertIn("if (closed) hideWhiteboardReopenToast();", staff_js)
+        reopen = staff_js.split("async function reopenWhiteboard(")[1].split(
+            "function paintSlidesMetadata()"
+        )[0]
+        self.assertIn("await refreshLiveQuestionCards();", reopen)
+        self.assertIn("err.conflict", reopen)
+
+    def test_individual_text_label_is_readable_after_reload(self) -> None:
+        """A stored Individual text label comes back from solo:<id>."""
+        tokens = self._join_two_groups("individual")
+        aspen = self._student(tokens["Aspen"])
+        aspen_id = int(
+            self.school.game.find_student_by_codename(self.class_id, "Aspen")["id"]
+        )
+        saved = aspen.post(
+            "/api/student/canvas-presence",
+            json={
+                "run_key": self.school.live_board_run_key(self.session_id),
+                "text_id": "tx-aspen",
+                "text": "slope = 2",
+                "x": 0.3,
+                "y": 0.4,
+            },
+        )
+        self.assertEqual(saved.status_code, 200, saved.get_json())
+        # A reloaded tab reads its own label board.
+        got = aspen.get(f"/api/student/board/solo:{aspen_id}?since=0")
+        self.assertEqual(got.status_code, 200, got.get_json())
+        texts = [op for op in got.get_json()["ops"] if op.get("type") == "text_upsert"]
+        self.assertEqual([op.get("text") for op in texts], ["slope = 2"])
+        self.assertTrue(got.get_json()["run_key"])
+        # Another student cannot read it.
+        birch = self._student(tokens["Birch"])
+        self.assertEqual(
+            birch.get(f"/api/student/board/solo:{aspen_id}?since=0").status_code, 403
+        )
+        # Close then Last keeps the label.
+        self._close()
+        self.assertEqual(self._reopen("last").status_code, 200)
+        again = aspen.get(f"/api/student/board/solo:{aspen_id}?since=0").get_json()
+        self.assertIn("slope = 2", [op.get("text") for op in again["ops"]])
+        student_js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertIn("async function loadStudentSoloLabels()", student_js)
+        self.assertIn('proj.canvasAlign === "student") void loadStudentSoloLabels();', student_js)
 
     def _wb_id_any(self) -> int:
         """Whiteboard row id without re-seeding an ended session."""

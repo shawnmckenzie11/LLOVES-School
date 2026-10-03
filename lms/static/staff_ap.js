@@ -41,6 +41,7 @@ import {
   cursorAfterOps,
   normalizeBoardPoint,
   clearBoardRefreshCue,
+  isFreshBoardRunKey,
   noteBoardRun,
   opsAboveCursor,
   showBoardRefreshCue,
@@ -2301,6 +2302,7 @@ function paintWhiteboardReopenControl(item, status) {
     button.disabled = whiteboardReopenInFlight;
   }
   if (!closed) closeWhiteboardReopenPopover({ focus: false });
+  if (closed) hideWhiteboardReopenToast();
 }
 
 /**
@@ -2353,11 +2355,30 @@ function closeWhiteboardReopenPopover(opts = {}) {
   }
 }
 
-let reopenToastTimer = 0;
+/** Pending "next action" listener that clears the reopen hint line. */
+let reopenToastClear = null;
 
 /**
- * Staff toast line under the Whiteboard controls (same pattern as the
- * mint toast).
+ * Hide the reopen hint line and drop its next-action listener.
+ */
+function hideWhiteboardReopenToast() {
+  const el = $("live-canvas-reopen-toast");
+  if (el instanceof HTMLElement) {
+    el.hidden = true;
+    el.textContent = "";
+  }
+  if (reopenToastClear) {
+    document.removeEventListener("pointerdown", reopenToastClear, true);
+    document.removeEventListener("keydown", reopenToastClear, true);
+    reopenToastClear = null;
+  }
+}
+
+/**
+ * Staff hint line under the Whiteboard controls (same pattern as the
+ * mint toast). It stays until the teacher's next action, a click or key
+ * anywhere on the page, or the next Close (MCK-174 follow-up), so it
+ * never stays up all class.
  * @param {string} line
  */
 function showWhiteboardReopenToast(line) {
@@ -2365,13 +2386,47 @@ function showWhiteboardReopenToast(line) {
   if (!(el instanceof HTMLElement)) return;
   const text = String(line || "").trim();
   if (!text) return;
+  hideWhiteboardReopenToast();
   el.textContent = text;
   el.hidden = false;
-  window.clearTimeout(reopenToastTimer);
-  reopenToastTimer = window.setTimeout(() => {
-    el.hidden = true;
-    el.textContent = "";
-  }, 2800);
+  // Arm on the next task so the click or Enter that reopened the board
+  // does not clear its own line.
+  window.setTimeout(() => {
+    if (el.hidden || reopenToastClear) return;
+    reopenToastClear = () => hideWhiteboardReopenToast();
+    document.addEventListener("pointerdown", reopenToastClear, true);
+    document.addEventListener("keydown", reopenToastClear, true);
+  }, 0);
+}
+
+/**
+ * POST the reopen and keep the HTTP status, so a 409 (another tab
+ * already reopened it) can repaint quietly.
+ * @param {number} sessionId
+ * @param {number} itemId
+ * @param {"last"|"fresh"} start
+ * @returns {Promise<any>}
+ */
+async function postWhiteboardReopen(sessionId, itemId, start) {
+  const res = await fetch(`/api/live-sessions/${sessionId}/items/${itemId}/reopen`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ start }),
+  });
+  let data = {};
+  try {
+    data = await res.json();
+  } catch (_err) {
+    data = {};
+  }
+  if (!res.ok || data?.ok === false) {
+    const err = new Error(String(data?.error || `HTTP ${res.status}`));
+    err.status = res.status;
+    err.conflict = res.status === 409 && Boolean(data?.conflict);
+    throw err;
+  }
+  return data;
 }
 
 /**
@@ -2389,10 +2444,20 @@ async function reopenWhiteboard(start) {
   whiteboardReopenInFlight = true;
   paintSurfacePublishing();
   try {
-    const result = await api(
-      `/api/live-sessions/${sessionId}/items/${Number(item.id)}/reopen`,
-      { method: "POST", body: JSON.stringify({ start: pick }) }
-    );
+    let result = null;
+    try {
+      result = await postWhiteboardReopen(sessionId, Number(item.id), pick);
+    } catch (err) {
+      // Repaint from /state either way, so this tab shows what the server has.
+      await refreshLiveQuestionCards();
+      if (err && err.conflict) {
+        // Another teacher tab already reopened it: the board is open, which
+        // is what this teacher asked for. No error line.
+        return;
+      }
+      // No Wonder string for a failed reopen yet: keep the generic error.
+      throw err;
+    }
     if (result?.item) {
       lastLiveItems = lastLiveItems.map((row) =>
         Number(row.id) === Number(result.item.id) ? result.item : row
@@ -11550,7 +11615,12 @@ function refreshTeacherBoard() {
     }
     teacherBoardSince = Number(data.board_seq) || 0;
     if (canvas instanceof HTMLCanvasElement && !teacherBoardQuietRefresh) {
-      showBoardRefreshCue(canvas);
+      // A run change onto a ~g<n> key is a Fresh board mid-class, not a
+      // new class (MCK-174 follow-up: stale teacher tab).
+      showBoardRefreshCue(
+        canvas,
+        isFreshBoardRunKey(data.run_key) ? WB_REOPEN_COPY.toastFresh : undefined
+      );
     }
   })().finally(() => {
     teacherBoardRefresh = null;
