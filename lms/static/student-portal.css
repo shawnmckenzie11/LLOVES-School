@@ -2616,3 +2616,9 @@ body.rw-open { overflow: hidden; }
 .group-reveal-mark.is-incorrect {
   color: #fca5a5;
 }
+/* MCK-155 gate LOW-1: line up the instruction and team strip with the card body. */
+.student-live-card > .student-group-instruction,
+.student-live-card > .student-group-strip {
+  margin-left: 1rem;
+  margin-right: 1rem;
+}
