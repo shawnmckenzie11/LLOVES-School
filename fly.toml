@@ -13,6 +13,17 @@
 app = 'lloves-lms'
 primary_region = 'yyz'
 
+# MCK-180: graceful shutdown on deploy, stop and machine swap. Fly's default
+# is SIGINT with 5 s. gunicorn treats SIGINT as a quick shutdown (workers
+# drop in-flight requests at once), and 5 s is shorter than the 30 s
+# --graceful-timeout in [processes]. SIGTERM is gunicorn's graceful stop:
+# stop accepting, finish in-flight requests for up to 30 s, then exit.
+# 35 s gives that 30 s plus 5 s to exit before Fly forces the stop
+# (Fly allows up to 300 s). These keys must stay at the top level, above
+# the first [table]. Same numbers as serve_capacity.FLY_KILL_*.
+kill_signal = 'SIGTERM'
+kill_timeout = 35
+
 [build]
   dockerfile = 'lms/Dockerfile'
 
