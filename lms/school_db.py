@@ -14576,6 +14576,10 @@ class SchoolDB(LovesDB):
             self.end_group_consensus_voting(session_id, int(item["id"]))
         now = _now()
         race = self._rank_race_on(item)
+        if race:
+            # Last look at who is here before answers close (credit list).
+            for team_id, ids in self._rank_race_present_by_team(session_id).items():
+                self._rank_race_mark_present(int(item["id"]), int(team_id), ids)
         with self._lock:
             if race:
                 # MCK-171: remember who closed it, with the close itself.
@@ -16688,25 +16692,112 @@ class SchoolDB(LovesDB):
         item = self.get_live_session_item(session_id, int(item["id"]))
         return {"locked": locked, "view": self.group_submit_teacher_view(session_id, item)}
 
-    def _rank_race_team_counts(self, live_item_id: int) -> tuple[int, int]:
-        """``(locked, total)`` teams on a Team challenge (one query).
+    def _rank_race_present_by_team(self, session_id: int) -> dict[int, list[int]]:
+        """Present roster ids per named team (one attendee read).
+
+        Same presence as ``_active_team_member_ids`` (the Take turns skip
+        and absent-lane signal), computed once for every team.
 
         Args:
-            live_item_id: ``live_session_items.id``.
+            session_id: ``live_class_sessions.id``.
+        """
+        active = {
+            int(row["student_id"])
+            for row in self.list_live_session_attendees(session_id, present_only=True)
+            if row.get("student_id") not in (None, "")
+        }
+        out: dict[int, list[int]] = {}
+        for team in self._named_teams_for_live_session(session_id):
+            ids: set[int] = set()
+            for member in team.get("members") or []:
+                try:
+                    sid = int(member["id"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if sid in active:
+                    ids.add(sid)
+            out[int(team.get("id") or 0)] = sorted(ids)
+        return out
+
+    def _rank_race_team_counts(self, item: dict[str, Any]) -> tuple[int, int]:
+        """``(locked, total)`` for "{k} of {n} teams locked in".
+
+        Only present teams count, by the same rule as the absent lane: a
+        team with nobody here that never locked in is left out of both.
+
+        Args:
+            item: Team challenge lifecycle row.
         """
         with self._lock:
-            row = self.conn.execute(
+            rows = self.conn.execute(
                 """
-                SELECT COUNT(*) AS total,
-                       SUM(CASE WHEN COALESCE(submit_count, 0) > 0 THEN 1 ELSE 0 END) AS locked
+                SELECT team_id, COALESCE(submit_count, 0) AS submits
                 FROM live_group_responses
                 WHERE live_item_id = ?
                 """,
-                (int(live_item_id),),
-            ).fetchone()
-        if row is None:
-            return 0, 0
-        return int(row["locked"] or 0), int(row["total"] or 0)
+                (int(item["id"]),),
+            ).fetchall()
+        present = self._rank_race_present_by_team(int(item["live_session_id"]))
+        locked = total = 0
+        for row in rows:
+            is_locked = int(row["submits"] or 0) > 0
+            if not is_locked and not present.get(int(row["team_id"])):
+                continue
+            total += 1
+            locked += 1 if is_locked else 0
+        return locked, total
+
+    def _rank_race_mark_present(
+        self, live_item_id: int, team_id: int, present_ids: list[int]
+    ) -> None:
+        """Remember everyone seen present while a Team challenge is open.
+
+        Rows land in ``live_group_members`` (joined_at = first seen), so a
+        student who was here at ANY point while the question was open is
+        on the team's credit list even after a short drop. Presence is the
+        Take turns skip signal (``_active_team_member_ids``). Writes only
+        when someone new shows up.
+
+        Args:
+            live_item_id: ``live_session_items.id``.
+            team_id: Roster team id.
+            present_ids: Currently present roster ids on that team.
+        """
+        if not present_ids:
+            return
+        now = _now()
+        with self._lock:
+            seen = {
+                int(row["student_id"])
+                for row in self.conn.execute(
+                    "SELECT student_id FROM live_group_members WHERE live_item_id = ? AND team_id = ?",
+                    (int(live_item_id), int(team_id)),
+                ).fetchall()
+            }
+            fresh = [int(sid) for sid in present_ids if int(sid) not in seen]
+            if not fresh:
+                return
+            for sid in fresh:
+                self.conn.execute(
+                    """
+                    INSERT OR IGNORE INTO live_group_members (
+                        live_item_id, team_id, student_id, joined_at
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (int(live_item_id), int(team_id), sid, now),
+                )
+            self.conn.commit()
+
+    def _rank_race_seen_ids(self, live_item_id: int, team_id: int) -> set[int]:
+        """Roster ids seen present on a team while the challenge was open."""
+        with self._lock:
+            return {
+                int(row["student_id"])
+                for row in self.conn.execute(
+                    "SELECT student_id FROM live_group_members WHERE live_item_id = ? AND team_id = ?",
+                    (int(live_item_id), int(team_id)),
+                ).fetchall()
+            }
 
     def _rank_race_student_block(
         self,
@@ -16727,7 +16818,13 @@ class SchoolDB(LovesDB):
         """
         active = str(item.get("status") or "") == "active"
         locked = self._rank_race_locked(row)
-        teams_locked, teams_total = self._rank_race_team_counts(int(item["id"]))
+        if active:
+            self._rank_race_mark_present(
+                int(item["id"]),
+                int(team_id),
+                self._active_team_member_ids(int(item["live_session_id"]), int(team_id)),
+            )
+        teams_locked, teams_total = self._rank_race_team_counts(item)
         mode = self._group_rank_mode(item)
         block: dict[str, Any] = {
             "mode": mode,
@@ -16808,6 +16905,8 @@ class SchoolDB(LovesDB):
             row = self._group_response_row(int(item["id"]), int(team_id)) or {}
             locked = self._rank_race_locked(row)
             present = self._active_team_member_ids(session_id, int(team_id))
+            if active:
+                self._rank_race_mark_present(int(item["id"]), int(team_id), present)
             order = self._rank_race_draft_order(item, row)
             lane: dict[str, Any] = {
                 "team_id": int(team_id),
@@ -16842,8 +16941,9 @@ class SchoolDB(LovesDB):
             "mode": mode,
             "spots": total,
             "options": self._rank_race_options_payload(item),
+            # Present teams only (same rule as the absent lane).
             "teams_locked": sum(1 for lane in teams if lane["locked"]),
-            "teams_total": len(teams),
+            "teams_total": sum(1 for lane in teams if not lane["absent"]),
             "teams": teams,
         }
 
