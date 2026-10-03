@@ -27,6 +27,9 @@ logger = logging.getLogger(__name__)
 #: finish before refusing with "End in progress, try again" (MCK-72).
 LIVE_END_BUSY_WAIT_SECONDS = 3.0
 LIVE_END_BUSY_POLL_SECONDS = 0.1
+# MCK-161 INFO-1: the only extra item fields Add New accepts from a caller
+# (the Contest Questions import). Everything else in ``extra_item`` is dropped.
+EXTRA_ITEM_KEYS = frozenset({"live_problem_id", "question_title", "contest_batch"})
 
 from serve_capacity import (  # noqa: E402
     begin_poll_budget,
@@ -5644,6 +5647,10 @@ class LovesDB:
         return dict(row) if row else {}
 
 
+# MCK-154 S2: stride between candidate prompt slots for one lifecycle row
+# when ``20000 + id`` still holds a removed row's prompt.
+LIVE_ITEM_PROMPT_SLIDE_STRIDE = 1_000_000
+
 
 def short_display_names(names: list[str], context: list[str] | None = None) -> list[str]:
     """Short, unambiguous names for a waiting line (MCK-155 gate LOW-3).
@@ -5678,6 +5685,7 @@ def short_display_names(names: list[str], context: list[str] | None = None) -> l
         seen.add(short.casefold())
         out.append(short)
     return out
+
 
 class SchoolDB(LovesDB):
     """LLOVES facade: school tables plus a GameShowDB on the same sqlite file."""
@@ -10420,6 +10428,7 @@ class SchoolDB(LovesDB):
             page = max(1, int(page_number))
         except (TypeError, ValueError):
             page = 1
+        added_live = self._active_live_session_id_for_class(int(class_id))
         with self._lock:
             row = self.conn.execute(
                 """
@@ -10553,6 +10562,8 @@ class SchoolDB(LovesDB):
                 "question_title": str(row["title"] or ""),
                 "import_source": "module_bank",
             }
+            if added_live is not None:
+                item_payload["added_live_session_id"] = int(added_live)
             stamp = _now()
             cur = self.conn.execute(
                 """
@@ -10875,8 +10886,9 @@ class SchoolDB(LovesDB):
             bank_kind: Staff Kind. Empty is Core Math (untagged). ``custom``
                 stores as ``standard``. Does not overwrite question ``type``.
             library_id: Attached pack library, required when saving to bank.
-            extra_item: MCK-79. Extra item fields (``live_problem_id``, a
-                batch token). Cannot override ids, order or placement key.
+            extra_item: MCK-79. Extra item fields. Only the keys in
+                ``EXTRA_ITEM_KEYS`` (``live_problem_id``, ``question_title``,
+                ``contest_batch``) are kept; anything else is ignored.
 
         Returns:
             Inserted placement row including parsed ``item`` payload.
@@ -10969,8 +10981,10 @@ class SchoolDB(LovesDB):
             from lms.bank_kinds import apply_stored_bank_kind
 
         apply_stored_bank_kind(item_payload, bank_kind)
+        # MCK-161 INFO-1: an allowlist, so a caller cannot make item_json
+        # disagree with the stage / page / type columns.
         for extra_key, extra_value in (extra_item or {}).items():
-            if str(extra_key) not in {"id", "item_id", "order", "placement_key"}:
+            if str(extra_key) in EXTRA_ITEM_KEYS:
                 item_payload[str(extra_key)] = extra_value
         if kind == "rank":
             rank_rows = build_rank_options(option_list)
@@ -10981,6 +10995,11 @@ class SchoolDB(LovesDB):
             item_payload.pop("key", None)
             item_payload.pop("correct_answer", None)
 
+        # MCK-154 S2: mark an item added while this class is live so the
+        # teacher card can show a small "New" chip. Students never see it.
+        added_live = self._active_live_session_id_for_class(int(class_id))
+        if added_live is not None:
+            item_payload["added_live_session_id"] = int(added_live)
         source_question_id = None
         if save_to_bank:
             if library_id in (None, ""):
@@ -13950,6 +13969,63 @@ class SchoolDB(LovesDB):
             ).fetchone()
         return self._prompt_row_to_dict(row) if row else None
 
+    def _active_live_session_id_for_class(self, class_id: int) -> int | None:
+        """Return the active live session id for a class, or None.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        try:
+            active = self.get_active_live_session_for_class(int(class_id))
+        except (KeyError, TypeError, ValueError, sqlite3.Error):
+            return None
+        return int(active["id"]) if active else None
+
+    def _live_item_prompt_slide(self, item: dict[str, Any], item_id: str) -> int:
+        """Pick the prompt slide for a lifecycle row without inheriting a stale prompt.
+
+        MCK-154 S2 root cause: lifecycle rows use ``INTEGER PRIMARY KEY``
+        without AUTOINCREMENT, so removing the newest question mid-class
+        frees its id and the next Add New reuses it. The prompt slot was
+        ``20000 + id``, and the prompt upsert is ``ON CONFLICT(slide_index)
+        DO UPDATE``, so the new question took over the removed question's
+        prompt row and every answer on it. Students who had answered saw
+        the new card as already submitted ("Submitted — waiting.") and the
+        teacher's count started above zero. A slot held by a different
+        placement now moves the new prompt to a fresh slot.
+
+        Args:
+            item: Lifecycle row (``id``, ``live_session_id``, ``placement_key``).
+            item_id: Item id the new prompt payload will carry.
+
+        Returns:
+            ``20000 + id`` when free or already this item's, else the next
+            free slot in steps of 1,000,000.
+        """
+        session_id = int(item["live_session_id"])
+        placement_key = str(item.get("placement_key") or "").strip()
+        slide = 20000 + int(item["id"])
+        for _ in range(16):
+            existing = self._prompt_at_slide(session_id, slide)
+            if existing is None:
+                return slide
+            payload = (
+                existing.get("payload")
+                if isinstance(existing.get("payload"), dict)
+                else {}
+            )
+            owner_key = str(payload.get("placement_key") or "").strip()
+            owner_id = str(payload.get("item_id") or "").strip()
+            if owner_key and placement_key:
+                if owner_key == placement_key:
+                    return slide
+            elif not owner_id or owner_id == item_id or self._same_live_item_id(
+                owner_id, item_id
+            ):
+                return slide
+            slide += LIVE_ITEM_PROMPT_SLIDE_STRIDE
+        return slide
+
     def _ensure_prompt_for_live_item(
         self, item: dict[str, Any]
     ) -> dict[str, Any] | None:
@@ -14111,9 +14187,12 @@ class SchoolDB(LovesDB):
             if prompt_kind == ARTIFACT_KIND
             else ("share" if prompt_kind == "poll" else prompt_kind)
         )
+        placement_key = str(item.get("placement_key") or "").strip()
+        if placement_key:
+            payload["placement_key"] = placement_key
         prompt = self.set_live_session_prompt(
             int(item["live_session_id"]),
-            slide_index=20000 + int(item["id"]),
+            slide_index=self._live_item_prompt_slide(item, item_id),
             kind=session_kind,
             payload=payload,
             activate=False,
@@ -17717,6 +17796,9 @@ class SchoolDB(LovesDB):
             cleaned = student_artifact_payload(payload)
         else:
             cleaned = strip_teacher_prompt_fields(payload)
+        if isinstance(cleaned, dict):
+            # MCK-154 S2: the "New" chip is teacher-only; no student cue.
+            cleaned.pop("added_live_session_id", None)
         return rewrite_student_prompt_images(cleaned)
 
     def _orphan_saved_answer(

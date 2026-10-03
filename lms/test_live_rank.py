@@ -841,9 +841,10 @@ if (JSON.stringify(teammate) !== JSON.stringify(["o2", "o1", "o3"])) {
         reveal = student.split("function rankGroupRevealHtml")[1].split(
             "function studentGroupCardHtml"
         )[0]
-        self.assertIn("group-reveal-board", reveal)
-        self.assertIn("<th>Group</th><th>Order</th>", reveal)
-        self.assertIn("is-missed", reveal)
+        # MCK-154 S1: the closed reveal is the one vertical stack.
+        self.assertIn("rankStackHtml", reveal)
+        self.assertIn('audience: "student"', reveal)
+        self.assertIn("ownTeamId", reveal)
         self.assertNotIn("lifecycleResultsHtml", reveal)
         self.assertNotIn("student-live-results", reveal)
         self.assertNotIn("rank-class-order", reveal)
@@ -853,17 +854,28 @@ if (JSON.stringify(teammate) !== JSON.stringify(["o2", "o1", "o3"])) {
         self.assertIn("rankGroupRevealHtml", closed)
         self.assertNotIn("lifecycleResultsHtml", closed)
         self.assertNotIn("classBlock", closed)
-        self.assertIn("Change team order", closed)
+        # A closed card is final: no waiting line, no Change button.
+        self.assertNotIn("rankWaitingHtml", closed)
+        self.assertNotIn("Change team order", closed)
+        self.assertIn("rankClosedOwnOrderHtml", closed)
 
-    def test_teacher_strip_puts_teams_before_class_order(self) -> None:
-        """The Questions card leads with team rows. Individual omits them."""
+    def test_teacher_strip_is_one_rank_stack(self) -> None:
+        """MCK-154 S1: the Questions card shows one stack, count once."""
 
         staff = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         collate = staff.split("function rankCollateHtml")[1].split(
             "function groupSubmitTeacherHtml"
         )[0]
-        self.assertLess(collate.index("rank-team-rows"), collate.index("rank-class-order"))
-        self.assertIn('unit === "team"', collate)
+        self.assertIn("rankStackHtml", collate)
+        self.assertIn('audience: "teacher"', collate)
+        self.assertNotIn("rank-team-rows", collate)
+        self.assertNotIn("rank-class-order", collate)
+        self.assertNotIn("★", collate)
+        submit = staff.split("function groupSubmitTeacherHtml")[1].split(
+            "\nfunction "
+        )[0]
+        rank_branch = submit.split("if (result?.rank)")[1].split("}\n")[0]
+        self.assertNotIn("Submitter log", rank_branch)
         student = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
         self.assertIn("data-rank-shared", student)
         self.assertIn("tap: id", student)
