@@ -86,11 +86,13 @@ try:
         type_counts as bank_type_counts,
     )
     from live_mc import build_live_tally, build_mc_tally, numeric_prompt_without_key
+    from rank_alias import RankAliases, rank_aliases
     from live_rank import (
         borda_class_order,
         build_rank_options,
         format_rank_order,
         is_rank_prompt,
+        minted_rank_key,
         parse_rank_key,
         parse_rank_order,
         rank_fingerprint,
@@ -244,11 +246,13 @@ except ImportError:  # ``python3 lms/app.py`` package import
         type_counts as bank_type_counts,
     )
     from lms.live_mc import build_live_tally, build_mc_tally, numeric_prompt_without_key
+    from lms.rank_alias import RankAliases, rank_aliases
     from lms.live_rank import (
         borda_class_order,
         build_rank_options,
         format_rank_order,
         is_rank_prompt,
+        minted_rank_key,
         parse_rank_key,
         parse_rank_order,
         rank_fingerprint,
@@ -11199,14 +11203,15 @@ class SchoolDB(LovesDB):
             if str(extra_key) in EXTRA_ITEM_KEYS:
                 item_payload[str(extra_key)] = extra_value
         if kind == "rank":
-            rank_rows = build_rank_options(option_list)
+            # MCK-176: new items get opaque ids, never o1… in typed order.
+            rank_rows = build_rank_options(option_list, mint=True)
             labels = [row["label"] for row in rank_rows]
             item_payload["rank_options"] = rank_rows
             item_payload["options"] = labels
             item_payload["choices"] = labels
             item_payload.pop("key", None)
             item_payload.pop("correct_answer", None)
-            answer_order = parse_rank_key(rank_key, rank_rows)
+            answer_order = parse_rank_key(minted_rank_key(rank_key, rank_rows), rank_rows)
             if answer_order:
                 item_payload["rank_key"] = answer_order
 
@@ -14554,6 +14559,78 @@ class SchoolDB(LovesDB):
             return None
         return [row["id"] for row in rows], key
 
+    @staticmethod
+    def rank_alias_scope(item: Any) -> str:
+        """MCK-176: alias scope of a lifecycle row or payload.
+
+        The placement key, else the question id. Prompt and item payloads
+        carry the row's placement key, so every view of one item agrees.
+        """
+        if not isinstance(item, dict):
+            return ""
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        return str(
+            item.get("placement_key")
+            or question.get("placement_key")
+            or item.get("item_id")
+            or question.get("item_id")
+            or question.get("id")
+            or item.get("id")
+            or ""
+        )
+
+    def student_rank_aliases(self, item: Any, *, scope: Any = None) -> RankAliases | None:
+        """MCK-176: student alias map for an answer-order rank, else ``None``.
+
+        Opinion ranks and other questions keep their real ids. MCK-171 can
+        call this for ``race.options[].id``.
+
+        Args:
+            item: Lifecycle row (``item`` holds the question) or a raw prompt,
+                item, or metadata payload that still holds ``rank_key``.
+            scope: Override scope (defaults to :meth:`rank_alias_scope`).
+        """
+        if not isinstance(item, dict):
+            return None
+        if isinstance(item.get("item"), dict) and "live_session_id" in item:
+            keyed = self._keyed_rank_ids(item)
+            if keyed is None:
+                return None
+            ids = keyed[0]
+        else:
+            if str(item.get("type") or item.get("kind") or "").strip().lower() != "rank":
+                return None
+            rows = safe_rank_options(
+                item.get("rank_options") or item.get("options") or item.get("choices")
+            )
+            if len(rows) < 2 or not safe_rank_key(item.get("rank_key"), rows):
+                return None
+            ids = [row["id"] for row in rows]
+        token = str(scope or "") or self.rank_alias_scope(item)
+        secret = str(getattr(self, "rank_alias_secret", "") or "") or None
+        return rank_aliases(token, ids, secret=secret)
+
+    def _alias_for_student(self, source: Any, node: Any, *, scope: Any = None) -> Any:
+        """``node`` with real option ids replaced by aliases (keyed ranks only)."""
+        aliases = self.student_rank_aliases(source, scope=scope)
+        return aliases.tree(node) if aliases is not None else node
+
+    def alias_student_prompt_reply(self, prompt_id: int, node: Any) -> Any:
+        """MCK-176: alias a student reply about one prompt (keyed ranks only).
+
+        Args:
+            prompt_id: ``live_session_prompts.id`` (its stored payload holds the key).
+            node: Reply body (``my_response``, ``mc_tally``, ...).
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM live_session_prompts WHERE id = ?", (int(prompt_id),)
+            ).fetchone()
+        if row is None:
+            return node
+        payload = self._prompt_row_to_dict(row).get("payload")
+        return self._alias_for_student(payload, node)
+
     def _claim_rank_display_order(self, live_item_id: int, *, fresh: bool) -> list[str] | None:
         """Store the shown order of an answer-order rank, atomically.
 
@@ -15923,6 +16000,8 @@ class SchoolDB(LovesDB):
                 card["turns"] = self._rank_turns_public(
                     item, int(team_id), class_id, turn_state, viewer_id=int(student_id)
                 )
+            # MCK-176: students only ever see option aliases.
+            card = self._alias_for_student(item, card)
         return card
 
     def _save_group_rank_draft(
@@ -15959,6 +16038,13 @@ class SchoolDB(LovesDB):
         team_id = self._require_group_submit_member(item, student_id)
         options = self._rank_option_rows(item)
         allowed = [row["id"] for row in options]
+        aliases = self.student_rank_aliases(item)
+        if aliases is not None:
+            # MCK-176: students send aliases; unknown ones are refused.
+            if tap not in (None, ""):
+                tap = aliases.back(tap)
+            if order is not None:
+                order = aliases.back_list(order)
         live_item_id = int(item["id"])
         now = _now()
         with self._lock:
@@ -16438,6 +16524,10 @@ class SchoolDB(LovesDB):
             raise ValueError("This question does not take turns.")
         team_id = self._require_group_submit_member(item, student_id)
         allowed = [opt["id"] for opt in self._rank_option_rows(item)]
+        aliases = self.student_rank_aliases(item)
+        if aliases is not None and not undo and option_id not in (None, ""):
+            # MCK-176: students send aliases; unknown ones are refused.
+            option_id = aliases.back(option_id)
         active = self._active_team_member_ids(session_id, int(team_id))
         now = _now()
         conflict: TurnConflict | None = None
@@ -18922,6 +19012,8 @@ class SchoolDB(LovesDB):
                     session_id, int(student_id), prompt
                 )
                 public_items[-1]["group_q_ready"] = status_q["ready"]
+            # MCK-176: students only ever see option aliases.
+            public_items[-1] = self._alias_for_student(item, public_items[-1])
         facing = [
             row
             for row in public_items
@@ -20736,8 +20828,13 @@ class SchoolDB(LovesDB):
                 payload.get("rank_options") or payload.get("options") or payload.get("choices")
             )
             allowed = [row["id"] for row in options]
+            submitted = (response or {}).get("order")
+            aliases = self.student_rank_aliases(payload)
+            if aliases is not None:
+                # MCK-176: students send aliases; unknown ones are refused.
+                submitted = aliases.back_list(submitted)
             try:
-                order = parse_rank_order((response or {}).get("order"), allowed, complete=True)
+                order = parse_rank_order(submitted, allowed, complete=True)
             except (TypeError, ValueError) as exc:
                 raise ValueError("rank every option before submitting") from exc
             response = {"order": order}
@@ -21053,13 +21150,25 @@ class SchoolDB(LovesDB):
         metadata = self.live_class_metadata_for_session(session_id)
         public = dict(metadata)
         stored_orders = self._rank_display_orders_by_ref(session_id)
+        scopes = self._rank_alias_scopes_by_ref(session_id)
         for key in ("questions", "items"):
             cleaned_rows = []
             for row in metadata.get(key) or []:
                 if not isinstance(row, dict):
                     continue
                 # MCK-176: same shuffled order as the published card.
-                row = self._student_rank_display(row, stored_orders)
+                scope = next(
+                    (
+                        scopes[token]
+                        for token in (
+                            str(row.get(ref) or "").strip()
+                            for ref in ("placement_key", "item_id", "id")
+                        )
+                        if token in scopes
+                    ),
+                    None,
+                )
+                row = self._student_rank_display(row, stored_orders, scope=scope)
                 cleaned = strip_teacher_prompt_fields(row)
                 cleaned.pop(RANK_DISPLAY_ORDER_FIELD, None)
                 cleaned.pop(RANK_DISPLAY_PENDING_FIELD, None)
@@ -21095,18 +21204,44 @@ class SchoolDB(LovesDB):
                     out[token] = [str(item) for item in order]
         return out
 
-    @staticmethod
+    def _rank_alias_scopes_by_ref(self, session_id: int) -> dict[str, str]:
+        """MCK-176: alias scope of each lifecycle row, by placement key and item id.
+
+        Metadata rows may lack the placement key; this keeps their aliases
+        the same as the published card's.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        out: dict[str, str] = {}
+        for row in self._live_item_rows_for_session(session_id):
+            scope = str(row["placement_key"] or row["item_id"] or "").strip()
+            if not scope:
+                continue
+            for ref in (row["placement_key"], row["item_id"]):
+                token = str(ref or "").strip()
+                if token and token not in out:
+                    out[token] = scope
+        return out
+
     def _student_rank_display(
-        payload: Any, stored_orders: dict[str, list[str]] | None = None
+        self,
+        payload: Any,
+        stored_orders: dict[str, list[str]] | None = None,
+        *,
+        scope: Any = None,
     ) -> Any:
         """MCK-176: shuffle an answer-order rank payload for students.
 
         Opinion ranks and every other payload come back as the same object.
+        Option ids come back as student aliases (:meth:`student_rank_aliases`).
 
         Args:
             payload: Prompt, item, or metadata row (still holding ``rank_key``).
             stored_orders: Orders stored on lifecycle rows, by placement key
                 or item id (metadata rows carry no stored order themselves).
+            scope: Alias scope of the lifecycle row, when the payload may
+                lack the placement key.
         """
         if not isinstance(payload, dict):
             return payload
@@ -21115,15 +21250,24 @@ class SchoolDB(LovesDB):
         seed = str(
             payload.get("placement_key") or payload.get("item_id") or payload.get("id") or ""
         )
+        shown = None
         if stored_orders:
             for ref in (payload.get("placement_key"), payload.get("item_id"), payload.get("id")):
                 order = stored_orders.get(str(ref or "").strip())
                 if order:
-                    shown = apply_rank_display_order(payload, order)
-                    if shown is not payload:
-                        return with_rank_display_order(shown, seed)
+                    applied = apply_rank_display_order(payload, order)
+                    if applied is not payload:
+                        shown = with_rank_display_order(applied, seed)
                     break
-        return with_rank_display_order(payload, seed)
+        if shown is None:
+            shown = with_rank_display_order(payload, seed)
+        aliases = self.student_rank_aliases(payload, scope=scope)
+        if aliases is None or not isinstance(shown, dict):
+            return shown
+        out = dict(shown)
+        fields = {key: shown[key] for key in ("rank_options", "options", "choices") if key in shown}
+        out.update(aliases.tree(fields))
+        return out
 
     @staticmethod
     def _lifecycle_row_for_metadata_question(
@@ -23248,6 +23392,12 @@ class SchoolDB(LovesDB):
         )
         if draft:
             out["group_draft"] = draft
+        aliases = self.student_rank_aliases(raw_payload)
+        if aliases is not None:
+            # MCK-176: students only ever see option aliases.
+            for alias_key in ("prompt", "my_response", "mc_tally"):
+                if out.get(alias_key) is not None:
+                    out[alias_key] = aliases.tree(out[alias_key])
         out.update(items_payload)
         if is_artifact_payload(raw_payload) and student_id not in (None, ""):
             status = self.artifact_group_q_status(

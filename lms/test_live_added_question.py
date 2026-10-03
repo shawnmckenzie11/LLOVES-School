@@ -201,7 +201,9 @@ class LiveAddedQuestionTests(unittest.TestCase):
         first_prompt = self.school._prompt_for_live_item(first)
         student_id = int(self.students[0]["id"])
         self.school.submit_live_prompt_response(
-            int(first_prompt["id"]), student_id, {"order": ["o1", "o2", "o3"]}
+            int(first_prompt["id"]),
+            student_id,
+            {"order": [row["id"] for row in first_prompt["payload"]["rank_options"]]},
         )
         rv = self.client.post(
             f"/api/staff/class/{self.class_id}/live-lessons/M1/C2/playlist-item",

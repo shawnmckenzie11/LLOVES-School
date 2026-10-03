@@ -9,6 +9,8 @@ bad order cannot raise.
 from __future__ import annotations
 
 import random
+import re
+import secrets
 from typing import Any
 
 MIN_RANK_OPTIONS = 3
@@ -34,15 +36,26 @@ def is_rank_prompt(prompt: Any) -> bool:
     return kind == "rank" or token == "rank"
 
 
-def build_rank_options(raw: Any) -> list[dict[str, str]]:
+def mint_rank_option_id(used: set[str]) -> str:
+    """MCK-176: a new opaque option id (``o`` + 6 hex), unique in ``used``."""
+    while True:
+        token = f"o{secrets.token_hex(3)}"
+        if token not in used:
+            return token
+
+
+def build_rank_options(raw: Any, *, mint: bool = False) -> list[dict[str, str]]:
     """Validate authored rank options into stable id/label rows.
 
     Args:
         raw: A list of labels or ``{id, label}`` objects.
+        mint: MCK-176. A newly authored item gets opaque ids
+            (:func:`mint_rank_option_id`) instead of ``o1``… in typed order,
+            which would leak the order. Stored payloads keep their ids.
 
     Returns:
-        Three to six options. Ids are ``o1``… when the caller does not
-        supply a unique id.
+        Three to six options. Ids are ``o1``… (opaque with ``mint``) when
+        the caller does not supply a unique id.
 
     Raises:
         ValueError: When the list is short, long, blank, or duplicated.
@@ -71,9 +84,12 @@ def build_rank_options(raw: Any) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     used: set[str] = set()
     for index, (opt_id, text) in enumerate(cleaned, start=1):
-        token = opt_id if opt_id and opt_id not in used else f"o{index}"
-        if token in used:
-            token = f"o{index}"
+        if mint and (not opt_id or opt_id in used):
+            token = mint_rank_option_id(used | {o for o, _ in cleaned if o})
+        else:
+            token = opt_id if opt_id and opt_id not in used else f"o{index}"
+            if token in used:
+                token = f"o{index}"
         used.add(token)
         rows.append({"id": token, "label": text})
     return rows
@@ -365,6 +381,32 @@ def build_rank_tally(
 # carries it. Borda display ignores it. Race scoring (later slices) reads it
 # through ``rank_race_score``.
 # ---------------------------------------------------------------------------
+
+
+_TYPED_ID = re.compile(r"^o([1-9][0-9]?)$")
+
+
+def minted_rank_key(raw: Any, options: list[dict[str, str]]) -> Any:
+    """MCK-176: let an answer order written as ``o1``… find minted ids.
+
+    An API caller may still send the old typed-order ids. Each ``oN`` that
+    is not a real id becomes the zero-based index ``N - 1``.
+
+    Args:
+        raw: ``rank_key`` as sent.
+        options: Rows from :func:`build_rank_options` with ``mint=True``.
+    """
+    if not isinstance(raw, list):
+        return raw
+    ids = {row["id"] for row in options}
+    out: list[Any] = []
+    for value in raw:
+        match = _TYPED_ID.match(value.strip()) if isinstance(value, str) else None
+        if match and value.strip() not in ids:
+            out.append(int(match.group(1)) - 1)
+        else:
+            out.append(value)
+    return out
 
 
 def parse_rank_key(raw: Any, options: list[dict[str, str]]) -> list[str] | None:
