@@ -110,6 +110,27 @@ class PhonePayloadTests(ChallengeHarness):
         self.assertNotIn("rank_key", body)
         self.assertNotIn("awarded_points", json.dumps(self._card("Ava", item)))
 
+    def test_race_options_content_and_order_share_one_alias_set(self) -> None:
+        """MCK-176: the phone matches race.options to the content rows and
+        the team order by id, so all three carry the same aliases."""
+        item = self._challenge()
+        self._order("Ava", item, KEY_IDS)
+        data = self.students["Ava"].get("/api/student/state").get_json()
+        rows = [
+            r for r in (data.get("active_questions") or []) + (data.get("live_items") or [])
+            if int(r.get("id") or 0) == int(item["id"])
+        ]
+        self.assertTrue(rows)
+        real = set(self._real_ids(item))
+        for row in rows:
+            content = row["content"]
+            content_ids = {o["id"] for o in (content.get("rank_options") or content.get("options")) if isinstance(o, dict)}
+            race_ids = [o["id"] for o in row["group_submit"]["race"]["options"]]
+            self.assertEqual(set(race_ids), content_ids)
+            self.assertEqual(set(row["group_submit"]["order"]), content_ids)
+            self.assertFalse(content_ids & real)
+            self.assertEqual(self._pos(item, row["group_submit"]["order"]), KEY_IDS)
+
 
 if __name__ == "__main__":
     unittest.main()

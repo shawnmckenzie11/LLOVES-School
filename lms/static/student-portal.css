@@ -2418,6 +2418,10 @@ body.staff-shell .prompt-choice .live-question-html img,
   line-height: 1.3;
   color: #3d4c5c;
 }
+/* MCK-174: the cue sits on the dark whiteboard pane; keep it readable. */
+.canvas-pane .board-refresh-cue {
+  color: #c9d6e6;
+}
 
 /* MCK-116 S1/S3/S4: Celebrations avatar reward pop-up (Mobbin mock v0). */
 .rw-root[hidden], .rw-root [hidden], .rw-slot[hidden], .rw-chip[hidden] { display: none !important; }

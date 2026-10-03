@@ -24,14 +24,14 @@ function eq(actual, expected, label) {
 
 // Empty-group copy.
 eq(contentRowsView({ module: "M7", label: "Module 7", items: [] }).empty,
-  "Module 7 has no Contest Questions yet.", "module empty line");
+  "No Contest Questions in Module 7 yet.", "module empty line (MCK-175 bank.contest.empty)");
 eq(contentRowsView({ module: "COURSE", label: "Contest", items: [] }).empty,
   "No course-wide Contest Questions yet.", "course-wide empty line");
 eq(contentRowsView({ module: "M1", items: [{ question_id: 3 }] }).empty, "", "filled group");
 
 // Heading allows for the course-wide group.
-eq(contentSectionHeading(6), "Contest Questions · top 6 per module and course-wide", "heading");
-eq(contentSectionHeading(), "Contest Questions · top 6 per module and course-wide", "heading default");
+eq(contentSectionHeading(6), "Contest Questions · top 6 per module", "heading (MCK-175 bank.contest.title)");
+eq(contentSectionHeading(), "Contest Questions · top 6 per module", "heading default");
 
 // Stale status copy.
 eq(contentStaleText(1),

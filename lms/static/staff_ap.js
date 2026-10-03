@@ -40,6 +40,7 @@ import {
   createPresenceQueue,
   cursorAfterOps,
   normalizeBoardPoint,
+  clearBoardRefreshCue,
   noteBoardRun,
   opsAboveCursor,
   showBoardRefreshCue,
@@ -2233,6 +2234,7 @@ function paintSurfacePublishing() {
     const close = document.querySelector(`[data-surface-close="${surface}"]`);
     if (publish instanceof HTMLButtonElement) publish.disabled = status !== "inactive";
     if (close instanceof HTMLButtonElement) close.disabled = status !== "active";
+    if (surface === "canvas") paintWhiteboardReopenControl(item, status);
   }
 }
 
@@ -2391,6 +2393,179 @@ function paintFrames() {
     if (on) btn.setAttribute("aria-current", "page");
     else btn.removeAttribute("aria-current");
   });
+}
+
+/**
+ * MCK-174 Reopen board copy (copy: Wonder, word for word).
+ */
+const WB_REOPEN_COPY = Object.freeze({
+  button: "Reopen board", // wb.reopen
+  last: "Last board", // wb.reopen.last
+  lastHelp: "Brings back all the ink from when you closed it.", // wb.reopen.last.help
+  fresh: "Fresh board", // wb.reopen.fresh
+  freshHelp: "A blank board. The last one is kept until class ends.", // wb.reopen.fresh.help
+  toastLast: "Board reopened with the last ink.", // wb.reopen.toast.last
+  toastFresh: "Fresh board is open.", // wb.reopen.toast.fresh
+});
+
+/** True while a reopen POST is in flight (one at a time). */
+let whiteboardReopenInFlight = false;
+
+/** MCK-174: a Fresh board reopen refreshes without the new-class cue. */
+let teacherBoardQuietRefresh = false;
+
+/**
+ * Fresh board needs ink stored on the server. Individual pen ink is
+ * still client-only (MCK-174 S3), so Fresh is offered on Group only.
+ * @param {any} item Whiteboard lifecycle row.
+ * @returns {boolean}
+ */
+function reopenFreshAllowed(item) {
+  return String(item?.publish_mode || "") === "group_shared";
+}
+
+/**
+ * While the whiteboard is Closed, Publish is swapped for Reopen board.
+ * @param {any} item Whiteboard lifecycle row, if any.
+ * @param {string} status Painted status.
+ */
+function paintWhiteboardReopenControl(item, status) {
+  const closed = Boolean(item) && status === "closed";
+  const publish = document.querySelector('[data-surface-publish="canvas"]');
+  const wrap = document.querySelector('[data-surface-reopen-wrap="canvas"]');
+  if (publish instanceof HTMLElement) {
+    publish.classList.toggle("is-swapped-for-reopen", closed);
+  }
+  if (wrap instanceof HTMLElement) wrap.hidden = !closed;
+  const button = document.querySelector('[data-surface-reopen="canvas"]');
+  if (button instanceof HTMLButtonElement) {
+    button.textContent = WB_REOPEN_COPY.button;
+    button.disabled = whiteboardReopenInFlight;
+  }
+  if (!closed) closeWhiteboardReopenPopover({ focus: false });
+}
+
+/**
+ * Two option rows: Last board (default) and, on Group, Fresh board.
+ * @param {any} item
+ * @returns {string}
+ */
+function whiteboardReopenOptionsHtml(item) {
+  const row = (start, label, help, checked) =>
+    `<button type="button" class="live-reopen-opt" role="menuitemradio" aria-checked="${checked ? "true" : "false"}" data-reopen-start="${start}">` +
+    `<span class="live-reopen-radio" aria-hidden="true"></span>` +
+    `<span class="live-reopen-text"><b>${escapeHtml(label)}</b>` +
+    `<span class="live-reopen-help">${escapeHtml(help)}</span></span></button>`;
+  let html = row("last", WB_REOPEN_COPY.last, WB_REOPEN_COPY.lastHelp, true);
+  if (reopenFreshAllowed(item)) {
+    html += row("fresh", WB_REOPEN_COPY.fresh, WB_REOPEN_COPY.freshHelp, false);
+  }
+  return html;
+}
+
+/**
+ * Open the Reopen board popover with Last board focused (Enter picks it).
+ */
+function openWhiteboardReopenPopover() {
+  const item = lifecycleItemForSurface("canvas");
+  if (!item || String(item.status || "") !== "closed") return;
+  const pop = $("live-reopen-pop");
+  const button = document.querySelector('[data-surface-reopen="canvas"]');
+  if (!(pop instanceof HTMLElement)) return;
+  pop.innerHTML = whiteboardReopenOptionsHtml(item);
+  pop.hidden = false;
+  if (button instanceof HTMLElement) button.setAttribute("aria-expanded", "true");
+  const first = pop.querySelector('[data-reopen-start="last"]');
+  if (first instanceof HTMLElement) first.focus();
+}
+
+/**
+ * Close the popover. Esc returns focus to Reopen board.
+ * @param {{focus?: boolean}} [opts]
+ */
+function closeWhiteboardReopenPopover(opts = {}) {
+  const pop = $("live-reopen-pop");
+  const button = document.querySelector('[data-surface-reopen="canvas"]');
+  if (!(pop instanceof HTMLElement) || pop.hidden) return;
+  pop.hidden = true;
+  pop.innerHTML = "";
+  if (button instanceof HTMLElement) {
+    button.setAttribute("aria-expanded", "false");
+    if (opts.focus) button.focus();
+  }
+}
+
+let reopenToastTimer = 0;
+
+/**
+ * Staff toast line under the Whiteboard controls (same pattern as the
+ * mint toast).
+ * @param {string} line
+ */
+function showWhiteboardReopenToast(line) {
+  const el = $("live-canvas-reopen-toast");
+  if (!(el instanceof HTMLElement)) return;
+  const text = String(line || "").trim();
+  if (!text) return;
+  el.textContent = text;
+  el.hidden = false;
+  window.clearTimeout(reopenToastTimer);
+  reopenToastTimer = window.setTimeout(() => {
+    el.hidden = true;
+    el.textContent = "";
+  }, 2800);
+}
+
+/**
+ * Reopen the closed whiteboard. One pick covers the teacher board and
+ * every group or individual board; the Students work mode is kept.
+ * @param {"last"|"fresh"} start
+ */
+async function reopenWhiteboard(start) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId || whiteboardReopenInFlight) return;
+  const item = lifecycleItemForSurface("canvas");
+  if (!item || String(item.status || "") !== "closed") return;
+  const pick = start === "fresh" && reopenFreshAllowed(item) ? "fresh" : "last";
+  closeWhiteboardReopenPopover({ focus: false });
+  whiteboardReopenInFlight = true;
+  paintSurfacePublishing();
+  try {
+    const result = await api(
+      `/api/live-sessions/${sessionId}/items/${Number(item.id)}/reopen`,
+      { method: "POST", body: JSON.stringify({ start: pick }) }
+    );
+    if (result?.item) {
+      lastLiveItems = lastLiveItems.map((row) =>
+        Number(row.id) === Number(result.item.id) ? result.item : row
+      );
+    }
+    const mode =
+      String(result?.item?.publish_mode || item.publish_mode || "") === "group_shared"
+        ? "team"
+        : "student";
+    const next = { ...(teacherState.student_view || {}), canvas: mode };
+    teacherState.student_view = next;
+    await patchTeacherState({ student_view: next });
+    if (pick === "fresh") {
+      // New board generation: re-hydrate blank through the run-change path,
+      // without the new-class cue line (the toast says what happened).
+      teacherBoardQuietRefresh = true;
+      try {
+        await refreshTeacherBoard();
+      } finally {
+        teacherBoardQuietRefresh = false;
+      }
+      const canvas = $("live-canvas-stub");
+      if (canvas instanceof HTMLCanvasElement) clearBoardRefreshCue(canvas);
+    }
+    showWhiteboardReopenToast(
+      pick === "fresh" ? WB_REOPEN_COPY.toastFresh : WB_REOPEN_COPY.toastLast
+    );
+  } finally {
+    whiteboardReopenInFlight = false;
+    paintSurfacePublishing();
+  }
 }
 
 /**
@@ -11148,6 +11323,45 @@ document.querySelectorAll("[data-surface-close]").forEach((button) => {
       .catch((err) => showError("#ap-overlay-error", err));
   });
 });
+// MCK-174: Reopen board opens a two-choice popover (Last board / Fresh board).
+document.querySelector('[data-surface-reopen="canvas"]')?.addEventListener("click", () => {
+  const pop = $("live-reopen-pop");
+  if (pop instanceof HTMLElement && !pop.hidden) {
+    closeWhiteboardReopenPopover({ focus: true });
+    return;
+  }
+  openWhiteboardReopenPopover();
+});
+$("live-reopen-pop")?.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const opt = target?.closest("[data-reopen-start]");
+  if (!(opt instanceof HTMLElement)) return;
+  const start = opt.getAttribute("data-reopen-start") === "fresh" ? "fresh" : "last";
+  reopenWhiteboard(start).catch((err) => showError("#ap-overlay-error", err));
+});
+$("live-reopen-pop")?.addEventListener("keydown", (event) => {
+  const pop = event.currentTarget;
+  if (!(pop instanceof HTMLElement)) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeWhiteboardReopenPopover({ focus: true });
+    return;
+  }
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  const rows = [...pop.querySelectorAll("[data-reopen-start]")];
+  if (!rows.length) return;
+  event.preventDefault();
+  const at = rows.indexOf(document.activeElement);
+  const step = event.key === "ArrowDown" ? 1 : -1;
+  const next = rows[(at + step + rows.length) % rows.length];
+  if (next instanceof HTMLElement) next.focus();
+});
+document.addEventListener("pointerdown", (event) => {
+  const wrap = document.querySelector('[data-surface-reopen-wrap="canvas"]');
+  const target = event.target instanceof Node ? event.target : null;
+  if (!(wrap instanceof HTMLElement) || (target && wrap.contains(target))) return;
+  closeWhiteboardReopenPopover({ focus: false });
+});
 
 $("text-ride-freeze")?.addEventListener("click", () => {
   if (!textRideSlot) return;
@@ -11545,7 +11759,9 @@ function refreshTeacherBoard() {
       if (data && data.ended && teacherBoard && typeof teacherBoard.resetRun === "function") {
         teacherBoard.resetRun(empty);
       }
-      if (canvas instanceof HTMLCanvasElement) showBoardRefreshCue(canvas);
+      if (canvas instanceof HTMLCanvasElement && !teacherBoardQuietRefresh) {
+        showBoardRefreshCue(canvas);
+      }
       return;
     }
     noteBoardRun(teacherBoardRun, data.run_key);
@@ -11560,7 +11776,9 @@ function refreshTeacherBoard() {
       }
     }
     teacherBoardSince = Number(data.board_seq) || 0;
-    if (canvas instanceof HTMLCanvasElement) showBoardRefreshCue(canvas);
+    if (canvas instanceof HTMLCanvasElement && !teacherBoardQuietRefresh) {
+      showBoardRefreshCue(canvas);
+    }
   })().finally(() => {
     teacherBoardRefresh = null;
   });
