@@ -15244,15 +15244,24 @@ class SchoolDB(LovesDB):
 
         MCK-171 hook for MCK-176 (server-stored shuffle, seeded per publish,
         same for the whole group, never the key, stable across reloads).
-        Until MCK-176 lands this is the authored order. The projector header
+        Reads ``SchoolDB.rank_display_order(item)`` (MCK-176, PR #240)
+        when it exists; until #240 merges, or when it returns ``None``,
+        this falls back to the stored option order. The projector header
         and the phone both read ``race.options`` from here; scoring and
-        drafts always use option ids, never positions.
+        drafts always use option ids against the key, never positions.
 
         Args:
             item: Team challenge lifecycle row.
         """
-        # TODO(MCK-176): return the stored shuffled order once it lands.
-        return self._rank_option_rows(item)
+        rows = self._rank_option_rows(item)
+        # Guarded so this stack does not depend on #240's merge order.
+        reader = getattr(self, "rank_display_order", None)
+        order = reader(item) if callable(reader) else None
+        if not order:
+            return rows
+        by_id = {row["id"]: row for row in rows}
+        shown = [by_id[oid] for oid in order if oid in by_id]
+        return shown + [row for row in rows if row["id"] not in set(order)]
 
     def _rank_race_options_payload(
         self, item: dict[str, Any]

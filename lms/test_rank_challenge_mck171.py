@@ -646,6 +646,41 @@ class DisplayOrderHookTests(ChallengeHarness):
         self.assertEqual(teacher, want)
         self.assertEqual(student, want)
 
+    def test_reads_rank_display_order_when_present(self) -> None:
+        """MCK-176 (#240): SchoolDB.rank_display_order drives race.options."""
+        from unittest import mock
+
+        item = self._challenge()
+        shown = ["o4", "o2", "o1", "o3"]
+        with mock.patch.object(type(self.school), "rank_display_order", create=True, return_value=shown):
+            teacher = [o["id"] for o in self._view(item)["race"]["options"]]
+            student = [o["id"] for o in self._card("Ava", item)["race"]["options"]]
+        self.assertEqual(teacher, shown)
+        self.assertEqual(student, shown)
+        # None (opinion rank / no stored order) falls back to the stored order.
+        with mock.patch.object(type(self.school), "rank_display_order", create=True, return_value=None):
+            self.assertEqual(
+                {o["id"] for o in self._view(item)["race"]["options"]}, set(KEY_IDS)
+            )
+
+    def test_scoring_ignores_the_display_order(self) -> None:
+        """Score by option id against the key, whatever order was shown."""
+        from unittest import mock
+
+        item = self._challenge()
+        with mock.patch.object(type(self.school), "rank_display_order", create=True, return_value=["o4", "o2", "o1", "o3"]):
+            self._order("Ava", item, KEY_IDS)
+            for name in ("Ava", "Cy", "Eli"):
+                rv = self._post(name, item, "rank-agree", {"agree": True, "order": KEY_IDS})
+                self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        live = self.school.get_live_session_item(self.session_id, int(item["id"]))
+        team = self._team("Ava", item)
+        row = self.school._group_response_row(int(live["id"]), team) or {}
+        self.assertEqual(self.school._rank_race_draft_order(live, row), KEY_IDS)
+        from live_rank import rank_race_score
+
+        self.assertEqual(rank_race_score(row_order := self.school._rank_race_draft_order(live, row), KEY_IDS)["right"], len(row_order))
+
     def test_options_carry_no_key(self) -> None:
         item = self._challenge()
         race = self._card("Ava", item)["race"]
