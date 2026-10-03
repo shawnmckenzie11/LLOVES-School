@@ -76,6 +76,14 @@ class TypeClassifierTests(unittest.TestCase):
         self.assertEqual(filter_by_type(items, ""), items)
 
 
+# MCK-169 seeds the reviewed MCR3U rank items into per-module rank banks
+# on the first search, so every count below includes them (see
+# lms/seeds/rank_items/MCR3U.json).
+SEEDED_RANK_M1 = 4
+SEEDED_RANK_M2 = 8
+SEEDED_RANK_COURSE = 33
+
+
 class BankTypeFilterEndpointTests(unittest.TestCase):
     """mc-search ``type`` param and ``type_counts`` over a seeded live bank."""
 
@@ -88,8 +96,8 @@ class BankTypeFilterEndpointTests(unittest.TestCase):
         self._add("Factor x^2 - 9", ["(x-3)(x+3)", "(x-9)(x+1)"])
         self._add("Expand (x+1)^2", ["x^2+2x+1", "x^2+1", "2x+1"])
         self._add("Every function is a relation", ["True", "False"])
-        # MCK-169 is not merged: no staff path yet stores a rank row that
-        # search can import. Simulate one by marking a stored MC as rank.
+        # One staff rank row on top of the seeded ones: mark a stored MC as
+        # rank so the search-text tests have a known rank stem.
         rank = self._add("Order the factor steps", ["Common", "Difference", "Check"])
         payload = dict(rank["payload"])
         payload["type"] = "rank"
@@ -174,7 +182,9 @@ class BankTypeFilterEndpointTests(unittest.TestCase):
             self.assertEqual((same["total"], same["filtered"]), (base["total"], base["filtered"]))
         self.assertEqual(base["type"], "")
         self.assertEqual(base["filtered"], base["total"])
-        self.assertEqual(self._counts(base), {"mc": 2, "true_false": 1, "rank": 1})
+        self.assertEqual(
+            self._counts(base), {"mc": 2, "true_false": 1, "rank": 1 + SEEDED_RANK_M1}
+        )
         self.assertEqual(sum(self._counts(base).values()), base["filtered"])
         self.assertEqual(
             [row["label"] for row in base["type_counts"]],
@@ -185,7 +195,7 @@ class BankTypeFilterEndpointTests(unittest.TestCase):
         """Each type keeps only its rows; counts still describe every type."""
         base = self._search()
         seen = 0
-        for qtype, want in (("mc", 2), ("true_false", 1), ("rank", 1)):
+        for qtype, want in (("mc", 2), ("true_false", 1), ("rank", 1 + SEEDED_RANK_M1)):
             body = self._search(type=qtype)
             self.assertEqual(body["type"], qtype)
             self.assertEqual(body["filtered"], want, qtype)
@@ -196,7 +206,8 @@ class BankTypeFilterEndpointTests(unittest.TestCase):
             seen += want
         self.assertEqual(seen, base["filtered"])
         rank = self._search(type="order")
-        self.assertEqual(self._stems(rank), ["Order the factor steps"])
+        self.assertEqual(len(rank["items"]), 1 + SEEDED_RANK_M1)
+        self.assertIn("Order the factor steps", self._stems(rank))
         self.assertEqual(self._search(type="numeric")["items"], [])
 
     def test_open_type_with_warmup_kind(self) -> None:
@@ -213,10 +224,12 @@ class BankTypeFilterEndpointTests(unittest.TestCase):
     def test_combines_with_module(self) -> None:
         """M2 counts and filters only M2 rows."""
         m2 = self._search("M2")
-        self.assertEqual(self._counts(m2), {"mc": 1, "true_false": 1})
+        self.assertEqual(self._counts(m2), {"mc": 1, "true_false": 1, "rank": SEEDED_RANK_M2})
         tf = self._search("M2", type="true_false")
         self.assertEqual(self._stems(tf), ["Vertex form shows the vertex"])
-        self.assertEqual(self._search("M2", type="rank")["items"], [])
+        rank = self._search("M2", type="rank")["items"]
+        self.assertEqual(len(rank), SEEDED_RANK_M2)
+        self.assertNotIn("Order the factor steps", self._stems({"items": rank}))
 
     def test_combines_with_search(self) -> None:
         """Counts follow the search text; type narrows within it."""
@@ -231,7 +244,9 @@ class BankTypeFilterEndpointTests(unittest.TestCase):
     def test_course_scope_counts(self) -> None:
         """Course Wide counts span modules and the filter applies across them."""
         course = self._search("course")
-        self.assertEqual(self._counts(course), {"mc": 3, "true_false": 2, "rank": 1})
+        self.assertEqual(
+            self._counts(course), {"mc": 3, "true_false": 2, "rank": 1 + SEEDED_RANK_COURSE}
+        )
         tf = self._search("course", type="true_false")
         self.assertEqual(
             self._stems(tf), ["Every function is a relation", "Vertex form shows the vertex"]
