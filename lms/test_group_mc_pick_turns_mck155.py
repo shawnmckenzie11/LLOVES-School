@@ -677,6 +677,50 @@ except GroupAnswerLocked:
         self._post("Cy", item, "rank-turn", {"option_id": o[1]})
         self.assertNotEqual(mid, stamp())
 
+    def test_write_during_state_build_is_not_unchanged_next_poll(self) -> None:
+        """Gate MED-4: the /state stamp is taken before the payload build.
+
+        Ava places while Cy's /state payload is being built. Cy's next poll
+        (with the stamp from that reply) must rebuild and show Ava's spot,
+        not answer ``unchanged`` on the stale payload.
+        """
+        item = self._turns()
+        o = self._opts(item)
+        real = self.school.assemble_student_live_payload
+        wrote: list[bool] = []
+
+        def build_with_a_write_mid_way(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            payload = real(*args, **kwargs)
+            if not wrote:
+                wrote.append(True)
+                # Lands after the payload read, before the reply goes out.
+                self.school.rank_turn_place(
+                    self.session_id, int(item["id"]), self.ids["Ava"], option_id=o[0]
+                )
+            return payload
+
+        def spots(payload: dict[str, Any]) -> list[Any] | None:
+            for row in payload.get("live_items") or []:
+                if int(row.get("id") or 0) == int(item["id"]):
+                    return ((row.get("group_submit") or {}).get("turns") or {}).get("spots")
+            return None
+
+        cy = self.students["Cy"]
+        with mock.patch.object(self.school, "assemble_student_live_payload", build_with_a_write_mid_way):
+            first = cy.get("/api/student/state").get_json()
+        self.assertTrue(wrote)
+        self.assertEqual(spots(first), [], "the payload was built before Ava placed")
+        second = cy.get(
+            f"/api/student/state?seq={first['state_seq']}&stamp={first['stamp']}"
+        ).get_json()
+        self.assertNotIn("unchanged", second, "a write mid-build must not hide behind the new stamp")
+        self.assertEqual([s["by_name"] for s in spots(second)], ["Ava"])
+        # With nothing new, the poll after that is unchanged again.
+        third = cy.get(
+            f"/api/student/state?seq={second['state_seq']}&stamp={second['stamp']}"
+        ).get_json()
+        self.assertTrue(third.get("unchanged"), third)
+
     def test_rank_together_is_unchanged(self) -> None:
         row = self._rank_row()
         item = self._publish(row)
@@ -718,6 +762,13 @@ class GroupFlowsClientTests(unittest.TestCase):
         self.assertIn('label: "Each student\'s pick"', staff)
         self.assertNotIn('"Move on"', staff)
         self.assertNotIn('"Own picks"', staff)
+
+    def test_group_card_has_one_left_edge(self) -> None:
+        """Gate LOW-7: option B and take-turns blocks share the LOW-1 inset
+        (measured 20px at 390 and 1280: lc-qa/screenshots/mck-155-c-low7)."""
+        css = (LMS_DIR / "static" / "student-portal.css").read_text(encoding="utf-8")
+        for cls in ("student-group-wait", "student-group-picks", "student-group-locked", "student-group-sent", "rank-turns"):
+            self.assertIn(f".student-live-card .student-group-card > .{cls}", css)
 
     def test_teacher_skip_names_everyone_and_confirms(self) -> None:
         """Gate LOW-1: rows name who Skip passes; 2+ asks first; says who."""

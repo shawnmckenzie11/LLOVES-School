@@ -2809,3 +2809,15 @@ body.rw-open { overflow: hidden; }
   text-decoration: underline;
   cursor: pointer;
 }
+/* MCK-155 gate LOW-7: the option B and take-turns blocks share #230's
+   LOW-1 inset (1rem inside the 4px border), so the group card has one
+   left edge: wait/picks/locked/sent lines and the whole take-turns block
+   (spots, items, skipped line, "Placed in spot N. Undo"). */
+.student-live-card .student-group-card > .student-group-wait,
+.student-live-card .student-group-card > .student-group-picks,
+.student-live-card .student-group-card > .student-group-locked,
+.student-live-card .student-group-card > .student-group-sent,
+.student-live-card .student-group-card > .rank-turns {
+  margin-left: 1rem;
+  margin-right: 1rem;
+}

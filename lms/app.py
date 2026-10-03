@@ -5226,6 +5226,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 unchanged = dict(unchanged)
                 unchanged["live_session_id"] = live_session_id
                 return jsonify(unchanged)
+            # MCK-155 gate MED-4: take the stamp BEFORE the build. A write
+            # that lands while the payload is being built then leaves the
+            # client holding an older stamp, so its next poll rebuilds
+            # (one extra build at worst) instead of matching a newer stamp
+            # on a stale payload and answering ``unchanged`` for ~20 s.
+            stamp = school.live_student_poll_stamp(live_session_id, int(class_id))
             payload = school.assemble_student_live_payload(
                 live_session_id,
                 int(class_id),
@@ -5239,9 +5245,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 unmatched=unmatched,
             )
             payload["display_time"] = school.live_session_display_time(int(class_id))
-            payload["stamp"] = school.live_student_poll_stamp(
-                live_session_id, int(class_id)
-            )
+            payload["stamp"] = stamp
             payload["state_seq"] = int(
                 (payload.get("teacher_state") or {}).get("state_seq") or 0
             )
