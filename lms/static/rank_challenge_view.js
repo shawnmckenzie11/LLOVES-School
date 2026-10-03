@@ -469,8 +469,10 @@ function podiumFrame(results) {
  * The teacher's results moment on the rank card.
  * @param {any} results Teacher ``race.results``.
  * @param {number} liveItemId
- * @param {{step?: number, stem?: string}} [opts] ``step``: 0..n rows shown,
- *   n+1 points, n+2 podium (teacher-local, advanced by Next).
+ * @param {{step?: number, stem?: string, busy?: boolean}} [opts] ``step``:
+ *   0..n rows shown, n+1 points, n+2 podium (the server's step; Next asks
+ *   for exactly step+1). ``busy``: a Next POST is in flight, so Next is
+ *   disabled (a double-click can't skip a screen).
  * @returns {string}
  */
 export function raceResultsHtml(results, liveItemId, opts = {}) {
@@ -492,7 +494,7 @@ export function raceResultsHtml(results, liveItemId, opts = {}) {
   }
   const button =
     step < last
-      ? `<button type="button" class="race-view-close" data-race-next="${id}">${esc(RESULTS_COPY.next)} ▸</button>`
+      ? `<button type="button" class="race-view-close" data-race-next="${id}"${opts.busy ? " disabled" : ""}>${esc(RESULTS_COPY.next)} ▸</button>`
       : `<button type="button" class="secondary race-view-exit" data-race-done="${id}">${esc(RESULTS_COPY.done)}</button>`;
   return `<section class="race-view race-results is-${phase}" data-race-results="${id}" data-race-step="${step}" aria-label="Team challenge results">
     ${frame}

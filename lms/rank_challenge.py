@@ -25,10 +25,10 @@ RACE_FLAG = "group_rank_race"
 #: "Close answers at 0:00" closed it, else ``"teacher"``. Picks the phone's
 #: unlocked-at-Close line (race.timesup vs race.closed).
 RACE_CLOSED_BY = "group_rank_race_closed_by"
-#: ``item_json``: furthest reveal step the teacher reached on the projector
-#: (0 = nothing, 1..n = spot rows, n+1 = points, n+2 = podium). Phones and
-#: game points wait for it so the room never sees a total early.
-RACE_STEP = "group_rank_race_step"
+#: Reveal steps (``live_rank_race_steps.step``): 0 = nothing, 1..n = spot
+#: rows, n+1 = points, n+2 = podium. Phones and game points wait for them so
+#: the room never sees a total early. The step lives in its own table, not
+#: ``item_json``, so a deck refresh can never rewrite it from a stale copy.
 
 
 def points_step(spots: int) -> int:

@@ -213,6 +213,10 @@ export const PHONE_RESULTS_COPY = Object.freeze({
   tie: "{n} teams tied", // results.tie
   fromDraft: "Scored from your group's draft.", // results.from_draft
   pill: "Results", // results.pill
+  // Reused (not new copy): the group-answer note for a joiner after Close
+  // (student-portal.js lifecycleConsensusHtml). MCK-171 LOW-1: a member
+  // who joined after Close is credited 0, so no "N points each".
+  lateJoin: "You joined after voting closed for this question.",
 });
 
 /**
@@ -269,9 +273,12 @@ export function phoneResultsHtml(group) {
     <ol class="race-phone-spots">${spots}</ol>
     ${
       // Points (then the podium) wait for the projector's matching step.
-      res.points === null || res.points === undefined
-        ? ""
-        : `<p class="race-phone-you"><span>${esc(C.you)}</span><strong>${esc(phonePoints(res.points))}</strong></p>`
+      // A member who joined after Close is credited 0: say so instead.
+      res.show_points && res.credited === false
+        ? `<p class="student-live-note race-phone-late">${esc(C.lateJoin)}</p>`
+        : res.points === null || res.points === undefined
+          ? ""
+          : `<p class="race-phone-you"><span>${esc(C.you)}</span><strong>${esc(phonePoints(res.points))}</strong></p>`
     }
     ${res.on_podium ? `<p class="race-phone-podium-line">${esc(C.podium)}</p>` : ""}
     ${steps.length ? `<div class="race-mini-podium">${burst}${step(byStep.get(2))}${step(byStep.get(1))}${step(byStep.get(3))}</div>` : ""}

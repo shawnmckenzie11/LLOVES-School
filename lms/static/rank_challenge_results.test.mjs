@@ -50,6 +50,8 @@ check(r4.includes('aria-label="right"') && r4.includes('aria-label="not this one
 check(!r4.includes("✗") && !r4.includes("Ava"), "no red ✗, no names");
 check(r4.includes('aria-label="no answer">—'), "— for a team that placed nothing");
 check(r4.includes('data-race-next="9"') && r4.includes("Next ▸"), "Next");
+check(!r4.includes("disabled"), "Next enabled when idle");
+check(raceResultsHtml(results, 9, { step: 4, busy: true }).includes('data-race-next="9" disabled'), "MCK-171 LOW-3: Next disabled while its POST is in flight");
 const pts = raceResultsHtml(results, 9, { step: 6 });
 check(pts.includes(">Points<") && pts.includes("5 of 5 spots right.") === false && pts.includes("All 5 spots right."), "points: all right");
 check(pts.includes("3 of 5 spots right.") && pts.includes("10 points each") && pts.includes("2 points each"), "points bars");
@@ -91,6 +93,13 @@ const off = phoneResultsHtml(group({ ...own, right: 1, points: 2, on_podium: fal
 check(!off.includes("made the podium") && !off.includes("race-phone-burst") && !off.includes("is-mine"), "off podium: calm, no place");
 check(phoneResultsHtml(group({ ...own, right: 5, points: 10 })).includes("All 5 spots right."), "all right");
 check(!/\b(4th|5th|6th|place)\b/i.test(off), "no place number");
+// MCK-171 LOW-1: joined after Close = credited 0, so no "N points each".
+const late = phoneResultsHtml(group({ ...own, points: null, credited: false, show_points: true }));
+check(late.includes("You joined after voting closed for this question.") && !late.includes("points each") && !late.includes("race-phone-you"), "late joiner: 0-credit note, no team points line");
+check(PHONE_RESULTS_COPY.lateJoin === "You joined after voting closed for this question.", "late-join copy reused verbatim");
+const lateHeld = phoneResultsHtml(group({ ...own, points: null, credited: false, show_points: false, podium: [], on_podium: false }));
+check(!lateHeld.includes("You joined after") && !lateHeld.includes("Your team"), "late note waits for the points step too");
+check(!ph.includes("You joined after"), "credited member: no late note");
 
 if (failures) {
   console.error(`${failures} failure(s)`);

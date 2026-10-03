@@ -91,6 +91,7 @@ from school_db import (  # noqa: E402
     DeckReplaceNotConfirmed,
     GroupAnswerLocked,
     RankAgreeConflict,
+    RankRaceStepConflict,
     RankTurnConflict,
     SchoolDB,
     json_safe,
@@ -7052,7 +7053,15 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     )
     @login_required
     def api_rank_race_step(session_id: int, live_item_id: int):
-        """MCK-171 Team challenge: the projector reveal reached ``step``."""
+        """MCK-171 Team challenge: move the projector reveal to ``step``.
+
+        Only the exact next step is accepted (compare-and-set on the stored
+        step). Anything else (double-click, a second tab, End Game racing
+        Next) is a 409 carrying the real ``step`` and ``results`` so the
+        client resyncs quietly. Reaching the points step pays the team
+        points once through the award ledger. Phones hear about it on the
+        same news wire as Close and Reopen.
+        """
 
         _row, error = _active_owned_live_session(session_id)
         if error is not None:
@@ -7064,8 +7073,33 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": "Missing reveal step."}), 400
         try:
             result = school.set_rank_race_step(session_id, live_item_id, step=step)
+        except RankRaceStepConflict as exc:
+            try:
+                view = school.rank_race_step_view(session_id, live_item_id)
+            except (KeyError, ValueError):
+                view = {"step": exc.step, "results": None}
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": str(exc),
+                        "conflict": True,
+                        **view,
+                    }
+                ),
+                409,
+            )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        seq = teacher_state_seq(school, session_id)
+        emit_session_news(
+            school,
+            session_id,
+            [
+                {"type": "state_seq", "state_seq": seq},
+                flag_work_event("race_step", seq),
+            ],
+        )
         return jsonify({"ok": True, **result})
 
     @app.route(

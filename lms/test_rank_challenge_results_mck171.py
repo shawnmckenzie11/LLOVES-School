@@ -102,10 +102,20 @@ PODIUM_STEP = rank_challenge.podium_step(4)
 class StepMixin:
     """Projector reveal steps through the teacher route."""
 
-    def _step(self, item: dict[str, Any], step: int):
+    def _post_step(self, item: dict[str, Any], step: int):
+        """One Next: the route only takes exactly the current step + 1."""
         return self.client.post(
             f"/api/live-sessions/{self.session_id}/items/{item['id']}/race-step", json={"step": step}
         )
+
+    def _step(self, item: dict[str, Any], step: int):
+        """Press Next until the projector is on ``step`` (last reply)."""
+        rv = None
+        current = self.school.rank_race_step_view(self.session_id, int(item["id"]))["step"]
+        for want in range(current + 1, step + 1):
+            rv = self._post_step(item, want)
+            self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True)[:300])
+        return rv
 
     def _points(self, name: str) -> int:
         with self.school.game._lock:
@@ -190,17 +200,41 @@ class AwardTests(StepMixin, ChallengeHarness):
         self.school.end_live_class_session(self.session_id)
         self.assertEqual(self._points("Ava"), 8)
 
-    def test_award_is_once_and_replace_safe(self) -> None:
+    def test_award_is_paid_once_and_final(self) -> None:
         item = self._challenge()
         self._order("Ava", item, SWAP)
         closed = self._close(item)
         self._step(item, POINTS_STEP)
         self.assertEqual(self._points("Ava"), 4)
-        # Stepping again, or running the award again, changes nothing.
-        self._step(item, POINTS_STEP)
+        # Repeating the points step is a 409; running the award again
+        # (End Game, End Live Class, session end) pays nothing more.
+        self.assertEqual(self._post_step(item, POINTS_STEP).status_code, 409)
         self.school._award_rank_race_points(self.session_id, closed)
+        self.school._award_pending_rank_races(self.session_id)
         self.assertEqual(self._points("Ava"), 4)
-        # A changed result replaces the old award (difference only).
+        # One ledger row per (challenge, student): a second row is refused
+        # by the primary key, not just by the code path.
+        with self.school._lock:
+            ledger = self.school.conn.execute(
+                "SELECT student_id, points, paid_at FROM live_rank_race_awards WHERE live_item_id = ?",
+                (int(item["id"]),),
+            ).fetchall()
+        paid = {int(r["student_id"]): int(r["points"]) for r in ledger if r["paid_at"]}
+        self.assertEqual(paid, {self.ids[n]: 4 for n in ("Ava", "Cy", "Eli")})
+        import sqlite3
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            with self.school._lock:
+                self.school.conn.execute(
+                    "INSERT INTO live_rank_race_awards (live_item_id, student_id, team_id, points, created_at) "
+                    "VALUES (?, ?, 0, 4, 'x')",
+                    (int(item["id"]), self.ids["Ava"]),
+                )
+        with self.school._lock:
+            if self.school.conn.in_transaction:
+                self.school.conn.execute("ROLLBACK")
+        # A payout is final: a later change to the stored answer is not
+        # re-paid as a difference.
         team = self._team("Ava", item)
         with self.school._lock:
             self.school.conn.execute(
@@ -210,9 +244,74 @@ class AwardTests(StepMixin, ChallengeHarness):
             )
             self.school.conn.commit()
         self.school._award_rank_race_points(self.session_id, closed)
+        self.assertEqual(self._points("Ava"), 4)
+        with self.school.game._lock:
+            n = self.school.game.conn.execute(
+                "SELECT COUNT(*) FROM point_events WHERE to_kind = 'student' AND to_id = ? AND amount != 0",
+                (self.ids["Ava"],),
+            ).fetchone()[0]
+        self.assertEqual(n, 1)
+
+    def test_end_live_class_button_pays_a_challenge_never_stepped(self) -> None:
+        """HIGH-2: the real End Live Class route pays through the ledger."""
+        item = self._challenge()
+        self._order("Ava", item, KEY_IDS)
+        self._close(item)
+        self._step(item, POINTS_STEP - 1)  # spots shown, points never reached
+        self.assertEqual(self._points("Ava"), 0)
+        rv = self.client.post(f"/staff/class/{self.class_id}/end-live", data={})
+        self.assertIn(rv.status_code, (302, 303), rv.get_data(as_text=True)[:300])
+        self.assertEqual(self.school.get_live_session(self.session_id)["status"], "ended")
+        for name in ("Ava", "Cy", "Eli"):
+            self.assertEqual(self._points(name), 8)
+        self.assertEqual(self._points("Ben"), 0)
+        # Pressing it again (a stale tab) pays nothing more.
+        self.client.post(f"/staff/class/{self.class_id}/end-live", data={})
         self.assertEqual(self._points("Ava"), 8)
-        self.school._award_rank_race_points(self.session_id, closed)
+
+    def test_end_live_class_after_the_points_step_pays_nothing_more(self) -> None:
+        item = self._challenge()
+        self._order("Ava", item, KEY_IDS)
+        self._close(item)
+        self._step(item, POINTS_STEP)
         self.assertEqual(self._points("Ava"), 8)
+        rv = self.client.post(f"/staff/class/{self.class_id}/end-live", data={})
+        self.assertIn(rv.status_code, (302, 303))
+        self.assertEqual(self._points("Ava"), 8)
+
+    def test_end_game_twice_pays_once(self) -> None:
+        """HIGH-2: the real End Game route, pressed twice."""
+        item = self._challenge()
+        self._order("Ava", item, KEY_IDS)
+        self._close(item)
+        live = self.client.post(
+            f"/api/classes/{self.class_id}/game/start-rounds",
+            json={"rounds": [{"kind": "challenge", "minutes": 10}]},
+        )
+        self.assertEqual(live.status_code, 200, live.get_data(as_text=True)[:300])
+        for _ in range(2):
+            rv = self.client.post(
+                f"/api/classes/{self.class_id}/game/end", json={"preserve_live_session": True}
+            )
+            self.assertLess(rv.status_code, 500, rv.get_data(as_text=True)[:300])
+        self.assertEqual(self._points("Ava"), 8)
+
+    def test_late_joiner_after_close_is_credited_zero(self) -> None:
+        """LOW-1: joined after Close = 0, and the phone says no team total."""
+        self._leave("Eli")
+        item = self._challenge()
+        self._lock_team(item, ("Ava", "Cy"), KEY_IDS)
+        self._close(item)
+        code = self.school.get_live_session(self.session_id)["session_code"]
+        self.students["Eli"].post("/auth/student-code", data={"code": str(code), "name": "Eli"})
+        self._step(item, POINTS_STEP)
+        self.assertEqual((self._points("Ava"), self._points("Eli")), (8, 0))
+        eli = self._card("Eli", item)["race"]["results"]
+        ava = self._card("Ava", item)["race"]["results"]
+        self.assertEqual((eli["credited"], eli["points"], eli["show_points"]), (False, None, True))
+        self.assertEqual((ava["credited"], ava["points"]), (True, 8))
+        self.assertFalse(self.school.rank_race_credited(int(item["id"]), self.ids["Eli"]))
+        self.assertTrue(self.school.rank_race_credited(int(item["id"]), self.ids["Ava"]))
 
     def test_team_that_placed_nothing_scores_nothing(self) -> None:
         item = self._challenge()
@@ -248,24 +347,31 @@ class AwardTests(StepMixin, ChallengeHarness):
 
 
 class StepRouteTests(StepMixin, ChallengeHarness):
-    """The reveal step: closed challenges only, never backwards, clamped."""
+    """The reveal step: closed challenges only, exactly one screen at a time."""
 
     def test_open_challenge_refuses_a_step(self) -> None:
         item = self._challenge()
-        self.assertEqual(self._step(item, 1).status_code, 400)
+        self.assertEqual(self._post_step(item, 1).status_code, 400)
 
     def test_plain_rank_refuses_a_step(self) -> None:
         row = self._rank_row()
         item = self._publish(row)
         self._close(item)
-        self.assertEqual(self._step(item, 1).status_code, 400)
+        self.assertEqual(self._post_step(item, 1).status_code, 400)
 
-    def test_step_is_monotonic_and_clamped(self) -> None:
+    def test_only_the_exact_next_step_is_accepted(self) -> None:
+        """LOW-3: skip, back, repeat and past-the-podium are 409 + resync."""
         item = self._challenge()
         self._close(item)
-        self.assertEqual(self._step(item, 3).get_json()["step"], 3)
-        self.assertEqual(self._step(item, 1).get_json()["step"], 3)  # never backwards
-        self.assertEqual(self._step(item, 99).get_json()["step"], PODIUM_STEP)
+        self.assertEqual(self._post_step(item, 1).get_json()["step"], 1)
+        for bad in (3, 1, 0, -1, 99):
+            rv = self._post_step(item, bad)
+            self.assertEqual(rv.status_code, 409, (bad, rv.get_data(as_text=True)[:200]))
+            body = rv.get_json()
+            self.assertEqual((body["ok"], body["step"]), (False, 1))
+            self.assertEqual(body["results"]["step"], 1)  # quiet client resync
+        self._step(item, PODIUM_STEP)
+        self.assertEqual(self._post_step(item, PODIUM_STEP + 1).status_code, 409)
         self.assertEqual(self._view(item)["race"]["results"]["step"], PODIUM_STEP)
 
     def test_missing_step_is_rejected(self) -> None:
@@ -275,6 +381,43 @@ class StepRouteTests(StepMixin, ChallengeHarness):
             f"/api/live-sessions/{self.session_id}/items/{item['id']}/race-step", json={}
         )
         self.assertEqual(rv.status_code, 400)
+
+    def test_step_reaches_phones(self) -> None:
+        """MED-2: each step is a postcard, and the phone poll is not unchanged."""
+        from live_news_wire import log_for
+
+        item = self._challenge()
+        self._order("Ava", item, KEY_IDS)
+        self._close(item)
+        self._step(item, POINTS_STEP)
+        seq = int(self.school.live_session_teacher_state_payload(self.session_id).get("state_seq") or 0)
+        stamp = self.school.live_student_poll_stamp(self.session_id, self.class_id)
+        self.assertIsNotNone(
+            self.school.student_live_poll_unchanged(self.session_id, self.class_id, seq, stamp)
+        )
+        news = log_for(self.school.data_dir)
+        before = news.since(self.session_id, 0, limit=1000)
+        rv = self._post_step(item, PODIUM_STEP)
+        self.assertEqual(rv.status_code, 200)
+        added = news.since(self.session_id, max([int(e.get("id") or 0) for e in before] or [0]), limit=1000)
+        self.assertIn("state_seq", [e.get("type") for e in added])
+        self.assertIn(("flag_work", "race_step"), [(e.get("type"), e.get("kind")) for e in added])
+        # Same seq, old stamp: the poll rebuilds instead of "unchanged".
+        self.assertNotEqual(self.school.live_student_poll_stamp(self.session_id, self.class_id), stamp)
+        self.assertIsNone(
+            self.school.student_live_poll_unchanged(self.session_id, self.class_id, seq, stamp)
+        )
+        self.assertTrue(self._card("Ava", item)["race"]["results"]["show_podium"])
+
+    def test_rejected_step_sends_no_postcard(self) -> None:
+        from live_news_wire import log_for
+
+        item = self._challenge()
+        self._close(item)
+        news = log_for(self.school.data_dir)
+        before = len(news.since(self.session_id, 0, limit=1000))
+        self.assertEqual(self._post_step(item, 2).status_code, 409)
+        self.assertEqual(len(news.since(self.session_id, 0, limit=1000)), before)
 
 
 class ResultsBlockTests(StepMixin, ChallengeHarness):
@@ -368,6 +511,14 @@ class ResultsClientTests(unittest.TestCase):
         self.assertIn("void postRankRaceStep(itemId, next);", text)
         # A reload resumes at the server's step rather than at row 0.
         self.assertIn("step: raceStepFor(liveItemId, race.results),", text)
+        # LOW-3: no optimistic advance; Next is disabled while the POST is
+        # out, and a 409 resyncs to the server's step without an error.
+        self.assertIn("busy: raceStepInFlight.has(liveItemId),", text)
+        self.assertIn("response.status !== 409", text)
+        self.assertNotIn("raceStep.set(itemId, next);", text)
+        # MED-1: the class list and scoreboard refresh at the points step.
+        self.assertIn("await refreshRaceGamePoints();", text)
+        self.assertIn("api(`/api/classes/${classId}/game`)", text)
 
     def test_results_node_harness(self) -> None:
         proc = subprocess.run(
