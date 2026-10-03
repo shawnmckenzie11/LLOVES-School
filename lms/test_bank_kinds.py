@@ -165,7 +165,9 @@ class TeachingTodayAndLocalImportTests(unittest.TestCase):
         self.assertGreaterEqual(mcf_summary["curriculum_questions"], 2)
         self.assertGreaterEqual(mcr_summary["curriculum_questions"], 1)
         mcf_m2 = self.school.search_module_bank_mcs(self.mcf, 2, "binomial")
-        self.assertEqual(mcf_m2["filtered"], 1)
+        # MCK-169: MCR3U/MCF3M libraries also get the reviewed rank items; this test is about MC rows.
+        mcf_m2["items"] = [item for item in mcf_m2["items"] if item.get("type") != "rank"]
+        self.assertEqual(len(mcf_m2["items"]), 1)
         self.assertTrue(mcf_m2["items"][0].get("curriculum_open"))
         self.assertEqual(mcf_m2["items"][0].get("type"), "poll")
         leaked = self.school.search_module_bank_mcs(self.mcf, 2, "trig equation")

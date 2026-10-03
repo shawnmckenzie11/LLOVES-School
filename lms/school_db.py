@@ -6263,6 +6263,14 @@ class SchoolDB(LovesDB):
                 """,
                 (int(library_id),),
             ).fetchall()
+        try:
+            from rank_bank_seed import is_rank_bank_key
+        except ImportError:
+            from lms.rank_bank_seed import is_rank_bank_key
+
+        # MCK-169: seeded rank banks link themselves; they are never a
+        # suggestion and never count as "the teacher linked banks", so the
+        # Import picker still links the teacher's own module banks.
         suggested = [
             {
                 "bank_id": int(row["id"]),
@@ -6270,7 +6278,8 @@ class SchoolDB(LovesDB):
                 "import_key": str(row["import_key"] or ""),
             }
             for row in banks
-            if bank_matches_module(
+            if not is_rank_bank_key(row["import_key"])
+            and bank_matches_module(
                 title=str(row["title"] or ""),
                 import_key=str(row["import_key"] or ""),
                 module_number=int(module_number),
@@ -6280,7 +6289,11 @@ class SchoolDB(LovesDB):
             int(library_id), int(module_number)
         )
         confirmed = self.list_module_bank_links(int(library_id), int(module_number))
-        confirmed_ids = {int(row["bank_id"]) for row in confirmed}
+        confirmed_ids = {
+            int(row["bank_id"])
+            for row in confirmed
+            if not is_rank_bank_key(row.get("import_key"))
+        }
         recommended_ids = {int(row["bank_id"]) for row in recommended}
         if recommended_ids:
             needs_confirmation = not recommended_ids.issubset(confirmed_ids)
@@ -6490,6 +6503,9 @@ class SchoolDB(LovesDB):
                 normalize_bank_rank,
             )
 
+        # MCK-169: reviewed rank items live in per-module banks. Cheap when
+        # current (memo, then one small query); seeds only when stale.
+        self.ensure_rank_bank(int(library_id))
         if int(module_number) == 2:
             try:
                 from bank_kinds import retag_module2_teaching_today
@@ -6578,6 +6594,8 @@ class SchoolDB(LovesDB):
                 all_items.append(normalized)
                 continue
             if is_bank_rank_payload(payload):
+                if payload.get("retired"):
+                    continue
                 # MCK-169: rank items are essay_question rows with
                 # ``type: rank``. They keep ``rank_options`` and a valid
                 # ``rank_key`` so an import plays as a live rank prompt.
@@ -6668,7 +6686,9 @@ class SchoolDB(LovesDB):
                 if needle in self._module_bank_mc_search_haystack(item)
             ]
         else:
-            filtered_items = all_items
+            # MCK-169: an empty search lists the scope's rank rows first so
+            # the 200-row cap never hides them (about 8 per module).
+            filtered_items = self._rank_rows_first(all_items)
         counts = bank_type_counts(filtered_items)
         filtered_items = filter_bank_by_type(filtered_items, question_type)
         return {
@@ -6677,6 +6697,41 @@ class SchoolDB(LovesDB):
             "filtered": len(filtered_items),
             "type_counts": counts,
         }
+
+    @staticmethod
+    def _rank_rows_first(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Stable partition: rank rows, then every other row in its order.
+
+        Args:
+            items: Normalized bank search rows.
+        """
+        rank = [item for item in items if str(item.get("type") or "") == "rank"]
+        if not rank:
+            return items
+        rest = [item for item in items if str(item.get("type") or "") != "rank"]
+        return rank + rest
+
+    def ensure_rank_bank(self, library_id: int) -> dict[str, Any] | None:
+        """Seed the reviewed rank items for an MCR3U / MCF3M library if stale.
+
+        See ``rank_bank_seed.ensure_rank_bank``. A failure is logged and
+        never breaks the search that called it.
+
+        Args:
+            library_id: ``content_libraries.id``.
+
+        Returns:
+            Seed summary when a seed ran, else ``None``.
+        """
+        try:
+            from rank_bank_seed import ensure_rank_bank
+        except ImportError:
+            from lms.rank_bank_seed import ensure_rank_bank
+        try:
+            return ensure_rank_bank(self, int(library_id))
+        except sqlite3.Error:
+            logger.exception("rank bank seed failed for library %s", library_id)
+            return None
 
     def seed_course_wide_warmups(self, library_id: int) -> dict[str, Any]:
         """Insert or refresh the Course Wide warmup bank for one library.
@@ -7047,7 +7102,9 @@ class SchoolDB(LovesDB):
                 if needle in self._module_bank_mc_search_haystack(item)
             ]
         else:
-            filtered_items = all_items
+            # MCK-169: an empty search lists the scope's rank rows first so
+            # the 200-row cap never hides them (about 8 per module).
+            filtered_items = self._rank_rows_first(all_items)
         counts = bank_type_counts(filtered_items)
         filtered_items = filter_bank_by_type(filtered_items, question_type)
         cap = max(1, min(int(limit), 500))
@@ -10226,7 +10283,7 @@ class SchoolDB(LovesDB):
         with self._lock:
             bank_row = self.conn.execute(
                 """
-                SELECT q.id
+                SELECT q.id, q.payload_json
                 FROM questions q
                 JOIN question_banks b ON b.id = q.bank_id
                 WHERE q.id = ? AND b.library_id = ?
@@ -10235,6 +10292,18 @@ class SchoolDB(LovesDB):
             ).fetchone()
             if bank_row is None:
                 raise KeyError(f"question {question_id}")
+            try:
+                from bank_edit import RANK_READ_ONLY_ERROR, payload_is_rank
+            except ImportError:
+                from lms.bank_edit import RANK_READ_ONLY_ERROR, payload_is_rank
+            try:
+                stored_payload = json.loads(bank_row["payload_json"] or "{}")
+            except json.JSONDecodeError:
+                stored_payload = {}
+            if payload_is_rank(stored_payload):
+                # MCK-169 MED-2: search and import never read an overlay for
+                # rank rows, so an "edit" would be saved and silently ignored.
+                raise ValueError(RANK_READ_ONLY_ERROR)
             self.conn.execute(
                 """
                 INSERT INTO library_question_overlays (
@@ -10585,6 +10654,8 @@ class SchoolDB(LovesDB):
                     bank_title=str(row["bank_title"] or ""),
                 )
                 skip_reason = None if normalized else "empty_stem"
+            elif is_bank_rank_payload(payload) and payload.get("retired"):
+                normalized, skip_reason = None, "retired"
             elif is_bank_rank_payload(payload):
                 # MCK-169: a bank rank item imports as a live rank prompt
                 # with its options and a still-valid answer order.

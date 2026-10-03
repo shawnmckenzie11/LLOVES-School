@@ -140,7 +140,8 @@ class ModuleBankMappingTests(unittest.TestCase):
     def test_confirm_and_search_are_module_scoped(self) -> None:
         """Search returns only confirmed module banks."""
         empty = self.school.search_module_bank_mcs(self.library_id, 1, "")
-        self.assertEqual(empty["items"], [])
+        # MCK-169: MCR3U/MCF3M libraries also get the reviewed rank items; this test is about MC rows.
+        self.assertEqual([i for i in empty["items"] if i.get("type") != "rank"], [])
         self.school.confirm_module_bank_links(
             self.library_id, 1, [self.m1_bank]
         )
@@ -149,7 +150,7 @@ class ModuleBankMappingTests(unittest.TestCase):
         self.assertEqual(hits["items"][0]["question_id"], self.m1_q)
         self.assertEqual(hits["items"][0]["correct_answer"], "A")
         m2_hits = self.school.search_module_bank_mcs(self.library_id, 2, "")
-        self.assertEqual(m2_hits["items"], [])
+        self.assertEqual([i for i in m2_hits["items"] if i.get("type") != "rank"], [])
 
 
 
@@ -187,7 +188,8 @@ class ModuleBankMappingTests(unittest.TestCase):
         self.assertIn(test_bank, recommended_ids)
         self.assertTrue(payload["needs_confirmation"])
         hits = self.school.search_module_bank_mcs(self.library_id, 1, "")
-        self.assertEqual(hits["total"], 1)
+        # MCK-169: MCR3U/MCF3M libraries also get the reviewed rank items; this test is about MC rows.
+        self.assertEqual(len([i for i in hits["items"] if i.get("type") != "rank"]), 1)
         self.school.confirm_module_bank_links(
             self.library_id, 1, [test_bank, builder_bank]
         )

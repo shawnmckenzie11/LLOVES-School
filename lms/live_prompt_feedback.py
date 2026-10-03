@@ -27,6 +27,8 @@ TEACHER_ONLY_FIELDS = (
     "expectation_codes",
     # MCK-172: a rank item's answer order (race R1). Teacher-only.
     "rank_key",
+    # MCK-169: reviewed rank items carry a teacher note (which moves commute).
+    "teacher_note",
 )
 
 # Student-facing one-beat leads. Never “Wrong.” Never teacher-stage talk.

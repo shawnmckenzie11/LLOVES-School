@@ -82,14 +82,14 @@ class NormalizeBankRankTests(unittest.TestCase):
         self.assertEqual(len(live["rank_options"]), 3)
         self.assertNotIn("rank_key", live)
 
-    def test_candidate_shape_keeps_teacher_key_drops_note_and_slot(self) -> None:
-        """teacher_key flattens to text; teacher_note and live_class are ignored on purpose."""
+    def test_candidate_shape_keeps_teacher_fields_drops_slot(self) -> None:
+        """teacher_key flattens to text, teacher_note carries; live_class is ignored on purpose."""
         live, reason = normalize_bank_rank(question_id=3, bank_id=2, title="If x", payload=CANDIDATE_PAYLOAD)
         assert live is not None, reason
         self.assertEqual(live["text"], "If x = \u22122 and y = 3, put these from least to greatest.")
         self.assertEqual(live["rank_key"], ["o2", "o3", "o1"])
         self.assertEqual(live["teacher_key"], "A: y/x = \u22123/2; C: 4/27; B: 4/9")
-        self.assertNotIn("teacher_note", live)
+        self.assertEqual(live["teacher_note"], "SECRET-NOTE moves commute")
         self.assertNotIn("live_class", live)
 
     def test_choice_html_becomes_labels(self) -> None:
@@ -275,7 +275,7 @@ class BankRankSearchTests(unittest.TestCase):
         self.assertNotIn("rank_key", placement["item"])
 
     def test_candidate_import_hides_teacher_fields_from_students(self) -> None:
-        """A stored candidate imports with teacher_key for staff only; no note leaks."""
+        """A stored candidate imports with teacher_key / teacher_note for staff only."""
         qid = self._raw_question("essay_question", json.dumps(CANDIDATE_PAYLOAD), "rank:MCR3U:M3:candidate")
         row = next(r for r in self._search("M1", q="least to greatest")["items"] if int(r["question_id"]) == qid)
         self.assertEqual(row["question_type"], "rank")
@@ -287,7 +287,7 @@ class BankRankSearchTests(unittest.TestCase):
         item = rv.get_json()["placement"]["item"]
         self.assertEqual(item["rank_key"], ["o2", "o3", "o1"])
         self.assertIn("4/27", item["teacher_key"])
-        self.assertNotIn("teacher_note", item)
+        self.assertEqual(item["teacher_note"], "SECRET-NOTE moves commute")
         teacher = self.school.get_user_by_email("teacher@gmail.com")
         session_id = int(self.school.start_live_class_session(self.class_id, int(teacher["id"]))["id"])
         self.client.post(
