@@ -1,4 +1,5 @@
 import { api, escapeHtml, formatQuestionHtml, renderLiveQuestionMath } from "/static/common.js";
+import { mountTypeChips } from "/static/bank_type_chips.js";
 
 const root = document.getElementById("catalog-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -16,6 +17,17 @@ const removeDialog = document.getElementById("bank-remove-dialog");
 const scopeEl = document.getElementById("live-bank-scope");
 const kindEl = document.getElementById("live-bank-kind");
 const searchEl = document.getElementById("live-bank-search");
+const typeHost = document.getElementById("live-bank-types");
+/** MCK-170: Type chips, shared with Import from bank; ANDed with scope, Kind and search. */
+const typeChips =
+  typeHost instanceof HTMLElement
+    ? mountTypeChips(typeHost, {
+        view: "question-banks",
+        onChange: () => {
+          loadLiveBank().catch(() => {});
+        },
+      })
+    : null;
 
 /** @type {Record<string, unknown>[]} */
 let items = [];
@@ -423,6 +435,8 @@ async function loadLiveBank() {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
   if (kind) params.set("kind", kind);
+  const qtype = typeChips ? typeChips.value() : "";
+  if (qtype) params.set("type", qtype);
   const suffix = params.toString() ? `?${params.toString()}` : "";
   let data;
   try {
@@ -440,6 +454,7 @@ async function loadLiveBank() {
     return;
   }
   if (token !== loadToken) return;
+  typeChips?.update(Array.isArray(data.type_counts) ? data.type_counts : []);
   items = Array.isArray(data.items) ? data.items : [];
   const keep = Number(selected?.question_id || 0);
   selected = items.find((row) => Number(row.question_id) === keep) || items[0] || null;

@@ -29,6 +29,7 @@ import {
   deckLiveProblemIds,
   searchResultsScroll,
 } from "/static/content_questions_help.js";
+import { mountTypeChips } from "/static/bank_type_chips.js";
 
 /** @type {HTMLElement | null} */
 let modalRoot = null;
@@ -89,19 +90,22 @@ function bankScopeOptionsHtml(selected) {
  * @param {string} moduleToken
  * @param {string} query
  * @param {string} [kind] ``standard``, ``contest``, or ``warmup``. Empty excludes warmup.
+ * @param {string} [qtype] MCK-170 question type (``rank``, ``mc``, ...). Empty is All.
  * @returns {Promise<ModuleMcSearchResult>}
  */
-async function searchModuleMcs(classId, moduleToken, query, kind) {
+async function searchModuleMcs(classId, moduleToken, query, kind, qtype) {
   const scope = normalizeBankScope(moduleToken);
   const q = encodeURIComponent(String(query || "").trim());
   const kindParam = encodeURIComponent(String(kind || "").trim().toLowerCase());
+  const typeParam = qtype ? `&type=${encodeURIComponent(qtype)}` : "";
   const payload = await api(
-    `/api/staff/class/${classId}/module-banks/${scope}/mc-search?q=${q}&kind=${kindParam}`
+    `/api/staff/class/${classId}/module-banks/${scope}/mc-search?q=${q}&kind=${kindParam}${typeParam}`
   );
   return {
     items: Array.isArray(payload?.items) ? payload.items : [],
     total: Number(payload?.total) || 0,
     filtered: Number(payload?.filtered) || 0,
+    typeCounts: Array.isArray(payload?.type_counts) ? payload.type_counts : [],
   };
 }
 
@@ -216,6 +220,7 @@ export async function mountBankMcPicker(opts) {
       <label class="bank-mc-picker-search">Search
         <input type="search" data-bank-mc-query placeholder="Stem or option text" autocomplete="off">
       </label>
+      <div data-bank-type-chips></div>
     </div>
     ${
       contentOpts
@@ -263,6 +268,17 @@ export async function mountBankMcPicker(opts) {
   const queryEl = shell.querySelector("[data-bank-mc-query]");
   const moduleEl = shell.querySelector("[data-bank-mc-module]");
   const kindEl = shell.querySelector("[data-bank-mc-kind]");
+  const typeHost = shell.querySelector("[data-bank-type-chips]");
+  /** MCK-170: Type chips; ANDed with scope, Kind and search on the server. */
+  const typeChips =
+    typeHost instanceof HTMLElement
+      ? mountTypeChips(typeHost, {
+          view: mode,
+          onChange: () => {
+            refreshSearch().catch(() => {});
+          },
+        })
+      : null;
 
   /**
    * Paint search hits into the list pane.
@@ -273,13 +289,20 @@ export async function mountBankMcPicker(opts) {
    * @param {number} total
    * @param {number} filtered
    * @param {string} query
+   * @param {string} [typeLabel] MCK-170: selected Type chip label, if any.
    */
-  function paintCount(total, filtered, query) {
+  function paintCount(total, filtered, query, typeLabel) {
     if (!(countEl instanceof HTMLElement)) return;
     const q = String(query || "").trim();
     const scopeLabel = moduleNumber === "course" ? "Course Wide" : "this module bank";
     if (!total) {
       countEl.textContent = `0 questions in ${scopeLabel}`;
+      return;
+    }
+    if (typeLabel) {
+      countEl.textContent = `${filtered} of ${total} question${total === 1 ? "" : "s"} · ${typeLabel}${
+        q ? ` · “${q}”` : ""
+      }`;
       return;
     }
     if (q) {
@@ -400,13 +423,19 @@ export async function mountBankMcPicker(opts) {
         queryEl instanceof HTMLInputElement ? queryEl.value : "";
       const kindValue =
         kindEl instanceof HTMLSelectElement ? kindEl.value : kindFilter;
+      const typeValue = typeChips ? typeChips.value() : "";
       const search = await searchModuleMcs(
         classId,
         moduleNumber,
         queryValue,
-        kindValue
+        kindValue,
+        typeValue
       );
-      paintCount(search.total, search.filtered, queryValue);
+      typeChips?.update(search.typeCounts);
+      const typeLabel = typeValue
+        ? String(typeHost?.querySelector('[aria-pressed="true"] .bank-type-chip-label')?.textContent || "")
+        : "";
+      paintCount(search.total, search.filtered, queryValue, typeLabel);
       paintList(search.items);
     } catch (err) {
       if (statusEl instanceof HTMLElement) {
@@ -478,7 +507,8 @@ export async function mountBankMcPicker(opts) {
         classId,
         moduleNumber,
         queryEl instanceof HTMLInputElement ? queryEl.value : "",
-        kindEl instanceof HTMLSelectElement ? kindEl.value : kindFilter
+        kindEl instanceof HTMLSelectElement ? kindEl.value : kindFilter,
+        typeChips ? typeChips.value() : ""
       );
       const picked = search.items.find((row) => Number(row.question_id) === qid);
       if (!picked) {
