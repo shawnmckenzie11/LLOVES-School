@@ -8,7 +8,9 @@ Pure shuffle rules, then real teacher and student routes on MCR3U M1 C2
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
+import time
 import unittest
 from pathlib import Path
 from typing import Any
@@ -20,6 +22,7 @@ sys.path.insert(0, str(LMS_DIR.parent))
 import test_group_mc_pick_turns_mck155 as turns_base  # noqa: E402
 from live_rank import (  # noqa: E402
     RANK_DISPLAY_ORDER_FIELD,
+    RANK_DISPLAY_PENDING_FIELD,
     apply_rank_display_order,
     rank_race_score,
     shuffled_rank_order,
@@ -254,6 +257,226 @@ class RankShuffleLiveTests(unittest.TestCase):
         self.assertEqual(authored, ["o1", "o2", "o3", "o4"])
         self._assert_all_shown(self._student_views(), authored)
         self.assertIs(self.school._student_rank_display(live["item"]), live["item"])
+
+
+
+_PUBLISH_SCRIPT = r"""
+import json, sys, time
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from school_db import SchoolDB
+root = Path(sys.argv[2])
+args = json.loads(sys.argv[3])
+school = SchoolDB(root / "lloves.sqlite", root)
+go = root / "go"
+deadline = time.time() + 60
+while not go.exists() and time.time() < deadline:
+    time.sleep(0.005)
+start = float(go.read_text())
+while time.time() < start:
+    pass
+try:
+    item = school.publish_live_session_item(args["session"], args["item"], publish_mode=args["mode"])
+    print("RESULT ok " + json.dumps(item["item"].get("rank_display_order")))
+except Exception as exc:
+    print("RESULT error " + repr(exc))
+"""
+
+
+class GateFixTests(unittest.TestCase):
+    """Ops gate on 02f9652: publish again (HIGH-1), racing publishes (MED-1),
+    items opened before the deploy (LOW-1)."""
+
+    setUp = RankShuffleLiveTests.setUp
+    tearDown = RankShuffleLiveTests.tearDown
+    _add = RankShuffleLiveTests._add
+    _publish = RankShuffleLiveTests._publish
+    _keyed = RankShuffleLiveTests._keyed
+    _student_views = RankShuffleLiveTests._student_views
+    STEM = RankShuffleLiveTests.STEM
+    BODY = RankShuffleLiveTests.BODY
+
+    # helpers -------------------------------------------------------------
+    def _row(self, live_id: int) -> dict[str, Any]:
+        row = self.school.conn.execute("SELECT * FROM live_session_items WHERE id = ?", (live_id,)).fetchone()
+        return dict(row)
+
+    def _db_orders(self, live_id: int) -> tuple[list[str], list[str]]:
+        """(item_json order, prompt order) straight from the DB."""
+        row = self._row(live_id)
+        item = json.loads(row["item_json"])
+        prompt = self.school.conn.execute(
+            "SELECT payload FROM live_session_prompts WHERE id = ?", (row["prompt_id"],)
+        ).fetchone()
+        payload = json.loads(prompt["payload"]) if prompt else {}
+        return (
+            [o["id"] for o in item.get("rank_options") or []],
+            [o["id"] for o in payload.get("rank_options") or []],
+        )
+
+    def _every_view(self, live_id: int, stem: str) -> dict[str, set[str]]:
+        """Order(s) per surface: DB rows, students, teacher state (card/projector/slides)."""
+        item_order, prompt_order = self._db_orders(live_id)
+        out = {"item_json": {",".join(item_order)}, "prompt": {",".join(prompt_order)}}
+        for name in ("Ava", "Cy", "Ben"):
+            body = self.students[name].get("/api/student/state").get_json()
+            out[f"{name} state"] = {",".join(ids) for ids in _rank_lists(body, stem, [])}
+        meta = self.school.student_live_class_metadata_for_session(self.session_id)
+        out["student metadata"] = {",".join(ids) for ids in _rank_lists(meta, stem, [])}
+        teacher = self.client.get(f"/api/live-sessions/{self.session_id}/state").get_json()
+        lifecycle = [
+            r for r in (teacher.get("live_items") or teacher.get("items") or [])
+            if isinstance(r, dict) and int(r.get("id") or 0) == live_id
+        ]
+        out["teacher state"] = {",".join(ids) for ids in _rank_lists(lifecycle or teacher, stem, [])}
+        return out
+
+    def _assert_one_order(self, live_id: int, stem: str) -> list[str]:
+        views = self._every_view(live_id, stem)
+        for where, orders in views.items():
+            self.assertTrue(orders, where)
+        everything = set().union(*views.values())
+        self.assertEqual(len(everything), 1, views)
+        order = next(iter(everything)).split(",")
+        self.assertNotEqual(order, KEY)
+        return order
+
+    def _move(self, row: dict[str, Any], target: int) -> None:
+        rv = self.client.post(
+            f"/api/staff/class/{self.class_id}/live-lessons/M1/C2/playlist-item",
+            json={"item_id": row["item_id"], "action": "move", "target_page_index": target},
+        )
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+
+    def _publish_mode(self, live_id: int, mode: str):
+        return self.client.post(
+            f"/api/live-sessions/{self.session_id}/items/{live_id}/publish", json={"publish_mode": mode}
+        )
+
+    # HIGH-1 --------------------------------------------------------------
+    def test_publish_again_after_a_move_is_200_with_a_new_order(self) -> None:
+        for mode in ("individual", "group_submit"):
+            stem = f"{mode}: order the steps."
+            row = self._add({**self.BODY, "text": stem, "rank_key": [2, 0, 3, 1]})
+            live_id = int(row["id"])
+            rv = self._publish_mode(live_id, mode)
+            self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+            seen = [self._assert_one_order(live_id, stem)]
+            for attempt, target in enumerate((2, 3, 2, 3, 2, 3)):
+                self._move(row, target)
+                self.assertEqual(self._row(live_id)["status"], "inactive", mode)
+                rv = self._publish_mode(live_id, mode)
+                self.assertEqual(rv.status_code, 200, f"{mode} #{attempt}: {rv.get_data(as_text=True)[:300]}")
+                self.assertNotIn(RANK_DISPLAY_PENDING_FIELD, self._row(live_id)["item_json"])
+                seen.append(self._assert_one_order(live_id, stem))
+            # A fresh draw per publish (23 non-key orders of 4; 7 draws).
+            self.assertGreater(len({tuple(o) for o in seen}), 1, (mode, seen))
+            self.client.post(f"/api/live-sessions/{self.session_id}/items/{live_id}/close")
+
+    def _make_legacy(self, live_id: int) -> list[str]:
+        """Rewrite a published row and its prompt as base 86ae6ce stored them."""
+        row = self._row(live_id)
+        item = json.loads(row["item_json"])
+        by_id = {o["id"]: o for o in item["rank_options"]}
+        authored = [by_id[f"o{i}"] for i in range(1, 5)]
+        for raw, table, column, rid in (
+            (item, "live_session_items", "item_json", live_id),
+        ):
+            raw.pop(RANK_DISPLAY_ORDER_FIELD, None)
+            raw.pop(RANK_DISPLAY_PENDING_FIELD, None)
+            raw["rank_options"] = authored
+            raw["options"] = raw["choices"] = [o["label"] for o in authored]
+            self.school.conn.execute(f"UPDATE {table} SET {column} = ? WHERE id = ?", (json.dumps(raw), rid))
+        if row["prompt_id"]:
+            prompt = self.school.conn.execute(
+                "SELECT payload FROM live_session_prompts WHERE id = ?", (row["prompt_id"],)
+            ).fetchone()
+            payload = json.loads(prompt["payload"])
+            payload.pop(RANK_DISPLAY_ORDER_FIELD, None)
+            payload["rank_options"] = authored
+            payload["options"] = payload["choices"] = [o["label"] for o in authored]
+            self.school.conn.execute(
+                "UPDATE live_session_prompts SET payload = ? WHERE id = ?", (json.dumps(payload), row["prompt_id"])
+            )
+        return [o["id"] for o in authored]
+
+    # HIGH-1 deploy case + LOW-1 --------------------------------------------
+    def test_item_open_before_the_deploy(self) -> None:
+        """Teacher views get the students' order saved; publishing again works."""
+        for mode in ("individual", "group_submit"):
+            stem = f"{mode}: order the steps."
+            row = self._add({**self.BODY, "text": stem, "rank_key": [2, 0, 3, 1]})
+            live_id = int(row["id"])
+            self.assertEqual(self._publish_mode(live_id, mode).status_code, 200)
+            authored = self._make_legacy(live_id)
+            self.assertEqual(self._db_orders(live_id)[0], authored)
+            # What students saw before any teacher view ran (placement-key shuffle).
+            before = _rank_lists(self.students["Ava"].get("/api/student/state").get_json(), stem, [])
+            self.assertTrue(before)
+            self.assertNotEqual(before[0], KEY)
+            # A teacher / projector read stores that same order on the row.
+            self.client.get(f"/api/live-sessions/{self.session_id}/state")
+            listed = [r for r in self.school.list_live_session_items(self.session_id) if int(r["id"]) == live_id][0]
+            self.assertEqual([o["id"] for o in listed["item"]["rank_options"]], before[0])
+            self.assertEqual(self.school.rank_display_order(listed), before[0])
+            self.assertEqual(self._assert_one_order(live_id, stem), before[0])
+            # Publish again on the open item: 200, the order students have stays.
+            rv = self._publish_mode(live_id, mode)
+            self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True)[:300])
+            self.assertEqual(self._assert_one_order(live_id, stem), before[0])
+            # Moved and published again: 200 and a fresh order everywhere.
+            self._move(row, 2)
+            rv = self._publish_mode(live_id, mode)
+            self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True)[:300])
+            self._assert_one_order(live_id, stem)
+            self.client.post(f"/api/live-sessions/{self.session_id}/items/{live_id}/close")
+
+    def test_unpublished_legacy_row_teacher_card_never_lists_the_key(self) -> None:
+        row = self._keyed()
+        live_id = int(row["id"])
+        item = json.loads(self._row(live_id)["item_json"])
+        by_id = {o["id"]: o for o in item["rank_options"]}
+        item.pop(RANK_DISPLAY_ORDER_FIELD, None)
+        item["rank_options"] = [by_id[i] for i in KEY]
+        item["options"] = item["choices"] = [by_id[i]["label"] for i in KEY]
+        self.school.conn.execute("UPDATE live_session_items SET item_json = ? WHERE id = ?", (json.dumps(item), live_id))
+        listed = [r for r in self.school.list_live_session_items(self.session_id) if int(r["id"]) == live_id][0]
+        self.assertNotEqual([o["id"] for o in listed["item"]["rank_options"]], KEY)
+        self.assertEqual(self._db_orders(live_id)[0], [o["id"] for o in listed["item"]["rank_options"]])
+
+    # MED-1 ---------------------------------------------------------------
+    def test_six_processes_publish_at_once_one_order_everywhere(self) -> None:
+        root = Path(self.tmp.name)
+        for round_no, mode in enumerate(("individual", "group_submit", "individual")):
+            stem = f"Race {round_no}: order the steps."
+            row = self._add({**self.BODY, "text": stem, "rank_key": [2, 0, 3, 1]})
+            live_id = int(row["id"])
+            go = root / "go"
+            go.unlink(missing_ok=True)
+            args = json.dumps({"session": self.session_id, "item": live_id, "mode": mode})
+            procs = [
+                subprocess.Popen(
+                    [sys.executable, "-c", _PUBLISH_SCRIPT, str(LMS_DIR), str(root), args],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    cwd=str(LMS_DIR),
+                )
+                for _ in range(6)
+            ]
+            time.sleep(3.0)
+            go.write_text(str(time.time() + 1.0))
+            replies = set()
+            for proc in procs:
+                stdout, stderr = proc.communicate(timeout=180)
+                line = next((ln for ln in stdout.splitlines() if ln.startswith("RESULT ")), "")
+                self.assertTrue(line.startswith("RESULT ok "), (line, stderr[-2000:]))
+                replies.add(line[len("RESULT ok "):])
+            order = self._assert_one_order(live_id, stem)
+            # Every racing publish returned the order that stuck.
+            self.assertEqual(replies, {json.dumps(order)})
+            self.assertNotIn(RANK_DISPLAY_PENDING_FIELD, self._row(live_id)["item_json"])
+            self.client.post(f"/api/live-sessions/{self.session_id}/items/{live_id}/close")
 
 
 if __name__ == "__main__":

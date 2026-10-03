@@ -450,6 +450,9 @@ def rank_race_score(order: Any, key: Any) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 RANK_DISPLAY_ORDER_FIELD = "rank_display_order"
+#: Set with the fresh order at publish and cleared once the item is active,
+#: so a second publish racing the first reuses that order (MCK-176 gate MED-1).
+RANK_DISPLAY_PENDING_FIELD = "rank_display_pending"
 
 
 def shuffled_rank_order(option_ids_in: list[str], key: list[str] | None, seed: Any) -> list[str]:
