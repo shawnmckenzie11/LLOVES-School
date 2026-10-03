@@ -32,6 +32,13 @@ import {
   searchResultsScroll,
 } from "/static/content_questions_help.js";
 import { mountTypeChips } from "/static/bank_type_chips.js";
+import {
+  rankChip,
+  rankListHints,
+  rankMetaParts,
+  rankPreview,
+  sortRankRows,
+} from "/static/bank_rank_rows.js";
 
 /** @type {HTMLElement | null} */
 let modalRoot = null;
@@ -170,6 +177,39 @@ async function loadModuleBankStatus(classId, moduleToken) {
 }
 
 /**
+ * MCK-169 S1: ``bank.rank.meta`` with the Answer order / Opinion chip
+ * inline. The chip's help text is its tooltip and accessible name.
+ * @param {Record<string, unknown>} item Normalized rank row.
+ * @param {number} n Option count.
+ * @returns {string}
+ */
+function rankMetaHtml(item, n) {
+  const chip = rankChip(item);
+  const parts = rankMetaParts(n);
+  return `${escapeHtml(parts.before)}<span class="bank-rank-chip is-${chip.kind}" title="${escapeHtml(
+    chip.help
+  )}" aria-label="${escapeHtml(`${chip.label}. ${chip.help}`)}">${escapeHtml(chip.label)}</span>${escapeHtml(
+    parts.after
+  )}`;
+}
+
+/**
+ * MCK-169 S1: first three options in stored display order, then "+{k} more".
+ * @param {Record<string, unknown>} item Normalized rank row.
+ * @returns {string}
+ */
+function rankPreviewHtml(item) {
+  const preview = rankPreview(item);
+  if (!preview.text) return "";
+  const more = preview.more
+    ? ` <span class="bank-rank-preview-more">${escapeHtml(preview.more)}</span>`
+    : "";
+  return `<p class="hint compact bank-rank-preview" title="${escapeHtml(preview.text)}">${escapeHtml(
+    preview.text
+  )}${more}</p>`;
+}
+
+/**
  * Mount the searchable MC picker into a container or open a modal.
  * @param {object} opts
  * @param {number} opts.classId
@@ -244,6 +284,7 @@ export async function mountBankMcPicker(opts) {
         : ""
     }
     <p class="hint compact bank-mc-picker-count" data-bank-mc-count></p>
+    <p class="hint compact bank-mc-rank-hint" data-bank-mc-rank-hint hidden></p>
     <p class="hint compact" data-bank-mc-status hidden></p>
     <ul class="bank-mc-picker-list" data-bank-mc-list></ul>
   `;
@@ -274,6 +315,8 @@ export async function mountBankMcPicker(opts) {
 
   const listEl = shell.querySelector("[data-bank-mc-list]");
   const countEl = shell.querySelector("[data-bank-mc-count]");
+  /** MCK-169 S1: bank.rank.import_default under the count (Rank chip on). */
+  const rankHintEl = shell.querySelector("[data-bank-mc-rank-hint]");
   const statusEl = shell.querySelector("[data-bank-mc-status]");
   const queryEl = shell.querySelector("[data-bank-mc-query]");
   const moduleEl = shell.querySelector("[data-bank-mc-module]");
@@ -308,6 +351,7 @@ export async function mountBankMcPicker(opts) {
     contestShown = view.contest;
     shell.classList.toggle("is-contest-view", view.contest);
     if (typeHost instanceof HTMLElement) typeHost.hidden = !view.chips;
+    if (view.contest && rankHintEl instanceof HTMLElement) rankHintEl.hidden = true;
     [countEl, listEl].forEach((node) => {
       if (node instanceof HTMLElement) node.hidden = !view.list;
     });
@@ -334,10 +378,6 @@ export async function mountBankMcPicker(opts) {
     return view.contest;
   }
 
-  /**
-   * Paint search hits into the list pane.
-   * @param {Record<string, unknown>[]} items
-   */
   /**
    * Update the question count line under the search box.
    * @param {number} total
@@ -369,8 +409,21 @@ export async function mountBankMcPicker(opts) {
     countEl.textContent = `${total} question${total === 1 ? "" : "s"}`;
   }
 
-  function paintList(items) {
+  /**
+   * Paint search hits into the list pane.
+   * @param {Record<string, unknown>[]} items
+   * @param {string} [noneKeyed] MCK-169 S1: bank.rank.none_keyed line, shown
+   *   above any Opinion rows.
+   */
+  function paintList(items, noneKeyed = "") {
     if (!(listEl instanceof HTMLElement)) return;
+    const noneKeyedRow = noneKeyed
+      ? `<li class="hint bank-mc-rank-none-keyed">${escapeHtml(noneKeyed)}</li>`
+      : "";
+    if (!items.length && noneKeyedRow) {
+      listEl.innerHTML = noneKeyedRow;
+      return;
+    }
     if (!items.length) {
       listEl.innerHTML =
         moduleNumber === "course"
@@ -378,7 +431,7 @@ export async function mountBankMcPicker(opts) {
           : `<li class="hint">No MCs found. Confirm module banks first.</li>`;
       return;
     }
-    listEl.innerHTML = items
+    listEl.innerHTML = noneKeyedRow + items
       .map((item) => {
         const qid = Number(item.question_id || 0);
         const title = String(item.question_title || "").trim();
@@ -392,18 +445,18 @@ export async function mountBankMcPicker(opts) {
             : stemLabel;
         const optionList = Array.isArray(item.options) ? item.options : [];
         const rank = String(item.type || "") === "rank";
-        const rankKeyed = Array.isArray(item.rank_key) && item.rank_key.length > 0;
-        const meta = escapeHtml(
-          rank
-            ? `Rank · ${optionList.length} items · ${rankKeyed ? "answer order set" : "no answer order"}`
-            : warmup
+        const meta = rank
+          ? rankMetaHtml(item, optionList.length)
+          : escapeHtml(
+          warmup
             ? `Warmup · ${
                 optionList.length ? optionList.join(" / ") : "Open response"
               }`
             : openPrompt && !String(item.correct_answer || "").trim()
               ? "Open prompt"
               : `Answer ${String(item.correct_answer || "?")} · ${Number(item.points || 1)} pt`
-        );
+          );
+        const preview = rank ? rankPreviewHtml(item) : "";
         // MCK-169: rank rows are read-only (no Edit control); Import still works.
         const action =
           mode === "import"
@@ -416,6 +469,7 @@ export async function mountBankMcPicker(opts) {
           <div class="bank-mc-picker-row-main">
             ${thumb}
             <div class="bank-mc-picker-text live-question-html">${label}</div>
+            ${preview}
             <p class="hint compact">${meta}</p>
           </div>
           ${action}
@@ -499,7 +553,20 @@ export async function mountBankMcPicker(opts) {
         ? String(typeHost?.querySelector('[aria-pressed="true"] .bank-type-chip-label')?.textContent || "")
         : "";
       paintCount(search.total, search.filtered, queryValue, typeLabel);
-      paintList(search.items);
+      // MCK-169 S1: with the Rank chip on, Answer order rows first.
+      const rows = sortRankRows(search.items, typeValue);
+      const hints = rankListHints({
+        typeValue,
+        items: rows,
+        scope: moduleNumber,
+        query: queryValue,
+        mode,
+      });
+      if (rankHintEl instanceof HTMLElement) {
+        rankHintEl.textContent = hints.importDefault;
+        rankHintEl.hidden = !hints.importDefault;
+      }
+      paintList(rows, hints.noneKeyed);
     } catch (err) {
       if (statusEl instanceof HTMLElement) {
         statusEl.hidden = false;
