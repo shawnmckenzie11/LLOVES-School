@@ -215,7 +215,26 @@ class RankImportPresetTests(unittest.TestCase):
         card = self._card("Ava", item)
         self.assertEqual(card["rank_mode"], "turns")
         o = self._opts(item)
-        self.assertEqual(self._post("Ava", item, "rank-turn", {"option_id": o[0]}).status_code, 200)
+        # MCK-176 with MCK-177: the preset card is an Answer order rank, so
+        # students also see per-item aliases, never the real option ids.
+        items = self.school.student_live_items_payload(self.session_id, self.ids["Ava"])
+        mine = next(
+            q for q in items["active_questions"] if int(q["id"]) == int(item["id"])
+        )
+        shown = [row["id"] for row in mine["content"]["rank_options"]]
+        self.assertEqual(len(shown), len(o))
+        self.assertFalse(set(shown) & set(o), (shown, o))
+        aliases = self.school.student_rank_aliases(
+            self.school.get_live_session_item(self.session_id, int(item["id"]))
+        )
+        self.assertIsNotNone(aliases)
+        self.assertEqual(sorted(aliases.back_list(shown)), sorted(o))
+        texts = self._student_texts()
+        for real in o:
+            self.assertNotIn(f'"{real}"', texts["Ava state"], real)
+        self.assertEqual(
+            self._post("Ava", item, "rank-turn", {"option_id": shown[0]}).status_code, 200
+        )
         self._assert_no_preset_marker(self._student_texts())
 
     def test_shared_strip_drops_the_preset_fields(self) -> None:
