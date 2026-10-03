@@ -3644,6 +3644,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": "Forbidden"}), 403
         module_key = str(module or "").strip().upper()
         slot_key = str(slot or "").strip().upper()
+        # MCK-178: a catalogue fix reaches the bank rows and unedited class
+        # imports before the deck is built, even if nobody searched the bank
+        # since the deploy. Cheap when current (per-process memo).
+        library_id = school._class_library_id(int(class_id))
+        if library_id is not None:
+            school.ensure_rank_bank(int(library_id))
         try:
             live_metadata = school.live_class_metadata_for_class_lesson(
                 int(class_id), module_key, slot_key, fresh=True
