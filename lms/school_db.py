@@ -15376,8 +15376,22 @@ class SchoolDB(LovesDB):
             student_id: Roster id.
         """
         name = self._roster_codename(int(class_id), int(student_id)) if class_id else ""
-        parts = name.split()
-        return parts[0] if parts else ""
+        if not name.split():
+            return ""
+        # MCK-155 gate LOW-3: first word only when it is readable and no
+        # other roster codename starts with it; else the full codename.
+        try:
+            with self.game._lock:
+                rows = self.game.conn.execute(
+                    "SELECT codename FROM students WHERE class_id = ?",
+                    (int(class_id),),
+                ).fetchall()
+            roster = [str(row["codename"] or "") for row in rows]
+        except sqlite3.Error:
+            roster = [name]
+        if name not in roster:
+            roster.append(name)
+        return short_display_names([name], roster)[0]
 
     def submit_group_mc_pick(
         self,

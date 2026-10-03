@@ -38,7 +38,9 @@ check(mcFlowStep({ ...flow, pick_step: true, my_pick: "" }) === "pick", "pick");
 check(mcFlowStep({ ...flow, pick_step: true, my_pick: "B" }) === "wait", "wait");
 check(mcFlowStep({ ...flow, pick_step: false }) === "agree", "agree");
 check(mcFlowStep({ ...flow, pick_step: false, submitted: true }) === "locked", "locked");
-check(stillChoosingLine(["Ben Lee", "Cy"]) === "Still choosing: Ben, Cy", "first names");
+check(stillChoosingLine(["Ben", "Cy"]) === "Still choosing: Ben, Cy", "names");
+check(stillChoosingLine(["Cy Twin", "Cy Other", "🦊 Fox"]) === "Still choosing: Cy Twin, Cy Other, 🦊 Fox", "server-shortened names show as sent");
+check(stillChoosingLine(["Cy", "Cy"]) === "Still choosing: Cy", "exact repeats once");
 
 const pick = mcPickStepHtml({ ...flow, pick_step: true }, { choices: ["2", "1"], itemId: 4 });
 check(pick.includes("Send my pick") && pick.includes("data-group-pick-send disabled"), "pick button disabled until a choice");

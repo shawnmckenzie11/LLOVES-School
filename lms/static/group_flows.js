@@ -55,10 +55,15 @@ function esc(value) {
  * @returns {string}
  */
 function nameList(names) {
-  return (Array.isArray(names) ? names : [])
-    .map((name) => String(name || "").trim().split(/\s+/)[0])
-    .filter(Boolean)
-    .join(", ");
+  // The server already shortens names (MCK-155 gate LOW-3); show as sent,
+  // exact repeats once.
+  return [
+    ...new Set(
+      (Array.isArray(names) ? names : [])
+        .map((name) => String(name || "").trim().replace(/\s+/g, " "))
+        .filter(Boolean)
+    ),
+  ].join(", ");
 }
 
 /**
