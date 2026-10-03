@@ -6457,6 +6457,10 @@ class SchoolDB(LovesDB):
     ) -> dict[str, Any]:
         """Search normalized MCs scoped to confirmed module banks only.
 
+        Rank items (``essay_question`` with payload ``type: rank``) are
+        included too (MCK-169). Staff polls stored as ``essay_question``
+        stay out.
+
         Args:
             library_id: ``content_libraries.id``.
             module_number: One-based module index.
@@ -6474,9 +6478,17 @@ class SchoolDB(LovesDB):
             ``type_counts`` (per type after Kind and keyword filters).
         """
         try:
-            from bank_mc_normalize import normalize_bank_mc
+            from bank_mc_normalize import (
+                is_bank_rank_payload,
+                normalize_bank_mc,
+                normalize_bank_rank,
+            )
         except ImportError:
-            from lms.bank_mc_normalize import normalize_bank_mc
+            from lms.bank_mc_normalize import (
+                is_bank_rank_payload,
+                normalize_bank_mc,
+                normalize_bank_rank,
+            )
 
         if int(module_number) == 2:
             try:
@@ -6503,7 +6515,17 @@ class SchoolDB(LovesDB):
                 ON o.library_id = b.library_id AND o.question_id = q.id
             WHERE b.library_id = ?
               AND q.bank_id IN ({placeholders})
-              AND q.item_type = 'multiple_choice_question'
+              AND (
+                q.item_type = 'multiple_choice_question'
+                OR (
+                  q.item_type = 'essay_question'
+                  AND lower(
+                    CASE WHEN json_valid(q.payload_json)
+                         THEN json_extract(q.payload_json, '$.type')
+                    END
+                  ) = 'rank'
+                )
+              )
             ORDER BY b.title, q.id
         """
         with self._lock:
@@ -6553,6 +6575,27 @@ class SchoolDB(LovesDB):
                 normalized["question_type"] = bank_question_type(
                     normalized, item_type=str(row["item_type"] or ""), payload=payload
                 )
+                all_items.append(normalized)
+                continue
+            if is_bank_rank_payload(payload):
+                # MCK-169: rank items are essay_question rows with
+                # ``type: rank``. They keep ``rank_options`` and a valid
+                # ``rank_key`` so an import plays as a live rank prompt.
+                normalized, _rank_skip = normalize_bank_rank(
+                    question_id=int(row["id"]),
+                    bank_id=int(row["bank_id"]),
+                    title=str(row["title"] or ""),
+                    payload=payload,
+                    bank_title=str(row["bank_title"] or ""),
+                )
+                if normalized is None:
+                    continue
+                normalized["edited_in_lms"] = False
+                # MCK-170 type chips read this tag; untagged rows count as MC.
+                normalized["question_type"] = "rank"
+                problem_kind = self._problem_kind_from_payload(payload)
+                if problem_kind:
+                    normalized["kind"] = problem_kind
                 all_items.append(normalized)
                 continue
             course_warmup = (
@@ -9971,6 +10014,10 @@ class SchoolDB(LovesDB):
             return False
         if not payload.get("source_question_id"):
             return False
+        if str(payload.get("type") or "").strip().lower() == "rank":
+            # MCK-169: rank imports carry their own options; the MC
+            # normalizer cannot rebuild them.
+            return False
         blob = json.dumps(payload, ensure_ascii=False)
         if "instructure.com" in blob or "equation_images" in blob:
             return True
@@ -10450,9 +10497,19 @@ class SchoolDB(LovesDB):
             ValueError: When the question cannot be normalized.
         """
         try:
-            from bank_mc_normalize import normalize_bank_mc, parse_module_token
+            from bank_mc_normalize import (
+                is_bank_rank_payload,
+                normalize_bank_mc,
+                normalize_bank_rank,
+                parse_module_token,
+            )
         except ImportError:
-            from lms.bank_mc_normalize import normalize_bank_mc, parse_module_token
+            from lms.bank_mc_normalize import (
+                is_bank_rank_payload,
+                normalize_bank_mc,
+                normalize_bank_rank,
+                parse_module_token,
+            )
 
         module_number = parse_module_token(str(module or "").strip().upper())
         if module_number is None:
@@ -10528,6 +10585,16 @@ class SchoolDB(LovesDB):
                     bank_title=str(row["bank_title"] or ""),
                 )
                 skip_reason = None if normalized else "empty_stem"
+            elif is_bank_rank_payload(payload):
+                # MCK-169: a bank rank item imports as a live rank prompt
+                # with its options and a still-valid answer order.
+                normalized, skip_reason = normalize_bank_rank(
+                    question_id=int(row["id"]),
+                    bank_id=int(row["bank_id"]),
+                    title=str(row["title"] or ""),
+                    payload=payload,
+                    bank_title=str(row["bank_title"] or ""),
+                )
             elif course_warmup_bank or is_course_scoped_warmup(payload):
                 normalized = normalize_course_warmup(
                     question_id=int(row["id"]),
