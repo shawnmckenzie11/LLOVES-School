@@ -467,6 +467,20 @@ def title_for_question_patch(
     return (str(stem_plain or "")[:80] or str(stored_title or "Question")).strip() or "Question"
 
 
+#: MCK-169 MED-2: rank rows are read-only in the Question banks tab. The
+#: MC editor and overlays cannot hold rank items or an answer order, so a
+#: save would be ignored by search and import (or break the item).
+RANK_READ_ONLY_ERROR = (
+    "Rank items can't be edited in the Question banks tab yet. "
+    "To change one, add a new rank question."
+)
+
+
+def payload_is_rank(payload: Any) -> bool:
+    """True when a stored bank payload is a rank (put-in-order) item."""
+    return isinstance(payload, dict) and str(payload.get("type") or "").strip().lower() == "rank"
+
+
 def apply_staff_question_patch(
     school: Any,
     *,
@@ -494,6 +508,8 @@ def apply_staff_question_patch(
         raise KeyError(f"question {question_id}")
     item_type = str(row.get("item_type") or "")
     stored = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+    if payload_is_rank(stored):
+        raise ValueError(RANK_READ_ONLY_ERROR)
     warmup = payload_is_warmup(stored)
     stem_html, stem_plain = _stem_from_body(
         body, class_id=class_id, school=school, library_id=int(library_id)

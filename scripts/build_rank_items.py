@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+"""Build ``lms/seeds/rank_items/{CODE}.json`` from reviewed rank candidates (MCK-169).
+
+Input is the Module Director-reviewed sweep file (``candidates-final.json``,
+MCK-167). It is read only. Output is one git-tracked catalogue per course;
+``lms/rank_bank_seed.py`` stores those items in per-module banks.
+
+Usage::
+
+    python scripts/build_rank_items.py /path/to/candidates-final.json
+    python scripts/build_rank_items.py /path/to/candidates-final.json --check
+
+``--check`` exits 1 when the committed files differ from a fresh build.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+LMS_DIR = REPO_ROOT / "lms"
+sys.path.insert(0, str(LMS_DIR))
+
+from live_rank import (  # noqa: E402
+    MAX_RANK_OPTIONS,
+    MIN_RANK_OPTIONS,
+    build_rank_options,
+    parse_rank_key,
+)
+
+OUT_DIR = LMS_DIR / "seeds" / "rank_items"
+COURSES = ("MCR3U", "MCF3M")
+SLOTS = ("C1", "C2", "C3", "C4")
+PAYLOAD_FIELDS = ("stem_html", "points_possible", "type", "kind", "options", "choices", "rank_options")
+
+
+def _fail(cid: str, why: str) -> None:
+    raise SystemExit(f"{cid}: {why}")
+
+
+def convert_item(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Validate one reviewed candidate and return ``(course, catalogue item)``.
+
+    Args:
+        raw: One entry of ``candidates-final.json``.
+    """
+    cid = str(raw.get("id") or "").strip()
+    if not cid:
+        _fail("?", "missing id")
+    course = str(raw.get("course") or "").strip().upper()
+    if course not in COURSES:
+        _fail(cid, f"unknown course {course!r}")
+    module = raw.get("module") if isinstance(raw.get("module"), dict) else {}
+    number = int(module.get("number") or 0)
+    if not 1 <= number <= 8:
+        _fail(cid, f"bad module {module!r}")
+    if raw.get("placement_provisional") is not False:
+        _fail(cid, "placement is still provisional")
+    if raw.get("needs_md_rereview"):
+        _fail(cid, "needs Module Director re-review")
+    if raw.get("md_status") not in {"approve", "fixed"}:
+        _fail(cid, f"md_status {raw.get('md_status')!r}")
+    slot = str((raw.get("live_class") or {}).get("slot") or "").strip().upper()
+    if slot not in SLOTS:
+        _fail(cid, f"live_class slot {slot!r}")
+    src = raw.get("payload") if isinstance(raw.get("payload"), dict) else {}
+    if str(src.get("type") or "") != "rank":
+        _fail(cid, "payload type is not rank")
+    rows = build_rank_options(src.get("rank_options"))
+    if [r["label"] for r in rows] != list(src.get("options") or []) or src.get("options") != src.get("choices"):
+        _fail(cid, "options / choices / rank_options labels disagree")
+    if not MIN_RANK_OPTIONS <= len(rows) <= MAX_RANK_OPTIONS:
+        _fail(cid, "needs 3 to 6 cards")
+    key = parse_rank_key((raw.get("proposed_answer_key") or {}).get("correct_order"), rows)
+    if not key:
+        _fail(cid, "no answer order")
+    labels = {r["id"]: r["label"] for r in rows}
+    steps = list(raw.get("steps_in_correct_order") or [])
+    if steps and [labels[i] for i in key] != steps:
+        _fail(cid, "answer order does not reproduce steps_in_correct_order")
+    prompt = str(raw.get("prompt") or "").strip()
+    if not prompt:
+        _fail(cid, "empty prompt")
+    payload: dict[str, Any] = {field: src[field] for field in PAYLOAD_FIELDS if field in src}
+    payload["rank_options"] = rows
+    payload["text"] = prompt
+    payload["rank_key"] = key
+    if raw.get("teacher_key"):
+        payload["teacher_key"] = raw["teacher_key"]
+    note = str(raw.get("teacher_note") or "").strip()
+    if note:
+        payload["teacher_note"] = note
+    source = raw.get("source") if isinstance(raw.get("source"), dict) else {}
+    item = {
+        "id": cid,
+        "module": number,
+        "live_class_slot": slot,
+        "md_status": str(raw["md_status"]),
+        "expectations": [str(code) for code in raw.get("expectations") or []],
+        "source_ids": [str(sid) for sid in source.get("ids") or []],
+        "payload": payload,
+    }
+    return course, item
+
+
+def build(candidates: list[dict[str, Any]]) -> dict[str, str]:
+    """Return ``{course: file text}`` for every course.
+
+    Args:
+        candidates: Parsed ``candidates-final.json``.
+    """
+    by_course: dict[str, list[dict[str, Any]]] = {code: [] for code in COURSES}
+    seen: set[str] = set()
+    for raw in candidates:
+        course, item = convert_item(raw)
+        if item["id"] in seen:
+            _fail(item["id"], "duplicate id")
+        seen.add(item["id"])
+        by_course[course].append(item)
+    out: dict[str, str] = {}
+    for code, items in by_course.items():
+        items.sort(key=lambda row: (row["module"], row["id"]))
+        doc = {
+            "course": code,
+            "about": "Reviewed rank (put-in-order) items: MCK-167 sweep + Module Director review. "
+            "Generated by scripts/build_rank_items.py from candidates-final.json; do not hand-edit.",
+            "count": len(items),
+            "items": items,
+        }
+        out[code] = json.dumps(doc, ensure_ascii=False, indent=1) + "\n"
+    return out
+
+
+def main() -> int:
+    """CLI entry point."""
+    parser = argparse.ArgumentParser(description="Build lms/seeds/rank_items from candidates-final.json")
+    parser.add_argument("source", type=Path, help="candidates-final.json (read only)")
+    parser.add_argument("--check", action="store_true", help="fail when committed files are stale")
+    args = parser.parse_args()
+    candidates = json.loads(args.source.read_text(encoding="utf-8"))
+    if not isinstance(candidates, list):
+        raise SystemExit("expected a JSON list of candidates")
+    built = build(candidates)
+    stale = []
+    for code, text in built.items():
+        path = OUT_DIR / f"{code}.json"
+        if args.check:
+            if not path.is_file() or path.read_text(encoding="utf-8") != text:
+                stale.append(path.name)
+            continue
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        print(f"wrote {path.relative_to(REPO_ROOT)} ({json.loads(text)['count']} items)")
+    if stale:
+        print("stale: " + ", ".join(stale))
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

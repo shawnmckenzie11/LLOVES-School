@@ -100,6 +100,7 @@ TEACHER_ONLY_ITEM_FIELDS = frozenset(
         "feedback_id",
         "soft_key",
         "teacher_key",
+        "teacher_note",
         "by_choice",
         "on_submit",
         "on_weak",
