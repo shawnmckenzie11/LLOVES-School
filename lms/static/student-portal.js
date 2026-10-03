@@ -37,6 +37,13 @@ import {
 import { nameWithAvatar, paintAvatar } from "/static/student_avatars.js";
 import { rankStackHtml } from "/static/rank_stack.js";
 import {
+  agreeButtonHtml,
+  agreeLineHtml,
+  phoneCueHtml,
+  phoneStripHtml,
+  readOnlyOrderHtml,
+} from "/static/rank_challenge_phone.js";
+import {
   GROUP_INSTRUCTION_COPY,
   consensusWaitHtml,
   groupInstructionHtml,
@@ -262,6 +269,13 @@ let displayEndsAtMs = 0;
 function paintDisplayTime(payload) {
   if (!displayTimeEl) return;
   const dt = payload && payload.display_time ? payload.display_time : {};
+  if (teamChallengeOpen(payload)) {
+    // MCK-171: no countdown on phones during a Team challenge (no rushing).
+    displayEndsAtMs = 0;
+    displayTimeEl.textContent = "—";
+    displayTimeEl.dataset.state = "idle";
+    return;
+  }
   if (dt.running && dt.ends_at_ms) {
     displayEndsAtMs = Number(dt.ends_at_ms) || 0;
     const rem = displayEndsAtMs
@@ -279,6 +293,20 @@ function paintDisplayTime(payload) {
   }
   displayTimeEl.textContent = dt.label || "—";
   displayTimeEl.dataset.state = "idle";
+}
+
+/**
+ * MCK-171: true while an open Team challenge is on this phone.
+ * @param {any} payload
+ * @returns {boolean}
+ */
+function teamChallengeOpen(payload) {
+  const pools = [payload?.active_questions, payload?.live_items];
+  return pools.some(
+    (pool) =>
+      Array.isArray(pool) &&
+      pool.some((row) => String(row?.status || "") === "active" && row?.group_submit?.race)
+  );
 }
 
 /**
@@ -2144,10 +2172,16 @@ function rankOrderFromCard(card) {
  * @param {string} action
  * @returns {string}
  */
-function rankInputHtml(options, order, action) {
+function rankInputHtml(options, order, action, opts = {}) {
   const n = options.length;
   const complete = n > 0 && order.length === n;
   const prefix = action === "group" ? "Submit for team" : "Submit";
+  // MCK-171: a Team challenge locks by I agree, so it has no Submit.
+  const submit = opts.noSubmit
+    ? ""
+    : `<button type="button" class="prompt-submit" data-live-submit="${escapeText(action)}"${
+        complete ? "" : " disabled"
+      } aria-disabled="${complete ? "false" : "true"}">${prefix}</button>`;
   return `<div class="rank-input" data-rank-input="1" data-rank-n="${n}">
     <div class="rank-option-list" role="list">${options
       .map((opt) => {
@@ -2165,9 +2199,7 @@ function rankInputHtml(options, order, action) {
     <p class="rank-live" aria-live="polite" data-rank-live></p>
     <div class="rank-actions">
       <button type="button" class="rank-clear" data-rank-clear>Clear</button>
-      <button type="button" class="prompt-submit" data-live-submit="${escapeText(action)}"${
-        complete ? "" : " disabled"
-      } aria-disabled="${complete ? "false" : "true"}">${prefix}</button>
+      ${submit}
     </div>
   </div>`;
 }
@@ -2270,6 +2302,61 @@ function syncRankGate(card) {
     submit.disabled = !ready;
     submit.setAttribute("aria-disabled", ready ? "false" : "true");
   }
+  // MCK-171: I agree needs every spot numbered too.
+  const agree = card.querySelector('[data-race-agree="1"]');
+  if (agree instanceof HTMLButtonElement) {
+    const ready = order.length === n && n > 0;
+    agree.disabled = !ready;
+    agree.setAttribute("aria-disabled", ready ? "false" : "true");
+  }
+}
+
+/**
+ * MCK-171 Team challenge card (IA v0.2 F3, mock v1 §5). One cue line per
+ * state; no countdown, no rank or score before the reveal.
+ * @param {any} item
+ * @returns {string}
+ */
+function rankChallengeCardHtml(item) {
+  const status = String(item?.status || "active");
+  const content = item?.content || item?.prompt?.payload || {};
+  const group = item?.group_submit || {};
+  const race = group.race || {};
+  const options = rankOptionsFromContent(content);
+  const itemId = Number(item.id) || 0;
+  const order = Array.isArray(group.order) ? group.order.map(String) : [];
+  const locked = Boolean(race.locked);
+  const strip = phoneStripHtml(group);
+  if (race.mode === "turns" && status !== "closed") {
+    return `<div class="student-group-card race-phone" data-live-action="group" data-rank-turns-card="1">
+      ${strip}
+      ${rankTurnsHtml(group, { options, itemId, note: groupFlowNotes.get(itemId) || "" })}
+    </div>`;
+  }
+  if (locked || status === "closed") {
+    const shown = locked && Array.isArray(group.submitted_order) && group.submitted_order.length
+      ? group.submitted_order.map(String)
+      : order;
+    const agreeLine = race.mode === "together" && locked ? agreeLineHtml(group) : "";
+    return `<div class="student-group-card race-phone is-readonly" data-live-action="group" data-race-card="1">
+      ${strip}
+      ${phoneCueHtml(group, status)}
+      ${readOnlyOrderHtml(options, shown)}
+      ${agreeLine}
+    </div>`;
+  }
+  // One shared order: always the server's (a teammate's move shows here).
+  const shown = order;
+  const complete = options.length > 0 && shown.length === options.length;
+  const note = groupFlowNotes.get(itemId) || "";
+  return `<div class="student-group-card race-phone" data-live-action="group" data-rank-shared="1" data-race-card="1">
+    ${strip}
+    ${phoneCueHtml(group, status)}
+    ${rankInputHtml(options, shown, "group", { noSubmit: true })}
+    ${agreeLineHtml(group)}
+    ${agreeButtonHtml(group, complete)}
+    ${note ? `<p class="rank-turn-note" role="status">${escapeText(note)}</p>` : ""}
+  </div>`;
 }
 
 /**
@@ -2805,6 +2892,7 @@ function studentGroupCardHtml(item) {
   const status = String(item?.status || "active");
   const content = item?.content || item?.prompt?.payload || {};
   const rank = String(content.type || content.kind || "").toLowerCase() === "rank";
+  if (rank && item?.group_submit?.race) return rankChallengeCardHtml(item);
   if (status === "closed" && rank) {
     // MCK-154 S1: a closed card is final. No "Submitted — waiting." and
     // no Change button; the stack already shows this group's column.
@@ -4945,6 +5033,19 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
         rankLocalDrafts.set(itemId, seed.map((id) => String(id)));
       }
       if (lastStudentPayload) paintLifecycleQuestionStack(lastStudentPayload);
+    }
+    return;
+  }
+  const raceAgree = event.target.closest("[data-race-agree]");
+  if (raceAgree instanceof HTMLButtonElement) {
+    const card = raceAgree.closest("[data-live-card-id]");
+    if (card instanceof HTMLElement && !raceAgree.disabled) {
+      raceAgree.disabled = true;
+      const agree = raceAgree.dataset.raceAgree === "1";
+      const itemId = Number(card.dataset.liveCardId) || 0;
+      const order = rankOrderFromCard(card);
+      if (itemId) rankLocalDrafts.delete(itemId);
+      void postGroupFlow(card, "rank-agree", { agree, order });
     }
     return;
   }
