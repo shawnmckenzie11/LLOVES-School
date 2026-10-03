@@ -200,8 +200,9 @@ class BankDedupeLibraryTests(unittest.TestCase):
         self._mc(quiz, "q2", "<p>Find the vertex of y = x^2</p>")
         self.school.confirm_module_bank_links(self.mcf, 1, [test, quiz])
         hits = self.school.search_module_bank_mcs(self.mcf, 1, "")
-        self.assertEqual(hits["total"], 1)
-        self.assertEqual(len(hits["items"]), 1)
+        # MCK-169: MCR3U/MCF3M libraries also get the reviewed rank items; this test is about MC rows.
+        mc_rows = [item for item in hits["items"] if item.get("type") != "rank"]
+        self.assertEqual(len(mc_rows), 1)
 
     def test_fingerprints_ignore_option_order(self) -> None:
         """A/B swap of the same choices still matches."""
