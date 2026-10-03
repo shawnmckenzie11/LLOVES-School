@@ -6663,3 +6663,180 @@ body.staff-shell .live-group-race-help {
   order: 3;
   color: #475569;
 }
+
+/* MCK-171 Team challenge: projector lanes on the teacher's rank card
+   (mock v1 §1). Read from the back of the room at 1280: stem 28px, names
+   28px semibold, status 22px, icons 40px, navy #12202e on white. Lanes keep
+   a fixed team order; state is always text + icon, never colour alone. */
+body.staff-shell .race-view {
+  color: #12202e;
+  background: #fff;
+  border: 1px solid #d5dde6;
+  border-radius: 12px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+body.staff-shell .race-view-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 24px;
+  border-bottom: 2px solid #12202e;
+}
+body.staff-shell .race-view-stem {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+body.staff-shell .race-view-sub {
+  margin: 4px 0 0;
+  font-size: 16px;
+  color: #475569;
+}
+body.staff-shell .race-view-count {
+  margin: 0;
+  flex: none;
+  font-size: 22px;
+  font-weight: 700;
+  padding: 8px 16px;
+  border: 2px solid #12202e;
+  border-radius: 999px;
+}
+body.staff-shell .race-lanes {
+  list-style: none;
+  margin: 0;
+  padding: 8px 24px;
+}
+body.staff-shell .race-lane {
+  display: grid;
+  grid-template-columns: 48px minmax(150px, 210px) minmax(120px, 180px) 40px minmax(180px, 1fr) auto;
+  align-items: center;
+  column-gap: 16px;
+  min-height: 64px;
+  padding: 8px 0;
+  border-bottom: 1px solid #e3e8ee;
+}
+body.staff-shell .race-lane:last-child {
+  border-bottom: 0;
+}
+body.staff-shell .race-chip {
+  font-size: 40px;
+  line-height: 1;
+  color: var(--team, #12202e);
+  text-align: center;
+}
+body.staff-shell .race-lane-name {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--team, #12202e);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+body.staff-shell .race-pips {
+  display: flex;
+  gap: 8px;
+}
+body.staff-shell .race-pip {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: 2px solid #cbd5e1;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+}
+body.staff-shell .race-pip.is-on {
+  background: var(--team, #12202e);
+  border-color: var(--team, #12202e);
+}
+body.staff-shell .race-pip.is-away {
+  border-style: dashed;
+}
+body.staff-shell .race-lane-flag {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  box-sizing: border-box;
+  border: 2px solid var(--team, #12202e);
+  border-radius: 8px;
+  color: var(--team, #12202e);
+  font-size: 24px;
+  font-weight: 700;
+}
+body.staff-shell .race-lane-flag.is-empty {
+  visibility: hidden;
+}
+body.staff-shell .race-lane-status {
+  font-size: 22px;
+  font-weight: 700;
+  color: #475569;
+}
+body.staff-shell .race-lane.is-locked .race-lane-status {
+  color: #12202e;
+}
+/* An empty team stays readable from the back: muted text at >= 4.5:1 and a
+   dashed outline instead of a fade. */
+body.staff-shell .race-lane.is-absent .race-lane-name,
+body.staff-shell .race-lane.is-absent .race-chip,
+body.staff-shell .race-lane.is-absent .race-lane-status {
+  color: #5b6779;
+}
+body.staff-shell .race-lane.is-absent .race-lane-status {
+  font-weight: 600;
+}
+body.staff-shell .race-lane.is-absent {
+  outline: 2px dashed #94a3b8;
+  outline-offset: -2px;
+  border-radius: 8px;
+  padding-left: 8px;
+  padding-right: 8px;
+  margin: 6px 0;
+}
+body.staff-shell .race-lane-btn {
+  min-height: 44px;
+  padding: 8px 14px;
+  font-size: 15px;
+  white-space: nowrap;
+}
+body.staff-shell .race-view-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 12px 24px 16px;
+  border-top: 1px solid #e3e8ee;
+}
+body.staff-shell .race-view-foot button {
+  min-height: 44px;
+  padding: 8px 18px;
+  font-size: 16px;
+  font-weight: 600;
+}
+body.staff-shell .race-view-close {
+  background: #12202e;
+  color: #fff;
+  border: 0;
+  border-radius: 8px;
+}
+body.staff-shell .race-view-enter {
+  margin: 4px 0 8px;
+}
+body.staff-shell .race-lane.is-popping .race-lane-flag {
+  animation: race-check-pop 300ms ease-out;
+}
+@keyframes race-check-pop {
+  0% { transform: scale(0.4); }
+  70% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.staff-shell .race-lane.is-popping .race-lane-flag {
+    animation: none;
+  }
+}
