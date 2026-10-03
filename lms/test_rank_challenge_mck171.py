@@ -601,6 +601,53 @@ class NoLeakTests(ChallengeHarness):
         self.assertFalse(ben["can_lock"])
         self.assertFalse(lanes[self._team("Ava", item)]["absent"])
 
+    def test_count_is_present_teams_only(self) -> None:
+        """'{k} of {n} teams locked in' leaves out a team with nobody here."""
+        item = self._challenge()
+        for name in ("Ben", "Dee", "Fay"):
+            self._leave(name)
+        race = self._view(item)["race"]
+        self.assertEqual((race["teams_locked"], race["teams_total"]), (0, 1))
+        card = self._card("Ava", item)["race"]
+        self.assertEqual((card["teams_locked"], card["teams_total"]), (0, 1))
+
+
+class PresenceCreditTests(ChallengeHarness):
+    """Who was seen present while the challenge was open (credit list)."""
+
+    def _rejoin(self, name: str) -> None:
+        code = self.school.get_live_session(self.session_id)["session_code"]
+        rv = self.students[name].post("/auth/student-code", data={"code": str(code), "name": name})
+        self.assertEqual(rv.status_code, 302, rv.get_data(as_text=True)[:300])
+
+    def _seen(self, item: dict[str, Any], name: str) -> set[int]:
+        return self.school._rank_race_seen_ids(int(item["id"]), self._team(name, item))
+
+    def test_present_all_along_is_seen(self) -> None:
+        item = self._challenge()
+        self._close(item)
+        self.assertIn(self.ids["Ava"], self._seen(item, "Ava"))
+
+    def test_present_briefly_mid_question_is_seen(self) -> None:
+        self._leave("Eli")
+        item = self._challenge()
+        team = self._team("Ava", item)
+        self._view(item)  # lanes poll while Eli is away
+        self.assertNotIn(self.ids["Eli"], self.school._rank_race_seen_ids(int(item["id"]), team))
+        self._rejoin("Eli")
+        self._view(item)  # Eli shows up mid-question
+        self._leave("Eli")  # and drops before Close
+        self._close(item)
+        self.assertIn(self.ids["Eli"], self.school._rank_race_seen_ids(int(item["id"]), team))
+
+    def test_never_present_is_not_seen(self) -> None:
+        self._leave("Eli")
+        item = self._challenge()
+        team = self._team("Ava", item)
+        self._view(item)
+        self._close(item)
+        self.assertNotIn(self.ids["Eli"], self.school._rank_race_seen_ids(int(item["id"]), team))
+
 
 class SetupClientTests(unittest.TestCase):
     """Group line toggle, help and live chips (Wonder v3 copy)."""

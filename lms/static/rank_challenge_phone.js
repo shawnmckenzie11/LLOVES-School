@@ -156,7 +156,7 @@ export function agreeLineHtml(group) {
 export function agreeButtonHtml(group, complete) {
   const agree = group?.race?.agree || {};
   if (agree.mine) {
-    return `<button type="button" class="secondary race-phone-btn" data-race-agree="0">${esc(PHONE_COPY.undo)}</button>`;
+    return `<button type="button" class="race-phone-btn is-outline" data-race-agree="0">${esc(PHONE_COPY.undo)}</button>`;
   }
   const ready = Boolean(complete && agree.can_agree !== false);
   return `<button type="button" class="prompt-submit race-phone-btn" data-race-agree="1"${

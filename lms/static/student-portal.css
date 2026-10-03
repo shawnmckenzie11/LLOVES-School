@@ -632,6 +632,11 @@ body.student-home.is-live .student-live-response {
   font-size: 0.95rem;
   text-align: center;
 }
+/* A question card (open or closed) covers the live area: the waiting
+   line behind it only peeked out as a stray letter at the card's edge. */
+body.student-home .student-live-response:has(.student-live-card) > .student-wait {
+  display: none;
+}
 
 .question-frame {
   position: relative;
@@ -2916,6 +2921,17 @@ body.rw-open { overflow: hidden; }
   font-size: 1.05rem;
   font-weight: 700;
   border-radius: 10px;
+}
+/* "Not yet": the mock's outline button, clearly live (not greyed out). */
+.race-phone-btn.is-outline {
+  margin-top: 0.35rem;
+  border: 2px solid #5eead4;
+  background: transparent;
+  color: #ecfeff;
+  cursor: pointer;
+}
+.race-phone-btn.is-outline:active {
+  background: rgba(94, 234, 212, 0.12);
 }
 .race-phone-order {
   list-style: none;

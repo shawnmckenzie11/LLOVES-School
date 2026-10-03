@@ -41,6 +41,9 @@ class LaneViewTests(unittest.TestCase):
         self.assertIn("RACE_COPY.skipConfirm, { team }", staff)
         self.assertIn("/rank-lock`", staff)
         self.assertIn("RACE_COPY.view", staff)
+        # No separate Reveal in the strip while "Close & reveal" shows.
+        self.assertIn("result?.race && !raceViewOff.has(liveItemId)", staff)
+        self.assertIn("? raceLanesShowing\n            ? moveOnHtml", staff)
 
     def test_projector_css(self) -> None:
         css = (STATIC / "staff-shell.css").read_text(encoding="utf-8")
