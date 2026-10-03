@@ -3386,7 +3386,7 @@ class LiveBackendStateTests(unittest.TestCase):
                 int(prompt["id"]), self.student_ids[0], {"choice": "A"}
             )
         # MCK-155 option B: everyone picks alone first. The shared draft
-        # is refused until then; the teacher's Move on ends step 1.
+        # is refused until then; the teacher's Start group step ends step 1.
         with self.assertRaisesRegex(ValueError, "own pick first"):
             self.school.save_group_mc_draft(
                 self.session_id,

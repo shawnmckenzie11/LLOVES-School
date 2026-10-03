@@ -14377,7 +14377,7 @@ class SchoolDB(LovesDB):
             if self._question_answer_kind(item) != "rank":
                 raise ValueError("Group mode is for rank questions.")
             if str(item.get("status") or "") != "inactive":
-                raise ValueError("Change Group mode before you publish.")
+                raise ValueError("Group mode is locked once published.")
             question["group_rank_mode"] = token
         assignments.append("item_json = ?")
         params.append(json.dumps(question))
@@ -15246,7 +15246,7 @@ class SchoolDB(LovesDB):
     # teacher view stay as they are. Each member's own pick is a
     # ``live_group_votes`` row (``{"kind": "pick", "value": label}``).
     # ``voting_ended_at`` on the team row ends step 1: set when every
-    # present member has picked, or when the teacher taps Move on.
+    # present member has picked, or when the teacher taps Start group step.
     # ------------------------------------------------------------------
 
     def _group_mc_picks_flow(self, item: dict[str, Any]) -> bool:
@@ -15421,7 +15421,7 @@ class SchoolDB(LovesDB):
     def end_group_mc_pick_step(
         self, session_id: int, placement_or_item: str | int
     ) -> dict[str, Any]:
-        """Teacher Move on: every team still picking goes to step 2.
+        """Teacher Start group step: every team still picking goes to step 2.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -15849,7 +15849,17 @@ class SchoolDB(LovesDB):
                     self.student_group_submit_state(item, student_id),
                 )
             if self._group_mc_pick_step_open(item, team_id, row):
-                raise ValueError("Send your own pick first.")
+                # Not picked yet: send it. Already picked: teammates are
+                # still choosing (step 1 is open), so wait.
+                picked = any(
+                    int(vote["student_id"]) == int(student_id)
+                    for vote in self._group_mc_pick_rows(item, team_id)
+                )
+                raise ValueError(
+                    "Wait until everyone has picked."
+                    if picked
+                    else "Send your own pick first."
+                )
         preview = dict(row)
         preview["proposed_answer"] = (
             {"kind": "choice", "value": choice_text} if choice_text else None
@@ -27324,7 +27334,7 @@ class SchoolDB(LovesDB):
         response_max = int(row["response_max"] if row is not None else 0)
         group_vote_max = int(row["group_vote_max"] if row is not None else 0)
         group_vote_rev = str(row["group_vote_rev"] if row is not None else "")
-        # MCK-155 PR C: a teammate's turn, a Skip, Move on or a locked send
+        # MCK-155 PR C: a teammate's turn, a Skip, Start group step or a locked send
         # touches the team row; teammates must not keep a stale card.
         group_response_rev = str(row["group_response_rev"] if row is not None else "")
         status = str(status_row["status"] if status_row is not None else "")

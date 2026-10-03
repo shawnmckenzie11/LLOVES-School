@@ -2,7 +2,7 @@
 """MCK-155 PR C: group MC "pick alone, then agree" and rank "Take turns".
 
 Real MCR3U M1 C2 deck, real teacher routes (Add New, settings, Publish,
-Move on, Skip) and real student routes (group-pick, group-submit,
+Start group step, Skip) and real student routes (group-pick, group-submit,
 rank-turn) with one logged-in client per student.
 """
 
@@ -198,9 +198,13 @@ class PickThenAgreeAndTurnsTests(unittest.TestCase):
         self.assertFalse(card["can_submit"])
         self.assertNotIn("member_picks", card)
         # No shared draft or send until everyone has picked.
+        # Ava has picked: wait for the rest. Cy has not: send yours first.
         rv = self._post("Ava", item, "group-draft", {"choice": "2", "why": "x"})
         self.assertEqual(rv.status_code, 400)
-        self.assertIn("own pick first", rv.get_json()["error"])
+        self.assertEqual(rv.get_json()["error"], "Wait until everyone has picked.")
+        rv = self._post("Cy", item, "group-draft", {"choice": "2", "why": "x"})
+        self.assertEqual(rv.status_code, 400)
+        self.assertEqual(rv.get_json()["error"], "Send your own pick first.")
         rv = self._post("Cy", item, "group-pick", {"choice": "1"})
         card = rv.get_json()["group_submit"]
         self.assertFalse(card["pick_step"])
@@ -301,7 +305,7 @@ class PickThenAgreeAndTurnsTests(unittest.TestCase):
             json={"group_rank_mode": "together"},
         )
         self.assertEqual(rv.status_code, 400)
-        self.assertIn("before you publish", rv.get_json()["error"])
+        self.assertEqual(rv.get_json()["error"], "Group mode is locked once published.")
         mc = self._add({"type": "mc", "text": "Pick", "options": ["a", "b", "c", "d"], "correct_index": 0})
         rv = self.client.patch(
             f"/api/live-sessions/{self.session_id}/items/{mc['id']}/settings",
@@ -329,6 +333,7 @@ class PickThenAgreeAndTurnsTests(unittest.TestCase):
         rv = self._post("Cy", item, "rank-turn", {"option_id": o[2]})
         self.assertEqual(rv.status_code, 409)
         self.assertEqual(rv.get_json()["reason"], "not_your_turn")
+        self.assertEqual(rv.get_json()["error"], "Not your turn yet.")
         # The together path is refused for a take-turns question.
         rv = self._post("Ava", item, "group-draft", {"tap": o[2]})
         self.assertEqual(rv.status_code, 400)
@@ -457,6 +462,11 @@ class GroupFlowsClientTests(unittest.TestCase):
         self.assertIn("/rank-turn/skip", staff)
         self.assertIn("group_rank_mode", staff)
         self.assertIn("groupSubmitVariant", staff)
+        # Wonder review: teacher labels for option B.
+        self.assertIn('moveOn: "Start group step"', staff)
+        self.assertIn('label: "Each student\'s pick"', staff)
+        self.assertNotIn('"Move on"', staff)
+        self.assertNotIn('"Own picks"', staff)
 
 
 if __name__ == "__main__":

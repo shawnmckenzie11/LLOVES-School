@@ -516,7 +516,7 @@ def apply_turn_place(
     if state.get("complete"):
         raise TurnConflict("done", "Your group's order is in.")
     if not turn_can_place(state, student_id, active_ids):
-        raise TurnConflict("not_your_turn", "Wait for your teammates to place theirs.")
+        raise TurnConflict("not_your_turn", "Not your turn yet.")
     order.append(opt)
     events.append([int(student_id), "place", opt])
     new_state = {

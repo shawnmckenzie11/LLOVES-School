@@ -1331,8 +1331,8 @@ const rankModeIntent = new Map();
 /** MCK-155 PR C teacher copy (NEW strings; listed in the change note). */
 const PICKS_COPY = Object.freeze({
   progress: "{k} of {n} picked · ",
-  label: "Own picks",
-  moveOn: "Move on",
+  label: "Each student's pick",
+  moveOn: "Start group step",
 });
 
 /** MCK-155 PR C take-turns teacher copy (Wonder v2 where it exists). */
@@ -4733,7 +4733,7 @@ async function endLifecycleVoting(liveItemId) {
     { method: "POST", body: "{}" }
   );
   if (result?.group_submit) {
-    // MCK-155 PR C option B: Move on returns the staff group view.
+    // MCK-155 PR C option B: Start group step returns the staff group view.
     lifecycleResults.set(liveItemId, { ...result.group_submit, live_item_id: liveItemId });
     paintLiveQuestionCards();
     return;

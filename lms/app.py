@@ -6798,7 +6798,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         try:
             item = school.get_live_session_item(session_id, live_item_id)
             if str(item.get("response_mode") or "") == "group_submit":
-                # MCK-155 option B: Move on sends every group still
+                # MCK-155 option B: Start group step sends every group still
                 # picking to the agree step.
                 view = school.end_group_mc_pick_step(session_id, live_item_id)
                 return jsonify({"ok": True, "item": view.get("item"), "group_submit": view})
