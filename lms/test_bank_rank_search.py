@@ -60,6 +60,17 @@ class NormalizeBankRankTests(unittest.TestCase):
         self.assertEqual(len(live["rank_options"]), 3)
         self.assertNotIn("rank_key", live)
 
+    def test_choice_html_becomes_labels(self) -> None:
+        """A rank payload whose items only live in ingest choices still works."""
+        payload = {
+            "type": "rank",
+            "stem_html": "<p>Order</p>",
+            "choices": [{"id": "A", "html": "<p>Common</p>"}, {"id": "B", "html": "Difference"}, {"id": "C", "html": "Check"}],
+        }
+        live, reason = normalize_bank_rank(question_id=1, bank_id=1, title="", payload=payload)
+        assert live is not None, reason
+        self.assertEqual(live["options"], ["Common", "Difference", "Check"])
+
     def test_stale_key_dropped_and_short_lists_skipped(self) -> None:
         """A key that no longer lists every option once is dropped, not repaired."""
         rows = [{"id": "o1", "label": "a"}, {"id": "o2", "label": "b"}, {"id": "o3", "label": "c"}]

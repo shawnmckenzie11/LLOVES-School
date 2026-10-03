@@ -374,7 +374,18 @@ def normalize_bank_rank(
         return None, "empty_stem"
     raw_options = blob.get("rank_options")
     if not raw_options:
-        raw_options = blob.get("options") or blob.get("choices")
+        raw_options = blob.get("options")
+    if not raw_options and isinstance(blob.get("choices"), list):
+        # Ingest-style choices carry ``html``; plain them into labels.
+        raw_options = [
+            (
+                str(choice.get("label") or choice.get("text") or "")
+                or _plain_option_from_html(str(choice.get("html") or ""), index)
+            )
+            if isinstance(choice, dict)
+            else choice
+            for index, choice in enumerate(blob["choices"])
+        ]
     rank_options = safe_rank_options(raw_options)
     if len(rank_options) < MIN_RANK_OPTIONS:
         return None, "need_three_options"
