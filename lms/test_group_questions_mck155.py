@@ -124,6 +124,8 @@ class GroupQuestionTests(unittest.TestCase):
 
     def _send(self, item: dict[str, Any], student_index: int, choice: str) -> None:
         sid = self.ids[student_index]
+        # Option B: the teacher's Start group step ends the pick step (idempotent).
+        self.school.end_group_mc_pick_step(self.session_id, int(item["id"]))
         self.school.submit_group_mc_answer(
             self.session_id, int(item["id"]), sid, choice=choice, why="because"
         )

@@ -3,8 +3,8 @@
  * the open-ended "who are we waiting for" copy.
  *
  * Copy: Wonder v1 + v2 (/workspace/mobbin-sites/group-questions-copy-wonder-v2.md).
- * Group MC keeps today's flow (one person sends the answer and why); the
- * option B "pick, then agree" strings wait on a product decision.
+ * PR C: group MC runs option B ("pick alone, then agree"), and rank can
+ * "Take turns". The line follows the card's step and the rank Group mode.
  *
  * Pure: no DOM, so the node harness can import it.
  */
@@ -13,7 +13,11 @@
 export const GROUP_INSTRUCTION_COPY = Object.freeze({
   open: "Everyone writes their own answer first. Then your group sends one answer together.",
   rank: "Rank these together. Anyone can move them.",
+  rank_turns: "Take turns. Each person places one item, then passes.",
+  // Gate MED-2: an item published before option B keeps the one-step copy.
   mc: "Talk it over. One person sends your group's answer and why.",
+  mc_pick: "Pick your own answer first.",
+  mc_agree: "Now agree on one answer. Whoever sends it writes why.",
   waitingMany: "Waiting for {n} more teammates.",
   waitingOne: "Waiting for 1 more teammate.",
   stillWriting: "Still writing: {names}",
@@ -23,16 +27,20 @@ export const GROUP_INSTRUCTION_COPY = Object.freeze({
 
 /**
  * Which instruction a group card gets.
- * @param {{response_mode?: string}} item Live item.
+ * @param {{response_mode?: string, group_submit?: any}} item Live item.
  * @param {{type?: string, kind?: string}} [content] Item content.
- * @returns {"open"|"rank"|"mc"|""} Empty for individual items.
+ * @returns {"open"|"rank"|"rank_turns"|"mc"|"mc_pick"|"mc_agree"|""} Empty for
+ *   individual items.
  */
 export function groupInstructionKey(item, content = {}) {
   const mode = String(item?.response_mode || "");
   const type = String(content?.type || content?.kind || "").toLowerCase();
+  const group = item?.group_submit || {};
   if (mode === "group_consensus") return "open";
-  if (mode === "group_submit") return type === "rank" ? "rank" : "mc";
-  return "";
+  if (mode !== "group_submit") return "";
+  if (type === "rank") return String(group.rank_mode || "") === "turns" ? "rank_turns" : "rank";
+  if (Object.keys(group).length && String(group.flow || "") !== "pick_then_agree") return "mc";
+  return group.pick_step === false ? "mc_agree" : "mc_pick";
 }
 
 /**

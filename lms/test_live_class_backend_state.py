@@ -25,7 +25,7 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 from app import create_app  # noqa: E402
 from live_class_metadata import load_live_class_metadata
 from minds_on import is_minds_on_payload  # noqa: E402
-from school_db import json_safe  # noqa: E402
+from school_db import GroupAnswerLocked, json_safe  # noqa: E402
 from teams_spark import TEAMS_SPARK_PROMPT, TEAMS_SPARK_SLIDE_INDEX  # noqa: E402
 
 
@@ -1751,12 +1751,16 @@ class LiveBackendStateTests(unittest.TestCase):
             "vote_count",
             "eligible_count",
             "last_submitter",
+            # MCK-155 option B: staff-only own picks per member.
+            "pick_step",
+            "picks",
         }
         for team in bag["teams"]:
             self.assertTrue(set(team).issubset(allowed), team)
             self.assertEqual(team["status"], "waiting")
             self.assertNotIn("final_answer", team)
             self.assertNotIn("member_answers", team)
+        self.school.end_group_mc_pick_step(self.session_id, int(published["id"]))
         self.school.submit_group_mc_answer(
             self.session_id,
             int(published["id"]),
@@ -3381,6 +3385,17 @@ class LiveBackendStateTests(unittest.TestCase):
             self.school.submit_live_prompt_response(
                 int(prompt["id"]), self.student_ids[0], {"choice": "A"}
             )
+        # MCK-155 option B: everyone picks alone first. The shared draft
+        # is refused until then; the teacher's Start group step ends step 1.
+        with self.assertRaisesRegex(ValueError, "own pick first"):
+            self.school.save_group_mc_draft(
+                self.session_id,
+                int(published["id"]),
+                self.student_ids[0],
+                choice="A",
+                why="  ",
+            )
+        self.school.end_group_mc_pick_step(self.session_id, int(published["id"]))
         drafting = self.school.save_group_mc_draft(
             self.session_id,
             int(published["id"]),
@@ -3433,7 +3448,8 @@ class LiveBackendStateTests(unittest.TestCase):
         for row in open_view["status_board"]:
             # MCK-155 S3: a keyed group MC adds a staff-only right/wrong
             # mark once a team sends; the answer text still waits.
-            allowed = {"team_id", "team_name", "submitted"}
+            # MCK-155 option B adds each member's own pick (staff only).
+            allowed = {"team_id", "team_name", "submitted", "pick_step", "picks", "member_count"}
             if row["submitted"] and open_view.get("answer_key"):
                 allowed = allowed | {"correct"}
             self.assertEqual(set(row), allowed)
@@ -3459,15 +3475,15 @@ class LiveBackendStateTests(unittest.TestCase):
         assert late is not None
         self.assertEqual(late["choice"], "A")
         self.assertEqual(late["phase"], "submitted")
-        edited = self.school.save_group_mc_draft(
-            self.session_id,
-            int(published["id"]),
-            self.student_ids[0],
-            choice="A",
-            why="",
-        )
-        self.assertEqual(edited["phase"], "drafting")
-        self.assertFalse(edited["can_submit"])
+        # MCK-155 option B: sending locks the answer for the team.
+        with self.assertRaises(GroupAnswerLocked):
+            self.school.save_group_mc_draft(
+                self.session_id,
+                int(published["id"]),
+                self.student_ids[0],
+                choice="A",
+                why="",
+            )
         still_in = self.school.live_session_item_results(
             self.session_id, int(published["id"])
         )
@@ -3478,14 +3494,14 @@ class LiveBackendStateTests(unittest.TestCase):
         )
         self.assertTrue(aspen_team["submitted"])
         self.assertNotIn("answer", aspen_team)
-        revised = self.school.submit_group_mc_answer(
-            self.session_id,
-            int(published["id"]),
-            self.student_ids[0],
-            choice="A",
-            why="because the graph still rises",
-        )
-        self.assertEqual(revised["phase"], "submitted")
+        with self.assertRaises(GroupAnswerLocked):
+            self.school.submit_group_mc_answer(
+                self.session_id,
+                int(published["id"]),
+                self.student_ids[0],
+                choice="A",
+                why="because the graph still rises",
+            )
         revised_view = self.school.live_session_item_results(
             self.session_id, int(published["id"])
         )
@@ -3494,7 +3510,7 @@ class LiveBackendStateTests(unittest.TestCase):
             for row in revised_view["submitter_log"]
             if row["last_submitter"] == "Aspen"
         )
-        self.assertEqual(aspen_revised["resubmit_count"], 1)
+        self.assertEqual(aspen_revised["resubmit_count"], 0)
         self.assertFalse(aspen_revised["repeat_submitter"])
         q_two = next(
             row
@@ -3506,6 +3522,7 @@ class LiveBackendStateTests(unittest.TestCase):
             int(q_two["id"]),
             publish_mode="group_submit",
         )
+        self.school.end_group_mc_pick_step(self.session_id, int(second["id"]))
         self.school.submit_group_mc_answer(
             self.session_id,
             int(second["id"]),
@@ -3545,7 +3562,8 @@ class LiveBackendStateTests(unittest.TestCase):
         hits = [row for row in reveal if not row["missed"]]
         self.assertEqual(len(hits), 1)
         self.assertEqual(hits[0]["answer"], "A")
-        self.assertIn("still rises", hits[0]["why"])
+        # MCK-155 option B: the locked first send's why stands.
+        self.assertEqual(hits[0]["why"], "because the graph rises")
         self.assertTrue(misses)
         for row in misses:
             self.assertEqual(row["answer"], "")
@@ -3555,7 +3573,8 @@ class LiveBackendStateTests(unittest.TestCase):
             for row in closed_view["submitter_log"]
             if row["last_submitter"] == "Aspen"
         )
-        self.assertEqual(aspen["resubmit_count"], 1)
+        # MCK-155 option B: the answer locks on send, so no resubmits.
+        self.assertEqual(aspen["resubmit_count"], 0)
         self.assertTrue(aspen["repeat_submitter"])
         self.assertTrue(aspen["why_present"])
         missed_log = next(
@@ -3791,6 +3810,7 @@ class LiveBackendStateTests(unittest.TestCase):
         prompt = self.school._prompt_for_live_item(published)
         assert prompt is not None
         prompt_id = int(prompt["id"])
+        self.school.end_group_mc_pick_step(self.session_id, int(published["id"]))
         self.school.submit_group_mc_answer(
             self.session_id,
             int(published["id"]),

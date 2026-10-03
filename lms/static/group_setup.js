@@ -23,7 +23,14 @@ export const GROUP_SETUP_COPY = Object.freeze({
     consensus: "Everyone answers, then each group agrees on one.",
     shared_board: "Each group shares one board.",
     shared_view: "Each group shares one view.",
+    // MCK-155 PR C (Wonder v2).
+    mc: "Everyone picks, then each group agrees on one.",
+    rank_turns: "Each person places one item, then passes.",
   }),
+  // MCK-155 PR C: rank Group mode (Wonder v2).
+  groupModeLegend: "Group mode",
+  rankTogether: "Rank together",
+  rankTurns: "Take turns",
   groupQ: "Wait until teammates match",
   studentsSeeNothing: "Students see nothing until you publish.",
   noTeams: "Group work needs teams first.",
@@ -34,6 +41,8 @@ export const GROUP_SETUP_COPY = Object.freeze({
     shared_board: "● Group · shared board",
     shared_view: "● Group · shared view",
     individual: "● Individual",
+    mc: "● Group · pick, then agree",
+    rank_turns: "● Group · take turns",
   }),
   closedGroup: "Group · closed",
   closedIndividual: "Individual · closed",
@@ -219,9 +228,27 @@ function esc(value) {
  * @param {string} [surface]
  * @returns {"submit"|"consensus"|"shared_board"|"shared_view"}
  */
-function styleCopyKey(style, surface) {
+function styleCopyKey(style, surface, variant) {
   if (style === "shared") return String(surface || "") === "media" ? "shared_view" : "shared_board";
+  // MCK-155 PR C: group MC runs pick-then-agree; rank may take turns.
+  if (style === "submit" && (variant === "mc" || variant === "rank_turns")) return variant;
   return style;
+}
+
+/**
+ * MCK-155 PR C: which group-submit flavour an item runs.
+ * @param {any} item Question payload (``type``).
+ * @param {any} [card] Lifecycle row (``item.group_rank_mode``).
+ * @returns {"mc"|"rank_together"|"rank_turns"|""}
+ */
+export function groupSubmitVariant(item, card) {
+  const type = String(item?.type || card?.type || card?.item?.type || "").toLowerCase();
+  if (type === "mc") return "mc";
+  if (type === "rank") {
+    const mode = String(card?.item?.group_rank_mode || item?.group_rank_mode || "").toLowerCase();
+    return mode === "turns" ? "rank_turns" : "rank_together";
+  }
+  return "";
 }
 
 /**
@@ -260,7 +287,7 @@ export function groupSetupHtml(opts) {
   const group = opts.mode === "group";
   const liveSwitch = status === "active" && Boolean(opts.liveSwitch) && Boolean(opts.teamsReady);
   if (status === "active" && !liveSwitch) {
-    const text = group ? C.liveChip[styleCopyKey(style, opts.surface)] : C.liveChip.individual;
+    const text = group ? C.liveChip[styleCopyKey(style, opts.surface, opts.variant)] : C.liveChip.individual;
     return `<span class="live-group-setup-chip is-live" role="status" data-group-setup-chip="${esc(key)}">${esc(text)}</span>`;
   }
   if (status === "closed") {
@@ -315,9 +342,31 @@ export function groupSetupOptionsHtml(opts) {
     opts.groupQ == null
       ? ""
       : `<label class="live-group-setup-groupq"><input type="checkbox" data-group-setup-groupq="${esc(key)}"${opts.groupQ ? " checked" : ""}><span>${esc(C.groupQ)}</span></label>`;
-  return `<div class="live-group-setup-opts" aria-live="polite" data-group-setup-opts="${esc(key)}"><p class="live-group-setup-style">${esc(
-    C.styleLine[styleCopyKey(style, opts.surface)]
+  // MCK-155 PR C: Group mode for rank, set before Publish only.
+  const variant = String(opts.variant || "");
+  const rankMode =
+    status === "inactive" && (variant === "rank_together" || variant === "rank_turns")
+      ? rankModeHtml(key, variant === "rank_turns" ? "turns" : "together")
+      : "";
+  return `<div class="live-group-setup-opts" aria-live="polite" data-group-setup-opts="${esc(key)}">${rankMode}<p class="live-group-setup-style">${esc(
+    C.styleLine[styleCopyKey(style, opts.surface, variant)]
   )}</p>${status === "inactive" ? teamsLine : ""}${groupQ}</div>`;
+}
+
+/**
+ * ``Group mode: [ Rank together | Take turns ]`` (one radio group).
+ * @param {string} key
+ * @param {"together"|"turns"} mode
+ * @returns {string}
+ */
+export function rankModeHtml(key, mode) {
+  const C = GROUP_SETUP_COPY;
+  const name = `${esc(groupSetupRadioName(key))}-rank-mode`;
+  const choice = (value, label) => {
+    const on = value === mode;
+    return `<label class="live-group-setup-choice${on ? " is-on" : ""}"><input type="radio" name="${name}" value="${value}" data-group-rank-mode="${esc(key)}"${on ? " checked" : ""}><span>${esc(label)}</span></label>`;
+  };
+  return `<fieldset class="live-group-setup live-group-rank-mode" data-group-rank-mode-key="${esc(key)}"><legend>${esc(C.groupModeLegend)}</legend><span class="live-group-setup-seg">${choice("together", C.rankTogether)}${choice("turns", C.rankTurns)}</span></fieldset>`;
 }
 
 /**

@@ -21,7 +21,24 @@ function check(cond, msg) {
 // One key per group type; individual has none.
 check(groupInstructionKey({ response_mode: "group_consensus" }, { type: "open" }) === "open", "open");
 check(groupInstructionKey({ response_mode: "group_submit" }, { type: "rank" }) === "rank", "rank");
-check(groupInstructionKey({ response_mode: "group_submit" }, { type: "mc" }) === "mc", "mc");
+check(groupInstructionKey({ response_mode: "group_submit" }, { type: "mc" }) === "mc_pick", "mc step 1");
+check(
+  groupInstructionKey({ response_mode: "group_submit", group_submit: { flow: "pick_then_agree", pick_step: true } }, { type: "mc" }) === "mc_pick",
+  "mc step 1 (option B card)",
+);
+check(
+  groupInstructionKey({ response_mode: "group_submit", group_submit: { team_id: 1, pick_step: false } }, { type: "mc" }) === "mc",
+  "gate MED-2: an item published before option B keeps the one-step line",
+);
+check(
+  groupInstructionKey({ response_mode: "group_submit", group_submit: { flow: "pick_then_agree", pick_step: false } }, { type: "mc" }) === "mc_agree",
+  "mc step 2"
+);
+check(
+  groupInstructionKey({ response_mode: "group_submit", group_submit: { rank_mode: "turns" } }, { type: "rank" }) ===
+    "rank_turns",
+  "rank turns"
+);
 check(groupInstructionKey({ response_mode: "individual" }, { type: "mc" }) === "", "individual");
 
 // Wonder copy, exact.
@@ -31,10 +48,12 @@ check(
   "open copy"
 );
 check(GROUP_INSTRUCTION_COPY.rank === "Rank these together. Anyone can move them.", "rank copy");
+check(GROUP_INSTRUCTION_COPY.mc_pick === "Pick your own answer first.", "mc step 1 copy (Wonder v2)");
 check(
-  GROUP_INSTRUCTION_COPY.mc === "Talk it over. One person sends your group's answer and why.",
-  "mc copy (today's behaviour)"
+  GROUP_INSTRUCTION_COPY.mc_agree === "Now agree on one answer. Whoever sends it writes why.",
+  "mc step 2 copy (Wonder v2)"
 );
+check(GROUP_INSTRUCTION_COPY.rank_turns === "Take turns. Each person places one item, then passes.", "turns copy");
 
 // One line, only while active.
 const active = groupInstructionHtml({ response_mode: "group_submit", status: "active" }, { type: "rank" });
