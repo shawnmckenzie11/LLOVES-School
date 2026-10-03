@@ -2886,7 +2886,8 @@ body.rw-open { overflow: hidden; }
   align-items: center;
   gap: 8px;
   margin: 10px 0;
-  color: #12202e;
+  color: inherit; /* on the dark card */
+  font-weight: 600;
 }
 .race-phone-pips {
   display: inline-flex;

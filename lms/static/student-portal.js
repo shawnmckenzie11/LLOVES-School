@@ -42,6 +42,7 @@ import {
   phoneCueHtml,
   phoneStripHtml,
   readOnlyOrderHtml,
+  raceDisplayOptions,
 } from "/static/rank_challenge_phone.js";
 import {
   GROUP_INSTRUCTION_COPY,
@@ -2322,7 +2323,8 @@ function rankChallengeCardHtml(item) {
   const content = item?.content || item?.prompt?.payload || {};
   const group = item?.group_submit || {};
   const race = group.race || {};
-  const options = rankOptionsFromContent(content);
+  // MCK-176 hook: show the server's display order; drafts stay on ids.
+  const options = raceDisplayOptions(rankOptionsFromContent(content), race);
   const itemId = Number(item.id) || 0;
   const order = Array.isArray(group.order) ? group.order.map(String) : [];
   const locked = Boolean(race.locked);

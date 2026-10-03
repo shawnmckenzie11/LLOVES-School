@@ -165,6 +165,24 @@ export function agreeButtonHtml(group, complete) {
 }
 
 /**
+ * Options in the server display order (``race.options``, the MCK-176 hook),
+ * keeping the card's own option objects. Ids the server did not list keep
+ * their place at the end; an older payload without ``race.options`` keeps
+ * the card order.
+ * @param {{id: string, label: string}[]} options
+ * @param {any} race
+ * @returns {{id: string, label: string}[]}
+ */
+export function raceDisplayOptions(options, race) {
+  const list = Array.isArray(options) ? options : [];
+  const shown = Array.isArray(race?.options) ? race.options.map((row) => String(row?.id ?? "")) : [];
+  if (!shown.length) return list;
+  const byId = new Map(list.map((opt) => [String(opt.id), opt]));
+  const ordered = shown.map((id) => byId.get(id)).filter(Boolean);
+  return ordered.concat(list.filter((opt) => !shown.includes(String(opt.id))));
+}
+
+/**
  * Read-only order rows (locked, time's up, closed).
  * @param {{id: string, label: string}[]} options
  * @param {string[]} order

@@ -1,5 +1,5 @@
 // MCK-171 Team challenge phone states (node harness, no DOM).
-import {
+import { raceDisplayOptions,
   PHONE_COPY,
   agreeButtonHtml,
   agreeLineHtml,
@@ -67,8 +67,17 @@ const ro = readOnlyOrderHtml([{ id: "o1", label: "¼" }, { id: "o2", label: "<b>
 check(ro.indexOf("&lt;b&gt;") < ro.indexOf("¼") && !ro.includes("<b>"), "read-only order, escaped");
 check(!/\d+\s*pts|points|place/i.test(strip + line + ro), "no score or place before the reveal");
 
+// MCK-176 hook: the phone shows race.options order and keeps its own objects.
+{
+  const opts = [{ id: "o1", label: "¼" }, { id: "o2", label: "0.3" }, { id: "o3", label: "2/7" }];
+  const shown = raceDisplayOptions(opts, { options: [{ id: "o3", label: "2/7" }, { id: "o1", label: "¼" }] });
+  check(shown.map((o) => o.id).join() === "o3,o1,o2", "display order, unlisted ids last");
+  check(shown[0] === opts[2], "same option objects");
+  check(raceDisplayOptions(opts, {}) === opts, "no race.options keeps the card order");
+}
 if (failures) {
   console.error(`${failures} failure(s)`);
   process.exit(1);
 }
+
 console.log("ok");
