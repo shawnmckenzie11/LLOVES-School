@@ -314,8 +314,12 @@ export async function mountBankMcPicker(opts) {
             ? `<span class="bank-mc-picker-title">${escapeHtml(title)}</span>${stemLabel}`
             : stemLabel;
         const optionList = Array.isArray(item.options) ? item.options : [];
+        const rank = String(item.type || "") === "rank";
+        const rankKeyed = Array.isArray(item.rank_key) && item.rank_key.length > 0;
         const meta = escapeHtml(
-          warmup
+          rank
+            ? `Rank · ${optionList.length} items · ${rankKeyed ? "answer order set" : "no answer order"}`
+            : warmup
             ? `Warmup · ${
                 optionList.length ? optionList.join(" / ") : "Open response"
               }`

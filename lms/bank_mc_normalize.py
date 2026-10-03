@@ -311,3 +311,101 @@ def normalize_bank_mc(
         live, class_id=class_id, school=school, library_id=library_id
     )
     return live, None
+
+
+def is_bank_rank_payload(payload: Any) -> bool:
+    """True when a stored bank question is a rank (put-in-order) item.
+
+    Rank items live as ``essay_question`` rows whose payload ``type`` is
+    ``rank``. Staff polls share the item type but carry ``type: poll``.
+
+    Args:
+        payload: Parsed ``questions.payload_json``.
+    """
+    if not isinstance(payload, dict):
+        return False
+    return str(payload.get("type") or "").strip().lower() == "rank"
+
+
+def normalize_bank_rank(
+    *,
+    question_id: int,
+    bank_id: int,
+    title: str,
+    payload: Any,
+    bank_title: str = "",
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Return one live-class rank item, or ``(None, reason)`` when unusable.
+
+    The result imports straight into a class playlist: ``type`` is
+    ``rank``, ``rank_options`` hold stable ids, and ``rank_key`` survives
+    only when it still lists every option once.
+
+    Args:
+        question_id: ``questions.id``.
+        bank_id: ``question_banks.id``.
+        title: Question title.
+        payload: Parsed payload with ``type: rank``.
+        bank_title: Bank label copied onto the normalized row.
+
+    Returns:
+        ``(normalized, skip_reason)``.
+    """
+    try:
+        from live_rank import MIN_RANK_OPTIONS, safe_rank_key, safe_rank_options
+    except ImportError:
+        from lms.live_rank import MIN_RANK_OPTIONS, safe_rank_key, safe_rank_options
+
+    blob = payload if isinstance(payload, dict) else {}
+    if not is_bank_rank_payload(blob):
+        return None, "not_rank"
+    stem = ""
+    for key in ("text", "prompt", "stem_text", "stem_plain"):
+        stem = str(blob.get(key) or "").strip()
+        if stem:
+            break
+    if not stem:
+        stem = _plain_stem_from_html(
+            str(blob.get("stem_html") or blob.get("text_html") or "")
+        )
+    if not stem:
+        stem = str(title or "").strip()
+    if not stem:
+        return None, "empty_stem"
+    raw_options = blob.get("rank_options")
+    if not raw_options:
+        raw_options = blob.get("options") or blob.get("choices")
+    rank_options = safe_rank_options(raw_options)
+    if len(rank_options) < MIN_RANK_OPTIONS:
+        return None, "need_three_options"
+    labels = [row["label"] for row in rank_options]
+    points = blob.get("points", blob.get("points_possible"))
+    try:
+        points_value = float(points) if points not in (None, "") else 1.0
+    except (TypeError, ValueError):
+        points_value = 1.0
+    live: dict[str, Any] = {
+        "type": "rank",
+        "text": stem,
+        "prompt": stem,
+        "rank_options": rank_options,
+        "options": labels,
+        "choices": list(labels),
+        "points": points_value,
+        "response_mode": "individual",
+        "publish_modes": ["individual"],
+        "question_id": int(question_id),
+        "bank_id": int(bank_id),
+        "bank_title": str(bank_title or ""),
+        "question_title": str(title or stem)[:80],
+        "source_question_id": int(question_id),
+        "source_bank_id": int(bank_id),
+    }
+    key = safe_rank_key(blob.get("rank_key"), rank_options)
+    if key:
+        live["rank_key"] = key
+    for field in ("equation", "equation_latex", "image_url", "image_alt"):
+        value = str(blob.get(field) or "").strip()
+        if value:
+            live[field] = value
+    return live, None
