@@ -50,6 +50,13 @@ const ctx = {
   responseLabelBook: null,
   HIDE_LABELS_KEY: "k",
   localStorage: { setItem() {}, getItem() { return null; } },
+  HIDE_KEY_STORE: "lloves.live.hideKey",
+  window: {
+    localStorage: {
+      setItem() {},
+      getItem(k) { return input.keyHidden && k === "lloves.live.hideKey" ? "1" : null; },
+    },
+  },
   $: (id) => (id === "live-responses-list" ? host : null),
   escapeHtml: (s) => String(s),
   projectedClassListStudents: () => input.roster,
@@ -59,7 +66,8 @@ vm.createContext(ctx);
 vm.runInContext(input.src + "\npaintQuestionResponses(" + JSON.stringify(input.rows) + ");", ctx);
 const names = [...host.innerHTML.matchAll(/live-response-name">([^<]*)</g)].map((m) => m[1]);
 const answers = [...host.innerHTML.matchAll(/live-response-answer">([^<]*)</g)].map((m) => m[1]);
-console.log(JSON.stringify({ names, answers, hiddenClass: host.hidden,
+const marks = [...host.innerHTML.matchAll(/live-response-mark">\s*([^<]*?)\s*</g)].map((m) => m[1]);
+console.log(JSON.stringify({ names, answers, marks, hiddenClass: host.hidden,
   boxes: (host.innerHTML.match(/data-response-student=/g) || []).length }));
 """
 
@@ -75,7 +83,7 @@ ROSTER = [{"id": 1}, {"id": 2}]
 class HideNamesTests(unittest.TestCase):
     """The Responses list hides names only when the switch is on."""
 
-    def _paint(self, hidden: bool) -> dict:
+    def _paint(self, hidden: bool, key_hidden: bool = False) -> dict:
         js = STAFF_JS.read_text(encoding="utf-8")
         src = "\n".join(
             _function_source(js, name)
@@ -86,13 +94,14 @@ class HideNamesTests(unittest.TestCase):
                 "assignHiddenLabels",
                 "saveHiddenLabelBook",
                 "currentResponseTicks",
+                "hideKeyOn",
                 "paintQuestionResponses",
             )
         )
         done = subprocess.run(
             ["node", "-e", HARNESS],
             input=json.dumps(
-                {"src": src, "rows": ROWS, "roster": ROSTER, "hidden": hidden}
+                {"src": src, "rows": ROWS, "roster": ROSTER, "hidden": hidden, "keyHidden": key_hidden}
             ),
             capture_output=True,
             text=True,
@@ -117,6 +126,16 @@ class HideNamesTests(unittest.TestCase):
         self.assertEqual(out["answers"][2], "C")
         self.assertEqual(out["boxes"], 2)
         self.assertTrue(out["hiddenClass"])
+
+    def test_marks_follow_hide_key(self) -> None:
+        """MCK-155 gate MED-1: Hide key on, every row reads Answered."""
+        shown = self._paint(False)
+        self.assertEqual(shown["marks"], ["Correct", "Incorrect", "Guest"])
+        hidden = self._paint(False, key_hidden=True)
+        self.assertEqual(hidden["marks"], ["Answered", "Answered", "Guest"])
+        both = self._paint(True, key_hidden=True)
+        self.assertNotIn("Correct", both["marks"])
+        self.assertNotIn("Incorrect", both["marks"])
 
     def test_switch_is_in_the_dialog_and_remembered(self) -> None:
         """The dialog has the switch; the JS stores the choice."""
