@@ -6340,6 +6340,12 @@ body.staff-shell .rank-turn-dots {
   letter-spacing: 0.1rem;
   color: #0f766e;
 }
+/* MCK-155 gate LOW-1: "Skipped Eli and Gus." on the group's row. */
+body.staff-shell .rank-turn-skip-note {
+  flex-basis: 100%;
+  color: #475569;
+  font-size: 0.8rem;
+}
 body.staff-shell .live-group-rank-mode {
   margin-bottom: 0.35rem;
 }

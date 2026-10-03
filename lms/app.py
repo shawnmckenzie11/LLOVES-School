@@ -6807,6 +6807,14 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 # MCK-155 option B: Start group step sends every group still
                 # picking to the agree step.
                 view = school.end_group_mc_pick_step(session_id, live_item_id)
+                # Gate MED-3: same postcard as Skip, so live-channel tabs
+                # move to the agree step now, not on the safety poll.
+                emit_answer_landed(
+                    school,
+                    session_id,
+                    student_id=None,
+                    scope="group",
+                )
                 return jsonify({"ok": True, "item": view.get("item"), "group_submit": view})
             summary = school.end_group_consensus_voting(
                 session_id, live_item_id
@@ -6827,17 +6835,22 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         if error is not None:
             return error
         body = request.get_json(silent=True) or {}
+        # Gate LOW-3: a missing or non-numeric team is a 400, not a 500.
+        try:
+            team_id = int(body.get("team_id"))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "Choose a group to skip."}), 400
         try:
             result = school.rank_turn_skip(
-                session_id, live_item_id, team_id=int(body.get("team_id"))
+                session_id, live_item_id, team_id=team_id
             )
-        except (KeyError, TypeError, ValueError) as exc:
+        except (KeyError, ValueError) as exc:
             return _json_error(exc)
         emit_answer_landed(
             school,
             session_id,
             student_id=None,
-            team_id=int(body.get("team_id")),
+            team_id=team_id,
             scope="group",
         )
         return jsonify({"ok": True, **result})

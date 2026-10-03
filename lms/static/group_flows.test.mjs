@@ -97,7 +97,23 @@ check(placedHtml.includes("Placed in spot 1.") && placedHtml.includes("data-rank
 check((placedHtml.match(/data-rank-turn="/g) || []).length === 2, "placed option leaves the list");
 check(placedHtml.includes('aria-disabled="true"'), "options disabled after my pick");
 check(placedHtml.includes("Spot 1, A graph, placed by You"), "spot a11y label");
-check(rankTurnCue({ ...placed.turns, can_undo: false, placed_spot: 0 }) === "You've placed one. Waiting for Cy.", "blocked cue");
+check(
+  rankTurnCue({ ...placed.turns, can_undo: false, placed_spot: 0, placed_last: true }) === "You've placed one. Waiting for Cy.",
+  "blocked cue",
+);
+// Gate LOW-2: a skipped student who placed nothing just waits, and reads
+// "Your turn was skipped." instead of their own name.
+check(
+  rankTurnCue({ can_place: false, waiting_names: ["Ava"], placed_last: false, skipped_me: true }) === "Waiting for Ava.",
+  "skipped student never reads You've placed one",
+);
+const skippedMe = rankTurnsHtml(
+  { turns: { spots: [], total: 3, can_place: false, waiting_names: ["Ava"], skipped_me: true, skipped_names: ["Gus"], placed_last: false } },
+  { options, itemId: 9 },
+);
+check(skippedMe.includes("Your turn was skipped."), "skipped-you line");
+check(skippedMe.includes("Gus&#39;s turn was skipped."), "teammate skipped line");
+check(!skippedMe.includes("placed one"), "no placed-one cue for a skipped student");
 check(rankTurnCue({ done: true }) === "Your group's order is in.", "done cue");
 const skipped = rankTurnsHtml({ turns: { spots: [], total: 3, can_place: true, skipped_names: ["Cy"] } }, { options, itemId: 9 });
 check(skipped.includes("Cy&#39;s turn was skipped."), "skipped line");

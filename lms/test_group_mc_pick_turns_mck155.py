@@ -8,14 +8,18 @@ rank-turn) with one logged-in client per student.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 LMS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = LMS_DIR.parent
@@ -25,7 +29,9 @@ sys.path.insert(0, str(REPO_ROOT))
 os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
+import app as app_module  # noqa: E402
 from app import create_app  # noqa: E402
+from school_db import GroupAnswerLocked  # noqa: E402
 from live_rank import (  # noqa: E402
     TurnConflict,
     apply_turn_place,
@@ -36,6 +42,21 @@ from live_rank import (  # noqa: E402
 )
 
 NAMES = ["Ava", "Ben", "Cy", "Dee"]
+
+
+def _function_source(js: str, name: str) -> str:
+    """Return the source of a top-level ``function name(...) {...}``."""
+    start = js.index(f"\nfunction {name}(") + 1
+    open_at = js.index("{", js.index(")", start))
+    depth = 0
+    for index in range(open_at, len(js)):
+        if js[index] == "{":
+            depth += 1
+        elif js[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return js[start : index + 1]
+    raise AssertionError(f"unbalanced {name}")
 
 
 class TurnRuleTests(unittest.TestCase):
@@ -283,6 +304,236 @@ class PickThenAgreeAndTurnsTests(unittest.TestCase):
         self.assertEqual(team["picks"][0]["name"], "Ava")
         self.assertTrue(team["pick_step"])
 
+    # Gate fixes (189dd07) ---------------------------------------------------
+    def _picked_mc(self) -> dict[str, Any]:
+        """Keyed MC with Ava and Cy (team 1) past the pick step."""
+        item = self._mc()
+        self._post("Ava", item, "group-pick", {"choice": "2"})
+        self._post("Cy", item, "group-pick", {"choice": "1"})
+        self.assertFalse(self._card("Ava", item)["pick_step"])
+        return item
+
+    def _team_row(self, item: dict[str, Any], name: str) -> dict[str, Any]:
+        team_id = int(self._card(name, item)["team_id"])
+        return self.school._group_response_row(int(item["id"]), team_id) or {}
+
+    def _assert_one_winner(self, item: dict[str, Any], results: dict[str, Any], sent: dict[str, tuple[str, str]]) -> str:
+        """Exactly one send won; the lock holds the winner's own text."""
+        codes = sorted(results.values())
+        self.assertEqual(codes, [200, 409], results)
+        winner = next(n for n, code in results.items() if code == 200)
+        row = self._team_row(item, winner)
+        self.assertEqual(int(row["submit_count"]), 1)
+        self.assertEqual(int(row["last_submitter_student_id"]), self.ids[winner])
+        final = row["final_answer"]
+        self.assertEqual((final["value"], final["why"]), sent[winner])
+        return winner
+
+    def test_two_teammates_send_at_once_one_wins(self) -> None:
+        """Gate MED-1: both Send at the same instant -> one 200, one 409."""
+        winners = set()
+        for round_no in range(6):
+            item = self._picked_mc()
+            sent = {"Ava": ("2", f"ava why {round_no}"), "Cy": ("1", f"cy why {round_no}")}
+            barrier = threading.Barrier(2)
+            results: dict[str, int] = {}
+
+            def send(name: str) -> None:
+                choice, why = sent[name]
+                barrier.wait()
+                rv = self._post(name, item, "group-submit", {"choice": choice, "why": why})
+                results[name] = rv.status_code
+
+            threads = [threading.Thread(target=send, args=(n,)) for n in sent]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(30)
+            winners.add(self._assert_one_winner(item, results, sent))
+            # The loser's card shows the winner's locked answer.
+            loser = next(n for n in sent if n not in results or results[n] == 409)
+            card = self._card(loser, item)
+            self.assertTrue(card["locked"])
+            self.assertEqual(card["submitted_choice"], self._team_row(item, loser)["final_answer"]["value"])
+        self.assertTrue(winners)
+
+    def test_one_student_two_tabs_send_at_once(self) -> None:
+        """Gate MED-1: the same student in two tabs; different whys race."""
+        item = self._picked_mc()
+        live = self.school.get_live_session_item(self.session_id, int(item["id"]))
+        ava = self.ids["Ava"]
+        barrier = threading.Barrier(2)
+        out: dict[str, str] = {}
+
+        def tab(name: str, why: str) -> None:
+            barrier.wait()
+            try:
+                self.school.submit_group_mc_answer(self.session_id, int(live["id"]), ava, choice="2", why=why)
+                out[name] = "ok"
+            except GroupAnswerLocked:
+                out[name] = "locked"
+
+        threads = [threading.Thread(target=tab, args=(n, f"tab {n}")) for n in ("A", "B")]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(30)
+        self.assertEqual(sorted(out.values()), ["locked", "ok"], out)
+        won = next(n for n, v in out.items() if v == "ok")
+        self.assertEqual(self._team_row(item, "Ava")["final_answer"]["why"], f"tab {won}")
+        # The winning tab's repeat tap is still a safe no-op.
+        self.school.submit_group_mc_answer(self.session_id, int(live["id"]), ava, choice="2", why=f"tab {won}")
+        self.assertEqual(int(self._team_row(item, "Ava")["submit_count"]), 1)
+
+    def test_a_draft_never_lands_on_a_locked_answer(self) -> None:
+        """Gate MED-1: a late shared-draft save cannot rewrite the lock."""
+        item = self._picked_mc()
+        self.assertEqual(self._post("Ava", item, "group-submit", {"choice": "2", "why": "slope"}).status_code, 200)
+        rv = self._post("Cy", item, "group-draft", {"choice": "1", "why": "late"})
+        self.assertEqual(rv.status_code, 409)
+        row = self._team_row(item, "Cy")
+        self.assertEqual(row["why_text"], "slope")
+        self.assertEqual(row["final_answer"]["why"], "slope")
+
+    def test_two_processes_send_at_once_one_wins(self) -> None:
+        """Gate MED-1 across processes: two SchoolDB connections, one DB file."""
+        item = self._picked_mc()
+        live_id = int(item["id"])
+        root = Path(self.tmp.name)
+        go = root / "go"
+        script = r"""
+import json, sys, time
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from school_db import SchoolDB, GroupAnswerLocked
+root = Path(sys.argv[2])
+school = SchoolDB(root / "lloves.sqlite", root)
+args = json.loads(sys.argv[3])
+go = root / "go"
+deadline = time.time() + 60
+while not go.exists() and time.time() < deadline:
+    time.sleep(0.005)
+start = float(go.read_text())
+while time.time() < start:
+    pass
+try:
+    school.submit_group_mc_answer(args["session"], args["item"], args["student"], choice=args["choice"], why=args["why"])
+    print("RESULT ok")
+except GroupAnswerLocked:
+    print("RESULT locked")
+"""
+        sent = {"Ava": ("2", "ava xproc"), "Cy": ("1", "cy xproc")}
+        procs = {}
+        for name, (choice, why) in sent.items():
+            args = {"session": self.session_id, "item": live_id, "student": self.ids[name], "choice": choice, "why": why}
+            procs[name] = subprocess.Popen(
+                [sys.executable, "-c", script, str(LMS_DIR), str(root), json.dumps(args)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=str(LMS_DIR),
+            )
+        # Both children open the DB first; then they start on the same clock.
+        time.sleep(3.0)
+        go.write_text(str(time.time() + 1.0))
+        results: dict[str, int] = {}
+        for name, proc in procs.items():
+            stdout, stderr = proc.communicate(timeout=120)
+            line = next((ln for ln in stdout.splitlines() if ln.startswith("RESULT ")), "")
+            self.assertTrue(line, stderr[-2000:])
+            results[name] = 200 if line == "RESULT ok" else 409
+        self._assert_one_winner(item, results, sent)
+
+    def test_move_on_sends_a_live_update(self) -> None:
+        """Gate MED-3: Start group step emits the same postcard as Skip."""
+        item = self._mc()
+        self._post("Ava", item, "group-pick", {"choice": "2"})
+        with mock.patch.object(app_module, "emit_answer_landed") as emit:
+            rv = self.client.post(f"/api/live-sessions/{self.session_id}/items/{item['id']}/end-voting")
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        self.assertEqual(emit.call_count, 1)
+        self.assertEqual(emit.call_args.kwargs.get("scope"), "group")
+        self.assertEqual(int(emit.call_args.args[1]), self.session_id)
+
+    def test_item_published_before_option_b_keeps_one_step_flow(self) -> None:
+        """Gate MED-2: a deploy mid-question never strands open tabs."""
+        item = self._mc()
+        live = self.school.get_live_session_item(self.session_id, int(item["id"]))
+        self.assertEqual(live["item"].get("group_mc_flow"), "pick_then_agree")
+        # A deck refresh keeps the stamp.
+        self.school.ensure_live_session_items(self.session_id)
+        live = self.school.get_live_session_item(self.session_id, int(item["id"]))
+        self.assertEqual(live["item"].get("group_mc_flow"), "pick_then_agree")
+        # Now an item that was published by the old code (no stamp).
+        old = self._mc()
+        question = dict(self.school.get_live_session_item(self.session_id, int(old["id"]))["item"])
+        question.pop("group_mc_flow", None)
+        with self.school._lock:
+            self.school.conn.execute(
+                "UPDATE live_session_items SET item_json = ? WHERE id = ?",
+                (json.dumps(question), int(old["id"])),
+            )
+            self.school.conn.commit()
+        self.school.ensure_live_session_items(self.session_id)
+        card = self._card("Ava", old)
+        self.assertNotIn("flow", card)
+        self.assertNotIn("pick_step", card)
+        # The old tab's shared draft and send work with no pick step.
+        rv = self._post("Ava", old, "group-draft", {"choice": "2", "why": "old tab"})
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        rv = self._post("Cy", old, "group-submit", {"choice": "2", "why": "old tab"})
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        self.assertTrue(rv.get_json()["group_submit"]["submitted"])
+        view = self._view(old)
+        self.assertFalse(view.get("any_picking"))
+        self.assertFalse(any(r.get("picks") for r in view["status_board"]))
+        # The old one-step flow still lets the group re-send, as it did.
+        rv = self._post("Ava", old, "group-submit", {"choice": "1", "why": "changed our minds"})
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        self.assertEqual(self._team_row(old, "Ava")["final_answer"]["value"], "1")
+        # The new item next to it still runs option B.
+        self.assertTrue(self._card("Ava", item)["pick_step"])
+
+    def test_skip_without_a_team_is_a_400(self) -> None:
+        """Gate LOW-3."""
+        item = self._turns()
+        url = f"/api/live-sessions/{self.session_id}/items/{item['id']}/rank-turn/skip"
+        for body in ({}, {"team_id": None}, {"team_id": "x"}):
+            rv = self.client.post(url, json=body)
+            self.assertEqual(rv.status_code, 400, (body, rv.get_data(as_text=True)))
+            self.assertFalse(rv.get_json()["ok"])
+
+    def test_skipped_student_copy_and_done_conflict(self) -> None:
+        """Gate LOW-2: "Your turn was skipped.", no "placed one", done 409."""
+        item = self._turns()
+        o = self._opts(item)
+        self._post("Ava", item, "rank-turn", {"option_id": o[0]})
+        team_id = self._card("Ava", item)["team_id"]
+        rv = self.client.post(
+            f"/api/live-sessions/{self.session_id}/items/{item['id']}/rank-turn/skip",
+            json={"team_id": team_id},
+        )
+        self.assertEqual(rv.get_json()["skipped"], ["Cy"])
+        cy = self._card("Cy", item)["turns"]
+        self.assertTrue(cy["skipped_me"])
+        self.assertEqual(cy["skipped_names"], [])
+        self.assertFalse(cy["placed_last"])
+        ava = self._card("Ava", item)["turns"]
+        self.assertFalse(ava["skipped_me"])
+        self.assertEqual(ava["skipped_names"], ["Cy"])
+        self.assertTrue(ava["placed_last"])
+        # Fill the order (Ava, then Cy, then Ava), then a late place.
+        self.assertEqual(self._post("Ava", item, "rank-turn", {"option_id": o[1]}).status_code, 200)
+        self.assertEqual(self._post("Cy", item, "rank-turn", {"option_id": o[2]}).status_code, 200)
+        self.assertEqual(self._post("Ava", item, "rank-turn", {"option_id": o[3]}).status_code, 200)
+        self.assertTrue(self._card("Cy", item)["turns"]["done"])
+        rv = self._post("Cy", item, "rank-turn", {"option_id": o[0]})
+        self.assertEqual(rv.status_code, 409)
+        self.assertEqual(rv.get_json()["reason"], "done")
+        self.assertEqual(rv.get_json()["error"], "The order is already sent.")
+        # The last placer's own retry stays a safe no-op.
+        self.assertEqual(self._post("Ava", item, "rank-turn", {"option_id": o[3]}).status_code, 200)
+
     # Take turns ----------------------------------------------------------
     def _turns(self) -> dict[str, Any]:
         row = self._rank_row()
@@ -467,6 +718,45 @@ class GroupFlowsClientTests(unittest.TestCase):
         self.assertIn('label: "Each student\'s pick"', staff)
         self.assertNotIn('"Move on"', staff)
         self.assertNotIn('"Own picks"', staff)
+
+    def test_teacher_skip_names_everyone_and_confirms(self) -> None:
+        """Gate LOW-1: rows name who Skip passes; 2+ asks first; says who."""
+        staff = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        start = staff.index("const TURNS_COPY = Object.freeze(")
+        copy = staff[start : staff.index("});", start) + 3]
+        src = "\n".join(
+            [copy, "const turnSkipNotes = new Map();", _function_source(staff, "skipNameList"), _function_source(staff, "rankTurnsTeacherHtml")]
+        )
+        harness = r"""
+const vm = require("vm");
+const input = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const ctx = { escapeHtml: (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;"), out: {} };
+vm.createContext(ctx);
+vm.runInContext(input.src + `
+out.many = rankTurnsTeacherHtml({ turns: [{ team_id: 1, team_name: "Team 1", total: 5, placed: 2, next_names: ["Eli", "Gus"], can_skip: true }] }, 7);
+out.one = rankTurnsTeacherHtml({ turns: [{ team_id: 1, team_name: "Team 1", total: 5, placed: 2, next_names: ["Eli"], can_skip: true }] }, 7);
+turnSkipNotes.set("7:1", { placed: 2, text: TURNS_COPY.skipped.replace("{names}", skipNameList(["Eli", "Gus"])) });
+out.note = rankTurnsTeacherHtml({ turns: [{ team_id: 1, team_name: "Team 1", total: 5, placed: 2, next_names: ["Ava"], can_skip: true }] }, 7);
+out.after = rankTurnsTeacherHtml({ turns: [{ team_id: 1, team_name: "Team 1", total: 5, placed: 3, next_names: ["Ben"], can_skip: true }] }, 7);
+out.confirm = TURNS_COPY.skipConfirm.replace("{names}", skipNameList(["Eli", "Gus"]));
+`, ctx);
+console.log(JSON.stringify(ctx.out));
+"""
+        done = subprocess.run(
+            ["node", "-e", harness], input=json.dumps({"src": src}), capture_output=True, text=True, timeout=60, check=False
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        out = json.loads(done.stdout.strip().splitlines()[-1])
+        self.assertIn("2 of 5 placed · Waiting on Eli and Gus", out["many"])
+        self.assertIn('data-skip-count="2"', out["many"])
+        self.assertIn('aria-label="Skip Eli and Gus"', out["many"])
+        self.assertIn("2 of 5 placed · Eli&#39;s turn", out["one"].replace("'", "&#39;"))
+        self.assertIn('data-skip-count="1"', out["one"])
+        self.assertIn("Skipped Eli and Gus.", out["note"])
+        self.assertNotIn("Skipped", out["after"])
+        self.assertEqual(out["confirm"], "Skip Eli and Gus? Each of them loses this turn.")
+        self.assertIn("Number(turnSkip.dataset.skipCount) > 1", staff)
+        self.assertIn("window.confirm(TURNS_COPY.skipConfirm", staff)
 
 
 if __name__ == "__main__":

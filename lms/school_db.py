@@ -1442,6 +1442,11 @@ def parse_semester_label(semester: str) -> tuple[str, str]:
     return year_display, "Semester 1"
 
 
+# MCK-155 gate MED-2: group MC flow recorded on ``item_json`` at publish.
+GROUP_MC_FLOW_KEY = "group_mc_flow"
+GROUP_MC_PICK_THEN_AGREE = "pick_then_agree"
+
+
 class GroupAnswerLocked(ValueError):
     """MCK-155 option B: the team already sent its MC answer (409).
 
@@ -13170,6 +13175,9 @@ class SchoolDB(LovesDB):
             saved_json = {}
         if isinstance(saved_json, dict) and saved_json.get("group_rank_mode"):
             body["group_rank_mode"] = str(saved_json["group_rank_mode"])
+        # Gate MED-2: the group MC flow stamped at publish survives too.
+        if isinstance(saved_json, dict) and saved_json.get(GROUP_MC_FLOW_KEY):
+            body[GROUP_MC_FLOW_KEY] = str(saved_json[GROUP_MC_FLOW_KEY])
         return body
 
     @staticmethod
@@ -14190,18 +14198,35 @@ class SchoolDB(LovesDB):
                 if not teacher.get("run_as_group"):
                     raise ValueError(GROUP_PUBLISH_NEEDS_TEAMS_SHOWN)
         prompt = self._ensure_prompt_for_live_item(item)
+        stamp_sql = ""
+        stamp_params: tuple[Any, ...] = ()
+        if (
+            response_mode == "group_submit"
+            and self._question_answer_kind(item) == "mc"
+            and not (
+                item["status"] == "active"
+                and str(item.get("response_mode") or "") == "group_submit"
+            )
+        ):
+            # MCK-155 gate MED-2: record the group MC flow at publish, so a
+            # later deploy never switches an open question's flow.
+            question = dict(item.get("item") if isinstance(item.get("item"), dict) else {})
+            question[GROUP_MC_FLOW_KEY] = GROUP_MC_PICK_THEN_AGREE
+            stamp_sql = "item_json = ?, "
+            stamp_params = (json.dumps(question),)
         now = _now()
         with self._lock:
             self.conn.execute(
-                """
+                f"""
                 UPDATE live_session_items
-                SET prompt_id = COALESCE(?, prompt_id),
+                SET {stamp_sql}prompt_id = COALESCE(?, prompt_id),
                     status = 'active', publish_mode = ?,
                     response_mode = ?, published_at = COALESCE(published_at, ?),
                     closed_at = NULL, updated_at = ?
                 WHERE id = ?
                 """,
                 (
+                    *stamp_params,
                     int(prompt["id"]) if prompt is not None else None,
                     mode,
                     response_mode,
@@ -15290,10 +15315,19 @@ class SchoolDB(LovesDB):
         Args:
             item: Lifecycle row.
         """
-        return (
+        if not (
             str(item.get("response_mode") or "") == "group_submit"
             and self._question_answer_kind(item) == "mc"
-        )
+        ):
+            return False
+        # MCK-155 gate MED-2: Publish stamps the flow on the item. An item
+        # published before the stamp existed (a deploy during class) keeps
+        # the one-step flow its open tabs and teacher page were built for.
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        flow = str(question.get(GROUP_MC_FLOW_KEY) or "")
+        if flow:
+            return flow == GROUP_MC_PICK_THEN_AGREE
+        return str(item.get("status") or "") == "inactive"
 
     def _group_mc_pick_rows(
         self, item: dict[str, Any], team_id: int
@@ -15627,6 +15661,22 @@ class SchoolDB(LovesDB):
                 and str(item.get("status") or "") == "active"
             )
             block["placed_spot"] = len(placers) if mine_last else 0
+            # MCK-155 gate LOW-2: a skipped student reads "Your turn was
+            # skipped." (not their own name), and "You've placed one" only
+            # shows when their latest move was a placement.
+            recent = turn_recent_skips(state)
+            block["skipped_me"] = int(viewer_id) in recent
+            block["skipped_names"] = [
+                name
+                for name in (
+                    self._first_name(class_id, sid)
+                    for sid in recent
+                    if sid != int(viewer_id)
+                )
+                if name
+            ]
+            mine = [event for event in events if int(event[0]) == int(viewer_id)]
+            block["placed_last"] = bool(mine and mine[-1][1] == "place")
         return block
 
     def rank_turn_place(
@@ -15897,18 +15947,7 @@ class SchoolDB(LovesDB):
                     "Your group's answer is locked.",
                     self.student_group_submit_state(item, student_id),
                 )
-            if self._group_mc_pick_step_open(item, team_id, row):
-                # Not picked yet: send it. Already picked: teammates are
-                # still choosing (step 1 is open), so wait.
-                picked = any(
-                    int(vote["student_id"]) == int(student_id)
-                    for vote in self._group_mc_pick_rows(item, team_id)
-                )
-                raise ValueError(
-                    "Wait until everyone has picked."
-                    if picked
-                    else "Send your own pick first."
-                )
+            self._require_group_mc_pick_step_done(item, team_id, student_id, row)
         preview = dict(row)
         preview["proposed_answer"] = (
             {"kind": "choice", "value": choice_text} if choice_text else None
@@ -15921,17 +15960,175 @@ class SchoolDB(LovesDB):
             else None
         )
         now = _now()
+        # MCK-155 gate MED-1: a draft never lands on a locked answer, even
+        # when the send that locked it raced this save.
+        lock_guard = (
+            " AND COALESCE(submit_count, 0) = 0"
+            if self._group_mc_picks_flow(item)
+            else ""
+        )
         with self._lock:
-            self.conn.execute(
+            cursor = self.conn.execute(
                 """
                 UPDATE live_group_responses
                 SET status = ?, proposed_answer_json = ?, why_text = ?,
                     updated_at = ?
                 WHERE live_item_id = ? AND team_id = ?
-                """,
+                """
+                + lock_guard,
                 (status, proposed, why_text, now, int(item["id"]), team_id),
             )
             self.conn.commit()
+        if (
+            lock_guard
+            and cursor.rowcount != 1
+            and int((self._group_response_row(int(item["id"]), team_id) or {}).get("submit_count") or 0) > 0
+        ):
+            raise GroupAnswerLocked(
+                "Your group's answer is locked.",
+                self.student_group_submit_state(item, student_id),
+            )
+        return self.student_group_submit_state(item, student_id) or {}
+
+    def _require_group_mc_pick_step_done(
+        self,
+        item: dict[str, Any],
+        team_id: int,
+        student_id: int,
+        row: dict[str, Any] | None = None,
+    ) -> None:
+        """Raise while this team is still on step 1 (everyone picks alone).
+
+        Args:
+            item: Lifecycle row.
+            team_id: Team.
+            student_id: Roster id of the caller.
+            row: Team row, when the caller already has it.
+
+        Raises:
+            ValueError: "Send your own pick first." when the caller has not
+                picked, else "Wait until everyone has picked."
+        """
+        if not self._group_mc_pick_step_open(item, team_id, row):
+            return
+        picked = any(
+            int(vote["student_id"]) == int(student_id)
+            for vote in self._group_mc_pick_rows(item, team_id)
+        )
+        raise ValueError(
+            "Wait until everyone has picked."
+            if picked
+            else "Send your own pick first."
+        )
+
+    def _group_mc_send_lost(
+        self,
+        item: dict[str, Any],
+        team_id: int,
+        student_id: int,
+        choice_text: str,
+        why_text: str,
+    ) -> dict[str, Any]:
+        """Answer a send that found the team's answer already locked.
+
+        The sender's own repeat of exactly what they locked is a safe no-op
+        (200). Anything else, including a teammate who sent at the same
+        instant and lost the claim, is a 409 with the locked card.
+
+        Raises:
+            GroupAnswerLocked: The answer was locked by someone else or with
+                different text.
+        """
+        row = self._group_response_row(int(item["id"]), team_id) or {}
+        if int(row.get("submit_count") or 0) <= 0:
+            raise ValueError("Your group has no answer row yet. Reload and try again.")
+        final = row.get("final_answer") if isinstance(row.get("final_answer"), dict) else {}
+        card = self.student_group_submit_state(item, student_id) or {}
+        same = (
+            str(final.get("value") or "").strip() == choice_text
+            and str(final.get("why") or "").strip() == why_text
+            and row.get("last_submitter_student_id") not in (None, "")
+            and int(row["last_submitter_student_id"]) == int(student_id)
+        )
+        if same:
+            return card
+        raise GroupAnswerLocked("Your group's answer is locked.", card)
+
+    def _submit_group_mc_locked(
+        self,
+        item: dict[str, Any],
+        student_id: int,
+        *,
+        choice: Any,
+        why: Any,
+    ) -> dict[str, Any]:
+        """MCK-155 option B send: the first send locks the team's answer.
+
+        Gate MED-1: the claim is one conditional UPDATE (``submit_count``
+        still 0) that writes the sender's own choice and why. Nothing is
+        re-read from the shared draft, so a teammate's draft or send that
+        lands at the same instant can neither swap the locked text nor get
+        a 200: the loser of the claim gets 409.
+
+        Args:
+            item: Open group-submit lifecycle row (option B).
+            student_id: Roster id of the sender.
+            choice: Shared multiple-choice label.
+            why: Shared why line.
+
+        Returns:
+            The public group-submit card for this student.
+
+        Raises:
+            ValueError: No why, no or unknown choice, or step 1 still open.
+            GroupAnswerLocked: The answer is already locked by another send.
+        """
+        team_id = self._require_group_submit_member(item, student_id)
+        choice_text = str(choice or "").strip()[:500]
+        why_text = str(why or "").strip()[:500]
+        row = self._group_response_row(int(item["id"]), team_id) or {}
+        if int(row.get("submit_count") or 0) > 0:
+            return self._group_mc_send_lost(item, team_id, student_id, choice_text, why_text)
+        if not why_text:
+            raise ValueError("Add your why to send.")
+        labels = self._mc_option_labels(item)
+        if not choice_text:
+            raise ValueError("Add a shared answer and a why before submitting.")
+        if labels and choice_text not in labels:
+            raise ValueError("Choose one of the options.")
+        self._require_group_mc_pick_step_done(item, team_id, student_id, row)
+        ids = self._group_submitter_ids(row)
+        ids.append(int(student_id))
+        now = _now()
+        with self._lock:
+            cursor = self.conn.execute(
+                """
+                UPDATE live_group_responses
+                SET status = 'submitted',
+                    proposed_answer_json = ?,
+                    why_text = ?,
+                    final_answer_json = ?,
+                    submit_count = 1,
+                    last_submitter_student_id = ?,
+                    submitter_ids_json = ?,
+                    updated_at = ?
+                WHERE live_item_id = ? AND team_id = ?
+                  AND COALESCE(submit_count, 0) = 0
+                """,
+                (
+                    json.dumps({"kind": "choice", "value": choice_text}),
+                    why_text,
+                    json.dumps({"kind": "choice", "value": choice_text, "why": why_text}),
+                    int(student_id),
+                    json.dumps(ids),
+                    now,
+                    int(item["id"]),
+                    team_id,
+                ),
+            )
+            self.conn.commit()
+        if cursor.rowcount != 1:
+            return self._group_mc_send_lost(item, team_id, student_id, choice_text, why_text)
         return self.student_group_submit_state(item, student_id) or {}
 
     def submit_group_mc_answer(
@@ -15973,22 +16170,9 @@ class SchoolDB(LovesDB):
             # MCK-155 option B: sending locks the answer for the team. A
             # repeat tap of the same answer is a safe no-op; anything else
             # after the first send is a 409 with the locked card.
-            team_id = self._require_group_submit_member(item, student_id)
-            row = self._group_response_row(int(item["id"]), team_id) or {}
-            if int(row.get("submit_count") or 0) > 0:
-                final = row.get("final_answer") if isinstance(row.get("final_answer"), dict) else {}
-                card = self.student_group_submit_state(item, student_id) or {}
-                same = (
-                    str(final.get("value") or "").strip() == str(choice or "").strip()
-                    and str(final.get("why") or "").strip() == str(why or "").strip()
-                    and row.get("last_submitter_student_id") not in (None, "")
-                    and int(row["last_submitter_student_id"]) == int(student_id)
-                )
-                if same:
-                    return card
-                raise GroupAnswerLocked("Your group's answer is locked.", card)
-            if not str(why or "").strip():
-                raise ValueError("Add your why to send.")
+            return self._submit_group_mc_locked(
+                item, student_id, choice=choice, why=why
+            )
         self.save_group_mc_draft(
             session_id,
             live_item_id,
@@ -16014,14 +16198,8 @@ class SchoolDB(LovesDB):
         ids.append(int(student_id))
         final = {"kind": "choice", "value": choice_text, "why": why_text}
         now = _now()
-        # MCK-155 option B: the first send wins under the lock.
-        lock_guard = (
-            " AND COALESCE(submit_count, 0) = 0"
-            if self._group_mc_picks_flow(item)
-            else ""
-        )
         with self._lock:
-            cursor = self.conn.execute(
+            self.conn.execute(
                 """
                 UPDATE live_group_responses
                 SET status = 'submitted',
@@ -16031,8 +16209,7 @@ class SchoolDB(LovesDB):
                     submitter_ids_json = ?,
                     updated_at = ?
                 WHERE live_item_id = ? AND team_id = ?
-                """
-                + lock_guard,
+                """,
                 (
                     json.dumps(final),
                     int(student_id),
@@ -16043,11 +16220,6 @@ class SchoolDB(LovesDB):
                 ),
             )
             self.conn.commit()
-        if lock_guard and cursor.rowcount != 1:
-            raise GroupAnswerLocked(
-                "Your group's answer is locked.",
-                self.student_group_submit_state(item, student_id),
-            )
         return self.student_group_submit_state(item, student_id) or {}
 
     def _submit_group_rank_answer(

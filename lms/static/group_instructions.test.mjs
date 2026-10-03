@@ -23,7 +23,15 @@ check(groupInstructionKey({ response_mode: "group_consensus" }, { type: "open" }
 check(groupInstructionKey({ response_mode: "group_submit" }, { type: "rank" }) === "rank", "rank");
 check(groupInstructionKey({ response_mode: "group_submit" }, { type: "mc" }) === "mc_pick", "mc step 1");
 check(
-  groupInstructionKey({ response_mode: "group_submit", group_submit: { pick_step: false } }, { type: "mc" }) === "mc_agree",
+  groupInstructionKey({ response_mode: "group_submit", group_submit: { flow: "pick_then_agree", pick_step: true } }, { type: "mc" }) === "mc_pick",
+  "mc step 1 (option B card)",
+);
+check(
+  groupInstructionKey({ response_mode: "group_submit", group_submit: { team_id: 1, pick_step: false } }, { type: "mc" }) === "mc",
+  "gate MED-2: an item published before option B keeps the one-step line",
+);
+check(
+  groupInstructionKey({ response_mode: "group_submit", group_submit: { flow: "pick_then_agree", pick_step: false } }, { type: "mc" }) === "mc_agree",
   "mc step 2"
 );
 check(

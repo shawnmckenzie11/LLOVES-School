@@ -31,6 +31,8 @@ export const GROUP_FLOW_COPY = Object.freeze({
   undo: "Undo",
   done: "Your group's order is in.",
   skipped: "{name}'s turn was skipped.",
+  skippedYou: "Your turn was skipped.", // gate LOW-2
+  waitingFor: "Waiting for {names}.", // gate LOW-2, NEW for the Wonder pass
   spot: "Spot {n}",
   placedBy: "placed by {name}",
 });
@@ -204,7 +206,10 @@ export function rankTurnCue(turns) {
     return C.placed.replace("{n}", String(Number(turns.placed_spot)));
   }
   const names = nameList(turns.waiting_names);
-  return names ? C.blocked.replace("{names}", names) : "";
+  if (!names) return "";
+  // Gate LOW-2: "You've placed one" only after this student placed; a
+  // skipped student just waits.
+  return (turns.placed_last ? C.blocked : C.waitingFor).replace("{names}", names);
 }
 
 /**
@@ -253,8 +258,13 @@ export function rankTurnsHtml(group, opts) {
             }>${esc(opt.label)}</button>`
         )
         .join("")}</div>`;
-  const skipped = (Array.isArray(turns.skipped_names) ? turns.skipped_names : [])
-    .map((name) => `<p class="rank-turn-skipped">${esc(C.skipped.replace("{name}", String(name)))}</p>`)
+  const skipped = [
+    ...(turns.skipped_me ? [C.skippedYou] : []),
+    ...(Array.isArray(turns.skipped_names) ? turns.skipped_names : []).map((name) =>
+      C.skipped.replace("{name}", String(name))
+    ),
+  ]
+    .map((line) => `<p class="rank-turn-skipped">${esc(line)}</p>`)
     .join("");
   const undo = turns.can_undo
     ? ` <button type="button" class="link-button rank-turn-undo" data-rank-turn-undo>${esc(C.undo)}</button>`

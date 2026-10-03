@@ -1349,9 +1349,28 @@ const PICKS_COPY = Object.freeze({
 const TURNS_COPY = Object.freeze({
   progress: "{k} of {n} placed",
   holder: " · {name}'s turn",
+  // Gate LOW-1 (NEW, for the Wonder pass): name everyone Skip will pass.
+  waitingOn: " · Waiting on {names}",
   skip: "Skip",
+  skipLabel: "Skip {names}",
+  skipConfirm: "Skip {names}? Each of them loses this turn.",
+  skipped: "Skipped {names}.",
   sent: "Sent",
 });
+
+/** Gate LOW-1: last Skip per group, shown until the next placement. */
+const turnSkipNotes = new Map();
+
+/**
+ * Names joined for the teacher Skip copy ("Eli and Gus", "A, B and C").
+ * @param {unknown[]} names
+ * @returns {string}
+ */
+function skipNameList(names) {
+  const list = (Array.isArray(names) ? names : []).map((n) => String(n || "").trim()).filter(Boolean);
+  if (list.length < 2) return list.join("");
+  return `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`;
+}
 
 /**
  * One progress line per group for a take-turns rank, with Skip.
@@ -1370,15 +1389,29 @@ function rankTurnsTeacherHtml(result, liveItemId) {
         Math.max(0, total - placed)
       )}</span>`;
       const names = Array.isArray(row.next_names) ? row.next_names : [];
+      const who = skipNameList(names);
+      const holder =
+        names.length === 1
+          ? TURNS_COPY.holder.replace("{name}", String(names[0]))
+          : names.length > 1 && row.can_skip
+            ? TURNS_COPY.waitingOn.replace("{names}", who)
+            : "";
       const text = row.done
         ? TURNS_COPY.sent
-        : `${TURNS_COPY.progress.replace("{k}", String(placed)).replace("{n}", String(total))}${
-            names.length === 1 ? TURNS_COPY.holder.replace("{name}", String(names[0])) : ""
-          }`;
+        : `${TURNS_COPY.progress.replace("{k}", String(placed)).replace("{n}", String(total))}${holder}`;
       const skip = row.can_skip
-        ? `<button type="button" class="secondary live-q-btn" data-rank-turn-skip="${Number(liveItemId) || 0}" data-team-id="${Number(row.team_id) || 0}">${TURNS_COPY.skip}</button>`
+        ? `<button type="button" class="secondary live-q-btn" data-rank-turn-skip="${Number(liveItemId) || 0}" data-team-id="${Number(row.team_id) || 0}" data-skip-names="${escapeHtml(who)}" data-skip-count="${names.length}"${
+            who ? ` aria-label="${escapeHtml(TURNS_COPY.skipLabel.replace("{names}", who))}"` : ""
+          }>${TURNS_COPY.skip}</button>`
         : "";
-      return `<li data-turn-team="${Number(row.team_id) || 0}"><span>${escapeHtml(row.team_name || "Group")}</span>${dots}<span class="rank-turn-progress">${escapeHtml(text)}</span>${skip}</li>`;
+      const noteKey = `${Number(liveItemId) || 0}:${Number(row.team_id) || 0}`;
+      const note = turnSkipNotes.get(noteKey);
+      if (note && note.placed !== placed) turnSkipNotes.delete(noteKey);
+      const noteHtml =
+        note && note.placed === placed
+          ? `<span class="rank-turn-skip-note" role="status">${escapeHtml(note.text)}</span>`
+          : "";
+      return `<li data-turn-team="${Number(row.team_id) || 0}"><span>${escapeHtml(row.team_name || "Group")}</span>${dots}<span class="rank-turn-progress">${escapeHtml(text)}</span>${skip}${noteHtml}</li>`;
     })
     .join("")}</ul>`;
 }
@@ -4769,6 +4802,17 @@ async function skipRankTurn(liveItemId, teamId) {
     { method: "POST", body: JSON.stringify({ team_id: teamId }) }
   );
   if (result?.view) lifecycleResults.set(liveItemId, { ...result.view, live_item_id: liveItemId });
+  // Gate LOW-1: say who was skipped, on that group's row.
+  const who = skipNameList(result?.skipped);
+  if (who) {
+    const row = (Array.isArray(result?.view?.turns) ? result.view.turns : []).find(
+      (r) => Number(r.team_id) === Number(teamId)
+    );
+    turnSkipNotes.set(`${liveItemId}:${teamId}`, {
+      placed: Number(row?.placed) || 0,
+      text: TURNS_COPY.skipped.replace("{names}", who),
+    });
+  }
   paintLiveQuestionCards();
 }
 
@@ -10983,6 +11027,15 @@ $("live-question-list")?.addEventListener("click", async (event) => {
       return;
     }
     if (turnSkip instanceof HTMLButtonElement) {
+      // Gate LOW-1: one click passes everyone being waited on, so confirm
+      // by name when that is more than one student.
+      const who = String(turnSkip.dataset.skipNames || "");
+      if (
+        Number(turnSkip.dataset.skipCount) > 1 &&
+        !window.confirm(TURNS_COPY.skipConfirm.replace("{names}", who))
+      ) {
+        return;
+      }
       turnSkip.disabled = true;
       await skipRankTurn(Number(turnSkip.dataset.rankTurnSkip) || 0, Number(turnSkip.dataset.teamId) || 0);
       return;

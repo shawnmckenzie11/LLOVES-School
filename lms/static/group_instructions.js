@@ -14,6 +14,8 @@ export const GROUP_INSTRUCTION_COPY = Object.freeze({
   open: "Everyone writes their own answer first. Then your group sends one answer together.",
   rank: "Rank these together. Anyone can move them.",
   rank_turns: "Take turns. Each person places one item, then passes.",
+  // Gate MED-2: an item published before option B keeps the one-step copy.
+  mc: "Talk it over. One person sends your group's answer and why.",
   mc_pick: "Pick your own answer first.",
   mc_agree: "Now agree on one answer. Whoever sends it writes why.",
   waitingMany: "Waiting for {n} more teammates.",
@@ -27,7 +29,7 @@ export const GROUP_INSTRUCTION_COPY = Object.freeze({
  * Which instruction a group card gets.
  * @param {{response_mode?: string, group_submit?: any}} item Live item.
  * @param {{type?: string, kind?: string}} [content] Item content.
- * @returns {"open"|"rank"|"rank_turns"|"mc_pick"|"mc_agree"|""} Empty for
+ * @returns {"open"|"rank"|"rank_turns"|"mc"|"mc_pick"|"mc_agree"|""} Empty for
  *   individual items.
  */
 export function groupInstructionKey(item, content = {}) {
@@ -37,6 +39,7 @@ export function groupInstructionKey(item, content = {}) {
   if (mode === "group_consensus") return "open";
   if (mode !== "group_submit") return "";
   if (type === "rank") return String(group.rank_mode || "") === "turns" ? "rank_turns" : "rank";
+  if (Object.keys(group).length && String(group.flow || "") !== "pick_then_agree") return "mc";
   return group.pick_step === false ? "mc_agree" : "mc_pick";
 }
 

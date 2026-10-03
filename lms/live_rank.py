@@ -512,9 +512,12 @@ def apply_turn_place(
         placer = next((int(e[0]) for e in events if e[1] == "place" and e[2] == opt), None)
         if placer == int(student_id) and events and events[-1][1] == "place" and events[-1][2] == opt:
             return state, False
-        raise TurnConflict("turn_taken", "That one was just placed. Pick another.", by=placer)
+    # MCK-155 gate LOW-2: once the order is complete every other place is
+    # "already sent", never "{name} just placed that one".
     if state.get("complete"):
-        raise TurnConflict("done", "Your group's order is in.")
+        raise TurnConflict("done", "The order is already sent.")
+    if opt in order:
+        raise TurnConflict("turn_taken", "That one was just placed. Pick another.", by=placer)
     if not turn_can_place(state, student_id, active_ids):
         raise TurnConflict("not_your_turn", "Not your turn yet.")
     order.append(opt)
