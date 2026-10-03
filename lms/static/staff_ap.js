@@ -2822,8 +2822,25 @@ async function importLiveMcFromBank(item) {
 }
 
 /**
+ * MCK-161 INFO-2: plain prompt text (no server HTML) as card HTML. A blank
+ * line, like a Contest Question's stem / task break, keeps its paragraphs
+ * (``white-space: pre-line`` on ``.is-paragraphs``); one-paragraph text
+ * renders exactly as before.
+ * @param {unknown} raw
+ * @returns {string}
+ */
+function plainPromptHtml(raw) {
+  const text = String(raw ?? "").trim();
+  const html = formatQuestionHtml(text);
+  return /\n\s*\n/.test(text)
+    ? `<span class="live-question-html is-paragraphs">${html}</span>`
+    : html;
+}
+
+/**
  * MCK-79: import picked Contest Questions (any module) onto the current page.
- * Same placement path and refresh as a single bank import.
+ * Uses the deck's Add New path server-side (one all-or-nothing batch), then
+ * refreshes the deck like a single bank import.
  * @param {Array<{question_id: number, module: string}>} picks
  * @returns {Promise<number>} Imported count.
  */
@@ -4007,7 +4024,7 @@ function paintLiveQuestionCards() {
             ${relocateButton}
           </div>
           ${questionImageHtml(item.image_url || card.image_url, { variant: "thumb" })}
-          <div class="live-question-card-text"><span class="live-question-order">${index + 1}</span>${questionFieldHtml(item, "text") || formatQuestionHtml(item.title || item.text || item.prompt || card.text || "")}</div>
+          <div class="live-question-card-text"><span class="live-question-order">${index + 1}</span>${questionFieldHtml(item, "text") || plainPromptHtml(item.title || item.text || item.prompt || card.text || "")}</div>
           ${liveQuestionEquationHtml(item, card)}
           ${result?.rank || result?.tally?.kind === "rank" ? "" : optionHtml}
           ${resultHtml}
@@ -10079,7 +10096,12 @@ async function toggleEyesUp() {
       adoptTeacherState(res.teacher_state);
     }
   } catch (err) {
-    showError("#ap-overlay-error", err);
+    if (!want && String(err?.message || "") === "Session not found") {
+      // MCK-159: Release after Quit (row gone) is a 404; nobody is paused.
+      teacherState.eyes_up = false;
+    } else {
+      showError("#ap-overlay-error", err);
+    }
   } finally {
     eyesUpBusy = false;
     paintEyesUpToggle();

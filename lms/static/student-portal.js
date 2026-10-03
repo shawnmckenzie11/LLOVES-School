@@ -613,12 +613,19 @@ function questionImageHtmlStudent(imageUrl) {
   return `<img class="live-question-image is-full" src="${escapeText(url)}" alt="Question graph" loading="lazy">`;
 }
 
-/** Prefer server-rendered question HTML when available. */
+/**
+ * Prefer server-rendered question HTML when available. Plain text with a
+ * blank line (a Contest Question's stem / task break, MCK-161 INFO-2)
+ * keeps its paragraphs via ``.is-paragraphs`` (``white-space: pre-line``).
+ */
 function lifecyclePromptHtml(content) {
   const rendered = String(content?.text_html || "").trim();
   if (rendered) return `<span class="live-question-html">${rendered}</span>`;
-  const raw = content?.text || content?.prompt || content?.question || "Live question";
-  return `<span class="live-question-html">${formatQuestionHtml(raw)}</span>`;
+  const raw = String(
+    content?.text || content?.prompt || content?.question || "Live question"
+  ).trim();
+  const paragraphs = /\n\s*\n/.test(raw) ? " is-paragraphs" : "";
+  return `<span class="live-question-html${paragraphs}">${formatQuestionHtml(raw)}</span>`;
 }
 
 /**

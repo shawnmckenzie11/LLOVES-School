@@ -123,6 +123,7 @@ class StartFreshTests(unittest.TestCase):
                   "codenames": ["Elm"]},
         )
         self.assertEqual(created.status_code, 200, created.get_json())
+        self._other_client = client
         return int(created.get_json()["class"]["id"])
 
     def _board(self) -> dict[str, dict]:
@@ -386,7 +387,8 @@ class StartFreshTests(unittest.TestCase):
         # Per class: the course, then a small muted line with its period.
         self.assertIn(
             '<span class="award-period-class">MCF3M</span>'
-            '<span class="award-period-label">Sep 8 – Oct 1, 2026</span>',
+            # MCK-160 LOW-12: the frozen card's dates (read on Sep 15).
+            '<span class="award-period-label">Sep 8 – Sep 15, 2026</span>',
             page,
         )
         # One quiet header control (Mobbin IA v0), Wonder v1 copy.
@@ -567,15 +569,17 @@ class StartFreshTests(unittest.TestCase):
             rows = self.client.get("/api/staff/celebrations/periods").get_json()["classes"]
             return [(c["period_label"], c["period_end"], c["status_line"]) for c in rows]
 
+        # MCK-160 LOW-12: the line shows the card's dates (frozen: the
+        # Sep 30 read), while period_label keeps the defined period.
         self._at("2026-09-30T09:00:00")
         self.assertEqual(
             listed(),
-            [("Sep 8 – Oct 1, 2026", "2026-10-01", "Sep 8 – Oct 1, 2026")],
+            [("Sep 8 – Oct 1, 2026", "2026-10-01", "Sep 8 – Sep 30, 2026")],
         )
         self._at("2026-10-02T08:00:00")
         self.assertEqual(
             listed()[0][2],
-            "Sep 8 – Oct 1, 2026. Ended. Start fresh to count new classes.",
+            "Sep 8 – Sep 30, 2026. Ended. Start fresh to count new classes.",
         )
         self.assertEqual(self._fresh(scope="class", class_id=class_id).status_code, 200)
         self.assertEqual(
@@ -585,7 +589,8 @@ class StartFreshTests(unittest.TestCase):
               "Since Oct 2. The board shows Sep 8 – Sep 30, 2026 until there's a new winner.")],
         )
         self._log_day(class_id, "2026-10-02", [ids["Birch"]], {ids["Birch"]: 1})
-        self.assertEqual(listed()[0][2], "Since Oct 2")
+        # Frozen: the new card is a one-day period; the line matches it.
+        self.assertEqual(listed()[0][2], "Oct 2, 2026")
 
     # --- Ops gate @ ef4cd8e fixes -----------------------------------------
 
@@ -783,6 +788,121 @@ class StartFreshTests(unittest.TestCase):
                                    user_id=None, starts_at=datetime(2026, 10, 2, 9, 0))
         self.assertEqual([r["reused"] for r in out], [True, True])
         self.assertEqual(count(), 4)
+
+    # --- MCK-160 (Start fresh polish from the #223 gate) --------------------
+
+    def _staff_lines(self) -> dict[str, str]:
+        clear_public_celebration_memo()
+        rows = self.client.get("/api/staff/celebrations/periods").get_json()["classes"]
+        return {r["course"]: r["status_line"] for r in rows}
+
+    def test_mck160_low12_staff_line_matches_frozen_card(self) -> None:
+        """Freeze on: after a new winner the staff line shows the card's dates."""
+        rows = self._two_courses()
+        mcf, ids = rows["MCF3M"]
+        self._at("2026-10-02T08:00:00")
+        self.assertEqual(self._fresh(scope="class", class_id=mcf).status_code, 200)
+        self._log_day(mcf, "2026-10-02", [ids["Birch"]], {ids["Birch"]: 1})
+        card = self._board()["MCF3M"]
+        self.assertEqual(card["period_label"], "Oct 2, 2026")
+        self.assertEqual(self._staff_lines()["MCF3M"], "Oct 2, 2026")
+        self._at("2026-10-05T09:00:00")
+        self._log_day(mcf, "2026-10-05", [ids["Birch"]], {ids["Birch"]: 1})
+        card = self._board()["MCF3M"]
+        self.assertEqual(self._staff_lines()["MCF3M"], card["period_label"])
+        # The other course still shows its first-period card, matching too.
+        self.assertEqual(
+            self._staff_lines()["MCR3U"],
+            self._board()["MCR3U"]["period_label"] + ". Ended. Start fresh to count new classes.",
+        )
+
+    def test_mck160_low12_freeze_off_and_open_first_period(self) -> None:
+        """Freeze off matches ("Since Oct 2"); an open first period with a
+        future end shows the stored card's dates, not the planned end."""
+        self._at("2026-10-02T09:00:00")
+        self.school.set_school_setting(periods.SETTING_FIRST_AWARD_PERIOD_END, "2026-10-15")
+        rows = self._two_courses()
+        board = self._board()
+        self.assertEqual(board["MCF3M"]["period_label"], "Sep 8 – Oct 2, 2026")
+        lines = self._staff_lines()
+        for course in ("MCF3M", "MCR3U"):
+            self.assertEqual(lines[course], board[course]["period_label"])
+        os.environ[CELEBRATIONS_FROZEN_ENV] = "0"
+        mcf, ids = rows["MCF3M"]
+        self.assertEqual(self._fresh(scope="class", class_id=mcf).status_code, 200)
+        self._log_day(mcf, "2026-10-02", [ids["Birch"]], {ids["Birch"]: 1})
+        self.assertEqual(self._board()["MCF3M"]["period_label"], "Since Oct 2")
+        self.assertEqual(self._staff_lines()["MCF3M"], "Since Oct 2")
+
+    def test_mck160_low10_all_shared_teacher_gets_a_disabled_control(self) -> None:
+        """Every course shared: All and Start fresh… are disabled, with why."""
+        self._two_courses()
+        self._other_teacher_class("MCR3U")
+        page = self._other_client.get("/staff").get_data(as_text=True)
+        self.assertIn('<select id="award-fresh-scope" disabled>', page)
+        self.assertIn('<option value="all" disabled>All my classes</option>', page)
+        self.assertIn(
+            'id="award-fresh-go" disabled data-unavailable="1"'
+            ' aria-describedby="award-fresh-unavailable">Start fresh…</button>',
+            page,
+        )
+        self.assertIn(
+            "Start fresh isn&#39;t available: all your courses are shared with another teacher.",
+            page,
+        )
+        # A teacher with an unshared course keeps a live control.
+        mine = self.client.get("/staff").get_data(as_text=True)
+        self.assertIn('<select id="award-fresh-scope">', mine)
+        self.assertIn('<option value="all">All my classes</option>', mine)
+        self.assertNotIn("data-unavailable", mine)
+        self.assertNotIn('id="award-fresh-unavailable"', mine)
+
+    def test_mck160_low11_routes_answer_json_on_unexpected_errors(self) -> None:
+        """An unexpected exception gives a JSON 500 with the generic copy."""
+        import app as app_module
+
+        self._two_courses()
+        with patch.object(app_module, "start_fresh_award_tally", side_effect=RuntimeError("db")):
+            rv = self._fresh(scope="all")
+        self.assertEqual(rv.status_code, 500)
+        self.assertEqual(rv.get_json(), {"ok": False, "error": "Couldn't start fresh. Try again."})
+        with patch.object(app_module, "staff_award_periods", side_effect=RuntimeError("db")):
+            rv = self.client.get("/api/staff/celebrations/periods")
+        self.assertEqual(rv.status_code, 500)
+        self.assertFalse(rv.get_json()["ok"])
+        # A JSON body that is not an object is a 400, not a crash.
+        rv = self.client.post("/api/staff/celebrations/start-fresh", json=["all"])
+        self.assertEqual(rv.status_code, 400)
+        self.assertEqual(rv.get_json()["error"], "Pick all classes or one class.")
+
+    def test_mck160_shared_copy_reads_well_for_several_courses(self) -> None:
+        """One course: "is shared …"; several: "A and B are shared …"."""
+        from celebration import course_list, shared_refusal
+
+        self.assertEqual(course_list([]), "")
+        self.assertEqual(course_list(["MCR3U"]), "MCR3U")
+        self.assertEqual(course_list(["MCR3U", "SBI3U"]), "MCR3U and SBI3U")
+        self.assertEqual(course_list(["MCF3M", "MCR3U", "SBI3U"]), "MCF3M, MCR3U and SBI3U")
+        self.assertEqual(
+            shared_refusal(["MCR3U"]),
+            "Couldn't start fresh. MCR3U is shared with another teacher's class. Nothing changed.",
+        )
+        self.assertEqual(
+            shared_refusal(["MCF3M", "MCR3U"]),
+            "Couldn't start fresh. MCF3M and MCR3U are shared with other teachers' classes."
+            " Nothing changed.",
+        )
+
+    def test_mck160_error_banner_is_a_live_region(self) -> None:
+        """#error is announced (role=alert, aria-live) on the staff home."""
+        self._two_courses()
+        page = self.client.get("/staff").get_data(as_text=True)
+        self.assertIn('<div id="error" class="error" hidden role="alert" aria-live="assertive"></div>', page)
+        self.assertIn('src="/static/staff_celebration.js"', page)
+        js = self.client.get("/static/start_fresh_logic.js")
+        self.assertEqual(js.status_code, 200)
+        self.assertIn("export async function postStartFresh", js.get_data(as_text=True))
+        js.close()
 
 
 if __name__ == "__main__":

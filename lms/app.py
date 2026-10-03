@@ -88,6 +88,8 @@ from local_dev_seed import (  # noqa: E402
 )
 from school_db import STAFF_2FA_MODE_LABELS, DeckReplaceNotConfirmed, SchoolDB, json_safe  # noqa: E402
 from celebration import (  # noqa: E402
+    START_FRESH_FAILED,
+    STAFF_COPY as CELEBRATION_STAFF_COPY,
     AwardTallyBusy,
     AwardTallyShared,
     staff_award_periods,
@@ -2564,6 +2566,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             ),
             celebration_award=build_celebration_board(school)["cards"][0],
             celebration_periods=staff_award_periods(school, int(user["id"])),
+            celebration_staff_copy=CELEBRATION_STAFF_COPY,
         )
         resp = make_response(html)
         resp.set_cookie("lloves_seen", "1", max_age=86400 * 400, samesite="Lax")
@@ -2626,9 +2629,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """MCK-133: this teacher's classes and their current award period."""
         user = current_user()
         assert user is not None
-        return jsonify(
-            {"ok": True, "classes": staff_award_periods(school, int(user["id"]))}
-        )
+        try:
+            classes = staff_award_periods(school, int(user["id"]))
+        except Exception:  # noqa: BLE001 - MCK-160 LOW-11: always JSON
+            logger.exception("MCK-160 award periods failed (user %s)", user.get("id"))
+            return jsonify({"ok": False, "error": START_FRESH_FAILED}), 500
+        return jsonify({"ok": True, "classes": classes})
 
     @app.route("/api/staff/celebrations/start-fresh", methods=["POST"])
     @staff_required
@@ -2641,7 +2647,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """
         user = current_user()
         assert user is not None
-        payload = request.get_json(silent=True) or {}
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            payload = {}
         scope = str(payload.get("scope") or "").strip().lower()
         class_id = None
         if scope == "class":
@@ -2661,6 +2669,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": str(exc)}), 409
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
+        except Exception:  # noqa: BLE001 - MCK-160 LOW-11: always JSON
+            logger.exception("MCK-160 start fresh failed (user %s)", user.get("id"))
+            return jsonify({"ok": False, "error": START_FRESH_FAILED}), 500
         return jsonify({"ok": True, "scope": scope, **result})
 
     @app.route("/api/staff/defaults")
@@ -3857,19 +3868,26 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         try:
             from live_content_questions import (
                 ContentImportFailed,
+                StalePick,
                 clean_content_picks,
+                deck_target,
                 import_content_questions,
             )
         except ImportError:
             from lms.live_content_questions import (
                 ContentImportFailed,
+                StalePick,
                 clean_content_picks,
+                deck_target,
                 import_content_questions,
             )
         body = request.get_json(silent=True) or {}
         if not isinstance(body, dict):
             body = {}
         try:
+            # MCK-161 LOW-7: the keys Add New stores (``/M01/c4/`` -> M1, C4),
+            # so a failed batch's rollback finds every row it placed.
+            module_key, slot_key = deck_target(module, slot)
             picks = clean_content_picks(body.get("picks"), modules)
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
@@ -3878,8 +3896,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         except (TypeError, ValueError):
             page_number = 1
         stage = str(body.get("stage") or "round").strip().lower()
-        module_key = str(module or "").strip().upper()
-        slot_key = str(slot or "").strip().upper()
         try:
             placements = import_content_questions(
                 school,
@@ -3892,8 +3908,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 page_number=page_number,
                 stage=stage,
             )
-        except KeyError as exc:
-            return jsonify({"ok": False, "error": str(exc).strip("'\""), "imported": 0}), 404
+        except StalePick as exc:
+            # MCK-161 LOW-8: teacher copy plus the stale picks to untick.
+            return (
+                jsonify({"ok": False, "error": str(exc), "imported": 0, "stale": exc.stale}),
+                404,
+            )
         except ContentImportFailed as exc:
             return (
                 jsonify(
@@ -6412,9 +6432,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             and posted.get("eyes_up") in (False, 0, "false", "0", "off")
         )
         if session_row is None:
-            if release_only:
-                # MCK-26: Release after Quit (row wiped) is a harmless no-op.
-                return jsonify({"ok": True, "teacher_state": None, "ended": True})
+            # MCK-159: a missing id is a 404 for every body, Release
+            # included (Quit wipes the row; the staff toggle treats this
+            # 404 on a Release as "already released").
             return jsonify({"ok": False, "error": "Session not found"}), 404
         if not _can_view_live_session(session_row):
             return jsonify({"ok": False, "error": "Forbidden"}), 403

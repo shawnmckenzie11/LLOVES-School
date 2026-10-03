@@ -319,7 +319,7 @@ class EyesUpHttpTests(unittest.TestCase):
         self.assertEqual(again["state_seq"], seq + 1)
 
     def test_quit_while_paused_releases_students(self) -> None:
-        """Quit wipes the session; students leave, and a late Release is a 200."""
+        """Quit wipes the session; students leave, and a late Release is a 404."""
         self.assertEqual(self._patch({"eyes_up": True}).status_code, 200)
         before = self._student_state()
         quit_ = self.staff.post(
@@ -331,11 +331,23 @@ class EyesUpHttpTests(unittest.TestCase):
         ).get_json()
         self.assertFalse((after.get("teacher_state") or {}).get("eyes_up"), after)
         self.assertNotEqual(after.get("status"), "live")
+        # MCK-159: the row is gone, so every write (Release included) is a
+        # 404; the staff toggle reads that 404 as "already released".
         late = self._patch({"eyes_up": False})
-        self.assertEqual(late.status_code, 200, late.get_json())
-        self.assertTrue(late.get_json()["ended"])
-        # Non-release writes to a wiped session still 404.
+        self.assertEqual(late.status_code, 404, late.get_json())
         self.assertEqual(self._patch({"eyes_up": True}).status_code, 404)
+
+    def test_release_to_missing_session_is_404(self) -> None:
+        """MCK-159 (gate INFO): an id with no session row is a 404, Release too."""
+        missing = self.live_session_id + 9999
+        self.assertIsNone(self.school.get_live_session(missing))
+        for body in ({"eyes_up": False}, {"eyes_up": True}, {"stage": "hook"}):
+            res = self.staff.post(f"/api/live-sessions/{missing}/teacher-state", json=body)
+            self.assertEqual(res.status_code, 404, (body, res.get_json()))
+            self.assertFalse(res.get_json()["ok"])
+        self.assertEqual(
+            self.staff.get(f"/api/live-sessions/{missing}/teacher-state").status_code, 404
+        )
 
     def test_new_session_starts_released(self) -> None:
         self.assertEqual(self._patch({"eyes_up": True}).status_code, 200)
@@ -378,7 +390,7 @@ class EyesUpClientTests(unittest.TestCase):
         self.assertIn("// copy: Wonder", overlay)
         # Wonder copy pass: three overlay lines.
         self.assertIn('line: "Look at the board.", // copy: Wonder', overlay)
-        self.assertIn('saved: "Your work is saved.", // copy: Wonder', overlay)
+        self.assertIn('saved: "Your answers are still here.", // copy: Wonder', overlay)
 
     def test_teacher_toggle_markup_and_patch(self) -> None:
         html = (LMS_DIR / "templates" / "staff" / "course.html").read_text(encoding="utf-8")
@@ -387,6 +399,12 @@ class EyesUpClientTests(unittest.TestCase):
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertIn("JSON.stringify({ eyes_up: want })", js)
         self.assertIn("if (res?.ended) {", js)
+        # MCK-159: a 404 on a Release (row gone after Quit) clears the button
+        # instead of showing an error.
+        toggle = js[js.index("async function toggleEyesUp("):]
+        toggle = toggle[: toggle.index("\n}\n")]
+        self.assertIn('if (!want && String(err?.message || "") === "Session not found") {', toggle)
+        self.assertIn("teacherState.eyes_up = false;", toggle.split("catch (err)")[1])
         self.assertIn("paintEyesUpToggle();", js[js.index("function adoptTeacherState("):])
         # Labels are declared before teacherState so early adopts cannot hit the TDZ.
         self.assertLess(js.index("const EYES_UP_LABEL"), js.index("let teacherState = {"))
@@ -399,6 +417,16 @@ class EyesUpClientTests(unittest.TestCase):
             self.assertNotIn("to release.", text)
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
         self.assertIn('.live-header-eyes-up[aria-pressed="true"]', css)
+        # MCK-159 (MED-2): below 1180px the header wraps and the stage rail
+        # gets its own row, so it can't sit on Eyes up / End / Quit.
+        tablet = css.split("@media (max-width: 1179px) {")[1].split("\n}\n")[0]
+        header = tablet.split("body.staff-shell .live-header {")[1].split("}")[0]
+        self.assertIn("flex-wrap: wrap", header)
+        self.assertIn("max-height: none", header)
+        rail = tablet.split("body.staff-shell .live-stage-rail {")[1].split("}")[0]
+        self.assertIn("flex: 1 1 100%", rail)
+        self.assertIn("overflow-x: auto", rail)
+        self.assertIn("flex-shrink: 0", tablet.split("body.staff-shell .live-stage-rail > * {")[1].split("}")[0])
 
 
 if __name__ == "__main__":

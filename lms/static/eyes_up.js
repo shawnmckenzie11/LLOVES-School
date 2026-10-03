@@ -15,7 +15,7 @@
 export const EYES_UP_COPY = Object.freeze({
   title: "Eyes up", // copy: Wonder
   line: "Look at the board.", // copy: Wonder
-  saved: "Your work is saved.", // copy: Wonder
+  saved: "Your answers are still here.", // copy: Wonder
 });
 
 const OVERLAY_ID = "eyes-up-overlay";
@@ -78,6 +78,13 @@ let lastWinY = 0;
 /** @type {Document | null} */
 let watched = null;
 let lastUserInputAt = -Infinity;
+/** Last scroll the student made themselves (wheel, touch, keys, scrollbar). */
+let userScrollAt = -Infinity;
+let lastPointerAt = -Infinity;
+let releasedAt = Infinity;
+/** Our own restore writes scrollTop; ignore the scroll events it causes. */
+let restoringUntil = -Infinity;
+const SCROLL_KEYS = new Set(["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "]);
 const USER_SCROLL_WINDOW_MS = 1500;
 const USER_SCROLL_TO_TOP_MS = 250;
 
@@ -101,8 +108,13 @@ function watchScrolls(doc) {
       if (el && !(el.scrollTop || 0) && !(el.scrollLeft || 0)) lastScrolls.delete(key);
     }
   };
-  const noteInput = () => {
-    lastUserInputAt = Date.now();
+  const noteInput = (/** @type {any} */ event) => {
+    const now = Date.now();
+    lastUserInputAt = now;
+    const type = event && event.type;
+    if (type === "wheel" || type === "touchmove") userScrollAt = now;
+    else if (type === "keydown" && SCROLL_KEYS.has(event.key)) userScrollAt = now;
+    else if (type === "pointerdown") lastPointerAt = now;
     if (sweepTimer === null && typeof setTimeout === "function") sweepTimer = setTimeout(sweep, 200);
   };
   for (const type of ["wheel", "touchmove", "touchstart", "pointerdown", "keydown"]) {
@@ -112,6 +124,9 @@ function watchScrolls(doc) {
     "scroll",
     (event) => {
       if (active) return;
+      const now = Date.now();
+      // A scrollbar drag shows up as pointerdown + scroll.
+      if (now > restoringUntil && now - lastPointerAt <= USER_SCROLL_WINDOW_MS) userScrollAt = now;
       const el = /** @type {any} */ (event).target;
       if (!el || el === doc || el === doc.documentElement || el === doc.body) {
         const view = doc.defaultView;
@@ -214,6 +229,10 @@ function applySnapshot(state, doc, withFocus) {
       }
     }
   }
+  // MCK-159 (LOW-4): once the student scrolls after release, the later
+  // passes leave every scroller alone (even one they took back to 0).
+  if (!withFocus && userScrollAt >= releasedAt) return;
+  restoringUntil = Date.now() + 100;
   for (const row of state.scrolls) {
     const el = resolve(row.el, doc);
     // Later passes only undo a repaint reset; a student scroll wins.
@@ -338,6 +357,7 @@ export function setEyesUp(on, doc = document) {
     // on the new nodes after it, then once more for late layout (math).
     const state = saved;
     saved = null;
+    releasedAt = Date.now();
     restoreTimers = [
       setTimeout(() => applySnapshot(state, doc, true), 0),
       setTimeout(() => applySnapshot(state, doc, false), 300),

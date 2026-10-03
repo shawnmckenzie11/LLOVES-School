@@ -1,4 +1,5 @@
 import { api, hideError, showError } from "/static/common.js";
+import { FRESH_COPY, errorText, postStartFresh, successText } from "/static/start_fresh_logic.js";
 
 /**
  * Wire the staff-home Shoutout picker (featured Codename + optional blurb).
@@ -52,15 +53,6 @@ function bindCelebrateForm() {
 }
 
 /** MCK-133 Start fresh copy (Wonder v1). */
-const FRESH_COPY = {
-  title: "Start Celebrations fresh?",
-  body: "Awards start counting again from today. Attendance and participation records stay in each course.",
-  toastAll: "Celebrations started fresh for all your classes. Past records are kept.",
-  toastOne: "Celebrations started fresh for {class}. Past records are kept.",
-  error: "Couldn't start fresh. Try again.",
-  skipped: "{courses} skipped: shared with another teacher's class.",
-};
-
 /**
  * LOW-7: bring a message into view (at 390 px it can sit far above).
  * @param {Element | null} el
@@ -125,6 +117,19 @@ function bindStartFresh() {
   const scope = document.getElementById("award-fresh-scope");
   if (!button || !scope) return;
   showStartFreshToast();
+  // MCK-160 LOW-10: every course is shared, so the server rendered the
+  // control disabled with a reason; never wire it up.
+  if (button.dataset.unavailable) return;
+  /**
+   * Re-enable the trigger and give it focus back (MCK-160 LOW-9). Native
+   * focus restore skips it while it is still disabled at dialog close.
+   * @param {boolean} [keepScroll] don't scroll (an error was just revealed)
+   */
+  const release = (keepScroll = false) => {
+    busy = false;
+    button.disabled = false;
+    if (typeof button.focus === "function") button.focus({ preventScroll: keepScroll });
+  };
   let busy = false;
   button.addEventListener("click", async () => {
     // LOW-5: one request at a time; disabled before the confirm so a double
@@ -143,23 +148,23 @@ function bindStartFresh() {
       ok = false;
     }
     if (!ok) {
-      busy = false;
-      button.disabled = false;
+      release();
       return;
     }
     const payload = value === "all" ? { scope: "all" } : { scope: "class", class_id: Number(value) };
     hideError("#error");
     try {
-      const result = await api("/api/staff/celebrations/start-fresh", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      let toast = value === "all" ? FRESH_COPY.toastAll : FRESH_COPY.toastOne.replace("{class}", name);
+      const result = await postStartFresh(window.fetch.bind(window), payload);
       const skipped = (result && Array.isArray(result.skipped) ? result.skipped : [])
         .map((row) => String((row && row.course) || "").trim())
         .filter(Boolean);
-      if (skipped.length) toast = `${toast} ${FRESH_COPY.skipped.replace("{courses}", skipped.join(", "))}`;
+      const nameOf = new Map(
+        Array.from(scope.options).map((opt) => [String(opt.value), opt.dataset.className || ""]),
+      );
+      const started = (result && Array.isArray(result.periods) ? result.periods : [])
+        .map((row) => nameOf.get(String(row && row.class_id)) || "")
+        .filter(Boolean);
+      const toast = successText({ value, name, started, skipped });
       try {
         window.sessionStorage.setItem(FRESH_TOAST_KEY, toast);
       } catch {
@@ -167,14 +172,12 @@ function bindStartFresh() {
       }
       window.location.reload();
     } catch (err) {
-      busy = false;
-      button.disabled = false;
       // Server reasons (a class is running, a shared course) are shown as
-      // sent; anything else gets Wonder's generic error.
-      const fromServer = err instanceof Error && !(err instanceof TypeError) && !/^HTTP \d+$/.test(err.message);
-      const msg = fromServer && err.message ? err.message : FRESH_COPY.error;
-      showError("#error", msg);
+      // sent; HTML pages, proxy text and network errors get Wonder's
+      // generic error (MCK-160 LOW-11).
+      showError("#error", errorText(err));
       revealMessage(document.getElementById("error"));
+      release(true);
     }
   });
 }
