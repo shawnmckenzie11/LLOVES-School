@@ -206,7 +206,7 @@ class AwardTests(StepMixin, ChallengeHarness):
             self.school.conn.execute(
                 "UPDATE live_group_responses SET proposed_answer_json = ? "
                 "WHERE live_item_id = ? AND team_id = ?",
-                (json.dumps({"kind": "rank", "order": KEY_IDS, "complete": True}), int(item["id"]), team),
+                (json.dumps({"kind": "rank", "order": self._as_real(item, KEY_IDS), "complete": True}), int(item["id"]), team),
             )
             self.school.conn.commit()
         self.school._award_rank_race_points(self.session_id, closed)
@@ -321,12 +321,18 @@ class ResultsBlockTests(StepMixin, ChallengeHarness):
         self.assertTrue(res["on_podium"])
         body = json.dumps(self._card("Ava", item))
         self.assertNotIn("rank_key", body)
-        self.assertNotIn('"order": ["o3", "o1", "o4", "o2"]', body)  # Ben's order never leaks
+        # Ben's order never leaks, as aliases or as real ids.
+        for ids in (self._as_student(item, KEY_IDS), self._as_real(item, KEY_IDS)):
+            self.assertNotIn(json.dumps({"order": ids})[1:-1], body)
         # The public results carry no class stack / other team orders.
         rv = self.students["Ava"].get("/api/student/state")
         state = rv.get_data(as_text=True)
         self.assertNotIn("class_order", state)
         self.assertNotIn("rank_key", state)
+        # MCK-176: no real option id in the results payloads either.
+        for real in self._real_ids(item):
+            self.assertNotIn(f'"{real}"', body)
+            self.assertNotIn(f'"{real}"', state)
 
 
 class FromDraftTests(StepMixin, ChallengeHarness):
