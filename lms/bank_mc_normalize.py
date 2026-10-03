@@ -419,13 +419,16 @@ def normalize_bank_rank(
         value = str(blob.get(field) or "").strip()
         if value:
             live[field] = value
+    # Both are on the teacher-only lists (TEACHER_ONLY_FIELDS), so students
+    # never see them.
     teacher_key = _teacher_key_text(blob.get("teacher_key"))
     if teacher_key:
-        # Already teacher-only (TEACHER_ONLY_FIELDS), so students never see it.
         live["teacher_key"] = teacher_key
-    # Deliberately not copied: ``teacher_note`` (not on the teacher-only
-    # lists, so it would reach students) and ``live_class`` (placement is
-    # chosen by the import URL, not the bank row).
+    teacher_note = _teacher_key_text(blob.get("teacher_note"))
+    if teacher_note:
+        live["teacher_note"] = teacher_note
+    # Deliberately not copied: ``live_class`` / ``live_class_slot`` (the
+    # import URL picks the class, not the bank row).
     return live, None
 
 

@@ -365,10 +365,13 @@ export async function mountBankMcPicker(opts) {
               ? "Open prompt"
               : `Answer ${String(item.correct_answer || "?")} · ${Number(item.points || 1)} pt`
         );
+        // MCK-169: rank rows are read-only (no Edit control); Import still works.
         const action =
           mode === "import"
             ? `<button type="button" data-bank-mc-select="${qid}">Import</button>`
-            : `<button type="button" data-bank-mc-select="${qid}">Edit</button>`;
+            : rank
+              ? `<span class="hint compact">Read-only</span>`
+              : `<button type="button" data-bank-mc-select="${qid}">Edit</button>`;
         const thumb = questionImageHtml(item.image_url, { variant: "thumb" });
         return `<li class="bank-mc-picker-row" data-bank-mc-title="${escapeHtml(title)}">
           <div class="bank-mc-picker-row-main">
