@@ -80,7 +80,7 @@ try:
         cursor_color_for,
         public_canvas_sync,
     )
-    from live_mc import build_live_tally, build_mc_tally
+    from live_mc import build_live_tally, build_mc_tally, numeric_prompt_without_key
     from live_rank import (
         borda_class_order,
         build_rank_options,
@@ -215,7 +215,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         cursor_color_for,
         public_canvas_sync,
     )
-    from lms.live_mc import build_live_tally, build_mc_tally
+    from lms.live_mc import build_live_tally, build_mc_tally, numeric_prompt_without_key
     from lms.live_rank import (
         borda_class_order,
         build_rank_options,
@@ -5599,6 +5599,42 @@ class LovesDB:
 # MCK-154 S2: stride between candidate prompt slots for one lifecycle row
 # when ``20000 + id`` still holds a removed row's prompt.
 LIVE_ITEM_PROMPT_SLIDE_STRIDE = 1_000_000
+
+
+def short_display_names(names: list[str], context: list[str] | None = None) -> list[str]:
+    """Short, unambiguous names for a waiting line (MCK-155 gate LOW-3).
+
+    A name shortens to its first word only when that word has a letter or
+    digit and no other name in ``context`` (the whole team) shares it.
+    Otherwise the full name is kept, so "Cy Twin" / "Cy Other" stay apart
+    and "🦊 Fox" stays "🦊 Fox". Exact duplicates are listed once.
+
+    Args:
+        names: Full names to show, in order.
+        context: Every name the first word must be unique among.
+    """
+
+    pool = [str(n or "").strip() for n in (context if context is not None else names)]
+    pool = [n for n in pool if n]
+    firsts: dict[str, int] = {}
+    for name in pool:
+        first = name.split()[0].casefold()
+        firsts[first] = firsts.get(first, 0) + 1
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in names:
+        name = " ".join(str(raw or "").split())
+        if not name:
+            continue
+        first = name.split()[0]
+        readable = any(ch.isalnum() for ch in first)
+        short = first if readable and firsts.get(first.casefold(), 0) <= 1 else name
+        if short.casefold() in seen:
+            continue
+        seen.add(short.casefold())
+        out.append(short)
+    return out
+
 
 class SchoolDB(LovesDB):
     """LLOVES facade: school tables plus a GameShowDB on the same sqlite file."""
@@ -14698,6 +14734,55 @@ class SchoolDB(LovesDB):
                 labels.append(text)
         return labels
 
+    def _mc_key_letter(self, item: dict[str, Any]) -> str:
+        """Return the singular MC answer-key letter (``A``-``H``) or empty.
+
+        Polls, rank, open-ended, and multi-key items return empty so no
+        right/wrong mark is ever drawn for them.
+
+        Args:
+            item: Lifecycle row with a nested catalogue ``item``.
+        """
+        if self._question_answer_kind(item) != "mc":
+            return ""
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        raw = self._singular_question_key(question)
+        if not raw:
+            ids = question.get("correct_ids")
+            if isinstance(ids, list) and len(ids) == 1:
+                raw = str(ids[0] or "").strip()
+        letter = str(raw or "").strip().upper()
+        labels = self._mc_option_labels(item)
+        if len(letter) == 1 and "A" <= letter <= "H":
+            return letter if ord(letter) - ord("A") < max(1, len(labels)) else ""
+        if raw and raw in labels:
+            return chr(ord("A") + labels.index(raw))
+        return ""
+
+    def _group_mc_answer_correct(
+        self, item: dict[str, Any], value: Any
+    ) -> bool | None:
+        """MCK-155 S3: is a group's sent MC answer the key? ``None`` when unkeyed.
+
+        Group MC stores the chosen option label; the key is a letter.
+
+        Args:
+            item: Lifecycle row.
+            value: Sent option label (or a bare letter).
+        """
+        key = self._mc_key_letter(item)
+        if not key:
+            return None
+        text = str(value or "").strip()
+        if not text:
+            return None
+        labels = self._mc_option_labels(item)
+        if text in labels:
+            return chr(ord("A") + labels.index(text)) == key
+        if len(text) == 1:
+            return text.upper() == key
+        return False
+
     @staticmethod
     def _group_submitter_ids(row: dict[str, Any]) -> list[int]:
         """Return submitter roster ids stored on one group-submit row.
@@ -15458,6 +15543,12 @@ class SchoolDB(LovesDB):
                     "why": "" if missed else why,
                     "order": [] if missed else order,
                     "missed": missed,
+                    # MCK-155 S3: True/False on keyed MC, None otherwise.
+                    "correct": (
+                        None
+                        if missed or rank_item
+                        else self._group_mc_answer_correct(item, answer)
+                    ),
                 }
             )
         return rows
@@ -15478,6 +15569,7 @@ class SchoolDB(LovesDB):
         session_row = self.get_live_session(session_id)
         class_id = int(session_row["class_id"]) if session_row else 0
         revealed = str(item.get("status") or "") == "closed"
+        keyed = bool(self._mc_key_letter(item))
         status_board: list[dict[str, Any]] = []
         submitter_log: list[dict[str, Any]] = []
         for team_id, team_name, state in self._iter_group_submit_teams(session_id, item):
@@ -15492,13 +15584,18 @@ class SchoolDB(LovesDB):
                 and class_id
                 and self._repeat_group_submitter(class_id, int(last_id))
             )
-            status_board.append(
-                {
-                    "team_id": team_id,
-                    "team_name": team_name,
-                    "submitted": count > 0,
-                }
-            )
+            board_row: dict[str, Any] = {
+                "team_id": team_id,
+                "team_name": team_name,
+                "submitted": count > 0,
+            }
+            if keyed and count > 0:
+                # MCK-155 S3: staff-only live right/wrong mark. The answer
+                # text itself still waits for reveal.
+                board_row["correct"] = self._group_mc_answer_correct(
+                    item, str(final.get("value") or "").strip()
+                )
+            status_board.append(board_row)
             submitter_log.append(
                 {
                     "team_id": team_id,
@@ -15518,6 +15615,11 @@ class SchoolDB(LovesDB):
             "response_count": sum(1 for row in status_board if row["submitted"]),
             "eligible_count": len(status_board),
         }
+        if keyed:
+            view["answer_key"] = self._mc_key_letter(item)
+            view["correct_count"] = sum(
+                1 for row in status_board if row.get("correct") is True
+            )
         if revealed:
             view["reveal"] = self.group_submit_reveal_rows(session_id, int(item["id"]))
         if self._question_answer_kind(item) == "rank":
@@ -15916,6 +16018,61 @@ class SchoolDB(LovesDB):
             raise ValueError("Team answer is already finalized or voting is open.")
         return self._public_student_group_state(item, team_id, int(student_id))
 
+    def _group_waiting_ids(
+        self,
+        item: dict[str, Any],
+        team_id: int,
+        votes: list[dict[str, Any]],
+    ) -> list[int]:
+        """Present team members who have not answered yet, in roster order.
+
+        Args:
+            item: Lifecycle row (``live_session_id``, ``id``).
+            team_id: Team being asked.
+            votes: That team's vote rows.
+        """
+        voted = {int(row["student_id"]) for row in votes}
+        active = self._active_team_member_ids(
+            int(item["live_session_id"]), int(team_id)
+        )
+        return [sid for sid in active if sid not in voted]
+
+    def _group_waiting_first_names(
+        self,
+        item: dict[str, Any],
+        team_id: int,
+        votes: list[dict[str, Any]],
+        *,
+        exclude_student_id: int | None = None,
+    ) -> list[str]:
+        """First names for :meth:`_group_waiting_ids` (codename, first word).
+
+        Args:
+            item: Lifecycle row.
+            team_id: Team being asked.
+            votes: That team's vote rows.
+            exclude_student_id: The viewer, left off their own list.
+        """
+        session_id = int(item["live_session_id"])
+        session_row = self.get_live_session(session_id)
+        class_id = int(session_row["class_id"]) if session_row else 0
+        waiting = [
+            sid
+            for sid in self._group_waiting_ids(item, team_id, votes)
+            if exclude_student_id is None or sid != int(exclude_student_id)
+        ]
+        # MCK-155 gate LOW-3: a first name is used only when it is unique on
+        # the team and readable; otherwise the full codename is shown.
+        team_ids = set(self._active_team_member_ids(session_id, team_id)) | set(waiting)
+        for vote in votes:
+            if vote.get("student_id") not in (None, ""):
+                team_ids.add(int(vote["student_id"]))
+        full = {
+            sid: (self._roster_codename(class_id, sid) if class_id else "").strip()
+            for sid in team_ids
+        }
+        return short_display_names([full.get(sid, "") for sid in waiting], list(full.values()))
+
     def _public_student_group_state(
         self,
         item: dict[str, Any],
@@ -15967,6 +16124,15 @@ class SchoolDB(LovesDB):
             and state["status"]
             in {"discussion", "awaiting_team_answer"},
         }
+        if state["status"] == "collecting_votes":
+            # MCK-155 S5: "Still writing: Ben, Cy" until everyone answered.
+            # First names only; this student is never in their own list.
+            public["waiting_names"] = self._group_waiting_first_names(
+                item, int(team_id), votes, exclude_student_id=int(student_id)
+            )
+            public["waiting_count"] = len(
+                self._group_waiting_ids(item, int(team_id), votes)
+            )
         if state["status"] != "collecting_votes":
             public["vote_summary"] = state.get("vote_summary") or []
             public["proposed_answer"] = state.get("proposed_answer")
@@ -16061,9 +16227,12 @@ class SchoolDB(LovesDB):
                     )
                 except Exception:  # noqa: BLE001 - summary remains useful
                     finalizer_name = None
-            eligible_count = len(
-                self._active_team_member_ids(session_id, team_id)
-            ) or len(votes)
+            # MCK-155 gate LOW-2: present members plus voters who dropped off.
+            eligible_ids = set(self._active_team_member_ids(session_id, team_id))
+            for vote in votes:
+                if vote.get("student_id") not in (None, ""):
+                    eligible_ids.add(int(vote["student_id"]))
+            eligible_count = len(eligible_ids) or len(votes)
             summaries.append(
                 {
                     "team_id": team_id,
@@ -16210,9 +16379,23 @@ class SchoolDB(LovesDB):
                 teams = self._light_group_submit_teams(
                     item_id, class_id, order, member_counts
                 )
+                if self._mc_key_letter(item):
+                    # MCK-155 S3: keep the staff-only mark on light polls.
+                    for team in teams:
+                        if team.get("status") != "submitted":
+                            continue
+                        row = self._group_response_row(item_id, int(team["team_id"])) or {}
+                        final = (
+                            row.get("final_answer")
+                            if isinstance(row.get("final_answer"), dict)
+                            else {}
+                        )
+                        team["correct"] = self._group_mc_answer_correct(
+                            item, str(final.get("value") or "").strip()
+                        )
             else:
                 teams = self._light_group_consensus_teams(
-                    item_id, class_id, order, member_counts
+                    item_id, class_id, order, member_counts, present_ids=present
                 )
             out[str(item_id)] = {
                 "response_mode": mode,
@@ -16229,7 +16412,7 @@ class SchoolDB(LovesDB):
             teams: Thin team dicts from one active group item.
 
         Returns:
-            ``vote_total:statuses:latest_submitter_at``.
+            ``vote_total:statuses:latest_submitter_at:eligible_counts``.
         """
 
         votes = 0
@@ -16242,7 +16425,11 @@ class SchoolDB(LovesDB):
             if isinstance(last, dict):
                 stamps.append(str(last.get("at") or ""))
         latest = max(stamps) if stamps else ""
-        return f"{votes}:{','.join(marks)}:{latest}"
+        seq = f"{votes}:{','.join(marks)}:{latest}"
+        # MCK-155 gate LOW-2: a presence change moves the denominator, so
+        # it must repaint the teacher row too.
+        seq += ":" + ",".join(str(int(team.get("eligible_count") or 0)) for team in teams)
+        return seq
 
     def _light_group_submit_teams(
         self,
@@ -16310,6 +16497,7 @@ class SchoolDB(LovesDB):
         class_id: int,
         order: list[tuple[int, str]],
         member_counts: dict[int, int],
+        present_ids: set[int] | None = None,
     ) -> list[dict[str, Any]]:
         """Return thin Individual-in-Group rows without member answers.
 
@@ -16346,6 +16534,14 @@ class SchoolDB(LovesDB):
                     """,
                     (int(live_item_id),),
                 ).fetchall()
+                voter_rows = self.conn.execute(
+                    """
+                    SELECT DISTINCT team_id, student_id
+                    FROM live_group_votes
+                    WHERE live_item_id = ? AND student_id IS NOT NULL
+                    """,
+                    (int(live_item_id),),
+                ).fetchall()
                 latest = self.conn.execute(
                     """
                     SELECT v.team_id, v.student_id, v.updated_at
@@ -16365,6 +16561,14 @@ class SchoolDB(LovesDB):
             int(row["team_id"]): str(row["status"] or "") for row in responses
         }
         votes_by_team = {int(row["team_id"]): int(row["n"] or 0) for row in counts}
+        # MCK-155 gate LOW-2: a voter whose presence lapsed still counts in
+        # the denominator, so eligible = |present members ∪ voters|.
+        absent_voters: dict[int, int] = {}
+        for row in voter_rows:
+            if present_ids is not None and int(row["student_id"]) in present_ids:
+                continue
+            team_key = int(row["team_id"])
+            absent_voters[team_key] = absent_voters.get(team_key, 0) + 1
         last_by_team = {int(row["team_id"]): row for row in latest}
         packed_order = list(order)
         known = {team_id for team_id, _name in packed_order}
@@ -16374,7 +16578,12 @@ class SchoolDB(LovesDB):
         teams: list[dict[str, Any]] = []
         for team_id, team_name in packed_order:
             vote_count = int(votes_by_team.get(team_id) or 0)
-            eligible = max(int(member_counts.get(team_id) or 0), vote_count)
+            if present_ids is None:
+                eligible = max(int(member_counts.get(team_id) or 0), vote_count)
+            else:
+                eligible = int(member_counts.get(team_id) or 0) + int(
+                    absent_voters.get(team_id) or 0
+                )
             submitted = status_by_team.get(team_id) == "finalized"
             team: dict[str, Any] = {
                 "team_id": int(team_id),
@@ -16957,10 +17166,26 @@ class SchoolDB(LovesDB):
                 if show_rank and prompt is not None:
                     results = self._tally_for_prompt(session_id, prompt, teacher)
             elif status == "closed" and item["response_mode"] == "group_submit":
+                reveal_rows = self.group_submit_reveal_rows(
+                    session_id, int(item["id"])
+                )
+                # MCK-155 S3: students see right/wrong only after Close,
+                # only with results on, and only on their own group's row.
+                own_team = (
+                    (self.student_group_submit_state(item, student_id) or {}).get(
+                        "team_id"
+                    )
+                    if student_id is not None
+                    else None
+                )
+                for reveal_row in reveal_rows:
+                    own_row = own_team not in (None, "") and int(
+                        reveal_row["team_id"]
+                    ) == int(own_team)
+                    if not (bool(item["show_live_results"]) and own_row):
+                        reveal_row.pop("correct", None)
                 results = {
-                    "reveal": self.group_submit_reveal_rows(
-                        session_id, int(item["id"])
-                    ),
+                    "reveal": reveal_rows,
                     "phase": "final",
                 }
             elif (
@@ -16968,7 +17193,14 @@ class SchoolDB(LovesDB):
                 and item["response_mode"] == "individual"
                 and prompt is not None
             ):
-                results = self._tally_for_prompt(session_id, prompt, teacher)
+                results = self._tally_for_prompt(
+                    session_id, prompt, teacher, for_student=True
+                )
+                if status != "closed" and isinstance(results, dict):
+                    # MCK-155 S3: no "Correct" on student screens until Close.
+                    for choice_row in results.get("choices") or []:
+                        if isinstance(choice_row, dict):
+                            choice_row.pop("correct", None)
             elif include_results and group_state is not None:
                 team_summaries = self.teacher_group_consensus_summary(
                     session_id, int(item["id"])
@@ -20679,6 +20911,71 @@ class SchoolDB(LovesDB):
             return None
         return prompt
 
+    def student_safe_tally(
+        self,
+        session_id: int,
+        prompt: dict[str, Any] | None,
+        tally: dict[str, Any] | None,
+        teacher: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Copy a live tally for a student body without the key while open.
+
+        MCK-155 gate HIGH-1: ``choices[].correct`` names the answer key, so
+        it rides a student payload only once the question is closed. A
+        prompt with no lifecycle row keeps it only after the teacher's
+        Reveal (or a closed poll).
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt: Facing prompt row.
+            tally: Staff tally shape (``build_live_tally``), or None.
+            teacher: Public teacher state for Reveal.
+        """
+        if not isinstance(tally, dict):
+            return tally
+        closed = self._student_key_visible(session_id, prompt, teacher)
+        if not closed and str(tally.get("kind") or "") == "numeric" and prompt:
+            # Gate NEW-HIGH-A: the staff numeric tally labels (and splits)
+            # bars by the key. Rebuild it from the key-free prompt.
+            rebuilt = self._tally_for_prompt(session_id, prompt, teacher, for_student=True)
+            if isinstance(rebuilt, dict):
+                tally = rebuilt
+        out = dict(tally)
+        choices = []
+        for row in tally.get("choices") or []:
+            if isinstance(row, dict):
+                row = dict(row)
+                if not closed:
+                    row.pop("correct", None)
+            choices.append(row)
+        if "choices" in tally:
+            out["choices"] = choices
+        if not closed:
+            for key in ("correct", "correct_answer", "correct_ids", "key", "answer_key", "correct_count"):
+                out.pop(key, None)
+        return out
+
+    def _student_key_visible(
+        self,
+        session_id: int,
+        prompt: dict[str, Any] | None,
+        teacher: dict[str, Any] | None = None,
+    ) -> bool:
+        """True once a student may see this prompt's answer key.
+
+        A lifecycle item shows it only once closed. A prompt with no
+        lifecycle row shows it after Reveal to students or a closed poll.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt: Facing prompt row.
+            teacher: Public teacher state for Reveal.
+        """
+        lifecycle = self._lifecycle_item_for_prompt(session_id, prompt) if prompt else None
+        if lifecycle is not None:
+            return str(lifecycle.get("status") or "") == "closed"
+        return bool(student_mc_summary_visible(teacher) or mc_poll_closed(teacher))
+
     def _student_may_see_tally(
         self,
         session_id: int,
@@ -20882,6 +21179,8 @@ class SchoolDB(LovesDB):
         session_id: int,
         prompt: dict[str, Any] | None,
         teacher: dict[str, Any] | None,
+        *,
+        for_student: bool = False,
     ) -> dict[str, Any] | None:
         """Tally one prompt row for staff/student graphs.
 
@@ -20889,12 +21188,18 @@ class SchoolDB(LovesDB):
             session_id: ``live_class_sessions.id``.
             prompt: Prompt row to tally.
             teacher: Public teacher state.
+            for_student: MCK-155 gate NEW-HIGH-A. A student numeric tally
+                is built from the key-free prompt until the key may show
+                (``_student_key_visible``), so no bar is labelled with, or
+                split around, the key while the question is open.
         """
         if not prompt or prompt.get("id") in (None, ""):
             return None
         linked = self._lifecycle_item_for_prompt(session_id, prompt)
         if linked is not None:
             prompt = self._repair_mc_answer_key(linked, prompt)
+        if for_student and not self._student_key_visible(session_id, prompt, teacher):
+            prompt = numeric_prompt_without_key(prompt)
         attendees = self.list_live_session_attendees(session_id)
         present = sum(1 for row in attendees if not row.get("left_at"))
         return build_live_tally(
@@ -21253,14 +21558,16 @@ class SchoolDB(LovesDB):
         }
         if stage == "teams":
             out["game_show_welcome"] = self.student_game_show_welcome(session_id)
-        shared_tally = self._tally_for_prompt(session_id, prompt, teacher)
+        shared_tally = self._tally_for_prompt(session_id, prompt, teacher, for_student=True)
         if shared_tally is not None and self._student_may_see_tally(
             session_id,
             prompt,
             my_response=my_response,
             teacher=teacher,
         ):
-            out["mc_tally"] = shared_tally
+            out["mc_tally"] = self.student_safe_tally(
+                session_id, prompt, shared_tally, teacher
+            )
         draft = self.group_question_draft(
             session_id,
             prompt_id=int(prompt["id"]),

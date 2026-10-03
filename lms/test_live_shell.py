@@ -327,7 +327,9 @@ class LiveShellTests(unittest.TestCase):
         chart = js.split("function individualLifecycleResultsHtml(")[1].split(
             "function groupAnswerLabel("
         )[0]
-        self.assertIn(" · Correct", chart)
+        # MCK-155 S3: icon + word marks (Correct / Incorrect).
+        self.assertIn("answerMarkHtml(true)", chart)
+        self.assertIn("answerMarkHtml(false)", chart)
         merged = js.split("function questionCardsFromMetadata(")[1].split(
             "function applyLocalPlaylistCardChange("
         )[0]

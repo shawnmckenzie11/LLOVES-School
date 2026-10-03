@@ -5589,7 +5589,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 my_response=my_response,
                 teacher=teacher,
             ):
-                body["mc_tally"] = tally
+                # MCK-155 gate HIGH-1: no answer key while the question is open.
+                body["mc_tally"] = school.student_safe_tally(
+                    live_session_id, target, tally, teacher
+                )
             emit_answer_landed(
                 school,
                 live_session_id,
@@ -5627,7 +5630,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             teacher = school.live_session_teacher_state_payload(live_session_id)
         except KeyError:
             teacher = None
-        tally = school._tally_for_prompt(live_session_id, target, teacher)
+        tally = school._tally_for_prompt(live_session_id, target, teacher, for_student=True)
         if tally is None:
             tally = school.live_session_mc_tally(live_session_id)
         if tally is not None and school._student_may_see_tally(
@@ -5636,7 +5639,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             my_response=my_response,
             teacher=teacher,
         ):
-            body["mc_tally"] = tally
+            # MCK-155 gate HIGH-1: no answer key while the question is open.
+            body["mc_tally"] = school.student_safe_tally(
+                live_session_id, target, tally, teacher
+            )
         emit_answer_landed(
             school,
             live_session_id,

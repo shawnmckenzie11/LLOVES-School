@@ -407,6 +407,44 @@ def _numeric_within_tolerance(
     return abs(actual - expected) <= window
 
 
+NUMERIC_KEY_FIELDS = ("key", "correct_answer", "correct_ids", "answer_key", "correct_index")
+
+
+def is_numeric_prompt(prompt: Any) -> bool:
+    """True for a numeric live prompt (row ``kind`` or payload ``kind``).
+
+    Args:
+        prompt: Live-prompt row.
+    """
+    if not isinstance(prompt, dict):
+        return False
+    payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
+    kinds = {str(prompt.get("kind") or "").strip().lower(), str(payload.get("kind") or "").strip().lower()}
+    return "numeric" in kinds
+
+
+def numeric_prompt_without_key(prompt: Any) -> Any:
+    """Copy of a numeric prompt row with the answer key removed.
+
+    MCK-155 gate (NEW-HIGH-A): ``build_numeric_tally`` labels the key's bar
+    with the full-precision key (MCK-83) and splits a bucket that mixes
+    right and wrong answers. Both name the key, so a student tally built
+    while the question is open must start from this key-free copy. The
+    tolerance stays: it is not the key.
+
+    Args:
+        prompt: Live-prompt row.
+    """
+    if not is_numeric_prompt(prompt):
+        return prompt
+    out = dict(prompt)
+    payload = dict(prompt.get("payload") or {}) if isinstance(prompt.get("payload"), dict) else {}
+    for field in NUMERIC_KEY_FIELDS:
+        payload.pop(field, None)
+    out["payload"] = payload
+    return out
+
+
 def build_numeric_tally(
     prompt: Any,
     *,

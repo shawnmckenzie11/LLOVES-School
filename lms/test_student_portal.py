@@ -1470,8 +1470,10 @@ class StudentPortalTests(unittest.TestCase):
         self.assertIn("data-dismiss-surface", html)
         self.assertIn('aria-label="Dock media"', html)
         self.assertIn('aria-label="Dock whiteboard"', html)
-        self.assertIn("Submit Group Answer", js)
-        self.assertIn("teammates have responded", js)
+        # MCK-155 S5: Wonder copy lives in group_instructions.js.
+        self.assertIn("GROUP_INSTRUCTION_COPY.send", js)
+        self.assertIn("consensusWaitHtml(group", js)
+        self.assertNotIn("teammates have responded", js)
         self.assertIn("GROUP ANSWER SENT", js)
         self.assertIn("Team Answer", js)
         self.assertIn("/api/student/live-items/${itemId}/vote", js)

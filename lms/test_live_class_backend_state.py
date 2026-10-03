@@ -3431,7 +3431,12 @@ class LiveBackendStateTests(unittest.TestCase):
         self.assertNotIn("reveal", open_view)
         self.assertTrue(open_view["status_board"])
         for row in open_view["status_board"]:
-            self.assertEqual(set(row), {"team_id", "team_name", "submitted"})
+            # MCK-155 S3: a keyed group MC adds a staff-only right/wrong
+            # mark once a team sends; the answer text still waits.
+            allowed = {"team_id", "team_name", "submitted"}
+            if row["submitted"] and open_view.get("answer_key"):
+                allowed = allowed | {"correct"}
+            self.assertEqual(set(row), allowed)
         aspen_open = next(
             row
             for row in open_view["submitter_log"]
