@@ -94,8 +94,18 @@ class ScoringRuleTests(unittest.TestCase):
                 self.assertNotIn(word, text, f"{word} in {path}")
 
 
-class AwardTests(ChallengeHarness):
-    """Close scores every team once and awards equal points per member."""
+#: 4 spots: Next 1..4 reveals the spots, 5 is points, 6 is the podium.
+POINTS_STEP = rank_challenge.points_step(4)
+PODIUM_STEP = rank_challenge.podium_step(4)
+
+
+class StepMixin:
+    """Projector reveal steps through the teacher route."""
+
+    def _step(self, item: dict[str, Any], step: int):
+        return self.client.post(
+            f"/api/live-sessions/{self.session_id}/items/{item['id']}/race-step", json={"step": step}
+        )
 
     def _points(self, name: str) -> int:
         with self.school.game._lock:
@@ -112,12 +122,21 @@ class AwardTests(ChallengeHarness):
             rv = self._post(name, item, "rank-agree", {"agree": True, "order": order})
             self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
 
-    def test_locked_and_draft_teams_score_at_close(self) -> None:
+
+class AwardTests(StepMixin, ChallengeHarness):
+    """Points land once, at the projector points step, to members seen present."""
+
+    def test_points_land_at_the_points_step_not_at_close(self) -> None:
         item = self._challenge()
         self._lock_team(item, ("Ava", "Cy", "Eli"), KEY_IDS)
         self._order("Ben", item, SWAP)  # never locks: scored on its draft
-        self.assertEqual(self._points("Ava"), 0)  # nothing before Close
         self._close(item)
+        self.assertEqual(self._points("Ava"), 0)  # Close spoils nothing
+        self.assertEqual(self._step(item, POINTS_STEP - 1).status_code, 200)
+        self.assertEqual(self._points("Ava"), 0)  # spots only
+        rv = self._step(item, POINTS_STEP)
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        self.assertEqual(rv.get_json()["step"], POINTS_STEP)
         for name in ("Ava", "Cy", "Eli"):
             self.assertEqual(self._points(name), 8)
         for name in ("Ben", "Dee", "Fay"):
@@ -125,20 +144,60 @@ class AwardTests(ChallengeHarness):
         rows = {self._team(n, item): self._row(item, n) for n in ("Ava", "Ben")}
         self.assertEqual(rows[self._team("Ava", item)]["awarded_points"], 8)
         self.assertEqual(rows[self._team("Ben", item)]["awarded_points"], 4)
+        self._step(item, PODIUM_STEP)  # the podium step pays nothing more
+        self.assertEqual(self._points("Ava"), 8)
 
-    def test_absent_members_get_the_team_total_too(self) -> None:
-        item = self._challenge()
+    def test_never_present_member_gets_nothing(self) -> None:
         self._leave("Eli")
+        item = self._challenge()
         self._lock_team(item, ("Ava", "Cy"), KEY_IDS)
         self._close(item)
+        self._step(item, POINTS_STEP)
+        self.assertEqual((self._points("Ava"), self._points("Cy"), self._points("Eli")), (8, 8, 0))
+
+    def test_briefly_present_member_gets_the_team_total(self) -> None:
+        self._leave("Eli")
+        item = self._challenge()
+        self._view(item)
+        code = self.school.get_live_session(self.session_id)["session_code"]
+        self.students["Eli"].post("/auth/student-code", data={"code": str(code), "name": "Eli"})
+        self._view(item)  # Eli seen mid-question
+        self._leave("Eli")  # gone again before Close
+        self._lock_team(item, ("Ava", "Cy"), KEY_IDS)
+        self._close(item)
+        self._step(item, POINTS_STEP)
         self.assertEqual(self._points("Eli"), 8)
+
+    def test_end_of_class_awards_a_challenge_never_stepped(self) -> None:
+        item = self._challenge()
+        self._order("Ava", item, KEY_IDS)
+        self._close(item)
+        self.assertEqual(self._points("Ava"), 0)
+        live = self.client.post(
+            f"/api/classes/{self.class_id}/game/start-rounds",
+            json={"rounds": [{"kind": "challenge", "minutes": 10}]},
+        )
+        self.assertEqual(live.status_code, 200, live.get_data(as_text=True)[:300])
+        rv = self.client.post(f"/api/classes/{self.class_id}/game/end", json={})
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True)[:300])
+        self.assertEqual(self._points("Ava"), 8)
+        self.assertEqual(rv.get_json()["live_sessions_ended"], [self.session_id])
+
+    def test_session_end_awards_too(self) -> None:
+        item = self._challenge()
+        self._order("Ava", item, KEY_IDS)
+        self._close(item)
+        self.school.end_live_class_session(self.session_id)
+        self.assertEqual(self._points("Ava"), 8)
 
     def test_award_is_once_and_replace_safe(self) -> None:
         item = self._challenge()
         self._order("Ava", item, SWAP)
         closed = self._close(item)
+        self._step(item, POINTS_STEP)
         self.assertEqual(self._points("Ava"), 4)
-        # Running the award again changes nothing.
+        # Stepping again, or running the award again, changes nothing.
+        self._step(item, POINTS_STEP)
         self.school._award_rank_race_points(self.session_id, closed)
         self.assertEqual(self._points("Ava"), 4)
         # A changed result replaces the old award (difference only).
@@ -159,6 +218,8 @@ class AwardTests(ChallengeHarness):
         item = self._challenge()
         self._order("Ava", item, KEY_IDS)
         self._close(item)
+        self._step(item, POINTS_STEP)
+        self.assertEqual(self._points("Ava"), 8)
         self.assertEqual(self._points("Ben"), 0)
         results = self._view(item)["race"]["results"]
         ben = next(t for t in results["teams"] if t["team_id"] == self._team("Ben", item))
@@ -186,7 +247,37 @@ class AwardTests(ChallengeHarness):
         self.assertNotIn("finalized_at", json.dumps(self._view(item)["race"]))
 
 
-class ResultsBlockTests(ChallengeHarness):
+class StepRouteTests(StepMixin, ChallengeHarness):
+    """The reveal step: closed challenges only, never backwards, clamped."""
+
+    def test_open_challenge_refuses_a_step(self) -> None:
+        item = self._challenge()
+        self.assertEqual(self._step(item, 1).status_code, 400)
+
+    def test_plain_rank_refuses_a_step(self) -> None:
+        row = self._rank_row()
+        item = self._publish(row)
+        self._close(item)
+        self.assertEqual(self._step(item, 1).status_code, 400)
+
+    def test_step_is_monotonic_and_clamped(self) -> None:
+        item = self._challenge()
+        self._close(item)
+        self.assertEqual(self._step(item, 3).get_json()["step"], 3)
+        self.assertEqual(self._step(item, 1).get_json()["step"], 3)  # never backwards
+        self.assertEqual(self._step(item, 99).get_json()["step"], PODIUM_STEP)
+        self.assertEqual(self._view(item)["race"]["results"]["step"], PODIUM_STEP)
+
+    def test_missing_step_is_rejected(self) -> None:
+        item = self._challenge()
+        self._close(item)
+        rv = self.client.post(
+            f"/api/live-sessions/{self.session_id}/items/{item['id']}/race-step", json={}
+        )
+        self.assertEqual(rv.status_code, 400)
+
+
+class ResultsBlockTests(StepMixin, ChallengeHarness):
     """Teacher results after Close only; phones get their own team only."""
 
     def test_teacher_results_only_after_close(self) -> None:
@@ -209,7 +300,16 @@ class ResultsBlockTests(ChallengeHarness):
         self.assertNotIn("results", self._card("Ava", item)["race"])
         self.school.update_live_session_item_settings(self.session_id, int(item["id"]), show_live_results=True)
         res = self._card("Ava", item)["race"]["results"]
-        self.assertEqual((res["right"], res["total"], res["points"]), (2, 4, 4))
+        # Close shows the spots only: points and podium wait for the projector.
+        self.assertEqual((res["right"], res["total"], res["points"]), (2, 4, None))
+        self.assertEqual((res["podium"], res["on_podium"]), ([], False))
+        self.assertEqual((res["show_points"], res["show_podium"]), (False, False))
+        self._step(item, POINTS_STEP)
+        res = self._card("Ava", item)["race"]["results"]
+        self.assertEqual((res["points"], res["podium"], res["show_points"]), (4, [], True))
+        self._step(item, PODIUM_STEP)
+        res = self._card("Ava", item)["race"]["results"]
+        self.assertTrue(res["show_podium"])
         self.assertEqual(
             [(s["item"], s["right"], s["answer"]) for s in res["spots"]],
             [("Two points", False, "An equation"), ("An equation", False, "Two points"),
@@ -229,8 +329,39 @@ class ResultsBlockTests(ChallengeHarness):
         self.assertNotIn("rank_key", state)
 
 
+class FromDraftTests(StepMixin, ChallengeHarness):
+    """Teams not locked in at Close are marked as scored from their draft."""
+
+    def test_from_draft_only_for_unlocked_scored_teams(self) -> None:
+        item = self._challenge()
+        self._lock_team(item, ("Ava", "Cy", "Eli"), KEY_IDS)
+        self._order("Ben", item, SWAP)
+        self._close(item)
+        ava = self._card("Ava", item)["race"]["results"]
+        ben = self._card("Ben", item)["race"]["results"]
+        self.assertEqual((ava["locked"], ava["from_draft"]), (True, False))
+        self.assertEqual((ben["locked"], ben["from_draft"]), (False, True))
+        teams = {t["team_id"]: t for t in self._view(item)["race"]["results"]["teams"]}
+        self.assertTrue(teams[self._team("Ava", item)]["locked"])
+        self.assertFalse(teams[self._team("Ben", item)]["locked"])
+
+    def test_team_that_placed_nothing_is_not_from_draft(self) -> None:
+        item = self._challenge()
+        self._order("Ava", item, KEY_IDS)
+        self._close(item)
+        ben = self._card("Ben", item)["race"]["results"]
+        self.assertFalse(ben["from_draft"])
+
+
 class ResultsClientTests(unittest.TestCase):
     """Node harness for the results views (projector + phone)."""
+
+    def test_teacher_next_tells_the_server_the_step(self) -> None:
+        text = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("/race-step`", text)
+        self.assertIn("void postRankRaceStep(itemId, next);", text)
+        # A reload resumes at the server's step rather than at row 0.
+        self.assertIn("step: raceStepFor(liveItemId, race.results),", text)
 
     def test_results_node_harness(self) -> None:
         proc = subprocess.run(

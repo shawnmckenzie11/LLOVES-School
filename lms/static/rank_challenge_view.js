@@ -276,8 +276,10 @@ export const RESULTS_COPY = Object.freeze({
   spot: "Spot {n} · {item}", // results.spot
   right: "{k} of {n} spots right.", // results.right
   rightAll: "All {n} spots right.", // results.right.all
-  points: "{pts} points", // results.points
-  pointsOne: "1 point", // results.points.one
+  points: "{pts} points each", // results.points
+  pointsOne: "1 point each", // results.points.one
+  spotChip: "Spot {k} of {n}", // results.spot.chip
+  fromDraft: "Scored from your group's draft.", // results.from_draft
   tie: "{n} teams tied", // results.tie
   others: "Also on the board", // results.others
   next: "Next", // race.next
@@ -286,7 +288,7 @@ export const RESULTS_COPY = Object.freeze({
 });
 
 /**
- * "{pts} points" / "1 point".
+ * "{pts} points each" / "1 point each".
  * @param {number} pts
  * @returns {string}
  */
@@ -374,7 +376,9 @@ function rowsFrame(results, shown, stem) {
       return `<tr class="${open ? "is-open" : "is-hidden"}${index === shown - 1 ? " is-latest" : ""}"><th scope="row">${esc(label)}</th>${cells}</tr>`;
     })
     .join("");
-  return `${resultsHead(RESULTS_COPY.revealTitle, stem, "")}
+  const total = spots.length;
+  const chip = shown >= 1 && total ? fill(RESULTS_COPY.spotChip, { k: Math.min(shown, total), n: total }) : "";
+  return `${resultsHead(RESULTS_COPY.revealTitle, stem, chip)}
     <table class="race-reveal"><thead><tr><td></td>${head}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 
@@ -399,9 +403,12 @@ function pointsFrame(results) {
       const width = Math.max(18, Math.round((Number(team.right) / total) * 100));
       // The bar is the team's share of spots (max 60% of the track); the
       // "{k} of {n} spots right." label sits after it so it never clips.
-      return `<li class="race-points-row" style="--team:${mark.colour}">${name}<span class="race-bar-track"><span class="race-bar" style="width:${Math.round(
+      // Wonder: a team that never locked in was scored on its draft; say so
+      // under its bar (never for a locked-in team).
+      const draft = team.locked ? "" : `<span class="race-bar-note">${esc(RESULTS_COPY.fromDraft)}</span>`;
+      return `<li class="race-points-row" style="--team:${mark.colour}">${name}<span class="race-bar-cell"><span class="race-bar-track"><span class="race-bar" style="width:${Math.round(
         width * 0.6
-      )}%"></span><span class="race-bar-label">${esc(rightText(team.right, team.total))}</span></span><span class="race-points-total">${esc(
+      )}%"></span><span class="race-bar-label">${esc(rightText(team.right, team.total))}</span></span>${draft}</span><span class="race-points-total">${esc(
         pointsText(team.points)
       )}</span></li>`;
     })
@@ -443,7 +450,8 @@ function podiumFrame(results) {
   const others = (Array.isArray(results?.podium?.others) ? results.podium.others : [])
     .map((id) => byId.get(Number(id)))
     .filter(Boolean)
-    .map((team) => (team.scored ? `${esc(team.team_name)} ${esc(pointsText(team.points))}` : esc(team.team_name)))
+    // Each team its own points ("Vectors 2 points each · Sines 0 points each").
+    .map((team) => `${esc(team.team_name)} ${esc(pointsText(team.scored ? team.points : 0))}`)
     .join(" · ");
   const confetti = Array.from({ length: 18 }, (_, i) => {
     const colour = teamMark(byId.get(Number(steps[i % Math.max(1, steps.length)]?.team_ids?.[0]))?.slot ?? i).colour;

@@ -208,9 +208,11 @@ export const PHONE_RESULTS_COPY = Object.freeze({
   answer: "Answer: {item}", // results.spot.right_item
   you: "Your team", // results.you
   podium: "Your team made the podium.", // results.podium
-  points: "{pts} points", // results.points
-  pointsOne: "1 point", // results.points.one
+  points: "{pts} points each", // results.points
+  pointsOne: "1 point each", // results.points.one
   tie: "{n} teams tied", // results.tie
+  fromDraft: "Scored from your group's draft.", // results.from_draft
+  pill: "Results", // results.pill
 });
 
 /**
@@ -261,10 +263,16 @@ export function phoneResultsHtml(group) {
     ? `<div class="race-phone-burst" aria-hidden="true">${Array.from({ length: 10 }, (_, i) => `<i style="--i:${i}"></i>`).join("")}</div>`
     : "";
   return `<div class="student-group-card race-phone race-phone-results" data-race-results-card="1" style="--team:${colour}">
-    ${phoneStripHtml(group, "")}
+    ${phoneStripHtml(group, C.pill)}
     <p class="race-phone-cue is-results">${esc(cue)}</p>
+    ${res.from_draft ? `<p class="race-phone-draft">${esc(C.fromDraft)}</p>` : ""}
     <ol class="race-phone-spots">${spots}</ol>
-    <p class="race-phone-you"><span>${esc(C.you)}</span><strong>${esc(phonePoints(res.points))}</strong></p>
+    ${
+      // Points (then the podium) wait for the projector's matching step.
+      res.points === null || res.points === undefined
+        ? ""
+        : `<p class="race-phone-you"><span>${esc(C.you)}</span><strong>${esc(phonePoints(res.points))}</strong></p>`
+    }
     ${res.on_podium ? `<p class="race-phone-podium-line">${esc(C.podium)}</p>` : ""}
     ${steps.length ? `<div class="race-mini-podium">${burst}${step(byStep.get(2))}${step(byStep.get(1))}${step(byStep.get(3))}</div>` : ""}
   </div>`;

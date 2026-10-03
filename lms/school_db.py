@@ -13406,6 +13406,8 @@ class SchoolDB(LovesDB):
             body[rank_challenge.RACE_FLAG] = bool(saved_json[rank_challenge.RACE_FLAG])
         if isinstance(saved_json, dict) and saved_json.get(rank_challenge.RACE_CLOSED_BY):
             body[rank_challenge.RACE_CLOSED_BY] = str(saved_json[rank_challenge.RACE_CLOSED_BY])
+        if isinstance(saved_json, dict) and saved_json.get(rank_challenge.RACE_STEP):
+            body[rank_challenge.RACE_STEP] = int(saved_json[rank_challenge.RACE_STEP] or 0)
         return body
 
     @staticmethod
@@ -14578,7 +14580,6 @@ class SchoolDB(LovesDB):
             self.end_group_consensus_voting(session_id, int(item["id"]))
         now = _now()
         race = self._rank_race_on(item)
-        closed_now = False
         if race:
             # Last look at who is here before answers close (credit list).
             for team_id, ids in self._rank_race_present_by_team(session_id).items():
@@ -14588,14 +14589,14 @@ class SchoolDB(LovesDB):
                 # MCK-171: remember who closed it, with the close itself.
                 question = dict(item.get("item") if isinstance(item.get("item"), dict) else {})
                 question[rank_challenge.RACE_CLOSED_BY] = "timer" if by_timer else "teacher"
-                closed_now = self.conn.execute(
+                self.conn.execute(
                     """
                     UPDATE live_session_items
                     SET status = 'closed', closed_at = ?, updated_at = ?, item_json = ?
                     WHERE id = ? AND status = 'active'
                     """,
                     (now, now, json.dumps(question), int(item["id"])),
-                ).rowcount == 1
+                )
             else:
                 self.conn.execute(
                     """
@@ -14607,10 +14608,8 @@ class SchoolDB(LovesDB):
                 )
             self.conn.commit()
         closed = self.get_live_session_item(session_id, int(item["id"]))
-        if race and closed_now:
-            # MCK-171 R6: score every team (locked order or draft) and award
-            # once, from the request that actually closed it.
-            self._award_rank_race_points(session_id, closed)
+        # MCK-171: no award here. Points land when the teacher reaches the
+        # points step on the projector (set_rank_race_step), or at End.
         active_prompt = self.get_active_live_prompt(session_id)
         linked = self._lifecycle_item_for_prompt(session_id, active_prompt)
         if linked is not None and int(linked.get("id") or 0) == int(closed["id"]):
@@ -17026,7 +17025,85 @@ class SchoolDB(LovesDB):
             "teams": teams,
             "podium": rank_challenge.podium(teams),
             "total": len(key),
+            "step": self._rank_race_step(item),
         }
+
+    @staticmethod
+    def _rank_race_step(item: dict[str, Any]) -> int:
+        """Furthest projector reveal step reached (0 before any Next)."""
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        try:
+            return max(0, int(question.get(rank_challenge.RACE_STEP) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def set_rank_race_step(
+        self, session_id: int, placement_or_item: str | int, *, step: int
+    ) -> dict[str, Any]:
+        """Teacher Next on the projector reveal: remember the furthest step.
+
+        Never goes backwards. Reaching the points step awards the points
+        (replace-safe, once); phones show points then the podium only when
+        the projector does.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            placement_or_item: Placement key or lifecycle id.
+            step: Step the projector is on now.
+
+        Returns:
+            ``{"step": int, "results": teacher results block}``.
+        """
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, placement_or_item)
+        if not self._rank_race_on(item) or str(item.get("status") or "") != "closed":
+            raise ValueError("Close the Team challenge before revealing it.")
+        spots = len(self._rank_race_key(item))
+        want = max(0, min(int(step), rank_challenge.podium_step(spots)))
+        have = self._rank_race_step(item)
+        if want > have:
+            question = dict(item.get("item") if isinstance(item.get("item"), dict) else {})
+            question[rank_challenge.RACE_STEP] = want
+            with self._lock:
+                self.conn.execute(
+                    "UPDATE live_session_items SET item_json = ?, updated_at = ? WHERE id = ?",
+                    (json.dumps(question), _now(), int(item["id"])),
+                )
+                self.conn.commit()
+            item = self.get_live_session_item(session_id, int(item["id"]))
+        if self._rank_race_step(item) >= rank_challenge.points_step(spots):
+            self._award_rank_race_points(session_id, item)
+        return {"step": self._rank_race_step(item), "results": self._rank_race_results(session_id, item)}
+
+    def _award_pending_rank_races(self, session_id: int) -> None:
+        """End of class: award any closed Team challenge never stepped to points.
+
+        Replace-safe, so challenges already awarded are unchanged. Never
+        blocks End.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        try:
+            for item in self.list_live_session_items(session_id):
+                if str(item.get("status") or "") == "closed" and self._rank_race_on(item):
+                    self._award_rank_race_points(session_id, item)
+        except Exception:  # noqa: BLE001 - End of class must always finish
+            logger.exception("team challenge end-of-class award failed session=%s", session_id)
+
+    def award_pending_rank_races_for_class(self, class_id: int) -> None:
+        """End Game: award pending Team challenges before the game day closes.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT id FROM live_class_sessions WHERE class_id = ? AND status = 'active'",
+                (int(class_id),),
+            ).fetchall()
+        for row in rows:
+            self._award_pending_rank_races(int(row["id"]))
 
     def _rank_race_student_results(
         self, session_id: int, item: dict[str, Any], team_id: int
@@ -17075,18 +17152,33 @@ class SchoolDB(LovesDB):
             (step["step"] for step in full["podium"]["steps"] if int(team_id) in step["team_ids"]),
             None,
         )
+        # Mobbin review: hold points, then the podium, until the projector
+        # reaches that step, so no phone spoils the reveal.
+        step = int(full.get("step") or 0)
+        show_points = step >= rank_challenge.points_step(int(full["total"]))
+        show_podium = step >= rank_challenge.podium_step(int(full["total"]))
+        locked = bool(own.get("locked"))
         return {
             "spots": spots,
             "right": int(own.get("right") or 0),
             "total": int(full["total"]),
-            "points": int(own.get("points") or 0),
+            "points": int(own.get("points") or 0) if show_points else None,
             "scored": bool(own.get("scored")),
-            "podium": steps,
-            "on_podium": on_step is not None,
+            "locked": locked,
+            "from_draft": bool(own.get("scored")) and not locked,
+            "podium": steps if show_podium else [],
+            "on_podium": (on_step is not None) if show_podium else False,
+            "show_points": show_points,
+            "show_podium": show_podium,
         }
 
     def _award_rank_race_points(self, session_id: int, item: dict[str, Any]) -> dict[str, Any]:
-        """Award each team's total equally to every roster member, once.
+        """Award each team's total equally to every member seen present, once.
+
+        Members seen present at any point while the question was open (the
+        Take turns presence signal) get the full team total; members never
+        seen get nothing. Runs when the projector reaches the points step,
+        or at End of class for a challenge never stepped that far.
 
         Replace-safe: each member's award is stored on
         ``live_group_members.awarded_points`` and only the difference goes to
@@ -17109,14 +17201,17 @@ class SchoolDB(LovesDB):
             for row in self._group_member_award_rows(live_item_id)
         }
         out: list[dict[str, Any]] = []
-        now = _now()
         for team in results["teams"]:
             team_id = int(team["team_id"])
             desired = int(team["points"])
             paid: list[int] = []
+            # Wonder: credit only members seen present at ANY point while the
+            # question was open (Take turns presence); absent members get 0.
+            seen = self._rank_race_seen_ids(live_item_id, team_id)
             for student_id in self._teammate_ids_for_class(class_id, team_id):
                 have = current.get((team_id, int(student_id)), 0)
-                delta = desired - have
+                mine = desired if int(student_id) in seen else 0
+                delta = mine - have
                 if delta:
                     try:
                         self.game.award_points(
@@ -17133,24 +17228,19 @@ class SchoolDB(LovesDB):
                             student_id,
                         )
                         continue
+                if int(student_id) not in seen:
+                    continue
                 with self._lock:
-                    self.conn.execute(
-                        """
-                        INSERT OR IGNORE INTO live_group_members (
-                            live_item_id, team_id, student_id, joined_at
-                        ) VALUES (?, ?, ?, ?)
-                        """,
-                        (live_item_id, team_id, int(student_id), now),
-                    )
                     self.conn.execute(
                         """
                         UPDATE live_group_members SET awarded_points = ?
                         WHERE live_item_id = ? AND team_id = ? AND student_id = ?
                         """,
-                        (desired, live_item_id, team_id, int(student_id)),
+                        (mine, live_item_id, team_id, int(student_id)),
                     )
                     self.conn.commit()
-                paid.append(int(student_id))
+                if mine:
+                    paid.append(int(student_id))
             with self._lock:
                 self.conn.execute(
                     """
@@ -27208,6 +27298,8 @@ class SchoolDB(LovesDB):
         Returns:
             The ended session row, or ``None`` if missing.
         """
+        # MCK-171: a Team challenge never stepped to its points still pays.
+        self._award_pending_rank_races(session_id)
         if clear_moods:
             self.clear_attendee_moods_and_characters(session_id)
         return self.invalidate_live_session_code(session_id)

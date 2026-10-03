@@ -1432,7 +1432,7 @@ function rankRaceTeacherHtml(result, revealed, liveItemId) {
   if (revealed) {
     if (!race.results) return "";
     return raceResultsHtml(race.results, liveItemId, {
-      step: raceStep.get(liveItemId) || 0,
+      step: raceStepFor(liveItemId, race.results),
       stem: raceStem(result?.item),
     });
   }
@@ -1461,6 +1461,36 @@ function rankRaceEnterHtml(result, liveItemId) {
  * @param {number} liveItemId
  * @param {number} teamId
  */
+/**
+ * MCK-171: reveal step on screen: the furthest of this tab's Next presses
+ * and the server's stored step (a reload resumes where the room is).
+ * @param {number} liveItemId
+ * @param {any} results Teacher ``race.results``.
+ * @returns {number}
+ */
+function raceStepFor(liveItemId, results) {
+  return Math.max(raceStep.get(liveItemId) || 0, Number(results?.step) || 0);
+}
+
+/**
+ * MCK-171: tell the server the projector reached ``step``. Phones show
+ * points, then the podium, and game points land, only at those steps.
+ * @param {number} liveItemId
+ * @param {number} step
+ */
+async function postRankRaceStep(liveItemId, step) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId || !liveItemId) return;
+  const result = await api(`/api/live-sessions/${sessionId}/items/${liveItemId}/race-step`, {
+    method: "POST",
+    body: JSON.stringify({ step }),
+  });
+  const entry = lifecycleResults.get(liveItemId);
+  if (result?.results && entry?.race) {
+    lifecycleResults.set(liveItemId, { ...entry, race: { ...entry.race, results: result.results } });
+  }
+}
+
 async function lockRankRaceTeam(liveItemId, teamId) {
   const sessionId = liveSessionId || readLiveSessionId();
   if (!sessionId || !liveItemId || !teamId) return;
@@ -11211,8 +11241,11 @@ $("live-question-list")?.addEventListener("click", async (event) => {
     }
     if (raceNext instanceof HTMLButtonElement) {
       const itemId = Number(raceNext.dataset.raceNext) || 0;
-      raceStep.set(itemId, (raceStep.get(itemId) || 0) + 1);
+      const results = lifecycleResults.get(itemId)?.race?.results;
+      const next = raceStepFor(itemId, results) + 1;
+      raceStep.set(itemId, next);
       paintLiveQuestionCards();
+      void postRankRaceStep(itemId, next);
       return;
     }
     if (raceDone instanceof HTMLButtonElement) {

@@ -6918,6 +6918,16 @@ body.staff-shell .race-points-row {
   min-height: 60px;
   border-bottom: 1px solid #e3e8ee;
 }
+body.staff-shell .race-bar-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+body.staff-shell .race-bar-note {
+  font-size: 16px;
+  color: #475569;
+}
 body.staff-shell .race-bar-track {
   display: flex;
   align-items: center;

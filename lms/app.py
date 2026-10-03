@@ -6994,6 +6994,28 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         return jsonify({"ok": True, **result})
 
     @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/race-step",
+        methods=["POST"],
+    )
+    @login_required
+    def api_rank_race_step(session_id: int, live_item_id: int):
+        """MCK-171 Team challenge: the projector reveal reached ``step``."""
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        body = request.get_json(silent=True) or {}
+        try:
+            step = int(body.get("step"))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "Missing reveal step."}), 400
+        try:
+            result = school.set_rank_race_step(session_id, live_item_id, step=step)
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, **result})
+
+    @app.route(
         "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/points",
         methods=["POST"],
     )
@@ -8964,6 +8986,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         def run(body):
             """Apply End Game then optionally invalidate the ephemeral join code."""
             chosen = _optional_date(body.get("meeting_date"))
+            # MCK-171: a Team challenge never stepped to its points pays
+            # before the game day closes.
+            school.award_pending_rank_races_for_class(class_id)
             result = school.game.end_game(class_id, meeting_date=chosen)
             preserve = bool((body or {}).get("preserve_live_session"))
             if not preserve:
