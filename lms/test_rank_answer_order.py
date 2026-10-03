@@ -159,6 +159,18 @@ class RankKeyLiveTests(unittest.TestCase):
             self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
         return row
 
+    def _ids(self, row: dict[str, Any]) -> list[str]:
+        """Real option ids in typed order (MCK-176: minted, not o1…).
+
+        The live row lists the shown (shuffled) order, so map by label.
+        """
+        by_label = {opt["label"]: opt["id"] for opt in row["item"]["rank_options"]}
+        return [by_label[label] for label in self.BODY["options"]]
+
+    def _key(self, row: dict[str, Any]) -> list[str]:
+        ids = self._ids(row)
+        return [ids[2], ids[0], ids[3], ids[1]]
+
     def _student_texts(self, item: dict[str, Any]) -> dict[str, str]:
         """Every student-facing response for a live rank item, as text."""
         out: dict[str, str] = {}
@@ -184,7 +196,7 @@ class RankKeyLiveTests(unittest.TestCase):
     def test_add_new_stores_the_key_as_option_ids(self) -> None:
         """Indices from Add New store as ids; blank keeps no key; bad order is 400."""
         row = self._keyed_row()
-        self.assertEqual(row["item"]["rank_key"], ["o3", "o1", "o4", "o2"])
+        self.assertEqual(row["item"]["rank_key"], self._key(row))
         plain = self._add(dict(self.BODY))
         self.assertNotIn("rank_key", plain["item"])
         rv = self.client.post(
@@ -206,17 +218,24 @@ class RankKeyLiveTests(unittest.TestCase):
             json={"page_number": 4, "stage": "round", **self.BODY, "rank_key": ["o4", "o3", "o2", "o1"], "save_to_bank": True},
         )
         self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
-        qid = int(rv.get_json()["placement"]["item"]["source_question_id"])
+        placed = rv.get_json()["placement"]["item"]
+        qid = int(placed["source_question_id"])
         stored = json.loads(
             self.school.conn.execute("SELECT payload_json FROM questions WHERE id = ?", (qid,)).fetchone()[0]
         )
-        self.assertEqual(stored["rank_key"], ["o4", "o3", "o2", "o1"])
+        # MCK-176: a key sent as o1… still maps by position onto minted ids.
+        self.assertEqual(
+            stored["rank_key"], list(reversed([opt["id"] for opt in placed["rank_options"]]))
+        )
         rv = self.client.post(
             f"/api/staff/class/{self.class_id}/live-bank/questions",
             json={"bank_scope": "M1", "type": "rank", "stem_text": "Bank rank", "options": ["a", "b", "c"], "rank_key": [2, 1, 0]},
         )
         self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
-        self.assertEqual(rv.get_json()["question"]["payload"]["rank_key"], ["o3", "o2", "o1"])
+        bank_payload = rv.get_json()["question"]["payload"]
+        self.assertEqual(
+            bank_payload["rank_key"], list(reversed([opt["id"] for opt in bank_payload["rank_options"]]))
+        )
         bad = self.client.post(
             f"/api/staff/class/{self.class_id}/live-bank/questions",
             json={"bank_scope": "M1", "type": "rank", "stem_text": "Bad", "options": ["a", "b", "c"], "rank_key": [2, 1]},
@@ -228,14 +247,15 @@ class RankKeyLiveTests(unittest.TestCase):
         row = self._keyed_row()
         item = self._publish(row)
         staff = self.school.get_live_session_item(self.session_id, int(item["id"]))
-        self.assertEqual(staff["item"]["rank_key"], ["o3", "o1", "o4", "o2"])
+        self.assertEqual(staff["item"]["rank_key"], self._key(row))
+        ids = self._ids(row)
         texts = self._student_texts(item)
         self.assertIn("Order the steps.", texts["Ava state"])
-        for opt in ("o1", "o2"):
+        for opt in ids[:2]:
             rv = self._post("Ava", item, "group-draft", {"tap": opt})
             self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
             texts[f"draft {opt}"] = rv.get_data(as_text=True)
-        rv = self._post("Ava", item, "group-submit", {"order": ["o1", "o2", "o3", "o4"]})
+        rv = self._post("Ava", item, "group-submit", {"order": ids})
         self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
         texts["submit"] = rv.get_data(as_text=True)
         texts.update({f"after {k}": v for k, v in self._student_texts(item).items()})
@@ -243,9 +263,10 @@ class RankKeyLiveTests(unittest.TestCase):
 
     def test_students_never_see_the_key_take_turns(self) -> None:
         """Take turns placements never echo the key."""
-        item = self._publish(self._keyed_row("turns"))
+        row = self._keyed_row("turns")
+        item = self._publish(row)
         texts = self._student_texts(item)
-        rv = self._post("Ava", item, "rank-turn", {"option_id": "o3"})
+        rv = self._post("Ava", item, "rank-turn", {"option_id": self._ids(row)[2]})
         self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
         texts["turn"] = rv.get_data(as_text=True)
         texts.update({f"after {k}": v for k, v in self._student_texts(item).items()})
@@ -262,28 +283,31 @@ class RankKeyLiveTests(unittest.TestCase):
         item = rv.get_json()["item"]
         texts = self._student_texts(item)
         prompt = self.school._prompt_for_live_item(self.school.get_live_session_item(self.session_id, int(item["id"])))
-        self.assertEqual(prompt["payload"].get("rank_key"), ["o3", "o1", "o4", "o2"])
+        self.assertEqual(prompt["payload"].get("rank_key"), self._key(row))
+        ids = self._ids(row)
         rv = self.students["Ava"].post(
             "/api/student/live-prompt/response",
-            json={"prompt_id": prompt["id"], "response": {"order": ["o3", "o1", "o2", "o4"]}},
+            json={"prompt_id": prompt["id"], "response": {"order": [ids[2], ids[0], ids[1], ids[3]]}},
         )
         texts["response"] = rv.get_data(as_text=True)
         self._assert_no_key(texts)
 
     def test_borda_results_unchanged_with_a_key(self) -> None:
         """Same team orders give the same class order, keyed or not."""
-        orders = (["o2", "o1", "o3", "o4"], ["o2", "o3", "o4", "o1"])
+        orders = ([1, 0, 2, 3], [1, 2, 3, 0])
         results = []
         for row in (self._add(dict(self.BODY)), self._keyed_row()):
             item = self._publish(row)
+            ids = self._ids(row)
+            labels = {opt["id"]: opt["label"] for opt in row["item"]["rank_options"]}
             for name, order in zip(("Ava", "Ben"), orders):
-                rv = self._post(name, item, "group-submit", {"order": order})
+                rv = self._post(name, item, "group-submit", {"order": [ids[i] for i in order]})
                 self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
             rank = self._view(item)["rank"]
-            results.append([(r["option_id"], r["points"], r["rank"]) for r in rank["class_order"]])
+            results.append([(labels[r["option_id"]], r["points"], r["rank"]) for r in rank["class_order"]])
             self.client.post(f"/api/live-sessions/{self.session_id}/items/{item['id']}/close")
         self.assertEqual(results[0], results[1])
-        self.assertEqual(results[0][0][0], "o2")
+        self.assertEqual(results[0][0][0], "A graph")
 
 
 class AnswerOrderAuthorUiTests(unittest.TestCase):
