@@ -5610,7 +5610,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             teacher = school.live_session_teacher_state_payload(live_session_id)
         except KeyError:
             teacher = None
-        tally = school._tally_for_prompt(live_session_id, target, teacher)
+        tally = school._tally_for_prompt(live_session_id, target, teacher, for_student=True)
         if tally is None:
             tally = school.live_session_mc_tally(live_session_id)
         if tally is not None and school._student_may_see_tally(

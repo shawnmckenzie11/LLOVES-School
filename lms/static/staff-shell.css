@@ -6275,6 +6275,10 @@ body.staff-shell .live-hide-key-btn[aria-pressed="true"] {
   background: #0f172a;
   color: #f8fafc;
 }
+/* MCK-155 gate N-1: Hide key also hides the Responses ticks. */
+body.staff-shell #live-responses-dialog.is-key-hidden input.is-key-tick {
+  visibility: hidden;
+}
 body.staff-shell .live-question-list.is-key-hidden .live-question-key,
 body.staff-shell .live-question-list.is-key-hidden [data-key-mark] {
   display: none;

@@ -2616,9 +2616,13 @@ body.rw-open { overflow: hidden; }
 .group-reveal-mark.is-incorrect {
   color: #fca5a5;
 }
-/* MCK-155 gate LOW-1: line up the instruction and team strip with the card body. */
+/* MCK-155 gate LOW-1: line up the instruction, team strip and group lines
+   with the card body (choices sit at 1rem inside the 4px border). The strip
+   lives inside .student-group-card, not directly in the card. */
 .student-live-card > .student-group-instruction,
-.student-live-card > .student-group-strip {
+.student-live-card .student-group-card > .student-group-strip,
+.student-live-card .student-group-card > .student-group-phase,
+.student-live-card .student-group-card > .group-submit-last {
   margin-left: 1rem;
   margin-right: 1rem;
 }

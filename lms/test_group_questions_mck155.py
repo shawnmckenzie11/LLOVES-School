@@ -234,6 +234,93 @@ class GroupQuestionTests(unittest.TestCase):
         closed_row = self._student_row(0, item)
         self.assertTrue(any(c.get("correct") for c in closed_row["results"]["choices"]))
 
+    def test_open_numeric_tally_never_names_the_key(self) -> None:
+        """Gate NEW-HIGH-A: key 3.14159 / tolerance 0.01, results on."""
+
+        item = self._add_publish(
+            {"type": "numeric", "text": "Pi to 2 places?", "correct_answer": "3.14159", "tolerance": 0.01},
+            "individual",
+        )
+        self.school.update_live_session_item_settings(
+            self.session_id, int(item["id"]), show_live_results=True
+        )
+        prompt = self.school._prompt_for_live_item(item)
+        ava = self._student_client("Ava")
+        ben = self._student_client("Ben")
+        bodies = []
+        for client, value in ((ava, 3.14), (ben, 3.2)):
+            rv = client.post(
+                "/api/student/live-prompt/response",
+                json={"prompt_id": int(prompt["id"]), "response": {"value": value}},
+            )
+            self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+            bodies.append(rv.get_json())
+
+        def labels(tally: dict[str, Any] | None) -> list[str]:
+            return [str(c.get("label")) for c in (tally or {}).get("choices") or []]
+
+        # Every student surface while open: answer replies, live-prompt,
+        # /state live items. No bar reads (or is split around) the key.
+        open_tallies = [b.get("mc_tally") for b in bodies]
+        for client in (ava, ben):
+            open_tallies.append((client.get("/api/student/live-prompt").get_json() or {}).get("mc_tally"))
+            state = client.get("/api/student/state").get_json() or {}
+            open_tallies.extend(
+                row.get("results")
+                for row in [*(state.get("live_items") or []), *(state.get("active_questions") or [])]
+                if int(row.get("id") or 0) == int(item["id"])
+            )
+        for index in range(2):
+            row = self._student_row(index, item)
+            self.assertEqual(row["status"], "active")
+            open_tallies.append(row.get("results"))
+        open_tallies = [t for t in open_tallies if t]
+        self.assertGreaterEqual(len(open_tallies), 4, "results on: the class bars ride")
+        for tally in open_tallies:
+            text = json.dumps(tally)
+            self.assertNotIn("3.14159", text)
+            self.assertNotIn('"correct"', text)
+            self.assertTrue(labels(tally), tally)
+            self.assertLessEqual(set(labels(tally)), {"3.14", "3.2"}, tally)
+        # After both answers every surface shows the two typed buckets.
+        self.assertEqual(sorted(labels(open_tallies[-1])), ["3.14", "3.2"])
+        # A mixed bucket does not split around a 0-tolerance key either.
+        exact = self._add_publish(
+            {"type": "numeric", "text": "Half of 5?", "correct_answer": "2.5"},
+            "individual",
+        )
+        self.school.update_live_session_item_settings(
+            self.session_id, int(exact["id"]), show_live_results=True
+        )
+        exact_prompt = self.school._prompt_for_live_item(exact)
+        for sid, value in ((self.ids[0], 2.5), (self.ids[1], 2.501)):
+            self.school.submit_live_prompt_response(int(exact_prompt["id"]), sid, {"value": value})
+        safe = self.school._tally_for_prompt(self.session_id, exact_prompt, None, for_student=True)
+        staff = self.school._tally_for_prompt(self.session_id, exact_prompt, None)
+        self.assertEqual(len(staff["choices"]), 2, "staff keep the exact split")
+        self.assertEqual(len(safe["choices"]), 1, "students get one bucket while open")
+        # Staff still see the full-precision key bar.
+        teacher = self.school._tally_for_prompt(self.session_id, prompt, None)
+        self.assertIn("3.14159", labels(teacher))
+        # Once closed, the student copy carries the key bar and mark.
+        self.school.close_live_session_item(self.session_id, int(item["id"]))
+        closed = self._student_row(0, item)["results"]
+        self.assertIn("3.14159", labels(closed))
+        self.assertTrue(any(c.get("correct") for c in closed["choices"]))
+        safe_closed = self.school.student_safe_tally(
+            self.session_id, prompt, self.school._tally_for_prompt(self.session_id, prompt, None), None
+        )
+        self.assertIn("3.14159", labels(safe_closed))
+
+    def test_group_lines_share_the_card_margin(self) -> None:
+        """Gate LOW-1: the strip sits inside .student-group-card, so the rule
+        must reach it there (measured 20px = choices at 390 and 1280)."""
+
+        css = (LMS_DIR / "static" / "student-portal.css").read_text(encoding="utf-8")
+        self.assertIn(".student-live-card .student-group-card > .student-group-strip", css)
+        self.assertIn(".student-live-card .student-group-card > .student-group-phase", css)
+        self.assertNotIn(".student-live-card > .student-group-strip", css)
+
     def test_poll_and_rank_have_no_key(self) -> None:
         """Only keyed MC gets right/wrong marks."""
 

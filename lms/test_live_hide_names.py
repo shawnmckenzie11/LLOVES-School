@@ -66,8 +66,11 @@ vm.createContext(ctx);
 vm.runInContext(input.src + "\npaintQuestionResponses(" + JSON.stringify(input.rows) + ");", ctx);
 const names = [...host.innerHTML.matchAll(/live-response-name">([^<]*)</g)].map((m) => m[1]);
 const answers = [...host.innerHTML.matchAll(/live-response-answer">([^<]*)</g)].map((m) => m[1]);
+const points = [...host.innerHTML.matchAll(/live-response-points">\s*([^<]*?)\s*</g)].map((m) => m[1]);
+const keyTicks = (host.innerHTML.match(/is-key-tick/g) || []).length;
+const checked = (host.innerHTML.match(/ checked/g) || []).length;
 const marks = [...host.innerHTML.matchAll(/live-response-mark">\s*([^<]*?)\s*</g)].map((m) => m[1]);
-console.log(JSON.stringify({ names, answers, marks, hiddenClass: host.hidden,
+console.log(JSON.stringify({ names, answers, marks, points, keyTicks, checked, hiddenClass: host.hidden,
   boxes: (host.innerHTML.match(/data-response-student=/g) || []).length }));
 """
 
@@ -83,7 +86,7 @@ ROSTER = [{"id": 1}, {"id": 2}]
 class HideNamesTests(unittest.TestCase):
     """The Responses list hides names only when the switch is on."""
 
-    def _paint(self, hidden: bool, key_hidden: bool = False) -> dict:
+    def _paint(self, hidden: bool, key_hidden: bool = False, rows: list | None = None) -> dict:
         js = STAFF_JS.read_text(encoding="utf-8")
         src = "\n".join(
             _function_source(js, name)
@@ -101,7 +104,7 @@ class HideNamesTests(unittest.TestCase):
         done = subprocess.run(
             ["node", "-e", HARNESS],
             input=json.dumps(
-                {"src": src, "rows": ROWS, "roster": ROSTER, "hidden": hidden, "keyHidden": key_hidden}
+                {"src": src, "rows": rows or ROWS, "roster": ROSTER, "hidden": hidden, "keyHidden": key_hidden}
             ),
             capture_output=True,
             text=True,
@@ -136,6 +139,19 @@ class HideNamesTests(unittest.TestCase):
         both = self._paint(True, key_hidden=True)
         self.assertNotIn("Correct", both["marks"])
         self.assertNotIn("Incorrect", both["marks"])
+
+    def test_awarded_ticks_and_points_follow_hide_key(self) -> None:
+        """MCK-155 gate N-1: +1 given before Hide key does not name the key."""
+        awarded = [dict(ROWS[0]), dict(ROWS[1], awarded_points=1), dict(ROWS[2])]
+        shown = self._paint(False, rows=awarded)
+        self.assertEqual(shown["points"], ["+1", ""])
+        self.assertEqual((shown["checked"], shown["keyTicks"]), (1, 0))
+        hidden = self._paint(False, key_hidden=True, rows=awarded)
+        self.assertEqual(hidden["points"], ["", ""])
+        # The tick state is kept (still checked) but rendered as a hidden tick.
+        self.assertEqual((hidden["checked"], hidden["keyTicks"]), (1, 2))
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn("#live-responses-dialog.is-key-hidden input.is-key-tick", css)
 
     def test_switch_is_in_the_dialog_and_remembered(self) -> None:
         """The dialog has the switch; the JS stores the choice."""

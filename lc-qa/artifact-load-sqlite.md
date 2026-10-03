@@ -34,7 +34,7 @@ WAL, autocommit, and the shared process lock stay for a machine with no Postgres
 ## Fix
 
 - Both connections use autocommit, so a statement releases the write lock when it returns.
-- Both connections share one process lock, so gunicorn threads do not interleave one connection.
+- Both connections share one process lock, so the two gunicorn threads do not interleave one connection.
 - WAL + `busy_timeout` stay. `synchronous=NORMAL` is the WAL companion so a heartbeat fsync does not sit on the lock.
 - If a lock still escapes, heartbeat returns JSON 503 `retry: true` and student `/state` returns the reconnect stub. The student page keeps the last Artifact frame and shows Reconnecting… / Retry. This run expects those branches not to fire.
 
@@ -46,7 +46,7 @@ WAL, autocommit, and the shared process lock stay for a machine with no Postgres
 | Class | 12 students |
 | Waves | 4 |
 | In-flight cap | 2 |
-| Wall | 1044 ms |
+| Wall | 542 ms |
 | sqlite lock logs | 0 |
 | `_resume_live_attendee` writes | 96 |
 | school in_transaction | False |
@@ -55,10 +55,10 @@ WAL, autocommit, and the shared process lock stay for a machine with no Postgres
 
 | Path | n | med ms | p95 ms | max ms |
 |---|---:|---:|---:|---:|
-| heartbeat | 48 | 3 | 8 | 12 |
-| media | 48 | 1 | 2 | 8 |
-| staff-state | 4 | 25 | 31 | 32 |
-| state | 48 | 35 | 42 | 47 |
+| heartbeat | 48 | 1 | 3 | 3 |
+| media | 48 | 1 | 1 | 1 |
+| staff-state | 4 | 13 | 14 | 18 |
+| state | 48 | 17 | 18 | 22 |
 
 ### Errors
 
@@ -70,6 +70,6 @@ WAL, autocommit, and the shared process lock stay for a machine with no Postgres
 
 ## Residual
 
-- Fly machine size is unchanged (shared-cpu-1x, 1 GB, 4 workers × 8 threads, timeout 120). Not smoked on Fly.
+- Fly machine size is unchanged (shared-cpu-1x, 1 GB, 2 threads). Not smoked on Fly.
 - A second process on the same file can still wait on `busy_timeout` (30s). Production runs one gunicorn worker.
 - The 0.5s team-membership cache can lag a team edit by one poll.
