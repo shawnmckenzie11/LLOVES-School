@@ -1,4 +1,5 @@
 import { api, escapeHtml, formatQuestionHtml, renderLiveQuestionMath } from "/static/common.js";
+import { mountTypeChips } from "/static/bank_type_chips.js";
 
 const root = document.getElementById("catalog-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -16,6 +17,17 @@ const removeDialog = document.getElementById("bank-remove-dialog");
 const scopeEl = document.getElementById("live-bank-scope");
 const kindEl = document.getElementById("live-bank-kind");
 const searchEl = document.getElementById("live-bank-search");
+const typeHost = document.getElementById("live-bank-types");
+/** MCK-170: Type chips, shared with Import from bank; ANDed with scope, Kind and search. */
+const typeChips =
+  typeHost instanceof HTMLElement
+    ? mountTypeChips(typeHost, {
+        view: "question-banks",
+        onChange: () => {
+          loadLiveBank().catch(() => {});
+        },
+      })
+    : null;
 
 /** @type {Record<string, unknown>[]} */
 let items = [];
@@ -144,10 +156,39 @@ function readEditor(card) {
 }
 
 /**
+ * True when a search row is a rank (put-in-order) item (MCK-169).
+ * @param {Record<string, unknown>} item
+ */
+function isRank(item) {
+  return String(item?.type || "").toLowerCase() === "rank";
+}
+
+/**
+ * Read-only peek for a rank row: items, then the answer order when set.
+ * Rank rows are not edited in this tab; the MC editor would drop the order.
+ * @param {Record<string, unknown>} item
+ */
+function rankPeekHtml(item) {
+  const rows = Array.isArray(item.rank_options) ? item.rank_options : [];
+  const labelFor = new Map(rows.map((row) => [String(row?.id || ""), String(row?.label || "")]));
+  const items = rows.map((row) => `<li>${escapeText(String(row?.label || ""))}</li>`).join("");
+  const key = Array.isArray(item.rank_key) ? item.rank_key.map((id) => labelFor.get(String(id)) || "") : [];
+  const order = key.length && key.every(Boolean)
+    ? `<p class="hint compact">Answer order: ${escapeText(key.join(" → "))}</p>`
+    : `<p class="hint compact">No answer order set</p>`;
+  return `<div class="bank-q-peek">
+    <div class="bank-q-stem live-question-html">${formatQuestionHtml(String(item.text || item.question_title || ""))}</div>
+    ${items ? `<ul class="bank-q-choices">${items}</ul>` : ""}
+    ${order}
+  </div>`;
+}
+
+/**
  * Render one read-only peek for the selected live-bank row.
  * @param {Record<string, unknown>} item
  */
 function peekHtml(item) {
+  if (isRank(item)) return rankPeekHtml(item);
   const options = Array.isArray(item.options) ? item.options : [];
   const choiceBits = options
     .map((choice) => {
@@ -275,7 +316,9 @@ function paintDetail() {
     ? `<span class="bank-q-chip">${escapeText(CHIP_COPY)}</span>`
     : "";
   const body =
-    editMode && editorQuestion
+    editMode && isRank(selected)
+      ? `${peekHtml(selected)}<p class="hint compact">Rank items are read-only here for now.</p>`
+      : editMode && editorQuestion
       ? editorHtml(editorQuestion, false)
       : editMode
         ? `<p class="hint">Loading editor…</p>`
@@ -423,6 +466,8 @@ async function loadLiveBank() {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
   if (kind) params.set("kind", kind);
+  const qtype = typeChips ? typeChips.value() : "";
+  if (qtype) params.set("type", qtype);
   const suffix = params.toString() ? `?${params.toString()}` : "";
   let data;
   try {
@@ -440,6 +485,7 @@ async function loadLiveBank() {
     return;
   }
   if (token !== loadToken) return;
+  typeChips?.update(Array.isArray(data.type_counts) ? data.type_counts : []);
   items = Array.isArray(data.items) ? data.items : [];
   const keep = Number(selected?.question_id || 0);
   selected = items.find((row) => Number(row.question_id) === keep) || items[0] || null;

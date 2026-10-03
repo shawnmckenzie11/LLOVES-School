@@ -3550,6 +3550,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             from lms.bank_mc_normalize import parse_module_token
         query = str(request.args.get("q") or "").strip()
         kind = str(request.args.get("kind") or "").strip().lower()
+        try:
+            from bank_question_types import parse_type_filter
+        except ImportError:
+            from lms.bank_question_types import parse_type_filter
+        question_type = parse_type_filter(request.args.get("type"))
+        if question_type is None:
+            return jsonify({"ok": False, "error": "unknown question type"}), 400
         scope_arg = str(
             request.args.get("bank_scope") or request.args.get("bankScope") or ""
         ).strip().lower()
@@ -3575,6 +3582,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 query,
                 class_id=int(class_id),
                 kind=kind,
+                question_type=question_type,
             )
             items = result.get("items") or []
             return jsonify(
@@ -3586,9 +3594,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     "library_id": int(library_id),
                     "query": query,
                     "kind": kind,
+                    "type": question_type,
                     "count": len(items),
                     "total": int(result.get("total") or 0),
                     "filtered": int(result.get("filtered") or 0),
+                    "type_counts": result.get("type_counts") or [],
                     "items": items,
                 }
             )
@@ -3598,6 +3608,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             query,
             class_id=int(class_id),
             kind=kind,
+            question_type=question_type,
         )
         items = result.get("items") or []
         return jsonify(
@@ -3609,9 +3620,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 "library_id": int(library_id),
                 "query": query,
                 "kind": kind,
+                "type": question_type,
                 "count": len(items),
                 "total": int(result.get("total") or 0),
                 "filtered": int(result.get("filtered") or 0),
+                "type_counts": result.get("type_counts") or [],
                 "items": items,
             }
         )
