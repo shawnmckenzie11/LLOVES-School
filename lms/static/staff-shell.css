@@ -5419,6 +5419,52 @@ body.staff-shell .bank-mc-content-row .bank-mc-picker-row-main {
 body.staff-shell .bank-mc-content-row.is-on-deck .bank-mc-picker-text {
   color: #64748b;
 }
+/* MCK-169 S1: rank rows carry one chip (Answer order = teal outline,
+   Opinion = grey outline) and a one-line preview of three options. */
+body.staff-shell .bank-rank-chip {
+  display: inline-block;
+  padding: 0 0.4rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.35;
+  vertical-align: baseline;
+  cursor: help;
+}
+body.staff-shell .bank-rank-chip.is-key {
+  color: #0f766e;
+}
+body.staff-shell .bank-rank-chip.is-opinion {
+  color: #64748b;
+}
+body.staff-shell .bank-rank-preview {
+  display: flex;
+  gap: 0.3em;
+  min-width: 0;
+  margin: 0.1rem 0 0;
+  overflow: hidden;
+  white-space: nowrap;
+  color: #334155;
+}
+/* Ops LOW-2: the option text truncates; "+{k} more" never does. */
+body.staff-shell .bank-rank-preview-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.staff-shell .bank-rank-preview-more {
+  flex: none;
+  color: #64748b;
+}
+body.staff-shell .bank-mc-rank-hint {
+  margin: 0 0 0.35rem;
+  color: #0f766e;
+}
+body.staff-shell .bank-mc-rank-none-keyed {
+  padding: 0.45rem 0.6rem;
+}
 /* MCK-175: Contest Questions show only while Kind is "Contest Questions",
    in place of the type chips, the count line and the bank list. */
 body.staff-shell .bank-mc-picker.is-contest-view [data-bank-type-chips],

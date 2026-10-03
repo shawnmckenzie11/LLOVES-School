@@ -29,6 +29,11 @@ TEACHER_ONLY_FIELDS = (
     "rank_key",
     # MCK-169: reviewed rank items carry a teacher note (which moves commute).
     "teacher_note",
+    # MCK-177 Ops LOW-1: the Take turns import preset marks an Answer order
+    # rank, so it would reveal that an order exists. Students learn Take
+    # turns from the published group card (``rank_mode``) instead.
+    "import_group_preset",
+    "group_rank_mode",
 )
 
 # Student-facing one-beat leads. Never “Wrong.” Never teacher-stage talk.

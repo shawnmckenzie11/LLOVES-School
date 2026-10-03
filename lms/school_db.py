@@ -1465,6 +1465,10 @@ GROUP_MC_FLOW_KEY = "group_mc_flow"
 WHITEBOARD_REOPEN_KEY = "reopen"
 WHITEBOARD_REOPEN_STARTS = ("last", "fresh")
 WHITEBOARD_REOPEN_ONLY_CLOSED = "Only a closed whiteboard can be reopened."
+# MCK-169 S2: an imported Answer order rank card starts on Group · take
+# turns. The preset marker lives on the class placement only.
+RANK_IMPORT_GROUP_MODE = "turns"
+RANK_IMPORT_GROUP_PRESET = "rank_turns"
 GROUP_MC_PICK_THEN_AGREE = "pick_then_agree"
 
 
@@ -10747,6 +10751,13 @@ class SchoolDB(LovesDB):
                 "question_title": str(row["title"] or ""),
                 "import_source": "module_bank",
             }
+            if str(normalized.get("type") or "") == "rank" and normalized.get("rank_key"):
+                # MCK-169 S2: an Answer order rank imports preset to Group ·
+                # take turns, on this card only (never on the bank row). The
+                # first lifecycle row reads the preset; the teacher can change
+                # it until Publish. Opinion ranks keep today's default.
+                item_payload["group_rank_mode"] = RANK_IMPORT_GROUP_MODE
+                item_payload["import_group_preset"] = RANK_IMPORT_GROUP_PRESET
             if added_live is not None:
                 item_payload["added_live_session_id"] = int(added_live)
             stamp = _now()
@@ -13798,6 +13809,20 @@ class SchoolDB(LovesDB):
                     in self._question_publish_modes(question)
                     else "individual"
                 )
+                if (
+                    question.get("import_group_preset") == RANK_IMPORT_GROUP_PRESET
+                    and str(question.get("type") or "").strip().lower() == "rank"
+                ):
+                    # MCK-169 S2: a new lifecycle row for an imported Answer
+                    # order rank starts on Group (take turns). A saved row
+                    # (teacher's own choice) overrides this just below.
+                    default_publish = "group_submit"
+                    response_mode = "group_submit"
+                    question = {
+                        **question,
+                        "publish_mode": "group_submit",
+                        "response_mode": "group_submit",
+                    }
                 prompt = prompt_by_item.get(item_id) or prompt_by_item.get(
                     self._live_item_alias(item_id)
                 )
