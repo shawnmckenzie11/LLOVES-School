@@ -18,6 +18,28 @@ from bank_mc_normalize import is_bank_rank_payload, normalize_bank_rank  # noqa:
 from school_db import _now  # noqa: E402
 
 
+# Shape of one reviewed MCK-167 candidate as part B would store it
+# (payload + rank_key from proposed_answer_key + teacher fields).
+CANDIDATE_PAYLOAD = {
+    "stem_html": "<p>If x = \u22122 and y = 3, put these from least to greatest.</p>",
+    "points_possible": 1.0,
+    "type": "rank",
+    "kind": "rank",
+    "options": ["B: x\u00b2/y\u00b2", "A: y/x", "C: x\u00b2/y\u00b3"],
+    "choices": ["B: x\u00b2/y\u00b2", "A: y/x", "C: x\u00b2/y\u00b3"],
+    "rank_options": [
+        {"id": "o1", "label": "B: x\u00b2/y\u00b2"},
+        {"id": "o2", "label": "A: y/x"},
+        {"id": "o3", "label": "C: x\u00b2/y\u00b3"},
+    ],
+    "rank_key": ["o2", "o3", "o1"],
+    "teacher_key": {"simplified": {"A": "y/x = \u22123/2", "C": "4/27", "B": "4/9"}},
+    "teacher_note": "SECRET-NOTE moves commute",
+    "live_class": {"slot": "C3", "md_basis": "from files"},
+    "bank_kind": "",
+}
+
+
 class NormalizeBankRankTests(unittest.TestCase):
     """The pure normalizer reads both stored rank shapes."""
 
@@ -59,6 +81,16 @@ class NormalizeBankRankTests(unittest.TestCase):
         self.assertEqual(live["text"], "Rank these")
         self.assertEqual(len(live["rank_options"]), 3)
         self.assertNotIn("rank_key", live)
+
+    def test_candidate_shape_keeps_teacher_key_drops_note_and_slot(self) -> None:
+        """teacher_key flattens to text; teacher_note and live_class are ignored on purpose."""
+        live, reason = normalize_bank_rank(question_id=3, bank_id=2, title="If x", payload=CANDIDATE_PAYLOAD)
+        assert live is not None, reason
+        self.assertEqual(live["text"], "If x = \u22122 and y = 3, put these from least to greatest.")
+        self.assertEqual(live["rank_key"], ["o2", "o3", "o1"])
+        self.assertEqual(live["teacher_key"], "A: y/x = \u22123/2; C: 4/27; B: 4/9")
+        self.assertNotIn("teacher_note", live)
+        self.assertNotIn("live_class", live)
 
     def test_choice_html_becomes_labels(self) -> None:
         """A rank payload whose items only live in ingest choices still works."""
@@ -241,6 +273,43 @@ class BankRankSearchTests(unittest.TestCase):
         )
         self.assertEqual(placement["item"]["type"], "rank")
         self.assertNotIn("rank_key", placement["item"])
+
+    def test_candidate_import_hides_teacher_fields_from_students(self) -> None:
+        """A stored candidate imports with teacher_key for staff only; no note leaks."""
+        qid = self._raw_question("essay_question", json.dumps(CANDIDATE_PAYLOAD), "rank:MCR3U:M3:candidate")
+        row = next(r for r in self._search("M1", q="least to greatest")["items"] if int(r["question_id"]) == qid)
+        self.assertEqual(row["question_type"], "rank")
+        rv = self.client.post(
+            f"/api/staff/class/{self.class_id}/live-lessons/M1/C3/import-mc",
+            json={"question_id": qid, "page_number": 1, "stage": "round"},
+        )
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        item = rv.get_json()["placement"]["item"]
+        self.assertEqual(item["rank_key"], ["o2", "o3", "o1"])
+        self.assertIn("4/27", item["teacher_key"])
+        self.assertNotIn("teacher_note", item)
+        teacher = self.school.get_user_by_email("teacher@gmail.com")
+        session_id = int(self.school.start_live_class_session(self.class_id, int(teacher["id"]))["id"])
+        self.client.post(
+            f"/api/live-sessions/{session_id}/teacher-state",
+            json={"live_module": "M1", "live_slot": "C3", "stage": "round", "page_id": "round_1"},
+        )
+        self.school.ensure_live_session_items(session_id)
+        live_row = next(r for r in self.school.list_live_session_items(session_id) if r["item_id"] == item["id"])
+        rv = self.client.post(
+            f"/api/live-sessions/{session_id}/items/{live_row['id']}/publish",
+            json={"publish_mode": "individual"},
+        )
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        guest = json.dumps(
+            self.school.assemble_student_live_payload(
+                session_id, self.class_id, None, participant_uuid="guest-zed", codename="Zed", unmatched=True
+            ),
+            default=str,
+        )
+        self.assertIn("least to greatest", guest)
+        for secret in ("rank_key", "teacher_key", "4/27", "SECRET-NOTE"):
+            self.assertNotIn(secret, guest)
 
     def test_bad_rows_never_break_search(self) -> None:
         """Malformed essay JSON and two-option ranks are skipped quietly."""

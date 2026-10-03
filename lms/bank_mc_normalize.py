@@ -419,4 +419,34 @@ def normalize_bank_rank(
         value = str(blob.get(field) or "").strip()
         if value:
             live[field] = value
+    teacher_key = _teacher_key_text(blob.get("teacher_key"))
+    if teacher_key:
+        # Already teacher-only (TEACHER_ONLY_FIELDS), so students never see it.
+        live["teacher_key"] = teacher_key
+    # Deliberately not copied: ``teacher_note`` (not on the teacher-only
+    # lists, so it would reach students) and ``live_class`` (placement is
+    # chosen by the import URL, not the bank row).
     return live, None
+
+
+def _teacher_key_text(raw: Any) -> str:
+    """Flatten a stored teacher key (text or nested dict) into one line.
+
+    Args:
+        raw: ``teacher_key`` from a bank payload.
+
+    Returns:
+        Plain text such as ``"A: y/x = -3/2; C: 4/27"``, or ``""``.
+    """
+    if isinstance(raw, dict):
+        parts: list[str] = []
+        for key, value in raw.items():
+            inner = _teacher_key_text(value)
+            if inner:
+                parts.append(f"{key}: {inner}" if isinstance(value, (str, int, float)) else inner)
+        return "; ".join(parts)[:1000]
+    if isinstance(raw, list):
+        return "; ".join(t for t in (_teacher_key_text(v) for v in raw) if t)[:1000]
+    if isinstance(raw, (str, int, float)) and not isinstance(raw, bool):
+        return str(raw).strip()[:1000]
+    return ""
