@@ -80,7 +80,7 @@ try:
         cursor_color_for,
         public_canvas_sync,
     )
-    from live_mc import build_live_tally, build_mc_tally
+    from live_mc import build_live_tally, build_mc_tally, numeric_prompt_without_key
     from live_rank import (
         borda_class_order,
         build_rank_options,
@@ -225,7 +225,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         cursor_color_for,
         public_canvas_sync,
     )
-    from lms.live_mc import build_live_tally, build_mc_tally
+    from lms.live_mc import build_live_tally, build_mc_tally, numeric_prompt_without_key
     from lms.live_rank import (
         borda_class_order,
         build_rank_options,
@@ -18146,7 +18146,9 @@ class SchoolDB(LovesDB):
                 and item["response_mode"] == "individual"
                 and prompt is not None
             ):
-                results = self._tally_for_prompt(session_id, prompt, teacher)
+                results = self._tally_for_prompt(
+                    session_id, prompt, teacher, for_student=True
+                )
                 if status != "closed" and isinstance(results, dict):
                     # MCK-155 S3: no "Correct" on student screens until Close.
                     for choice_row in results.get("choices") or []:
@@ -21884,11 +21886,13 @@ class SchoolDB(LovesDB):
         """
         if not isinstance(tally, dict):
             return tally
-        lifecycle = self._lifecycle_item_for_prompt(session_id, prompt)
-        if lifecycle is not None:
-            closed = str(lifecycle.get("status") or "") == "closed"
-        else:
-            closed = student_mc_summary_visible(teacher) or mc_poll_closed(teacher)
+        closed = self._student_key_visible(session_id, prompt, teacher)
+        if not closed and str(tally.get("kind") or "") == "numeric" and prompt:
+            # Gate NEW-HIGH-A: the staff numeric tally labels (and splits)
+            # bars by the key. Rebuild it from the key-free prompt.
+            rebuilt = self._tally_for_prompt(session_id, prompt, teacher, for_student=True)
+            if isinstance(rebuilt, dict):
+                tally = rebuilt
         out = dict(tally)
         choices = []
         for row in tally.get("choices") or []:
@@ -21903,6 +21907,27 @@ class SchoolDB(LovesDB):
             for key in ("correct", "correct_answer", "correct_ids", "key", "answer_key", "correct_count"):
                 out.pop(key, None)
         return out
+
+    def _student_key_visible(
+        self,
+        session_id: int,
+        prompt: dict[str, Any] | None,
+        teacher: dict[str, Any] | None = None,
+    ) -> bool:
+        """True once a student may see this prompt's answer key.
+
+        A lifecycle item shows it only once closed. A prompt with no
+        lifecycle row shows it after Reveal to students or a closed poll.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            prompt: Facing prompt row.
+            teacher: Public teacher state for Reveal.
+        """
+        lifecycle = self._lifecycle_item_for_prompt(session_id, prompt) if prompt else None
+        if lifecycle is not None:
+            return str(lifecycle.get("status") or "") == "closed"
+        return bool(student_mc_summary_visible(teacher) or mc_poll_closed(teacher))
 
     def _student_may_see_tally(
         self,
@@ -22107,6 +22132,8 @@ class SchoolDB(LovesDB):
         session_id: int,
         prompt: dict[str, Any] | None,
         teacher: dict[str, Any] | None,
+        *,
+        for_student: bool = False,
     ) -> dict[str, Any] | None:
         """Tally one prompt row for staff/student graphs.
 
@@ -22114,12 +22141,18 @@ class SchoolDB(LovesDB):
             session_id: ``live_class_sessions.id``.
             prompt: Prompt row to tally.
             teacher: Public teacher state.
+            for_student: MCK-155 gate NEW-HIGH-A. A student numeric tally
+                is built from the key-free prompt until the key may show
+                (``_student_key_visible``), so no bar is labelled with, or
+                split around, the key while the question is open.
         """
         if not prompt or prompt.get("id") in (None, ""):
             return None
         linked = self._lifecycle_item_for_prompt(session_id, prompt)
         if linked is not None:
             prompt = self._repair_mc_answer_key(linked, prompt)
+        if for_student and not self._student_key_visible(session_id, prompt, teacher):
+            prompt = numeric_prompt_without_key(prompt)
         attendees = self.list_live_session_attendees(session_id)
         present = sum(1 for row in attendees if not row.get("left_at"))
         return build_live_tally(
@@ -22478,7 +22511,7 @@ class SchoolDB(LovesDB):
         }
         if stage == "teams":
             out["game_show_welcome"] = self.student_game_show_welcome(session_id)
-        shared_tally = self._tally_for_prompt(session_id, prompt, teacher)
+        shared_tally = self._tally_for_prompt(session_id, prompt, teacher, for_student=True)
         if shared_tally is not None and self._student_may_see_tally(
             session_id,
             prompt,

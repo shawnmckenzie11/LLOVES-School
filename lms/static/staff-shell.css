@@ -6355,6 +6355,30 @@ body.staff-shell .award-fresh-summary {
   background: #f1f5f9;
   font-weight: 600;
 }
+/* MCK-160 LOW-10: why Start fresh is off (every course is shared). */
+body.staff-shell .award-fresh-unavailable {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.8rem;
+}
+/* MCK-161 LOW-6: Contest Questions sit above the bank list, so keep the
+   Bank scope / Kind / Search row in view while the picker scrolls
+   (the safest default until the product call on LOW-6 is made). */
+body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: -0.65rem -0.85rem 0.45rem;
+  padding: 0.65rem 0.85rem 0.5rem;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+}
+/* MCK-161 INFO-2: plain prompt text with a blank line (a Contest
+   Question's stem, blank line, task) keeps its paragraphs. */
+body.staff-shell .live-question-html.is-paragraphs,
+.student-live-card .live-question-html.is-paragraphs {
+  white-space: pre-line;
+}
 
 /* MCK-155 S3: teacher-only right/wrong marks (icon + word) and Hide key. */
 body.staff-shell .live-mark {
@@ -6387,6 +6411,10 @@ body.staff-shell .live-responses-actions [hidden] {
 body.staff-shell .live-hide-key-btn[aria-pressed="true"] {
   background: #0f172a;
   color: #f8fafc;
+}
+/* MCK-155 gate N-1: Hide key also hides the Responses ticks. */
+body.staff-shell #live-responses-dialog.is-key-hidden input.is-key-tick {
+  visibility: hidden;
 }
 body.staff-shell .live-question-list.is-key-hidden .live-question-key,
 body.staff-shell .live-question-list.is-key-hidden [data-key-mark] {
@@ -6461,28 +6489,4 @@ body.staff-shell .rank-turn-skip-note {
 }
 body.staff-shell .live-group-rank-mode {
   margin-bottom: 0.35rem;
-}
-/* MCK-160 LOW-10: why Start fresh is off (every course is shared). */
-body.staff-shell .award-fresh-unavailable {
-  flex-basis: 100%;
-  margin: 0;
-  font-size: 0.8rem;
-}
-/* MCK-161 LOW-6: Contest Questions sit above the bank list, so keep the
-   Bank scope / Kind / Search row in view while the picker scrolls
-   (the safest default until the product call on LOW-6 is made). */
-body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-head {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  margin: -0.65rem -0.85rem 0.45rem;
-  padding: 0.65rem 0.85rem 0.5rem;
-  background: #fff;
-  border-bottom: 1px solid #e2e8f0;
-}
-/* MCK-161 INFO-2: plain prompt text with a blank line (a Contest
-   Question's stem, blank line, task) keeps its paragraphs. */
-body.staff-shell .live-question-html.is-paragraphs,
-.student-live-card .live-question-html.is-paragraphs {
-  white-space: pre-line;
 }

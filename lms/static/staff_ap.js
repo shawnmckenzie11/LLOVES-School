@@ -5101,16 +5101,21 @@ function paintQuestionResponses(responses, keepTicks) {
     }
     chunks.push(
       ...groupRows.map(
+        // Gate N-1: ticks and "+1" given before Hide key sit on exactly
+        // the right rows, so with Hide key on they are not shown (the tick
+        // state is kept for when the key comes back).
         (row) => `<label class="live-response-row">
           <input type="checkbox" data-response-student="${Number(row.student_id)}"${
             isTicked(row) ? " checked" : ""
-          }>
+          }${keyHidden ? ' class="is-key-tick" tabindex="-1" aria-hidden="true"' : ""}>
           <span class="live-response-name">${escapeHtml(responseRowLabel(row, labelOf(row), hidden))}</span>
           <span class="live-response-answer">${escapeHtml(row.answer || "—")}</span>
           <span class="live-response-mark">${
             keyHidden ? "Answered" : row.correct === true ? "Correct" : row.correct === false ? "Incorrect" : "Answered"
           }</span>
-          <span class="live-response-points">${row.awarded_points ? `+${escapeHtml(row.awarded_points)}` : ""}</span>
+          <span class="live-response-points">${
+            !keyHidden && row.awarded_points ? `+${escapeHtml(row.awarded_points)}` : ""
+          }</span>
         </label>`
       )
     );

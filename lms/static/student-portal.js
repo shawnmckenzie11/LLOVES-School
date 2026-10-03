@@ -35,6 +35,7 @@ import {
   showBoardRefreshCue,
 } from "/static/live_whiteboard.js";
 import { nameWithAvatar, paintAvatar } from "/static/student_avatars.js";
+import { rankStackHtml } from "/static/rank_stack.js";
 import {
   GROUP_INSTRUCTION_COPY,
   consensusWaitHtml,
@@ -47,7 +48,6 @@ import {
   mcPickStepHtml,
   rankTurnsHtml,
 } from "/static/group_flows.js";
-import { rankStackHtml } from "/static/rank_stack.js";
 
 const waitEl = document.getElementById("student-wait");
 const gameShowWelcomeEl = document.getElementById("game-show-welcome");
