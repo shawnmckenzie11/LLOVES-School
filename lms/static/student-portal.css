@@ -632,6 +632,11 @@ body.student-home.is-live .student-live-response {
   font-size: 0.95rem;
   text-align: center;
 }
+/* A question card (open or closed) covers the live area: the waiting
+   line behind it only peeked out as a stray letter at the card's edge. */
+body.student-home .student-live-response:has(.student-live-card) > .student-wait {
+  display: none;
+}
 
 .question-frame {
   position: relative;
@@ -2824,4 +2829,140 @@ body.rw-open { overflow: hidden; }
 .student-live-card .student-group-card > .rank-turns {
   margin-left: 1rem;
   margin-right: 1rem;
+}
+
+/* MCK-171 Team challenge on the phone (390px, mock v1 §5). One calm cue
+   line, buttons >= 52px, rows >= 48px, no countdown. */
+.race-phone-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin: 0 0 10px;
+  background: #f1f5f9;
+  border-radius: 10px;
+}
+.race-phone-chip {
+  flex: none;
+  font-size: 26px;
+  line-height: 1;
+  color: var(--team, #12202e);
+}
+.race-phone-team {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.race-phone-team-name {
+  font-weight: 700;
+  color: var(--team, #12202e);
+}
+.race-phone-members {
+  font-size: 0.85rem;
+  color: #475569;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.race-phone-pill {
+  flex: none;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border: 1.5px solid #12202e;
+  border-radius: 999px;
+  color: #12202e;
+  background: #fff;
+}
+.race-phone-cue {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #12202e;
+}
+.race-phone-cue.is-ranking {
+  background: #eef2ff;
+}
+.race-phone-cue.is-agreed,
+.race-phone-cue.is-locked {
+  background: #ecfdf3;
+  font-weight: 600;
+}
+.race-phone-agree {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+  color: inherit; /* on the dark card */
+  font-weight: 600;
+}
+.race-phone-pips {
+  display: inline-flex;
+  gap: 6px;
+}
+.race-phone-pip {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  box-sizing: border-box;
+  border: 2px solid #cbd5e1;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+}
+.race-phone-pip.is-on {
+  background: var(--team, #6d28d9);
+  border-color: var(--team, #6d28d9);
+}
+.race-phone-btn {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  border-radius: 10px;
+}
+/* "Not yet": the mock's outline button, clearly live (not greyed out). */
+.race-phone-btn.is-outline {
+  margin-top: 0.35rem;
+  border: 2px solid #5eead4;
+  background: transparent;
+  color: #ecfeff;
+  cursor: pointer;
+}
+.race-phone-btn.is-outline:active {
+  background: rgba(94, 234, 212, 0.12);
+}
+.race-phone-order {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.race-phone-order li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.race-phone-n {
+  color: #475569;
+  font-size: 0.85rem;
+  min-width: 1.2em;
+}
+.race-phone-label {
+  font-weight: 600;
+  color: #12202e;
+}
+.race-phone .rank-option-row {
+  min-height: 48px;
 }

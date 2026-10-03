@@ -17385,8 +17385,14 @@ class SchoolDB(LovesDB):
             )
         teams_locked, teams_total = self._rank_race_team_counts(item)
         mode = self._group_rank_mode(item)
+        named = [
+            int(team.get("id") or 0)
+            for team in self._named_teams_for_live_session(int(item["live_session_id"]))
+        ]
         block: dict[str, Any] = {
             "mode": mode,
+            # Lane slot, so the phone's team shape + colour match the projector.
+            "slot": named.index(int(team_id)) if int(team_id) in named else 0,
             "locked": locked,
             "locked_by": self._rank_race_locked_by(row),
             "teams_locked": teams_locked,
