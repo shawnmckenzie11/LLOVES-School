@@ -83,6 +83,77 @@ class ContentImportFailed(RuntimeError):
         self.status = status
 
 
+class StalePick(LookupError):
+    """MCK-161 LOW-8: picks no longer in their group's current top 6.
+
+    Nothing is written. ``stale`` lists every such pick as
+    ``{question_id, module}`` so the picker can untick them; the message
+    names no internal ids.
+    """
+
+    def __init__(self, stale: list[tuple[int, str]]) -> None:
+        """Keep every stale ``(live_problem_id, group)`` pick."""
+        super().__init__(stale_pick_message(stale))
+        self.stale = [
+            {"question_id": int(problem_id), "module": key} for problem_id, key in stale
+        ]
+
+    def __str__(self) -> str:
+        """The teacher-facing message (``KeyError`` would add quotes)."""
+        return str(self.args[0]) if self.args else ""
+
+
+def stale_pick_message(stale: list[tuple[int, str]]) -> str:
+    """Teacher copy for stale picks: no ids, no "Contest Contest".
+
+    Args:
+        stale: ``(live_problem_id, group)`` pairs.
+    """
+    tail = "Nothing was imported. Reload the list and pick again."
+    if len(stale) == 1:
+        key = stale[0][1]
+        if key == COURSE_GROUP:
+            return f"One pick is no longer in the course-wide Contest group's top 6. {tail}"
+        return f"One pick is no longer in {_group_label(key)}'s top 6 Contest Questions. {tail}"
+    groups = {key for _pid, key in stale}
+    if len(groups) == 1:
+        key = next(iter(groups))
+        where = (
+            "the course-wide Contest group's top 6"
+            if key == COURSE_GROUP
+            else f"{_group_label(key)}'s top 6 Contest Questions"
+        )
+        return f"{len(stale)} picks are no longer in {where}. {tail}"
+    return f"{len(stale)} picks are no longer in their group's top 6 Contest Questions. {tail}"
+
+
+def deck_target(module: Any, slot: Any) -> tuple[str, str]:
+    """MCK-161 LOW-7: normalize a URL module/slot the way Add New stores them.
+
+    ``add_staff_question_to_class_playlist`` stores ``M{parse_module_token}``
+    and the upper-cased slot, so ``/M01/c4/`` lands under ``M1``/``C4``. The
+    import (and its rollback, which finds rows by module and slot) must use
+    the same keys, or a failed batch would report "undone" and leave rows.
+
+    Args:
+        module: URL module token (``M1``, ``m01``).
+        slot: URL slot token (``C2``).
+
+    Returns:
+        ``(module_key, slot_key)`` such as ``("M1", "C4")``.
+
+    Raises:
+        ValueError: Unknown module or empty slot.
+    """
+    number = parse_module_token(str(module or "").strip().upper())
+    if number is None:
+        raise ValueError("module required (e.g. M1)")
+    slot_key = str(slot or "").strip().upper()
+    if not slot_key:
+        raise ValueError("slot required (e.g. C1)")
+    return f"M{number}", slot_key
+
+
 def selectable_live_modules(course: Any) -> list[str]:
     """Return the Run Live Class module tokens that have a bank scope.
 
@@ -134,7 +205,9 @@ def problem_group(module_hint: Any, modules: list[str]) -> str:
     for part in (p for p in hint.split("/") if p):
         if part.startswith("M") and "C" in part:
             head = part[1:].split("C", 1)[0]
-            if head.isdigit() and f"M{int(head)}" in modules:
+            # MCK-161 INFO-4: ASCII digits only. ``"²".isdigit()`` is True
+            # but ``int("²")`` raises, which would 500 the list.
+            if head.isascii() and head.isdigit() and f"M{int(head)}" in modules:
                 return f"M{int(head)}"
     return COURSE_GROUP
 
@@ -315,12 +388,43 @@ def _batch_rows(
     with school._lock:
         rows = school.conn.execute(
             """
-            SELECT id, item_json FROM class_live_playlist_placements
+            SELECT id, placement_key, item_json FROM class_live_playlist_placements
             WHERE class_id = ? AND module = ? AND slot = ? AND item_json LIKE ?
             """,
             (int(class_id), module, slot, f"%{token}%"),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def _drop_inactive_session_items(school: Any, class_id: int, keys: list[str]) -> int:
+    """MCK-161 INFO-3: remove the batch's inactive live items after a failed resync.
+
+    The rollback deletes the placements, but if the resync then throws, the
+    active session keeps the inactive ``live_session_items`` it minted for
+    them until the next playlist change on that deck. Only *inactive* rows
+    with this batch's placement keys, in this class's active session, go.
+
+    Returns:
+        Rows deleted.
+    """
+    keys = [key for key in keys if key]
+    if not keys:
+        return 0
+    active = school.get_active_live_session_for_class(int(class_id))
+    if active is None:
+        return 0
+    placeholders = ",".join("?" for _ in keys)
+    with school._lock:
+        cur = school.conn.execute(
+            f"""
+            DELETE FROM live_session_items
+            WHERE live_session_id = ? AND status = 'inactive'
+              AND placement_key IN ({placeholders})
+            """,
+            (int(active["id"]), *keys),
+        )
+        school.conn.commit()
+    return int(cur.rowcount or 0)
 
 
 def _landed_ids(rows: list[dict[str, Any]]) -> list[int]:
@@ -350,6 +454,14 @@ def _roll_back_batch(
     deleted = 0
     undo_ok = True
     try:
+        batch_keys = [
+            str(row.get("placement_key") or "")
+            for row in _batch_rows(school, class_id, module, slot, token)
+        ]
+    except Exception:  # noqa: BLE001 - only used for the session-item cleanup
+        LOG.exception("MCK-79 could not read the batch keys before rollback")
+        batch_keys = []
+    try:
         with school._lock:
             cur = school.conn.execute(
                 """
@@ -377,6 +489,11 @@ def _roll_back_batch(
             )
         except Exception:  # noqa: BLE001
             LOG.exception("MCK-79 metadata cache invalidate failed")
+        if undo_ok:
+            try:
+                _drop_inactive_session_items(school, int(class_id), batch_keys)
+            except Exception:  # noqa: BLE001 - next playlist change prunes them
+                LOG.exception("MCK-161 inactive live item cleanup failed (class %s)", class_id)
     try:
         landed = _landed_ids(_batch_rows(school, class_id, module, slot, token))
     except Exception:  # noqa: BLE001
@@ -411,7 +528,7 @@ def import_content_questions(
     Args:
         school: ``SchoolDB``.
         class_id: Game-show ``classes.id``.
-        module: Target live module (``M1``).
+        module: Target live module (``M1``; normalized by ``deck_target``).
         slot: Target live slot (``C2``).
         picks: Output of ``clean_content_picks``.
         ontario_code: Course code for the ``live_problems`` read.
@@ -423,20 +540,23 @@ def import_content_questions(
         Placement rows in pick order.
 
     Raises:
-        KeyError: A pick is not in its group's top Contest Questions
-            (nothing written).
+        ValueError: Unknown module or empty slot (``deck_target``).
+        StalePick: One or more picks are not in their group's current top
+            Contest Questions (nothing written; all of them are listed).
         ContentImportFailed: A placement failed. ``status`` 409 when the
             batch was undone, 500 when the undo itself failed.
     """
+    module_key, slot_key = deck_target(module, slot)
     groups: dict[str, dict[int, dict[str, Any]]] = {}
+    stale: list[tuple[int, str]] = []
     for problem_id, key in picks:
         if key not in groups:
             group = module_content_questions(school, ontario_code, key, modules)
             groups[key] = {int(item["question_id"]): item for item in group["items"]}
         if problem_id not in groups[key]:
-            raise KeyError(f"problem {problem_id} is not a {_group_label(key)} Contest Question")
-    module_key = str(module or "").strip().upper()
-    slot_key = str(slot or "").strip().upper()
+            stale.append((problem_id, key))
+    if stale:
+        raise StalePick(stale)
     token = f"mck79-{uuid.uuid4().hex}"
     placements: list[dict[str, Any]] = []
     try:

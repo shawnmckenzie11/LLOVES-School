@@ -94,6 +94,7 @@ import {
   mediaRowPublishMode,
   mintGroupQ,
 } from "/static/group_setup.js";
+import { rankStackHtml } from "/static/rank_stack.js";
 
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -2906,8 +2907,25 @@ async function importLiveMcFromBank(item) {
 }
 
 /**
+ * MCK-161 INFO-2: plain prompt text (no server HTML) as card HTML. A blank
+ * line, like a Contest Question's stem / task break, keeps its paragraphs
+ * (``white-space: pre-line`` on ``.is-paragraphs``); one-paragraph text
+ * renders exactly as before.
+ * @param {unknown} raw
+ * @returns {string}
+ */
+function plainPromptHtml(raw) {
+  const text = String(raw ?? "").trim();
+  const html = formatQuestionHtml(text);
+  return /\n\s*\n/.test(text)
+    ? `<span class="live-question-html is-paragraphs">${html}</span>`
+    : html;
+}
+
+/**
  * MCK-79: import picked Contest Questions (any module) onto the current page.
- * Same placement path and refresh as a single bank import.
+ * Uses the deck's Add New path server-side (one all-or-nothing batch), then
+ * refreshes the deck like a single bank import.
  * @param {Array<{question_id: number, module: string}>} picks
  * @returns {Promise<number>} Imported count.
  */
@@ -3672,57 +3690,32 @@ function heldRankRows(liveItemId, rows, seq) {
 }
 
 /**
- * Teacher rank strip: team rows first, class order underneath.
- * Individual mode omits the team list.
+ * MCK-154 S1: teacher rank results as one vertical stack.
+ *
+ * One status line, then one row per option in class order with the score
+ * bar and one narrow column per group (that group's place). Individual
+ * mode has no group columns. Labels and the count print once.
  * @param {any} rank
  * @param {number} liveItemId
+ * @param {any[]} [submitterLog] Group submitter log; "last: name" goes in
+ *   the group column header ``title``.
  * @returns {string}
  */
-function rankCollateHtml(rank, liveItemId) {
+function rankCollateHtml(rank, liveItemId, submitterLog) {
   if (!rank || typeof rank !== "object") return "";
-  const unit = String(rank.unit || "student");
-  const teams = unit === "team" && Array.isArray(rank.teams) ? rank.teams : [];
-  const responded = Number(rank.responded) || 0;
-  const present = Number(rank.present) || teams.length || 0;
   const rawRows = Array.isArray(rank.class_order) ? rank.class_order : [];
   const rows = heldRankRows(
     liveItemId,
     rawRows,
     Number(rank.seq ?? rank.response_seq) || 0
   );
-  const done = teams.filter((row) => row.status === "submitted" || row.order).length;
-  const teamHtml = teams.length
-    ? `<p class="rank-collate-kicker">Teams <span>${done}/${teams.length}</span></p>
-      <ul class="rank-team-rows">${teams
-        .map((row) => {
-          const waiting = !row.order;
-          return `<li class="${waiting ? "is-waiting" : ""}">
-            <span>${escapeHtml(row.team_name || "Team")}</span>
-            <span>${waiting ? "Waiting" : "✓"}</span>
-            <span>${waiting ? "" : escapeHtml(row.order_label || "")}</span>
-          </li>`;
-        })
-        .join("")}</ul>`
-    : "";
-  const classHtml = `<p class="rank-collate-kicker">Class order <span>${
-    unit === "team" ? "1 vote per team" : `${responded} responded / ${present} present`
-  }</span></p>
-    <ol class="rank-class-order">${rows
-      .map((row) => {
-        const pct = Math.max(0, Math.min(100, Number(row.bar_pct) || 0));
-        return `<li data-rank-option="${escapeHtml(row.option_id || "")}">
-          <span class="rank-place">${Number(row.rank) || 0}</span>
-          <span>${escapeHtml(row.label || "")}</span>
-          <span class="rank-bar" aria-hidden="true"><span style="width:${pct}%"></span></span>
-          <span>${Number(row.points) || 0}</span>
-          <span class="rank-first" aria-label="${Number(row.first_picks) || 0} first picks">★ ${
-            Number(row.first_picks) || 0
-          }</span>
-        </li>`;
-      })
-      .join("")}</ol>
-    <p class="rank-responded">${responded} responded / ${present} present</p>`;
-  return `<div class="rank-collate" data-rank-seq="${Number(rank.seq) || 0}">${teamHtml}${classHtml}</div>`;
+  const lastByTeam = new Map(
+    (Array.isArray(submitterLog) ? submitterLog : [])
+      .filter((row) => row && String(row.last_submitter || "").trim())
+      .map((row) => [Number(row.team_id) || 0, String(row.last_submitter || "").trim()])
+  );
+  const stack = rankStackHtml(rank, { audience: "teacher", rows, lastByTeam });
+  return `<div class="rank-collate" data-rank-seq="${Number(rank.seq) || 0}">${stack}</div>`;
 }
 
 /**
@@ -3738,20 +3731,11 @@ function groupSubmitTeacherHtml(result, revealed, liveItemId) {
   const seq = escapeHtml(String(result?.group_response_seq || ""));
   const open = `<div class="group-submit-teacher" data-group-results="${hostId}" data-group-seq="${seq}">`;
   if (result?.rank) {
+    // MCK-154 S1: no submitter-log list under the stack. "last: name"
+    // moved into each group column header title (and Responses).
     const log = Array.isArray(result?.submitter_log) ? result.submitter_log : [];
-    const rankHtml = rankCollateHtml(result.rank, Number(result?.item?.id) || hostId);
-    const lines = log
-      .map((row) => {
-        const line = groupSubmitterLine(row);
-        if (!line) return "";
-        return `<li><span>${escapeHtml(row.team_name || "Group")}</span><span class="group-submitter-log">${escapeHtml(line)}</span></li>`;
-      })
-      .filter(Boolean)
-      .join("");
-    const logHtml = lines
-      ? `<ul class="group-status-board" aria-label="Submitter log">${lines}</ul>`
-      : "";
-    return `${open}${rankHtml}${logHtml}</div>`;
+    const rankHtml = rankCollateHtml(result.rank, Number(result?.item?.id) || hostId, log);
+    return `${open}${rankHtml}</div>`;
   }
   const reveal = revealed && Array.isArray(result?.reveal) ? result.reveal : [];
   const revealHtml = reveal.length
@@ -3849,6 +3833,18 @@ function liveQuestionControlStrip(parts) {
 }
 
 /**
+ * MCK-154 S2: true while a question added during this live class waits
+ * for Publish. Teacher-only; the server strips the marker for students.
+ */
+function liveQuestionAddedThisClass(item, card, status) {
+  const sessionId = Number(liveSessionId || readLiveSessionId()) || 0;
+  const addedIn = Number(
+    item?.added_live_session_id ?? card?.added_live_session_id ?? 0
+  );
+  return Boolean(sessionId) && addedIn === sessionId && status === "inactive";
+}
+
+/**
  * Render every question associated with the current stage as a vertical card.
  */
 function paintLiveQuestionCards() {
@@ -3940,6 +3936,9 @@ function paintLiveQuestionCards() {
       const promptId = Number(card.prompt_id) || 0;
       const liveItemId = Number(card.live_item_id || card.id) || 0;
       const status = String(card.status || "inactive").toLowerCase();
+      const newChip = liveQuestionAddedThisClass(item, card, status)
+        ? `<span class="live-question-new-chip">New</span>`
+        : "";
       const active = status === "active";
       const closed = status === "closed";
       const publishModes = Array.isArray(item.publish_modes)
@@ -3999,8 +3998,12 @@ function paintLiveQuestionCards() {
       const onStage = String(card.stage || "") === String(teacherState.stage || "");
       const groupBoard = Array.isArray(result?.status_board) ? result.status_board : [];
       const groupDone = groupBoard.filter((row) => row.submitted).length;
+      // MCK-154 S1: rank cards print their count once, in the stack.
+      const rankResults = Boolean(result?.rank || result?.tally?.kind === "rank");
       const progress =
-        onStage && groupChrome && (active || closed)
+        rankResults
+          ? ""
+          : onStage && groupChrome && (active || closed)
           ? `<p class="live-question-progress">${groupDone} / ${groupBoard.length} groups</p>`
           : onStage && (active || closed)
             ? `<p class="live-question-progress">${answered} / ${Math.max(
@@ -4094,7 +4097,7 @@ function paintLiveQuestionCards() {
                     ? (options.length ? item.type || card.type || "poll" : "open")
                     : item.type || card.type || "poll"
                 ).toUpperCase()
-              )}</span>${key}${page}${importSource}
+              )}</span>${newChip}${key}${page}${importSource}
               <span class="live-status-badge is-${status}">${escapeHtml(
                 status.charAt(0).toUpperCase() + status.slice(1)
               )}</span>${
@@ -4106,7 +4109,7 @@ function paintLiveQuestionCards() {
             ${relocateButton}
           </div>
           ${questionImageHtml(item.image_url || card.image_url, { variant: "thumb" })}
-          <div class="live-question-card-text"><span class="live-question-order">${index + 1}</span>${questionFieldHtml(item, "text") || formatQuestionHtml(item.title || item.text || item.prompt || card.text || "")}</div>
+          <div class="live-question-card-text"><span class="live-question-order">${index + 1}</span>${questionFieldHtml(item, "text") || plainPromptHtml(item.title || item.text || item.prompt || card.text || "")}</div>
           ${liveQuestionEquationHtml(item, card)}
           ${result?.rank || result?.tally?.kind === "rank" ? "" : optionHtml}
           ${resultHtml}
@@ -10198,7 +10201,12 @@ async function toggleEyesUp() {
       adoptTeacherState(res.teacher_state);
     }
   } catch (err) {
-    showError("#ap-overlay-error", err);
+    if (!want && String(err?.message || "") === "Session not found") {
+      // MCK-159: Release after Quit (row gone) is a 404; nobody is paused.
+      teacherState.eyes_up = false;
+    } else {
+      showError("#ap-overlay-error", err);
+    }
   } finally {
     eyesUpBusy = false;
     paintEyesUpToggle();

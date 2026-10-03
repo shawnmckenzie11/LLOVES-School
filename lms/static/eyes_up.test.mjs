@@ -96,7 +96,7 @@ if (eyesUpOn(afterEnd)) fail("End celebration payload must never pause");
 if (eyesUpOn({ status: "waiting", teacher_state: { eyes_up: true, celebrate: true } })) fail("teacher_state.celebrate is off");
 if (eyesUpOn({ phase: "ended", teacher_state: { eyes_up: true } })) fail("ended phase is off");
 if (EYES_UP_COPY.title !== "Eyes up" || EYES_UP_COPY.line !== "Look at the board.") fail("overlay copy");
-if (EYES_UP_COPY.saved !== "Your work is saved.") fail("overlay saved line copy");
+if (EYES_UP_COPY.saved !== "Your answers are still here.") fail("overlay saved line copy");
 
 const doc = makeDoc();
 const main = doc.createElement("main");
@@ -120,7 +120,7 @@ const overlay = doc.getElementById("eyes-up-overlay");
   const texts = [];
   const walk = (n) => { for (const c of n.children || []) { if (c.tagName === "P") texts.push(c.textContent); walk(c); } };
   walk(overlay);
-  if (texts.join("|") !== "Eyes up|Look at the board.|Your work is saved.") fail(`overlay lines: ${texts.join("|")}`);
+  if (texts.join("|") !== "Eyes up|Look at the board.|Your answers are still here.") fail(`overlay lines: ${texts.join("|")}`);
   if (overlay.getAttribute("aria-describedby") !== "eyes-up-line eyes-up-saved") fail("saved line is described");
 }
 if (!overlay || overlay.hidden) fail("overlay visible");
@@ -232,5 +232,49 @@ setEyesUp(false, doc3);
 b.focus();
 await new Promise((r) => setTimeout(r, 20));
 if (doc3.activeElement !== b) fail("restore never steals focus the student moved");
+
+// MCK-159 LOW-4: a scroll the student makes right after release wins
+// over the 300 ms / 1 s passes, even back to the top.
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const doc4 = makeDoc();
+const card4 = doc4.createElement("div");
+card4.id = "live-response";
+doc4.body.appendChild(card4);
+paintEyesUp({ teacher_state: { eyes_up: false } }, doc4);
+const studentScroll = (top, how = "wheel") => {
+  card4.scrollTop = top;
+  doc4.dispatch("scroll", { target: card4 });
+  if (how === "wheel") doc4.dispatch("wheel", { target: card4 });
+  else doc4.dispatch("keydown", { key: how, target: card4 });
+};
+studentScroll(500);
+await wait(260);
+paintEyesUp({ teacher_state: { eyes_up: true } }, doc4);
+paintEyesUp({ teacher_state: { eyes_up: false } }, doc4);
+await wait(20);
+if (card4.scrollTop !== 500) fail(`release restores the card scroll, got ${card4.scrollTop}`);
+await wait(80);
+studentScroll(0); // wheel to the top ~100 ms after release
+await wait(1100);
+if (card4.scrollTop !== 0) fail(`LOW-4: student scroll to top was undone (${card4.scrollTop})`);
+// Same with the keyboard (Home), 600 ms after release.
+studentScroll(420, "PageDown");
+await wait(260);
+paintEyesUp({ teacher_state: { eyes_up: true } }, doc4);
+paintEyesUp({ teacher_state: { eyes_up: false } }, doc4);
+await wait(600);
+studentScroll(0, "Home");
+await wait(600);
+if (card4.scrollTop !== 0) fail(`LOW-4: Home after release was undone (${card4.scrollTop})`);
+// Control: with no student input, a repaint reset after release is still undone.
+studentScroll(300);
+await wait(260);
+paintEyesUp({ teacher_state: { eyes_up: true } }, doc4);
+paintEyesUp({ teacher_state: { eyes_up: false } }, doc4);
+await wait(100);
+card4.scrollTop = 0; // repaint reset, no input
+doc4.dispatch("scroll", { target: card4 });
+await wait(400);
+if (card4.scrollTop !== 300) fail(`repaint reset after release is still restored, got ${card4.scrollTop}`);
 
 console.log("ok");

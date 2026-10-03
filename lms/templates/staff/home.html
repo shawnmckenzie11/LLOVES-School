@@ -15,7 +15,7 @@
     <a class="staff-corner-link" href="{{ url_for('logout') }}">Log out</a>
   </div>
   <div class="wrap staff-home-wrap">
-    <div id="error" class="error" hidden></div>
+    <div id="error" class="error" hidden role="alert" aria-live="assertive"></div>
 
     {% if not offerings %}
     <p>No course is assigned to you for the active semester. Ask Admin to assign an Ontario course code.</p>
@@ -197,15 +197,20 @@
         {% if celebration_periods %}
         {# MCK-133 Start fresh: one quiet control in the header (Mobbin IA v0),
            never inside a card. Copy: Wonder v1. #}
+        {# MCK-160 LOW-10: every course shared -> the control is off, with a reason. #}
+        {% set fresh_all_shared = (celebration_periods | rejectattr('shared') | list | length) == 0 %}
         <div id="award-start-fresh" class="award-fresh-controls">
           <label class="field" for="award-fresh-scope">Start fresh for</label>
-          <select id="award-fresh-scope">
-            <option value="all">All my classes</option>
+          <select id="award-fresh-scope"{% if fresh_all_shared %} disabled{% endif %}>
+            <option value="all"{% if fresh_all_shared %} disabled{% endif %}>All my classes</option>
             {% for c in celebration_periods %}
             <option value="{{ c.class_id }}" data-class-name="{{ c.course }}"{% if c.shared %} disabled{% endif %}>Only {{ c.course }}</option>
             {% endfor %}
           </select>
-          <button type="button" class="secondary award-fresh-quiet" id="award-fresh-go">Start fresh…</button>
+          <button type="button" class="secondary award-fresh-quiet" id="award-fresh-go"{% if fresh_all_shared %} disabled data-unavailable="1" aria-describedby="award-fresh-unavailable"{% endif %}>Start fresh…</button>
+          {% if fresh_all_shared %}
+          <p id="award-fresh-unavailable" class="hint award-fresh-unavailable">{{ celebration_staff_copy.start_fresh_all_shared if celebration_staff_copy else "Start fresh isn't available." }}</p>
+          {% endif %}
         </div>
         {% endif %}
       </div>
