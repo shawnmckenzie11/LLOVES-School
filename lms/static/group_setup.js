@@ -43,7 +43,13 @@ export const GROUP_SETUP_COPY = Object.freeze({
     individual: "● Individual",
     mc: "● Group · pick, then agree",
     rank_turns: "● Group · take turns",
+    // MCK-171 Team challenge (Wonder v3 race.chip.*).
+    rank_together_race: "● Group · rank together · challenge",
+    rank_turns_race: "● Group · take turns · challenge",
   }),
+  // MCK-171 Team challenge (Wonder v3; students never see "race").
+  raceToggle: "Team challenge",
+  raceHelp: "Teams lock in an order together. Points for every right spot.",
   closedGroup: "Group · closed",
   closedIndividual: "Individual · closed",
   saveFailed: "Couldn't save that. Try again.",
@@ -287,7 +293,13 @@ export function groupSetupHtml(opts) {
   const group = opts.mode === "group";
   const liveSwitch = status === "active" && Boolean(opts.liveSwitch) && Boolean(opts.teamsReady);
   if (status === "active" && !liveSwitch) {
-    const text = group ? C.liveChip[styleCopyKey(style, opts.surface, opts.variant)] : C.liveChip.individual;
+    const variant = String(opts.variant || "");
+    const raceChip =
+      group && opts.challenge && (variant === "rank_together" || variant === "rank_turns")
+        ? C.liveChip[`${variant}_race`]
+        : "";
+    const text =
+      raceChip || (group ? C.liveChip[styleCopyKey(style, opts.surface, opts.variant)] : C.liveChip.individual);
     return `<span class="live-group-setup-chip is-live" role="status" data-group-setup-chip="${esc(key)}">${esc(text)}</span>`;
   }
   if (status === "closed") {
@@ -348,7 +360,10 @@ export function groupSetupOptionsHtml(opts) {
     status === "inactive" && (variant === "rank_together" || variant === "rank_turns")
       ? rankModeHtml(key, variant === "rank_turns" ? "turns" : "together")
       : "";
-  return `<div class="live-group-setup-opts" aria-live="polite" data-group-setup-opts="${esc(key)}">${rankMode}<p class="live-group-setup-style">${esc(
+  // MCK-171: Team challenge sits after Group mode, only with an answer order.
+  const race =
+    rankMode && opts.race && opts.race.available ? rankRaceHtml(key, Boolean(opts.race.on)) : "";
+  return `<div class="live-group-setup-opts" aria-live="polite" data-group-setup-opts="${esc(key)}">${rankMode}${race}<p class="live-group-setup-style">${esc(
     C.styleLine[styleCopyKey(style, opts.surface, variant)]
   )}</p>${status === "inactive" ? teamsLine : ""}${groupQ}</div>`;
 }
@@ -367,6 +382,36 @@ export function rankModeHtml(key, mode) {
     return `<label class="live-group-setup-choice${on ? " is-on" : ""}"><input type="radio" name="${name}" value="${value}" data-group-rank-mode="${esc(key)}"${on ? " checked" : ""}><span>${esc(label)}</span></label>`;
   };
   return `<fieldset class="live-group-setup live-group-rank-mode" data-group-rank-mode-key="${esc(key)}"><legend>${esc(C.groupModeLegend)}</legend><span class="live-group-setup-seg">${choice("together", C.rankTogether)}${choice("turns", C.rankTurns)}</span></fieldset>`;
+}
+
+/**
+ * MCK-171: ``☐ Team challenge`` (+ the help line when on). Rendered only
+ * when the rank item has an answer order (hidden, never disabled, without).
+ * @param {string} key
+ * @param {boolean} on
+ * @returns {string}
+ */
+export function rankRaceHtml(key, on) {
+  const C = GROUP_SETUP_COPY;
+  const k = esc(key);
+  const help = on ? `<p class="live-group-race-help">${esc(C.raceHelp)}</p>` : "";
+  return `<div class="live-group-race" data-group-rank-race-key="${k}"><label class="live-group-race-check"><input type="checkbox" data-group-rank-race="${k}"${
+    on ? " checked" : ""
+  }><span>${esc(C.raceToggle)}</span></label>${help}</div>`;
+}
+
+/**
+ * MCK-171: Team challenge setting read off a lifecycle row's item.
+ * ``available`` needs an answer order (``rank_key``) on the teacher payload.
+ * @param {any} item Question payload.
+ * @param {any} [card] Lifecycle row.
+ * @returns {{available: boolean, on: boolean}}
+ */
+export function rankRaceSettings(item, card) {
+  const q = card?.item && typeof card.item === "object" ? card.item : item || {};
+  const key = Array.isArray(q?.rank_key) ? q.rank_key : Array.isArray(item?.rank_key) ? item.rank_key : [];
+  const available = key.length >= 3;
+  return { available, on: available && Boolean(q?.group_rank_race ?? item?.group_rank_race) };
 }
 
 /**

@@ -103,6 +103,7 @@ try:
         turn_recent_skips,
         turns_state,
     )
+    import rank_challenge as rank_challenge
     from live_class_metadata import (
         MODULE_RE,
         SCHEMA_V2,
@@ -250,6 +251,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         turn_recent_skips,
         turns_state,
     )
+    from lms import rank_challenge as rank_challenge  # type: ignore[no-redef]
     from lms.live_class_metadata import (
         MODULE_RE,
         SCHEMA_V2,
@@ -1449,6 +1451,10 @@ def parse_semester_label(semester: str) -> tuple[str, str]:
     return year_display, "Semester 1"
 
 
+# MCK-171 Team challenge student lines (Wonder v3 race.locked / race.agree.reset).
+RACE_LOCKED_COPY = "Your group's order is in."
+RACE_AGREE_RESET_COPY = "The order changed. Agree again when you're ready."
+
 # MCK-155 gate MED-2: group MC flow recorded on ``item_json`` at publish.
 GROUP_MC_FLOW_KEY = "group_mc_flow"
 GROUP_MC_PICK_THEN_AGREE = "pick_then_agree"
@@ -1471,6 +1477,21 @@ class RankTurnConflict(ValueError):
 
     Attributes:
         reason: ``turn_taken``, ``not_your_turn``, ``done``, ``no_undo``.
+        card: The public group card to repaint with.
+    """
+
+    def __init__(self, message: str, reason: str, card: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.card = card or {}
+
+
+class RankAgreeConflict(ValueError):
+    """MCK-171 Team challenge: an "I agree" tap was for an order that has
+    since changed (409). Nothing is written.
+
+    Attributes:
+        reason: ``order_changed``.
         card: The public group card to repaint with.
     """
 
@@ -13208,6 +13229,9 @@ class SchoolDB(LovesDB):
         # Gate MED-2: the group MC flow stamped at publish survives too.
         if isinstance(saved_json, dict) and saved_json.get(GROUP_MC_FLOW_KEY):
             body[GROUP_MC_FLOW_KEY] = str(saved_json[GROUP_MC_FLOW_KEY])
+        # MCK-171: the Team challenge toggle lives there as well.
+        if isinstance(saved_json, dict) and rank_challenge.RACE_FLAG in saved_json:
+            body[rank_challenge.RACE_FLAG] = bool(saved_json[rank_challenge.RACE_FLAG])
         return body
 
     @staticmethod
@@ -14451,6 +14475,7 @@ class SchoolDB(LovesDB):
         publish_mode: Any = None,
         response_mode: Any = None,
         group_rank_mode: Any = None,
+        group_rank_race: Any = None,
     ) -> dict[str, Any]:
         """Update one item's teacher settings without publishing it.
 
@@ -14471,6 +14496,9 @@ class SchoolDB(LovesDB):
                 token as ``publish_mode`` when only that field is sent.
             group_rank_mode: MCK-155, rank only: ``together`` or ``turns``.
                 Locked once the item is published.
+            group_rank_race: MCK-171, rank only: the "Team challenge"
+                toggle. Turning it on needs an answer order (``rank_key``).
+                Locked once the item is published.
 
         Raises:
             ValueError: When no setting is present or a value is invalid.
@@ -14481,6 +14509,7 @@ class SchoolDB(LovesDB):
             and publish_mode is None
             and response_mode is None
             and group_rank_mode is None
+            and group_rank_race is None
         ):
             raise ValueError(
                 "show_live_results, save_to_card, publish_mode, or response_mode is required"
@@ -14535,6 +14564,19 @@ class SchoolDB(LovesDB):
             if str(item.get("status") or "") != "inactive":
                 raise ValueError("Group mode is locked once published.")
             question["group_rank_mode"] = token
+        if group_rank_race is not None:
+            # MCK-171: Team challenge lives in the Group line, so it follows
+            # Group mode's rules (rank only, before Publish).
+            if self._question_answer_kind(item) != "rank":
+                raise ValueError("Team challenge is for rank questions.")
+            if str(item.get("status") or "") != "inactive":
+                raise ValueError("Team challenge is locked once published.")
+            race_on = self._coerce_settings_flag(group_rank_race, "group_rank_race")
+            if race_on and not safe_rank_key(
+                question.get("rank_key"), self._rank_option_rows(item)
+            ):
+                raise ValueError("Add an answer order to use Team challenge.")
+            question[rank_challenge.RACE_FLAG] = bool(race_on)
         assignments.append("item_json = ?")
         params.append(json.dumps(question))
         params.extend([_now(), int(item["id"])])
@@ -15296,6 +15338,26 @@ class SchoolDB(LovesDB):
                 card["turns"] = self._rank_turns_public(
                     item, int(team_id), class_id, turn_state, viewer_id=int(student_id)
                 )
+            if self._rank_race_on(item):
+                # MCK-171 Team challenge: own team only. No key, no other
+                # team's order, no place or score before Close.
+                if (
+                    active
+                    and card["rank_mode"] == "together"
+                    and not self._rank_race_locked(row)
+                    and self._rank_race_maybe_lock(item, int(team_id))
+                ):
+                    row = self._group_response_row(int(item["id"]), int(team_id)) or {}
+                    final = row.get("final_answer") if isinstance(row.get("final_answer"), dict) else {}
+                    card["submitted"] = True
+                    card["submitted_order"] = [
+                        str(item_id) for item_id in (final.get("order") or [])
+                    ][:6]
+                card["race"] = self._rank_race_student_block(
+                    item, int(team_id), row, class_id, int(student_id)
+                )
+                card["locked"] = bool(card["race"]["locked"])
+                card["can_submit"] = False
         return card
 
     def _save_group_rank_draft(
@@ -15334,6 +15396,11 @@ class SchoolDB(LovesDB):
         allowed = [row["id"] for row in options]
         live_item_id = int(item["id"])
         now = _now()
+        # MCK-171: a Team challenge order is final once it is in, and any
+        # change to the order clears every "I agree".
+        race = self._rank_race_on(item)
+        race_locked = False
+        agrees_cleared = False
         with self._lock:
             current = self.conn.execute(
                 """
@@ -15346,12 +15413,15 @@ class SchoolDB(LovesDB):
             existing: list[str] = []
             final_answer: dict[str, Any] | None = None
             submit_count = 0
+            prior_body: dict[str, Any] = {}
             if current is not None:
                 submit_count = int(current["submit_count"] or 0)
                 try:
                     parsed = json.loads(current["proposed_answer_json"] or "null")
                 except (TypeError, json.JSONDecodeError):
                     parsed = {}
+                if isinstance(parsed, dict):
+                    prior_body = parsed
                 if isinstance(parsed, dict) and parsed.get("kind") == "rank":
                     try:
                         existing = parse_rank_order(parsed.get("order"), allowed, complete=False)
@@ -15377,24 +15447,48 @@ class SchoolDB(LovesDB):
                 and len(next_order) == len(allowed)
             )
             proposed_body = {"kind": "rank", "order": next_order, "complete": complete}
-            status = self._group_rank_phase(
-                {
-                    "proposed_answer": proposed_body,
-                    "final_answer": final_answer,
-                    "submit_count": submit_count,
-                }
-            )
-            proposed = json.dumps(proposed_body)
-            self.conn.execute(
-                """
-                UPDATE live_group_responses
-                SET status = ?, proposed_answer_json = ?, updated_at = ?
-                WHERE live_item_id = ? AND team_id = ?
-                """,
-                (status, proposed, now, live_item_id, int(team_id)),
-            )
-            self.conn.commit()
-        return self.student_group_submit_state(item, student_id) or {}
+            if race and submit_count > 0:
+                race_locked = True
+            elif race:
+                if next_order == existing:
+                    for key in ("agree", "agree_reset"):
+                        if key in prior_body:
+                            proposed_body[key] = prior_body[key]
+                else:
+                    cleared_body, agrees_cleared = rank_challenge.clear_agrees(prior_body)
+                    if agrees_cleared:
+                        proposed_body["agree_reset"] = True
+                    elif cleared_body.get("agree_reset"):
+                        proposed_body["agree_reset"] = True
+            if not race_locked:
+                status = self._group_rank_phase(
+                    {
+                        "proposed_answer": proposed_body,
+                        "final_answer": final_answer,
+                        "submit_count": submit_count,
+                    }
+                )
+                proposed = json.dumps(proposed_body)
+                cursor = self.conn.execute(
+                    """
+                    UPDATE live_group_responses
+                    SET status = ?, proposed_answer_json = ?, updated_at = ?
+                    WHERE live_item_id = ? AND team_id = ?
+                    """
+                    + (" AND COALESCE(submit_count, 0) = 0" if race else ""),
+                    (status, proposed, now, live_item_id, int(team_id)),
+                )
+                self.conn.commit()
+                if race and cursor.rowcount != 1:
+                    race_locked = True  # the lock-in landed first
+        card = self.student_group_submit_state(item, student_id) or {}
+        if race_locked:
+            raise GroupAnswerLocked(RACE_LOCKED_COPY, card)
+        if agrees_cleared and isinstance(card.get("race"), dict):
+            # One-response hint for the route: emit a group postcard so the
+            # teammates who had agreed see the reset now.
+            card["race"]["agrees_cleared"] = True
+        return card
 
     # ------------------------------------------------------------------
     # MCK-155 group MC option B: "pick alone, then agree" (approved).
@@ -15848,13 +15942,20 @@ class SchoolDB(LovesDB):
                     ids = [int(x) for x in ids if str(x).lstrip("-").isdigit()] if isinstance(ids, list) else []
                     ids.append(int(student_id))
                     stored = {"kind": "rank", "order": list(state["order"]), "why": ""}
+                    # MCK-171: a Team challenge stamps the lock-in time
+                    # under the lock (kept for audit; never compared).
+                    stamp = (
+                        "finalized_at = COALESCE(finalized_at, ?), "
+                        if self._rank_race_on(item)
+                        else ""
+                    )
                     self.conn.execute(
-                        """
+                        f"""
                         UPDATE live_group_responses
                         SET status = 'submitted', proposed_answer_json = ?,
                             final_answer_json = ?,
                             submit_count = COALESCE(submit_count, 0) + 1,
-                            last_submitter_student_id = ?,
+                            last_submitter_student_id = ?, {stamp}
                             submitter_ids_json = ?, updated_at = ?
                         WHERE live_item_id = ? AND team_id = ?
                         """,
@@ -15862,6 +15963,7 @@ class SchoolDB(LovesDB):
                             json.dumps(state),
                             json.dumps(stored),
                             int(student_id),
+                            *((now,) if stamp else ()),
                             json.dumps(ids),
                             now,
                             int(item["id"]),
@@ -15984,6 +16086,540 @@ class SchoolDB(LovesDB):
                 }
             )
         return rows
+
+    # ------------------------------------------------------------------
+    # MCK-171 Team challenge (shape B "Lock-in", approved Oct 3). A rank
+    # group item with an answer order and ``group_rank_race`` on. Rank
+    # together locks when every present member taps "I agree" (agrees live
+    # on the draft, see rank_challenge.py); Take turns locks at its last
+    # spot as in #231. Locking stamps ``finalized_at`` under the lock and
+    # is final: later writes get 409 + the locked card. Speed is never
+    # compared, and no team order or key reaches a student or the race
+    # block before Close.
+    # ------------------------------------------------------------------
+
+    def _rank_race_key(self, item: dict[str, Any]) -> list[str]:
+        """The item's valid answer order, or ``[]``.
+
+        Args:
+            item: Lifecycle row.
+        """
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        return safe_rank_key(question.get("rank_key"), self._rank_option_rows(item)) or []
+
+    def _rank_race_on(self, item: dict[str, Any]) -> bool:
+        """True for a group rank running as a Team challenge.
+
+        Needs rank, ``group_submit``, the Team challenge flag, and a valid
+        answer order. A stale key turns the challenge off, never on.
+
+        Args:
+            item: Lifecycle row.
+        """
+        if self._question_answer_kind(item) != "rank":
+            return False
+        if str(item.get("response_mode") or "") != "group_submit":
+            return False
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        if not rank_challenge.flag_on(question, rank_challenge.RACE_FLAG):
+            return False
+        return bool(self._rank_race_key(item))
+
+    @staticmethod
+    def _rank_race_locked(row: dict[str, Any] | None) -> bool:
+        """True once a team's order is in (agrees, teacher, or last turn).
+
+        Args:
+            row: Normalized team row.
+        """
+        return bool(row) and int((row or {}).get("submit_count") or 0) > 0
+
+    @staticmethod
+    def _rank_race_locked_by(row: dict[str, Any] | None) -> str:
+        """``team`` (everyone agreed), ``teacher``, ``turns``, or ``""``.
+
+        Args:
+            row: Normalized team row.
+        """
+        if not row or int(row.get("submit_count") or 0) <= 0:
+            return ""
+        final = row.get("final_answer") if isinstance(row.get("final_answer"), dict) else {}
+        by = str(final.get("locked_by") or "")
+        return by if by in {"team", "teacher"} else "turns"
+
+    def _rank_race_draft_order(
+        self, item: dict[str, Any], row: dict[str, Any] | None
+    ) -> list[str]:
+        """The team's current order: locked order, else the live draft.
+
+        Partial orders are kept (a draft scored at Close). Never raises.
+
+        Args:
+            item: Lifecycle row.
+            row: Normalized team row.
+        """
+        state = row or {}
+        allowed = [opt["id"] for opt in self._rank_option_rows(item)]
+        final = state.get("final_answer") if isinstance(state.get("final_answer"), dict) else {}
+        if int(state.get("submit_count") or 0) > 0 and final.get("kind") == "rank":
+            raw = final.get("order")
+        elif self._group_rank_mode(item) == "turns":
+            raw = self._rank_turns_for_row(item, state).get("order")
+        else:
+            proposed = (
+                state.get("proposed_answer")
+                if isinstance(state.get("proposed_answer"), dict)
+                else {}
+            )
+            raw = proposed.get("order") if proposed.get("kind") == "rank" else []
+        try:
+            return parse_rank_order(raw or [], allowed, complete=False)
+        except ValueError:
+            return []
+
+    def _rank_race_lock_row(
+        self,
+        live_item_id: int,
+        team_id: int,
+        proposed: dict[str, Any],
+        order: list[str],
+        *,
+        locked_by: str,
+        student_id: int | None,
+        submitter_ids: list[int],
+    ) -> bool:
+        """Lock one team's order in. One conditional UPDATE; idempotent.
+
+        Args:
+            live_item_id: ``live_session_items.id``.
+            team_id: Team.
+            proposed: Draft body to store alongside (keeps the agrees).
+            order: The order that goes in.
+            locked_by: ``team`` or ``teacher``.
+            student_id: Last agreeing member (``None`` for the teacher).
+            submitter_ids: Members who agreed.
+
+        Returns:
+            True when this call locked the order.
+        """
+        now = _now()
+        final = {"kind": "rank", "order": list(order), "why": "", "locked_by": locked_by}
+        with self._lock:
+            cursor = self.conn.execute(
+                """
+                UPDATE live_group_responses
+                SET status = 'submitted', proposed_answer_json = ?,
+                    final_answer_json = ?, submit_count = 1,
+                    last_submitter_student_id = ?, submitter_ids_json = ?,
+                    finalized_at = ?, updated_at = ?
+                WHERE live_item_id = ? AND team_id = ?
+                  AND COALESCE(submit_count, 0) = 0
+                """,
+                (
+                    json.dumps(proposed),
+                    json.dumps(final),
+                    int(student_id) if student_id is not None else None,
+                    json.dumps([int(sid) for sid in submitter_ids]),
+                    now,
+                    now,
+                    int(live_item_id),
+                    int(team_id),
+                ),
+            )
+            self.conn.commit()
+        return cursor.rowcount == 1
+
+    def _rank_race_maybe_lock(self, item: dict[str, Any], team_id: int) -> bool:
+        """Lock a Rank together team whose present members have all agreed.
+
+        Covers the case where the last member who had not agreed leaves:
+        absent members never block. Called from the state reads.
+
+        Args:
+            item: Open Team challenge lifecycle row.
+            team_id: Team.
+
+        Returns:
+            True when this call locked the order.
+        """
+        if (
+            str(item.get("status") or "") != "active"
+            or not self._rank_race_on(item)
+            or self._group_rank_mode(item) != "together"
+        ):
+            return False
+        row = self._group_response_row(int(item["id"]), int(team_id)) or {}
+        if not row or self._rank_race_locked(row):
+            return False
+        proposed = row.get("proposed_answer") if isinstance(row.get("proposed_answer"), dict) else {}
+        agreed = rank_challenge.agree_ids(proposed)
+        if not agreed:
+            return False
+        allowed = [opt["id"] for opt in self._rank_option_rows(item)]
+        try:
+            order = parse_rank_order(proposed.get("order") or [], allowed, complete=True)
+        except ValueError:
+            return False
+        present = self._active_team_member_ids(int(item["live_session_id"]), int(team_id))
+        if not rank_challenge.all_agreed(agreed, present):
+            return False
+        return self._rank_race_lock_row(
+            int(item["id"]),
+            int(team_id),
+            proposed,
+            order,
+            locked_by="team",
+            student_id=agreed[-1],
+            submitter_ids=agreed,
+        )
+
+    def rank_race_agree(
+        self,
+        session_id: int,
+        live_item_id: int,
+        student_id: int,
+        *,
+        agree: Any = True,
+        order: Any = None,
+    ) -> dict[str, Any]:
+        """One member taps "I agree" (or "Not yet") on the team's order.
+
+        The order locks when every present member has agreed. ``order`` is
+        the order the student is looking at; when the draft has moved on
+        since, nothing is written and :class:`RankAgreeConflict` (409)
+        carries the fresh card.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            live_item_id: ``live_session_items.id``.
+            student_id: Roster id.
+            agree: True for I agree, False for Not yet.
+            order: Option ids the student saw (optional guard).
+
+        Returns:
+            The public group card.
+
+        Raises:
+            ValueError: Not a Rank together Team challenge, not a member, or
+                the order is not complete.
+            RankAgreeConflict: The order changed before the tap landed.
+            GroupAnswerLocked: "Not yet" after the order is in.
+        """
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, live_item_id)
+        return self._rank_race_agree_item(item, student_id, agree=agree, order=order)
+
+    def _rank_race_agree_item(
+        self,
+        item: dict[str, Any],
+        student_id: int,
+        *,
+        agree: Any = True,
+        order: Any = None,
+    ) -> dict[str, Any]:
+        """Body of :meth:`rank_race_agree` for a loaded lifecycle row."""
+        if not self._rank_race_on(item) or self._group_rank_mode(item) != "together":
+            raise ValueError("This question has no team lock-in.")
+        agree_flag = agree if isinstance(agree, bool) else self._coerce_settings_flag(agree, "agree")
+        team_id = self._require_group_submit_member(item, student_id)
+        allowed = [opt["id"] for opt in self._rank_option_rows(item)]
+        seen: list[str] | None = None
+        if order is not None:
+            seen = parse_rank_order(order, allowed, complete=False)
+        present = rank_challenge.present_with(
+            self._active_team_member_ids(int(item["live_session_id"]), int(team_id)),
+            int(student_id),
+        )
+        outcome = ""
+        locked_body: dict[str, Any] | None = None
+        locked_order: list[str] = []
+        with self._lock:
+            current = self.conn.execute(
+                """
+                SELECT proposed_answer_json, final_answer_json, submit_count
+                FROM live_group_responses
+                WHERE live_item_id = ? AND team_id = ?
+                """,
+                (int(item["id"]), int(team_id)),
+            ).fetchone()
+            if current is None:
+                raise ValueError("This group is not on the question.")
+            if int(current["submit_count"] or 0) > 0:
+                outcome = "already"
+                try:
+                    final = json.loads(current["final_answer_json"] or "null")
+                except (TypeError, json.JSONDecodeError):
+                    final = None
+                locked_order = [
+                    str(opt) for opt in ((final or {}).get("order") or [])
+                ] if isinstance(final, dict) else []
+            else:
+                try:
+                    parsed = json.loads(current["proposed_answer_json"] or "null")
+                except (TypeError, json.JSONDecodeError):
+                    parsed = None
+                if not isinstance(parsed, dict) or parsed.get("kind") != "rank":
+                    parsed = {"kind": "rank", "order": [], "complete": False}
+                try:
+                    existing = parse_rank_order(parsed.get("order") or [], allowed, complete=False)
+                except ValueError:
+                    existing = []
+                complete = bool(existing) and len(existing) == len(allowed)
+                if seen is not None and seen != existing:
+                    outcome = "stale"
+                elif agree_flag and not complete:
+                    outcome = "incomplete"
+                else:
+                    body = rank_challenge.with_agree(parsed, int(student_id), agree_flag)
+                    body["order"] = existing
+                    body["complete"] = complete
+                    agreed = rank_challenge.agree_ids(body)
+                    if agree_flag and rank_challenge.all_agreed(agreed, present):
+                        outcome = "lock"
+                        locked_body = body
+                        locked_order = existing
+                    else:
+                        self.conn.execute(
+                            """
+                            UPDATE live_group_responses
+                            SET proposed_answer_json = ?, updated_at = ?
+                            WHERE live_item_id = ? AND team_id = ?
+                              AND COALESCE(submit_count, 0) = 0
+                            """,
+                            (json.dumps(body), _now(), int(item["id"]), int(team_id)),
+                        )
+                        self.conn.commit()
+                        outcome = "saved"
+        if outcome == "lock" and locked_body is not None:
+            self._rank_race_lock_row(
+                int(item["id"]),
+                int(team_id),
+                locked_body,
+                locked_order,
+                locked_by="team",
+                student_id=int(student_id),
+                submitter_ids=rank_challenge.agree_ids(locked_body),
+            )
+        card = self.student_group_submit_state(item, student_id) or {}
+        if outcome == "already":
+            if agree_flag and (seen is None or seen == locked_order):
+                return card  # agreeing to the order that is in: a safe no-op
+            # "Not yet", or a different order, after lock-in: final.
+            raise GroupAnswerLocked(RACE_LOCKED_COPY, card)
+        if outcome == "stale":
+            raise RankAgreeConflict(RACE_AGREE_RESET_COPY, "order_changed", card)
+        if outcome == "incomplete":
+            raise ValueError("rank every option before submitting")
+        return card
+
+    def rank_race_lock_for(
+        self, session_id: int, placement_or_item: str | int, *, team_id: int
+    ) -> dict[str, Any]:
+        """Teacher "Lock in for {team}": lock a Rank together team's order.
+
+        For a team where one member will not agree. The current order must
+        be complete. Locking an order that is already in is a no-op.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            placement_or_item: Placement key, item id, or lifecycle id.
+            team_id: Team to lock.
+
+        Returns:
+            ``{"locked": bool, "view": staff view}``.
+        """
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, placement_or_item)
+        if (
+            not self._rank_race_on(item)
+            or self._group_rank_mode(item) != "together"
+            or str(item.get("status") or "") != "active"
+        ):
+            raise ValueError("Lock in is for an open Team challenge (Rank together).")
+        row = self._group_response_row(int(item["id"]), int(team_id))
+        if row is None:
+            raise ValueError("This group is not on the question.")
+        locked = False
+        if not self._rank_race_locked(row):
+            proposed = (
+                row.get("proposed_answer") if isinstance(row.get("proposed_answer"), dict) else {}
+            )
+            allowed = [opt["id"] for opt in self._rank_option_rows(item)]
+            try:
+                order = parse_rank_order(proposed.get("order") or [], allowed, complete=True)
+            except ValueError as exc:
+                raise ValueError("This group hasn't placed every item yet.") from exc
+            locked = self._rank_race_lock_row(
+                int(item["id"]),
+                int(team_id),
+                dict(proposed),
+                order,
+                locked_by="teacher",
+                student_id=None,
+                submitter_ids=rank_challenge.agree_ids(proposed),
+            )
+        item = self.get_live_session_item(session_id, int(item["id"]))
+        return {"locked": locked, "view": self.group_submit_teacher_view(session_id, item)}
+
+    def _rank_race_team_counts(self, live_item_id: int) -> tuple[int, int]:
+        """``(locked, total)`` teams on a Team challenge (one query).
+
+        Args:
+            live_item_id: ``live_session_items.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT COUNT(*) AS total,
+                       SUM(CASE WHEN COALESCE(submit_count, 0) > 0 THEN 1 ELSE 0 END) AS locked
+                FROM live_group_responses
+                WHERE live_item_id = ?
+                """,
+                (int(live_item_id),),
+            ).fetchone()
+        if row is None:
+            return 0, 0
+        return int(row["locked"] or 0), int(row["total"] or 0)
+
+    def _rank_race_student_block(
+        self,
+        item: dict[str, Any],
+        team_id: int,
+        row: dict[str, Any],
+        class_id: int,
+        viewer_id: int,
+    ) -> dict[str, Any]:
+        """The student's ``race`` block: own team only, no key, no orders.
+
+        Args:
+            item: Team challenge lifecycle row.
+            team_id: The viewer's team.
+            row: Normalized team row.
+            class_id: Game-show class id, for first names.
+            viewer_id: Roster id of the viewer.
+        """
+        active = str(item.get("status") or "") == "active"
+        locked = self._rank_race_locked(row)
+        teams_locked, teams_total = self._rank_race_team_counts(int(item["id"]))
+        mode = self._group_rank_mode(item)
+        block: dict[str, Any] = {
+            "mode": mode,
+            "locked": locked,
+            "locked_by": self._rank_race_locked_by(row),
+            "teams_locked": teams_locked,
+            "teams_total": teams_total,
+            "timesup": str(item.get("status") or "") == "closed" and not locked,
+        }
+        if mode == "together":
+            proposed = (
+                row.get("proposed_answer") if isinstance(row.get("proposed_answer"), dict) else {}
+            )
+            agreed = rank_challenge.agree_ids(proposed)
+            present = rank_challenge.present_with(
+                self._active_team_member_ids(int(item["live_session_id"]), int(team_id)),
+                int(viewer_id) if active else None,
+            )
+            count, of = rank_challenge.agree_counts(agreed, present)
+            block["agree"] = {
+                "count": count,
+                "of": of,
+                "mine": int(viewer_id) in agreed,
+                "reset": bool(proposed.get("agree_reset")) and not agreed and not locked,
+                "waiting_names": [
+                    name
+                    for name in (
+                        self._first_name(class_id, sid)
+                        for sid in present
+                        if sid not in agreed and sid != int(viewer_id)
+                    )
+                    if name
+                ],
+                "can_agree": bool(active and not locked and proposed.get("complete")),
+            }
+        return block
+
+    def _rank_race_teacher_block(
+        self, session_id: int, item: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Teacher/projector ``race`` block: lanes in fixed team order.
+
+        ``{k} of {n} teams locked in`` plus, per team, locked / agree count
+        (Rank together) or placed count (Take turns), present members, and
+        whether Lock in / Skip apply. No orders, no key and no lock-in
+        times: speed is never shown or compared.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item: Team challenge lifecycle row.
+        """
+        mode = self._group_rank_mode(item)
+        active = str(item.get("status") or "") == "active"
+        total = len(self._rank_option_rows(item))
+        skips: dict[int, bool] = {}
+        if mode == "turns":
+            skips = {
+                int(turn["team_id"]): bool(turn.get("can_skip"))
+                for turn in self._rank_turns_teacher_rows(session_id, item)
+            }
+        teams: list[dict[str, Any]] = []
+        for slot, (team_id, team_name, _state) in enumerate(
+            self._iter_group_submit_teams(session_id, item)
+        ):
+            if active and mode == "together":
+                self._rank_race_maybe_lock(item, int(team_id))
+            row = self._group_response_row(int(item["id"]), int(team_id)) or {}
+            locked = self._rank_race_locked(row)
+            present = self._active_team_member_ids(session_id, int(team_id))
+            order = self._rank_race_draft_order(item, row)
+            lane: dict[str, Any] = {
+                "team_id": int(team_id),
+                "team_name": team_name,
+                "slot": slot,
+                "locked": locked,
+                "locked_by": self._rank_race_locked_by(row),
+                "present": len(present),
+                "absent": not present and not locked,
+                "total": total,
+            }
+            if mode == "together":
+                proposed = (
+                    row.get("proposed_answer")
+                    if isinstance(row.get("proposed_answer"), dict)
+                    else {}
+                )
+                count, of = rank_challenge.agree_counts(
+                    rank_challenge.agree_ids(proposed), present
+                )
+                lane["agree"] = count
+                lane["agree_of"] = of
+                lane["can_lock"] = bool(
+                    active and not locked and len(order) == total and total > 0
+                )
+            else:
+                lane["placed"] = min(total, len(order))
+                lane["can_skip"] = bool(active and not locked and skips.get(int(team_id)))
+            teams.append(lane)
+        return {
+            "mode": mode,
+            "spots": total,
+            "teams_locked": sum(1 for lane in teams if lane["locked"]),
+            "teams_total": len(teams),
+            "teams": teams,
+        }
+
+    @staticmethod
+    def _rank_race_seq(block: dict[str, Any]) -> str:
+        """Light-poll stamp for the race lanes (repaint on any lane change).
+
+        Args:
+            block: ``_rank_race_teacher_block`` output.
+        """
+        return ":r" + ",".join(
+            f"{lane['team_id']}{'L' if lane['locked'] else ''}{'A' if lane['absent'] else ''}"
+            f"{lane.get('agree', '')}/{lane.get('agree_of', '')}{lane.get('placed', '')}"
+            f"{'k' if lane.get('can_lock') else ''}{'s' if lane.get('can_skip') else ''}p{lane['present']}"
+            for lane in block.get("teams") or []
+        )
 
     def save_group_mc_draft(
         self,
@@ -16340,6 +16976,10 @@ class SchoolDB(LovesDB):
         Returns:
             The public group-submit card.
         """
+        if self._rank_race_on(item) and self._group_rank_mode(item) == "together":
+            # MCK-171: in a Team challenge, Send is this member's "I agree"
+            # on the order they see. The order locks when everyone agrees.
+            return self._rank_race_agree_item(item, student_id, agree=True, order=order)
         self._save_group_rank_draft(
             session_id,
             item,
@@ -16568,7 +17208,30 @@ class SchoolDB(LovesDB):
             if self._group_rank_mode(item) == "turns":
                 view["rank_mode"] = "turns"
                 view["turns"] = self._rank_turns_teacher_rows(session_id, item)
+            if self._rank_race_on(item):
+                # MCK-171: the race block carries no orders, and until Close
+                # neither does the rank stack (the card may be on the
+                # projector), so no team can read another's order.
+                view["race"] = self._rank_race_teacher_block(session_id, item)
+                if not revealed:
+                    view["rank"] = self._rank_collate_without_orders(view["rank"])
         return view
+
+    @staticmethod
+    def _rank_collate_without_orders(rank: dict[str, Any]) -> dict[str, Any]:
+        """MCK-171: a rank collate with every team order and the class order
+        removed (status only), for a Team challenge before Close.
+
+        Args:
+            rank: ``_rank_group_collate`` output.
+        """
+        out = dict(rank)
+        out["teams"] = [
+            {**team, "order": None, "order_label": ""} for team in rank.get("teams") or []
+        ]
+        out["class_order"] = []
+        out["seq"] = rank_fingerprint([], int(rank.get("responded") or 0))
+        return out
 
     def _rank_group_collate(
         self, session_id: int, item: dict[str, Any]
@@ -17364,6 +18027,12 @@ class SchoolDB(LovesDB):
                     f"{'|'.join(row['next_names'])}"
                     for row in turns
                 )
+            if mode == "group_submit" and self._rank_race_on(item):
+                # MCK-171: lanes (locked / agree count / placed) ride the
+                # light poll so the projector steps without a full refresh.
+                race = self._rank_race_teacher_block(session_id, item)
+                entry["race"] = race
+                entry["response_seq"] += self._rank_race_seq(race)
             out[str(item_id)] = entry
         return out
 
