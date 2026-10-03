@@ -26,10 +26,19 @@ import {
   contentSectionHeading,
   contentStalePicks,
   contentStaleText,
+  contestEmptyText,
+  contestKindView,
   deckLiveProblemIds,
   searchResultsScroll,
 } from "/static/content_questions_help.js";
 import { mountTypeChips } from "/static/bank_type_chips.js";
+import {
+  rankChip,
+  rankListHints,
+  rankMetaParts,
+  rankPreview,
+  sortRankRows,
+} from "/static/bank_rank_rows.js";
 
 /** @type {HTMLElement | null} */
 let modalRoot = null;
@@ -168,6 +177,40 @@ async function loadModuleBankStatus(classId, moduleToken) {
 }
 
 /**
+ * MCK-169 S1: ``bank.rank.meta`` with the Answer order / Opinion chip
+ * inline. The chip's help text is its tooltip and accessible name.
+ * @param {Record<string, unknown>} item Normalized rank row.
+ * @param {number} n Option count.
+ * @returns {string}
+ */
+function rankMetaHtml(item, n) {
+  const chip = rankChip(item);
+  const parts = rankMetaParts(n);
+  return `${escapeHtml(parts.before)}<span class="bank-rank-chip is-${chip.kind}" title="${escapeHtml(
+    chip.help
+  )}" aria-label="${escapeHtml(`${chip.label}. ${chip.help}`)}">${escapeHtml(chip.label)}</span>${escapeHtml(
+    parts.after
+  )}`;
+}
+
+/**
+ * MCK-169 S1: first three options in stored display order, then "+{k} more".
+ * @param {Record<string, unknown>} item Normalized rank row.
+ * @returns {string}
+ */
+function rankPreviewHtml(item) {
+  const preview = rankPreview(item);
+  if (!preview.text) return "";
+  // Ops LOW-2: only the option text truncates; "+{k} more" stays visible.
+  const more = preview.more
+    ? `<span class="bank-rank-preview-more">${escapeHtml(preview.more)}</span>`
+    : "";
+  return `<p class="hint compact bank-rank-preview" title="${escapeHtml(
+    preview.text
+  )}"><span class="bank-rank-preview-text">${escapeHtml(preview.text)}</span>${more}</p>`;
+}
+
+/**
  * Mount the searchable MC picker into a container or open a modal.
  * @param {object} opts
  * @param {number} opts.classId
@@ -185,8 +228,9 @@ async function loadModuleBankStatus(classId, moduleToken) {
  *   onError?: () => Promise<void> | void,
  * }} [opts.contentQuestions] MCK-79: Contest Questions (contest live problems,
  *   top 6 per module or in the course-wide Contest group), import mode only.
- *   Loads the current module on open and each other group only when the
- *   teacher expands it.
+ *   MCK-175: shown only while Kind is "Contest Questions", in place of the
+ *   type chips and bank list. Loads the current module when shown and each
+ *   other group only when the teacher expands it.
  */
 export async function mountBankMcPicker(opts) {
   const classId = Number(opts.classId || 0);
@@ -224,7 +268,7 @@ export async function mountBankMcPicker(opts) {
               <select data-bank-mc-kind aria-label="Kind">
                 <option value="" selected>Core Math</option>
                 <option value="standard">Custom</option>
-                <option value="contest">Contest</option>
+                <option value="contest">Contest Questions</option>
                 <option value="warmup">Warmup</option>
               </select>
             </label>`
@@ -237,17 +281,11 @@ export async function mountBankMcPicker(opts) {
     </div>
     ${
       contentOpts
-        ? `<section class="bank-mc-content" data-bank-mc-content aria-label="Contest Questions">
-            <div class="bank-mc-content-head">
-              <h4>${escapeHtml(contentSectionHeading(CONTENT_PER_MODULE))}</h4>
-              <button type="button" class="compact" data-bank-mc-content-import disabled>Import selected</button>
-            </div>
-            <p class="hint compact" data-bank-mc-content-status>Loading Contest Questions…</p>
-            <div data-bank-mc-content-groups></div>
-          </section>`
+        ? `<section class="bank-mc-content" data-bank-mc-content aria-label="Contest Questions" hidden></section>`
         : ""
     }
     <p class="hint compact bank-mc-picker-count" data-bank-mc-count></p>
+    <p class="hint compact bank-mc-rank-hint" data-bank-mc-rank-hint hidden></p>
     <p class="hint compact" data-bank-mc-status hidden></p>
     <ul class="bank-mc-picker-list" data-bank-mc-list></ul>
   `;
@@ -278,6 +316,8 @@ export async function mountBankMcPicker(opts) {
 
   const listEl = shell.querySelector("[data-bank-mc-list]");
   const countEl = shell.querySelector("[data-bank-mc-count]");
+  /** MCK-169 S1: bank.rank.import_default under the count (Rank chip on). */
+  const rankHintEl = shell.querySelector("[data-bank-mc-rank-hint]");
   const statusEl = shell.querySelector("[data-bank-mc-status]");
   const queryEl = shell.querySelector("[data-bank-mc-query]");
   const moduleEl = shell.querySelector("[data-bank-mc-module]");
@@ -294,11 +334,51 @@ export async function mountBankMcPicker(opts) {
         })
       : null;
   activeTypeChips = typeChips;
+  const contentSection = shell.querySelector("[data-bank-mc-content]");
+  /** MCK-175: Kind is "Contest Questions" and the block is showing. */
+  let contestShown = false;
 
   /**
-   * Paint search hits into the list pane.
-   * @param {Record<string, unknown>[]} items
+   * MCK-175: show the Contest block only while Kind is "Contest Questions",
+   * in place of the type chips and the bank list. Each show remounts it
+   * fresh (ticks from an earlier visit are cleared); leaving it re-runs the
+   * bank search so the last results come back.
+   * @param {string} kindValue
+   * @returns {boolean} Whether the Contest view is on.
    */
+  function applyKindView(kindValue) {
+    const view = contestKindView(kindValue, Boolean(contentOpts && contentSection));
+    const was = contestShown;
+    contestShown = view.contest;
+    shell.classList.toggle("is-contest-view", view.contest);
+    if (typeHost instanceof HTMLElement) typeHost.hidden = !view.chips;
+    if (view.contest && rankHintEl instanceof HTMLElement) rankHintEl.hidden = true;
+    [countEl, listEl].forEach((node) => {
+      if (node instanceof HTMLElement) node.hidden = !view.list;
+    });
+    if (view.contest && statusEl instanceof HTMLElement) {
+      statusEl.hidden = true;
+      statusEl.textContent = "";
+    }
+    if (!(contentSection instanceof HTMLElement) || !contentOpts) return view.contest;
+    contentSection.hidden = !view.contest;
+    if (view.contest && !was) {
+      contentSection.innerHTML = `
+        <div class="bank-mc-content-head">
+          <h4>${escapeHtml(contentSectionHeading(CONTENT_PER_MODULE))}</h4>
+          <button type="button" class="compact" data-bank-mc-content-import disabled>Import selected</button>
+        </div>
+        <p class="hint compact" data-bank-mc-content-status>Loading Contest Questions…</p>
+        <div data-bank-mc-content-groups></div>`;
+      void mountContentQuestions(shell, contentOpts, () => {
+        if (!mountTarget) closePickerModal();
+      });
+    } else if (!view.contest) {
+      contentSection.replaceChildren();
+    }
+    return view.contest;
+  }
+
   /**
    * Update the question count line under the search box.
    * @param {number} total
@@ -330,8 +410,21 @@ export async function mountBankMcPicker(opts) {
     countEl.textContent = `${total} question${total === 1 ? "" : "s"}`;
   }
 
-  function paintList(items) {
+  /**
+   * Paint search hits into the list pane.
+   * @param {Record<string, unknown>[]} items
+   * @param {string} [noneKeyed] MCK-169 S1: bank.rank.none_keyed line, shown
+   *   above any Opinion rows.
+   */
+  function paintList(items, noneKeyed = "") {
     if (!(listEl instanceof HTMLElement)) return;
+    const noneKeyedRow = noneKeyed
+      ? `<li class="hint bank-mc-rank-none-keyed">${escapeHtml(noneKeyed)}</li>`
+      : "";
+    if (!items.length && noneKeyedRow) {
+      listEl.innerHTML = noneKeyedRow;
+      return;
+    }
     if (!items.length) {
       listEl.innerHTML =
         moduleNumber === "course"
@@ -339,7 +432,7 @@ export async function mountBankMcPicker(opts) {
           : `<li class="hint">No MCs found. Confirm module banks first.</li>`;
       return;
     }
-    listEl.innerHTML = items
+    listEl.innerHTML = noneKeyedRow + items
       .map((item) => {
         const qid = Number(item.question_id || 0);
         const title = String(item.question_title || "").trim();
@@ -353,18 +446,18 @@ export async function mountBankMcPicker(opts) {
             : stemLabel;
         const optionList = Array.isArray(item.options) ? item.options : [];
         const rank = String(item.type || "") === "rank";
-        const rankKeyed = Array.isArray(item.rank_key) && item.rank_key.length > 0;
-        const meta = escapeHtml(
-          rank
-            ? `Rank · ${optionList.length} items · ${rankKeyed ? "answer order set" : "no answer order"}`
-            : warmup
+        const meta = rank
+          ? rankMetaHtml(item, optionList.length)
+          : escapeHtml(
+          warmup
             ? `Warmup · ${
                 optionList.length ? optionList.join(" / ") : "Open response"
               }`
             : openPrompt && !String(item.correct_answer || "").trim()
               ? "Open prompt"
               : `Answer ${String(item.correct_answer || "?")} · ${Number(item.points || 1)} pt`
-        );
+          );
+        const preview = rank ? rankPreviewHtml(item) : "";
         // MCK-169: rank rows are read-only (no Edit control); Import still works.
         const action =
           mode === "import"
@@ -377,6 +470,7 @@ export async function mountBankMcPicker(opts) {
           <div class="bank-mc-picker-row-main">
             ${thumb}
             <div class="bank-mc-picker-text live-question-html">${label}</div>
+            ${preview}
             <p class="hint compact">${meta}</p>
           </div>
           ${action}
@@ -390,6 +484,8 @@ export async function mountBankMcPicker(opts) {
    * Run one debounced search against the module-scoped API.
    */
   async function refreshSearch() {
+    // MCK-175: the Contest view searches nothing (the block is not filtered).
+    if (contestShown) return;
     if (statusEl instanceof HTMLElement) {
       statusEl.hidden = false;
       statusEl.textContent = "Searching…";
@@ -458,7 +554,20 @@ export async function mountBankMcPicker(opts) {
         ? String(typeHost?.querySelector('[aria-pressed="true"] .bank-type-chip-label')?.textContent || "")
         : "";
       paintCount(search.total, search.filtered, queryValue, typeLabel);
-      paintList(search.items);
+      // MCK-169 S1: with the Rank chip on, Answer order rows first.
+      const rows = sortRankRows(search.items, typeValue);
+      const hints = rankListHints({
+        typeValue,
+        items: rows,
+        scope: moduleNumber,
+        query: queryValue,
+        mode,
+      });
+      if (rankHintEl instanceof HTMLElement) {
+        rankHintEl.textContent = hints.importDefault;
+        rankHintEl.hidden = !hints.importDefault;
+      }
+      paintList(rows, hints.noneKeyed);
     } catch (err) {
       if (statusEl instanceof HTMLElement) {
         statusEl.hidden = false;
@@ -475,7 +584,10 @@ export async function mountBankMcPicker(opts) {
    * (CSS); after a typed search, bring the results line up under it.
    */
   const revealSearchResults = () => {
-    if (!contentOpts || !(countEl instanceof HTMLElement)) return;
+    // MCK-175: the block only shows in place of the list, so this is a
+    // no-op unless both are ever on screen again.
+    if (!contentOpts || contestShown || !(countEl instanceof HTMLElement)) return;
+    if (!(contentSection instanceof HTMLElement) || contentSection.hidden) return;
     const head = shell.querySelector(".bank-mc-picker-head");
     if (!(head instanceof HTMLElement)) return;
     const delta = searchResultsScroll({
@@ -508,6 +620,7 @@ export async function mountBankMcPicker(opts) {
   kindEl?.addEventListener("change", () => {
     if (kindEl instanceof HTMLSelectElement) {
       kindFilter = String(kindEl.value || "");
+      if (applyKindView(kindFilter)) return;
       refreshSearch().catch(() => {});
     }
   });
@@ -548,14 +661,10 @@ export async function mountBankMcPicker(opts) {
     }
   });
 
+  // MCK-175: the first search runs the module's usual bank auto-confirm.
+  // Contest Questions wait until Kind is "Contest Questions" (they never
+  // link banks themselves).
   await refreshSearch();
-  if (contentOpts) {
-    // After the first search so the current module's usual bank
-    // auto-confirm has run; Contest Questions never link banks itself.
-    void mountContentQuestions(shell, contentOpts, () => {
-      if (!mountTarget) closePickerModal();
-    });
-  }
   queryEl?.focus();
 }
 
@@ -609,8 +718,14 @@ async function mountContentQuestions(shell, contentOpts, onDone) {
   }
   const perModule = Number(first?.per_module) || CONTENT_PER_MODULE;
   const view = contentModuleView(first?.modules, current);
+  /** MCK-175: one bank.contest.empty line, never per-module empty rows. */
+  const showAllEmpty = () => {
+    groupsEl.replaceChildren();
+    if (importBtn instanceof HTMLElement) importBtn.hidden = true;
+    setStatus(contestEmptyText(current));
+  };
   if (!view.length) {
-    setStatus("No modules to show yet.");
+    showAllEmpty();
     return;
   }
   setStatus("");
@@ -640,6 +755,13 @@ async function mountContentQuestions(shell, contentOpts, onDone) {
     if (!(body instanceof HTMLElement)) return;
     const label = details.getAttribute("data-content-label") || "This module";
     const rowsView = contentRowsView(group, perModule, onDeck());
+    // MCK-175: a group that comes back empty (it changed since the list
+    // loaded) drops out; when none are left, one empty line remains.
+    details.hidden = !rowsView.rows.length;
+    if (!groupsEl.querySelector("details[data-content-group]:not([hidden])")) {
+      showAllEmpty();
+      return;
+    }
     if (summary) {
       summary.textContent = contentGroupHeading(
         label,
