@@ -13331,6 +13331,8 @@ class SchoolDB(LovesDB):
         # MCK-171: the Team challenge toggle lives there as well.
         if isinstance(saved_json, dict) and rank_challenge.RACE_FLAG in saved_json:
             body[rank_challenge.RACE_FLAG] = bool(saved_json[rank_challenge.RACE_FLAG])
+        if isinstance(saved_json, dict) and saved_json.get(rank_challenge.RACE_CLOSED_BY):
+            body[rank_challenge.RACE_CLOSED_BY] = str(saved_json[rank_challenge.RACE_CLOSED_BY])
         return body
 
     @staticmethod
@@ -14481,12 +14483,18 @@ class SchoolDB(LovesDB):
         return published
 
     def close_live_session_item(
-        self, session_id: int, placement_or_item: str | int
+        self, session_id: int, placement_or_item: str | int, *, by_timer: bool = False
     ) -> dict[str, Any]:
         """Close one active item, locking submissions and freezing results.
 
         The facing prompt for this item is deactivated so students do not
         keep a typeable copy after Close.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            placement_or_item: Placement key or lifecycle id.
+            by_timer: True when the SessionTimer's "Close answers at 0:00"
+                closed it (MCK-171 picks the phone line from this).
         """
 
         self._require_active_live_session(session_id)
@@ -14496,15 +14504,29 @@ class SchoolDB(LovesDB):
         if item.get("response_mode") == "group_consensus":
             self.end_group_consensus_voting(session_id, int(item["id"]))
         now = _now()
+        race = self._rank_race_on(item)
         with self._lock:
-            self.conn.execute(
-                """
-                UPDATE live_session_items
-                SET status = 'closed', closed_at = ?, updated_at = ?
-                WHERE id = ? AND status = 'active'
-                """,
-                (now, now, int(item["id"])),
-            )
+            if race:
+                # MCK-171: remember who closed it, with the close itself.
+                question = dict(item.get("item") if isinstance(item.get("item"), dict) else {})
+                question[rank_challenge.RACE_CLOSED_BY] = "timer" if by_timer else "teacher"
+                self.conn.execute(
+                    """
+                    UPDATE live_session_items
+                    SET status = 'closed', closed_at = ?, updated_at = ?, item_json = ?
+                    WHERE id = ? AND status = 'active'
+                    """,
+                    (now, now, json.dumps(question), int(item["id"])),
+                )
+            else:
+                self.conn.execute(
+                    """
+                    UPDATE live_session_items
+                    SET status = 'closed', closed_at = ?, updated_at = ?
+                    WHERE id = ? AND status = 'active'
+                    """,
+                    (now, now, int(item["id"])),
+                )
             self.conn.commit()
         closed = self.get_live_session_item(session_id, int(item["id"]))
         active_prompt = self.get_active_live_prompt(session_id)
@@ -16607,8 +16629,14 @@ class SchoolDB(LovesDB):
             "locked_by": self._rank_race_locked_by(row),
             "teams_locked": teams_locked,
             "teams_total": teams_total,
-            "timesup": str(item.get("status") or "") == "closed" and not locked,
         }
+        if str(item.get("status") or "") == "closed" and not locked:
+            # Scored on its draft. race.timesup only when the 0:00 timer
+            # closed it; a teacher Close reads race.closed.
+            question = item.get("item") if isinstance(item.get("item"), dict) else {}
+            block["closed_unlocked"] = (
+                "timer" if question.get(rank_challenge.RACE_CLOSED_BY) == "timer" else "teacher"
+            )
         if mode == "together":
             proposed = (
                 row.get("proposed_answer") if isinstance(row.get("proposed_answer"), dict) else {}
@@ -16660,6 +16688,10 @@ class SchoolDB(LovesDB):
                 int(turn["team_id"]): bool(turn.get("can_skip"))
                 for turn in self._rank_turns_teacher_rows(session_id, item)
             }
+        roster = {
+            int(team.get("id") or 0): len(team.get("members") or [])
+            for team in self._named_teams_for_live_session(session_id)
+        }
         teams: list[dict[str, Any]] = []
         for slot, (team_id, team_name, _state) in enumerate(
             self._iter_group_submit_teams(session_id, item)
@@ -16677,6 +16709,7 @@ class SchoolDB(LovesDB):
                 "locked": locked,
                 "locked_by": self._rank_race_locked_by(row),
                 "present": len(present),
+                "members": max(len(present), roster.get(int(team_id), 0)),
                 "absent": not present and not locked,
                 "total": total,
             }
@@ -24154,7 +24187,7 @@ class SchoolDB(LovesDB):
             if published is not None and published >= deadline:
                 continue
             try:
-                self.close_live_session_item(int(session_id), int(row["id"]))
+                self.close_live_session_item(int(session_id), int(row["id"]), by_timer=True)
             except (KeyError, ValueError):
                 continue  # already closed by a concurrent request
             closed.append(int(row["id"]))

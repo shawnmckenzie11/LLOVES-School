@@ -21,6 +21,10 @@ from typing import Any, Iterable
 
 #: ``item_json`` flag for the teacher's "Team challenge" toggle.
 RACE_FLAG = "group_rank_race"
+#: ``item_json`` stamp written at Close: ``"timer"`` when the SessionTimer's
+#: "Close answers at 0:00" closed it, else ``"teacher"``. Picks the phone's
+#: unlocked-at-Close line (race.timesup vs race.closed).
+RACE_CLOSED_BY = "group_rank_race_closed_by"
 
 
 def flag_on(question: Any, key: str, *, default: bool = False) -> bool:

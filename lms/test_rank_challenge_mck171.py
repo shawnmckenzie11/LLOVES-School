@@ -540,14 +540,64 @@ class NoLeakTests(ChallengeHarness):
         team = next(t for t in view["rank"]["teams"] if t["team_id"] == self._team("Ava", item))
         self.assertEqual(team["order"], KEY_IDS)
 
+    def test_teacher_close_reads_closed_not_timesup(self) -> None:
+        """Teacher Close with no timer: the unlocked team reads race.closed."""
+        item = self._challenge()
+        self._order("Ava", item, KEY_IDS)
+        closed = self._close(item)
+        self.assertEqual(closed["item"][rank_challenge.RACE_CLOSED_BY], "teacher")
+        race = self._card("Ava", item)["race"]
+        self.assertEqual(race["closed_unlocked"], "teacher")
+        self.assertFalse(race["locked"])
+
+    def test_timer_zero_reads_timesup(self) -> None:
+        """The SessionTimer's 0:00 close: the unlocked team reads race.timesup."""
+        from datetime import datetime, timedelta
+
+        item = self._challenge()
+        self._order("Ava", item, KEY_IDS)
+        stamp = (datetime.now() - timedelta(seconds=120)).replace(microsecond=0)
+        with self.school._lock:
+            self.school.conn.execute(
+                "UPDATE live_session_items SET published_at = ? WHERE id = ?",
+                (stamp.isoformat(), int(item["id"])),
+            )
+            self.school.conn.commit()
+        self.school.set_live_session_teacher_state(self.session_id, timer_closes_answers=True)
+        self.school.game.start_session_timer(self.class_id, 1)
+        started = (datetime.now() - timedelta(seconds=61)).replace(microsecond=0)
+        with self.school.game._lock:
+            self.school.game.conn.execute(
+                "UPDATE games SET round_started_at = ? WHERE class_id = ? AND status != 'ended'",
+                (started.isoformat(), self.class_id),
+            )
+            self.school.game.conn.commit()
+        self.assertIn(int(item["id"]), self.school.close_answers_if_timer_expired(self.session_id))
+        live = self.school.get_live_session_item(self.session_id, int(item["id"]))
+        self.assertEqual(live["status"], "closed")
+        self.assertEqual(live["item"][rank_challenge.RACE_CLOSED_BY], "timer")
+        self.assertEqual(self._card("Ava", item)["race"]["closed_unlocked"], "timer")
+
+    def test_locked_team_has_no_closed_line(self) -> None:
+        item = self._challenge()
+        self._order("Ava", item, KEY_IDS)
+        for name in ("Ava", "Cy", "Eli"):
+            rv = self._post(name, item, "rank-agree", {"agree": True, "order": KEY_IDS})
+            self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        self._close(item)
+        race = self._card("Ava", item)["race"]
+        self.assertTrue(race["locked"])
+        self.assertNotIn("closed_unlocked", race)
+
     def test_absent_team_lane(self) -> None:
         item = self._challenge()
         for name in ("Ben", "Dee", "Fay"):
             self._leave(name)
         lanes = {t["team_id"]: t for t in self._view(item)["race"]["teams"]}
-        ben = lanes[self._team("Ava", item) if False else next(k for k in lanes if k != self._team("Ava", item))]
+        ben = lanes[next(k for k in lanes if k != self._team("Ava", item))]
         self.assertTrue(ben["absent"])
         self.assertEqual(ben["present"], 0)
+        self.assertEqual(ben["members"], 3)  # away pips (dashed) on the projector
         self.assertFalse(ben["can_lock"])
         self.assertFalse(lanes[self._team("Ava", item)]["absent"])
 
