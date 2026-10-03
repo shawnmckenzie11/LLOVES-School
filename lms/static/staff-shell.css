@@ -5855,52 +5855,137 @@ body.staff-shell .live-add-rank-row input {
 body.staff-shell .rank-collate {
   margin-top: 0.6rem;
 }
-body.staff-shell .rank-collate-kicker {
-  display: flex;
-  justify-content: space-between;
-  margin: 0.4rem 0 0.25rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-body.staff-shell .rank-team-rows,
-body.staff-shell .rank-class-order {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-body.staff-shell .rank-team-rows li,
-body.staff-shell .rank-class-order li {
-  display: grid;
-  grid-template-columns: auto 1fr auto auto;
-  gap: 0.45rem;
-  align-items: center;
-  min-height: 44px;
-  padding: 0.2rem 0;
-}
-body.staff-shell .rank-class-order li {
-  transition: transform 200ms ease;
-}
+/* MCK-154 S1: one vertical rank stack (rank_stack.js). */
 body.staff-shell .rank-bar {
   display: block;
   height: 8px;
-  background: #1e293b;
+  background: #e2e8f0;
   border-radius: 999px;
   overflow: hidden;
 }
 body.staff-shell .rank-bar > span {
   display: block;
   height: 100%;
-  background: #5eead4;
+  background: #0d9488;
 }
-body.staff-shell .rank-team-rows li.is-waiting {
+body.staff-shell .rank-stack-status {
+  margin: 0.35rem 0 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+}
+body.staff-shell .rank-stack-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+body.staff-shell .rank-stack {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-variant-numeric: tabular-nums;
+}
+body.staff-shell .rank-stack-caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+body.staff-shell .rank-stack th,
+body.staff-shell .rank-stack td {
+  padding: 0.3rem 0.35rem;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  vertical-align: middle;
+  height: 40px;
+}
+body.staff-shell .rank-stack thead th {
+  height: auto;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+body.staff-shell .rank-stack .rank-stack-place {
+  width: 2.6ch;
+  font-weight: 700;
+  text-align: right;
+}
+body.staff-shell .rank-stack .rank-stack-option {
+  font-weight: 500;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+body.staff-shell .rank-stack .rank-stack-score {
+  width: 7.5rem;
+}
+body.staff-shell .rank-stack-score-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.2ch;
+  gap: 0.4rem;
+  align-items: center;
+}
+body.staff-shell .rank-stack-points {
+  text-align: right;
+  font-size: 0.85rem;
+}
+body.staff-shell .rank-stack .rank-stack-team {
+  width: 3.75rem;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+body.staff-shell .rank-stack thead .rank-stack-team {
+  font-family: inherit;
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 0.72rem;
+}
+body.staff-shell .rank-stack .rank-stack-team.is-waiting {
   color: #94a3b8;
 }
+body.staff-shell .rank-stack td.is-waiting > span {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+@media (max-width: 560px) {
+  body.staff-shell .rank-stack .rank-stack-score {
+    width: 2.6rem;
+  }
+  body.staff-shell .rank-stack-score-inner {
+    grid-template-columns: 1fr;
+  }
+  body.staff-shell .rank-stack-score-inner .rank-bar {
+    display: none;
+  }
+  body.staff-shell .rank-stack .rank-stack-team {
+    width: 3rem;
+  }
+}
+body.staff-shell .rank-stack tbody tr {
+  transition: transform 200ms ease;
+}
 @media (prefers-reduced-motion: reduce) {
-  body.staff-shell .rank-class-order li {
+  body.staff-shell .rank-stack tbody tr {
     transition: none;
   }
+}
+/* MCK-154 S2: teacher-only chip on an item added during this class. */
+body.staff-shell .live-question-new-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid #0f766e;
+  background: #f0fdfa;
+  color: #0f766e;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .board-refresh-cue {
