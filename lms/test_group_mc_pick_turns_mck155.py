@@ -396,6 +396,31 @@ class PickThenAgreeAndTurnsTests(unittest.TestCase):
         self.assertEqual(self._post("Ava", item, "rank-turn", {"option_id": o[1]}).status_code, 200)
         self.assertEqual(self._post("Ava", item, "rank-turn", {"option_id": o[2]}).status_code, 200)
 
+    def test_light_poll_carries_turns_progress_and_skip(self) -> None:
+        item = self._turns()
+        o = self._opts(item)
+        before = self.school.light_group_results(self.session_id)[str(item["id"])]
+        self.assertEqual(before["rank_mode"], "turns")
+        self._post("Ava", item, "rank-turn", {"option_id": o[0]})
+        after = self.school.light_group_results(self.session_id)[str(item["id"])]
+        self.assertNotEqual(before["response_seq"], after["response_seq"])
+        team_id = self._card("Ava", item)["team_id"]
+        row = next(r for r in after["turns"] if r["team_id"] == team_id)
+        self.assertEqual((row["placed"], row["next_names"], row["can_skip"]), (1, ["Cy"], True))
+        # Progress only: no option labels on the light poll.
+        self.assertNotIn("Two points", str(after))
+
+    def test_teammate_turn_changes_the_student_poll_stamp(self) -> None:
+        item = self._turns()
+        o = self._opts(item)
+        stamp = lambda: self.school.live_student_poll_stamp(self.session_id, self.class_id)  # noqa: E731
+        before = stamp()
+        self._post("Ava", item, "rank-turn", {"option_id": o[0]})
+        mid = stamp()
+        self.assertNotEqual(before, mid)
+        self._post("Cy", item, "rank-turn", {"option_id": o[1]})
+        self.assertNotEqual(mid, stamp())
+
     def test_rank_together_is_unchanged(self) -> None:
         row = self._rank_row()
         item = self._publish(row)

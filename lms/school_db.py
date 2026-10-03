@@ -27276,9 +27276,20 @@ class SchoolDB(LovesDB):
                     SELECT MAX(v.updated_at) FROM live_group_votes v
                     INNER JOIN live_session_items i ON i.id = v.live_item_id
                     WHERE i.live_session_id = ?
-                  ), '') AS group_vote_rev
+                  ), '') AS group_vote_rev,
+                  COALESCE((
+                    SELECT MAX(COALESCE(g.updated_at, '') || '|' || COALESCE(g.voting_ended_at, ''))
+                           || '|' || TOTAL(COALESCE(g.submit_count, 0))
+                           || '|' || TOTAL(CASE WHEN json_valid(g.proposed_answer_json)
+                                THEN COALESCE(json_extract(g.proposed_answer_json, '$.rev'), 0)
+                                ELSE 0 END)
+                    FROM live_group_responses g
+                    INNER JOIN live_session_items i ON i.id = g.live_item_id
+                    WHERE i.live_session_id = ?
+                  ), '') AS group_response_rev
                 """,
                 (
+                    int(session_id),
                     int(session_id),
                     int(session_id),
                     int(session_id),
@@ -27313,13 +27324,17 @@ class SchoolDB(LovesDB):
         response_max = int(row["response_max"] if row is not None else 0)
         group_vote_max = int(row["group_vote_max"] if row is not None else 0)
         group_vote_rev = str(row["group_vote_rev"] if row is not None else "")
+        # MCK-155 PR C: a teammate's turn, a Skip, Move on or a locked send
+        # touches the team row; teammates must not keep a stale card.
+        group_response_rev = str(row["group_response_rev"] if row is not None else "")
         status = str(status_row["status"] if status_row is not None else "")
         # Ink lives in board_ops. It must not change this stamp, or every
         # stroke forces a full ``/state`` rebuild.
         return (
             f"{seq}:{prompt_max}:{prompt_active}:{active_n}:{item_n}:{save_n}:"
             f"{item_max}:{response_max}:{group_vote_max}:{event_max}:"
-            f"{prompt_rev}:{item_rev}:{group_vote_rev}:{status}:{celebrate}"
+            f"{prompt_rev}:{item_rev}:{group_vote_rev}:{status}:{celebrate}:"
+            f"{group_response_rev}"
         )
 
     def _student_live_poll_is_open(self, session_id: int) -> bool:

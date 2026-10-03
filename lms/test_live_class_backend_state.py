@@ -3562,7 +3562,8 @@ class LiveBackendStateTests(unittest.TestCase):
         hits = [row for row in reveal if not row["missed"]]
         self.assertEqual(len(hits), 1)
         self.assertEqual(hits[0]["answer"], "A")
-        self.assertIn("still rises", hits[0]["why"])
+        # MCK-155 option B: the locked first send's why stands.
+        self.assertEqual(hits[0]["why"], "because the graph rises")
         self.assertTrue(misses)
         for row in misses:
             self.assertEqual(row["answer"], "")
@@ -3572,7 +3573,8 @@ class LiveBackendStateTests(unittest.TestCase):
             for row in closed_view["submitter_log"]
             if row["last_submitter"] == "Aspen"
         )
-        self.assertEqual(aspen["resubmit_count"], 1)
+        # MCK-155 option B: the answer locks on send, so no resubmits.
+        self.assertEqual(aspen["resubmit_count"], 0)
         self.assertTrue(aspen["repeat_submitter"])
         self.assertTrue(aspen["why_present"])
         missed_log = next(
