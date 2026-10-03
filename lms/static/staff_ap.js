@@ -4309,9 +4309,14 @@ function paintLiveQuestionCards() {
         active && groupChrome && result?.any_picking
           ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">${PICKS_COPY.moveOn}</button>`
           : "";
+      // MCK-171: the challenge view's "Close & reveal" is the only reveal
+      // while the lanes are showing (no second Reveal in the strip).
+      const raceLanesShowing = Boolean(active && result?.race && !raceViewOff.has(liveItemId));
       const revealHtml =
         active && groupChrome
-          ? `${moveOnHtml}<button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Reveal</button>`
+          ? raceLanesShowing
+            ? moveOnHtml
+            : `${moveOnHtml}<button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Reveal</button>`
           : active && card.response_mode === "group_consensus"
             ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">Reveal answers</button>`
             : "";
