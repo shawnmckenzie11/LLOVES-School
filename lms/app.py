@@ -6767,6 +6767,15 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 and _can_view_live_session(session_row)
                 and str(session_row.get("status") or "") != "active"
             ):
+                # Ended class the teacher owns. The store picks the answer
+                # (MCK-181 LOW-3): missing item 404, not a whiteboard 400,
+                # else 409 class_ended.
+                try:
+                    school.reopen_live_whiteboard(session_id, live_item_id)
+                except WhiteboardReopenConflict as exc:
+                    return reopen_conflict(exc)
+                except (KeyError, ValueError) as exc:
+                    return _json_error(exc)
                 return reopen_conflict(
                     WhiteboardReopenConflict(
                         WHITEBOARD_REOPEN_CLASS_ENDED,
