@@ -3,8 +3,10 @@
  *
  * One single-select row: "All" first, then each question type in the
  * current results with its count (``type_counts`` from mc-search). It
- * stays on one line; chips that do not fit move into a "More" menu.
- * Shared by the Question banks tab and Run Live Class Import from bank.
+ * stays on one line; chips that do not fit move into a "More" panel
+ * (a disclosure: a button plus a group of chips, no ARIA menu). "All" and
+ * the selected chip always stay on the row. Shared by the Question banks
+ * tab and Run Live Class Import from bank.
  * The pure helpers at the top are checked in node (bank_type_chips.test.mjs).
  */
 
@@ -49,9 +51,12 @@ export function typeChipModel(typeCounts, selected) {
 }
 
 /**
- * Pick which chips show on the row and which go into the More menu.
- * Keeps chip order, always shows the selected chip, and never lets the
- * row need more than ``available`` pixels when anything fits at all.
+ * Pick which chips show on the row and which go into the More panel.
+ * Keeps chip order. "All" (index 0) and the selected chip are pinned: they
+ * are always on the row and never move into More. Other chips fill in
+ * order while they fit. When even the pinned pair plus More is wider than
+ * ``available`` the pinned chips still show; the CSS then lets the
+ * selected chip's label shrink with an ellipsis so the row never overflows.
  * @param {{widths: number[], available: number, moreWidth: number, gap: number, selectedIndex: number}} opts
  * @returns {{visible: number[], overflow: number[]}}
  */
@@ -61,15 +66,14 @@ export function fitTypeChips({ widths, available, moreWidth, gap, selectedIndex 
     indices.reduce((sum, index) => sum + widths[index], 0) + Math.max(0, indices.length - 1) * gap;
   if (span(all) <= available) return { visible: all, overflow: [] };
   const room = available - moreWidth - gap;
-  let visible = [];
+  let visible = [...new Set([0, selectedIndex])].filter((index) => index >= 0 && index < widths.length);
   for (const index of all) {
-    if (span([...visible, index]) > room) break;
-    visible.push(index);
+    if (visible.includes(index)) continue;
+    const next = [...visible, index].sort((a, b) => a - b);
+    if (span(next) > room) break;
+    visible = next;
   }
-  if (selectedIndex >= 0 && !visible.includes(selectedIndex)) {
-    while (visible.length && span([...visible, selectedIndex]) > room) visible.pop();
-    visible = [...visible, selectedIndex].sort((a, b) => a - b);
-  }
+  visible.sort((a, b) => a - b);
   return { visible, overflow: all.filter((index) => !visible.includes(index)) };
 }
 
@@ -111,42 +115,107 @@ function chipInner(chip) {
 }
 
 /**
+ * Where focus should land after a repaint, or null to leave focus alone.
+ * Prefers the chip for ``type`` when it is on the row, then the More
+ * button when it is shown, then the pressed chip.
+ * @param {{type: string, visible: boolean, pressed: boolean}[]} chips Row chips in order.
+ * @param {string | null} type Canonical type ("" for All), or null for "the More button".
+ * @param {boolean} moreShown
+ * @returns {{chip: string} | {more: true} | null}
+ */
+export function focusTarget(chips, type, moreShown) {
+  if (type !== null) {
+    const chip = chips.find((c) => c.type === type);
+    if (chip?.visible) return { chip: chip.type };
+  }
+  if (moreShown) return { more: true };
+  const pressed = chips.find((c) => c.pressed && c.visible);
+  return pressed ? { chip: pressed.type } : null;
+}
+
+let mountSeq = 0;
+
+/**
  * Mount the Type chip row into ``host`` (an empty element in a filter row).
  * @param {HTMLElement} host
  * @param {{view: string, onChange: (type: string) => void}} opts ``view`` keys
  *   the sessionStorage entry, e.g. ``import`` or ``question-banks``.
- * @returns {{value: () => string, update: (typeCounts: unknown[]) => void}}
+ * @returns {{value: () => string, update: (typeCounts: unknown[]) => void, destroy: () => void}}
+ *   Call ``destroy`` when the host goes away (the Import picker does on close).
  */
 export function mountTypeChips(host, opts) {
   const key = `lloves.bankType.${opts.view}`;
   const storage = typeof window !== "undefined" ? window.sessionStorage : null;
+  const doc = host.ownerDocument;
+  const menuId = `bank-type-more-${opts.view}-${++mountSeq}`;
   let selected = readStoredType(storage, key);
   let model = typeChipModel([], selected);
+  let destroyed = false;
+  /** @type {ResizeObserver | null} */
+  let resizeObserver = null;
   host.classList.add("bank-type-chips");
   host.innerHTML = `
     <div class="bank-type-chip-row" role="group" aria-label="Question type" data-bank-type-row></div>
-    <div class="bank-type-more-menu" role="menu" aria-label="More question types" data-bank-type-menu hidden></div>`;
+    <div class="bank-type-more-menu" id="${esc(menuId)}" role="group" aria-label="More question types" data-bank-type-menu hidden></div>`;
   const row = host.querySelector("[data-bank-type-row]");
   const menu = host.querySelector("[data-bank-type-menu]");
+  const moreBtn = () => row.querySelector("[data-bank-type-more]");
 
+  /** Close the panel when a click lands outside the chips (attached only while open). */
+  const onDocClick = (event) => {
+    const target = event.target;
+    if (target && typeof target === "object" && "nodeType" in target && host.contains(target)) return;
+    closeMenu();
+  };
+  const openMenu = () => {
+    if (destroyed || !menu.hidden) return;
+    menu.hidden = false;
+    moreBtn()?.setAttribute("aria-expanded", "true");
+    doc.addEventListener("click", onDocClick);
+  };
   const closeMenu = () => {
+    doc.removeEventListener("click", onDocClick);
     menu.hidden = true;
-    row.querySelector("[data-bank-type-more]")?.setAttribute("aria-expanded", "false");
+    moreBtn()?.setAttribute("aria-expanded", "false");
+  };
+
+  /** Focus a chip by type, else More, else the pressed chip (MCK-170 MED-1). */
+  const restoreFocus = (type) => {
+    const chips = [...row.querySelectorAll("[data-bank-type]")];
+    const more = moreBtn();
+    const target = focusTarget(
+      chips.map((el) => ({
+        type: el.getAttribute("data-bank-type") || "",
+        visible: !el.hidden,
+        pressed: el.getAttribute("aria-pressed") === "true",
+      })),
+      type,
+      Boolean(more && !more.hidden)
+    );
+    if (!target) return;
+    const el = "more" in target ? more : chips.find((c) => (c.getAttribute("data-bank-type") || "") === target.chip);
+    el?.focus();
   };
 
   const layout = () => {
+    if (destroyed) return;
     const chips = [...row.querySelectorAll("[data-bank-type]")];
-    const more = row.querySelector("[data-bank-type-more]");
+    const more = moreBtn();
     if (!more || !row.clientWidth) return;
     chips.forEach((chip) => {
       chip.hidden = false;
     });
     more.hidden = false;
+    // Measure natural widths: chips may shrink on the row (pinned overflow).
+    row.classList.add("is-measuring");
     const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
+    const widths = chips.map((chip) => chip.getBoundingClientRect().width);
+    const moreWidth = more.getBoundingClientRect().width;
+    row.classList.remove("is-measuring");
     const { visible, overflow } = fitTypeChips({
-      widths: chips.map((chip) => chip.getBoundingClientRect().width),
+      widths,
       available: row.clientWidth,
-      moreWidth: more.getBoundingClientRect().width,
+      moreWidth,
       gap,
       selectedIndex: model.findIndex((chip) => chip.pressed),
     });
@@ -157,65 +226,121 @@ export function mountTypeChips(host, opts) {
     menu.innerHTML = overflow
       .map((index) => {
         const chip = model[index];
-        return `<button type="button" role="menuitemradio" aria-checked="${chip.pressed}" data-bank-type-pick="${esc(chip.type)}">${chipInner(chip)}</button>`;
+        return `<button type="button" aria-pressed="${chip.pressed}" data-bank-type-pick="${esc(chip.type)}">${chipInner(chip)}</button>`;
       })
       .join("");
     if (!overflow.length) closeMenu();
   };
 
-  const paint = () => {
-    row.innerHTML =
-      model
-        .map(
-          (chip) =>
-            `<button type="button" class="bank-type-chip" data-bank-type="${esc(chip.type)}" aria-pressed="${chip.pressed}">${chipInner(chip)}</button>`
-        )
-        .join("") +
-      `<button type="button" class="bank-type-chip bank-type-more" data-bank-type-more aria-haspopup="menu" aria-expanded="false">More ▾</button>`;
-    layout();
+  /**
+   * Run ``fn`` (which may rebuild or hide chips) and put focus back where
+   * it was: the same chip or panel item, else More, else the pressed chip.
+   * Focus outside the chips is left alone (MCK-170 MED-1).
+   */
+  const keepFocus = (fn) => {
+    const active = doc.activeElement;
+    let refocus;
+    if (active instanceof Element && host.contains(active)) {
+      if (active.hasAttribute("data-bank-type-more")) refocus = { type: null };
+      else refocus = { type: active.getAttribute("data-bank-type") ?? active.getAttribute("data-bank-type-pick") ?? null };
+    }
+    fn();
+    if (!refocus) return;
+    if (doc.activeElement === active && active.isConnected && !active.closest("[hidden]")) return;
+    // A focused item still in an open panel keeps focus there.
+    const pick =
+      refocus.type !== null && !menu.hidden
+        ? [...menu.querySelectorAll("[data-bank-type-pick]")].find(
+            (b) => b.getAttribute("data-bank-type-pick") === refocus.type
+          )
+        : null;
+    if (pick) pick.focus();
+    else restoreFocus(refocus.type);
   };
+
+  const paint = () =>
+    keepFocus(() => {
+      const wasOpen = !menu.hidden;
+      row.innerHTML =
+        model
+          .map(
+            (chip) =>
+              `<button type="button" class="bank-type-chip" data-bank-type="${esc(chip.type)}" aria-pressed="${chip.pressed}" title="${esc(chip.label)}">${chipInner(chip)}</button>`
+          )
+          .join("") +
+        `<button type="button" class="bank-type-chip bank-type-more" data-bank-type-more aria-controls="${esc(menuId)}" aria-expanded="${wasOpen}">More ▾</button>`;
+      layout();
+    });
 
   const choose = (type) => {
     closeMenu();
-    if (type === selected) return;
-    selected = type;
-    storeType(storage, key, selected);
-    model = model.map((chip) => ({ ...chip, pressed: chip.type === selected }));
-    paint();
-    opts.onChange(selected);
+    const changed = type !== selected;
+    if (changed) {
+      selected = type;
+      storeType(storage, key, selected);
+      model = model.map((chip) => ({ ...chip, pressed: chip.type === selected }));
+      paint();
+    }
+    // Back to the chosen chip (or More if it is still in the panel).
+    restoreFocus(selected);
+    if (changed) opts.onChange(selected);
   };
 
-  host.addEventListener("click", (event) => {
+  const onHostClick = (event) => {
     const target = event.target instanceof Element ? event.target : null;
-    const more = target?.closest("[data-bank-type-more]");
-    if (more) {
-      menu.hidden = !menu.hidden;
-      more.setAttribute("aria-expanded", String(!menu.hidden));
+    if (target?.closest("[data-bank-type-more]")) {
+      if (menu.hidden) openMenu();
+      else closeMenu();
       return;
     }
     const chip = target?.closest("[data-bank-type], [data-bank-type-pick]");
     if (chip) {
       choose(chip.getAttribute("data-bank-type") ?? chip.getAttribute("data-bank-type-pick") ?? "");
     }
-  });
-  document.addEventListener("click", (event) => {
-    if (!menu.hidden && event.target instanceof Node && !host.contains(event.target)) closeMenu();
-  });
-  host.addEventListener("keydown", (event) => {
+  };
+  const onHostKeydown = (event) => {
     if (event.key === "Escape" && !menu.hidden) {
       event.stopPropagation();
       closeMenu();
-      row.querySelector("[data-bank-type-more]")?.focus();
+      moreBtn()?.focus();
     }
-  });
-  if (typeof ResizeObserver === "function") new ResizeObserver(() => layout()).observe(row);
+  };
+  /** Tabbing (or clicking) to anything outside the chips closes the panel. */
+  const onHostFocusout = (event) => {
+    const next = event.relatedTarget;
+    if (!menu.hidden && next && typeof next === "object" && "nodeType" in next && !host.contains(next)) closeMenu();
+  };
+  host.addEventListener("click", onHostClick);
+  host.addEventListener("keydown", onHostKeydown);
+  host.addEventListener("focusout", onHostFocusout);
+  if (typeof ResizeObserver === "function") {
+    resizeObserver = new ResizeObserver(() => {
+      // Safety net: a host removed without destroy() stops observing.
+      if (!host.isConnected) api.destroy();
+      else keepFocus(layout);
+    });
+    resizeObserver.observe(row);
+  }
   paint();
 
-  return {
+  const api = {
     value: () => selected,
     update(typeCounts) {
+      if (destroyed) return;
       model = typeChipModel(typeCounts, selected);
       paint();
     },
+    /** Remove the document listener and the ResizeObserver (MCK-170 LOW-7). */
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      closeMenu();
+      resizeObserver?.disconnect();
+      resizeObserver = null;
+      host.removeEventListener("click", onHostClick);
+      host.removeEventListener("keydown", onHostKeydown);
+      host.removeEventListener("focusout", onHostFocusout);
+    },
   };
+  return api;
 }

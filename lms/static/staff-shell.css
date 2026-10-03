@@ -5645,6 +5645,7 @@ body.staff-shell .bank-type-chips {
   position: relative;
   flex: 1 1 100%;
   min-width: 0;
+  container-type: inline-size;
 }
 body.staff-shell .bank-type-chip-row {
   display: flex;
@@ -5658,6 +5659,9 @@ body.staff-shell .bank-type-chip-row {
 }
 body.staff-shell .bank-type-chip,
 body.staff-shell .bank-type-more-menu button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
   flex: 0 0 auto;
   margin: 0;
   min-height: 2rem;
@@ -5676,8 +5680,26 @@ body.staff-shell .bank-type-more-menu button {
 body.staff-shell .bank-type-chip[hidden] {
   display: none;
 }
+/* "All" and the selected chip are pinned on the row (LOW-3). When they and
+   More don't fit, only the selected chip's label shrinks, with an ellipsis;
+   its count stays. Natural widths are measured with shrinking off. */
+body.staff-shell .bank-type-chip[aria-pressed="true"]:not([data-bank-type=""]) {
+  flex-shrink: 1;
+  min-width: 0;
+}
+body.staff-shell .bank-type-chip-row.is-measuring .bank-type-chip {
+  flex-shrink: 0;
+}
+body.staff-shell .bank-type-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.staff-shell .bank-type-chip-count {
+  flex: none;
+}
 body.staff-shell .bank-type-chip[aria-pressed="true"],
-body.staff-shell .bank-type-more-menu button[aria-checked="true"] {
+body.staff-shell .bank-type-more-menu button[aria-pressed="true"] {
   background: #12202e;
   color: #f8fafc;
 }
@@ -5704,7 +5726,18 @@ body.staff-shell .bank-type-more-menu[hidden] {
   display: none;
 }
 body.staff-shell .bank-type-more-menu button {
+  justify-content: flex-start;
   text-align: left;
+}
+/* Narrow rows (Import from bank on a phone): tighter chips so "All" and
+   the selected chip fit beside More without truncating. */
+@container (max-width: 300px) {
+  body.staff-shell .bank-type-chip-row {
+    gap: 0.3rem;
+  }
+  body.staff-shell .bank-type-chip {
+    padding-inline: 0.45rem;
+  }
 }
 body.staff-shell .live-add-type-chips {
   margin: 0;

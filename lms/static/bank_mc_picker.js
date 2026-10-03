@@ -33,11 +33,24 @@ import { mountTypeChips } from "/static/bank_type_chips.js";
 
 /** @type {HTMLElement | null} */
 let modalRoot = null;
+/**
+ * MCK-170 LOW-7: the open picker's Type chips. Destroyed on close or the
+ * next mount so its document listener and ResizeObserver don't pile up.
+ * @type {{destroy: () => void} | null}
+ */
+let activeTypeChips = null;
+
+/** Tear down the current picker's Type chips, if any. */
+function destroyTypeChips() {
+  activeTypeChips?.destroy();
+  activeTypeChips = null;
+}
 
 /**
  * Remove the picker modal from the document.
  */
 function closePickerModal() {
+  destroyTypeChips();
   modalRoot?.remove();
   modalRoot = null;
 }
@@ -241,6 +254,7 @@ export async function mountBankMcPicker(opts) {
 
   const mountTarget = opts.mount instanceof HTMLElement ? opts.mount : null;
   if (mountTarget) {
+    destroyTypeChips();
     mountTarget.replaceChildren(shell);
   } else {
     closePickerModal();
@@ -279,6 +293,7 @@ export async function mountBankMcPicker(opts) {
           },
         })
       : null;
+  activeTypeChips = typeChips;
 
   /**
    * Paint search hits into the list pane.

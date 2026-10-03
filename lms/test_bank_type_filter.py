@@ -271,7 +271,7 @@ class TypeChipWiringTests(unittest.TestCase):
 
     @unittest.skipUnless(NODE, "node not installed")
     def test_chip_helper_node_cases(self) -> None:
-        """bank_type_chips.test.mjs: model, fit with More, session storage."""
+        """bank_type_chips.test.mjs: model, fit (All pinned), storage, focus, More panel, cleanup."""
         proc = subprocess.run(
             [NODE, str(LMS_DIR / "static" / "bank_type_chips.test.mjs")],
             cwd=str(LMS_DIR), capture_output=True, text=True, timeout=30, check=False,
