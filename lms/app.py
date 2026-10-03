@@ -1037,6 +1037,8 @@ def create_app(
     app.config["DATA_DIR"] = store
     # MCK-118 LOW-A: Most Engaged fingerprints are keyed to the app secret.
     bind_celebration_secret(school, app.secret_key)
+    # MCK-176: rank option aliases for students are keyed to the app secret.
+    school.rank_alias_secret = str(app.secret_key or "")
     try:
         # MCK-118: CELEBRATIONS_FROZEN=0 at boot retires the old snapshot.
         note_celebrations_unfrozen(school)
@@ -5677,6 +5679,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             student_id=int(student_id) if student_id not in (None, "") else None,
             count=prompt_response_count(school, prompt_id),
         )
+        # MCK-176: students only ever see rank option aliases.
+        body = school.alias_student_prompt_reply(prompt_id, body)
         return jsonify(body)
 
     @app.route(

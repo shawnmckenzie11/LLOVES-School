@@ -297,10 +297,12 @@ class RankLiveSessionTests(unittest.TestCase):
         )
         item = placed.get("item") or {}
         self.assertEqual(item.get("type"), "rank")
-        self.assertEqual(
-            [row["id"] for row in item.get("rank_options") or []],
-            ["o1", "o2", "o3"],
-        )
+        ids = [row["id"] for row in item.get("rank_options") or []]
+        # MCK-176: new ids are opaque, never o1… in typed order.
+        self.assertEqual(len(set(ids)), 3)
+        for opt_id in ids:
+            self.assertRegex(opt_id, r"^o[0-9a-f]{6}$")
+        self.assertEqual([row["label"] for row in item["rank_options"]], ["wifi", "socks", "chewing"])
         self.assertNotIn("key", item)
         with self.assertRaises(ValueError):
             self.school.add_staff_question_to_class_playlist(
