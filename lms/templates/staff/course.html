@@ -715,7 +715,7 @@
               <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="3"> <input id="live-add-q-opt-3" type="text" maxlength="240" placeholder="D"></label>
             </div>
             <div id="live-add-q-rank-fields" class="live-add-q-type-fields" hidden>
-              <p class="live-relocate-section-label">Options — 3 to 6, no answer key</p>
+              <p class="live-relocate-section-label">Options — 3 to 6</p>
               <div id="live-add-q-rank-list">
                 <label class="live-add-rank-row"><input id="live-add-q-rank-0" type="text" maxlength="240" placeholder="Option 1"><button type="button" class="secondary live-q-btn" data-rank-remove aria-label="Remove option">×</button></label>
                 <label class="live-add-rank-row"><input id="live-add-q-rank-1" type="text" maxlength="240" placeholder="Option 2"><button type="button" class="secondary live-q-btn" data-rank-remove aria-label="Remove option">×</button></label>
@@ -725,6 +725,11 @@
                 <label class="live-add-rank-row" hidden><input id="live-add-q-rank-5" type="text" maxlength="240" placeholder="Option 6"><button type="button" class="secondary live-q-btn" data-rank-remove aria-label="Remove option">×</button></label>
               </div>
               <button type="button" class="secondary live-q-btn" id="live-add-q-rank-add">Add option</button>
+              <label class="live-add-rank-key-toggle"><input type="checkbox" id="live-add-q-rank-key-on"> Answer order</label>
+              <div id="live-add-q-rank-key" class="live-add-rank-key" hidden>
+                <p class="hint compact" id="live-add-q-rank-key-help">Drag the items into the right order.</p>
+                <ol id="live-add-q-rank-key-list" class="live-add-rank-key-list" aria-label="Answer order" aria-describedby="live-add-q-rank-key-help"></ol>
+              </div>
             </div>
             <div id="live-add-q-numeric-fields" class="live-add-q-type-fields" hidden>
               <label class="live-relocate-move-field" for="live-add-q-numeric-answer">Correct answer</label>

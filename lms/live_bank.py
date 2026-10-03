@@ -39,6 +39,8 @@ def create_live_bank_question(
         library_id: ``content_libraries.id``.
         bank_scope: ``M1``–``M8`` or ``course``.
         body: Stem, options, and type (``mc``, ``numeric``, ``poll``, or ``rank``).
+            A rank may carry ``rank_key`` (MCK-172): the answer order as option
+            ids or zero-based indices, a permutation of the options.
         class_id: Class id for image URL resolution.
 
     Returns:
@@ -48,15 +50,17 @@ def create_live_bank_question(
     if kind not in LIVE_BANK_TYPES:
         raise ValueError("type must be mc, numeric, poll, or rank")
     rank_options: list[dict[str, str]] = []
+    rank_key: list[str] | None = None
     if kind == "rank":
         try:
-            from live_rank import build_rank_options
+            from live_rank import build_rank_options, parse_rank_key
         except ImportError:
-            from lms.live_rank import build_rank_options
+            from lms.live_rank import build_rank_options, parse_rank_key
 
         rank_options = build_rank_options(
             body.get("rank_options") or body.get("options") or []
         )
+        rank_key = parse_rank_key(body.get("rank_key", body.get("rankKey")), rank_options)
     if kind == "numeric":
         key = str(body.get("correct_answer") or body.get("correctAnswer") or "").strip()
         if not key:
@@ -82,6 +86,8 @@ def create_live_bank_question(
     write.pop("kind", None)
     write.pop("bank_kind", None)
     write.pop("tags", None)
+    write.pop("rank_key", None)
+    write.pop("rankKey", None)
     question = create_staff_bank_question(
         school,
         library_id=int(library_id),
@@ -109,6 +115,8 @@ def create_live_bank_question(
         payload["options"] = labels
         payload["choices"] = labels
         payload["rank_options"] = rank_options
+        if rank_key:
+            payload["rank_key"] = rank_key
         payload.pop("key", None)
         payload.pop("correct_answer", None)
     try:

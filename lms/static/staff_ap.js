@@ -11797,6 +11797,79 @@ function syncRankOptionRows() {
   });
   const add = $("live-add-q-rank-add");
   if (add instanceof HTMLButtonElement) add.disabled = visible.length >= 6;
+  syncRankKeyList();
+}
+
+/** MCK-172: Answer order as rank row numbers (0–5), right order first. */
+let rankKeyRows = [];
+
+/**
+ * Rank rows that are shown and filled, in authored order.
+ * @returns {number[]}
+ */
+function filledRankRows() {
+  return [...document.querySelectorAll("#live-add-q-rank-list .live-add-rank-row")]
+    .map((row, index) => ({ row, index }))
+    .filter(
+      ({ row }) =>
+        row instanceof HTMLElement &&
+        !row.hidden &&
+        String(row.querySelector("input")?.value || "").trim()
+    )
+    .map(({ index }) => index);
+}
+
+/**
+ * Keep the Answer order list in step with the options: drop removed rows,
+ * add new ones at the end, and repaint the labels.
+ */
+function syncRankKeyList() {
+  const on = $("live-add-q-rank-key-on");
+  const box = $("live-add-q-rank-key");
+  const list = $("live-add-q-rank-key-list");
+  const enabled = on instanceof HTMLInputElement && on.checked;
+  if (box instanceof HTMLElement) box.hidden = !enabled;
+  const filled = filledRankRows();
+  rankKeyRows = [
+    ...rankKeyRows.filter((row) => filled.includes(row)),
+    ...filled.filter((row) => !rankKeyRows.includes(row)),
+  ];
+  if (!(list instanceof HTMLElement) || !enabled) return;
+  list.innerHTML = rankKeyRows
+    .map((row) => {
+      const label = String($(`live-add-q-rank-${row}`)?.value || "").trim();
+      return `<li draggable="true" tabindex="0" data-rank-key-row="${row}" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown">${escapeHtml(label)}</li>`;
+    })
+    .join("");
+}
+
+/**
+ * Move one Answer order row to a new position and repaint.
+ * @param {number} row Rank row number being moved.
+ * @param {number} to Target position in the list.
+ */
+function moveRankKeyRow(row, to) {
+  const from = rankKeyRows.indexOf(row);
+  if (from < 0) return;
+  const next = rankKeyRows.filter((item) => item !== row);
+  next.splice(Math.max(0, Math.min(next.length, to)), 0, row);
+  rankKeyRows = next;
+  syncRankKeyList();
+  const moved = document.querySelector(`#live-add-q-rank-key-list [data-rank-key-row="${row}"]`);
+  if (moved instanceof HTMLElement) moved.focus();
+}
+
+/**
+ * Answer order for the POST body as option indices, or null when unset.
+ * @param {string[]} options Filled option labels in authored order.
+ * @returns {number[] | null}
+ */
+function rankKeyForSubmit(options) {
+  const on = $("live-add-q-rank-key-on");
+  if (!(on instanceof HTMLInputElement) || !on.checked) return null;
+  const filled = filledRankRows();
+  if (filled.length !== options.length) return null;
+  return rankKeyRows.map((row) => filled.indexOf(row));
 }
 
 const EQ_RENDER_ERROR = "Couldn't render this equation — check the TeX.";
@@ -11881,6 +11954,7 @@ function openAddQuestionDialog() {
   const form = $("live-add-question-form");
   const err = $("live-add-q-error");
   if (form instanceof HTMLFormElement) form.reset();
+  rankKeyRows = [];
   const mc = document.querySelector('input[name="live-add-q-type"][value="mc"]');
   if (mc instanceof HTMLInputElement) mc.checked = true;
   const select = $("live-add-q-bank-scope-select");
@@ -11979,6 +12053,8 @@ async function submitAddQuestion() {
       .filter((row) => row instanceof HTMLElement && !row.hidden)
       .map((row) => String(row.querySelector("input")?.value || "").trim())
       .filter(Boolean);
+    const rankKey = rankKeyForSubmit(body.options);
+    if (rankKey) body.rank_key = rankKey;
   }
   const module = String(teacherState.live_module || "M1").toUpperCase();
   const slot = String(teacherState.live_slot || "C1").toUpperCase();
@@ -12021,6 +12097,48 @@ document.querySelectorAll("#live-add-q-rank-list [data-rank-remove]").forEach((b
     syncRankOptionRows();
   });
 });
+document
+  .querySelectorAll("#live-add-q-rank-list input")
+  .forEach((input) => input.addEventListener("input", () => syncRankKeyList()));
+$("live-add-q-rank-key-on")?.addEventListener("change", () => syncRankKeyList());
+{
+  const keyList = $("live-add-q-rank-key-list");
+  let dragRow = -1;
+  const rowOf = (node) =>
+    Number(
+      (node instanceof Element ? node.closest("[data-rank-key-row]") : null)?.getAttribute(
+        "data-rank-key-row"
+      ) ?? -1
+    );
+  keyList?.addEventListener("dragstart", (event) => {
+    dragRow = rowOf(event.target);
+    if (event.target instanceof HTMLElement) event.target.classList.add("is-dragging");
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+  });
+  keyList?.addEventListener("dragover", (event) => {
+    if (dragRow >= 0) event.preventDefault();
+  });
+  keyList?.addEventListener("drop", (event) => {
+    event.preventDefault();
+    const target = rowOf(event.target);
+    if (dragRow < 0) return;
+    const to = target >= 0 ? rankKeyRows.indexOf(target) : rankKeyRows.length - 1;
+    moveRankKeyRow(dragRow, to);
+    dragRow = -1;
+  });
+  keyList?.addEventListener("dragend", () => {
+    dragRow = -1;
+    syncRankKeyList();
+  });
+  keyList?.addEventListener("keydown", (event) => {
+    if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+    const row = rowOf(event.target);
+    if (row < 0) return;
+    event.preventDefault();
+    const at = rankKeyRows.indexOf(row);
+    moveRankKeyRow(row, event.key === "ArrowUp" ? at - 1 : at + 1);
+  });
+}
 document.querySelectorAll("[data-eq-insert]").forEach((button) => {
   button.addEventListener("click", () => {
     insertAddQuestionLatex(String(button.getAttribute("data-eq-insert") || ""));

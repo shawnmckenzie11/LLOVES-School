@@ -1,4 +1,5 @@
-"""RANK live questions: option ids, tap/undo, and display-only Borda order.
+"""RANK live questions: option ids, tap/undo, display-only Borda order, and
+the optional answer order (``rank_key``) with its spot-by-spot score.
 
 Borda points order the class list. They never award participation or game
 points. Callers that paint ``/state`` must use the safe builders here so a
@@ -353,6 +354,86 @@ def build_rank_tally(
         "class_order": class_order,
         "response_seq": rank_fingerprint(class_order, responded),
     }
+
+
+# ---------------------------------------------------------------------------
+# MCK-172 (race R1): optional answer order on a rank item.
+#
+# ``item_json.rank_key`` is the option ids in the right order. It is a
+# teacher-only field (``TEACHER_ONLY_FIELDS``), so no student payload ever
+# carries it. Borda display ignores it. Race scoring (later slices) reads it
+# through ``rank_race_score``.
+# ---------------------------------------------------------------------------
+
+
+def parse_rank_key(raw: Any, options: list[dict[str, str]]) -> list[str] | None:
+    """Validate an authored answer order against the item's options.
+
+    Args:
+        raw: ``None`` or ``[]`` for no answer order, else a list of option
+            ids (``o2``) or zero-based option indices (``1`` or ``"1"``).
+        options: Rows from ``build_rank_options`` / ``safe_rank_options``.
+
+    Returns:
+        Option ids in the right order, or ``None`` when no order was given.
+
+    Raises:
+        ValueError: When the order is not a permutation of the options.
+    """
+    if raw in (None, "", []):
+        return None
+    if not isinstance(raw, list):
+        raise ValueError("answer order must list every option once")
+    ids = option_ids(options)
+    key: list[str] = []
+    for item in raw:
+        token = str(item if item is not None else "").strip()
+        if token not in ids and token.isdigit() and int(token) < len(ids):
+            token = ids[int(token)]
+        if token not in ids or token in key:
+            raise ValueError("answer order must list every option once")
+        key.append(token)
+    if len(key) != len(ids):
+        raise ValueError("answer order must list every option once")
+    return key
+
+
+def safe_rank_key(raw: Any, options: list[dict[str, str]]) -> list[str] | None:
+    """Read a stored answer order. A stale or bad key reads as no key.
+
+    Args:
+        raw: Stored ``rank_key``.
+        options: The item's current rank option rows.
+    """
+    try:
+        return parse_rank_key(raw, options)
+    except (TypeError, ValueError):
+        return None
+
+
+def rank_race_score(order: Any, key: Any) -> dict[str, Any]:
+    """Score one order against the answer order, spot by spot. Never raises.
+
+    A spot is right only when the option at that position matches the key
+    exactly. A partial order (an unsent draft) scores its filled spots;
+    empty or missing spots are not right.
+
+    Args:
+        order: Option ids by position. May be short, or hold ``None``/``""``
+            for empty spots.
+        key: Answer order (option ids), e.g. from ``safe_rank_key``.
+
+    Returns:
+        ``{"right": int, "total": int, "spots": [bool]}`` with one spot per
+        key position.
+    """
+    answer = [str(item or "").strip() for item in key] if isinstance(key, list) else []
+    placed = list(order) if isinstance(order, list) else []
+    spots: list[bool] = []
+    for index, want in enumerate(answer):
+        got = str(placed[index] or "").strip() if index < len(placed) else ""
+        spots.append(bool(want) and got == want)
+    return {"right": sum(spots), "total": len(answer), "spots": spots}
 
 
 # ---------------------------------------------------------------------------

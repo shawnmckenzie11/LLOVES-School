@@ -25,6 +25,8 @@ TEACHER_ONLY_FIELDS = (
     "chips",
     "curriculum_chips",
     "expectation_codes",
+    # MCK-172: a rank item's answer order (race R1). Teacher-only.
+    "rank_key",
 )
 
 # Student-facing one-beat leads. Never “Wrong.” Never teacher-stage talk.

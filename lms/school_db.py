@@ -91,8 +91,10 @@ try:
         build_rank_options,
         format_rank_order,
         is_rank_prompt,
+        parse_rank_key,
         parse_rank_order,
         rank_fingerprint,
+        safe_rank_key,
         safe_rank_options,
         toggle_rank_order,
         TurnConflict,
@@ -241,8 +243,10 @@ except ImportError:  # ``python3 lms/app.py`` package import
         build_rank_options,
         format_rank_order,
         is_rank_prompt,
+        parse_rank_key,
         parse_rank_order,
         rank_fingerprint,
+        safe_rank_key,
         safe_rank_options,
         toggle_rank_order,
         TurnConflict,
@@ -10891,6 +10895,7 @@ class SchoolDB(LovesDB):
         bank_kind: str | None = None,
         library_id: int | None = None,
         extra_item: dict[str, Any] | None = None,
+        rank_key: list[Any] | None = None,
     ) -> dict[str, Any]:
         """Add one staff-authored question to the current class overlay page.
 
@@ -10921,6 +10926,9 @@ class SchoolDB(LovesDB):
             extra_item: MCK-79. Extra item fields. Only the keys in
                 ``EXTRA_ITEM_KEYS`` (``live_problem_id``, ``question_title``,
                 ``contest_batch``) are kept; anything else is ignored.
+            rank_key: MCK-172. Optional rank answer order: option ids or
+                zero-based indices, a permutation of the options. Stored as
+                ``rank_key`` (option ids); students never receive it.
 
         Returns:
             Inserted placement row including parsed ``item`` payload.
@@ -11026,6 +11034,9 @@ class SchoolDB(LovesDB):
             item_payload["choices"] = labels
             item_payload.pop("key", None)
             item_payload.pop("correct_answer", None)
+            answer_order = parse_rank_key(rank_key, rank_rows)
+            if answer_order:
+                item_payload["rank_key"] = answer_order
 
         # MCK-154 S2: mark an item added while this class is live so the
         # teacher card can show a small "New" chip. Students never see it.
@@ -14183,6 +14194,12 @@ class SchoolDB(LovesDB):
             payload["rank_options"] = rank_rows
             payload["options"] = labels
             payload["choices"] = labels
+            # MCK-172: keep a valid answer order; a stale one reads as none.
+            answer_order = safe_rank_key(question.get("rank_key"), rank_rows)
+            if answer_order:
+                payload["rank_key"] = answer_order
+            else:
+                payload.pop("rank_key", None)
         else:
             self._attach_singular_answer_key(payload, question)
         if prompt_kind == "numeric":
