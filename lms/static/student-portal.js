@@ -41,6 +41,7 @@ import {
   agreeLineHtml,
   phoneCueHtml,
   phoneStripHtml,
+  phoneResultsHtml,
   readOnlyOrderHtml,
   raceDisplayOptions,
 } from "/static/rank_challenge_phone.js";
@@ -2328,6 +2329,8 @@ function rankChallengeCardHtml(item) {
   const itemId = Number(item.id) || 0;
   const order = Array.isArray(group.order) ? group.order.map(String) : [];
   const locked = Boolean(race.locked);
+  // R6: after Close, with results on, the phone shows its own results.
+  if (status === "closed" && race.results) return phoneResultsHtml(group);
   const strip = phoneStripHtml(group);
   if (race.mode === "turns" && status !== "closed") {
     return `<div class="student-group-card race-phone" data-live-action="group" data-rank-turns-card="1">

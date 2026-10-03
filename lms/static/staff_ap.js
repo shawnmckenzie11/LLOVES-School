@@ -102,6 +102,7 @@ import {
   fill as raceFill,
   raceLanesHtml,
   raceOptionLabels,
+  raceResultsHtml,
   raceStem,
 } from "/static/rank_challenge_view.js";
 
@@ -1392,6 +1393,13 @@ const raceViewOff = new Set();
 const racePopped = new Map();
 
 /**
+ * MCK-171: results step per closed challenge (teacher-local, by Next):
+ * 0..n rows revealed, n+1 points, n+2 podium.
+ * @type {Map<number, number>}
+ */
+const raceStep = new Map();
+
+/**
  * @param {number} liveItemId
  * @param {any} race Teacher ``race`` block.
  * @returns {Set<number>}
@@ -1421,7 +1429,13 @@ function rankRaceTeacherHtml(result, revealed, liveItemId) {
   const race = result?.race;
   if (!race || typeof race !== "object") return "";
   if (raceViewOff.has(liveItemId)) return "";
-  if (revealed) return "";
+  if (revealed) {
+    if (!race.results) return "";
+    return raceResultsHtml(race.results, liveItemId, {
+      step: raceStep.get(liveItemId) || 0,
+      stem: raceStem(result?.item),
+    });
+  }
   return raceLanesHtml(race, liveItemId, {
     popped: racePoppedFor(liveItemId, race),
     stem: raceStem(result?.item),
@@ -11153,6 +11167,8 @@ $("live-question-list")?.addEventListener("click", async (event) => {
   const raceLock = event.target.closest("button[data-race-lock]");
   const raceSkip = event.target.closest("button[data-race-skip]");
   const raceToggle = event.target.closest("button[data-race-view-toggle]");
+  const raceNext = event.target.closest("button[data-race-next]");
+  const raceDone = event.target.closest("button[data-race-done]");
   const award = event.target.closest("button[data-award-consensus]");
   const openRelocate = event.target.closest("button[data-open-relocate-dialog]");
   const button = event.target.closest("button[data-view-responses]");
@@ -11185,6 +11201,18 @@ $("live-question-list")?.addEventListener("click", async (event) => {
       const itemId = Number(raceToggle.dataset.raceViewToggle) || 0;
       if (raceViewOff.has(itemId)) raceViewOff.delete(itemId);
       else raceViewOff.add(itemId);
+      paintLiveQuestionCards();
+      return;
+    }
+    if (raceNext instanceof HTMLButtonElement) {
+      const itemId = Number(raceNext.dataset.raceNext) || 0;
+      raceStep.set(itemId, (raceStep.get(itemId) || 0) + 1);
+      paintLiveQuestionCards();
+      return;
+    }
+    if (raceDone instanceof HTMLButtonElement) {
+      // Back to question: the normal (now revealed) rank card.
+      raceViewOff.add(Number(raceDone.dataset.raceDone) || 0);
       paintLiveQuestionCards();
       return;
     }

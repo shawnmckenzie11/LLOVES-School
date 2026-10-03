@@ -109,7 +109,7 @@ export function phoneStripHtml(group, pill) {
     <span class="race-phone-team"><span class="race-phone-team-name">${esc(group?.team_name || "")}</span>${
       members ? `<span class="race-phone-members">${esc(members)}</span>` : ""
     }</span>
-    <span class="race-phone-pill">${esc(text)}</span>
+    ${text ? `<span class="race-phone-pill">${esc(text)}</span>` : ""}
   </div>`;
 }
 
@@ -198,4 +198,74 @@ export function readOnlyOrderHtml(options, order) {
         `<li><span class="race-phone-n">${index + 1}</span><span class="race-phone-label">${esc(labels.get(id) || id)}</span></li>`
     )
     .join("")}</ol>`;
+}
+
+/** Wonder v3 strings (final) for phone results. */
+export const PHONE_RESULTS_COPY = Object.freeze({
+  right: "{k} of {n} spots right.", // results.right
+  rightAll: "All {n} spots right.", // results.right.all
+  spot: "Spot {n} · {item}", // results.spot
+  answer: "Answer: {item}", // results.spot.right_item
+  you: "Your team", // results.you
+  podium: "Your team made the podium.", // results.podium
+  points: "{pts} points", // results.points
+  pointsOne: "1 point", // results.points.one
+  tie: "{n} teams tied", // results.tie
+});
+
+/**
+ * @param {number} pts
+ * @returns {string}
+ */
+function phonePoints(pts) {
+  const n = Number(pts) || 0;
+  return n === 1 ? PHONE_RESULTS_COPY.pointsOne : fill(PHONE_RESULTS_COPY.points, { pts: n });
+}
+
+/**
+ * Phone results (own team only): ✓ / ring per spot with the right item on a
+ * wrong spot, team points, "Your team made the podium." only when on it, and
+ * a mini podium (own step outlined). No place number off the podium; a small
+ * burst only on podium phones (none under reduced motion, in CSS).
+ * @param {any} group ``item.group_submit`` with ``race.results``
+ * @returns {string}
+ */
+export function phoneResultsHtml(group) {
+  const C = PHONE_RESULTS_COPY;
+  const race = group?.race || {};
+  const res = race.results || {};
+  const slot = Number(race.slot);
+  const colour = teamMark(Number.isFinite(slot) ? slot : 0).colour;
+  const n = Number(res.total) || 0;
+  const k = Number(res.right) || 0;
+  const cue = k === n && n > 0 ? fill(C.rightAll, { n }) : fill(C.right, { k, n });
+  const spots = (Array.isArray(res.spots) ? res.spots : [])
+    .map((spot) => {
+      const answer = !spot.right && spot.answer ? ` <span class="race-phone-answer">· ${esc(fill(C.answer, { item: spot.answer }))}</span>` : "";
+      return `<li class="${spot.right ? "is-right" : "is-not"}"><span class="race-phone-label">${esc(
+        fill(C.spot, { n: spot.n, item: spot.item || "—" })
+      )}${answer}</span><span class="race-phone-mark" aria-label="${
+        spot.right ? "right" : "not this one"
+      }">${spot.right ? "✓" : ""}</span></li>`;
+    })
+    .join("");
+  const steps = Array.isArray(res.podium) ? res.podium : [];
+  const byStep = new Map(steps.map((step) => [Number(step.step), step]));
+  const step = (s) => {
+    if (!s) return `<div class="race-mini-step is-empty"></div>`;
+    const mine = (s.teams || []).some((t) => t.mine);
+    const names = (s.teams || []).map((t) => esc(t.name)).join("<br>");
+    return `<div class="race-mini-step is-step-${s.step}${mine ? " is-mine" : ""}"><span>${s.step} · ${names}</span></div>`;
+  };
+  const burst = res.on_podium
+    ? `<div class="race-phone-burst" aria-hidden="true">${Array.from({ length: 10 }, (_, i) => `<i style="--i:${i}"></i>`).join("")}</div>`
+    : "";
+  return `<div class="student-group-card race-phone race-phone-results" data-race-results-card="1" style="--team:${colour}">
+    ${phoneStripHtml(group, "")}
+    <p class="race-phone-cue is-results">${esc(cue)}</p>
+    <ol class="race-phone-spots">${spots}</ol>
+    <p class="race-phone-you"><span>${esc(C.you)}</span><strong>${esc(phonePoints(res.points))}</strong></p>
+    ${res.on_podium ? `<p class="race-phone-podium-line">${esc(C.podium)}</p>` : ""}
+    ${steps.length ? `<div class="race-mini-podium">${burst}${step(byStep.get(2))}${step(byStep.get(1))}${step(byStep.get(3))}</div>` : ""}
+  </div>`;
 }

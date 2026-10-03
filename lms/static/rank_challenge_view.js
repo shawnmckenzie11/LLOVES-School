@@ -262,3 +262,232 @@ export function raceLanesHtml(race, liveItemId, opts = {}) {
     </footer>
   </section>`;
 }
+
+// ---------------------------------------------------------------------------
+// Results moment (R6, IA v0.2 F4): rows, then points, then the podium.
+// Teacher-paced by Next; 2 points per right spot, nothing else.
+// ---------------------------------------------------------------------------
+
+/** Wonder v3 strings (final, Oct 3) for the results moment. */
+export const RESULTS_COPY = Object.freeze({
+  revealTitle: "The right order", // results.reveal.title
+  pointsTitle: "Points", // results.points.title
+  podiumTitle: "Top teams", // results.podium.title
+  spot: "Spot {n} · {item}", // results.spot
+  right: "{k} of {n} spots right.", // results.right
+  rightAll: "All {n} spots right.", // results.right.all
+  points: "{pts} points", // results.points
+  pointsOne: "1 point", // results.points.one
+  tie: "{n} teams tied", // results.tie
+  others: "Also on the board", // results.others
+  next: "Next", // race.next
+  done: "Back to question", // results.done
+  absent: "No one here yet", // race.lane.absent
+});
+
+/**
+ * "{pts} points" / "1 point".
+ * @param {number} pts
+ * @returns {string}
+ */
+export function pointsText(pts) {
+  const n = Number(pts) || 0;
+  return n === 1 ? RESULTS_COPY.pointsOne : fill(RESULTS_COPY.points, { pts: n });
+}
+
+/**
+ * "{k} of {n} spots right." / "All {n} spots right.".
+ * @param {number} k
+ * @param {number} n
+ * @returns {string}
+ */
+export function rightText(k, n) {
+  return Number(k) === Number(n) && Number(n) > 0
+    ? fill(RESULTS_COPY.rightAll, { n })
+    : fill(RESULTS_COPY.right, { k: Number(k) || 0, n: Number(n) || 0 });
+}
+
+/**
+ * Steps of the reveal: 0..n rows (n = spots), n+1 points, n+2 podium.
+ * @param {any} results Teacher ``race.results``.
+ * @returns {number} The last step index.
+ */
+export function lastResultsStep(results) {
+  return (Number(results?.total) || 0) + 2;
+}
+
+/**
+ * Header shared by the three results frames.
+ * @param {string} title
+ * @param {string} sub
+ * @param {string} chip
+ * @returns {string}
+ */
+function resultsHead(title, sub, chip) {
+  return `<header class="race-view-head">
+      <div class="race-view-q">
+        <p class="race-view-stem">${esc(title)}</p>
+        ${sub ? `<p class="race-view-sub">${esc(sub)}</p>` : ""}
+      </div>
+      ${chip ? `<p class="race-view-count">${esc(chip)}</p>` : ""}
+    </header>`;
+}
+
+/**
+ * Rows frame: the answer, one spot per Next. ✓ in the team colour or a
+ * neutral grey ring; no red ✗, no names. "—" for a team that placed nothing.
+ * @param {any} results
+ * @param {number} shown Rows revealed so far (0..n).
+ * @param {string} stem
+ * @returns {string}
+ */
+function rowsFrame(results, shown, stem) {
+  const teams = Array.isArray(results?.teams) ? results.teams : [];
+  const spots = Array.isArray(results?.spots) ? results.spots : [];
+  const head = teams
+    .map((team, i) => {
+      const slot = Number.isFinite(Number(team.slot)) ? Number(team.slot) : i;
+      const mark = teamMark(slot);
+      return `<th scope="col" style="--team:${mark.colour}"><span class="race-chip" aria-hidden="true">${mark.shape}</span><span class="race-col-name">${esc(
+        team.team_name
+      )}</span></th>`;
+    })
+    .join("");
+  const rows = spots
+    .map((spot, index) => {
+      const open = index < shown;
+      const cells = teams
+        .map((team, i) => {
+          const slot = Number.isFinite(Number(team.slot)) ? Number(team.slot) : i;
+          const colour = teamMark(slot).colour;
+          if (!open) return `<td></td>`;
+          if (!team.scored) return `<td><span class="race-mark is-none" aria-label="no answer">—</span></td>`;
+          const right = Boolean(spot.teams?.[String(team.team_id)]);
+          return right
+            ? `<td><span class="race-mark is-right" style="--team:${colour}" aria-label="right">✓</span></td>`
+            : `<td><span class="race-mark is-not" aria-label="not this one"></span></td>`;
+        })
+        .join("");
+      const label = open
+        ? fill(RESULTS_COPY.spot, { n: spot.n, item: spot.item })
+        : fill(RESULTS_COPY.spot, { n: spot.n, item: "?" });
+      return `<tr class="${open ? "is-open" : "is-hidden"}${index === shown - 1 ? " is-latest" : ""}"><th scope="row">${esc(label)}</th>${cells}</tr>`;
+    })
+    .join("");
+  return `${resultsHead(RESULTS_COPY.revealTitle, stem, "")}
+    <table class="race-reveal"><thead><tr><td></td>${head}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+/**
+ * Points frame: one base-only bar per team, fixed team order.
+ * @param {any} results
+ * @returns {string}
+ */
+function pointsFrame(results) {
+  const teams = Array.isArray(results?.teams) ? results.teams : [];
+  const total = Math.max(1, Number(results?.total) || 1);
+  const rows = teams
+    .map((team, i) => {
+      const slot = Number.isFinite(Number(team.slot)) ? Number(team.slot) : i;
+      const mark = teamMark(slot);
+      const name = `<span class="race-chip" aria-hidden="true">${mark.shape}</span><span class="race-lane-name">${esc(team.team_name)}</span>`;
+      if (!team.scored) {
+        return `<li class="race-points-row is-absent" style="--team:${mark.colour}">${name}<span class="race-bar-empty">${esc(
+          RESULTS_COPY.absent
+        )}</span><span class="race-points-total">—</span></li>`;
+      }
+      const width = Math.max(18, Math.round((Number(team.right) / total) * 100));
+      // The bar is the team's share of spots (max 60% of the track); the
+      // "{k} of {n} spots right." label sits after it so it never clips.
+      return `<li class="race-points-row" style="--team:${mark.colour}">${name}<span class="race-bar-track"><span class="race-bar" style="width:${Math.round(
+        width * 0.6
+      )}%"></span><span class="race-bar-label">${esc(rightText(team.right, team.total))}</span></span><span class="race-points-total">${esc(
+        pointsText(team.points)
+      )}</span></li>`;
+    })
+    .join("");
+  return `${resultsHead(RESULTS_COPY.pointsTitle, "", "")}<ol class="race-points">${rows}</ol>`;
+}
+
+/**
+ * Podium frame: top 3 distinct totals; a tie shares a step ("{n} teams
+ * tied"); everyone else listed alphabetically under "Also on the board"
+ * with no place number.
+ * @param {any} results
+ * @returns {string}
+ */
+function podiumFrame(results) {
+  const teams = Array.isArray(results?.teams) ? results.teams : [];
+  const byId = new Map(teams.map((team, i) => [Number(team.team_id), { ...team, slot: Number.isFinite(Number(team.slot)) ? Number(team.slot) : i }]));
+  const steps = Array.isArray(results?.podium?.steps) ? results.podium.steps : [];
+  const stepHtml = (step) => {
+    if (!step) return `<div class="race-step is-empty"></div>`;
+    const ids = Array.isArray(step.team_ids) ? step.team_ids : [];
+    const names = ids
+      .map((id) => byId.get(Number(id)))
+      .filter(Boolean)
+      .map((team) => {
+        const mark = teamMark(team.slot);
+        return `<span class="race-step-team" style="--team:${mark.colour}"><span class="race-chip" aria-hidden="true">${mark.shape}</span>${esc(
+          team.team_name
+        )}</span>`;
+      })
+      .join("");
+    const tie = ids.length > 1 ? `<span class="race-step-tie">${esc(fill(RESULTS_COPY.tie, { n: ids.length }))}</span>` : "";
+    return `<div class="race-step is-step-${step.step}">
+        <div class="race-step-who">${tie}${names}<span class="race-step-pts">${esc(pointsText(step.points))}</span></div>
+        <div class="race-step-block"><span>${step.step}</span></div>
+      </div>`;
+  };
+  const byStep = new Map(steps.map((step) => [Number(step.step), step]));
+  const others = (Array.isArray(results?.podium?.others) ? results.podium.others : [])
+    .map((id) => byId.get(Number(id)))
+    .filter(Boolean)
+    .map((team) => (team.scored ? `${esc(team.team_name)} ${esc(pointsText(team.points))}` : esc(team.team_name)))
+    .join(" · ");
+  const confetti = Array.from({ length: 18 }, (_, i) => {
+    const colour = teamMark(byId.get(Number(steps[i % Math.max(1, steps.length)]?.team_ids?.[0]))?.slot ?? i).colour;
+    return `<i style="--i:${i};--c:${colour}"></i>`;
+  }).join("");
+  return `${resultsHead(RESULTS_COPY.podiumTitle, "", "")}
+    <div class="race-podium">
+      <div class="race-confetti" aria-hidden="true">${steps.length ? confetti : ""}</div>
+      ${stepHtml(byStep.get(2))}${stepHtml(byStep.get(1))}${stepHtml(byStep.get(3))}
+    </div>
+    ${others ? `<p class="race-others">${esc(RESULTS_COPY.others)}: ${others}</p>` : ""}`;
+}
+
+/**
+ * The teacher's results moment on the rank card.
+ * @param {any} results Teacher ``race.results``.
+ * @param {number} liveItemId
+ * @param {{step?: number, stem?: string}} [opts] ``step``: 0..n rows shown,
+ *   n+1 points, n+2 podium (teacher-local, advanced by Next).
+ * @returns {string}
+ */
+export function raceResultsHtml(results, liveItemId, opts = {}) {
+  const id = Number(liveItemId) || 0;
+  const n = Number(results?.total) || 0;
+  const last = lastResultsStep(results);
+  const step = Math.max(0, Math.min(last, Number(opts.step) || 0));
+  let frame;
+  let phase;
+  if (step <= n) {
+    frame = rowsFrame(results, step, String(opts.stem || ""));
+    phase = "rows";
+  } else if (step === n + 1) {
+    frame = pointsFrame(results);
+    phase = "points";
+  } else {
+    frame = podiumFrame(results);
+    phase = "podium";
+  }
+  const button =
+    step < last
+      ? `<button type="button" class="race-view-close" data-race-next="${id}">${esc(RESULTS_COPY.next)} ▸</button>`
+      : `<button type="button" class="secondary race-view-exit" data-race-done="${id}">${esc(RESULTS_COPY.done)}</button>`;
+  return `<section class="race-view race-results is-${phase}" data-race-results="${id}" data-race-step="${step}" aria-label="Team challenge results">
+    ${frame}
+    <footer class="race-view-foot">${button}</footer>
+  </section>`;
+}
