@@ -401,13 +401,13 @@ function pointsFrame(results) {
         )}</span><span class="race-points-total">—</span></li>`;
       }
       const width = Math.max(18, Math.round((Number(team.right) / total) * 100));
-      // The bar is the team's share of spots (max 60% of the track); the
+      // The bar is the team's share of spots (max 50% of the track); the
       // "{k} of {n} spots right." label sits after it so it never clips.
       // Wonder: a team that never locked in was scored on its draft; say so
       // under its bar (never for a locked-in team).
       const draft = team.locked ? "" : `<span class="race-bar-note">${esc(RESULTS_COPY.fromDraft)}</span>`;
       return `<li class="race-points-row" style="--team:${mark.colour}">${name}<span class="race-bar-cell"><span class="race-bar-track"><span class="race-bar" style="width:${Math.round(
-        width * 0.6
+        width * 0.5
       )}%"></span><span class="race-bar-label">${esc(rightText(team.right, team.total))}</span></span>${draft}</span><span class="race-points-total">${esc(
         pointsText(team.points)
       )}</span></li>`;
