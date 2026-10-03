@@ -201,12 +201,13 @@ function rankMetaHtml(item, n) {
 function rankPreviewHtml(item) {
   const preview = rankPreview(item);
   if (!preview.text) return "";
+  // Ops LOW-2: only the option text truncates; "+{k} more" stays visible.
   const more = preview.more
-    ? ` <span class="bank-rank-preview-more">${escapeHtml(preview.more)}</span>`
+    ? `<span class="bank-rank-preview-more">${escapeHtml(preview.more)}</span>`
     : "";
-  return `<p class="hint compact bank-rank-preview" title="${escapeHtml(preview.text)}">${escapeHtml(
+  return `<p class="hint compact bank-rank-preview" title="${escapeHtml(
     preview.text
-  )}${more}</p>`;
+  )}"><span class="bank-rank-preview-text">${escapeHtml(preview.text)}</span>${more}</p>`;
 }
 
 /**

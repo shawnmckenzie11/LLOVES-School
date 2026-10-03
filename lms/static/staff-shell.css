@@ -5439,13 +5439,23 @@ body.staff-shell .bank-rank-chip.is-opinion {
   color: #64748b;
 }
 body.staff-shell .bank-rank-preview {
+  display: flex;
+  gap: 0.3em;
+  min-width: 0;
   margin: 0.1rem 0 0;
   overflow: hidden;
   white-space: nowrap;
-  text-overflow: ellipsis;
   color: #334155;
 }
+/* Ops LOW-2: the option text truncates; "+{k} more" never does. */
+body.staff-shell .bank-rank-preview-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 body.staff-shell .bank-rank-preview-more {
+  flex: none;
   color: #64748b;
 }
 body.staff-shell .bank-mc-rank-hint {

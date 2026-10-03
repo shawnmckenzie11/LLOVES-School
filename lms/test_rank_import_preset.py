@@ -175,6 +175,67 @@ class RankImportPresetTests(unittest.TestCase):
         self.assertEqual((row["response_mode"], row["item"]["group_rank_mode"]), ("group_submit", "turns"))
         self.assertEqual(self.school.conn.execute("SELECT COUNT(*) FROM questions").fetchone()[0], before)
 
+    def _student_texts(self) -> dict[str, str]:
+        """Every student-facing payload for the live session, as text."""
+        out: dict[str, str] = {}
+        for name in ("Ava", "Ben"):
+            client = self.students[name]
+            out[f"{name} state"] = client.get("/api/student/state").get_data(as_text=True)
+            out[f"{name} live-prompt"] = client.get("/api/student/live-prompt").get_data(as_text=True)
+            out[f"{name} page"] = client.get("/student").get_data(as_text=True)
+        guest = self.school.assemble_student_live_payload(
+            self.session_id, self.class_id, None, participant_uuid="guest-zed", codename="Zed", unmatched=True
+        )
+        out["guest state"] = json.dumps(guest, default=str)
+        metadata = self.school.student_live_class_metadata_for_session(self.session_id)
+        out["student metadata"] = json.dumps(metadata, default=str)
+        items = self.school.student_live_items_payload(self.session_id, self.ids["Ava"])
+        out["student items"] = json.dumps(items, default=str)
+        return out
+
+    def _assert_no_preset_marker(self, texts: dict[str, str]) -> None:
+        for where, text in texts.items():
+            for field in ("import_group_preset", "group_rank_mode", "rank_turns", "rank_key"):
+                self.assertNotIn(field, text, where)
+
+    def test_students_never_see_the_preset_marker(self) -> None:
+        """Ops LOW-1: the preset fields would reveal an answer order.
+
+        Neither ``import_group_preset`` nor ``group_rank_mode`` reaches
+        student state, live-prompt or /student, before or after publish.
+        Take turns still plays: students learn it from the published group
+        card (``rank_mode``), not from the preset fields.
+        """
+        _placed, live = self._import(self._keyed_id(), 4)
+        row = self.school.get_live_session_item(self.session_id, int(live["id"]))
+        self.assertEqual(row["item"]["import_group_preset"], "rank_turns")
+        self._assert_no_preset_marker(self._student_texts())
+        item = self._publish(live, "group_submit")
+        self._assert_no_preset_marker(self._student_texts())
+        card = self._card("Ava", item)
+        self.assertEqual(card["rank_mode"], "turns")
+        o = self._opts(item)
+        self.assertEqual(self._post("Ava", item, "rank-turn", {"option_id": o[0]}).status_code, 200)
+        self._assert_no_preset_marker(self._student_texts())
+
+    def test_shared_strip_drops_the_preset_fields(self) -> None:
+        """The shared student strip drops both fields, top level and nested."""
+        from live_prompt_feedback import TEACHER_ONLY_FIELDS, strip_teacher_prompt_fields
+
+        for field in ("import_group_preset", "group_rank_mode"):
+            self.assertIn(field, TEACHER_ONLY_FIELDS)
+        out = strip_teacher_prompt_fields(
+            {
+                "type": "rank",
+                "group_rank_mode": "turns",
+                "import_group_preset": "rank_turns",
+                "items": [{"group_rank_mode": "turns", "import_group_preset": "rank_turns", "text": "x"}],
+            }
+        )
+        for field in ("import_group_preset", "group_rank_mode"):
+            self.assertNotIn(field, out)
+            self.assertNotIn(field, out["items"][0])
+
     # S1 ------------------------------------------------------------------
     def test_search_rows_carry_what_the_chip_needs(self) -> None:
         """Seeded rows have rank_key (Answer order); staff opinion rows have none."""
@@ -221,7 +282,16 @@ class RankRowsClientTests(unittest.TestCase):
         for sel in (".bank-rank-chip.is-key {", ".bank-rank-chip.is-opinion {", ".bank-rank-preview {"):
             self.assertIn(sel, css)
         rule = css.split("body.staff-shell .bank-rank-preview {", 1)[1].split("}", 1)[0]
-        self.assertIn("text-overflow: ellipsis;", rule)
+        self.assertIn("display: flex;", rule)
+        # Ops LOW-2: the option text truncates; "+{k} more" stays visible.
+        text_rule = css.split("body.staff-shell .bank-rank-preview-text {", 1)[1].split("}", 1)[0]
+        self.assertIn("text-overflow: ellipsis;", text_rule)
+        self.assertIn("min-width: 0;", text_rule)
+        more_rule = css.split("body.staff-shell .bank-rank-preview-more {", 1)[1].split("}", 1)[0]
+        self.assertIn("flex: none;", more_rule)
+        preview_fn = src.split("function rankPreviewHtml(item) {", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn('<span class="bank-rank-preview-text">', preview_fn)
+        self.assertIn("</span>${more}</p>", preview_fn)
 
 
 if __name__ == "__main__":
