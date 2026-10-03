@@ -12,7 +12,7 @@ import sqlite3
 import threading
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -98,6 +98,7 @@ try:
         safe_rank_options,
         toggle_rank_order,
         RANK_DISPLAY_ORDER_FIELD,
+        RANK_DISPLAY_PENDING_FIELD,
         apply_rank_display_order,
         shuffled_rank_order,
         valid_display_order,
@@ -255,6 +256,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         safe_rank_options,
         toggle_rank_order,
         RANK_DISPLAY_ORDER_FIELD,
+        RANK_DISPLAY_PENDING_FIELD,
         apply_rank_display_order,
         shuffled_rank_order,
         valid_display_order,
@@ -13413,6 +13415,8 @@ class SchoolDB(LovesDB):
             saved_json.get(RANK_DISPLAY_ORDER_FIELD), list
         ):
             body[RANK_DISPLAY_ORDER_FIELD] = list(saved_json[RANK_DISPLAY_ORDER_FIELD])
+            if saved_json.get(RANK_DISPLAY_PENDING_FIELD):
+                body[RANK_DISPLAY_PENDING_FIELD] = str(saved_json[RANK_DISPLAY_PENDING_FIELD])
         # Gate MED-2: the group MC flow stamped at publish survives too.
         if isinstance(saved_json, dict) and saved_json.get(GROUP_MC_FLOW_KEY):
             body[GROUP_MC_FLOW_KEY] = str(saved_json[GROUP_MC_FLOW_KEY])
@@ -13918,52 +13922,61 @@ class SchoolDB(LovesDB):
                         question.get("response_mode") or response_mode
                     )
                 # MCK-176: an answer-order rank is never listed in key
-                # order. Stored order (from publish) wins; before the first
-                # publish the order is seeded by the placement key.
-                question = with_rank_display_order(question, placement_key)
-                self.conn.execute(
-                    """
-                    INSERT INTO live_session_items (
-                        live_session_id, placement_key, item_id, stage,
-                        page_number, sort_order, kind, item_json, prompt_id,
-                        status, publish_mode, response_mode, show_live_results,
-                        save_to_card, published_at, closed_at, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'inactive', ?, ?, ?, ?,
-                              NULL, NULL, ?, ?)
-                    ON CONFLICT(live_session_id, placement_key) DO UPDATE SET
-                        item_id = excluded.item_id,
-                        stage = excluded.stage,
-                        page_number = excluded.page_number,
-                        sort_order = excluded.sort_order,
-                        kind = excluded.kind,
-                        item_json = excluded.item_json,
-                        prompt_id = COALESCE(
-                            live_session_items.prompt_id, excluded.prompt_id
-                        ),
-                        publish_mode = live_session_items.publish_mode,
-                        response_mode = live_session_items.response_mode,
-                        show_live_results = live_session_items.show_live_results,
-                        save_to_card = live_session_items.save_to_card,
-                        updated_at = excluded.updated_at
-                    """,
-                    (
-                        int(session_id),
-                        placement_key,
-                        item_id,
-                        stage,
-                        page_number,
-                        sort_order,
-                        kind,
-                        json.dumps(question),
-                        prompt_id,
-                        default_publish,
-                        response_mode,
-                        show_live_results,
-                        save_to_card,
-                        now,
-                        now,
-                    ),
+                # order. The row's stored order (from publish) wins, re-read
+                # inside one write transaction so a refresh never overwrites
+                # an order a racing publish just stamped (gate MED-1); before
+                # the first publish the order is seeded by the placement key.
+                keyed_rank = str(question.get("type") or "").strip().lower() == "rank" and bool(
+                    question.get("rank_key")
                 )
+                with self._rank_order_txn() if keyed_rank else nullcontext():
+                    if keyed_rank:
+                        question = self._keep_stored_rank_order_unlocked(
+                            session_id, placement_key, question
+                        )
+                    self.conn.execute(
+                        """
+                        INSERT INTO live_session_items (
+                            live_session_id, placement_key, item_id, stage,
+                            page_number, sort_order, kind, item_json, prompt_id,
+                            status, publish_mode, response_mode, show_live_results,
+                            save_to_card, published_at, closed_at, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'inactive', ?, ?, ?, ?,
+                                  NULL, NULL, ?, ?)
+                        ON CONFLICT(live_session_id, placement_key) DO UPDATE SET
+                            item_id = excluded.item_id,
+                            stage = excluded.stage,
+                            page_number = excluded.page_number,
+                            sort_order = excluded.sort_order,
+                            kind = excluded.kind,
+                            item_json = excluded.item_json,
+                            prompt_id = COALESCE(
+                                live_session_items.prompt_id, excluded.prompt_id
+                            ),
+                            publish_mode = live_session_items.publish_mode,
+                            response_mode = live_session_items.response_mode,
+                            show_live_results = live_session_items.show_live_results,
+                            save_to_card = live_session_items.save_to_card,
+                            updated_at = excluded.updated_at
+                        """,
+                        (
+                            int(session_id),
+                            placement_key,
+                            item_id,
+                            stage,
+                            page_number,
+                            sort_order,
+                            kind,
+                            json.dumps(question),
+                            prompt_id,
+                            default_publish,
+                            response_mode,
+                            show_live_results,
+                            save_to_card,
+                            now,
+                            now,
+                        ),
+                    )
             self.conn.commit()
         return self.list_live_session_items(session_id)
 
@@ -13982,7 +13995,9 @@ class SchoolDB(LovesDB):
                 """,
                 (int(session_id),),
             ).fetchall()
-        return [self._live_item_row_to_dict(row) for row in rows]
+        return self._with_rank_display_claims(
+            [self._live_item_row_to_dict(row) for row in rows]
+        )
 
     def _expected_live_item_placement_keys(self, session_id: int) -> set[str]:
         """Return placement keys ``ensure_live_session_items`` would persist.
@@ -14194,7 +14209,7 @@ class SchoolDB(LovesDB):
                 row = alias_matches[0] if alias_matches else None
         if row is None:
             raise KeyError(f"live item {token}")
-        return self._live_item_row_to_dict(row)
+        return self._with_rank_display_claims([self._live_item_row_to_dict(row)])[0]
 
     def _prompt_for_live_item(
         self, item: dict[str, Any]
@@ -14507,67 +14522,245 @@ class SchoolDB(LovesDB):
         ids = [row["id"] for row in rows]
         return valid_display_order(question.get(RANK_DISPLAY_ORDER_FIELD), ids, key)
 
-    def _stamp_rank_display_order(self, item: dict[str, Any]) -> dict[str, Any]:
-        """Store a fresh shuffled order on an answer-order rank about to publish.
+    @contextmanager
+    def _rank_order_txn(self):
+        """One write transaction for the MCK-176 shown-order bookkeeping.
 
-        Args:
-            item: Inactive lifecycle row.
-
-        Returns:
-            The row with the new order (unchanged for anything else).
+        ``BEGIN IMMEDIATE`` takes SQLite's write lock up front, so a
+        read-check-write inside is atomic across gunicorn workers, not only
+        threads. Inside an already open transaction it joins that one.
         """
-        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        with self._lock:
+            own = not self.conn.in_transaction
+            if own:
+                self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                yield
+            except BaseException:
+                if own and self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                raise
+            if own:
+                self.conn.execute("COMMIT")
+
+    def _keyed_rank_ids(self, item: dict[str, Any]) -> tuple[list[str], list[str]] | None:
+        """``(option ids, key)`` for an answer-order rank row, else ``None``."""
         if self._question_answer_kind(item) != "rank":
-            return item
+            return None
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
         rows = self._rank_option_rows(item)
         key = safe_rank_key(question.get("rank_key"), rows)
         if not key or len(rows) < 2:
-            return item
-        order = shuffled_rank_order(
-            [row["id"] for row in rows], key, secrets.token_hex(8)
-        )
-        shuffled = apply_rank_display_order(question, order)
-        with self._lock:
-            self.conn.execute(
-                "UPDATE live_session_items SET item_json = ?, updated_at = ? WHERE id = ?",
-                (json.dumps(shuffled), _now(), int(item["id"])),
-            )
-            self.conn.commit()
-        return {**item, "item": shuffled}
+            return None
+        return [row["id"] for row in rows], key
 
-    def _sync_prompt_rank_display_order(
-        self, item: dict[str, Any], prompt: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Give an existing prompt the row's stored display order.
+    def _claim_rank_display_order(self, live_item_id: int, *, fresh: bool) -> list[str] | None:
+        """Store the shown order of an answer-order rank, atomically.
+
+        The row is re-read inside one write transaction, so every caller
+        (publish, teacher card, projector) ends with the same stored order.
+
+        - ``fresh`` (publish of an inactive item): a new random order, unless
+          a racing publish already stamped one (``rank_display_pending``) or
+          the row is no longer inactive.
+        - otherwise: keep a valid stored order; a row with none (an item
+          opened before MCK-176) gets the placement-key shuffle, which is the
+          order its students already see.
+
+        The linked prompt, if any, is rewritten to the same order in the same
+        transaction.
 
         Args:
-            item: Lifecycle row (already stamped).
-            prompt: Its linked prompt.
+            live_item_id: ``live_session_items.id``.
+            fresh: Draw a new order for a first publish.
 
         Returns:
-            The prompt, rewritten when its options were in another order.
+            The stored order, or ``None`` for anything but an answer-order rank.
         """
-        order = self.rank_display_order(item)
-        payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else None
-        if not order or payload is None or not is_rank_prompt(prompt):
-            return prompt
+        with self._rank_order_txn():
+            row = self.conn.execute(
+                "SELECT * FROM live_session_items WHERE id = ?", (int(live_item_id),)
+            ).fetchone()
+            if row is None:
+                return None
+            item = self._live_item_row_to_dict(row)
+            found = self._keyed_rank_ids(item)
+            if found is None:
+                return None
+            ids, key = found
+            question = dict(item["item"])
+            stored = valid_display_order(question.get(RANK_DISPLAY_ORDER_FIELD), ids, key)
+            pending = bool(question.get(RANK_DISPLAY_PENDING_FIELD))
+            if fresh and item["status"] == "inactive" and not pending:
+                order = shuffled_rank_order(ids, key, secrets.token_hex(8))
+                question = apply_rank_display_order(question, order)
+                question[RANK_DISPLAY_PENDING_FIELD] = secrets.token_hex(4)
+            elif stored:
+                order = stored
+            else:
+                seed = str(item.get("placement_key") or item.get("item_id") or item["id"])
+                order = shuffled_rank_order(ids, key, seed)
+                question = apply_rank_display_order(question, order)
+            if question != item["item"]:
+                self.conn.execute(
+                    "UPDATE live_session_items SET item_json = ?, updated_at = ? WHERE id = ?",
+                    (json.dumps(question), _now(), int(live_item_id)),
+                )
+            if item.get("prompt_id"):
+                self._sync_prompt_order_unlocked(int(item["prompt_id"]), order)
+            return order
+
+    def _sync_prompt_order_unlocked(self, prompt_id: int, order: list[str]) -> None:
+        """Rewrite one rank prompt's options in ``order`` (caller holds the txn)."""
+        row = self.conn.execute(
+            "SELECT kind, payload FROM live_session_prompts WHERE id = ?", (int(prompt_id),)
+        ).fetchone()
+        if row is None:
+            return
+        try:
+            payload = json.loads(row["payload"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return
+        if not isinstance(payload, dict) or not is_rank_prompt(
+            {"kind": row["kind"], "payload": payload}
+        ):
+            return
         shown = [
-            str(row.get("id") or "")
-            for row in (payload.get("rank_options") or [])
-            if isinstance(row, dict)
+            str(opt.get("id") or "")
+            for opt in (payload.get("rank_options") or [])
+            if isinstance(opt, dict)
         ]
-        if shown == order:
-            return prompt
+        if shown == order and payload.get(RANK_DISPLAY_ORDER_FIELD) == order:
+            return
         updated = apply_rank_display_order(payload, order)
         if updated is payload:
+            return
+        updated.pop(RANK_DISPLAY_PENDING_FIELD, None)
+        self.conn.execute(
+            "UPDATE live_session_prompts SET payload = ? WHERE id = ?",
+            (json.dumps(updated), int(prompt_id)),
+        )
+
+    def _sync_prompt_rank_display_order(
+        self, live_item_id: int, prompt: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Give a prompt the order stored on its row, read inside the txn.
+
+        Args:
+            live_item_id: ``live_session_items.id`` (already claimed).
+            prompt: Its prompt (new or existing).
+
+        Returns:
+            The prompt as stored after the sync.
+        """
+        with self._rank_order_txn():
+            row = self.conn.execute(
+                "SELECT * FROM live_session_items WHERE id = ?", (int(live_item_id),)
+            ).fetchone()
+            if row is None:
+                return prompt
+            order = self.rank_display_order(self._live_item_row_to_dict(row))
+            if not order:
+                return prompt
+            self._sync_prompt_order_unlocked(int(prompt["id"]), order)
+            stored = self.conn.execute(
+                "SELECT payload FROM live_session_prompts WHERE id = ?", (int(prompt["id"]),)
+            ).fetchone()
+        if stored is None:
             return prompt
-        with self._lock:
+        try:
+            payload = json.loads(stored["payload"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return prompt
+        return {**prompt, "payload": payload}
+
+    def _clear_rank_display_pending(self, live_item_id: int) -> None:
+        """Drop the publish-race marker once the item is active."""
+        with self._rank_order_txn():
+            row = self.conn.execute(
+                "SELECT item_json FROM live_session_items WHERE id = ? AND status = 'active'",
+                (int(live_item_id),),
+            ).fetchone()
+            raw = str(row["item_json"] or "") if row is not None else ""
+            if RANK_DISPLAY_PENDING_FIELD not in raw:
+                return
+            try:
+                question = json.loads(raw)
+            except (TypeError, json.JSONDecodeError):
+                return
+            if not isinstance(question, dict):
+                return
+            question.pop(RANK_DISPLAY_PENDING_FIELD, None)
             self.conn.execute(
-                "UPDATE live_session_prompts SET payload_json = ? WHERE id = ?",
-                (json.dumps(updated), int(prompt["id"])),
+                "UPDATE live_session_items SET item_json = ? WHERE id = ?",
+                (json.dumps(question), int(live_item_id)),
             )
-            self.conn.commit()
-        return {**prompt, "payload": updated}
+
+    def _keep_stored_rank_order_unlocked(
+        self, session_id: int, placement_key: str, question: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Deck refresh: carry the row's stored order onto a rebuilt question.
+
+        Caller holds the order transaction, so a publish that stamped a fresh
+        order a moment ago is never overwritten by a stale refresh.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            placement_key: The row's placement key.
+            question: The rebuilt item JSON (not yet written).
+
+        Returns:
+            ``question`` in the stored order, or the placement-key shuffle.
+        """
+        row = self.conn.execute(
+            "SELECT item_json FROM live_session_items WHERE live_session_id = ? AND placement_key = ?",
+            (int(session_id), placement_key),
+        ).fetchone()
+        if row is not None:
+            try:
+                saved = json.loads(row["item_json"] or "{}")
+            except (TypeError, json.JSONDecodeError):
+                saved = {}
+            if isinstance(saved, dict) and isinstance(saved.get(RANK_DISPLAY_ORDER_FIELD), list):
+                question = dict(question)
+                question[RANK_DISPLAY_ORDER_FIELD] = list(saved[RANK_DISPLAY_ORDER_FIELD])
+                question.pop(RANK_DISPLAY_PENDING_FIELD, None)
+                if saved.get(RANK_DISPLAY_PENDING_FIELD):
+                    question[RANK_DISPLAY_PENDING_FIELD] = str(saved[RANK_DISPLAY_PENDING_FIELD])
+        return with_rank_display_order(question, placement_key)
+
+    def _with_rank_display_claims(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """MCK-176 gate LOW-1: give open keyed ranks with no stored order one.
+
+        The teacher card, projector and slides read these rows; an item
+        opened before the deploy would otherwise list the answer order there.
+
+        Args:
+            items: Lifecycle rows just read.
+
+        Returns:
+            The rows, re-read where an order was stored.
+        """
+        if self.conn.in_transaction:
+            return items
+        out: list[dict[str, Any]] = []
+        for item in items:
+            if (
+                item.get("status") in {"inactive", "active"}
+                and isinstance(item.get("item"), dict)
+                and item["item"].get("rank_key")
+                and self._keyed_rank_ids(item) is not None
+                and self.rank_display_order(item) is None
+            ):
+                self._claim_rank_display_order(int(item["id"]), fresh=False)
+                with self._lock:
+                    row = self.conn.execute(
+                        "SELECT * FROM live_session_items WHERE id = ?", (int(item["id"]),)
+                    ).fetchone()
+                if row is not None:
+                    item = self._live_item_row_to_dict(row)
+            out.append(item)
+        return out
 
     def publish_live_session_item(
         self,
@@ -14609,13 +14802,16 @@ class SchoolDB(LovesDB):
                     raise ValueError("Set up groups before publishing to groups.")
                 if not teacher.get("run_as_group"):
                     raise ValueError(GROUP_PUBLISH_NEEDS_TEAMS_SHOWN)
-        if item["status"] == "inactive":
-            # MCK-176: a fresh shuffle per publish, stored before the prompt
-            # is built so every student view shares it.
-            item = self._stamp_rank_display_order(item)
+        # MCK-176: a fresh shuffle per publish, claimed in one transaction
+        # and re-read from the DB, so the prompt and every view share it
+        # even when two publishes race (gate MED-1).
+        if self._claim_rank_display_order(
+            int(item["id"]), fresh=item["status"] == "inactive"
+        ):
+            item = self.get_live_session_item(session_id, int(item["id"]))
         prompt = self._ensure_prompt_for_live_item(item)
-        if prompt is not None:
-            prompt = self._sync_prompt_rank_display_order(item, prompt)
+        if prompt is not None and self.rank_display_order(item):
+            prompt = self._sync_prompt_rank_display_order(int(item["id"]), prompt)
         stamp_sql = ""
         stamp_params: tuple[Any, ...] = ()
         if (
@@ -14654,6 +14850,8 @@ class SchoolDB(LovesDB):
                 ),
             )
             self.conn.commit()
+        if self.rank_display_order(item):
+            self._clear_rank_display_pending(int(item["id"]))
         published = self.get_live_session_item(session_id, int(item["id"]))
         published_id = str(published.get("item_id") or "").strip().lower().replace(
             "-", "_"
@@ -18250,6 +18448,7 @@ class SchoolDB(LovesDB):
             # MCK-154 S2: the "New" chip is teacher-only; no student cue.
             cleaned.pop("added_live_session_id", None)
             cleaned.pop(RANK_DISPLAY_ORDER_FIELD, None)
+            cleaned.pop(RANK_DISPLAY_PENDING_FIELD, None)
         return rewrite_student_prompt_images(cleaned)
 
     def _orphan_saved_answer(
@@ -20863,6 +21062,7 @@ class SchoolDB(LovesDB):
                 row = self._student_rank_display(row, stored_orders)
                 cleaned = strip_teacher_prompt_fields(row)
                 cleaned.pop(RANK_DISPLAY_ORDER_FIELD, None)
+                cleaned.pop(RANK_DISPLAY_PENDING_FIELD, None)
                 cleaned.pop("correct_answer", None)
                 for nested in cleaned.get("items") or []:
                     if isinstance(nested, dict):
