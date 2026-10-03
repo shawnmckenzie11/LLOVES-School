@@ -2918,6 +2918,86 @@ body.staff-shell .live-surface-publish {
   gap: 0.45rem;
   margin: 0 0 0.6rem;
 }
+/* MCK-174: Publish is swapped for Reopen board while the board is Closed. */
+body.staff-shell .live-surface-publish [data-surface-publish].is-swapped-for-reopen {
+  display: none !important;
+}
+body.staff-shell .live-reopen-wrap {
+  position: relative;
+  display: inline-flex;
+}
+body.staff-shell .live-reopen-wrap[hidden] {
+  display: none;
+}
+body.staff-shell [data-surface-reopen]::after {
+  content: " \25BE";
+}
+body.staff-shell .live-reopen-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 320px;
+  padding: 6px;
+  border: 1px solid var(--live-border, #d5dbe3);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
+}
+body.staff-shell .live-reopen-pop[hidden] {
+  display: none;
+}
+body.staff-shell .live-reopen-pop .live-reopen-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #0f172a;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: none;
+}
+body.staff-shell .live-reopen-pop .live-reopen-opt:hover,
+body.staff-shell .live-reopen-pop .live-reopen-opt:focus-visible,
+body.staff-shell .live-reopen-pop .live-reopen-opt:focus {
+  border-color: #2563eb;
+  background: #eef4ff;
+  outline: none;
+}
+body.staff-shell .live-reopen-radio {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  border: 2px solid #64748b;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+body.staff-shell .live-reopen-opt[aria-checked="true"] .live-reopen-radio {
+  border-color: #2563eb;
+  background: radial-gradient(circle, #2563eb 0 3px, transparent 3.5px);
+}
+body.staff-shell .live-reopen-text b {
+  display: block;
+  font-weight: 650;
+}
+body.staff-shell .live-reopen-help {
+  display: block;
+  margin-top: 2px;
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 400;
+  line-height: 1.3;
+}
 body.staff-shell .live-slides-preview {
   width: 100%;
   min-height: 34rem;

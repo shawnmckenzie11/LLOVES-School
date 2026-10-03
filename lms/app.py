@@ -6725,6 +6725,49 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         return jsonify({"ok": True, "item": item, "results": results})
 
     @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/reopen",
+        methods=["POST"],
+    )
+    @login_required
+    def api_reopen_live_whiteboard(session_id: int, live_item_id: int):
+        """Reopen a closed whiteboard with the last board or a fresh one.
+
+        Body ``{"start": "last" | "fresh"}`` (default ``last``). One pick
+        covers the teacher board and every group or individual board
+        (MCK-174). Students hear it on the same ``state_seq`` postcard a
+        publish sends.
+        """
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        body = request.get_json(silent=True) or {}
+        try:
+            item = school.reopen_live_whiteboard(
+                session_id,
+                live_item_id,
+                start=str(body.get("start") or "last"),
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        seq = teacher_state_seq(school, session_id)
+        emit_session_news(
+            school,
+            session_id,
+            [
+                {"type": "state_seq", "state_seq": seq},
+                flag_work_event("reopen", seq),
+            ],
+        )
+        return jsonify(
+            {
+                "ok": True,
+                "item": item,
+                "run_key": school.live_board_run_key(session_id),
+            }
+        )
+
+    @app.route(
         "/api/live-sessions/<int:session_id>/timer-expired",
         methods=["POST"],
     )

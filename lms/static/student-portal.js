@@ -31,6 +31,7 @@ import {
   cursorAfterOps,
   normalizeBoardPoint,
   noteBoardRun,
+  clearBoardRefreshCue,
   opsAboveCursor,
   showBoardRefreshCue,
 } from "/static/live_whiteboard.js";
@@ -782,6 +783,18 @@ function noteStudentBoardSignedOut() {
 /** Last applied sequence on this student's team board. */
 let studentBoardSince = 0;
 
+/**
+ * MCK-174 reopen cue lines (copy: Wonder, word for word).
+ * wb.student.last / wb.student.fresh
+ */
+const WB_STUDENT_REOPEN_CUE = Object.freeze({
+  last: "The board is back. Keep going.",
+  fresh: "Fresh board. Start again here.",
+});
+
+/** Reopen cue showing under the board, or "" when none is. */
+let studentReopenCue = "";
+
 /** Run key of the live class this tab is drawing in. */
 const studentBoardRun = { key: "" };
 
@@ -947,6 +960,7 @@ function bindStudentCanvas() {
     canDraw: () => lastAlign !== "teacher" && !(canvasLock && !canvasLock.hidden),
     onText: (label) => postStudentCanvas(label, { text: label, align: lastAlign }),
     onPoints: (points, ended, strokeId) => {
+      if (studentReopenCue) clearStudentReopenCue();
       postStudentCanvas(points, { ended, strokeId, align: lastAlign });
     },
     onUndo: (stroke) => {
@@ -1065,7 +1079,9 @@ function refreshStudentBoard() {
     studentBoardSince = Number(data.board_seq) || 0;
     studentTeacherSince = Number(data.teacher_board_seq) || 0;
     if (studentCanvas instanceof HTMLCanvasElement) {
-      showBoardRefreshCue(studentCanvas);
+      // MCK-174: a Fresh board reopen also changes the run key. Keep the
+      // reopen line instead of the new-class line.
+      showBoardRefreshCue(studentCanvas, studentReopenCue || undefined);
     }
   })().finally(() => {
     studentBoardRefresh = null;
@@ -1166,6 +1182,81 @@ function ensureStudentBoardPoll() {
       }
     },
   });
+}
+
+/**
+ * Drop the MCK-174 reopen cue (first stroke, or the next Close).
+ */
+function clearStudentReopenCue() {
+  if (!studentReopenCue) return;
+  studentReopenCue = "";
+  if (studentCanvas instanceof HTMLCanvasElement) clearBoardRefreshCue(studentCanvas);
+}
+
+/**
+ * Read one sessionStorage value without throwing in private mode.
+ * @param {string} key
+ * @returns {string | null}
+ */
+function readSessionValue(key) {
+  try {
+    return window.sessionStorage.getItem(key);
+  } catch (_err) {
+    return null;
+  }
+}
+
+/**
+ * @param {string} key
+ * @param {string} value
+ */
+function writeSessionValue(key, value) {
+  try {
+    window.sessionStorage.setItem(key, value);
+  } catch (_err) {
+    /* private mode: the cue just may not show */
+  }
+}
+
+/**
+ * MCK-174: one calm cue line after the teacher reopens the whiteboard.
+ *
+ * Only a tab that saw this whiteboard before the Close gets the cue
+ * (``wbseen:<item id>`` holds the reopen count it last saw). A late
+ * joiner just sees the board. Fresh board also re-hydrates the board
+ * now, through the same run-change path a restarted class uses, so the
+ * old ink leaves without a reload.
+ * @param {any} payload
+ */
+function paintWhiteboardReopenCue(payload) {
+  const row = (payload?.live_items || []).find(
+    (item) => publishedItemType(item) === "whiteboard"
+  );
+  if (!row) return;
+  const id = Number(row.id) || 0;
+  if (!id) return;
+  const status = String(row.status || "");
+  if (status === "closed") {
+    clearStudentReopenCue();
+    return;
+  }
+  if (status !== "active") return;
+  const marker = row.reopen && typeof row.reopen === "object" ? row.reopen : null;
+  const count = marker ? Number(marker.n) || 0 : 0;
+  const key = `wbseen:${id}`;
+  const seen = readSessionValue(key);
+  if (seen === null) {
+    writeSessionValue(key, String(count));
+    return;
+  }
+  if (!marker || count <= (Number(seen) || 0)) return;
+  writeSessionValue(key, String(count));
+  const fresh = String(marker.start || "") === "fresh";
+  studentReopenCue = fresh ? WB_STUDENT_REOPEN_CUE.fresh : WB_STUDENT_REOPEN_CUE.last;
+  if (studentCanvas instanceof HTMLCanvasElement) {
+    showBoardRefreshCue(studentCanvas, studentReopenCue);
+  }
+  if (fresh) void refreshStudentBoard();
 }
 
 /**
@@ -4781,6 +4872,7 @@ async function tick() {
     applyLayout(data);
     paintGameShowWelcome(data);
     paintStudentCanvas(data);
+    paintWhiteboardReopenCue(data);
     paintDisplayTime(data);
     paintMe(data);
     paintMyTeam(data);

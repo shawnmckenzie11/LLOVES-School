@@ -597,8 +597,13 @@
                   <span class="live-group-setup-host" data-group-setup-host="canvas"></span>
                   <span class="live-status-badge" data-surface-status="canvas">Inactive</span>
                   <button type="button" data-surface-publish="canvas">Publish</button>
+                  <span class="live-reopen-wrap" data-surface-reopen-wrap="canvas" hidden>
+                    <button type="button" data-surface-reopen="canvas" aria-haspopup="menu" aria-expanded="false" aria-controls="live-reopen-pop">Reopen board</button>
+                    <span class="live-reopen-pop" id="live-reopen-pop" role="menu" aria-label="Reopen board" hidden></span>
+                  </span>
                   <button type="button" class="secondary" data-surface-close="canvas" disabled>Close</button>
                 </div>
+                <p class="hint compact live-reopen-toast" id="live-canvas-reopen-toast" hidden role="status"></p>
                 <div class="live-group-setup-opts-host" data-group-setup-opts-host="canvas" hidden></div>
                 <p class="hint compact">Whiteboard lasts for this live class. Text stays until the class ends.</p>
                 <div class="live-canvas-toolbar" role="toolbar" aria-label="Whiteboard tools">
