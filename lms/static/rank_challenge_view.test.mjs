@@ -79,6 +79,9 @@ const race = {
 };
 const popped = new Set();
 const html = raceLanesHtml(race, 7, { popped, stem: "Put these in order.", options: ["¼", "0.3"] });
+// MCK-176 hook: race.options (server display order) wins over item order.
+const shuffledHead = raceLanesHtml({ ...race, options: [{ id: "o2", label: "0.3" }, { id: "o1", label: "¼" }] }, 7, { stem: "Q", options: ["¼", "0.3"] });
+check(shuffledHead.includes("0.3 · ¼ · "), "header follows race.options order");
 check(html.includes("1 of 3 teams locked in"), "count line");
 check(html.includes("Put these in order.") && html.includes("¼ · 0.3 · ● Group · rank together · challenge"), "header");
 check(html.includes("0 of 3 agree"), "0 of 3 lane");

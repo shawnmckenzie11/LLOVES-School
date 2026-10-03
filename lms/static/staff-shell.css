@@ -6711,7 +6711,8 @@ body.staff-shell .race-lanes {
 }
 body.staff-shell .race-lane {
   display: grid;
-  grid-template-columns: 48px minmax(150px, 210px) minmax(120px, 180px) 40px minmax(180px, 1fr) auto;
+  /* Fixed chip/name tracks so pips start in line lane to lane. */
+  grid-template-columns: 48px 190px max-content 40px minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 16px;
   min-height: 64px;
@@ -6777,6 +6778,7 @@ body.staff-shell .race-lane-status {
   font-size: 22px;
   font-weight: 700;
   color: #475569;
+  white-space: nowrap;
 }
 body.staff-shell .race-lane.is-locked .race-lane-status {
   color: #12202e;

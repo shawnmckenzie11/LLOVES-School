@@ -240,7 +240,12 @@ export function raceLanesHtml(race, liveItemId, opts = {}) {
     })
     .join("");
   const stem = String(opts.stem || "").trim();
-  const optionLine = Array.isArray(opts.options) ? opts.options.filter(Boolean).join(" · ") : "";
+  // race.options is the server display order (MCK-176 hook); the item's
+  // authored options are only a fallback for an older payload.
+  const shown = Array.isArray(race?.options) && race.options.length
+    ? race.options.map((row) => String(row?.label || "").trim())
+    : Array.isArray(opts.options) ? opts.options : [];
+  const optionLine = shown.filter(Boolean).join(" · ");
   const chip = mode === "turns" ? C.chipTurns : C.chipTogether;
   return `<section class="race-view" data-race-view="${id}" data-race-mode="${mode}" aria-label="Team challenge">
     <header class="race-view-head">
