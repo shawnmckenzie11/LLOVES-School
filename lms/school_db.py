@@ -96,6 +96,7 @@ try:
         parse_rank_key,
         parse_rank_order,
         rank_fingerprint,
+        rank_race_score,
         safe_rank_key,
         safe_rank_options,
         toggle_rank_order,
@@ -257,6 +258,7 @@ except ImportError:  # ``python3 lms/app.py`` package import
         parse_rank_key,
         parse_rank_order,
         rank_fingerprint,
+        rank_race_score,
         safe_rank_key,
         safe_rank_options,
         toggle_rank_order,
@@ -1535,6 +1537,19 @@ class RankAgreeConflict(ValueError):
         self.card = card or {}
 
 
+class RankRaceStepConflict(ValueError):
+    """MCK-171 Team challenge: a reveal step that is not exactly the next one
+    (a double-click, a second tab, or a lost race). Nothing is written (409).
+
+    Attributes:
+        step: The step the server is on now (the client resyncs to it).
+    """
+
+    def __init__(self, step: int) -> None:
+        super().__init__("The reveal is already on another step.")
+        self.step = int(step)
+
+
 class DeckReplaceNotConfirmed(ValueError):
     """MCK-132: a Course deck copy would replace a deck without a confirm.
 
@@ -1623,6 +1638,7 @@ class LovesDB:
             self._ensure_live_session_schema()
             self._ensure_live_session_identity_schema()
             self._ensure_live_item_schema()
+            self._ensure_rank_race_schema()
             self._ensure_save_to_card_columns()
             self._ensure_live_class_feature_schema()
             self._ensure_access_request_schema()
@@ -2616,6 +2632,39 @@ class LovesDB:
             """
         )
         self.conn.commit()
+
+    def _ensure_rank_race_schema(self) -> None:
+        """MCK-171 Team challenge reveal step and award ledger.
+
+        ``live_rank_race_steps``: one row per challenge, advanced only by a
+        compare-and-set (``UPDATE ... WHERE step = prev``).
+
+        ``live_rank_race_awards``: one row per (challenge, student), primary
+        key on both, so a member can be owed at most one payout. ``paid_at``
+        is claimed (``WHERE paid_at IS NULL``) in the same write transaction
+        that writes the game point event, so a second payout is impossible.
+        """
+
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS live_rank_race_steps (
+                live_item_id INTEGER PRIMARY KEY
+                    REFERENCES live_session_items(id) ON DELETE CASCADE,
+                step INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS live_rank_race_awards (
+                live_item_id INTEGER NOT NULL
+                    REFERENCES live_session_items(id) ON DELETE CASCADE,
+                student_id INTEGER NOT NULL,
+                team_id INTEGER NOT NULL,
+                points INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                paid_at TEXT,
+                PRIMARY KEY (live_item_id, student_id)
+            );
+            """
+        )
 
     def _ensure_live_item_schema(self) -> None:
         """Create idempotent publish and group-consensus session tables."""
@@ -15031,6 +15080,8 @@ class SchoolDB(LovesDB):
                 )
             self.conn.commit()
         closed = self.get_live_session_item(session_id, int(item["id"]))
+        # MCK-171: no award here. Points land when the teacher reaches the
+        # points step on the projector (set_rank_race_step), or at End.
         active_prompt = self.get_active_live_prompt(session_id)
         linked = self._lifecycle_item_for_prompt(session_id, active_prompt)
         if linked is not None and int(linked.get("id") or 0) == int(closed["id"]):
@@ -16128,6 +16179,13 @@ class SchoolDB(LovesDB):
                 card["race"] = self._rank_race_student_block(
                     item, int(team_id), row, class_id, int(student_id)
                 )
+                if str(item.get("status") or "") == "closed" and bool(
+                    item.get("show_live_results")
+                ):
+                    # R6: own team only, after Close, with results on.
+                    card["race"]["results"] = self._rank_race_student_results(
+                        int(item["live_session_id"]), item, int(team_id), int(student_id)
+                    )
                 card["locked"] = bool(card["race"]["locked"])
                 card["can_submit"] = False
             # MCK-176: students only ever see option aliases.
@@ -17512,6 +17570,430 @@ class SchoolDB(LovesDB):
             "teams": teams,
         }
 
+    def _rank_race_results(
+        self, session_id: int, item: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Score a closed Team challenge: rows, points, podium (R6).
+
+        Each team is scored on its locked order, or on its current draft
+        when it never locked in. ``2 x right spots``, nothing else; no
+        lock-in time is read. A team that placed nothing is not scored
+        ("No one here yet" / "—") and stays off the podium.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item: Closed Team challenge lifecycle row.
+
+        Returns:
+            ``{"spots": [{n, item, teams: {team_id: bool}}], "teams": [...],
+            "podium": {...}, "total": n}``. Teams keep the fixed lane order.
+        """
+        key = self._rank_race_key(item)
+        labels = {row["id"]: row["label"] for row in self._rank_option_rows(item)}
+        teams: list[dict[str, Any]] = []
+        for slot, (team_id, team_name, _state) in enumerate(
+            self._iter_group_submit_teams(session_id, item)
+        ):
+            row = self._group_response_row(int(item["id"]), int(team_id)) or {}
+            order = self._rank_race_draft_order(item, row)
+            score = rank_race_score(order, key)
+            scored = bool(order)
+            teams.append(
+                {
+                    "team_id": int(team_id),
+                    "team_name": team_name,
+                    "slot": slot,
+                    "order": list(order),
+                    "spots": score["spots"] if scored else [],
+                    "right": int(score["right"]) if scored else 0,
+                    "total": int(score["total"]),
+                    "points": rank_challenge.team_points(score["right"]) if scored else 0,
+                    "scored": scored,
+                    "locked": self._rank_race_locked(row),
+                }
+            )
+        spots = [
+            {
+                "n": index + 1,
+                "item": labels.get(option_id, option_id),
+                "teams": {
+                    str(team["team_id"]): bool(team["spots"][index])
+                    for team in teams
+                    if team["scored"]
+                },
+            }
+            for index, option_id in enumerate(key)
+        ]
+        return {
+            "spots": spots,
+            "teams": teams,
+            "podium": rank_challenge.podium(teams),
+            "total": len(key),
+            "step": self._rank_race_step(item),
+        }
+
+    def _rank_race_step(self, item: dict[str, Any]) -> int:
+        """Reveal step the projector is on (0 before any Next)."""
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT step FROM live_rank_race_steps WHERE live_item_id = ?",
+                (int(item["id"]),),
+            ).fetchone()
+        return max(0, int(row["step"] or 0)) if row is not None else 0
+
+    def set_rank_race_step(
+        self, session_id: int, placement_or_item: str | int, *, step: int
+    ) -> dict[str, Any]:
+        """Teacher Next on the projector reveal: move exactly one step on.
+
+        Only ``step == current + 1`` is accepted (no skipping, no going back);
+        anything else, or losing a race to another tab or worker, raises
+        :class:`RankRaceStepConflict` and writes nothing. The move is one
+        ``BEGIN IMMEDIATE`` transaction with a compare-and-set
+        (``UPDATE ... WHERE step = prev``). Reaching the points step pays the
+        points through the idempotent award ledger; phones show points, then
+        the podium, only when the projector does.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            placement_or_item: Placement key or lifecycle id.
+            step: The step the teacher is moving to.
+
+        Returns:
+            ``{"step": int, "results": teacher results block}``.
+
+        Raises:
+            ValueError: Not a closed Team challenge.
+            RankRaceStepConflict: ``step`` is not the next step.
+        """
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, placement_or_item)
+        if not self._rank_race_on(item) or str(item.get("status") or "") != "closed":
+            raise ValueError("Close the Team challenge before revealing it.")
+        spots = len(self._rank_race_key(item))
+        live_item_id = int(item["id"])
+        want = int(step)
+        now = _now()
+        have = 0
+        with self._rank_order_txn():
+            row = self.conn.execute(
+                "SELECT step FROM live_rank_race_steps WHERE live_item_id = ?",
+                (live_item_id,),
+            ).fetchone()
+            have = int(row["step"] or 0) if row is not None else 0
+            if want != have + 1 or want > rank_challenge.podium_step(spots):
+                raise RankRaceStepConflict(have)
+            if row is None:
+                cur = self.conn.execute(
+                    "INSERT OR IGNORE INTO live_rank_race_steps (live_item_id, step, updated_at) "
+                    "VALUES (?, ?, ?)",
+                    (live_item_id, want, now),
+                )
+            else:
+                cur = self.conn.execute(
+                    "UPDATE live_rank_race_steps SET step = ?, updated_at = ? "
+                    "WHERE live_item_id = ? AND step = ?",
+                    (want, now, live_item_id, have),
+                )
+            if cur.rowcount != 1:
+                raise RankRaceStepConflict(have)
+        if want >= rank_challenge.points_step(spots):
+            self._award_rank_race_points(session_id, item)
+        return {"step": want, "results": self._rank_race_results(session_id, item)}
+
+    def rank_race_step_view(self, session_id: int, placement_or_item: str | int) -> dict[str, Any]:
+        """``{"step", "results"}`` for a 409 resync (closed challenges only)."""
+        item = self.get_live_session_item(session_id, placement_or_item)
+        if not self._rank_race_on(item) or str(item.get("status") or "") != "closed":
+            return {"step": 0, "results": None}
+        return {"step": self._rank_race_step(item), "results": self._rank_race_results(session_id, item)}
+
+    def _award_pending_rank_races(self, session_id: int) -> None:
+        """End of class: pay any closed Team challenge never stepped to points.
+
+        Same idempotent ledger as the points step, so a challenge already
+        paid (or being paid by a concurrent Next) pays nothing more. Never
+        blocks End.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        try:
+            items = self.list_live_session_items(session_id)
+        except Exception:  # noqa: BLE001 - End of class must always finish
+            logger.exception("team challenge end-of-class list failed session=%s", session_id)
+            return
+        for item in items:
+            if str(item.get("status") or "") != "closed" or not self._rank_race_on(item):
+                continue
+            try:
+                self._award_rank_race_points(session_id, item)
+            except Exception:  # noqa: BLE001 - End of class must always finish
+                logger.exception(
+                    "team challenge end-of-class award failed session=%s item=%s",
+                    session_id,
+                    item.get("id"),
+                )
+
+    def award_pending_rank_races_for_class(self, class_id: int) -> None:
+        """End Game: award pending Team challenges before the game day closes.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        try:
+            with self._lock:
+                rows = self.conn.execute(
+                    "SELECT id FROM live_class_sessions WHERE class_id = ? AND status = 'active'",
+                    (int(class_id),),
+                ).fetchall()
+        except Exception:  # noqa: BLE001 - End must always finish
+            logger.exception("team challenge pending award lookup failed class=%s", class_id)
+            return
+        for row in rows:
+            self._award_pending_rank_races(int(row["id"]))
+
+    def _rank_race_student_results(
+        self, session_id: int, item: dict[str, Any], team_id: int, viewer_id: int | None = None
+    ) -> dict[str, Any]:
+        """The phone's results: own team only, plus the podium (names, points).
+
+        Own spots carry the item placed there, whether it is right, and the
+        right item for a wrong spot (``Answer: {item}``). No other team's
+        order is included, and no place number for a team off the podium.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item: Closed Team challenge lifecycle row.
+            team_id: The viewer's team.
+            viewer_id: The viewer. ``credited`` is False for a member never
+                seen present while the question was open (joined after
+                Close): they get 0, so their phone shows no team total.
+        """
+        full = self._rank_race_results(session_id, item)
+        labels = {row["id"]: row["label"] for row in self._rank_option_rows(item)}
+        own = next((t for t in full["teams"] if t["team_id"] == int(team_id)), None) or {}
+        order = list(own.get("order") or [])
+        spots = []
+        for index, spot in enumerate(full["spots"]):
+            placed = order[index] if index < len(order) else ""
+            right = bool(own.get("spots") and own["spots"][index])
+            spots.append(
+                {
+                    "n": spot["n"],
+                    "item": labels.get(placed, placed) if placed else "",
+                    "right": right,
+                    "answer": "" if right else spot["item"],
+                }
+            )
+        names = {t["team_id"]: t["team_name"] for t in full["teams"]}
+        slots = {t["team_id"]: t["slot"] for t in full["teams"]}
+        steps = [
+            {
+                "step": step["step"],
+                "points": step["points"],
+                "teams": [
+                    {"name": names.get(tid, ""), "slot": slots.get(tid, 0), "mine": tid == int(team_id)}
+                    for tid in step["team_ids"]
+                ],
+            }
+            for step in full["podium"]["steps"]
+        ]
+        on_step = next(
+            (step["step"] for step in full["podium"]["steps"] if int(team_id) in step["team_ids"]),
+            None,
+        )
+        # Mobbin review: hold points, then the podium, until the projector
+        # reaches that step, so no phone spoils the reveal.
+        step = int(full.get("step") or 0)
+        show_points = step >= rank_challenge.points_step(int(full["total"]))
+        show_podium = step >= rank_challenge.podium_step(int(full["total"]))
+        locked = bool(own.get("locked"))
+        credited = viewer_id is None or int(viewer_id) in self._rank_race_seen_ids(
+            int(item["id"]), int(team_id)
+        )
+        return {
+            "spots": spots,
+            "right": int(own.get("right") or 0),
+            "total": int(full["total"]),
+            "points": int(own.get("points") or 0) if show_points and credited else None,
+            "credited": credited,
+            "scored": bool(own.get("scored")),
+            "locked": locked,
+            "from_draft": bool(own.get("scored")) and not locked,
+            "podium": steps if show_podium else [],
+            "on_podium": (on_step is not None) if show_podium else False,
+            "show_points": show_points,
+            "show_podium": show_podium,
+        }
+
+    def _award_rank_race_points(self, session_id: int, item: dict[str, Any]) -> dict[str, Any]:
+        """Pay each team's total to every member seen present, exactly once.
+
+        Members seen present at any point while the question was open (the
+        Take turns presence signal) get the full team total; members never
+        seen get nothing. Runs at the points step, and at End Game / End
+        Live Class / session end for a challenge never stepped that far.
+
+        Exactly once, across threads and gunicorn workers:
+
+        1. The owed rows go into ``live_rank_race_awards`` in one write
+           transaction (``INSERT OR IGNORE``; primary key (challenge,
+           student)), so concurrent callers agree on one row per member.
+        2. Each row is paid in its own ``BEGIN IMMEDIATE`` transaction on the
+           game connection: claim ``paid_at`` (``WHERE paid_at IS NULL``) and
+           write the game point event together. Only the caller whose claim
+           changed a row pays; the claim and the event commit or roll back
+           as one.
+
+        The display caches (``live_group_members.awarded_points``,
+        ``live_group_responses.awarded_points``) are rewritten from the
+        ledger afterwards. Ordinary student points, label "Team challenge".
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item: Closed Team challenge lifecycle row.
+
+        Returns:
+            ``{"teams": [{team_id, points, student_ids}]}`` (members owed points).
+        """
+        session_row = self.get_live_session(session_id)
+        if session_row is None:
+            return {"teams": []}
+        class_id = int(session_row["class_id"])
+        results = self._rank_race_results(session_id, item)
+        live_item_id = int(item["id"])
+        now = _now()
+        owed: list[tuple[int, int, int, int, str]] = []
+        out: list[dict[str, Any]] = []
+        for team in results["teams"]:
+            team_id = int(team["team_id"])
+            points = int(team["points"])
+            seen = self._rank_race_seen_ids(live_item_id, team_id)
+            members = [
+                int(sid)
+                for sid in self._teammate_ids_for_class(class_id, team_id)
+                if int(sid) in seen
+            ]
+            if points > 0:
+                owed.extend((live_item_id, sid, team_id, points, now) for sid in members)
+            out.append({"team_id": team_id, "points": points, "student_ids": members if points > 0 else []})
+        if owed:
+            with self._rank_order_txn():
+                self.conn.executemany(
+                    """
+                    INSERT OR IGNORE INTO live_rank_race_awards
+                        (live_item_id, student_id, team_id, points, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    owed,
+                )
+        with self._lock:
+            unpaid = self.conn.execute(
+                """
+                SELECT student_id, team_id, points FROM live_rank_race_awards
+                WHERE live_item_id = ? AND paid_at IS NULL
+                ORDER BY team_id, student_id
+                """,
+                (live_item_id,),
+            ).fetchall()
+        for row in unpaid:
+            self._pay_rank_race_award(
+                class_id, live_item_id, int(row["student_id"]), int(row["points"])
+            )
+        self._sync_rank_race_award_cache(live_item_id, results)
+        return {"teams": out}
+
+    def _pay_rank_race_award(
+        self, class_id: int, live_item_id: int, student_id: int, points: int
+    ) -> bool:
+        """Claim one ledger row and write its game point event, atomically.
+
+        One ``BEGIN IMMEDIATE`` transaction on the game connection (same
+        sqlite file, shared lock): the claim ``UPDATE ... WHERE paid_at IS
+        NULL`` and ``award_points``'s event + caches commit together. A
+        caller whose claim matched no row (already paid) writes nothing.
+
+        Returns:
+            True when this call paid the row.
+        """
+        game_conn = self.game.conn
+        with self._lock:
+            own = not game_conn.in_transaction
+            if own:
+                game_conn.execute("BEGIN IMMEDIATE")
+            try:
+                claimed = game_conn.execute(
+                    """
+                    UPDATE live_rank_race_awards SET paid_at = ?
+                    WHERE live_item_id = ? AND student_id = ? AND paid_at IS NULL
+                    """,
+                    (_now(), int(live_item_id), int(student_id)),
+                ).rowcount
+                if claimed == 1 and points:
+                    self.game.award_points(
+                        int(class_id),
+                        kind="student",
+                        target_id=int(student_id),
+                        amount=int(points),
+                        label="Team challenge",
+                    )
+                if own and game_conn.in_transaction:
+                    game_conn.execute("COMMIT")
+                return claimed == 1
+            except ValueError:
+                # Scoring closed (game already ended): leave the row unpaid.
+                if own and game_conn.in_transaction:
+                    game_conn.execute("ROLLBACK")
+                logger.info(
+                    "team challenge award skipped (scoring closed) item=%s student=%s",
+                    live_item_id,
+                    student_id,
+                )
+                return False
+            except BaseException:
+                if own and game_conn.in_transaction:
+                    game_conn.execute("ROLLBACK")
+                raise
+
+    def _sync_rank_race_award_cache(self, live_item_id: int, results: dict[str, Any]) -> None:
+        """Rewrite the per-member / per-team ``awarded_points`` from the ledger."""
+        with self._rank_order_txn():
+            self.conn.execute(
+                """
+                UPDATE live_group_members SET awarded_points = (
+                    SELECT a.points FROM live_rank_race_awards a
+                    WHERE a.live_item_id = live_group_members.live_item_id
+                      AND a.student_id = live_group_members.student_id
+                      AND a.paid_at IS NOT NULL
+                )
+                WHERE live_item_id = ? AND EXISTS (
+                    SELECT 1 FROM live_rank_race_awards a
+                    WHERE a.live_item_id = live_group_members.live_item_id
+                      AND a.student_id = live_group_members.student_id
+                      AND a.paid_at IS NOT NULL
+                )
+                """,
+                (int(live_item_id),),
+            )
+            self.conn.executemany(
+                "UPDATE live_group_responses SET awarded_points = ? "
+                "WHERE live_item_id = ? AND team_id = ?",
+                [
+                    (int(team["points"]), int(live_item_id), int(team["team_id"]))
+                    for team in results["teams"]
+                ],
+            )
+
+    def rank_race_credited(self, live_item_id: int, student_id: int) -> bool:
+        """True when this student is owed (or was paid) Team challenge points."""
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT 1 FROM live_rank_race_awards WHERE live_item_id = ? AND student_id = ?",
+                (int(live_item_id), int(student_id)),
+            ).fetchone()
+        return row is not None
+
     @staticmethod
     def _rank_race_seq(block: dict[str, Any]) -> str:
         """Light-poll stamp for the race lanes (repaint on any lane change).
@@ -18120,6 +18602,8 @@ class SchoolDB(LovesDB):
                 view["race"] = self._rank_race_teacher_block(session_id, item)
                 if not revealed:
                     view["rank"] = self._rank_collate_without_orders(view["rank"])
+                else:
+                    view["race"]["results"] = self._rank_race_results(session_id, item)
         return view
 
     @staticmethod
@@ -19702,7 +20186,16 @@ class SchoolDB(LovesDB):
             results = None
             answer_kind = self._question_answer_kind(item)
             show_rank = status == "closed" and bool(item["show_live_results"])
-            if answer_kind == "rank" and item["response_mode"] == "group_submit":
+            if (
+                answer_kind == "rank"
+                and item["response_mode"] == "group_submit"
+                and self._rank_race_on(item)
+            ):
+                # MCK-171: a Team challenge's results ride the student's own
+                # card (group_submit.race.results); no other team's order.
+                if show_rank:
+                    results = {"phase": "final", "kind": "rank", "race": True}
+            elif answer_kind == "rank" and item["response_mode"] == "group_submit":
                 if show_rank:
                     results = {
                         "reveal": self.group_submit_reveal_rows(
@@ -27745,6 +28238,8 @@ class SchoolDB(LovesDB):
         Returns:
             The ended session row, or ``None`` if missing.
         """
+        # MCK-171: a Team challenge never stepped to its points still pays.
+        self._award_pending_rank_races(session_id)
         if clear_moods:
             self.clear_attendee_moods_and_characters(session_id)
         return self.invalidate_live_session_code(session_id)
@@ -28861,6 +29356,10 @@ class SchoolDB(LovesDB):
                 class_id,
             )
             return {"ok": True, "class_id": int(class_id), "already_ended": True}
+        # MCK-171: a closed Team challenge never stepped to its points pays
+        # now, before the winner snapshot (End Live Class and Quit alike).
+        # Same idempotent ledger as the points step and End Game.
+        self.award_pending_rank_races_for_class(int(class_id))
         if persist is not None:
             save_attendance = bool(persist)
             save_participation = bool(persist)
@@ -29502,9 +30001,16 @@ class SchoolDB(LovesDB):
                     FROM live_group_responses g
                     INNER JOIN live_session_items i ON i.id = g.live_item_id
                     WHERE i.live_session_id = ?
-                  ), '') AS group_response_rev
+                  ), '') AS group_response_rev,
+                  COALESCE((
+                    SELECT TOTAL(s.step) || '|' || COUNT(s.live_item_id)
+                    FROM live_rank_race_steps s
+                    INNER JOIN live_session_items i ON i.id = s.live_item_id
+                    WHERE i.live_session_id = ?
+                  ), '') AS race_step_rev
                 """,
                 (
+                    int(session_id),
                     int(session_id),
                     int(session_id),
                     int(session_id),
@@ -29544,13 +30050,16 @@ class SchoolDB(LovesDB):
         # touches the team row; teammates must not keep a stale card.
         group_response_rev = str(row["group_response_rev"] if row is not None else "")
         status = str(status_row["status"] if status_row is not None else "")
+        # MCK-171: the Team challenge reveal step (the podium step writes no
+        # point event, so phones would otherwise get "unchanged").
+        race_step_rev = str(row["race_step_rev"] if row is not None else "")
         # Ink lives in board_ops. It must not change this stamp, or every
         # stroke forces a full ``/state`` rebuild.
         return (
             f"{seq}:{prompt_max}:{prompt_active}:{active_n}:{item_n}:{save_n}:"
             f"{item_max}:{response_max}:{group_vote_max}:{event_max}:"
             f"{prompt_rev}:{item_rev}:{group_vote_rev}:{status}:{celebrate}:"
-            f"{group_response_rev}"
+            f"{group_response_rev}:{race_step_rev}"
         )
 
     def _student_live_poll_is_open(self, session_id: int) -> bool:

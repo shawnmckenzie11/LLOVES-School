@@ -25,6 +25,20 @@ RACE_FLAG = "group_rank_race"
 #: "Close answers at 0:00" closed it, else ``"teacher"``. Picks the phone's
 #: unlocked-at-Close line (race.timesup vs race.closed).
 RACE_CLOSED_BY = "group_rank_race_closed_by"
+#: Reveal steps (``live_rank_race_steps.step``): 0 = nothing, 1..n = spot
+#: rows, n+1 = points, n+2 = podium. Phones and game points wait for them so
+#: the room never sees a total early. The step lives in its own table, not
+#: ``item_json``, so a deck refresh can never rewrite it from a stale copy.
+
+
+def points_step(spots: int) -> int:
+    """Reveal step that shows points (after every spot row)."""
+    return int(spots) + 1
+
+
+def podium_step(spots: int) -> int:
+    """Reveal step that shows the podium (last step)."""
+    return int(spots) + 2
 
 
 def flag_on(question: Any, key: str, *, default: bool = False) -> bool:
@@ -135,3 +149,66 @@ def agree_counts(agreed: Iterable[int], present_ids: Iterable[int]) -> tuple[int
     present = {int(sid) for sid in present_ids}
     agreed_set = {int(sid) for sid in agreed}
     return len(present & agreed_set), len(present)
+
+
+# ---------------------------------------------------------------------------
+# Results (R6): 2 points per right spot, nothing else. Ties share a step.
+# ---------------------------------------------------------------------------
+
+#: Wonder v3 ``BASE_PER_SPOT``: points per spot in the right place.
+BASE_PER_SPOT = 2
+#: Podium steps shown (top 3 distinct totals).
+PODIUM_STEPS = 3
+
+
+def team_points(right: int) -> int:
+    """Team total: ``BASE_PER_SPOT`` per right spot. No bonus, no speed.
+
+    Every member of the team gets this same total.
+
+    Args:
+        right: Spots in the right place.
+    """
+    return BASE_PER_SPOT * max(0, int(right))
+
+
+def podium(teams: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    """Top-3 podium by dense ranking; tied teams share a step.
+
+    A team is on the podium when it was scored (it placed something) and
+    has points. Everyone else goes to "Also on the board", alphabetical,
+    with no place number. Speed and lock-in time play no part.
+
+    Args:
+        teams: Dicts with ``team_id``, ``team_name``, ``points``, ``scored``.
+
+    Returns:
+        ``{"steps": [{"step", "points", "team_ids"}], "others": [team_id]}``.
+        ``steps`` is ordered 1, 2, 3 (fewer when there are fewer totals).
+    """
+    rows = list(teams)
+    totals = sorted(
+        {int(row["points"]) for row in rows if row.get("scored") and int(row["points"]) > 0},
+        reverse=True,
+    )[:PODIUM_STEPS]
+    steps = []
+    on: set[int] = set()
+    for index, total in enumerate(totals):
+        ids = sorted(
+            (
+                row
+                for row in rows
+                if row.get("scored") and int(row["points"]) == total
+            ),
+            key=lambda row: str(row.get("team_name") or "").casefold(),
+        )
+        steps.append(
+            {"step": index + 1, "points": total, "team_ids": [int(row["team_id"]) for row in ids]}
+        )
+        on.update(int(row["team_id"]) for row in ids)
+    others = [
+        int(row["team_id"])
+        for row in sorted(rows, key=lambda row: str(row.get("team_name") or "").casefold())
+        if int(row["team_id"]) not in on
+    ]
+    return {"steps": steps, "others": others}

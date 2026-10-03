@@ -103,6 +103,7 @@ import {
   fill as raceFill,
   raceLanesHtml,
   raceOptionLabels,
+  raceResultsHtml,
   raceStem,
 } from "/static/rank_challenge_view.js";
 
@@ -1393,6 +1394,16 @@ const raceViewOff = new Set();
 const racePopped = new Map();
 
 /**
+ * MCK-171: last server step seen per closed challenge (the server owns the
+ * step; Next asks for exactly step+1): 0..n rows revealed, n+1 points,
+ * n+2 podium.
+ * @type {Map<number, number>}
+ */
+const raceStep = new Map();
+/** MCK-171: race items with a Next POST in flight (Next is disabled meanwhile). */
+const raceStepInFlight = new Set();
+
+/**
  * @param {number} liveItemId
  * @param {any} race Teacher ``race`` block.
  * @returns {Set<number>}
@@ -1422,7 +1433,14 @@ function rankRaceTeacherHtml(result, revealed, liveItemId) {
   const race = result?.race;
   if (!race || typeof race !== "object") return "";
   if (raceViewOff.has(liveItemId)) return "";
-  if (revealed) return "";
+  if (revealed) {
+    if (!race.results) return "";
+    return raceResultsHtml(race.results, liveItemId, {
+      step: raceStepFor(liveItemId, race.results),
+      stem: raceStem(result?.item),
+      busy: raceStepInFlight.has(liveItemId),
+    });
+  }
   return raceLanesHtml(race, liveItemId, {
     popped: racePoppedFor(liveItemId, race),
     stem: raceStem(result?.item),
@@ -1448,6 +1466,106 @@ function rankRaceEnterHtml(result, liveItemId) {
  * @param {number} liveItemId
  * @param {number} teamId
  */
+/**
+ * MCK-171: reveal step on screen: the furthest of this tab's Next presses
+ * and the server's stored step (a reload resumes where the room is).
+ * @param {number} liveItemId
+ * @param {any} results Teacher ``race.results``.
+ * @returns {number}
+ */
+function raceStepFor(liveItemId, results) {
+  // The server's step is the truth (it only moves one screen at a time).
+  // The local copy only fills in until the results land.
+  const server = Number(results?.step);
+  if (Number.isFinite(server) && results && "step" in results) return server;
+  return raceStep.get(liveItemId) || 0;
+}
+
+/**
+ * MCK-171: store the server's step and results for a race item.
+ * @param {number} liveItemId
+ * @param {any} payload
+ */
+function applyRankRaceStep(liveItemId, payload) {
+  const step = Number(payload?.step);
+  if (Number.isFinite(step)) raceStep.set(liveItemId, step);
+  const entry = lifecycleResults.get(liveItemId);
+  if (payload?.results && entry?.race) {
+    lifecycleResults.set(liveItemId, {
+      ...entry,
+      race: { ...entry.race, results: payload.results },
+    });
+  }
+}
+
+/**
+ * MCK-171: reload game points after the points step so the class list
+ * and scoreboard show the team payout without a page reload.
+ */
+async function refreshRaceGamePoints() {
+  try {
+    const state = await api(`/api/classes/${classId}/game`);
+    if (!state || typeof state !== "object") return;
+    overlayState = state;
+    const nextPoints = { ...sessionGamePoints };
+    for (const student of state.students || []) {
+      if (student.id == null) continue;
+      const pts = Number(student.session_points ?? student.points ?? student.game_points);
+      if (Number.isFinite(pts)) nextPoints[String(student.id)] = pts;
+    }
+    sessionGamePoints = nextPoints;
+    if (isScoringLive()) {
+      liveStamp = "";
+      void openLiveScoring(overlayState, { stayOnScore: true });
+    }
+  } catch (_) {
+    /* the next attendance poll carries game_points too */
+  }
+  renderAttendanceList();
+}
+
+/**
+ * MCK-171: ask the server to move the projector one screen, to ``step``.
+ * The server only accepts the exact next step; a 409 (double-click, or
+ * another tab got there first) carries the real step, and we resync to it
+ * quietly. Phones show points, then the podium, and game points land,
+ * only at those steps.
+ * @param {number} liveItemId
+ * @param {number} step
+ */
+async function postRankRaceStep(liveItemId, step) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId || !liveItemId) return;
+  if (raceStepInFlight.has(liveItemId)) return;
+  raceStepInFlight.add(liveItemId);
+  paintLiveQuestionCards();
+  let payload = null;
+  try {
+    const response = await fetch(
+      `/api/live-sessions/${sessionId}/items/${liveItemId}/race-step`,
+      {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ step }),
+      }
+    );
+    payload = await response.json().catch(() => null);
+    if (!response.ok && response.status !== 409) payload = null;
+  } catch (_) {
+    payload = null;
+  } finally {
+    raceStepInFlight.delete(liveItemId);
+  }
+  if (payload) applyRankRaceStep(liveItemId, payload);
+  paintLiveQuestionCards();
+  // Points screen is n+1 (rank_challenge.points_step).
+  const points = (Number(payload?.results?.total) || 0) + 1;
+  if (payload?.ok && Number(payload.step) >= points) {
+    await refreshRaceGamePoints();
+  }
+}
+
 async function lockRankRaceTeam(liveItemId, teamId) {
   const sessionId = liveSessionId || readLiveSessionId();
   if (!sessionId || !liveItemId || !teamId) return;
@@ -11372,6 +11490,8 @@ $("live-question-list")?.addEventListener("click", async (event) => {
   const raceLock = event.target.closest("button[data-race-lock]");
   const raceSkip = event.target.closest("button[data-race-skip]");
   const raceToggle = event.target.closest("button[data-race-view-toggle]");
+  const raceNext = event.target.closest("button[data-race-next]");
+  const raceDone = event.target.closest("button[data-race-done]");
   const award = event.target.closest("button[data-award-consensus]");
   const openRelocate = event.target.closest("button[data-open-relocate-dialog]");
   const button = event.target.closest("button[data-view-responses]");
@@ -11404,6 +11524,20 @@ $("live-question-list")?.addEventListener("click", async (event) => {
       const itemId = Number(raceToggle.dataset.raceViewToggle) || 0;
       if (raceViewOff.has(itemId)) raceViewOff.delete(itemId);
       else raceViewOff.add(itemId);
+      paintLiveQuestionCards();
+      return;
+    }
+    if (raceNext instanceof HTMLButtonElement) {
+      const itemId = Number(raceNext.dataset.raceNext) || 0;
+      const results = lifecycleResults.get(itemId)?.race?.results;
+      if (raceStepInFlight.has(itemId)) return;
+      const next = raceStepFor(itemId, results) + 1;
+      void postRankRaceStep(itemId, next);
+      return;
+    }
+    if (raceDone instanceof HTMLButtonElement) {
+      // Back to question: the normal (now revealed) rank card.
+      raceViewOff.add(Number(raceDone.dataset.raceDone) || 0);
       paintLiveQuestionCards();
       return;
     }

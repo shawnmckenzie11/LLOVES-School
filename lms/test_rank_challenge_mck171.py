@@ -85,7 +85,12 @@ class ChallengeHarness(unittest.TestCase):
         logging.disable(logging.WARNING)
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
-        self.app = create_app(db_path=root / "lloves.sqlite", data_dir=root, testing=True)
+        self.app = create_app(
+            db_path=root / "lloves.sqlite",
+            data_dir=root,
+            testing=True,
+            live_database_url=self._presence_url(),
+        )
         self.school = self.app.config["SCHOOL_DB"]
         self.client = self.app.test_client()
         self.school.activate_from_semester_json()
@@ -139,6 +144,10 @@ class ChallengeHarness(unittest.TestCase):
         logging.disable(logging.NOTSET)
         self.school.close()
         self.tmp.cleanup()
+
+    def _presence_url(self) -> str | None:
+        """Live presence database (``None``: SQLite, the default)."""
+        return None
 
     # helpers -------------------------------------------------------------
     def _add(self, body: dict[str, Any]) -> dict[str, Any]:
