@@ -69,14 +69,20 @@ export function waitingLine(n) {
 }
 
 /**
- * "Still writing: Ben, Cy" (first names only, joined by ", ").
+ * "Still writing: Ben, Cy". The server already shortens names (first name
+ * when unique on the team, else the full codename), so names show as sent.
+ * Exact repeats are listed once (MCK-155 gate LOW-3).
  * @param {unknown[]} names
  * @returns {string} Empty when the list is empty.
  */
 export function stillWritingLine(names) {
-  const list = (Array.isArray(names) ? names : [])
-    .map((name) => String(name || "").trim().split(/\s+/)[0])
-    .filter(Boolean);
+  const list = [
+    ...new Set(
+      (Array.isArray(names) ? names : [])
+        .map((name) => String(name || "").trim().replace(/\s+/g, " "))
+        .filter(Boolean)
+    ),
+  ];
   if (!list.length) return "";
   return GROUP_INSTRUCTION_COPY.stillWriting.replace("{names}", list.join(", "));
 }

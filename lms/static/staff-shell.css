@@ -6267,6 +6267,10 @@ body.staff-shell .live-mark-summary {
 body.staff-shell .group-status-board .live-mark {
   margin-left: 0.35rem;
 }
+/* MCK-155 gate MED-1: Hide key also hides "+1 Everyone correct". */
+body.staff-shell .live-responses-actions [hidden] {
+  display: none;
+}
 body.staff-shell .live-hide-key-btn[aria-pressed="true"] {
   background: #0f172a;
   color: #f8fafc;

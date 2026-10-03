@@ -191,6 +191,51 @@ class GroupQuestionTests(unittest.TestCase):
         tally = teacher.get("tally") or teacher
         self.assertTrue(any(c.get("correct") for c in tally.get("choices") or []))
 
+    def _student_client(self, name: str):
+        code = str(self.school.get_live_session(self.session_id)["session_code"])
+        # setUp joined everyone server-side; a fresh tab re-joins by code.
+        sid = self.ids[[str(st["codename"]) for st in self.students].index(name)]
+        self.school.mark_live_session_attendee_left(self.session_id, student_id=sid)
+        client = self.app.test_client()
+        rv = client.post("/auth/student-code", data={"code": code, "name": name})
+        self.assertIn(rv.status_code, (302, 303), rv.get_data(as_text=True)[:300])
+        return client
+
+    def test_answer_reply_has_no_key_while_open(self) -> None:
+        """Gate HIGH-1: the answer POST reply must not name the key while open."""
+
+        item = self._add_publish(
+            {"type": "mc", "text": "Pick 2", "options": ["2", "3", "4", "5"], "correct_index": 0},
+            "individual",
+        )
+        self.school.update_live_session_item_settings(
+            self.session_id, int(item["id"]), show_live_results=True
+        )
+        prompt = self.school._prompt_for_live_item(item)
+        ava = self._student_client("Ava")
+        rv = ava.post(
+            "/api/student/live-prompt/response",
+            json={"prompt_id": int(prompt["id"]), "response": {"choice": "B"}},
+        )
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        body = rv.get_json()
+        self.assertIsNotNone(body.get("mc_tally"), "results on: the class bars still ride")
+        self.assertNotIn('"correct"', json.dumps(body))
+        self.assertNotIn("correct_answer", json.dumps(body))
+        # The student live-prompt payload is stripped the same way.
+        live = ava.get("/api/student/live-prompt").get_json() or {}
+        self.assertNotIn('"correct"', json.dumps(live.get("mc_tally") or {}))
+        # Staff still see the key.
+        teacher = self.school.live_session_item_results(self.session_id, int(item["id"]))
+        self.assertTrue(any(c.get("correct") for c in (teacher.get("tally") or {}).get("choices") or []))
+        # Once closed, the student copy carries the key again.
+        self.school.close_live_session_item(self.session_id, int(item["id"]))
+        tally = self.school._tally_for_prompt(self.session_id, prompt, None)
+        safe = self.school.student_safe_tally(self.session_id, prompt, tally, None)
+        self.assertTrue(any(c.get("correct") for c in safe["choices"]))
+        closed_row = self._student_row(0, item)
+        self.assertTrue(any(c.get("correct") for c in closed_row["results"]["choices"]))
+
     def test_poll_and_rank_have_no_key(self) -> None:
         """Only keyed MC gets right/wrong marks."""
 
@@ -256,6 +301,77 @@ class GroupQuestionTests(unittest.TestCase):
         self.assertIn(done["status"], {"discussion", "awaiting_team_answer"})
         self.assertNotIn("waiting_names", done)
         self.assertTrue(done["can_finalize"])
+
+    def test_teacher_count_keeps_a_voter_who_dropped_off(self) -> None:
+        """Gate LOW-2: eligible = present members plus voters who left."""
+
+        item = self._open()
+        team_id = self._vote(item, 0, 2)["team"]["team_id"]  # Ava votes; Cy writing
+        light = self.school.light_group_results(self.session_id)[str(item["id"])]
+        row = next(t for t in light["teams"] if int(t["team_id"]) == int(team_id))
+        self.assertEqual((row["vote_count"], row["eligible_count"]), (1, 2))
+        before_seq = light["response_seq"]
+        # Ava's phone locks: her heartbeat lapses and the sweep marks her left.
+        self.school.mark_live_session_attendee_left(self.session_id, student_id=self.ids[0])
+        light = self.school.light_group_results(self.session_id)[str(item["id"])]
+        row = next(t for t in light["teams"] if int(t["team_id"]) == int(team_id))
+        self.assertEqual((row["vote_count"], row["eligible_count"]), (1, 2))
+        full = self.school.teacher_group_consensus_summary(self.session_id, int(item["id"]))
+        frow = next(t for t in full["teams"] if int(t["team_id"]) == int(team_id))
+        self.assertEqual((frow["vote_count"], frow["eligible_count"]), (1, 2))
+        # Cy, still present and not voted, stays in the student's wait line.
+        cy = self.school.student_group_consensus_state(
+            self.school.get_live_session_item(self.session_id, int(item["id"])), self.ids[2]
+        )
+        self.assertNotEqual(cy["status"], "finalized")
+        # A non-voter who leaves drops out of the count, and the seq moves.
+        self.school.mark_live_session_attendee_left(self.session_id, student_id=self.ids[1])
+        after = self.school.light_group_results(self.session_id)[str(item["id"])]
+        other = next(t for t in after["teams"] if int(t["team_id"]) != int(team_id))
+        self.assertEqual(other["eligible_count"], 1)
+        self.assertNotEqual(before_seq, after["response_seq"])
+
+    def test_responses_dialog_follows_hide_key(self) -> None:
+        """Gate MED-1: Hide key also hides marks and +1 Everyone correct."""
+
+        staff = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        apply = staff.split("function applyHideKey()")[1].split("\n}\n")[0]
+        self.assertIn('$("live-responses-dialog")', apply)
+        self.assertIn('[data-response-select="correct"]', apply)
+        self.assertIn("correct.hidden = on", apply)
+        self.assertIn("paintQuestionResponses(lastResponseRows, true)", apply)
+        paint = staff.split("function paintQuestionResponses(")[1].split("\n}\n")[0]
+        self.assertIn("const keyHidden = hideKeyOn();", paint)
+        self.assertIn('keyHidden ? "Answered"', paint)
+        opener = staff.split("paintQuestionResponses(result.responses);")[1].split("\n}\n")[0]
+        self.assertIn("correct.hidden = hideKeyOn();", opener)
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn(".live-responses-actions [hidden]", css)
+
+    def test_waiting_names_are_unambiguous(self) -> None:
+        """Gate LOW-3: unique first names shorten; twins and emoji stay full."""
+
+        from school_db import short_display_names
+
+        self.assertEqual(short_display_names(["Ben Lee", "Cy Diaz"]), ["Ben", "Cy"])
+        self.assertEqual(
+            short_display_names(["Cy Twin", "Cy Other"]), ["Cy Twin", "Cy Other"]
+        )
+        # Ambiguous against the whole team, even if only one is waiting.
+        self.assertEqual(
+            short_display_names(["Cy Twin"], ["Cy Twin", "Cy Other", "Ava"]), ["Cy Twin"]
+        )
+        self.assertEqual(short_display_names(["🦊 Fox"]), ["🦊 Fox"])
+        self.assertEqual(short_display_names(["Cy", "Cy"]), ["Cy"])
+        self.assertEqual(short_display_names(["  ", "Mary-Jane  Doe"]), ["Mary-Jane"])
+
+    def test_one_instruction_line_once_everyone_is_in(self) -> None:
+        """Gate LOW-4: the open line yields to "Everyone's in"."""
+
+        student = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        block = student.split("const groupInstruction =")[1].split("const groupControls")[0]
+        for status in ("finalized", "discussion", "awaiting_team_answer"):
+            self.assertIn(f'"{status}"', block)
 
     def test_student_js_uses_wonder_copy(self) -> None:
         student = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")

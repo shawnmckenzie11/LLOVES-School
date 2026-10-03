@@ -3170,9 +3170,13 @@ function paintLifecycleQuestionStack(payload) {
               item.group_consensus?.has_voted
           ));
       // MCK-155 S4: one calm instruction line on an open group card.
+      // MCK-155 gate LOW-4: one line only. Once everyone is in (discussion /
+      // awaiting the team answer) "Everyone's in" replaces the open line.
       const groupInstruction =
         (groupSubmit || groupMode) &&
-        String(item.group_consensus?.status || "") !== "finalized" &&
+        !["finalized", "discussion", "awaiting_team_answer"].includes(
+          String(item.group_consensus?.status || "")
+        ) &&
         !(groupSubmit && item.group_submit?.submitted)
           ? groupInstructionHtml(item, content)
           : "";

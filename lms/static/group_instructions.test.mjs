@@ -59,7 +59,10 @@ check(waitingLine(2) === "Waiting for 2 more teammates.", "many");
 check(waitingLine(1) === "Waiting for 1 more teammate.", "one");
 check(waitingLine(0) === "", "none");
 check(stillWritingLine(["Ben", "Cy"]) === "Still writing: Ben, Cy", "names");
-check(stillWritingLine(["Ben Lee"]) === "Still writing: Ben", "first names only");
+check(stillWritingLine(["Ben Lee"]) === "Still writing: Ben Lee", "names as the server sends them");
+check(stillWritingLine(["Cy Twin", "Cy Other"]) === "Still writing: Cy Twin, Cy Other", "duplicate first names stay apart");
+check(stillWritingLine(["🦊 Fox"]) === "Still writing: 🦊 Fox", "emoji-led codename shows in full");
+check(stillWritingLine(["Cy", "Cy"]) === "Still writing: Cy", "exact repeats once");
 check(stillWritingLine([]) === "", "empty names");
 
 // Wait block: disabled button with its reason.

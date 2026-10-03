@@ -1256,6 +1256,16 @@ function applyHideKey() {
   $("live-question-list")?.classList.toggle("is-key-hidden", on);
   const btn = $("live-hide-key-btn");
   if (btn) btn.setAttribute("aria-pressed", on ? "true" : "false");
+  // MCK-155 gate MED-1: the Responses dialog follows Hide key too. Marks
+  // read "Answered" and "+1 Everyone correct" is hidden, so a shared
+  // screen never shows who was right.
+  const dialog = $("live-responses-dialog");
+  dialog?.classList.toggle("is-key-hidden", on);
+  const correct = dialog?.querySelector('[data-response-select="correct"]');
+  if (correct instanceof HTMLButtonElement) correct.hidden = on;
+  if (dialog instanceof HTMLDialogElement && dialog.open) {
+    paintQuestionResponses(lastResponseRows, true);
+  }
 }
 
 $("live-hide-key-btn")?.addEventListener("click", () => {
@@ -5002,6 +5012,8 @@ function paintQuestionResponses(responses, keepTicks) {
   const rows = Array.isArray(responses) ? responses : [];
   lastResponseRows = rows;
   const hidden = hideResponseNames;
+  // MCK-155 gate MED-1: with Hide key on, no Correct/Incorrect per row.
+  const keyHidden = hideKeyOn();
   host.classList.toggle("is-names-hidden", hidden);
   const ticks = keepTicks ? currentResponseTicks(host) : null;
   const book = hidden ? responseLabelBook || newHiddenLabelBook("") : null;
@@ -5045,7 +5057,9 @@ function paintQuestionResponses(responses, keepTicks) {
           }>
           <span class="live-response-name">${escapeHtml(responseRowLabel(row, labelOf(row), hidden))}</span>
           <span class="live-response-answer">${escapeHtml(row.answer || "—")}</span>
-          <span class="live-response-mark">${row.correct === true ? "Correct" : row.correct === false ? "Incorrect" : "Answered"}</span>
+          <span class="live-response-mark">${
+            keyHidden ? "Answered" : row.correct === true ? "Correct" : row.correct === false ? "Incorrect" : "Answered"
+          }</span>
           <span class="live-response-points">${row.awarded_points ? `+${escapeHtml(row.awarded_points)}` : ""}</span>
         </label>`
       )
@@ -5123,7 +5137,9 @@ async function openQuestionResponses(promptId, title, questionType, hasAnswerKey
     correct.title = keyed
       ? ""
       : "Polls and numeric questions have no answer key.";
+    correct.hidden = hideKeyOn();
   }
+  dialog?.classList.toggle("is-key-hidden", hideKeyOn());
   if (dialog instanceof HTMLDialogElement && !dialog.open) dialog.showModal();
   syncHiddenNamesBackdrop();
 }

@@ -5576,7 +5576,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 my_response=my_response,
                 teacher=teacher,
             ):
-                body["mc_tally"] = tally
+                # MCK-155 gate HIGH-1: no answer key while the question is open.
+                body["mc_tally"] = school.student_safe_tally(
+                    live_session_id, target, tally, teacher
+                )
             emit_answer_landed(
                 school,
                 live_session_id,
@@ -5623,7 +5626,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             my_response=my_response,
             teacher=teacher,
         ):
-            body["mc_tally"] = tally
+            # MCK-155 gate HIGH-1: no answer key while the question is open.
+            body["mc_tally"] = school.student_safe_tally(
+                live_session_id, target, tally, teacher
+            )
         emit_answer_landed(
             school,
             live_session_id,
