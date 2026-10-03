@@ -515,7 +515,7 @@ def apply_turn_place(
     # MCK-155 gate LOW-2: once the order is complete every other place is
     # "already sent", never "{name} just placed that one".
     if state.get("complete"):
-        raise TurnConflict("done", "The order is already sent.")
+        raise TurnConflict("done", "Your group's order is already in.")
     if opt in order:
         raise TurnConflict("turn_taken", "That one was just placed. Pick another.", by=placer)
     if not turn_can_place(state, student_id, active_ids):

@@ -530,7 +530,7 @@ except GroupAnswerLocked:
         rv = self._post("Cy", item, "rank-turn", {"option_id": o[0]})
         self.assertEqual(rv.status_code, 409)
         self.assertEqual(rv.get_json()["reason"], "done")
-        self.assertEqual(rv.get_json()["error"], "The order is already sent.")
+        self.assertEqual(rv.get_json()["error"], "Your group's order is already in.")
         # The last placer's own retry stays a safe no-op.
         self.assertEqual(self._post("Ava", item, "rank-turn", {"option_id": o[3]}).status_code, 200)
 
