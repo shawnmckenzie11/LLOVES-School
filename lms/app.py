@@ -4221,6 +4221,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 correct_answer=correct,
                 points=points,
             )
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
         except KeyError:
             return jsonify({"ok": False, "error": "Question not found"}), 404
         return jsonify({"ok": True, "overlay": overlay})

@@ -51,6 +51,11 @@ def rank_bank_key(course_code: str, module_number: int) -> str:
     return f"{RANK_BANK_KEY_PREFIX}:{str(course_code).strip().upper()}:M{int(module_number)}"
 
 
+def is_rank_bank_key(import_key: Any) -> bool:
+    """True for a seeded rank bank (``rank-bank:<CODE>:M<n>``)."""
+    return str(import_key or "").startswith(f"{RANK_BANK_KEY_PREFIX}:")
+
+
 def rank_item_key(candidate_id: str) -> str:
     """Return ``rank:<candidate id>``."""
     return f"{RANK_ITEM_KEY_PREFIX}:{str(candidate_id).strip()}"

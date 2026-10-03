@@ -395,6 +395,176 @@ class RankBankImportPublishTests(unittest.TestCase):
         self._import_and_publish("MCF3M", "MCF3M-M5-flagpole-distance")
 
 
+class OpsGateFindingsTests(unittest.TestCase):
+    """Ops gate on 6047e1d: HIGH-1 picker linking, MED-1 cap, MED-2 edits."""
+
+    _class_for = RankBankImportPublishTests._class_for
+    tearDown = RankBankImportPublishTests.tearDown
+
+    def setUp(self) -> None:
+        self._class_for("MCR3U")
+
+    # helpers -------------------------------------------------------------
+    def _bank(self, title: str, key: str) -> int:
+        cur = self.school.conn.execute(
+            "INSERT INTO question_banks (library_id, import_key, title, settings_json, created_at) VALUES (?, ?, ?, '{}', '2026-10-03')",
+            (self.library_id, key, title),
+        )
+        return int(cur.lastrowid)
+
+    def _mc(self, bank_id: int, key: str, stem: str) -> int:
+        payload = {
+            "stem_html": f"<p>{stem}</p>",
+            "choices": [
+                {"id": "a", "html": "Right", "correct": True},
+                {"id": "b", "html": "Wrong", "correct": False},
+                {"id": "c", "html": "Other", "correct": False},
+            ],
+        }
+        cur = self.school.conn.execute(
+            "INSERT INTO questions (bank_id, import_key, item_type, title, payload_json, created_at) "
+            "VALUES (?, ?, 'multiple_choice_question', ?, ?, '2026-10-03')",
+            (bank_id, key, stem[:80], json.dumps(payload)),
+        )
+        return int(cur.lastrowid)
+
+    def _open_import(self, module: str) -> dict[str, Any]:
+        """What bank_mc_picker.js does on open: status → auto-confirm → status → search."""
+        base = f"/api/staff/class/{self.class_id}/module-banks"
+        status = self.client.get(f"{base}?module={module}").get_json()
+        needs = bool(status["needs_confirmation"])
+        if needs:
+            source = status.get("recommended") or status.get("suggested") or []
+            ids = list(dict.fromkeys([int(r["bank_id"]) for r in status["confirmed"]] + [int(r["bank_id"]) for r in source]))
+            if ids:
+                rv = self.client.post(f"{base}/confirm", json={"module": module, "bank_ids": ids})
+                self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        after = self.client.get(f"{base}?module={module}").get_json()
+        search = self.client.get(f"{base}/{module}/mc-search").get_json()
+        by_type: dict[str, int] = {}
+        for row in search["items"]:
+            by_type[row.get("type") or "mc"] = by_type.get(row.get("type") or "mc", 0) + 1
+        return {
+            "needs_on_open": needs,
+            "needs_after": bool(after["needs_confirmation"]),
+            "linked": sorted(r["title"] for r in after["confirmed"]),
+            "suggested": [r["import_key"] for r in after["suggested"]],
+            "by_type": by_type,
+            "search": search,
+        }
+
+    # HIGH-1 --------------------------------------------------------------
+    def test_high1_picker_still_links_teacher_module_banks(self) -> None:
+        """Ops repro: Module 5/6 Quiz banks (3 MC each), open M6 then M5; base behaviour holds plus rank items."""
+        quiz5 = self._bank("Module 5 Quiz", "bank:m5quiz")
+        quiz6 = self._bank("Module 6 Quiz", "bank:m6quiz")
+        for n in range(3):
+            self._mc(quiz5, f"q5-{n}", f"Module five question {n}")
+            self._mc(quiz6, f"q6-{n}", f"Module six question {n}")
+        m6 = self._open_import("M6")
+        self.assertTrue(m6["needs_on_open"])
+        self.assertIn("Module 6 Quiz", m6["linked"])
+        self.assertEqual(m6["by_type"], {"rank": 3, "mc": 3})
+        self.assertFalse(m6["needs_after"])
+        # Opening M6 seeded every module's rank bank; M5 must still prompt and link Quiz 5.
+        m5 = self._open_import("M5")
+        self.assertTrue(m5["needs_on_open"])
+        self.assertEqual(m5["linked"], ["MCR3U Module 5 rank items", "Module 5 Quiz"])
+        self.assertEqual(m5["by_type"], {"rank": 5, "mc": 3})
+        self.assertFalse(m5["needs_after"])
+        self.assertFalse(any(key.startswith("rank-bank:") for key in m5["suggested"] + m6["suggested"]))
+        # A module with only its rank bank still reads as "nothing linked" (base wording).
+        m1 = self.client.get(f"/api/staff/class/{self.class_id}/module-banks?module=M1").get_json()
+        self.assertTrue(m1["needs_confirmation"])
+        self.assertEqual(m1["suggested"], [])
+        self.assertEqual([r["import_key"] for r in m1["confirmed"]], ["rank-bank:MCR3U:M1"])
+
+    # MED-1 ---------------------------------------------------------------
+    def test_med1_empty_search_lists_rank_rows_first_within_the_cap(self) -> None:
+        """250 MC rows sorting before the rank bank: the default 200 still shows all 8 M2 rank items first."""
+        big = self._bank("MCR3U Module 2 curriculum bank", "bank:m2big")
+        for n in range(250):
+            self._mc(big, f"big-{n}", f"Big bank stem {n:03d}")
+        self.school.confirm_module_bank_links(self.library_id, 2, [big])
+        self.school.ensure_rank_bank(self.library_id)
+        rank_bank = next(
+            int(r["id"]) for r in self.school.conn.execute(
+                "SELECT id FROM question_banks WHERE library_id = ? AND import_key = 'rank-bank:MCR3U:M2'", (self.library_id,)
+            ).fetchall()
+        )
+        self.school.confirm_module_bank_links(self.library_id, 2, [big, rank_bank])
+        body = self.client.get(f"/api/staff/class/{self.class_id}/module-banks/M2/mc-search").get_json()
+        types = [row.get("type") for row in body["items"]]
+        self.assertEqual(len(types), 200)
+        self.assertEqual(types[:8], ["rank"] * 8)
+        self.assertNotIn("rank", types[8:])
+        self.assertEqual((body["total"], body["filtered"]), (258, 258))
+        mc_order = [row["text"] for row in body["items"][8:]]
+        self.assertEqual(mc_order, [f"Big bank stem {n:03d}" for n in range(192)])
+        hit = self.client.get(f"/api/staff/class/{self.class_id}/module-banks/M2/mc-search", query_string={"q": "big bank stem 01"}).get_json()
+        self.assertEqual([r["text"] for r in hit["items"]], [f"Big bank stem {n:03d}" for n in range(10, 20)])
+        course = self.client.get(f"/api/staff/class/{self.class_id}/module-banks/course/mc-search").get_json()
+        ctypes = [row.get("type") for row in course["items"]]
+        n_rank = ctypes.count("rank")
+        self.assertEqual(n_rank, 33)
+        self.assertEqual(ctypes[:n_rank], ["rank"] * n_rank)
+        self.assertEqual(course["total"], 250 + 33)
+
+    # MED-2 ---------------------------------------------------------------
+    def test_med2_rank_rows_cannot_be_edited(self) -> None:
+        """Bank PATCH and overlay PATCH on rank rows are 400; nothing is written; MC edits still save."""
+        self.school.ensure_rank_bank(self.library_id)
+        row = self.school.conn.execute(
+            "SELECT q.id, q.bank_id, q.title, q.payload_json FROM questions q JOIN question_banks b ON b.id = q.bank_id "
+            "WHERE b.library_id = ? AND q.import_key = 'rank:MCR3U-M1-point-mapping-chain'",
+            (self.library_id,),
+        ).fetchone()
+        qid, bank_id = int(row["id"]), int(row["bank_id"])
+        rv = self.client.patch(
+            f"/api/staff/class/{self.class_id}/question-bank/{bank_id}/questions/{qid}",
+            json={"stem_text": "EDITED BY TEACHER", "points": 2},
+        )
+        self.assertEqual(rv.status_code, 400, rv.get_data(as_text=True))
+        self.assertIn("Rank items can't be edited", rv.get_json()["error"])
+        rv = self.client.patch(
+            f"/api/staff/class/{self.class_id}/question-overlays/{qid}",
+            json={"stem_text": "EDITED", "options": ["a", "b", "c"], "correct_answer": "A"},
+        )
+        self.assertEqual(rv.status_code, 400, rv.get_data(as_text=True))
+        self.assertIn("Rank items can't be edited", rv.get_json()["error"])
+        self.assertIsNone(self.school.conn.execute(
+            "SELECT 1 FROM library_question_overlays WHERE question_id = ?", (qid,)
+        ).fetchone())
+        after = self.school.conn.execute("SELECT title, payload_json FROM questions WHERE id = ?", (qid,)).fetchone()
+        self.assertEqual((after["title"], after["payload_json"]), (row["title"], row["payload_json"]))
+        # Staff-authored rank rows (live bank) are blocked the same way.
+        rv = self.client.post(
+            f"/api/staff/class/{self.class_id}/live-bank/questions",
+            json={"bank_scope": "M1", "type": "rank", "stem_text": "Mine", "options": ["a", "b", "c"]},
+        )
+        mine = rv.get_json()["question"]
+        rv = self.client.patch(
+            f"/api/staff/class/{self.class_id}/question-bank/{mine['bank_id']}/questions/{mine['id']}",
+            json={"stem_text": "Changed"},
+        )
+        self.assertEqual(rv.status_code, 400)
+        # MC edits are unchanged.
+        rv = self.client.post(
+            f"/api/staff/class/{self.class_id}/live-bank/questions",
+            json={"bank_scope": "M1", "type": "mc", "stem_text": "Slope?", "options": ["1", "2"], "correct_answer": "A"},
+        )
+        mc = rv.get_json()["question"]
+        rv = self.client.patch(
+            f"/api/staff/class/{self.class_id}/question-bank/{mc['bank_id']}/questions/{mc['id']}",
+            json={"stem_text": "Slope of y = x?", "options": ["1", "2"], "correct_answer": "A"},
+        )
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        picker = (LMS_DIR / "static" / "bank_mc_picker.js").read_text(encoding="utf-8")
+        self.assertIn('<span class="hint compact">Read-only</span>', picker)
+        banks_tab = (LMS_DIR / "static" / "course_question_banks.js").read_text(encoding="utf-8")
+        self.assertIn("editMode && isRank(selected)", banks_tab)
+
+
 class TeacherNoteNeverReachesStudentsTests(unittest.TestCase):
     """teacher_note / teacher_key stay off every student surface (state, SSE, after Close)."""
 
