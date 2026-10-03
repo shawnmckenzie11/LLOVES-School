@@ -1461,6 +1461,10 @@ def parse_semester_label(semester: str) -> tuple[str, str]:
 
 # MCK-155 gate MED-2: group MC flow recorded on ``item_json`` at publish.
 GROUP_MC_FLOW_KEY = "group_mc_flow"
+# MCK-174: ``item_json`` marker on a reopened whiteboard, ``{start, n}``.
+WHITEBOARD_REOPEN_KEY = "reopen"
+WHITEBOARD_REOPEN_STARTS = ("last", "fresh")
+WHITEBOARD_REOPEN_ONLY_CLOSED = "Only a closed whiteboard can be reopened."
 GROUP_MC_PICK_THEN_AGREE = "pick_then_agree"
 
 
@@ -2931,6 +2935,13 @@ class LovesDB:
         if "run_key" not in cols:
             self.conn.execute(
                 "ALTER TABLE live_class_sessions ADD COLUMN run_key TEXT"
+            )
+        if "board_gen" not in cols:
+            # MCK-174: "Fresh board" starts a new board generation. Ops
+            # for earlier generations stay stored until End purges them.
+            self.conn.execute(
+                "ALTER TABLE live_class_sessions"
+                " ADD COLUMN board_gen INTEGER NOT NULL DEFAULT 0"
             )
         feedback_cols = {
             str(row[1])
@@ -13378,6 +13389,11 @@ class SchoolDB(LovesDB):
         # Gate MED-2: the group MC flow stamped at publish survives too.
         if isinstance(saved_json, dict) and saved_json.get(GROUP_MC_FLOW_KEY):
             body[GROUP_MC_FLOW_KEY] = str(saved_json[GROUP_MC_FLOW_KEY])
+        # MCK-174: the whiteboard reopen marker drives the student cue.
+        if isinstance(saved_json, dict) and isinstance(
+            saved_json.get(WHITEBOARD_REOPEN_KEY), dict
+        ):
+            body[WHITEBOARD_REOPEN_KEY] = dict(saved_json[WHITEBOARD_REOPEN_KEY])
         return body
 
     @staticmethod
@@ -14561,6 +14577,113 @@ class SchoolDB(LovesDB):
         if str(closed.get("kind") or "") == "whiteboard":
             self._sync_whiteboard_collab(session_id, "closed")
         return closed
+
+    def reopen_live_whiteboard(
+        self,
+        session_id: int,
+        placement_or_item: str | int,
+        *,
+        start: str = "last",
+    ) -> dict[str, Any]:
+        """Reopen a closed whiteboard with its last ink or a fresh board.
+
+        One choice covers the teacher board and every group or individual
+        board, because board keys are per live run (MCK-174).
+
+        ``last`` is a status flip: ink still lives in ``board_ops`` for
+        this run, so every board comes back as it was at Close.
+
+        ``fresh`` starts a new board generation (``board_gen`` + 1). The
+        current board key gains a ``~g<n>`` suffix, so every client
+        re-hydrates blank through the run-change path. Earlier
+        generations are hidden, never deleted; End Live Class still
+        purges all of them. Individual pen ink is not stored on the
+        server yet, so Fresh is refused on an Individual whiteboard.
+
+        The publish mode recorded at publish is kept, and
+        ``item_json.reopen = {start, n}`` tells student tabs which cue
+        line to show.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            placement_or_item: Placement key, unique item id, or lifecycle id.
+            start: ``last`` or ``fresh``.
+
+        Returns:
+            The reopened lifecycle row.
+
+        Raises:
+            KeyError: The session or item is missing.
+            ValueError: The session ended, the item is not a closed
+                whiteboard, ``start`` is unknown, or Fresh was asked for
+                on an Individual whiteboard.
+        """
+        self._require_active_live_session(session_id)
+        token = str(start or "last").strip().lower()
+        if token not in WHITEBOARD_REOPEN_STARTS:
+            raise ValueError("start must be last or fresh.")
+        item = self.get_live_session_item(session_id, placement_or_item)
+        if (
+            str(item.get("kind") or "") != "whiteboard"
+            or str(item.get("status") or "") != "closed"
+        ):
+            raise ValueError(WHITEBOARD_REOPEN_ONLY_CLOSED)
+        publish_mode = str(item.get("publish_mode") or "individual")
+        if token == "fresh" and publish_mode != "group_shared":
+            # MCK-174 D1: Individual pen ink is client-only until S3, so a
+            # fresh generation would wipe ink that was never saved.
+            raise ValueError(
+                "Fresh board is not available on an Individual whiteboard."
+            )
+        question = dict(item.get("item") if isinstance(item.get("item"), dict) else {})
+        prior = question.get(WHITEBOARD_REOPEN_KEY)
+        count = int(prior.get("n") or 0) if isinstance(prior, dict) else 0
+        question[WHITEBOARD_REOPEN_KEY] = {"start": token, "n": count + 1}
+        if token == "fresh":
+            # Mint the run key first so generation 1 has a base to hang on.
+            self._live_board_base_run_key(session_id)
+        now = _now()
+        with self._lock:
+            # One transaction: the status flip and the generation bump land
+            # together, and a racing second reopen changes nothing.
+            if self.conn.in_transaction:
+                self.conn.execute("COMMIT")
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                cur = self.conn.execute(
+                    """
+                    UPDATE live_session_items
+                    SET item_json = ?, status = 'active', closed_at = NULL,
+                        updated_at = ?
+                    WHERE id = ? AND status = 'closed'
+                    """,
+                    (json.dumps(question), now, int(item["id"])),
+                )
+                if cur.rowcount != 1:
+                    # A second teacher tab already reopened it.
+                    self.conn.execute("ROLLBACK")
+                    raise ValueError(WHITEBOARD_REOPEN_ONLY_CLOSED)
+                if token == "fresh":
+                    self.conn.execute(
+                        """
+                        UPDATE live_class_sessions
+                        SET board_gen = COALESCE(board_gen, 0) + 1
+                        WHERE id = ? AND status = 'active'
+                        """,
+                        (int(session_id),),
+                    )
+            except ValueError:
+                raise
+            except BaseException:
+                if self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                raise
+            self.conn.execute("COMMIT")
+        reopened = self.get_live_session_item(session_id, int(item["id"]))
+        self._sync_whiteboard_collab(
+            session_id, str(reopened.get("publish_mode") or "")
+        )
+        return reopened
 
     @staticmethod
     def _coerce_settings_flag(value: Any, field: str) -> bool:
@@ -18439,6 +18562,17 @@ class SchoolDB(LovesDB):
                     else None,
                 }
             )
+            if str(item.get("kind") or "") == "whiteboard":
+                # MCK-174: tells a tab that saw this board before Close
+                # which cue line to show after Reopen. No ink rides here.
+                marker = (item.get("item") or {}).get(WHITEBOARD_REOPEN_KEY)
+                if isinstance(marker, dict) and marker.get("start") in (
+                    WHITEBOARD_REOPEN_STARTS
+                ):
+                    public_items[-1][WHITEBOARD_REOPEN_KEY] = {
+                        "start": str(marker["start"]),
+                        "n": int(marker.get("n") or 0),
+                    }
             if (
                 is_artifact_payload(raw_payload)
                 and student_id not in (None, "")
@@ -24552,8 +24686,25 @@ class SchoolDB(LovesDB):
         reply["teacher_ops"] = list(teacher.get("ops") or [])
         return reply
 
-    def live_board_run_key(self, session_id: int) -> str:
-        """Return the run key stored on this live session.
+    @staticmethod
+    def board_generation_key(base_key: str, gen: int) -> str:
+        """Return the board partition key for one board generation.
+
+        Generation 0 is the run key itself, so a class that never used
+        Fresh board keeps the keys it always had (MCK-174).
+
+        Args:
+            base_key: ``live_class_sessions.run_key``.
+            gen: ``live_class_sessions.board_gen``.
+
+        Returns:
+            ``base_key`` for generation 0, else ``f"{base_key}~g{gen}"``.
+        """
+        n = max(0, int(gen or 0))
+        return base_key if n == 0 else f"{base_key}~g{n}"
+
+    def _live_board_base_run_key(self, session_id: int) -> tuple[str, int]:
+        """Return the stored run key and board generation for a session.
 
         An active session that has no key yet gets one minted, so a class
         that started before the column existed can still draw. Ended
@@ -24563,7 +24714,7 @@ class SchoolDB(LovesDB):
             session_id: ``live_class_sessions.id``.
 
         Returns:
-            The run key for this row.
+            ``(run_key, board_gen)``.
 
         Raises:
             KeyError: The session is missing or has no run key.
@@ -24571,12 +24722,16 @@ class SchoolDB(LovesDB):
         sid = int(session_id)
         with self._lock:
             row = self.conn.execute(
-                "SELECT status, run_key FROM live_class_sessions WHERE id = ?",
+                """
+                SELECT status, run_key, COALESCE(board_gen, 0) AS board_gen
+                FROM live_class_sessions WHERE id = ?
+                """,
                 (sid,),
             ).fetchone()
             if row is None:
                 raise KeyError(f"live session {sid}")
             key = str(row["run_key"] or "").strip()
+            gen = int(row["board_gen"] or 0)
             if not key and str(row["status"] or "") == "active":
                 minted = uuid.uuid4().hex
                 self.conn.execute(
@@ -24596,7 +24751,43 @@ class SchoolDB(LovesDB):
                 key = str(fresh["run_key"] or "").strip() if fresh else ""
         if not key:
             raise KeyError(f"live session {sid} has no run key")
-        return key
+        return key, gen
+
+    def live_board_run_key(self, session_id: int) -> str:
+        """Return the board key ink is read from and written to right now.
+
+        This is the session's run key, plus a ``~g<n>`` suffix once the
+        teacher has reopened a whiteboard with Fresh board (MCK-174).
+        Clients see a changed key and re-hydrate through the run-change
+        path, so a fresh generation paints blank with no reload.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            The current board key for this row.
+
+        Raises:
+            KeyError: The session is missing or has no run key.
+        """
+        key, gen = self._live_board_base_run_key(session_id)
+        return self.board_generation_key(key, gen)
+
+    def live_board_generation_keys(self, session_id: int) -> list[str]:
+        """Return every board key this run has used, oldest first.
+
+        Earlier generations are hidden from students and the teacher but
+        stay stored until End Live Class, so later work collection
+        (MCK-31) can still read them.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Raises:
+            KeyError: The session is missing or has no run key.
+        """
+        key, gen = self._live_board_base_run_key(session_id)
+        return [self.board_generation_key(key, n) for n in range(gen + 1)]
 
     def _require_live_board_open(
         self, session_id: int, claimed_run_key: str | None = None
@@ -24677,6 +24868,8 @@ class SchoolDB(LovesDB):
     def purge_board_ops(self, session_id: int) -> None:
         """Delete board ops, the seq counter, and the close flag for this run.
 
+        Every board generation of the run is purged (MCK-174).
+
         Args:
             session_id: ``live_class_sessions.id``.
         """
@@ -24684,15 +24877,19 @@ class SchoolDB(LovesDB):
         if boards is None:
             return
         try:
-            key = self.live_board_run_key(session_id)
+            base, _gen = self._live_board_base_run_key(session_id)
+            keys = self.live_board_generation_keys(session_id)
         except KeyError:
             return
-        boards.purge(key)
+        # MCK-174: Fresh board keeps earlier generations as hidden rows.
+        # End purges every generation, so none is orphaned.
+        for key in keys:
+            boards.purge(key)
         done = getattr(self, "_boards_purged", None)
         if done is None:
             done = set()
             self._boards_purged = done
-        done.add(key)
+        done.add(base)
 
     def _purge_board_ops_if_ended(self, session_id: int) -> None:
         """Drop board ops when a swept session is already ended.
