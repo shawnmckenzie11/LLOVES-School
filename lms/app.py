@@ -90,6 +90,7 @@ from school_db import (  # noqa: E402
     STAFF_2FA_MODE_LABELS,
     DeckReplaceNotConfirmed,
     GroupAnswerLocked,
+    RankAgreeConflict,
     RankTurnConflict,
     SchoolDB,
     json_safe,
@@ -5803,6 +5804,17 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": str(exc), "locked": True, "group_submit": exc.card}), 409
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        race = card.get("race") if isinstance(card, dict) else None
+        if isinstance(race, dict) and race.pop("agrees_cleared", False):
+            # MCK-171: drafts stay silent, except a move that cleared
+            # teammates' "I agree" (their phones and the lane must reset).
+            emit_answer_landed(
+                school,
+                int(ctx["live_session_id"]),
+                student_id=int(ident[2]),
+                team_id=card.get("team_id"),
+                scope="group",
+            )
         return jsonify({"ok": True, "ack": True, "group_submit": card})
 
     @app.route(
@@ -5832,6 +5844,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         except GroupAnswerLocked as exc:
             return jsonify({"ok": False, "error": str(exc), "locked": True, "group_submit": exc.card}), 409
+        except RankAgreeConflict as exc:
+            return jsonify(
+                {"ok": False, "error": str(exc), "reason": exc.reason, "group_submit": exc.card}
+            ), 409
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         emit_answer_landed(
@@ -5902,6 +5918,51 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 undo=bool(body.get("undo")),
             )
         except RankTurnConflict as exc:
+            return jsonify(
+                {"ok": False, "error": str(exc), "reason": exc.reason, "group_submit": exc.card}
+            ), 409
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        emit_answer_landed(
+            school,
+            int(ctx["live_session_id"]),
+            student_id=int(ident[2]),
+            team_id=card.get("team_id") if isinstance(card, dict) else None,
+            scope="group",
+        )
+        return jsonify({"ok": True, "ack": True, "group_submit": card})
+
+    @app.route(
+        "/api/student/live-items/<int:live_item_id>/rank-agree",
+        methods=["POST"],
+    )
+    @student_required
+    def api_student_rank_agree(live_item_id: int):
+        """MCK-171 Team challenge: "I agree" / "Not yet" on the team order.
+
+        Every tap emits one group postcard so teammates and the projector
+        lane see "{k} of {m} agree" (and the lock-in) right away.
+        """
+
+        denied = _require_active_live_attendee(as_json=True)
+        if denied is not None:
+            return denied
+        ident = _student_identity()
+        ctx = _student_live_context()
+        if ident is None or ctx is None or ident[2] in (None, ""):
+            return jsonify({"ok": False, "error": "Roster student required"}), 403
+        body = request.get_json(silent=True) or {}
+        try:
+            card = school.rank_race_agree(
+                int(ctx["live_session_id"]),
+                live_item_id,
+                int(ident[2]),
+                agree=body.get("agree", True),
+                order=body.get("order"),
+            )
+        except GroupAnswerLocked as exc:
+            return jsonify({"ok": False, "error": str(exc), "locked": True, "group_submit": exc.card}), 409
+        except RankAgreeConflict as exc:
             return jsonify(
                 {"ok": False, "error": str(exc), "reason": exc.reason, "group_submit": exc.card}
             ), 409
@@ -6834,7 +6895,11 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         has_publish = "publish_mode" in body
         has_response = "response_mode" in body
         has_rank_mode = "group_rank_mode" in body
-        if not any((has_results, has_save, has_publish, has_response, has_rank_mode)):
+        # MCK-171: Team challenge (Group line).
+        has_race = "group_rank_race" in body
+        if not any(
+            (has_results, has_save, has_publish, has_response, has_rank_mode, has_race)
+        ):
             return jsonify(
                 {
                     "ok": False,
@@ -6853,6 +6918,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 publish_mode=body.get("publish_mode") if has_publish else None,
                 response_mode=body.get("response_mode") if has_response else None,
                 group_rank_mode=body.get("group_rank_mode") if has_rank_mode else None,
+                group_rank_race=body.get("group_rank_race") if has_race else None,
             )
             teacher_state = school.live_session_teacher_state_payload(session_id)
         except (KeyError, ValueError) as exc:
@@ -6946,6 +7012,38 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             team_id=team_id,
             scope="group",
         )
+        return jsonify({"ok": True, **result})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/rank-lock",
+        methods=["POST"],
+    )
+    @login_required
+    def api_rank_race_lock_for(session_id: int, live_item_id: int):
+        """MCK-171 Team challenge: teacher "Lock in for {team}"."""
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        body = request.get_json(silent=True) or {}
+        try:
+            team_id = int(body.get("team_id"))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "Choose a group to lock in."}), 400
+        try:
+            result = school.rank_race_lock_for(
+                session_id, live_item_id, team_id=team_id
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        if result.get("locked"):
+            emit_answer_landed(
+                school,
+                session_id,
+                student_id=None,
+                team_id=team_id,
+                scope="group",
+            )
         return jsonify({"ok": True, **result})
 
     @app.route(
