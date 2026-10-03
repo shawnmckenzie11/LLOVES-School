@@ -3304,7 +3304,9 @@ function paintLifecycleQuestionStack(payload) {
         !["finalized", "discussion", "awaiting_team_answer"].includes(
           String(item.group_consensus?.status || "")
         ) &&
-        !(groupSubmit && item.group_submit?.submitted)
+        !(groupSubmit && item.group_submit?.submitted) &&
+        // MCK-171: a Rank together Team challenge has its own cue line.
+        item.group_submit?.race?.mode !== "together"
           ? groupInstructionHtml(item, content)
           : "";
       const groupControls = groupSubmit

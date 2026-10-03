@@ -48,6 +48,48 @@ class PhoneViewTests(unittest.TestCase):
         self.assertIn("min-height: 52px", block)
         self.assertIn("min-height: 48px", block)
 
+    def test_one_cue_line_in_rank_together(self) -> None:
+        """Mobbin MUST-FIX: the old group line never sits above the race cue."""
+        portal = (STATIC / "student-portal.js").read_text(encoding="utf-8")
+        start = portal.index("const groupInstruction =")
+        block = portal[start : portal.index("groupInstructionHtml(item, content)", start)]
+        self.assertIn('item.group_submit?.race?.mode !== "together"', block)
+
+    def test_not_yet_is_an_outline_button(self) -> None:
+        phone = (STATIC / "rank_challenge_phone.js").read_text(encoding="utf-8")
+        self.assertIn('class="race-phone-btn is-outline" data-race-agree="0"', phone)
+        css = (STATIC / "student-portal.css").read_text(encoding="utf-8")
+        rule = css[css.index(".race-phone-btn.is-outline {") :][:200]
+        self.assertIn("border: 2px solid #5eead4", rule)
+        self.assertNotIn("opacity", rule)
+
+    def test_no_waiting_line_behind_a_card(self) -> None:
+        css = (STATIC / "student-portal.css").read_text(encoding="utf-8")
+        self.assertIn(
+            ".student-live-response:has(.student-live-card) > .student-wait {\n  display: none;", css
+        )
+
+    def test_rank_badges_are_the_team_positions(self) -> None:
+        """Badges show each option's place in the team order, never ids or
+        authored numbers (rows come in display order, MCK-176)."""
+        portal = (STATIC / "student-portal.js").read_text(encoding="utf-8")
+        start = portal.index("function rankInputHtml(")
+        src = portal[start : portal.index("\n}\n", start) + 3]
+        script = (
+            "const escapeText = (s) => String(s);\n" + src + "\n"
+            "const opts = [{id:'o1',label:'A'},{id:'o2',label:'B'},{id:'o3',label:'C'},{id:'o4',label:'D'},{id:'o5',label:'E'}];\n"
+            "const html = rankInputHtml(opts, ['o1','o3','o4','o5','o2'], 'group', { noSubmit: true });\n"
+            "const badges = [...html.matchAll(/data-rank-id=\"([^\"]+)\" data-rank-place=\"(\\d+)\"[\\s\\S]*?rank-badge[^>]*>(\\d*)</g)].map(m => [m[1], m[2], m[3]]);\n"
+            "console.log(JSON.stringify(badges));\n"
+        )
+        proc = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=60, check=False)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        badges = json.loads(proc.stdout)
+        self.assertEqual(
+            badges,
+            [["o1", "1", "1"], ["o2", "5", "5"], ["o3", "2", "2"], ["o4", "3", "3"], ["o5", "4", "4"]],
+        )
+
 
 class PhonePayloadTests(ChallengeHarness):
     """What the phone gets from the server."""
