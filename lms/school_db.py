@@ -80,6 +80,11 @@ try:
         cursor_color_for,
         public_canvas_sync,
     )
+    from bank_question_types import (
+        bank_question_type,
+        filter_by_type as filter_bank_by_type,
+        type_counts as bank_type_counts,
+    )
     from live_mc import build_live_tally, build_mc_tally, numeric_prompt_without_key
     from live_rank import (
         borda_class_order,
@@ -224,6 +229,11 @@ except ImportError:  # ``python3 lms/app.py`` package import
         canvas_view_for,
         cursor_color_for,
         public_canvas_sync,
+    )
+    from lms.bank_question_types import (
+        bank_question_type,
+        filter_by_type as filter_bank_by_type,
+        type_counts as bank_type_counts,
     )
     from lms.live_mc import build_live_tally, build_mc_tally, numeric_prompt_without_key
     from lms.live_rank import (
@@ -6439,6 +6449,7 @@ class SchoolDB(LovesDB):
         limit: int = 200,
         class_id: int | None = None,
         kind: str | None = None,
+        question_type: str | None = None,
     ) -> dict[str, Any]:
         """Search normalized MCs scoped to confirmed module banks only.
 
@@ -6450,10 +6461,13 @@ class SchoolDB(LovesDB):
             class_id: Class id for image URL resolution.
             kind: ``standard`` (Custom), ``contest``, or ``warmup``. Empty
                 is Core Math: untagged and contest rows, not warmup or Custom.
+            question_type: MCK-170 canonical type (``rank``, ``mc``, ...).
+                Empty keeps every type, as before.
 
         Returns:
-            Dict with ``items``, ``total`` (importable MC count), and
-            ``filtered`` (count after keyword filter).
+            Dict with ``items``, ``total`` (importable MC count),
+            ``filtered`` (count after keyword and type filters), and
+            ``type_counts`` (per type after Kind and keyword filters).
         """
         try:
             from bank_mc_normalize import normalize_bank_mc
@@ -6532,6 +6546,9 @@ class SchoolDB(LovesDB):
                 problem_kind = self._problem_kind_from_payload(payload)
                 if problem_kind:
                     normalized["kind"] = problem_kind
+                normalized["question_type"] = bank_question_type(
+                    normalized, item_type=str(row["item_type"] or ""), payload=payload
+                )
                 all_items.append(normalized)
                 continue
             course_warmup = (
@@ -6548,6 +6565,9 @@ class SchoolDB(LovesDB):
                 )
                 if normalized is None:
                     continue
+                normalized["question_type"] = bank_question_type(
+                    normalized, item_type=str(row["item_type"] or ""), payload=payload
+                )
                 all_items.append(normalized)
                 continue
             overlay = None
@@ -6580,6 +6600,9 @@ class SchoolDB(LovesDB):
             problem_kind = self._problem_kind_from_payload(payload)
             if problem_kind:
                 normalized["kind"] = problem_kind
+            normalized["question_type"] = bank_question_type(
+                normalized, item_type=str(row["item_type"] or ""), payload=payload
+            )
             all_items.append(normalized)
         try:
             from bank_dedupe import select_canonical_questions
@@ -6599,10 +6622,13 @@ class SchoolDB(LovesDB):
             ]
         else:
             filtered_items = all_items
+        counts = bank_type_counts(filtered_items)
+        filtered_items = filter_bank_by_type(filtered_items, question_type)
         return {
             "items": filtered_items[:cap],
             "total": total,
             "filtered": len(filtered_items),
+            "type_counts": counts,
         }
 
     def seed_course_wide_warmups(self, library_id: int) -> dict[str, Any]:
@@ -6905,6 +6931,7 @@ class SchoolDB(LovesDB):
         limit: int = 200,
         class_id: int | None = None,
         kind: str | None = None,
+        question_type: str | None = None,
     ) -> dict[str, Any]:
         """Search importable MCs for one bank scope, deduped across modules.
 
@@ -6922,9 +6949,10 @@ class SchoolDB(LovesDB):
             class_id: Class id for image URL resolution.
             kind: ``standard``, ``contest``, or ``warmup``. Empty keeps
                 process picks and drops warmup-tagged icebreakers.
+            question_type: MCK-170 canonical type; empty keeps every type.
 
         Returns:
-            Dict with ``items``, ``total``, and ``filtered``.
+            Dict with ``items``, ``total``, ``filtered``, and ``type_counts``.
         """
         numbers = self._bank_scope_module_numbers(
             bank_scope, int(current_module_number)
@@ -6946,6 +6974,7 @@ class SchoolDB(LovesDB):
                 limit=limit,
                 class_id=class_id,
                 kind=kind,
+                question_type=question_type,
             )
         merged: dict[int, dict[str, Any]] = {}
         for number in numbers:
@@ -6972,11 +7001,14 @@ class SchoolDB(LovesDB):
             ]
         else:
             filtered_items = all_items
+        counts = bank_type_counts(filtered_items)
+        filtered_items = filter_bank_by_type(filtered_items, question_type)
         cap = max(1, min(int(limit), 500))
         return {
             "items": filtered_items[:cap],
             "total": total,
             "filtered": len(filtered_items),
+            "type_counts": counts,
         }
 
     @staticmethod
