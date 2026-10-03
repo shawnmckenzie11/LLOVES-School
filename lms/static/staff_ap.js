@@ -98,6 +98,13 @@ import {
   rankRaceSettings,
 } from "/static/group_setup.js";
 import { rankStackHtml } from "/static/rank_stack.js";
+import {
+  RACE_COPY,
+  fill as raceFill,
+  raceLanesHtml,
+  raceOptionLabels,
+  raceStem,
+} from "/static/rank_challenge_view.js";
 
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -1372,6 +1379,87 @@ const TURNS_COPY = Object.freeze({
 const turnSkipNotes = new Map();
 
 /**
+ * MCK-171: Team challenge items where this teacher left the challenge view
+ * (teacher-local, like Hide key). The card then shows the normal stack.
+ * @type {Set<number>}
+ */
+const raceViewOff = new Set();
+
+/**
+ * MCK-171: team ids whose lock-in check pop already played, per item, so
+ * the 300 ms pop runs once (lanes already locked on first paint never pop).
+ * @type {Map<number, Set<number>>}
+ */
+const racePopped = new Map();
+
+/**
+ * @param {number} liveItemId
+ * @param {any} race Teacher ``race`` block.
+ * @returns {Set<number>}
+ */
+function racePoppedFor(liveItemId, race) {
+  let seen = racePopped.get(liveItemId);
+  if (!seen) {
+    seen = new Set(
+      (Array.isArray(race?.teams) ? race.teams : [])
+        .filter((lane) => lane?.locked)
+        .map((lane) => Number(lane.team_id) || 0)
+    );
+    racePopped.set(liveItemId, seen);
+  }
+  return seen;
+}
+
+/**
+ * MCK-171: the Team challenge part of a group rank card, or "" when the
+ * normal stack should show (no challenge, or the teacher exited the view).
+ * @param {any} result
+ * @param {boolean} revealed
+ * @param {number} liveItemId
+ * @returns {string}
+ */
+function rankRaceTeacherHtml(result, revealed, liveItemId) {
+  const race = result?.race;
+  if (!race || typeof race !== "object") return "";
+  if (raceViewOff.has(liveItemId)) return "";
+  if (revealed) return "";
+  return raceLanesHtml(race, liveItemId, {
+    popped: racePoppedFor(liveItemId, race),
+    stem: raceStem(result?.item),
+    options: raceOptionLabels(result?.item),
+  });
+}
+
+/**
+ * MCK-171: "Team challenge view" link back from the normal stack.
+ * @param {any} result
+ * @param {number} liveItemId
+ * @returns {string}
+ */
+function rankRaceEnterHtml(result, liveItemId) {
+  if (!result?.race || !raceViewOff.has(liveItemId)) return "";
+  return `<p class="race-view-enter"><button type="button" class="link-button" data-race-view-toggle="${liveItemId}">${escapeHtml(
+    RACE_COPY.view
+  )}</button></p>`;
+}
+
+/**
+ * MCK-171: teacher "Lock in for {team}" (Rank together challenge).
+ * @param {number} liveItemId
+ * @param {number} teamId
+ */
+async function lockRankRaceTeam(liveItemId, teamId) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId || !liveItemId || !teamId) return;
+  const result = await api(`/api/live-sessions/${sessionId}/items/${liveItemId}/rank-lock`, {
+    method: "POST",
+    body: JSON.stringify({ team_id: teamId }),
+  });
+  if (result?.view) lifecycleResults.set(liveItemId, { ...result.view, live_item_id: liveItemId });
+  paintLiveQuestionCards();
+}
+
+/**
  * Names joined for the teacher Skip copy ("Eli and Gus", "A, B and C").
  * @param {unknown[]} names
  * @returns {string}
@@ -1530,6 +1618,8 @@ function adoptLightGroupResults(bag) {
           : {}),
         // MCK-155 PR C take turns: progress rows + Skip ride the light poll.
         ...(Array.isArray(entry.turns) ? { rank_mode: "turns", turns: entry.turns } : {}),
+        // MCK-171: Team challenge lanes ride the light poll too.
+        ...(entry.race && typeof entry.race === "object" ? { race: entry.race } : {}),
         submitter_log: teams.map((team) => ({
           team_id: Number(team.team_id) || 0,
           team_name: String(team.team_name || "Group"),
@@ -4035,12 +4125,16 @@ function groupSubmitTeacherHtml(result, revealed, liveItemId) {
   const seq = escapeHtml(String(result?.group_response_seq || ""));
   const open = `<div class="group-submit-teacher" data-group-results="${hostId}" data-group-seq="${seq}">`;
   if (result?.rank) {
+    // MCK-171: a Team challenge shows lanes (no orders) instead.
+    const itemId = Number(result?.item?.id) || hostId;
+    const race = rankRaceTeacherHtml(result, revealed, itemId);
+    if (race) return `${open}${race}</div>`;
     // MCK-154 S1: no submitter-log list under the stack. "last: name"
     // moved into each group column header title (and Responses).
     const log = Array.isArray(result?.submitter_log) ? result.submitter_log : [];
     // MCK-155 take-turns rows sit above the #226 stack; the stack carries
     // the submitter names, so no separate list goes under it.
-    const rankHtml = `${rankTurnsTeacherHtml(result, Number(result?.item?.id) || hostId)}${rankCollateHtml(
+    const rankHtml = `${rankRaceEnterHtml(result, itemId)}${rankTurnsTeacherHtml(result, itemId)}${rankCollateHtml(
       result.rank,
       Number(result?.item?.id) || hostId,
       log
@@ -4390,9 +4484,14 @@ function paintLiveQuestionCards() {
         active && groupChrome && result?.any_picking
           ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">${PICKS_COPY.moveOn}</button>`
           : "";
+      // MCK-171: the challenge view's "Close & reveal" is the only reveal
+      // while the lanes are showing (no second Reveal in the strip).
+      const raceLanesShowing = Boolean(active && result?.race && !raceViewOff.has(liveItemId));
       const revealHtml =
         active && groupChrome
-          ? `${moveOnHtml}<button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Reveal</button>`
+          ? raceLanesShowing
+            ? moveOnHtml
+            : `${moveOnHtml}<button type="button" class="secondary live-q-btn" data-close-live-item="${liveItemId}">Reveal</button>`
           : active && card.response_mode === "group_consensus"
             ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">Reveal answers</button>`
             : "";
@@ -11270,6 +11369,9 @@ $("live-question-list")?.addEventListener("click", async (event) => {
   const close = event.target.closest("button[data-close-live-item]");
   const endVoting = event.target.closest("button[data-end-voting]");
   const turnSkip = event.target.closest("button[data-rank-turn-skip]");
+  const raceLock = event.target.closest("button[data-race-lock]");
+  const raceSkip = event.target.closest("button[data-race-skip]");
+  const raceToggle = event.target.closest("button[data-race-view-toggle]");
   const award = event.target.closest("button[data-award-consensus]");
   const openRelocate = event.target.closest("button[data-open-relocate-dialog]");
   const button = event.target.closest("button[data-view-responses]");
@@ -11296,6 +11398,28 @@ $("live-question-list")?.addEventListener("click", async (event) => {
     }
     if (endVoting instanceof HTMLButtonElement) {
       await endLifecycleVoting(Number(endVoting.dataset.endVoting) || 0);
+      return;
+    }
+    if (raceToggle instanceof HTMLButtonElement) {
+      const itemId = Number(raceToggle.dataset.raceViewToggle) || 0;
+      if (raceViewOff.has(itemId)) raceViewOff.delete(itemId);
+      else raceViewOff.add(itemId);
+      paintLiveQuestionCards();
+      return;
+    }
+    if (raceLock instanceof HTMLButtonElement) {
+      const team = String(raceLock.dataset.teamName || "");
+      if (!window.confirm(raceFill(RACE_COPY.lockForConfirm, { team }))) return;
+      raceLock.disabled = true;
+      await lockRankRaceTeam(Number(raceLock.dataset.raceLock) || 0, Number(raceLock.dataset.teamId) || 0);
+      return;
+    }
+    if (raceSkip instanceof HTMLButtonElement) {
+      // The race view names the team, never the student (IA §2.6).
+      const team = String(raceSkip.dataset.teamName || "");
+      if (!window.confirm(raceFill(RACE_COPY.skipConfirm, { team }))) return;
+      raceSkip.disabled = true;
+      await skipRankTurn(Number(raceSkip.dataset.raceSkip) || 0, Number(raceSkip.dataset.teamId) || 0);
       return;
     }
     if (turnSkip instanceof HTMLButtonElement) {
