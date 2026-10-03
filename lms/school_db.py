@@ -97,6 +97,11 @@ try:
         safe_rank_key,
         safe_rank_options,
         toggle_rank_order,
+        RANK_DISPLAY_ORDER_FIELD,
+        apply_rank_display_order,
+        shuffled_rank_order,
+        valid_display_order,
+        with_rank_display_order,
         TurnConflict,
         apply_turn_place,
         apply_turn_skip,
@@ -249,6 +254,11 @@ except ImportError:  # ``python3 lms/app.py`` package import
         safe_rank_key,
         safe_rank_options,
         toggle_rank_order,
+        RANK_DISPLAY_ORDER_FIELD,
+        apply_rank_display_order,
+        shuffled_rank_order,
+        valid_display_order,
+        with_rank_display_order,
         TurnConflict,
         apply_turn_place,
         apply_turn_skip,
@@ -13397,6 +13407,12 @@ class SchoolDB(LovesDB):
             saved_json = {}
         if isinstance(saved_json, dict) and saved_json.get("group_rank_mode"):
             body["group_rank_mode"] = str(saved_json["group_rank_mode"])
+        # MCK-176: the shuffled order of an answer-order rank, stored at
+        # publish, survives the refresh (re-applied in ensure_live_session_items).
+        if isinstance(saved_json, dict) and isinstance(
+            saved_json.get(RANK_DISPLAY_ORDER_FIELD), list
+        ):
+            body[RANK_DISPLAY_ORDER_FIELD] = list(saved_json[RANK_DISPLAY_ORDER_FIELD])
         # Gate MED-2: the group MC flow stamped at publish survives too.
         if isinstance(saved_json, dict) and saved_json.get(GROUP_MC_FLOW_KEY):
             body[GROUP_MC_FLOW_KEY] = str(saved_json[GROUP_MC_FLOW_KEY])
@@ -13901,6 +13917,10 @@ class SchoolDB(LovesDB):
                     response_mode = str(
                         question.get("response_mode") or response_mode
                     )
+                # MCK-176: an answer-order rank is never listed in key
+                # order. Stored order (from publish) wins; before the first
+                # publish the order is seeded by the placement key.
+                question = with_rank_display_order(question, placement_key)
                 self.conn.execute(
                     """
                     INSERT INTO live_session_items (
@@ -14464,6 +14484,91 @@ class SchoolDB(LovesDB):
         }
         return aliases.get(token, token.replace(" ", "_"))
 
+    def rank_display_order(self, item: dict[str, Any]) -> list[str] | None:
+        """MCK-176: option ids in the order students see an answer-order rank.
+
+        This is the order stored on the lifecycle row at publish (Team
+        challenge and any other student-facing view should read it here).
+
+        Args:
+            item: Lifecycle row (``get_live_session_item``).
+
+        Returns:
+            Option ids as shown, or ``None`` for an opinion rank (no key),
+            a non-rank item, or a row with no valid stored order.
+        """
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        if self._question_answer_kind(item) != "rank":
+            return None
+        rows = self._rank_option_rows(item)
+        key = safe_rank_key(question.get("rank_key"), rows)
+        if not key:
+            return None
+        ids = [row["id"] for row in rows]
+        return valid_display_order(question.get(RANK_DISPLAY_ORDER_FIELD), ids, key)
+
+    def _stamp_rank_display_order(self, item: dict[str, Any]) -> dict[str, Any]:
+        """Store a fresh shuffled order on an answer-order rank about to publish.
+
+        Args:
+            item: Inactive lifecycle row.
+
+        Returns:
+            The row with the new order (unchanged for anything else).
+        """
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        if self._question_answer_kind(item) != "rank":
+            return item
+        rows = self._rank_option_rows(item)
+        key = safe_rank_key(question.get("rank_key"), rows)
+        if not key or len(rows) < 2:
+            return item
+        order = shuffled_rank_order(
+            [row["id"] for row in rows], key, secrets.token_hex(8)
+        )
+        shuffled = apply_rank_display_order(question, order)
+        with self._lock:
+            self.conn.execute(
+                "UPDATE live_session_items SET item_json = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(shuffled), _now(), int(item["id"])),
+            )
+            self.conn.commit()
+        return {**item, "item": shuffled}
+
+    def _sync_prompt_rank_display_order(
+        self, item: dict[str, Any], prompt: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Give an existing prompt the row's stored display order.
+
+        Args:
+            item: Lifecycle row (already stamped).
+            prompt: Its linked prompt.
+
+        Returns:
+            The prompt, rewritten when its options were in another order.
+        """
+        order = self.rank_display_order(item)
+        payload = prompt.get("payload") if isinstance(prompt.get("payload"), dict) else None
+        if not order or payload is None or not is_rank_prompt(prompt):
+            return prompt
+        shown = [
+            str(row.get("id") or "")
+            for row in (payload.get("rank_options") or [])
+            if isinstance(row, dict)
+        ]
+        if shown == order:
+            return prompt
+        updated = apply_rank_display_order(payload, order)
+        if updated is payload:
+            return prompt
+        with self._lock:
+            self.conn.execute(
+                "UPDATE live_session_prompts SET payload_json = ? WHERE id = ?",
+                (json.dumps(updated), int(prompt["id"])),
+            )
+            self.conn.commit()
+        return {**prompt, "payload": updated}
+
     def publish_live_session_item(
         self,
         session_id: int,
@@ -14504,7 +14609,13 @@ class SchoolDB(LovesDB):
                     raise ValueError("Set up groups before publishing to groups.")
                 if not teacher.get("run_as_group"):
                     raise ValueError(GROUP_PUBLISH_NEEDS_TEAMS_SHOWN)
+        if item["status"] == "inactive":
+            # MCK-176: a fresh shuffle per publish, stored before the prompt
+            # is built so every student view shares it.
+            item = self._stamp_rank_display_order(item)
         prompt = self._ensure_prompt_for_live_item(item)
+        if prompt is not None:
+            prompt = self._sync_prompt_rank_display_order(item, prompt)
         stamp_sql = ""
         stamp_params: tuple[Any, ...] = ()
         if (
@@ -18127,6 +18238,10 @@ class SchoolDB(LovesDB):
                 payload = self.rehydrate_module_bank_item(
                     int(class_id), int(library_id), payload
                 )
+        # MCK-176: an answer-order rank is never shown in key order (stored
+        # order first; a stable shuffle for any copy without one). Must run
+        # before the strip below removes ``rank_key``.
+        payload = self._student_rank_display(payload)
         if is_artifact_payload(payload):
             cleaned = student_artifact_payload(payload)
         else:
@@ -18134,6 +18249,7 @@ class SchoolDB(LovesDB):
         if isinstance(cleaned, dict):
             # MCK-154 S2: the "New" chip is teacher-only; no student cue.
             cleaned.pop("added_live_session_id", None)
+            cleaned.pop(RANK_DISPLAY_ORDER_FIELD, None)
         return rewrite_student_prompt_images(cleaned)
 
     def _orphan_saved_answer(
@@ -20737,12 +20853,16 @@ class SchoolDB(LovesDB):
 
         metadata = self.live_class_metadata_for_session(session_id)
         public = dict(metadata)
+        stored_orders = self._rank_display_orders_by_ref(session_id)
         for key in ("questions", "items"):
             cleaned_rows = []
             for row in metadata.get(key) or []:
                 if not isinstance(row, dict):
                     continue
+                # MCK-176: same shuffled order as the published card.
+                row = self._student_rank_display(row, stored_orders)
                 cleaned = strip_teacher_prompt_fields(row)
+                cleaned.pop(RANK_DISPLAY_ORDER_FIELD, None)
                 cleaned.pop("correct_answer", None)
                 for nested in cleaned.get("items") or []:
                     if isinstance(nested, dict):
@@ -20750,6 +20870,60 @@ class SchoolDB(LovesDB):
                 cleaned_rows.append(cleaned)
             public[key] = cleaned_rows
         return public
+
+    def _rank_display_orders_by_ref(self, session_id: int) -> dict[str, list[str]]:
+        """MCK-176: stored display orders by placement key and item id.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        out: dict[str, list[str]] = {}
+        for row in self._live_item_rows_for_session(session_id):
+            raw = row["item_json"] or ""
+            if RANK_DISPLAY_ORDER_FIELD not in raw:
+                continue
+            try:
+                question = json.loads(raw)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            order = question.get(RANK_DISPLAY_ORDER_FIELD) if isinstance(question, dict) else None
+            if not isinstance(order, list):
+                continue
+            for ref in (row["placement_key"], row["item_id"]):
+                token = str(ref or "").strip()
+                if token and token not in out:
+                    out[token] = [str(item) for item in order]
+        return out
+
+    @staticmethod
+    def _student_rank_display(
+        payload: Any, stored_orders: dict[str, list[str]] | None = None
+    ) -> Any:
+        """MCK-176: shuffle an answer-order rank payload for students.
+
+        Opinion ranks and every other payload come back as the same object.
+
+        Args:
+            payload: Prompt, item, or metadata row (still holding ``rank_key``).
+            stored_orders: Orders stored on lifecycle rows, by placement key
+                or item id (metadata rows carry no stored order themselves).
+        """
+        if not isinstance(payload, dict):
+            return payload
+        if str(payload.get("type") or payload.get("kind") or "").strip().lower() != "rank":
+            return payload
+        seed = str(
+            payload.get("placement_key") or payload.get("item_id") or payload.get("id") or ""
+        )
+        if stored_orders:
+            for ref in (payload.get("placement_key"), payload.get("item_id"), payload.get("id")):
+                order = stored_orders.get(str(ref or "").strip())
+                if order:
+                    shown = apply_rank_display_order(payload, order)
+                    if shown is not payload:
+                        return with_rank_display_order(shown, seed)
+                    break
+        return with_rank_display_order(payload, seed)
 
     @staticmethod
     def _lifecycle_row_for_metadata_question(
