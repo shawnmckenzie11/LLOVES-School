@@ -1037,6 +1037,8 @@ def create_app(
     app.config["DATA_DIR"] = store
     # MCK-118 LOW-A: Most Engaged fingerprints are keyed to the app secret.
     bind_celebration_secret(school, app.secret_key)
+    # MCK-176: rank option aliases for students are keyed to the app secret.
+    school.rank_alias_secret = str(app.secret_key or "")
     try:
         # MCK-118: CELEBRATIONS_FROZEN=0 at boot retires the old snapshot.
         note_celebrations_unfrozen(school)
@@ -5677,6 +5679,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             student_id=int(student_id) if student_id not in (None, "") else None,
             count=prompt_response_count(school, prompt_id),
         )
+        # MCK-176: students only ever see rank option aliases.
+        body = school.alias_student_prompt_reply(prompt_id, body)
         return jsonify(body)
 
     @app.route(
@@ -6786,6 +6790,49 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             ],
         )
         return jsonify({"ok": True, "item": item, "results": results})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/reopen",
+        methods=["POST"],
+    )
+    @login_required
+    def api_reopen_live_whiteboard(session_id: int, live_item_id: int):
+        """Reopen a closed whiteboard with the last board or a fresh one.
+
+        Body ``{"start": "last" | "fresh"}`` (default ``last``). One pick
+        covers the teacher board and every group or individual board
+        (MCK-174). Students hear it on the same ``state_seq`` postcard a
+        publish sends.
+        """
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        body = request.get_json(silent=True) or {}
+        try:
+            item = school.reopen_live_whiteboard(
+                session_id,
+                live_item_id,
+                start=str(body.get("start") or "last"),
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        seq = teacher_state_seq(school, session_id)
+        emit_session_news(
+            school,
+            session_id,
+            [
+                {"type": "state_seq", "state_seq": seq},
+                flag_work_event("reopen", seq),
+            ],
+        )
+        return jsonify(
+            {
+                "ok": True,
+                "item": item,
+                "run_key": school.live_board_run_key(session_id),
+            }
+        )
 
     @app.route(
         "/api/live-sessions/<int:session_id>/timer-expired",

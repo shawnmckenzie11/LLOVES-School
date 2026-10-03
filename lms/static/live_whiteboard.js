@@ -128,9 +128,13 @@ export function boardAuthLost(res) {
 
 /**
  * One calm line. Not an alert and not an error dialog.
+ *
+ * MCK-174 reuses this slot for the reopen cue, so ``text`` may replace
+ * the default restart line.
  * @param {HTMLElement | null | undefined} anchor
+ * @param {string} [text]
  */
-export function showBoardRefreshCue(anchor) {
+export function showBoardRefreshCue(anchor, text) {
   const host =
     anchor && anchor.parentElement instanceof HTMLElement
       ? anchor.parentElement
@@ -142,7 +146,21 @@ export function showBoardRefreshCue(anchor) {
     note.setAttribute("role", "status");
     host.appendChild(note);
   }
-  note.textContent = "Board refreshed for the new class.";
+  const line = String(text || "").trim();
+  note.textContent = line || "Board refreshed for the new class.";
+}
+
+/**
+ * Remove the cue line under this board, if one is showing.
+ * @param {HTMLElement | null | undefined} anchor
+ */
+export function clearBoardRefreshCue(anchor) {
+  const host =
+    anchor && anchor.parentElement instanceof HTMLElement
+      ? anchor.parentElement
+      : document.body;
+  const note = host.querySelector(".board-refresh-cue");
+  if (note instanceof HTMLElement) note.remove();
 }
 
 /**
