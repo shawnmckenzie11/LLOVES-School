@@ -1466,6 +1466,8 @@ WHITEBOARD_REOPEN_KEY = "reopen"
 WHITEBOARD_REOPEN_STARTS = ("last", "fresh")
 WHITEBOARD_REOPEN_ONLY_CLOSED = "Only a closed whiteboard can be reopened."
 WHITEBOARD_REOPEN_CLASS_ENDED = "This class has ended, so the board can't reopen."
+# MCK-181: a reopen aimed at a non-whiteboard item is a bad request (400).
+WHITEBOARD_REOPEN_NOT_WHITEBOARD = "Only a whiteboard can be reopened."
 # Machine-readable ``reason`` on a reopen 409 (MCK-174). The teacher tab
 # stays quiet on ``already_open`` and shows ``wb.reopen.error.ended`` on
 # ``class_ended``.
@@ -14126,6 +14128,40 @@ class SchoolDB(LovesDB):
                 return True
         return False
 
+    def _peek_live_session_item(
+        self, session_id: int, placement_or_item: str | int
+    ) -> dict[str, Any] | None:
+        """Read one lifecycle row by id or placement key, without minting.
+
+        Unlike :meth:`get_live_session_item`, this never calls
+        ``ensure_live_session_items``, so it is safe on an ended session
+        (MCK-181).
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            placement_or_item: Row id or placement key.
+
+        Returns:
+            The row, or ``None`` when this session has no such item.
+        """
+        token = str(placement_or_item or "").strip()
+        if not token:
+            return None
+        with self._lock:
+            row = None
+            if token.isdigit():
+                row = self.conn.execute(
+                    "SELECT * FROM live_session_items WHERE live_session_id = ? AND id = ?",
+                    (int(session_id), int(token)),
+                ).fetchone()
+            if row is None:
+                row = self.conn.execute(
+                    "SELECT * FROM live_session_items"
+                    " WHERE live_session_id = ? AND placement_key = ?",
+                    (int(session_id), token),
+                ).fetchone()
+        return self._live_item_row_to_dict(row) if row is not None else None
+
     def get_live_session_item(
         self, session_id: int, placement_or_item: str | int
     ) -> dict[str, Any]:
@@ -14672,6 +14708,14 @@ class SchoolDB(LovesDB):
         """
         session_row = self.get_live_session(session_id)
         if session_row is not None and str(session_row.get("status") or "") != "active":
+            # MCK-181 LOW-3: a missing item is 404 and a non-whiteboard is
+            # 400 before the ended reason. Read-only lookup: nothing is
+            # minted on an ended session.
+            ended_item = self._peek_live_session_item(session_id, placement_or_item)
+            if ended_item is None:
+                raise KeyError(f"live item {placement_or_item}")
+            if str(ended_item.get("kind") or "") != "whiteboard":
+                raise ValueError(WHITEBOARD_REOPEN_NOT_WHITEBOARD)
             raise WhiteboardReopenConflict(
                 WHITEBOARD_REOPEN_CLASS_ENDED, reason=WHITEBOARD_REOPEN_ENDED_REASON
             )
@@ -14680,10 +14724,9 @@ class SchoolDB(LovesDB):
         if token not in WHITEBOARD_REOPEN_STARTS:
             raise ValueError("start must be last or fresh.")
         item = self.get_live_session_item(session_id, placement_or_item)
-        if (
-            str(item.get("kind") or "") != "whiteboard"
-            or str(item.get("status") or "") != "closed"
-        ):
+        if str(item.get("kind") or "") != "whiteboard":
+            raise ValueError(WHITEBOARD_REOPEN_NOT_WHITEBOARD)
+        if str(item.get("status") or "") != "closed":
             raise WhiteboardReopenConflict(WHITEBOARD_REOPEN_ONLY_CLOSED)
         publish_mode = str(item.get("publish_mode") or "individual")
         if token == "fresh" and publish_mode != "group_shared":
@@ -24316,6 +24359,7 @@ class SchoolDB(LovesDB):
         *,
         student_id: int | None = None,
         as_teacher: bool = False,
+        board_key: str | None = None,
     ) -> dict[str, Any]:
         """Filtered strokes/cursors for staff or one student.
 
@@ -24327,6 +24371,9 @@ class SchoolDB(LovesDB):
             session_id: ``live_class_sessions.id``.
             student_id: Roster id when the viewer is a student.
             as_teacher: True for the staff shell (teacher strokes only).
+            board_key: The board a snapshot was asked for. A student's own
+                ``solo:<id>`` board folds that board (their labels), not
+                the session alignment's boards (MCK-181 LOW-2).
         """
         teacher = self.live_session_teacher_state_payload(session_id)
         align = str(teacher.get("canvas_align") or "student")
@@ -24345,6 +24392,11 @@ class SchoolDB(LovesDB):
         view_align = align
         if as_teacher and align == "team":
             view_align = "teacher"
+        if not as_teacher and viewer and str(board_key or "") == f"solo:{viewer}":
+            # MCK-181 LOW-2: a snapshot of the student's own solo board is
+            # their labels, whatever the session alignment is. Past
+            # MAX_DELTA_OPS the reload reads this instead of the op list.
+            view_align = "student"
         from board_ops import fold_to_public_blob
 
         keys = self._board_keys_for_view(
@@ -24469,6 +24521,7 @@ class SchoolDB(LovesDB):
                 int(session_id),
                 student_id=student_id,
                 as_teacher=as_teacher,
+                board_key=board_key,
             )
             delta["canvas_sync"] = delta["canvas_view"]
         return delta
