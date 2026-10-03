@@ -8,6 +8,7 @@ bad order cannot raise.
 
 from __future__ import annotations
 
+import random
 from typing import Any
 
 MIN_RANK_OPTIONS = 3
@@ -434,6 +435,156 @@ def rank_race_score(order: Any, key: Any) -> dict[str, Any]:
         got = str(placed[index] or "").strip() if index < len(placed) else ""
         spots.append(bool(want) and got == want)
     return {"right": sum(spots), "total": len(answer), "spots": spots}
+
+
+# ---------------------------------------------------------------------------
+# MCK-176: shuffled display order for answer-order ranks.
+#
+# A rank with a valid ``rank_key`` never shows its options in the key's
+# order. The order is stored on the lifecycle row's ``item_json`` under
+# ``RANK_DISPLAY_ORDER_FIELD`` (option ids, as shown): seeded fresh at each
+# first publish, carried across deck refreshes, and shared by every student
+# and group. Option ids never change, so submissions, Take turns, Borda and
+# ``rank_race_score`` keep working in item identities. Opinion ranks (no
+# key) are never touched.
+# ---------------------------------------------------------------------------
+
+RANK_DISPLAY_ORDER_FIELD = "rank_display_order"
+
+
+def shuffled_rank_order(option_ids_in: list[str], key: list[str] | None, seed: Any) -> list[str]:
+    """A shuffle of the option ids that never equals the answer order.
+
+    Args:
+        option_ids_in: Option ids (any order).
+        key: Answer order (option ids). ``None`` or empty: any shuffle.
+        seed: Seed for ``random.Random`` (int or str). Same seed, same order.
+
+    Returns:
+        The ids in display order. One id (or none) comes back as is; two ids
+        always come back as the swap of the key.
+    """
+    ids = [str(item) for item in option_ids_in]
+    if len(ids) < 2:
+        return ids
+    answer = [str(item) for item in key] if isinstance(key, list) else []
+    rng = random.Random(str(seed))
+    for _ in range(64):
+        order = list(ids)
+        rng.shuffle(order)
+        if order != answer:
+            return order
+    # Practically unreachable (n >= 2 has another permutation): rotate.
+    base = answer if sorted(answer) == sorted(ids) else ids
+    return base[1:] + base[:1]
+
+
+def valid_display_order(raw: Any, ids: list[str], key: list[str] | None) -> list[str] | None:
+    """A stored display order, or ``None`` when it is stale or shows the key.
+
+    Args:
+        raw: Stored ``rank_display_order``.
+        ids: The item's current option ids.
+        key: Answer order (option ids).
+    """
+    if not isinstance(raw, list):
+        return None
+    order = [str(item) for item in raw]
+    if len(order) != len(ids) or sorted(order) != sorted(ids):
+        return None
+    if len(ids) >= 2 and isinstance(key, list) and order == [str(item) for item in key]:
+        return None
+    return order
+
+
+def _payload_rank_rows(payload: dict[str, Any]) -> list[dict[str, str]]:
+    return safe_rank_options(
+        payload.get("rank_options") or payload.get("options") or payload.get("choices")
+    )
+
+
+def rank_display_order_for(payload: Any, seed: Any) -> list[str] | None:
+    """Display order for an answer-order rank payload, else ``None``.
+
+    A valid stored order wins; otherwise a shuffle seeded by ``seed``.
+
+    Args:
+        payload: Question / prompt / item payload.
+        seed: Fallback seed (e.g. the placement key) when nothing is stored.
+    """
+    if not isinstance(payload, dict):
+        return None
+    if str(payload.get("type") or payload.get("kind") or "").strip().lower() != "rank":
+        return None
+    rows = _payload_rank_rows(payload)
+    key = safe_rank_key(payload.get("rank_key"), rows)
+    ids = option_ids(rows)
+    if not key or len(ids) < 2:
+        return None
+    stored = valid_display_order(payload.get(RANK_DISPLAY_ORDER_FIELD), ids, key)
+    return stored or shuffled_rank_order(ids, key, seed)
+
+
+def apply_rank_display_order(payload: dict[str, Any], order: list[str]) -> dict[str, Any]:
+    """Return a copy with ``rank_options`` / labels in ``order`` (ids kept).
+
+    Args:
+        payload: Rank payload.
+        order: Option ids as they should be shown. A list that is not a
+            permutation of the options leaves the payload unchanged.
+    """
+    rows = _payload_rank_rows(payload)
+    by_id = {row["id"]: row for row in rows}
+    wanted = [str(item) for item in order or []]
+    if not rows or len(wanted) != len(by_id) or sorted(wanted) != sorted(by_id):
+        return payload
+    shown = [dict(by_id[opt_id]) for opt_id in wanted]
+    labels = [row["label"] for row in shown]
+    out = dict(payload)
+    out["rank_options"] = shown
+    for field in ("options", "choices"):
+        if field not in payload:
+            if field == "options":
+                out[field] = list(labels)
+            continue
+        out[field] = _reordered_list(payload[field], rows, wanted, labels)
+    out[RANK_DISPLAY_ORDER_FIELD] = wanted
+    return out
+
+
+def _reordered_list(
+    raw: Any, rows: list[dict[str, str]], wanted: list[str], labels: list[str]
+) -> Any:
+    """Reorder an ``options``/``choices`` list to match ``wanted``.
+
+    Strings become the reordered labels; dict rows aligned with ``rows``
+    keep their own shape and move with their option. Anything else is
+    returned unchanged.
+    """
+    if not isinstance(raw, list):
+        return raw
+    if all(isinstance(item, str) for item in raw):
+        return list(labels)
+    if len(raw) == len(rows) and all(isinstance(item, dict) for item in raw):
+        by_id = {row["id"]: raw[index] for index, row in enumerate(rows)}
+        return [by_id[opt_id] for opt_id in wanted]
+    return raw
+
+
+def with_rank_display_order(payload: Any, seed: Any) -> Any:
+    """Shuffle an answer-order rank for display; anything else is returned as is.
+
+    Args:
+        payload: Question / prompt / item payload.
+        seed: Fallback seed when no valid order is stored.
+
+    Returns:
+        A reordered copy for an answer-order rank, else the same object.
+    """
+    order = rank_display_order_for(payload, seed)
+    if order is None:
+        return payload
+    return apply_rank_display_order(payload, order)
 
 
 # ---------------------------------------------------------------------------
