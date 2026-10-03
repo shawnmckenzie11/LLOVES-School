@@ -1465,6 +1465,12 @@ GROUP_MC_FLOW_KEY = "group_mc_flow"
 WHITEBOARD_REOPEN_KEY = "reopen"
 WHITEBOARD_REOPEN_STARTS = ("last", "fresh")
 WHITEBOARD_REOPEN_ONLY_CLOSED = "Only a closed whiteboard can be reopened."
+WHITEBOARD_REOPEN_CLASS_ENDED = "This class has ended, so the board can't reopen."
+# Machine-readable ``reason`` on a reopen 409 (MCK-174). The teacher tab
+# stays quiet on ``already_open`` and shows ``wb.reopen.error.ended`` on
+# ``class_ended``.
+WHITEBOARD_REOPEN_ALREADY_OPEN = "already_open"
+WHITEBOARD_REOPEN_ENDED_REASON = "class_ended"
 # MCK-169 S2: an imported Answer order rank card starts on Group · take
 # turns. The preset marker lives on the class placement only.
 RANK_IMPORT_GROUP_MODE = "turns"
@@ -1472,7 +1478,21 @@ RANK_IMPORT_GROUP_PRESET = "rank_turns"
 
 
 class WhiteboardReopenConflict(ValueError):
-    """The whiteboard is not closed (or another tab reopened it first)."""
+    """A reopen that conflicts with the board or session state (409).
+
+    ``reason`` is ``already_open`` when the board is not closed (or a
+    second teacher tab reopened it first) and ``class_ended`` when the
+    live class has ended.
+    """
+
+    def __init__(
+        self,
+        message: str = WHITEBOARD_REOPEN_ONLY_CLOSED,
+        *,
+        reason: str = WHITEBOARD_REOPEN_ALREADY_OPEN,
+    ) -> None:
+        super().__init__(message)
+        self.reason = reason
 GROUP_MC_PICK_THEN_AGREE = "pick_then_agree"
 
 
@@ -14645,8 +14665,16 @@ class SchoolDB(LovesDB):
             KeyError: The session or item is missing.
             ValueError: The session ended, the item is not a closed
                 whiteboard, ``start`` is unknown, or Fresh was asked for
-                on an Individual whiteboard.
+                on an Individual whiteboard. An ended session or a board
+                that is not closed raises ``WhiteboardReopenConflict``
+                (a ``ValueError``) with ``reason`` ``class_ended`` or
+                ``already_open``.
         """
+        session_row = self.get_live_session(session_id)
+        if session_row is not None and str(session_row.get("status") or "") != "active":
+            raise WhiteboardReopenConflict(
+                WHITEBOARD_REOPEN_CLASS_ENDED, reason=WHITEBOARD_REOPEN_ENDED_REASON
+            )
         self._require_active_live_session(session_id)
         token = str(start or "last").strip().lower()
         if token not in WHITEBOARD_REOPEN_STARTS:

@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -18,6 +21,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from school_db import WhiteboardReopenConflict  # noqa: E402
 from live_news_wire import (  # noqa: E402
     LiveNewsLog,
     NewsAudience,
@@ -34,6 +38,8 @@ COPY = {
     "wb.reopen.fresh.help": "A blank board. The last one is kept until class ends.",
     "wb.reopen.toast.last": "Board reopened with the last ink.",
     "wb.reopen.toast.fresh": "Fresh board is open.",
+    "wb.reopen.error": "Couldn't reopen the board. Try again.",
+    "wb.reopen.error.ended": "This class has ended, so the board can't reopen.",
     "wb.student.last": "The board is back. Keep going.",
     "wb.student.fresh": "Fresh board. Start again here.",
 }
@@ -364,6 +370,7 @@ class WhiteboardReopenTests(unittest.TestCase):
         self.assertEqual(
             active.get_json()["error"], "Only a closed whiteboard can be reopened."
         )
+        self.assertEqual(active.get_json()["reason"], "already_open")
         self._close()
         bogus = self._reopen("sideways")
         self.assertEqual(bogus.status_code, 400, bogus.get_json())
@@ -372,10 +379,13 @@ class WhiteboardReopenTests(unittest.TestCase):
         second = self._reopen("last")
         self.assertEqual(second.status_code, 409, "a second tab gets 409")
         self.assertTrue(second.get_json().get("conflict"))
+        self.assertEqual(second.get_json()["reason"], "already_open")
         self._close()
         self.school.end_live_class_session(self.session_id)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError) as caught:
             self.school.reopen_live_whiteboard(self.session_id, self._wb_id_any())
+        self.assertIsInstance(caught.exception, WhiteboardReopenConflict)
+        self.assertEqual(caught.exception.reason, "class_ended")
 
     # -- follow-ups: permissions, degraded Fresh copy, hint line, labels --
 
@@ -455,11 +465,20 @@ class WhiteboardReopenTests(unittest.TestCase):
         self.assertEqual(ok.status_code, 200, ok.get_json())
         active = self.client.post(url, json={"start": "fresh"})
         self.assertEqual(active.status_code, 409, active.get_json())
+        self.assertEqual(active.get_json()["reason"], "already_open")
+        self.assertTrue(active.get_json()["conflict"])
         self.assertEqual(self.school.live_board_run_key(self.session_id), base_key)
         self._close()
         self.school.end_live_class_session(self.session_id)
-        ended = self.client.post(url, json={"start": "last"})
-        self.assertEqual(ended.status_code, 409, ended.get_json())
+        for start in ("last", "fresh"):
+            ended = self.client.post(url, json={"start": start})
+            self.assertEqual(ended.status_code, 409, ended.get_json())
+            self.assertEqual(ended.get_json()["reason"], "class_ended", start)
+            self.assertEqual(ended.get_json()["error"], COPY["wb.reopen.error.ended"])
+        # Another teacher still gets 403 (not the ended reason) on this session.
+        foreign = other.post(url, json={"start": "last"})
+        self.assertEqual(foreign.status_code, 403, foreign.get_json())
+        self.assertNotIn("reason", foreign.get_json())
 
     def test_degraded_fresh_path_uses_fresh_copy(self) -> None:
         """A run change onto a ~g key shows Wonder's Fresh line, not the
@@ -499,7 +518,57 @@ class WhiteboardReopenTests(unittest.TestCase):
             "function paintSlidesMetadata()"
         )[0]
         self.assertIn("await refreshLiveQuestionCards();", reopen)
-        self.assertIn("err.conflict", reopen)
+        self.assertIn("whiteboardReopenErrorLine(err)", reopen)
+        # A tab whose poll already heard the reopen repaints to Active quietly.
+        already = reopen.split('if (String(item.status || "") !== "closed") {')[1].split(
+            "return;"
+        )[0]
+        self.assertIn("paintSurfacePublishing();", already)
+        self.assertLess(
+            reopen.index('hideError("#ap-overlay-error");'),
+            reopen.index('if (String(item.status || "") !== "closed") {'),
+        )
+        self.assertNotIn("keep the generic error", reopen)
+        post = staff_js.split("async function postWhiteboardReopen(")[1].split(
+            "async function reopenWhiteboard("
+        )[0]
+        self.assertIn("err.reason", post)
+
+    @unittest.skipUnless(shutil.which("node"), "node is required for the copy check")
+    def test_failed_reopen_shows_the_right_wonder_key(self) -> None:
+        """Run the real staff_ap.js copy table and error mapper in node:
+        already_open is quiet, class_ended gets wb.reopen.error.ended,
+        network and server failures get wb.reopen.error."""
+        staff_js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        start = staff_js.index("const WB_REOPEN_COPY = Object.freeze({")
+        fn = staff_js.index("function whiteboardReopenErrorLine(err) {", start)
+        end = staff_js.index("\n}\n", fn) + 3
+        harness = staff_js[start:end] + """
+const cases = {
+  already_open: { status: 409, conflict: true, reason: "already_open" },
+  class_ended: { status: 409, conflict: true, reason: "class_ended" },
+  server: { status: 500, reason: "" },
+  network: new TypeError("Failed to fetch"),
+  bare_409: { status: 409, conflict: true, reason: "" },
+};
+const out = {};
+for (const [name, err] of Object.entries(cases)) out[name] = whiteboardReopenErrorLine(err);
+console.log(JSON.stringify(out));
+"""
+        done = subprocess.run(
+            [shutil.which("node"), "--input-type=module", "-e", harness],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        lines = json.loads(done.stdout.strip().splitlines()[-1])
+        self.assertEqual(lines["already_open"], "")
+        self.assertEqual(lines["class_ended"], COPY["wb.reopen.error.ended"])
+        self.assertEqual(lines["server"], COPY["wb.reopen.error"])
+        self.assertEqual(lines["network"], COPY["wb.reopen.error"])
+        self.assertEqual(lines["bare_409"], COPY["wb.reopen.error"])
 
     def test_individual_text_label_is_readable_after_reload(self) -> None:
         """A stored Individual text label comes back from solo:<id>."""
@@ -639,8 +708,11 @@ class WhiteboardReopenTests(unittest.TestCase):
             "wb.reopen.fresh.help",
             "wb.reopen.toast.last",
             "wb.reopen.toast.fresh",
+            "wb.reopen.error",
+            "wb.reopen.error.ended",
         ):
             self.assertIn(COPY[key], staff_js, key)
+            self.assertIn(f"// {key}\n", staff_js, key)
         course = (LMS_DIR / "templates" / "staff" / "course.html").read_text(
             encoding="utf-8"
         )
