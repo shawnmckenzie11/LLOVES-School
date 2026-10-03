@@ -1229,9 +1229,11 @@ function writeSessionValue(key, value) {
  * @param {any} payload
  */
 function paintWhiteboardReopenCue(payload) {
-  const row = (payload?.live_items || []).find(
+  const boards = (payload?.live_items || []).filter(
     (item) => publishedItemType(item) === "whiteboard"
   );
+  const row =
+    boards.find((item) => String(item?.status || "") === "active") || boards[0];
   if (!row) return;
   const id = Number(row.id) || 0;
   if (!id) return;

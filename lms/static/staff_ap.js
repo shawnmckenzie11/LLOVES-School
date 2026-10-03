@@ -2269,6 +2269,9 @@ const WB_REOPEN_COPY = Object.freeze({
 /** True while a reopen POST is in flight (one at a time). */
 let whiteboardReopenInFlight = false;
 
+/** MCK-174: a Fresh board reopen refreshes without the new-class cue. */
+let teacherBoardQuietRefresh = false;
+
 /**
  * Fresh board needs ink stored on the server. Individual pen ink is
  * still client-only (MCK-174 S3), so Fresh is offered on Group only.
@@ -11484,9 +11487,6 @@ const teacherBoardRun = { key: "" };
 
 /** @type {Promise<void> | null} */
 let teacherBoardRefresh = null;
-
-/** MCK-174: a Fresh board reopen refreshes without the new-class cue. */
-let teacherBoardQuietRefresh = false;
 
 /** @type {ReturnType<typeof createBoardDeltaPoll> | null} */
 let teacherBoardPoll = null;
