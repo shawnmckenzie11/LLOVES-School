@@ -29,6 +29,7 @@ HELPERS = (
     "assignHiddenLabels",
     "saveHiddenLabelBook",
     "currentResponseTicks",
+    "hideKeyOn",
     "paintQuestionResponses",
 )
 
