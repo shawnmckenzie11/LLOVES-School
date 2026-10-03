@@ -5852,6 +5852,50 @@ body.staff-shell .live-add-rank-row input {
   flex: 1;
   min-width: 0;
 }
+/* MCK-172: optional Answer order (race R1), a drag list under the options. */
+body.staff-shell .live-add-rank-key-toggle {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0.6rem 0 0.2rem;
+  font-weight: 700;
+}
+body.staff-shell .live-add-rank-key-toggle input {
+  flex: 0 0 auto;
+  width: auto;
+  margin: 0;
+}
+body.staff-shell .live-add-rank-key[hidden] {
+  display: none;
+}
+body.staff-shell .live-add-rank-key .hint {
+  margin: 0 0 0.3rem;
+}
+body.staff-shell .live-add-rank-key-list {
+  margin: 0;
+  padding-left: 1.6rem;
+}
+body.staff-shell .live-add-rank-key-list li {
+  margin: 0.25rem 0;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid #94a3b8;
+  border-radius: 8px;
+  background: #fff;
+  cursor: grab;
+  overflow-wrap: anywhere;
+}
+body.staff-shell .live-add-rank-key-list li::before {
+  content: "⋮⋮";
+  margin-right: 0.45rem;
+  color: #64748b;
+}
+body.staff-shell .live-add-rank-key-list li.is-dragging {
+  opacity: 0.45;
+}
+body.staff-shell .live-add-rank-key-list li:focus-visible {
+  outline: 2px solid #0f766e;
+  outline-offset: 2px;
+}
 body.staff-shell .rank-collate {
   margin-top: 0.6rem;
 }

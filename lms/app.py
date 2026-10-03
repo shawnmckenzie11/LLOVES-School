@@ -3987,6 +3987,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 bank_scope=str(body.get("bank_scope") or body.get("bankScope") or "module"),
                 bank_kind=str(body.get("bank_kind") or body.get("bankKind") or ""),
                 library_id=int(library_id) if library_id else None,
+                rank_key=body.get("rank_key", body.get("rankKey")),
             )
         except KeyError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 404
