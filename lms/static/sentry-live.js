@@ -165,31 +165,33 @@
       SPAN_QUERY_KEYS.forEach(function (key) {
         delete bag[key];
       });
-      SPAN_URL_KEYS.forEach(function (key) {
-        if (typeof bag[key] === "string") bag[key] = stripQuery(bag[key]);
+      // Every attribute: http.request.header.referer is an array holding the
+      // previous page URL with ?v= (MCK-183 #249 gate). Any value with a
+      // "?" loses its query; a visit-token header attribute goes entirely.
+      Object.keys(bag).forEach(function (key) {
+        if (/visit-token/i.test(key)) {
+          delete bag[key];
+          return;
+        }
+        bag[key] = stripQueryValue(bag[key]);
       });
     });
     return span;
   }
 
   /**
-   * Same scrub for a whole transaction event: name, request URL, the trace
-   * context and every child span.
-   * @param {object} event
-   * @returns {object}
+   * Strip queries from a span attribute value: a string, an array of
+   * strings, or a streamed ``{ value, type }`` attribute.
+   * @param {unknown} value
+   * @returns {unknown}
    */
-  function scrubTransaction(event) {
-    if (!event) return event;
-    if (typeof event.transaction === "string") event.transaction = stripQuery(event.transaction);
-    if (event.request) {
-      if (event.request.url) event.request.url = stripQuery(event.request.url);
-      delete event.request.query_string;
-      delete event.request.cookies;
-      delete event.request.data;
+  function stripQueryValue(value) {
+    if (typeof value === "string") return value.indexOf("?") >= 0 || value.indexOf("#") >= 0 ? stripQuery(value) : value;
+    if (Array.isArray(value)) return value.map(stripQueryValue);
+    if (value && typeof value === "object" && "value" in value) {
+      value.value = stripQueryValue(value.value);
     }
-    if (event.contexts && event.contexts.trace) stripSpanQueries(event.contexts.trace);
-    (event.spans || []).forEach(stripSpanQueries);
-    return event;
+    return value;
   }
 
   function filterLivePollBreadcrumb(crumb) {
@@ -490,20 +492,13 @@
         return event;
       }
     },
-    // Streamed tracing ignores beforeSendTransaction. Drop poll spans here.
+    // Streamed tracing (SDK default) has no transaction hook: this is the scrub.
     beforeSendSpan: function (span) {
       try {
         if (shouldDropLivePollSpan(span)) return null;
         return stripSpanQueries(span);
       } catch (_err) {
         return span;
-      }
-    },
-    beforeSendTransaction: function (event) {
-      try {
-        return scrubTransaction(event);
-      } catch (_err) {
-        return event;
       }
     },
     beforeBreadcrumb: function (crumb) {
