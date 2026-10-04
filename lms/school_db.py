@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import logging
 import re
@@ -30153,7 +30154,7 @@ class SchoolDB(LovesDB):
         # phone got "unchanged" forever and its turn never enabled. Only
         # read while such an item is open (one cheap query).
         presence_rev = (
-            self._present_attendee_rev(int(session_id))
+            self._presence_stamp_token(int(session_id))
             if row is not None and row["presence_gated"]
             else ""
         )
@@ -30165,6 +30166,38 @@ class SchoolDB(LovesDB):
             f"{prompt_rev}:{item_rev}:{group_vote_rev}:{status}:{celebrate}:"
             f"{group_response_rev}:{race_step_rev}:{presence_rev}"
         )
+
+    #: Last good presence token per session (MCK-186), so a presence blip
+    #: keeps the stamp steady instead of dropping to "" and back (two full
+    #: rebuilds on every Take turns phone). Bounded; per process.
+    _PRESENCE_TOKEN_CACHE_MAX = 256
+
+    def _presence_stamp_token(self, session_id: int) -> str:
+        """Short keyed hash of the present set, for the student poll stamp.
+
+        The raw token (count, SUM(id), SUM(id²)) told every phone how many
+        students were present and which attendee row ids came and went.
+        The stamp only needs "did it change", so phones get the first 12
+        hex of an HMAC over it, keyed with the app secret (shared by every
+        worker, so all workers agree). During a presence outage the last
+        good token for the session is kept.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        cache = self.__dict__.setdefault("_presence_token_cache", {})
+        raw = self._present_attendee_rev(int(session_id))
+        if not raw:
+            return str(cache.get(int(session_id), ""))
+        from rank_alias import rank_alias_secret
+
+        key = (str(getattr(self, "rank_alias_secret", "") or "") or rank_alias_secret()).encode("utf-8")
+        msg = f"presence\x1f{int(session_id)}\x1f{raw}".encode("utf-8")
+        token = "h" + hmac.new(key, msg, hashlib.sha256).hexdigest()[:12]
+        if int(session_id) not in cache and len(cache) >= self._PRESENCE_TOKEN_CACHE_MAX:
+            cache.pop(next(iter(cache)), None)
+        cache[int(session_id)] = token
+        return token
 
     def _present_attendee_rev(self, session_id: int) -> str:
         """Token that changes whenever the session's present set changes.
