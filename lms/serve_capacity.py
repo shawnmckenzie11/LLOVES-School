@@ -56,6 +56,13 @@ KEEPALIVE_SECONDS = 1
 # A silent worker is killed after 120s. The old 600s left the wedge in place.
 WORKER_TIMEOUT_SECONDS = 120
 GRACEFUL_TIMEOUT_SECONDS = 30
+# MCK-180: fly.toml top-level kill_signal / kill_timeout. SIGTERM is
+# gunicorn's graceful stop (SIGINT, Fly's default, is a quick stop). The
+# timeout covers the graceful window plus a few seconds to exit, and stays
+# within Fly's 300 s maximum.
+FLY_KILL_SIGNAL = "SIGTERM"
+FLY_KILL_TIMEOUT_SECONDS = 35
+FLY_KILL_TIMEOUT_MAX_SECONDS = 300
 # One listen socket, shared by every worker. gunicorn's default is 2048.
 # Past this, TCP is refused while workers are still inside create_app().
 BACKLOG = 64
