@@ -1,5 +1,68 @@
 {
+  "schema": 2,
   "releases": [
+    {
+      "id": "65d69db",
+      "sha": "65d69dbcd792cd1b738cac575e78333ebeee895a",
+      "fly": "v218",
+      "deployed_at": "2026-10-04T11:56:00-04:00",
+      "day": "2026-10-04",
+      "items": [
+        {
+          "text": "On a rank question in Run Live Class, turn on Team challenge. Groups lock in their order together and get 2 points for each item in the right spot. Then you reveal the right order and the top teams.",
+          "audience": "Both",
+          "refs": "#235 #241 #242 #243 · MCK-171"
+        },
+        {
+          "text": "If a whiteboard can't reopen, the message now says why. A reopened board also shows up right away in a second teacher tab.",
+          "audience": "Teacher",
+          "refs": "#244 #247 · MCK-174, MCK-181"
+        }
+      ]
+    },
+    {
+      "id": "5bd4edf",
+      "sha": "5bd4edf806cff72ee5c9b4e26cd655cd6f6a8f64",
+      "fly": "v217",
+      "deployed_at": "2026-10-03T23:18:20-04:00",
+      "day": "2026-10-03",
+      "items": [
+        {
+          "text": "In Import from bank and Question banks, rank questions about money now display correctly, with amounts written in words.",
+          "audience": "Both",
+          "refs": "#245 · MCK-178"
+        }
+      ]
+    },
+    {
+      "id": "e640589",
+      "sha": "e640589def92972e1974e52f2ea283ebf1994b43",
+      "fly": "v216",
+      "deployed_at": "2026-10-03T18:28:48-04:00",
+      "day": "2026-10-03",
+      "items": [
+        {
+          "text": "In Run Live Class, you can reopen a closed whiteboard as your Last board or a Fresh board. The last board is kept until class ends.",
+          "audience": "Both",
+          "refs": "#238 · MCK-174"
+        },
+        {
+          "text": "In Import from bank, the Contest Questions list only appears when you pick Contest Questions in the Kind menu.",
+          "audience": "Teacher",
+          "refs": "#237 · MCK-175"
+        },
+        {
+          "text": "In Import from bank, rank questions now show Answer order or Opinion, so you can see which ones have a right order. Answer-order questions come first and run as group questions with turns.",
+          "audience": "Teacher",
+          "refs": "#239 · MCK-177"
+        },
+        {
+          "text": "In Run Live Class, answer-order rank questions appear shuffled each time you publish, on phones and the projector, so the order never gives the answer away. Opinion questions are unchanged.",
+          "audience": "Both",
+          "refs": "#240 · MCK-176"
+        }
+      ]
+    },
     {
       "id": "2026-10-02",
       "date": "2026-10-02",

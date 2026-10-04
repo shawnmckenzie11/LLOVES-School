@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""MCK-124 slice 1: staff "What's new" data file and Dashboard panel.
+"""MCK-124 slice 1 + MCK-182: staff "What's new" data file and Dashboard panel.
 
 Three groups:
 
-* the ``releases.json`` limits from the spec (Wonder's copy rules);
+* the ``releases.json`` limits from the spec (Wonder's copy rules). MCK-182
+  schema 2 adds one ``{id, sha, deployed_at, day, items: [{text, audience,
+  refs}]}`` release per deploy with notes; the Oct 2 legacy release keeps
+  ``title`` + ``line``;
 * server pages: the panel is on the staff Dashboard only, never on the
   Live tab (``body.course-live``), never on a student page, and held off
   the Dashboard while any of the teacher's classes is live;
@@ -34,11 +37,18 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
 
+sys.path.insert(0, str(REPO_ROOT / ".github" / "scripts"))
+import whats_new as whats_new_script  # noqa: E402
+
 RELEASES_JSON = LMS_DIR / "static" / "whats-new" / "releases.json"
 WHATS_NEW_JS = LMS_DIR / "static" / "whats_new.js"
 TEMPLATES = LMS_DIR / "templates"
 AUDIENCES = {"Teacher", "Both", "Both (projector)"}
-RELEASE_ID = re.compile(r"^\d{4}-\d{2}-\d{2}(-\d+)?$")
+LEGACY_ID = re.compile(r"^\d{4}-\d{2}-\d{2}(-\d+)?$")
+SHA_ID = re.compile(r"^[0-9a-f]{7}$")
+# Generated lines are held to 30 words by .github/scripts/whats_new.py. The
+# hand-written v216-v218 backfill (Wonder v1.3) runs to 39; trim it here.
+MAX_BACKFILL_WORDS = 40
 # Markers that only the What's new panel puts on a page.
 PANEL_MARKERS = ("whats-new-dialog", "whats_new.js", "whats-new-open", "whats-new/releases.json")
 
@@ -49,21 +59,65 @@ def _releases() -> list[dict]:
     return data["releases"]
 
 
+def _is_legacy(release: dict) -> bool:
+    """MCK-124 slice 1 release (title + line items, no ``deployed_at``)."""
+    return "deployed_at" not in release
+
+
 class ReleaseNotesDataTests(unittest.TestCase):
     """``releases.json`` keeps to the spec's limits."""
+
+    def test_schema_2(self) -> None:
+        data = json.loads(RELEASES_JSON.read_text(encoding="utf-8"))
+        self.assertEqual(data.get("schema"), 2)
 
     def test_ids_unique_well_formed_and_newest_first(self) -> None:
         releases = _releases()
         self.assertTrue(releases, "at least one release")
         ids = [r["id"] for r in releases]
         self.assertEqual(len(ids), len(set(ids)), ids)
-        for rid in ids:
-            self.assertRegex(rid, RELEASE_ID)
-        keys = [(r["id"][:10], int(r["id"][11:] or 1)) for r in releases]
+        for release in releases:
+            self.assertRegex(release["id"], LEGACY_ID if _is_legacy(release) else SHA_ID)
+        keys = [whats_new_script.sort_key(r) for r in releases]
         self.assertEqual(keys, sorted(keys, reverse=True), "newest release first")
+
+    def test_deploy_releases_keep_to_the_contract(self) -> None:
+        """Schema 2: id = sha[:7], ISO deployed_at in Toronto, day = its date."""
+        deploys = [r for r in _releases() if not _is_legacy(r)]
+        self.assertEqual([r.get("fly") for r in deploys], ["v218", "v217", "v216"])
+        for release in deploys:
+            with self.subTest(release=release["id"]):
+                self.assertRegex(release["sha"], r"^[0-9a-f]{40}$")
+                self.assertEqual(release["id"], release["sha"][:7])
+                self.assertRegex(release["deployed_at"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}-0[45]:00$")
+                self.assertEqual(release["day"], release["deployed_at"][:10])
+                self.assertTrue(1 <= len(release["items"]) <= 7)
+                for item in release["items"]:
+                    text = item["text"]
+                    self.assertEqual(set(item), {"text", "audience", "refs"})
+                    self.assertIn(item["audience"], {"Teacher", "Both"})
+                    self.assertTrue(item["refs"].strip())
+                    self.assertLessEqual(len(text.split()), MAX_BACKFILL_WORDS, text)
+                    self.assertNotRegex(text, r"[<>*`]", "plain text only")
+                    self.assertNotRegex(text, r"MCK-\d|#\d", "no ids in teacher text")
+                    self.assertNotIn("Import from Bank", text, "UI label is 'Import from bank'")
+                    problems = [
+                        p for p in whats_new_script.note_problems(text) if "words" not in p
+                    ]
+                    self.assertEqual(problems, [], text)
+
+    def test_backfill_maps_to_the_fly_versions(self) -> None:
+        """v216-v218 SHAs from fly releases + Deploy runs (MCK-182 research)."""
+        by_fly = {r["fly"]: r for r in _releases() if r.get("fly")}
+        self.assertEqual(by_fly["v216"]["id"], "e640589")
+        self.assertEqual(by_fly["v217"]["id"], "5bd4edf")
+        self.assertEqual(by_fly["v218"]["id"], "65d69db")
+        self.assertEqual(len(by_fly["v216"]["items"]), 4)
 
     def test_items_keep_to_wonder_limits(self) -> None:
         for release in _releases():
+            if not _is_legacy(release):
+                continue
             self.assertRegex(release["date"], r"^\d{4}-\d{2}-\d{2}$")
             items = release["items"]
             self.assertTrue(1 <= len(items) <= 7, (release["id"], len(items)))
@@ -370,6 +424,7 @@ function makeFetch(body, { ok = true, onCall } = {}) {
 
 const releases = input.releases;
 const out = {};
+const part = (li, cls) => { const el = li.children.find((c) => c.className === cls); return el ? el.textContent : null; };
 const snapshot = (p) => ({
   showModal: p.counters.showModal,
   open: p.dialog.open,
@@ -404,10 +459,10 @@ const storage = makeStorage();
     result,
     fetchUrl: fetch.calls[0],
     date: p.date.textContent,
-    titles: p.list.children.map((li) => li.children[0].textContent),
-    lines: p.list.children.map((li) => li.children[1].textContent),
-    chips: p.list.children.map((li) => [li.children[2].children[0].className, li.children[2].children[0].textContent]),
-    refs: p.list.children.map((li) => li.children[2].children[1].textContent),
+    titles: p.list.children.map((li) => part(li, "whats-new-item-title")),
+    lines: p.list.children.map((li) => part(li, "whats-new-item-line")),
+    chips: p.list.children.map((li) => { const m = li.children[li.children.length - 1]; return [m.children[0].className, m.children[0].textContent]; }),
+    refs: p.list.children.map((li) => li.children[li.children.length - 1].children[1].textContent),
     notYet: p.notYetText.textContent,
     notYetHidden: p.notYet.hidden,
     ...snapshot(p),
@@ -465,6 +520,33 @@ for (const [key, value] of [["blankFooter", "   "], ["withFooter", "Fixture foot
   const result = await mod.initWhatsNew({ document: p.document, fetch, storage: makeStorage() });
   out.noDialog = { result, fetches: fetch.calls.length };
 }
+// 7. MCK-182: null / blank items drop out; a release with none left
+// (housekeeping) is skipped for the next one; legacy items still render.
+{
+  const p = makePage({ live: false, userId: 7 });
+  const legacy = releases.releases[releases.releases.length - 1];
+  const messy = {
+    schema: 2,
+    releases: [
+      { id: "aaaaaaa", sha: "a".repeat(40), deployed_at: "2026-10-05T09:00:00-04:00", day: "2026-10-05", items: [] },
+      { id: "bbbbbbb", sha: "b".repeat(40), deployed_at: "2026-10-04T20:00:00-04:00", day: "2026-10-04",
+        items: [null, { text: "   " }, "text", { text: "In Run Live Class, a real line.", audience: "Both", refs: "#1" }] },
+      legacy,
+    ],
+  };
+  const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch(messy), storage: makeStorage() });
+  out.messy = {
+    result,
+    date: p.date.textContent,
+    titles: p.list.children.map((li) => part(li, "whats-new-item-title")),
+    lines: p.list.children.map((li) => part(li, "whats-new-item-line")),
+    newestId: mod.newestRelease(messy).id,
+    onlyEmpty: mod.newestRelease({ releases: [messy.releases[0], { id: "c", items: [null] }] }),
+  };
+  const p2 = makePage({ live: false, userId: 7 });
+  const r2 = await mod.initWhatsNew({ document: p2.document, fetch: makeFetch({ releases: [legacy] }), storage: makeStorage() });
+  out.legacyOnly = { result: r2, titles: p2.list.children.map((li) => part(li, "whats-new-item-title")), date: p2.date.textContent };
+}
 console.log(JSON.stringify(out));
 """
 
@@ -516,8 +598,10 @@ class WhatsNewScriptTests(unittest.TestCase):
         self.assertEqual(first["result"], "opened", first)
         self.assertEqual(first["showModal"], 1, first)
         self.assertTrue(first["fetchUrl"].startswith("/static/whats-new/releases.json"), first)
-        self.assertEqual(first["titles"], [i["title"] for i in items])
-        self.assertEqual(first["lines"], [i["line"] for i in items])
+        # Schema 2 items have no title: one text line each.
+        self.assertEqual(first["titles"], [i.get("title") for i in items])
+        self.assertEqual(first["lines"], [i.get("text") or i.get("line") for i in items])
+        self.assertEqual(first["date"], "Oct 4, 2026")
         self.assertEqual(first["refs"], [i["refs"] for i in items])
         self.assertEqual(
             first["chips"],
@@ -567,6 +651,20 @@ class WhatsNewScriptTests(unittest.TestCase):
         shown = self.out["withFooter"]
         self.assertFalse(shown["notYetHidden"], shown)
         self.assertEqual(shown["notYet"], "Fixture footer line for the harness.", shown)
+
+    def test_null_items_and_housekeeping_releases_are_skipped(self) -> None:
+        """MCK-124 LOW + MCK-182: junk items and empty releases never render."""
+        messy = self.out["messy"]
+        self.assertEqual(messy["result"], "opened", messy)
+        self.assertEqual(messy["newestId"], "bbbbbbb", messy)
+        self.assertEqual(messy["lines"], ["In Run Live Class, a real line."], messy)
+        self.assertEqual(messy["titles"], [None], messy)
+        self.assertEqual(messy["date"], "Oct 4, 2026", messy)
+        self.assertIsNone(messy["onlyEmpty"], messy)
+        legacy = self.out["legacyOnly"]
+        self.assertEqual(legacy["result"], "opened", legacy)
+        self.assertEqual(legacy["date"], "Oct 2, 2026", legacy)
+        self.assertEqual(legacy["titles"][0], "Group work is one switch", legacy)
 
     def test_script_writes_text_only(self) -> None:
         src = WHATS_NEW_JS.read_text(encoding="utf-8")
