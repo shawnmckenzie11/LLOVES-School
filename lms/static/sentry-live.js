@@ -342,6 +342,41 @@
   }
 
   /**
+   * True for a refused student write (rank turn, vote, answer, ...): a 4xx
+   * on a non-GET ``/api/student/`` request. Board ops and presence are normal.
+   * @param {string} method
+   * @param {string} url
+   * @param {number} status
+   * @returns {boolean}
+   */
+  function isStudentStepRejection(method, url, status) {
+    if (method === "GET" || status < 400 || status > 499) return false;
+    if (!isAppUrl(url)) return false;
+    var path = stripQuery(url).replace(/^[a-z]+:\/\/[^/]+/i, "");
+    if (path.indexOf("/api/student/") !== 0) return false;
+    return !/\/(?:ops|canvas-presence)\/?$/.test(path);
+  }
+
+  /**
+   * A warning breadcrumb so the next error on this phone shows the refused
+   * step. Breadcrumbs ride along with errors only, so this costs nothing
+   * on its own; the server writes the matching Logs line.
+   * @param {object} client
+   * @param {string} method
+   * @param {string} url
+   * @param {number} status
+   */
+  function noteStudentStepRejection(client, method, url, status) {
+    if (!client || typeof client.addBreadcrumb !== "function") return;
+    client.addBreadcrumb({
+      category: "student.step",
+      level: "warning",
+      message: "Step refused: " + method + " " + pathTemplate(url) + " " + status,
+      data: { method: method, path: pathTemplate(url), status_code: status },
+    });
+  }
+
+  /**
    * Wrap ``window.fetch`` so app 5xx responses report. The response is
    * returned untouched; the page's own error handling still runs.
    * @param {object} client
@@ -358,6 +393,8 @@
         try {
           if (response && isReportableStatus(Number(response.status)) && isAppUrl(url)) {
             reportFetchFailure(client, method, url, Number(response.status));
+          } else if (response && isStudentStepRejection(method, url, Number(response.status))) {
+            noteStudentStepRejection(client, method, url, Number(response.status));
           }
         } catch (_err) {
           /* telemetry never changes the response */

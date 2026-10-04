@@ -715,6 +715,127 @@ def log_action(action: str, tags: dict[str, str]) -> None:
         logger.debug("Sentry action log failed", exc_info=True)
 
 
+#: Student step failures worth one Sentry Logs line (MCK-183 follow-up).
+STEP_REJECT_STATUSES = frozenset({400, 403, 404, 409, 422, 429})
+STEP_REJECT_ACTION = "student.step_rejected"
+#: Chatty student writes whose 4xx are normal (board sync, presence).
+_STEP_QUIET_RE = re.compile(r"/(?:ops|canvas-presence)/?$")
+_EMAIL_RE = re.compile(r"[^\s@]+@[^\s@]+")
+
+
+class StepLogThrottle:
+    """Keep student step-failure logs cheap.
+
+    One line per (endpoint, status, student) per ``window`` seconds and at
+    most ``per_minute`` lines a minute per process, so a class hammering
+    the same 409 costs a handful of lines, not thousands.
+    """
+
+    def __init__(self, window: float = 10.0, per_minute: int = 120) -> None:
+        """Set the limits."""
+        self.window = float(window)
+        self.per_minute = int(per_minute)
+        self._seen: dict[tuple[str, ...], float] = {}
+        self._minute = 0
+        self._count = 0
+
+    def allow(self, key: tuple[str, ...], now: float) -> bool:
+        """True when this line should be written."""
+        minute = int(now // 60)
+        if minute != self._minute:
+            self._minute, self._count = minute, 0
+            if len(self._seen) > 2000:
+                self._seen = {k: t for k, t in self._seen.items() if now - t < self.window}
+        if self._count >= self.per_minute:
+            return False
+        last = self._seen.get(key)
+        if last is not None and now - last < self.window:
+            return False
+        self._seen[key] = now
+        self._count += 1
+        return True
+
+
+def _safe_error_text(body: Any) -> str:
+    """The API's short error text, digits and emails masked, max 80 chars."""
+    if not isinstance(body, dict):
+        return ""
+    raw = body.get("code") or body.get("error") or ""
+    if not isinstance(raw, str):
+        return ""
+    text = _EMAIL_RE.sub("[email]", raw)
+    text = re.sub(r"\d+", "#", text)
+    return " ".join(text.split())[:80]
+
+
+def step_rejection(
+    path: str,
+    method: str,
+    endpoint: str | None,
+    status: int,
+    body: Any,
+) -> dict[str, Any] | None:
+    """Attributes for a failed student step request, or ``None``.
+
+    Covers student writes under ``/api/student/`` (rank turn, vote, team
+    answer, group pick, response, ...) that came back 400/403/404/409/422/429.
+    Board ops and canvas presence are left out (their conflicts are normal).
+
+    Args:
+        path: ``request.path``.
+        method: HTTP method.
+        endpoint: Flask endpoint name (no ids).
+        status: Response status.
+        body: Parsed JSON body or ``None``.
+
+    Returns:
+        Log attributes (no student data) or ``None``.
+    """
+    if method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return None
+    if not str(path or "").startswith("/api/student/") or int(status) not in STEP_REJECT_STATUSES:
+        return None
+    if _STEP_QUIET_RE.search(path):
+        return None
+    attributes: dict[str, Any] = {
+        ACTION_LOG_ATTRIBUTE: STEP_REJECT_ACTION,
+        "endpoint": endpoint or "unknown",
+        "http.status_code": int(status),
+        "portal": "student",
+    }
+    error = _safe_error_text(body)
+    if error:
+        attributes["error"] = error
+    return attributes
+
+
+_STEP_THROTTLE = StepLogThrottle()
+
+
+def log_step_rejection(attributes: dict[str, Any], tags: dict[str, str]) -> None:
+    """Write one warning Logs line for a failed student step. Never raises."""
+    try:
+        import sentry_sdk
+        from sentry_sdk import logger as sentry_logger
+    except ImportError:
+        return
+    if not sentry_sdk.get_client().is_active():
+        return
+    merged = dict(attributes)
+    for key in ("course_code", "class_id", "live_session_id", "live_item_id"):
+        if tags.get(key):
+            merged[key] = tags[key]
+    try:
+        sentry_logger.warning(
+            "student step rejected {endpoint} {status}",
+            endpoint=merged.get("endpoint"),
+            status=merged.get("http.status_code"),
+            attributes=merged,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("Sentry step log failed", exc_info=True)
+
+
 def browser_context(
     path: str,
     args: Any,
@@ -796,6 +917,36 @@ def install_request_scope(app: Any, resolver: Callable[..., dict[str, Any]] | No
         except Exception:  # noqa: BLE001
             logger.debug("Sentry request tagging failed open", exc_info=True)
         return None
+
+    @app.after_request
+    def _sentry_log_step_rejection(response: Any) -> Any:
+        """One throttled Logs line when a student step request is refused."""
+        try:
+            status = int(response.status_code)
+            if status < 400 or status >= 500 or not _active():
+                return response
+            body = response.get_json(silent=True) if response.is_json else None
+            attributes = step_rejection(
+                request.path, request.method, request.endpoint, status, body
+            )
+            if attributes is None:
+                return response
+            import time
+
+            who = str(session.get("student_id") or session.get("student_visit_token") or "")[:16]
+            key = (str(request.endpoint), str(status), who)
+            if not _STEP_THROTTLE.allow(key, time.monotonic()):
+                return response
+            tags = dict(getattr(g, "sentry_tags", None) or {})
+            tags.update(resolve_class_course(resolver, getattr(g, "sentry_ids", None) or {}))
+            for key_name in ("session_id", "live_item_id"):
+                value = (request.view_args or {}).get(key_name)
+                if isinstance(value, int):
+                    tags["live_session_id" if key_name == "session_id" else key_name] = str(value)
+            log_step_rejection(attributes, tags)
+        except Exception:  # noqa: BLE001
+            logger.debug("Sentry step log failed open", exc_info=True)
+        return response
 
     @app.after_request
     def _sentry_log_action(response: Any) -> Any:
