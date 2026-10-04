@@ -19,7 +19,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from name_match import first_token_key, loose_name_key, name_key, same_name  # noqa: E402
+from name_match import loose_name_key, name_key, same_name  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -1244,9 +1244,11 @@ def roster_shown_name(student: dict[str, Any] | None) -> str:
 def first_name_only(raw: str) -> str:
     """Keep the first token of a typed name; never persist a last name.
 
-    A short number after the first name stays (MCK-183): Welcome tells
-    teachers to type a repeated first name as "Sam 2", and dropping the
-    number showed both students as "Sam".
+    A short number stays (MCK-183): Welcome tells teachers to type a
+    repeated first name as "Sam 2", and dropping the number showed both
+    students as "Sam". The number may follow the first word ("Sam 2"),
+    be glued on ("Sam2" → "Sam 2"), or end a two-word name ("Jean Luc 2"
+    → "Jean 2", so it never shows the same as "Jean Luc" → "Jean").
 
     Args:
         raw: Student-entered name or Codename.
@@ -1254,16 +1256,34 @@ def first_name_only(raw: str) -> str:
     Returns:
         Trimmed first token (plus a trailing 1-2 digit number), or ``""``.
     """
-    text = (raw or "").strip()
-    if not text:
+    tokens = _number_tokens(raw)
+    if not tokens:
         return ""
-    tokens = text.split()
     if len(tokens) > 1 and _REPEAT_NUMBER.fullmatch(tokens[1]):
         return f"{tokens[0]} {tokens[1]}"
+    if len(tokens) > 2 and _REPEAT_NUMBER.fullmatch(tokens[-1]):
+        return f"{tokens[0]} {tokens[-1]}"
     return tokens[0]
 
 
 _REPEAT_NUMBER = re.compile(r"[0-9]{1,2}")
+#: "Sam2", "Mary-Jo2": letters (with ' or - joins) then 1-2 digits. "R2D2" is
+#: not one (digits inside), so it stays a single name.
+_GLUED_NUMBER = re.compile(r"([^\W\d_]+(?:['’\-][^\W\d_]+)*)([0-9]{1,2})")
+
+
+def _number_tokens(raw: str) -> list[str]:
+    """Whitespace tokens with a glued trailing number split off ("Sam2")."""
+    out: list[str] = []
+    for token in (raw or "").split():
+        glued = _GLUED_NUMBER.fullmatch(token)
+        out.extend(glued.groups() if glued else (token,))
+    return out
+
+
+def _spaced_number_key(key: str) -> str:
+    """A folded name key with glued numbers split: "sam2" → "sam 2"."""
+    return " ".join(_number_tokens(key))
 
 
 def _parse_iso_datetime(raw: Any) -> datetime | None:
@@ -12595,7 +12615,15 @@ class SchoolDB(LovesDB):
                     "That name’s already in class. If it’s you, reopen the "
                     "tab that’s still open — or wait a beat and try again."
                 )
-            return self._resume_live_attendee(existing, name=name or str(existing.get("codename") or ""))
+            # Seat left (Leave, or a stale heartbeat) and reclaimed by a device
+            # without its token: mint a fresh token, so the old tab's token no
+            # longer acts for this seat (MCK-183 #260 gate LOW).
+            fresh = (not present) and token_in != existing_token
+            return self._resume_live_attendee(
+                existing,
+                name=name or str(existing.get("codename") or ""),
+                fresh_token=fresh,
+            )
 
         now = _now()
         participant_uuid = str(uuid.uuid4())
@@ -12683,19 +12711,33 @@ class SchoolDB(LovesDB):
         return self._apply_presence(dict(row))
 
     def _resume_live_attendee(
-        self, existing: dict[str, Any], *, name: str = ""
+        self,
+        existing: dict[str, Any],
+        *,
+        name: str = "",
+        fresh_token: bool = False,
     ) -> dict[str, Any]:
         """Clear ``left_at``, keep uuid + token, refresh heartbeat.
 
         Args:
             existing: Current attendee row.
             name: Optional display-name refresh (first token only).
+            fresh_token: Mint a new visit token (seat reclaimed after Leave
+                by a device that did not hold the old one).
         """
         display = first_name_only(name) or str(existing.get("codename") or "")
         now = _now()
         token = str(existing.get("visit_token") or "").strip()
-        if not token:
+        if not token or fresh_token:
             token = secrets.token_urlsafe(24)
+        if fresh_token:
+            # SQLite holds the token lookups (resolve, by-token) in every mode.
+            with self._lock:
+                self.conn.execute(
+                    "UPDATE live_session_attendees SET visit_token = ? WHERE id = ?",
+                    (token, int(existing["id"])),
+                )
+                self.conn.commit()
         if self.presence is not None:
             payload = dict(existing)
             payload["codename"] = display
@@ -16165,7 +16207,8 @@ class SchoolDB(LovesDB):
         last_id = row.get("last_submitter_student_id")
         last_name = ""
         if last_id not in (None, ""):
-            last_name = self._roster_codename(class_id, int(last_id))
+            # Same display name the class sees ("Sam 2", not "Sam"; MCK-183).
+            last_name = first_name_only(self._roster_codename(class_id, int(last_id)))
         active = str(item.get("status") or "") == "active"
         card = {
             "team_id": int(team_id),
@@ -30594,10 +30637,10 @@ class SchoolDB(LovesDB):
         session_row = self.get_live_session(session_id)
         if session_row is None or session_row.get("status") != "active":
             return []
-        full = name_key(name)
+        full = _spaced_number_key(name_key(name))
         if not full:
             return []
-        first = first_token_key(name)
+        first = full.split(" ", 1)[0]
         class_id = int(session_row["class_id"])
         with self.game._lock:
             rows = [
@@ -30620,13 +30663,19 @@ class SchoolDB(LovesDB):
             head, _, tail = label_key.rpartition(" ")
             return head == typed_full and bool(_REPEAT_NUMBER.fullmatch(tail))
 
-        def tier(fold: Any, typed_full: str, typed_first: str) -> list[dict[str, Any]]:
+        def tier(raw_fold: Any, typed_full: str, typed_first: str) -> list[dict[str, Any]]:
+            def fold(label: str) -> str:
+                return _spaced_number_key(raw_fold(label))
+
             exact = [
                 row for row in rows
                 if any(fold(label) == typed_full for label in labels(row))
             ]
-            if exact and " " not in typed_full:
-                # A bare "Sam" also offers "Sam 2", so the picker shows both.
+            typed_number = _REPEAT_NUMBER.fullmatch(typed_full.rpartition(" ")[2])
+            if exact and not typed_number:
+                # A bare "Sam" (or "Mary-Jo", "Jean Luc") also offers the
+                # numbered "Sam 2", so the picker shows both. Typing the
+                # number ("Sam 2") picks that student directly.
                 exact += [
                     row for row in rows
                     if row not in exact
@@ -30646,7 +30695,7 @@ class SchoolDB(LovesDB):
         matches = tier(name_key, full, first)
         if matches:
             return matches
-        loose_full = loose_name_key(name)
+        loose_full = _spaced_number_key(loose_name_key(name))
         loose_first = loose_full.split(" ", 1)[0] if loose_full else ""
         if not loose_full:
             return []
