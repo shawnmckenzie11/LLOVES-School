@@ -364,8 +364,11 @@ class FullOrderTests(SpotsHarness):
     def _notice(self, name: str, item: dict[str, Any]) -> Any:
         return self._card(name, item).get("full_order")
 
+    def test_default_timing_is_lock(self) -> None:
+        self.assertEqual(rank_challenge.FULL_ORDER_WHEN, "lock")  # Shawn, Oct 4
+
+    @mock.patch.object(rank_challenge, "FULL_ORDER_WHEN", "reveal")
     def test_reveal_timing_shows_only_after_close_and_only_names(self) -> None:
-        self.assertEqual(rank_challenge.FULL_ORDER_WHEN, "reveal")
         item = self._spots(mode="turns")
         self._turns(item, TEAM_A, KEY_IDS)
         self._turns(item, TEAM_B, SWAP)
@@ -383,6 +386,14 @@ class FullOrderTests(SpotsHarness):
         self.assertEqual([t["name"] for t in other["teams"]], [a_name])
         self.assertEqual(set(other["teams"][0]), {"name", "slot"})  # no order, no spots
         self.assertEqual([t["name"] for t in self._view(item)["full_order"]["teams"]], [a_name])
+
+    def test_lock_timing_take_turns_counts_only_the_last_spot(self) -> None:
+        item = self._spots(mode="turns")
+        self._turns(item, TEAM_A, KEY_IDS[:-1])  # 3 of 4 placed: a draft
+        self.assertIsNone(self._notice("Ben", item))
+        self._turns(item, TEAM_A, KEY_IDS[-1:])  # last spot: final, all right
+        self.assertEqual(len(self._notice("Ben", item)["teams"]), 1)
+        self.assertTrue(self._notice("Ava", item)["you"])
 
     def test_nothing_when_no_team_got_it_all(self) -> None:
         item = self._spots()
@@ -502,6 +513,16 @@ class ViewTests(unittest.TestCase):
         css = (STATIC / "staff-shell.css").read_text(encoding="utf-8")
         self.assertIn(".rank-score-dialog", css)
         self.assertNotIn(".rank-scoring", css)
+
+    def test_totals_refresh_right_after_an_award(self) -> None:
+        """Mobbin: Class list and Options-strip scoreboard move on Assign, not next poll."""
+        staff = (STATIC / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("applyRankScoreGame(payload.game)", staff)
+        self.assertIn("window.setTimeout(() => void refreshRaceGamePoints(), 1500)", staff)
+        self.assertIn("  paintDivisionMeter();\n  paintScoreboardPreviewTotals();\n}", staff)
+        self.assertIn("function paintScoreboardPreviewTotals() {", staff)
+        css = (STATIC / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn("auto auto 9.6rem", css)  # fixed action column
 
 
 if __name__ == "__main__":

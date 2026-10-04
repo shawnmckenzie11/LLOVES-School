@@ -7257,7 +7257,8 @@ body.staff-shell .rank-score-rows {
 }
 body.staff-shell .rank-score-row {
   display: grid;
-  grid-template-columns: 1.3rem minmax(3.5rem, 1fr) auto auto minmax(8.6rem, max-content);
+  /* Fixed action column: "Assigned · 12 each" never shifts the stepper. */
+  grid-template-columns: 1.3rem minmax(3.5rem, 1fr) auto auto 9.6rem;
   align-items: center;
   gap: 6px;
   min-height: 2.75rem;
@@ -7319,6 +7320,7 @@ body.staff-shell .rank-score-value {
   font-weight: 700;
 }
 body.staff-shell .rank-score-assign {
+  width: 100%;
   min-height: 2.1rem;
   padding: 0 0.6rem;
   white-space: nowrap;

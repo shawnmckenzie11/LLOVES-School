@@ -46,8 +46,9 @@ CHALLENGE_AUTO_PAYS = False
 #: MCK-185 full-order notice timing: ``"reveal"`` shows "{team} put every item
 #: in the right order." after Close & reveal; ``"lock"`` shows it as soon as
 #: a team's final order (locked, sent, or last Take turns spot) is all right.
-#: Drafts never count. Shawn to confirm; default ``"reveal"``.
-FULL_ORDER_WHEN = "reveal"
+#: Drafts never count. Shawn chose ``"lock"`` (Oct 4); the flag stays so
+#: ``"reveal"`` is one change away.
+FULL_ORDER_WHEN = "lock"
 FULL_ORDER_TIMINGS = ("reveal", "lock")
 
 

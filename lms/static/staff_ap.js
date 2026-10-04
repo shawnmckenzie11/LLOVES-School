@@ -1575,6 +1575,8 @@ async function assignRankScores(teamIds) {
       lifecycleResults.set(itemId, { ...entry, race: { ...(entry.race || {}), results: payload.results } });
     }
     for (const row of pick) rankScore.drafts.delete(row.teamId);
+    // Class list and scoring totals from the award reply itself, at once.
+    if (payload?.game && typeof payload.game === "object") applyRankScoreGame(payload.game);
   } catch (err) {
     rankScore.error = String(err?.message || err || "Could not assign points");
   } finally {
@@ -1583,6 +1585,28 @@ async function assignRankScores(teamIds) {
   paintRankScoreDialog({ focus: teamIds === null ? "[data-score-close]" : `[data-score-team="${pick[0].teamId}"] [data-score-assign]` });
   paintLiveQuestionCards();
   await refreshRaceGamePoints();
+  // An attendance poll already in flight when we assigned can land after
+  // this with the old game_points; refetch once more so the totals heal.
+  window.setTimeout(() => void refreshRaceGamePoints(), 1500);
+}
+
+/**
+ * Paint the Class list and the live scoring panel from a game state the
+ * server just returned (same as a Class list chip, ``postScoreFromButton``).
+ * @param {any} game ``game_state`` payload.
+ */
+function applyRankScoreGame(game) {
+  overlayState = game;
+  const nextPoints = { ...sessionGamePoints };
+  for (const student of game.students || []) {
+    if (student.id == null) continue;
+    const pts = Number(student.session_points ?? student.points ?? student.game_points);
+    if (Number.isFinite(pts)) nextPoints[String(student.id)] = pts;
+  }
+  sessionGamePoints = nextPoints;
+  liveStamp = "";
+  if (isScoringLive()) void openLiveScoring(overlayState, { stayOnScore: true });
+  renderAttendanceList();
 }
 
 $("rank-score-dialog")?.addEventListener("click", (event) => {
@@ -8677,6 +8701,39 @@ function renderAttendanceList() {
   }
   updateAttCount();
   paintDivisionMeter();
+  paintScoreboardPreviewTotals();
+}
+
+/**
+ * MCK-185: the Options-strip scoreboard shows each team's live game total,
+ * summed from the same numbers as the Class list GAME column, so it moves
+ * with every award (Score teams, +1 chips) instead of sitting at 0.
+ */
+function paintScoreboardPreviewTotals() {
+  const slots = document.querySelectorAll("#ap-scoreboard-preview-wrap .sb-preview-team");
+  if (!slots.length) return;
+  const teams = classListGroupsByTeam()
+    ? classListRosterOrder(projectedClassListStudents()).filter((group) => group.name)
+    : [];
+  slots.forEach((slot, index) => {
+    const group = teams[index];
+    const nameEl = slot.querySelector(".sb-preview-name");
+    const scoreEl = slot.querySelector(".sb-preview-score");
+    let total = 0;
+    for (const student of group?.students || []) {
+      const pts = Number(
+        student.game_points ??
+          student.session_points ??
+          sessionGamePoints[String(student.id)] ??
+          0
+      );
+      if (Number.isFinite(pts)) total += pts;
+    }
+    if (nameEl) nameEl.textContent = group ? group.name.toUpperCase() : `TEAM ${index + 1}`;
+    if (scoreEl) scoreEl.textContent = classListPts(total);
+    if (group?.color) slot.style.borderLeftColor = group.color;
+    else slot.style.removeProperty("border-left-color");
+  });
 }
 
 /**
