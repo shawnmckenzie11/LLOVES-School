@@ -411,3 +411,42 @@ def days_left_label(seconds_left: int) -> str:
     if days == 1:
         return "1 day left"
     return f"{days} days left"
+
+
+def invite_tabs(school: Any, tenant_id: int | None = None) -> dict[str, list[dict[str, Any]]]:
+    """Admin Invites card: ``pending`` / ``joined`` / ``expired`` row lists.
+
+    Each row gains ``left_label`` (Wonder's ``inv.list.left``),
+    ``preset_label`` (``SBI4U · MWF · 2:00pm`` or ``""``) and ``sent_label``.
+
+    Args:
+        school: ``SchoolDB``.
+        tenant_id: School seam.
+
+    Returns:
+        Dict of the three tabs, newest first.
+    """
+    from onboarding_presets import DAY_LABELS
+
+    tabs: dict[str, list[dict[str, Any]]] = {"pending": [], "joined": [], "expired": []}
+    for item in list_invites(school, tenant_id):
+        parts = [
+            str(item.get("preset_code") or ""),
+            DAY_LABELS.get(str(item.get("preset_days") or ""), str(item.get("preset_days") or "")),
+            str(item.get("preset_time") or ""),
+        ]
+        item["preset_label"] = " · ".join(p for p in parts if p) if parts[0] else ""
+        item["left_label"] = days_left_label(int(item.get("seconds_left") or 0))
+        sent = str(item.get("sent_at") or item.get("created_at") or "")
+        try:
+            item["sent_label"] = datetime.fromisoformat(sent).strftime("%b %-d")
+        except ValueError:
+            item["sent_label"] = ""
+        joined = str(item.get("accepted_at") or "")
+        try:
+            item["joined_label"] = datetime.fromisoformat(joined).strftime("%b %-d") if joined else ""
+        except ValueError:
+            item["joined_label"] = ""
+        if item["status"] in tabs:
+            tabs[item["status"]].append(item)
+    return tabs

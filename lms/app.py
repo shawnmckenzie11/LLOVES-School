@@ -1788,6 +1788,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             staff_2fa_modes=STAFF_2FA_MODE_LABELS,
             invite_presets=onboarding_preset_lists(school),
             invite_flash=session.pop("invite_flash", None),
+            invite_tabs=staff_invites.invite_tabs(school, tenant_id),
         )
         resp = make_response(html)
         resp.set_cookie("lloves_seen", "1", max_age=86400 * 400, samesite="Lax")
@@ -1883,6 +1884,76 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 "link": _invite_link(token),
             }
         return redirect(url_for("it_dashboard"))
+
+    def _admin_invite(invite_id: int) -> dict[str, Any]:
+        """The invite, only if it is in the signed-in Admin's school."""
+        row = staff_invites.get_invite(school, invite_id)
+        if row is None or int(row.get("tenant_id") or 1) != school.tenant_id_of(current_user()):
+            abort(404)
+        return row
+
+    @app.route("/it/invites/<int:invite_id>/resend", methods=["POST"])
+    @it_required
+    def it_resend_invite(invite_id: int):
+        """MCK-183 I4: new link + new 7-day expiry, emailed again (rate-limited)."""
+        actor = current_user()
+        row = _admin_invite(invite_id)
+        if staff_invites.invite_status(row) not in {"pending", "expired"}:
+            session["invite_flash"] = {"kind": "error", "message": "This invite can't be resent."}
+            return redirect(url_for("it_dashboard", _anchor="invites"))
+        try:
+            staff_invites.check_send_rate(school, int(actor["id"]) if actor else None, row)
+        except ValueError as exc:
+            session["invite_flash"] = {"kind": "error", "message": str(exc)}
+            return redirect(url_for("it_dashboard", _anchor="invites"))
+        invite, token = staff_invites.rotate_token(school, invite_id)
+        delivered = _send_invite_email(invite, token, actor)
+        _audit(
+            "invite.resend",
+            "staff",
+            resource_id=invite.get("user_id"),
+            detail={"invite_id": invite_id, "delivered": delivered},
+        )
+        if delivered:
+            session["invite_flash"] = {"kind": "sent", "email": invite["email"]}
+        else:
+            session["invite_flash"] = {
+                "kind": "not_sent",
+                "email": invite["email"],
+                "link": _invite_link(token),
+            }
+        return redirect(url_for("it_dashboard", _anchor="invites"))
+
+    @app.route("/it/invites/<int:invite_id>/link", methods=["POST"])
+    @it_required
+    def it_invite_link(invite_id: int):
+        """MCK-183 I4: Copy link. New token and expiry, no email.
+
+        Only a hash is stored, so an old link can't be shown again; older
+        links for this invite stop working.
+        """
+        row = _admin_invite(invite_id)
+        if staff_invites.invite_status(row) not in {"pending", "expired"}:
+            return jsonify({"error": "This invite has no link to copy."}), 409
+        invite, token = staff_invites.rotate_token(school, invite_id)
+        _audit("invite.link", "staff", resource_id=invite.get("user_id"),
+               detail={"invite_id": invite_id})
+        return jsonify({"link": _invite_link(token)})
+
+    @app.route("/it/invites/<int:invite_id>/revoke", methods=["POST"])
+    @it_required
+    def it_revoke_invite(invite_id: int):
+        """MCK-183 I4: the link stops working and the allowlist row is archived."""
+        actor = current_user()
+        row = _admin_invite(invite_id)
+        if staff_invites.invite_status(row) not in {"pending", "expired"}:
+            session["invite_flash"] = {"kind": "error", "message": "This invite can't be revoked."}
+            return redirect(url_for("it_dashboard", _anchor="invites"))
+        staff_invites.revoke_invite(school, invite_id, int(actor["id"]))
+        _audit("invite.revoke", "staff", resource_id=row.get("user_id"),
+               detail={"invite_id": invite_id})
+        session["invite_flash"] = {"kind": "revoked", "first": row.get("first_name") or row.get("email")}
+        return redirect(url_for("it_dashboard", _anchor="invites"))
 
     @app.route("/it/audit.csv")
     @it_required

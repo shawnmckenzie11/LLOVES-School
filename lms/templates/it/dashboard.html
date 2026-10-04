@@ -90,6 +90,62 @@
         </form>
       </section>
 
+      <section class="card it-invites-card" id="invites">
+        <h2>Invites</h2>
+        {% if invite_flash and invite_flash.kind == 'revoked' %}
+        <p class="it-invite-toast" role="status">Invite revoked for {{ invite_flash.first }}.</p>
+        {% endif %}
+        <p class="it-invite-toast" role="status" data-invite-copy-toast hidden>Link copied. Older links for this invite stop working.</p>
+        <div class="it-invite-tabs" role="tablist" aria-label="Invites">
+          {% for key, label in [('pending', 'Pending'), ('joined', 'Joined'), ('expired', 'Expired')] %}
+          <button type="button" class="it-invite-tab{% if loop.first %} on{% endif %}" role="tab"
+                  id="invite-tab-{{ key }}" aria-controls="invite-panel-{{ key }}"
+                  aria-selected="{{ 'true' if loop.first else 'false' }}" data-invite-tab="{{ key }}">{{ label }} <span class="it-invite-count">{{ invite_tabs[key]|length }}</span></button>
+          {% endfor %}
+        </div>
+        {% for key in ['pending', 'joined', 'expired'] %}
+        <div class="it-invite-panel" id="invite-panel-{{ key }}" role="tabpanel" aria-labelledby="invite-tab-{{ key }}"{% if key != 'pending' %} hidden{% endif %}>
+          {% if not invite_tabs[key] %}
+          <p class="hint">No invites here.</p>
+          {% else %}
+          <div class="it-table-wrap">
+            <table class="data it-invites-table">
+              <thead><tr><th>Name</th><th>Email</th><th>Class</th><th>{{ 'Joined' if key == 'joined' else 'Sent' }}</th>{% if key == 'pending' %}<th>Expires</th>{% endif %}{% if key != 'joined' %}<th></th>{% endif %}</tr></thead>
+              <tbody>
+                {% for inv in invite_tabs[key] %}
+                <tr data-invite-id="{{ inv.id }}">
+                  <td>{{ inv.first_name or "—" }}{% if inv.kind == 'test' %} <span class="badge badge-test">Test</span>{% endif %}</td>
+                  <td>{{ inv.email }}</td>
+                  <td>{{ inv.preset_label or "—" }}</td>
+                  <td>{{ inv.joined_label if key == 'joined' else inv.sent_label }}</td>
+                  {% if key == 'pending' %}<td>{{ inv.left_label }}</td>{% endif %}
+                  {% if key != 'joined' %}
+                  <td class="it-invite-actions">
+                    <form method="post" action="{{ url_for('it_resend_invite', invite_id=inv.id) }}"><button type="submit" class="btn secondary">Resend</button></form>
+                    <button type="button" class="btn secondary" data-invite-link-url="{{ url_for('it_invite_link', invite_id=inv.id) }}">Copy link</button>
+                    <button type="button" class="btn danger" data-invite-revoke="{{ url_for('it_revoke_invite', invite_id=inv.id) }}" data-invite-first="{{ inv.first_name or inv.email }}">Revoke</button>
+                  </td>
+                  {% endif %}
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+        <dialog class="it-invite-dialog" data-invite-revoke-dialog aria-labelledby="invite-revoke-title">
+          <form method="post" data-invite-revoke-form>
+            <h3 id="invite-revoke-title" data-invite-revoke-title>Revoke invite?</h3>
+            <p>Their link stops working and they won't be able to sign in. You can invite them again later.</p>
+            <div class="row-actions">
+              <button type="button" class="btn secondary" data-invite-revoke-cancel>Cancel</button>
+              <button type="submit" class="btn danger">Revoke</button>
+            </div>
+          </form>
+        </dialog>
+      </section>
+
       {% if access_requests %}
       <section class="card">
         <h2>Access requests</h2>
