@@ -41,6 +41,7 @@ import {
   cursorAfterOps,
   normalizeBoardPoint,
   clearBoardRefreshCue,
+  isFreshBoardRunKey,
   noteBoardRun,
   opsAboveCursor,
   showBoardRefreshCue,
@@ -2362,7 +2363,26 @@ const WB_REOPEN_COPY = Object.freeze({
   freshHelp: "A blank board. The last one is kept until class ends.", // wb.reopen.fresh.help
   toastLast: "Board reopened with the last ink.", // wb.reopen.toast.last
   toastFresh: "Fresh board is open.", // wb.reopen.toast.fresh
+  error: "Couldn't reopen the board. Try again.", // wb.reopen.error
+  errorEnded: "This class has ended, so the board can't reopen.", // wb.reopen.error.ended
 });
+
+/**
+ * Wonder line for a failed reopen, or "" when the tab should stay quiet.
+ *
+ * The reopen 409 carries a machine-readable ``reason`` (MCK-174):
+ * ``already_open`` (not closed, or another tab reopened it first) is
+ * quiet, ``class_ended`` gets ``wb.reopen.error.ended``. Network and
+ * server failures get ``wb.reopen.error``.
+ * @param {{status?: number, reason?: string} | null | undefined} err
+ * @returns {string}
+ */
+function whiteboardReopenErrorLine(err) {
+  const reason = String(err?.reason || "");
+  if (reason === "already_open") return "";
+  if (reason === "class_ended") return WB_REOPEN_COPY.errorEnded;
+  return WB_REOPEN_COPY.error;
+}
 
 /** True while a reopen POST is in flight (one at a time). */
 let whiteboardReopenInFlight = false;
@@ -2399,6 +2419,7 @@ function paintWhiteboardReopenControl(item, status) {
     button.disabled = whiteboardReopenInFlight;
   }
   if (!closed) closeWhiteboardReopenPopover({ focus: false });
+  if (closed) hideWhiteboardReopenToast();
 }
 
 /**
@@ -2451,11 +2472,30 @@ function closeWhiteboardReopenPopover(opts = {}) {
   }
 }
 
-let reopenToastTimer = 0;
+/** Pending "next action" listener that clears the reopen hint line. */
+let reopenToastClear = null;
 
 /**
- * Staff toast line under the Whiteboard controls (same pattern as the
- * mint toast).
+ * Hide the reopen hint line and drop its next-action listener.
+ */
+function hideWhiteboardReopenToast() {
+  const el = $("live-canvas-reopen-toast");
+  if (el instanceof HTMLElement) {
+    el.hidden = true;
+    el.textContent = "";
+  }
+  if (reopenToastClear) {
+    document.removeEventListener("pointerdown", reopenToastClear, true);
+    document.removeEventListener("keydown", reopenToastClear, true);
+    reopenToastClear = null;
+  }
+}
+
+/**
+ * Staff hint line under the Whiteboard controls (same pattern as the
+ * mint toast). It stays until the teacher's next action, a click or key
+ * anywhere on the page, or the next Close (MCK-174 follow-up), so it
+ * never stays up all class.
  * @param {string} line
  */
 function showWhiteboardReopenToast(line) {
@@ -2463,13 +2503,48 @@ function showWhiteboardReopenToast(line) {
   if (!(el instanceof HTMLElement)) return;
   const text = String(line || "").trim();
   if (!text) return;
+  hideWhiteboardReopenToast();
   el.textContent = text;
   el.hidden = false;
-  window.clearTimeout(reopenToastTimer);
-  reopenToastTimer = window.setTimeout(() => {
-    el.hidden = true;
-    el.textContent = "";
-  }, 2800);
+  // Arm on the next task so the click or Enter that reopened the board
+  // does not clear its own line.
+  window.setTimeout(() => {
+    if (el.hidden || reopenToastClear) return;
+    reopenToastClear = () => hideWhiteboardReopenToast();
+    document.addEventListener("pointerdown", reopenToastClear, true);
+    document.addEventListener("keydown", reopenToastClear, true);
+  }, 0);
+}
+
+/**
+ * POST the reopen and keep the HTTP status and 409 ``reason``, so an
+ * already-open board repaints quietly and an ended class gets its own line.
+ * @param {number} sessionId
+ * @param {number} itemId
+ * @param {"last"|"fresh"} start
+ * @returns {Promise<any>}
+ */
+async function postWhiteboardReopen(sessionId, itemId, start) {
+  const res = await fetch(`/api/live-sessions/${sessionId}/items/${itemId}/reopen`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ start }),
+  });
+  let data = {};
+  try {
+    data = await res.json();
+  } catch (_err) {
+    data = {};
+  }
+  if (!res.ok || data?.ok === false) {
+    const err = new Error(String(data?.error || `HTTP ${res.status}`));
+    err.status = res.status;
+    err.conflict = res.status === 409 && Boolean(data?.conflict);
+    err.reason = res.status === 409 ? String(data?.reason || "") : "";
+    throw err;
+  }
+  return data;
 }
 
 /**
@@ -2481,16 +2556,40 @@ async function reopenWhiteboard(start) {
   const sessionId = liveSessionId || readLiveSessionId();
   if (!sessionId || whiteboardReopenInFlight) return;
   const item = lifecycleItemForSurface("canvas");
-  if (!item || String(item.status || "") !== "closed") return;
+  if (!item) return;
+  // A retry clears the last failed-reopen line before it tries again.
+  hideError("#ap-overlay-error");
+  if (String(item.status || "") !== "closed") {
+    // Already open: a /state poll has heard another tab's reopen before
+    // this pane repainted. Show Active quietly, the same as a 409
+    // already_open.
+    closeWhiteboardReopenPopover({ focus: false });
+    paintSurfacePublishing();
+    return;
+  }
   const pick = start === "fresh" && reopenFreshAllowed(item) ? "fresh" : "last";
   closeWhiteboardReopenPopover({ focus: false });
   whiteboardReopenInFlight = true;
   paintSurfacePublishing();
   try {
-    const result = await api(
-      `/api/live-sessions/${sessionId}/items/${Number(item.id)}/reopen`,
-      { method: "POST", body: JSON.stringify({ start: pick }) }
-    );
+    let result = null;
+    try {
+      result = await postWhiteboardReopen(sessionId, Number(item.id), pick);
+    } catch (err) {
+      // Repaint from /state either way, so this tab shows what the server has.
+      try {
+        await refreshLiveQuestionCards();
+      } catch (_repaintErr) {
+        // Offline too: the Wonder line below still says what happened.
+      }
+      const line = whiteboardReopenErrorLine(err);
+      if (!line) {
+        // Already open (e.g. another teacher tab reopened it): the board
+        // is open, which is what this teacher asked for. No error line.
+        return;
+      }
+      throw new Error(line);
+    }
     if (result?.item) {
       lastLiveItems = lastLiveItems.map((row) =>
         Number(row.id) === Number(result.item.id) ? result.item : row
@@ -11716,7 +11815,12 @@ function refreshTeacherBoard() {
     }
     teacherBoardSince = Number(data.board_seq) || 0;
     if (canvas instanceof HTMLCanvasElement && !teacherBoardQuietRefresh) {
-      showBoardRefreshCue(canvas);
+      // A run change onto a ~g<n> key is a Fresh board mid-class, not a
+      // new class (MCK-174 follow-up: stale teacher tab).
+      showBoardRefreshCue(
+        canvas,
+        isFreshBoardRunKey(data.run_key) ? WB_REOPEN_COPY.toastFresh : undefined
+      );
     }
   })().finally(() => {
     teacherBoardRefresh = null;
