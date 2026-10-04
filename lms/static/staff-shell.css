@@ -7371,3 +7371,7 @@ body.staff-shell .onb-done-card h2 { margin: 0 0 0.5rem; font-size: 1.2rem; }
 body.staff-shell .onb-done-actions { display: flex; justify-content: flex-end; }
 body.staff-shell.course-live .onb-tour,
 body.staff-shell.course-live .onb-done { display: none !important; }
+
+/* MCK-183 slice E: pack-less non-math courses hide Module / Live class
+   (the selects stay in the DOM at M1 / C1 for staff_ap.js). */
+body.staff-shell .live-pack-field[hidden] { display: none !important; }

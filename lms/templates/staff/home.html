@@ -26,6 +26,7 @@
       {% set cls = o.classes[0] if o.classes else none %}
       {% set sched_days = cls.days if cls else o.live_days %}
       {% set sched_time = cls.time if cls else o.live_time %}
+      {% set simple = simple_course(o.ontario_code, o.library_id) %}
       <article class="card course-card{% if o.pack_busy %} pack-busy{% endif %}"
                data-ontario-code="{{ o.ontario_code }}"
                data-offering-id="{{ o.id }}"
@@ -39,12 +40,12 @@
         {% if sched_days and sched_time %}
         <p class="course-card-schedule">{{ live_schedule(sched_days, sched_time) }}</p>
         {% else %}
-        <p class="course-card-schedule is-placeholder">Schedule set when you Populate Class</p>
+        <p class="course-card-schedule is-placeholder">{% if simple %}Schedule set when you add your class list{% else %}Schedule set when you Populate Class{% endif %}</p>
         {% endif %}
         {% if not cls %}
-        <p class="course-card-join hint">No roster yet — Populate Class to add Codenames.</p>
+        <p class="course-card-join hint">{% if simple %}No class list yet. Add your students' first names.{% else %}No roster yet — Populate Class to add Codenames.{% endif %}</p>
         {% endif %}
-        {% if not o.library_id %}
+        {% if not o.library_id and not simple %}
         <p class="course-card-pack-hint hint">Ask Admin to attach a module pack.{% if not cls %} You can still Populate Class.{% endif %}</p>
         {% endif %}
 
@@ -119,7 +120,7 @@
               <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
                 <path fill="currentColor" d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm0 2c-4 0-8 2-8 4v2h16v-2c0-2-4-4-8-4z"/>
               </svg>
-              <span>Populate Class</span>
+              <span>{% if simple %}Class list{% else %}Populate Class{% endif %}</span>
             </button>
           </div>
           {% endif %}

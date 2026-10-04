@@ -2719,6 +2719,19 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """MCK-183 slice D: the Help menu's contact address on staff pages."""
         return {"help_contact_email": _help_contact_email()}
 
+    def _simple_course(ontario_code: Any, library_id: Any) -> bool:
+        """MCK-183 slice E: a course with no module pack that is not math.
+
+        Ontario math codes start with "M" (MCF3M, MHF4U, MPM2D...), so Shawn's
+        courses, with or without a pack, keep every tab and label. A
+        pack-less non-math course (SBI4U, ENG2D...) shows the plain teacher
+        view: Run Live Class and Attendance & Participation.
+        """
+        code = str(ontario_code or "").strip().upper()
+        return bool(code) and not library_id and not code.startswith("M")
+
+    app.jinja_env.globals["simple_course"] = _simple_course
+
     def _tour_offer(user: dict[str, Any], classes: list[dict[str, Any]]) -> bool:
         """May the Dashboard tour open by itself for this teacher?
 
@@ -3544,7 +3557,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         expectations = []
         if offering:
             expectations = school.list_expectations(str(offering["ontario_code"]))
-        tab = (request.args.get("tab") or "modules").strip().lower()
+        course_simple = _simple_course(
+            (offering or {}).get("ontario_code") or cls.get("ontario_code"),
+            cls.get("library_id") or (offering or {}).get("library_id"),
+        )
+        # Pack-less non-math courses open on Attendance & Participation.
+        default_tab = "ap" if course_simple else "modules"
+        tab = (request.args.get("tab") or default_tab).strip().lower()
         if tab in {"track-live", "track_live"}:
             tab = "live"
         from portfolio.flags import portfolio_tab_enabled
@@ -3598,9 +3617,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             "profiles",
             "portfolio",
         }:
-            tab = "modules"
+            tab = default_tab
         if tab == "portfolio" and not show_portfolio_tab:
-            tab = "modules"
+            tab = default_tab
         pack_error = session.pop("pack_error", None)
         pack_ok = request.args.get("pack") == "ok"
         live_step = (request.args.get("step") or "").strip().lower()
@@ -3659,6 +3678,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             log_participation=request.args.get("participate") == "1",
             run_live=request.args.get("run") == "1",
             tour_done=request.args.get("tour") == "done" and tab == "ap",
+            course_simple=course_simple,
             live_session_id=live_session_id,
             live_session_code=live_session_code,
             live_step=live_step,
