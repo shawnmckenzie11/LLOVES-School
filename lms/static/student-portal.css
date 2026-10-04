@@ -2966,3 +2966,122 @@ body.rw-open { overflow: hidden; }
 .race-phone .rank-option-row {
   min-height: 48px;
 }
+
+/* MCK-171 phone results (own team only). */
+.race-phone-cue.is-results {
+  background: #ecfdf3;
+  font-weight: 600;
+}
+.race-phone-spots {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.race-phone-spots li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.race-phone-spots .race-phone-label {
+  flex: 1;
+}
+.race-phone-draft {
+  margin: 0 0 10px;
+  padding: 0 12px;
+  font-size: 0.9rem;
+  color: inherit; /* on the dark card */
+}
+.race-phone-answer {
+  font-weight: 400;
+  font-size: 0.85rem;
+  color: #475569;
+}
+.race-phone-mark {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid #94a3b8;
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+}
+.race-phone-spots li.is-right .race-phone-mark {
+  background: var(--team, #12202e);
+  border-color: var(--team, #12202e);
+}
+.race-phone-you {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 14px 0 4px;
+  font-weight: 600;
+  color: inherit; /* on the dark card */
+}
+.race-phone-you strong {
+  font-size: 1.25rem;
+}
+.race-phone-podium-line {
+  margin: 0 0 8px;
+  color: inherit;
+}
+.race-mini-podium {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  align-items: end;
+  gap: 6px;
+  margin-top: 12px;
+}
+.race-mini-step {
+  display: grid;
+  place-items: start center;
+  padding: 6px 4px;
+  border: 1.5px solid #12202e;
+  border-radius: 6px 6px 0 0;
+  background: #f1f5f9;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: center;
+  color: #12202e;
+}
+.race-mini-step.is-step-1 { min-height: 84px; background: #fef9c3; }
+.race-mini-step.is-step-2 { min-height: 60px; }
+.race-mini-step.is-step-3 { min-height: 42px; }
+.race-mini-step.is-empty { border: 0; background: none; }
+.race-mini-step.is-mine {
+  outline: 2px dashed #f8fafc; /* light, on the dark card */
+  outline-offset: 3px;
+}
+.race-phone-burst {
+  position: absolute;
+  inset: -20px 0 auto;
+  height: 0;
+  pointer-events: none;
+}
+.race-phone-burst i {
+  position: absolute;
+  left: calc(10% + var(--i) * 8%);
+  width: 6px;
+  height: 9px;
+  background: var(--team, #12202e);
+  opacity: 0;
+  animation: race-phone-burst 900ms ease-out 1 both;
+}
+@keyframes race-phone-burst {
+  0% { opacity: 1; transform: translateY(0) rotate(0); }
+  100% { opacity: 0; transform: translateY(90px) rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .race-phone-burst { display: none; }
+}

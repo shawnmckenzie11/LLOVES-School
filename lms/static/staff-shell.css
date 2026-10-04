@@ -6976,3 +6976,234 @@ body.staff-shell .race-lane.is-popping .race-lane-flag {
     animation: none;
   }
 }
+
+/* MCK-171 results moment (IA v0.2 F4, mock v1 §2-4): rows, points, podium. */
+body.staff-shell .race-reveal {
+  width: calc(100% - 48px);
+  margin: 8px 24px 0;
+  border-collapse: collapse;
+  color: #12202e;
+}
+body.staff-shell .race-reveal thead th {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--team, #12202e);
+  padding: 8px 4px;
+  text-align: center;
+}
+body.staff-shell .race-reveal thead .race-chip {
+  display: block;
+  font-size: 32px;
+}
+body.staff-shell .race-reveal tbody th {
+  text-align: left;
+  font-size: 24px;
+  font-weight: 600;
+  padding: 10px 8px;
+  white-space: nowrap;
+}
+body.staff-shell .race-reveal tbody td {
+  text-align: center;
+  padding: 8px 4px;
+}
+body.staff-shell .race-reveal tbody tr {
+  border-top: 1px solid #e3e8ee;
+}
+body.staff-shell .race-reveal tr.is-hidden th {
+  color: #5b6779;
+}
+body.staff-shell .race-reveal tr.is-hidden {
+  background: repeating-linear-gradient(135deg, #f8fafc 0 10px, #eef2f6 10px 20px);
+}
+body.staff-shell .race-reveal tr.is-latest {
+  background: #effcf9;
+}
+body.staff-shell .race-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  font-size: 22px;
+  font-weight: 700;
+}
+body.staff-shell .race-mark.is-right {
+  background: var(--team, #12202e);
+  color: #fff;
+  animation: race-check-pop 300ms ease-out;
+}
+body.staff-shell .race-mark.is-not {
+  border: 3px solid #94a3b8;
+}
+body.staff-shell .race-mark.is-none {
+  color: #5b6779;
+}
+body.staff-shell .race-points {
+  list-style: none;
+  margin: 0;
+  padding: 8px 24px;
+}
+body.staff-shell .race-points-row {
+  display: grid;
+  grid-template-columns: 48px 190px minmax(0, 1fr) max-content;
+  align-items: center;
+  column-gap: 16px;
+  min-height: 60px;
+  border-bottom: 1px solid #e3e8ee;
+}
+body.staff-shell .race-bar-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+body.staff-shell .race-bar-note {
+  font-size: 16px;
+  color: #475569;
+}
+body.staff-shell .race-bar-track {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+body.staff-shell .race-bar {
+  flex: none;
+  height: 36px;
+  border-radius: 6px;
+  background: var(--team, #12202e);
+}
+body.staff-shell .race-bar-label {
+  font-size: 20px;
+  font-weight: 700;
+  color: #12202e;
+  white-space: nowrap;
+}
+body.staff-shell .race-bar-empty {
+  font-size: 20px;
+  color: #5b6779;
+}
+body.staff-shell .race-points-total {
+  text-align: right;
+  font-size: 26px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+body.staff-shell .race-points-row.is-absent .race-lane-name,
+body.staff-shell .race-points-row.is-absent .race-chip {
+  color: #5b6779;
+}
+body.staff-shell .race-podium {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 240px));
+  justify-content: center;
+  align-items: end;
+  gap: 16px;
+  padding: 24px 24px 0;
+  min-height: 330px;
+  overflow: hidden;
+}
+body.staff-shell .race-step {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  text-align: center;
+}
+body.staff-shell .race-step-who {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+body.staff-shell .race-step-team {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--team, #12202e);
+  padding: 0 6px;
+  border-radius: 6px;
+}
+body.staff-shell .race-step-team .race-chip {
+  font-size: 26px;
+  margin-right: 8px;
+}
+body.staff-shell .race-step-tie {
+  font-size: 16px;
+  font-weight: 700;
+  border: 2px solid #12202e;
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+body.staff-shell .race-step-pts {
+  font-size: 20px;
+  color: #334155;
+}
+body.staff-shell .race-step-block {
+  display: grid;
+  place-items: start center;
+  padding-top: 14px;
+  border: 2px solid #12202e;
+  border-radius: 8px 8px 0 0;
+  background: #f1f5f9;
+  font-size: 36px;
+  font-weight: 800;
+  transform-origin: bottom;
+  animation: race-step-rise 600ms ease-out both;
+}
+body.staff-shell .race-step.is-step-1 .race-step-block {
+  height: 170px;
+  background: #fef9c3;
+}
+body.staff-shell .race-step.is-step-2 .race-step-block {
+  height: 120px;
+}
+body.staff-shell .race-step.is-step-3 .race-step-block {
+  height: 80px;
+}
+body.staff-shell .race-others {
+  text-align: center;
+  font-size: 20px;
+  margin: 12px 24px 0;
+}
+body.staff-shell .race-confetti {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  pointer-events: none;
+}
+body.staff-shell .race-confetti i {
+  position: absolute;
+  top: -12px;
+  left: calc(8% + var(--i) * 4.8%);
+  width: 10px;
+  height: 14px;
+  background: var(--c);
+  opacity: 0;
+  animation: race-confetti 1200ms ease-in 600ms 1 both;
+}
+@keyframes race-step-rise {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+@keyframes race-confetti {
+  0% { opacity: 1; transform: translateY(0) rotate(0); }
+  100% { opacity: 0; transform: translateY(320px) rotate(540deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.staff-shell .race-step-block,
+  body.staff-shell .race-mark.is-right {
+    animation: none;
+  }
+  body.staff-shell .race-confetti {
+    display: none;
+  }
+  /* No confetti: podium team names get a static gold outline instead. */
+  body.staff-shell .race-step-team {
+    outline: 3px solid #d4a017;
+    outline-offset: 2px;
+  }
+}
