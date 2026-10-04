@@ -116,6 +116,36 @@ class PureHelperTests(unittest.TestCase):
         self.assertNotIn("@", digest)
         self.assertEqual(email_hash(""), "")
 
+    def test_email_hash_is_keyed_with_the_server_secret(self) -> None:
+        """HMAC, not a bare sha256: a guessed address can't be confirmed in Sentry."""
+        import hashlib
+
+        plain = hashlib.sha256(b"a@b.com").hexdigest()[:12]
+        with patch.dict(os.environ, {"FLASK_SECRET_KEY": "one"}, clear=False):
+            first = email_hash("a@b.com")
+        with patch.dict(os.environ, {"FLASK_SECRET_KEY": "two"}, clear=False):
+            second = email_hash("a@b.com")
+        self.assertNotEqual(first, plain)
+        self.assertNotEqual(first, second)
+
+    def test_transaction_and_spans_lose_query_strings(self) -> None:
+        """before_send_transaction strips ?v= from name, request and spans."""
+        event = {
+            "type": "transaction",
+            "transaction": "/student/home?v=VISITTOKEN1",
+            "request": {"url": "https://alc.mckenzian.com/student/home?v=VISITTOKEN1",
+                        "query_string": "v=VISITTOKEN1"},
+            "contexts": {"trace": {"data": {"url.full": "https://x/student/home?v=VISITTOKEN1"}}},
+            "spans": [{"description": "GET /api/student/live-prompt/response?v=VISITTOKEN1",
+                       "data": {"http.url": "https://x/api/student/a?v=VISITTOKEN1",
+                                "http.query": "v=VISITTOKEN1", "url": "/api/b?v=VISITTOKEN1#f"}}],
+        }
+        out = sentry_wire.before_send_transaction(event)
+        text = json.dumps(out)
+        self.assertNotIn("VISITTOKEN1", text)
+        self.assertNotIn("?v=", text)
+        self.assertEqual(out["spans"][0]["description"], "GET /api/student/live-prompt/response")
+
     def test_tool_from_route_group(self) -> None:
         """Each route group maps to one tool tag."""
         cases = {
@@ -274,6 +304,25 @@ class RequestScopeTests(unittest.TestCase):
         self.env.stop()
         self.school.close()
         self.tmp.cleanup()
+
+    def test_student_error_event_has_no_visit_token(self) -> None:
+        """A server error on a student request drops the query string too."""
+        self.app.test_client().get("/student/boom?v=VISITTOKEN8")
+        sentry_sdk.flush()
+        self.assertTrue([e for e in _items(self.transport, "event") if e.get("exception")])
+        self.assertNotIn("VISITTOKEN8", _all_text(self.transport))
+
+    def test_forced_sampled_student_trace_has_no_visit_token(self) -> None:
+        """Every request traced: a student ?v= visit token never reaches Sentry."""
+        anon = self.app.test_client()
+        anon.get("/student/home?v=VISITTOKEN9")
+        anon.get("/api/student/live-prompt?v=VISITTOKEN9")
+        anon.get("/?v=VISITTOKEN9")
+        sentry_sdk.flush()
+        self.assertTrue(_items(self.transport, "transaction"))
+        text = _all_text(self.transport)
+        self.assertNotIn("VISITTOKEN9", text)
+        self.assertNotIn("?v=", text)
 
     def test_staff_error_carries_teacher_identity_and_tags(self) -> None:
         """user id + email hash, teacher_kind other, class and course tags."""
@@ -576,10 +625,26 @@ assert(JSON.stringify(ev.user) === '{"id":"7"}', "event user");
   fetchStatus = 500;
   await sandbox.fetch("https://accounts.google.com/gsi/client");
   assert(calls.messages.length === 2, "reported a soft status or a foreign host");
-  // Swallowed poll paint errors report.
+  // Swallowed poll paint errors report, at most 3 per page load.
   sandbox.llovesSentryReport(new TypeError("x is undefined"), "student-state-paint");
   assert(calls.exceptions.length === 1, "llovesSentryReport");
   assert(calls.exceptions[0][1].tags["lloves.where"] === "student-state-paint", "where tag");
+  for (let i = 0; i < 5; i += 1) sandbox.llovesSentryReport(new TypeError("again"), "student-state-paint");
+  assert(calls.exceptions.length === 3, "report cap " + calls.exceptions.length);
+  // Spans and transactions lose query strings (student ?v= visit token).
+  const span = opts.beforeSendSpan({
+    description: "GET /api/student/live-prompt/response?v=VISITTOKEN1",
+    data: { "url.full": "https://alc.mckenzian.com/api/student/live-prompt/response?v=VISITTOKEN1", "url.query": "?v=VISITTOKEN1", "http.url": "/api/student/x?v=VISITTOKEN1" },
+  });
+  assert(span && !JSON.stringify(span).includes("VISITTOKEN1"), "span leaked " + JSON.stringify(span));
+  const tx = opts.beforeSendTransaction({
+    transaction: "/student/home?v=VISITTOKEN1",
+    request: { url: "https://alc.mckenzian.com/student/home?v=VISITTOKEN1", query_string: "v=VISITTOKEN1" },
+    contexts: { trace: { data: { "url.full": "https://alc.mckenzian.com/student/home?v=VISITTOKEN1" } } },
+    spans: [{ description: "GET /student/mood?v=VISITTOKEN1", data: { "http.url": "/student/mood?v=VISITTOKEN1", "http.query": "v=VISITTOKEN1" } }],
+  });
+  const txText = JSON.stringify(tx);
+  assert(!txText.includes("VISITTOKEN1") && !txText.includes("?v="), "transaction leaked " + txText);
   console.log("ok");
 })().catch((err) => { console.error(err.message); process.exit(1); });
 """
