@@ -282,12 +282,29 @@ def init_flask_sentry() -> bool:
     return True
 
 
+_INVITE_TOKEN_RE = re.compile(r"/invite/[^/?#]+")
+_PII_QUERY_RE = re.compile(r"(?i)(login_hint|email)=")
+
+
 def _drop_request_body(event: dict[str, Any]) -> dict[str, Any]:
-    """Remove any request body from an event (roster names live in bodies)."""
+    """Remove request bodies, invite tokens and emailed hints from an event.
+
+    Roster names live in bodies; ``/invite/<token>`` paths carry a sign-in
+    secret; ``/auth/google?login_hint=`` carries the invited email.
+    """
     request = event.get("request")
     if isinstance(request, dict):
         request.pop("data", None)
         request.pop("cookies", None)
+        url = request.get("url")
+        if isinstance(url, str):
+            request["url"] = _INVITE_TOKEN_RE.sub("/invite/[token]", url)
+        query = request.get("query_string")
+        if isinstance(query, str) and _PII_QUERY_RE.search(query):
+            request["query_string"] = "[filtered]"
+    transaction = event.get("transaction")
+    if isinstance(transaction, str):
+        event["transaction"] = _INVITE_TOKEN_RE.sub("/invite/[token]", transaction)
     return event
 
 

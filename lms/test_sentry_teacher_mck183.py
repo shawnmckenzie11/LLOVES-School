@@ -27,6 +27,7 @@ import sentry_sdk  # noqa: E402
 from sentry_sdk.transport import Transport  # noqa: E402
 
 from app import create_app  # noqa: E402
+import sentry_wire  # noqa: E402
 from sentry_wire import (  # noqa: E402
     ACTION_ENDPOINTS,
     ACTION_LOG_ATTRIBUTE,
@@ -190,6 +191,26 @@ class PureHelperTests(unittest.TestCase):
         self.assertEqual(kwargs["max_request_body_size"], "never")
         self.assertIn("before_send_transaction", kwargs)
         self.assertNotIn("replays_session_sample_rate", json.dumps(sorted(kwargs)))
+
+
+    def test_invite_token_and_login_hint_scrubbed(self) -> None:
+        """Invite links and emailed sign-in hints never reach Sentry."""
+        event = {
+            "transaction": "/invite/abc123SECRET",
+            "request": {
+                "url": "https://alc.mckenzian.com/invite/abc123SECRET",
+                "query_string": "portal=staff&login_hint=rae%40gmail.com",
+                "data": {"names": "Sam"},
+            },
+        }
+        out = sentry_wire.before_send(event, {})
+        self.assertNotIn("SECRET", json.dumps(out))
+        self.assertNotIn("rae", json.dumps(out))
+        self.assertEqual(out["request"]["url"], "https://alc.mckenzian.com/invite/[token]")
+        tx = sentry_wire.before_send_transaction(
+            {"transaction": "/invite/abc123SECRET/switch", "request": {"url": "/invite/abc123SECRET"}}
+        )
+        self.assertNotIn("SECRET", json.dumps(tx))
 
 
 class RequestScopeTests(unittest.TestCase):
