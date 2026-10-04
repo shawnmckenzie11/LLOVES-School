@@ -450,3 +450,33 @@ def invite_tabs(school: Any, tenant_id: int | None = None) -> dict[str, list[dic
         if item["status"] in tabs:
             tabs[item["status"]].append(item)
     return tabs
+
+
+def accepted_preset_for(school: Any, user_id: int) -> tuple[str, str, str] | None:
+    """The class preset from this teacher's accepted invite, for screen 2.
+
+    Args:
+        school: ``SchoolDB``.
+        user_id: Teacher ``users.id``.
+
+    Returns:
+        ``(code, days, time)`` or ``None`` when the invite had no preset.
+    """
+    with school._lock:
+        row = school.conn.execute(
+            """
+            SELECT preset_code, preset_days, preset_time FROM staff_invites
+            WHERE user_id = ? AND accepted_at IS NOT NULL AND preset_code IS NOT NULL
+              AND preset_code != ''
+            ORDER BY accepted_at DESC, id DESC LIMIT 1
+            """,
+            (int(user_id),),
+        ).fetchone()
+    if row is None:
+        return None
+    return (
+        str(row["preset_code"] or ""),
+        str(row["preset_days"] or ""),
+        str(row["preset_time"] or ""),
+    )
+

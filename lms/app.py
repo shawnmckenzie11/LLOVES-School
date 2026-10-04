@@ -2813,8 +2813,113 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             user=user,
             step=step,
             has_course=bool(offerings),
+            presets=onboarding_preset_lists(school),
+            class_rows=_onboarding_class_rows(user, offerings),
             school_name=SCHOOL_NAME,
         )
+
+    def _onboarding_class_rows(
+        user: dict[str, Any], offerings: list[dict[str, Any]]
+    ) -> list[dict[str, str]]:
+        """Screen 2 rows: her courses so far, else the invite preset, else one empty row."""
+        rows = [
+            {
+                "code": str(o.get("ontario_code") or "").upper(),
+                "days": str(o.get("live_days") or ""),
+                "time": str(o.get("live_time") or ""),
+            }
+            for o in offerings
+        ]
+        if rows:
+            return rows
+        preset = staff_invites.accepted_preset_for(school, int(user["id"]))
+        if preset:
+            code, days, time_label = preset
+            return [{"code": code, "days": days, "time": time_label}]
+        return [{"code": "", "days": "", "time": ""}]
+
+    #: Most classes one Next press may create (one per row).
+    ONBOARDING_MAX_CLASSES = 6
+
+    @app.route("/api/staff/onboarding/course", methods=["POST"])
+    @staff_required
+    def api_staff_onboarding_course():
+        """MCK-183 slice B: the teacher's own course(s) from screen 2.
+
+        Body ``{"classes": [{"ontario_code", "live_days", "live_time"}, ...]}``.
+        Every row must be a listed course, days preset and start time (Wonder's
+        single error otherwise). Only during setup (no class yet). Each row
+        becomes an offering for the active semester, created by the teacher
+        with no module pack upload; a repeated code becomes a new section.
+        Rows matching a course she already set up here (Back, then Next
+        again) update its days and time instead of adding a section.
+        """
+        user = current_user()
+        assert user is not None
+        error = "Pick a course, days and a start time to continue."
+        active = school.get_active_semester()
+        if not active:
+            return jsonify({"ok": False, "error": "No semester is active yet. Ask Shawn."}), 409
+        offerings, classes = _teacher_setup(user)
+        if classes:
+            return jsonify({"ok": False, "error": "Your classes are already set up."}), 409
+        payload = request.get_json(silent=True) or {}
+        rows = payload.get("classes")
+        if not isinstance(rows, list) or not rows or len(rows) > ONBOARDING_MAX_CLASSES:
+            return jsonify({"ok": False, "error": error}), 400
+        cleaned: list[tuple[str, str, str]] = []
+        try:
+            for row in rows:
+                if not isinstance(row, dict):
+                    raise ValueError(error)
+                choice = onboarding_clean_preset(
+                    school,
+                    row.get("ontario_code"),
+                    row.get("live_days"),
+                    row.get("live_time"),
+                    required=True,
+                )
+                assert choice is not None
+                cleaned.append(choice)
+        except ValueError:
+            return jsonify({"ok": False, "error": error}), 400
+        unclaimed = {}
+        for offering in sorted(offerings, key=lambda o: int(o["id"])):
+            unclaimed.setdefault(str(offering["ontario_code"]).upper(), []).append(offering)
+        saved: list[dict[str, Any]] = []
+        try:
+            for code, days, time_label in cleaned:
+                reuse = unclaimed.get(code) or []
+                if reuse:
+                    offering = reuse.pop(0)
+                else:
+                    held = school.get_offering_for(int(active["id"]), code, int(user["id"]))
+                    offering = school.assign_course(
+                        teacher_user_id=int(user["id"]),
+                        ontario_code=code,
+                        new_section=held is not None,
+                    )
+                    _audit(
+                        "offering.self_assign",
+                        "offering",
+                        resource_id=int(offering["id"]),
+                        detail={"ontario_code": code},
+                    )
+                offering = school.set_offering_schedule(
+                    int(offering["id"]), live_days=days, live_time=time_label
+                )
+                saved.append(
+                    {
+                        "id": int(offering["id"]),
+                        "ontario_code": code,
+                        "live_days": days,
+                        "live_time": time_label,
+                    }
+                )
+        except (KeyError, ValueError) as exc:
+            app.logger.warning("onboarding course failed: %s", exc)
+            return jsonify({"ok": False, "error": error}), 400
+        return jsonify({"ok": True, "offerings": saved, "next": url_for("staff_home")})
 
     @app.route("/staff")
     @staff_required

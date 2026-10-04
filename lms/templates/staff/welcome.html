@@ -16,7 +16,7 @@
   <main class="ob-wrap">
     {% if step == 'welcome' %}
     <section class="ob-card" aria-labelledby="ob-title">
-      <div class="ob-progress" aria-hidden="true"><i class="on"></i><i></i><i></i></div>
+      <div class="ob-progress" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i><i></i></div>
       <h1 id="ob-title">Welcome to ALC</h1>
       <p class="ob-body">ALC takes attendance and tracks participation while you teach. Students join on their own phones or laptops. This setup takes about 3 minutes.</p>
       <div class="ob-btns">
@@ -26,15 +26,42 @@
     </section>
     {% else %}
     <section class="ob-card" aria-labelledby="ob-title">
-      <div class="ob-progress" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i></div>
+      <div class="ob-progress" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></div>
       <h1 id="ob-title">Tell us about your class</h1>
-      <p class="ob-body">No course is assigned to you for the active semester. Ask Admin to assign an Ontario course code.</p>
-      <div class="ob-btns">
-        <a class="btn sec" href="{{ url_for('staff_welcome') }}">Back</a>
-        <span></span>
-      </div>
+      <form id="ob-class-form" data-endpoint="{{ url_for('api_staff_onboarding_course') }}" novalidate>
+        <div id="ob-class-rows">
+          {% for row in class_rows %}
+          <fieldset class="ob-class-row" data-ob-class-row>
+            <legend class="ob-sr">Class {{ loop.index }}</legend>
+            <label class="ob-field" for="ob-code-{{ loop.index }}">Course code</label>
+            <select class="ob-select" id="ob-code-{{ loop.index }}" name="ontario_code" data-ob-field="ontario_code">
+              <option value="">Choose…</option>
+              {% for c in presets.courses %}<option value="{{ c.code }}"{% if c.code == row.code %} selected{% endif %}>{{ c.code }} · {{ c.title }}</option>{% endfor %}
+            </select>
+            <p class="ob-help">Don't see your course? Ask Shawn to add it.</p>
+            <label class="ob-field" for="ob-days-{{ loop.index }}">Days</label>
+            <select class="ob-select" id="ob-days-{{ loop.index }}" name="live_days" data-ob-field="live_days">
+              <option value="">Choose…</option>
+              {% for d in presets.day_options %}<option value="{{ d.value }}"{% if d.value == row.days %} selected{% endif %}>{{ d.label }}</option>{% endfor %}
+            </select>
+            <label class="ob-field" for="ob-time-{{ loop.index }}">Start time</label>
+            <select class="ob-select" id="ob-time-{{ loop.index }}" name="live_time" data-ob-field="live_time">
+              <option value="">Choose…</option>
+              {% for t in presets.time_options %}<option value="{{ t }}"{% if t == row.time %} selected{% endif %}>{{ t }}</option>{% endfor %}
+            </select>
+          </fieldset>
+          {% endfor %}
+        </div>
+        <button type="button" class="ob-link" id="ob-add-class">+ Add another class</button>
+        <p class="ob-err" id="ob-class-error" role="alert" hidden>Pick a course, days and a start time to continue.</p>
+        <div class="ob-btns">
+          <a class="ob-back" href="{{ url_for('staff_welcome') }}">Back</a>
+          <button type="submit" class="btn ob-primary" id="ob-class-next">Next</button>
+        </div>
+      </form>
     </section>
     {% endif %}
   </main>
+  <script src="/static/onboarding.js"></script>
 </body>
 </html>

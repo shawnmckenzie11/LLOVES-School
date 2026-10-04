@@ -34,3 +34,22 @@
 .ob-field { display: block; font-weight: 650; font-size: 14px; margin: 14px 0 5px; }
 .ob-help { font-size: 12.5px; color: #64748b; margin-top: 4px; }
 .ob-err { font-size: 13px; color: #b91c1c; margin-top: 8px; font-weight: 600; }
+.ob-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.ob-class-row { border: 0; margin: 0; padding: 0; }
+.ob-class-row + .ob-class-row { border-top: 1px solid #e2e8f0; margin-top: 18px; padding-top: 4px; }
+.ob-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  font: inherit;
+  font-size: 15px;
+  border: 1px solid #94a3b8;
+  border-radius: 8px;
+  background: #fff;
+  color: #12202e;
+}
+.ob-select.is-missing { border-color: #dc2626; box-shadow: 0 0 0 1px #dc2626; }
+.ob-link { background: none; border: 0; padding: 0; margin: 16px 0 0; font: inherit; font-weight: 650; font-size: 14.5px; color: #0f766e; cursor: pointer; }
+.ob-back { color: #0f172a; font-size: 15px; }
+.ob-card .btn[disabled] { opacity: 0.6; cursor: wait; }
+
