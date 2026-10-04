@@ -2656,6 +2656,60 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         classes = school.list_staff_classes(int(user["id"]), int(active["id"]))
         return offerings, classes
 
+    @app.route("/invite/<token>")
+    def invite_landing(token: str):
+        """MCK-183 I3: the invite link. Valid, expired, used, revoked, unknown.
+
+        Valid: remember the invite in the session and offer Continue with
+        Google (``login_hint`` = invited email). The invite is only used up
+        when the matching Google account signs in. Already signed in as the
+        invited teacher: accept and go to Welcome. Signed in as someone
+        else: the mismatch page, invite untouched.
+        """
+        state, row = staff_invites.resolve_invite(school, token)
+        if state == "revoked":
+            state = "void"
+        if state == "unknown":
+            state = "void"
+        context: dict[str, Any] = {"state": state, "school_name": SCHOOL_NAME}
+        if state == "used":
+            context["signin_url"] = url_for("auth_google", portal="staff")
+        if state != "valid" or row is None:
+            return render_template("invite.html", **context)
+        invite_email = str(row["email"]).lower()
+        user = current_user()
+        if user is not None:
+            if str(user.get("email") or "").lower() == invite_email:
+                staff_invites.mark_accepted(school, int(row["id"]))
+                _audit("invite.accept", "staff", resource_id=row.get("user_id"),
+                       detail={"invite_id": row.get("id")})
+                return redirect(url_for("staff_welcome"))
+            return render_template(
+                "invite.html",
+                state="mismatch",
+                invite_email=invite_email,
+                google_email=str(user.get("email") or "").lower(),
+                retry_url=url_for("logout_to_invite", token=token),
+                school_name=SCHOOL_NAME,
+            )
+        session["pending_invite_id"] = int(row["id"])
+        context.update(
+            email=invite_email,
+            continue_url=url_for(
+                "auth_google",
+                portal="staff",
+                next=url_for("staff_welcome"),
+                login_hint=invite_email,
+            ),
+        )
+        return render_template("invite.html", **context)
+
+    @app.route("/invite/<token>/switch")
+    def logout_to_invite(token: str):
+        """Sign out the other account, then reopen the same invite link."""
+        session.clear()
+        return redirect(url_for("invite_landing", token=token))
+
     @app.route("/welcome")
     def welcome_link():
         """MCK-183: the link Shawn sends a new teacher.

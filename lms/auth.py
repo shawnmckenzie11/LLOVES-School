@@ -760,6 +760,9 @@ def _finish_google_identity(
     Returns:
         Flask redirect or 403 response.
     """
+    invite_page = _check_pending_invite(email)
+    if invite_page is not None:
+        return invite_page
     db = school_db()
     email_key = (email or "").strip().lower()
     user = db.get_user_by_google_sub(google_sub) or db.get_user_by_email(email_key)
@@ -802,6 +805,79 @@ def _finish_google_identity(
 
     establish_user_session(user, portal=portal_key)
     return _post_login_redirect(portal_key)
+
+
+def _check_pending_invite(email: str):
+    """MCK-183 I3: match the Google account against an invite link.
+
+    The invite id is in the session from ``/invite/<token>``. A different
+    Google account gets the mismatch page and is **not** signed in; the
+    invite stays unused. A match marks the invite used (single use) and sets
+    the post-login destination to ``/staff/welcome``. A stale invite (used,
+    expired or revoked meanwhile) is dropped and sign-in carries on.
+
+    Args:
+        email: Google account email.
+
+    Returns:
+        A response to show instead of signing in, or ``None`` to continue.
+    """
+    invite_id = session.get("pending_invite_id")
+    if not invite_id:
+        return None
+    import staff_invites
+
+    db = school_db()
+    row = staff_invites.get_invite(db, int(invite_id))
+    if row is None or staff_invites.invite_status(row) != "pending":
+        session.pop("pending_invite_id", None)
+        return None
+    google_email = (email or "").strip().lower()
+    invite_email = str(row.get("email") or "").strip().lower()
+    if google_email != invite_email:
+        _invite_audit(
+            db,
+            action="invite.mismatch",
+            resource_type="staff",
+            resource_id=row.get("user_id"),
+            detail={"invite_id": row.get("id")},
+            ip=request.remote_addr,
+        )
+        return render_template(
+            "invite.html",
+            state="mismatch",
+            invite_email=invite_email,
+            google_email=google_email,
+            retry_url=url_for(
+                "auth_google",
+                portal="staff",
+                next=url_for("staff_welcome"),
+                login_hint=invite_email,
+            ),
+            school_name=SCHOOL_NAME,
+        )
+    staff_invites.mark_accepted(db, int(row["id"]))
+    _invite_audit(
+        db,
+        action="invite.accept",
+        resource_type="staff",
+        actor_user_id=row.get("user_id"),
+        actor_role="staff",
+        resource_id=row.get("user_id"),
+        detail={"invite_id": row.get("id")},
+        ip=request.remote_addr,
+    )
+    session.pop("pending_invite_id", None)
+    session["google_oauth_next"] = url_for("staff_welcome")
+    return None
+
+
+def _invite_audit(db: Any, **event: Any) -> None:
+    """Audit an invite sign-in step; never block sign-in on the audit log."""
+    try:
+        db.record_access_event(**event)
+    except Exception:  # noqa: BLE001 - audit must not break sign-in
+        current_app.logger.warning("invite audit failed", exc_info=True)
 
 
 def _post_login_redirect(portal: str):
@@ -903,6 +979,10 @@ def register_auth_routes(app: Flask) -> None:
             "state": state,
             "prompt": "select_account",
         }
+        # MCK-183 I3: pre-select the invited Google account.
+        hint = (request.args.get("login_hint") or "").strip()
+        if hint and "@" in hint and len(hint) <= 200:
+            params["login_hint"] = hint
         google_auth_url = (
             "https://accounts.google.com/o/oauth2/v2/auth?"
             + urllib.parse.urlencode(params)
