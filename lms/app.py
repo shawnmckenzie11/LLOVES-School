@@ -2530,6 +2530,71 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             school_name=SCHOOL_NAME,
         )
 
+    def _needs_first_run(
+        user: dict[str, Any],
+        offerings: list[dict[str, Any]],
+        classes: list[dict[str, Any]],
+    ) -> bool:
+        """True for a teacher with no course and no class this semester.
+
+        Args:
+            user: Signed-in user row.
+            offerings: Her active-semester offerings.
+            classes: Her active-semester classes.
+
+        Returns:
+            Whether ``/staff`` should send her to ``/staff/welcome``.
+        """
+        return str(user.get("role") or "") == "staff" and not offerings and not classes
+
+    def _teacher_setup(user: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Her active-semester offerings and classes (empty with no semester)."""
+        active = school.get_active_semester()
+        if not active:
+            return [], []
+        offerings = school.list_offerings(
+            teacher_user_id=int(user["id"]),
+            semester_id=int(active["id"]),
+            include_archived=False,
+        )
+        classes = school.list_staff_classes(int(user["id"]), int(active["id"]))
+        return offerings, classes
+
+    @app.route("/welcome")
+    def welcome_link():
+        """MCK-183: the link Shawn sends a new teacher.
+
+        Signed in already: straight to the Welcome screen. Otherwise Google
+        sign-in (and the first-login email code) with ``next`` kept, so she
+        lands on Welcome. An unlisted Google account still gets the usual 403.
+        """
+        if current_user() is not None:
+            return redirect(url_for("staff_welcome"))
+        return redirect(url_for("auth_google", portal="staff", next=url_for("staff_welcome")))
+
+    @app.route("/staff/welcome")
+    @staff_required
+    def staff_welcome():
+        """MCK-183 screen 1 (Welcome). Later steps arrive in their own slices.
+
+        A teacher who already has a class goes to the Dashboard.
+        """
+        user = current_user()
+        assert user is not None
+        offerings, classes = _teacher_setup(user)
+        if classes:
+            return redirect(url_for("staff_home"))
+        step = (request.args.get("step") or "").strip().lower()
+        if step not in {"class"}:
+            step = "welcome"
+        return render_template(
+            "staff/welcome.html",
+            user=user,
+            step=step,
+            has_course=bool(offerings),
+            school_name=SCHOOL_NAME,
+        )
+
     @app.route("/staff")
     @staff_required
     def staff_home():
@@ -2552,6 +2617,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 for section in offering.get("classes") or []:
                     section["roster"] = school.roster_name_entries(int(section["id"]))
             classes = school.list_staff_classes(int(user["id"]), int(active["id"]))
+        # MCK-183 first-run gate: a teacher with no course and no class gets
+        # the Welcome setup instead of the "Ask Admin" dead end. Admin (IT)
+        # accounts keep the Dashboard.
+        if _needs_first_run(user, offerings, classes):
+            return redirect(url_for("staff_welcome"))
         from flask import make_response
 
         active_live_session = school.get_active_live_session_for_teacher(

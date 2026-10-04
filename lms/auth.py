@@ -417,10 +417,29 @@ def _tap_staff_class_list(db: SchoolDB, live_session_id: int, student_id: Any) -
 
 
 def _safe_next_url(next_url: str | None) -> str | None:
-    """Return a same-site relative redirect target when safe."""
+    """Return a same-site relative redirect target when safe.
+
+    Rejects protocol-relative ``//host``, backslash tricks browsers read as
+    ``//`` (``/\\host``), and control characters.
+    """
     if not next_url or not next_url.startswith("/") or next_url.startswith("//"):
         return None
+    if "\\" in next_url or any(ord(ch) < 32 for ch in next_url):
+        return None
     return next_url
+
+
+def _clear_session_keeping_next() -> None:
+    """``session.clear()`` but keep the saved post-login destination.
+
+    MCK-183: the email-code step and the final sign-in both clear the
+    session. Without this, ``/welcome`` (or any ``next=``) was lost and the
+    teacher landed on the plain Dashboard.
+    """
+    saved = _safe_next_url(session.get("google_oauth_next"))
+    session.clear()
+    if saved:
+        session["google_oauth_next"] = saved
 
 
 def _with_query(path: str, **params: str) -> str:
@@ -484,7 +503,7 @@ def establish_user_session(user: dict[str, Any], *, portal: str) -> None:
         user: ``users`` row.
         portal: ``staff`` or ``it`` — which shell to land in.
     """
-    session.clear()
+    _clear_session_keeping_next()
     session["logged_in"] = True
     session["user_id"] = int(user["id"])
     session["email"] = user["email"]
@@ -509,8 +528,11 @@ def establish_user_session(user: dict[str, Any], *, portal: str) -> None:
 
 
 def begin_pending_2sv(user: dict[str, Any], *, portal: str) -> None:
-    """Hold a pending first-login session until the email code matches."""
-    session.clear()
+    """Hold a pending first-login session until the email code matches.
+
+    The saved ``next`` survives, so the code step lands where she was going.
+    """
+    _clear_session_keeping_next()
     session["pending_2sv"] = True
     session["pending_user_id"] = int(user["id"])
     session["pending_portal"] = portal
@@ -568,6 +590,12 @@ def staff_required(f: Callable) -> Callable:
         if user is None:
             if request.path.startswith("/api/"):
                 return _api_auth_error()
+            # MCK-183: keep where she was going (e.g. /staff/welcome).
+            next_url = None
+            if request.method == "GET":
+                next_url = _safe_next_url(request.full_path.rstrip("?"))
+            if next_url and next_url != url_for("staff_home"):
+                return redirect(url_for("auth_google", portal="staff", next=next_url))
             return redirect(url_for("auth_google", portal="staff"))
         portal = session.get("portal")
         if portal == "it" and user["role"] == "it":
@@ -840,7 +868,8 @@ def register_auth_routes(app: Flask) -> None:
                 return redirect(url_for("it_dashboard"))
             if portal == "staff" and (user["role"] in {"staff", "it"} or is_it):
                 session["portal"] = "staff"
-                return redirect(url_for("staff_home"))
+                session.pop("google_oauth_next", None)
+                return redirect(next_url or url_for("staff_home"))
 
         if not google_oauth_ready():
             if mock_login_enabled():
