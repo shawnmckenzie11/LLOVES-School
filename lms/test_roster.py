@@ -507,7 +507,9 @@ class RosterTests(unittest.TestCase):
         idle_home = self.client.get("/staff").get_data(as_text=True)
         self.assertIn("Run Live Class", idle_home)
         self.assertNotIn("Live Class in Progress", idle_home)
-        self.assertNotIn("End Live Class", idle_home)
+        # The End control and dialog are gone (the MCK-183 tour text may name it).
+        self.assertNotIn('aria-label="End Live Class"', idle_home)
+        self.assertNotIn("<h2>End Live Class</h2>", idle_home)
 
     def test_staff_home_end_live_targets_active_session_on_other_cards(self) -> None:
         """In Progress cards always offer End targeting the active class_id.
@@ -573,7 +575,9 @@ class RosterTests(unittest.TestCase):
         idle = self.client.get("/staff").get_data(as_text=True)
         self.assertIn("Run Live Class", idle)
         self.assertNotIn("Live Class in Progress", idle)
-        self.assertNotIn("End Live Class", idle)
+        # The End control and dialog are gone (the MCK-183 tour text may name it).
+        self.assertNotIn('aria-label="End Live Class"', idle)
+        self.assertNotIn("<h2>End Live Class</h2>", idle)
 
     def test_ungamified_live_scoring(self) -> None:
         """No-gamify path starts live scoring with one Class team."""
