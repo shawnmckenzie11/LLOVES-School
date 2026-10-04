@@ -32,6 +32,7 @@ import {
   normalizeBoardPoint,
   noteBoardRun,
   clearBoardRefreshCue,
+  isFreshBoardRunKey,
   opsAboveCursor,
   showBoardRefreshCue,
 } from "/static/live_whiteboard.js";
@@ -795,6 +796,14 @@ const WB_STUDENT_REOPEN_CUE = Object.freeze({
 /** Reopen cue showing under the board, or "" when none is. */
 let studentReopenCue = "";
 
+/**
+ * True once this tab has loaded its own stored text labels for an
+ * Individual board. They live on ``solo:<roster id>``, which the team
+ * poll never reads, so a reload used to lose them on screen.
+ */
+let studentSoloLabelsLoaded = false;
+let studentSoloLabelsLoading = false;
+
 /** Run key of the live class this tab is drawing in. */
 const studentBoardRun = { key: "" };
 
@@ -1028,6 +1037,8 @@ function bindStudentCanvas() {
  */
 function refreshStudentBoard() {
   if (studentBoardRefresh) return studentBoardRefresh;
+  // The reset below drops text labels; reload this student's own ones.
+  studentSoloLabelsLoaded = false;
   studentBoardRefresh = (async () => {
     const empty = { strokes: [], texts: [], cursors: [] };
     studentPresenceQueue().drop();
@@ -1081,7 +1092,13 @@ function refreshStudentBoard() {
     if (studentCanvas instanceof HTMLCanvasElement) {
       // MCK-174: a Fresh board reopen also changes the run key. Keep the
       // reopen line instead of the new-class line.
-      showBoardRefreshCue(studentCanvas, studentReopenCue || undefined);
+      // A run change onto a ~g<n> key without the /state cue (a frozen tab,
+      // or a page left open across a deploy) is still a Fresh board.
+      const freshKey = isFreshBoardRunKey(data.run_key);
+      showBoardRefreshCue(
+        studentCanvas,
+        studentReopenCue || (freshKey ? WB_STUDENT_REOPEN_CUE.fresh : undefined)
+      );
     }
   })().finally(() => {
     studentBoardRefresh = null;
@@ -1262,6 +1279,44 @@ function paintWhiteboardReopenCue(payload) {
 }
 
 /**
+ * Load this student's stored text labels on an Individual board.
+ *
+ * One read per page (and after a run change). Pen ink is not touched:
+ * only ``text_upsert`` ops from ``solo:<id>`` are applied. A tab that
+ * has no run key yet adopts the one in the reply, so its next label
+ * post is not refused as stale.
+ */
+async function loadStudentSoloLabels() {
+  if (studentSoloLabelsLoaded || studentSoloLabelsLoading) return;
+  const meId = Number(lastStudentPayload?.me?.id) || 0;
+  if (!meId || typeof bindStudentCanvas.applyDelta !== "function") return;
+  studentSoloLabelsLoading = true;
+  try {
+    const key = encodeURIComponent(`solo:${meId}`);
+    const res = await fetch(`/api/student/board/${key}?since=0`, visitFetchInit());
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data || data.ended) return;
+    if (!studentBoardRun.key && data.run_key) noteBoardRun(studentBoardRun, data.run_key);
+    else if (data.run_key && data.run_key !== studentBoardRun.key) {
+      // Mid run change: the refresh path reloads labels after it re-keys.
+      studentSoloLabelsLoaded = true;
+      return;
+    }
+    const view = data.snapshot ? data.canvas_view : null;
+    const ops = view
+      ? (view.texts || []).map((label) => ({ ...label, type: "text_upsert" }))
+      : (data.ops || []).filter((op) => op && op.type === "text_upsert");
+    if (ops.length) bindStudentCanvas.applyDelta({ ops });
+    studentSoloLabelsLoaded = true;
+  } catch (_err) {
+    /* stay quiet; the next /state tries again */
+  } finally {
+    studentSoloLabelsLoading = false;
+  }
+}
+
+/**
  * Paint student canvas from teacher unlocks + canvas_sync view.
  *
  * ``/state`` imports ink into the canvas node bound at startup. It does
@@ -1278,6 +1333,7 @@ function paintStudentCanvas(payload) {
   if (typeof bindStudentCanvas.importRemote !== "function") return;
   const view = payload.canvas_sync || payload.canvas_view || {};
   bindStudentCanvas.importRemote(view, proj.canvasAlign === "team");
+  if (proj.canvas && proj.canvasAlign === "student") void loadStudentSoloLabels();
 }
 
 /**

@@ -151,6 +151,19 @@ export function showBoardRefreshCue(anchor, text) {
 }
 
 /**
+ * True when a board run key names a Fresh board generation (MCK-174).
+ *
+ * The server keys generation n > 0 as ``<run_key>~g<n>``. A brand-new
+ * class never has the suffix, so a run change onto a ``~g`` key is a
+ * Fresh board reopen mid-class.
+ * @param {unknown} runKey
+ * @returns {boolean}
+ */
+export function isFreshBoardRunKey(runKey) {
+  return /~g[0-9]+$/.test(String(runKey || "").trim());
+}
+
+/**
  * Remove the cue line under this board, if one is showing.
  * @param {HTMLElement | null | undefined} anchor
  */
