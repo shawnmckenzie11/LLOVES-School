@@ -50,6 +50,11 @@ jobs:
   test:
     name: LMS test suite
     runs-on: ubuntu-latest
+    # pull-requests/actions: read for the What's new preview (MCK-182).
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
     # A newer run on the same ref supersedes this one while it tests.
     concurrency:
       group: deploy-lloves-lms-test-${{ github.ref }}
@@ -83,6 +88,14 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+
+      # MCK-182: show this deploy's What's new lines on the run summary, so
+      # they can be read before Production approval. Never fails the job.
+      - name: Preview What's new
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/whats_new.py build --out "${RUNNER_TEMP}/releases.preview.json"
 
       - name: Install dependencies
         run: python -m pip install -r lms/requirements.txt
@@ -136,6 +149,12 @@ jobs:
     needs: approve
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # pull-requests/actions: read so What's new can read merged PRs and
+    # past Deploy runs (MCK-182). Nothing here writes to the repo.
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
     # One flyctl deploy at a time, and never cancelled by a newer run:
     # mid-deploy cancellation is unsafe. A newer approved run waits here
     # as pending; a still-newer one replaces it (queue single).
@@ -173,6 +192,17 @@ jobs:
             echo "LOCAL_DEV_LOGIN must never be enabled in fly.toml"
             exit 1
           fi
+
+      # MCK-182: rebuild releases.json from the What's new lines of the PRs
+      # in each deploy since the newest committed release. flyctl uploads
+      # this working tree, so the generated file ships in this image and
+      # nothing is committed. Any API problem keeps the committed file; the
+      # step never blocks the deploy.
+      - name: Write What's new for this deploy
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/whats_new.py build
 
       - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # 1.6
 

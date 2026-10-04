@@ -25,3 +25,10 @@ jobs:
             echo '::error::The pull request title or body must contain a Linear ID matching MCK-[0-9]+.'
             exit 1
           fi
+
+      # MCK-182: teachers read these lines in What's new after the deploy.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - name: Require a What's new line (or none)
+        run: python3 .github/scripts/whats_new.py check
