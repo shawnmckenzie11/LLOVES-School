@@ -31,14 +31,13 @@ from sentry_wire import (  # noqa: E402
     ACTION_ENDPOINTS,
     ACTION_LOG_ATTRIBUTE,
     action_for,
-    before_send,
     before_send_log,
     email_hash,
     init_flask_sentry,
     owner_emails,
+    sentry_init_options,
     teacher_kind,
     tool_for_request,
-    traces_sampler,
 )
 
 TEACHER = "teacher.other@gmail.com"
@@ -188,6 +187,8 @@ class PureHelperTests(unittest.TestCase):
         self.assertIs(kwargs["enable_logs"], True)
         self.assertIs(kwargs["before_send_log"], before_send_log)
         self.assertIs(kwargs["send_default_pii"], False)
+        self.assertEqual(kwargs["max_request_body_size"], "never")
+        self.assertIn("before_send_transaction", kwargs)
         self.assertNotIn("replays_session_sample_rate", json.dumps(sorted(kwargs)))
 
 
@@ -199,15 +200,11 @@ class RequestScopeTests(unittest.TestCase):
         self.transport = CaptureTransport()
         self.env = patch.dict(os.environ, {"SENTRY_OWNER_EMAILS": OWNER}, clear=False)
         self.env.start()
-        sentry_sdk.init(
-            dsn="https://public@o0.ingest.sentry.io/1",
-            transport=self.transport,
-            send_default_pii=False,
-            before_send=before_send,
-            traces_sampler=traces_sampler,
-            enable_logs=True,
-            before_send_log=before_send_log,
-        )
+        # The production options, plus every request traced so a sampled
+        # transaction can't hide a body leak behind the 5% rate.
+        options = sentry_init_options("https://public@o0.ingest.sentry.io/1")
+        options["traces_sampler"] = lambda _ctx: 1.0
+        sentry_sdk.init(transport=self.transport, **options)
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         self.app = create_app(db_path=root / "lloves.sqlite", data_dir=root, testing=True)

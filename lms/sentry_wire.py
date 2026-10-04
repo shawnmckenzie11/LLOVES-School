@@ -195,6 +195,7 @@ def before_send(
             paths.append(str(request.get("url")))
         if event.get("transaction"):
             paths.append(str(event.get("transaction")))
+        _drop_request_body(event)
         if not any(is_quiet_telemetry_path(path) for path in paths):
             return event
         if _exception_type_names(hint, event) & _DISCONNECT_TYPES:
@@ -267,6 +268,48 @@ def init_flask_sentry() -> bool:
             "booting without Sentry"
         )
         return False
+    options = sentry_init_options(dsn)
+    try:
+        sentry_sdk.init(**options)
+    except Exception as exc:
+        # The DSN can show up in parser errors. Log the class only.
+        logger.warning(
+            "Sentry init failed (%s); booting without Sentry",
+            type(exc).__name__,
+        )
+        return False
+    logger.info("Sentry enabled (environment=%s)", options["environment"])
+    return True
+
+
+def _drop_request_body(event: dict[str, Any]) -> dict[str, Any]:
+    """Remove any request body from an event (roster names live in bodies)."""
+    request = event.get("request")
+    if isinstance(request, dict):
+        request.pop("data", None)
+        request.pop("cookies", None)
+    return event
+
+
+def before_send_transaction(
+    event: dict[str, Any], _hint: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
+    """Sampled transactions never carry a request body (MCK-183)."""
+    try:
+        return _drop_request_body(event)
+    except Exception:  # noqa: BLE001
+        return event
+
+
+def sentry_init_options(dsn: str) -> dict[str, Any]:
+    """The ``sentry_sdk.init`` options production uses (tests reuse them).
+
+    Args:
+        dsn: Server DSN.
+
+    Returns:
+        Keyword arguments for ``sentry_sdk.init``.
+    """
     options: dict[str, Any] = {
         "dsn": dsn,
         "environment": environment_name(),
@@ -280,21 +323,12 @@ def init_flask_sentry() -> bool:
         # logging (which can mention anything) never becomes a Sentry log.
         "enable_logs": True,
         "before_send_log": before_send_log,
+        "before_send_transaction": before_send_transaction,
     }
     release = release_name()
     if release:
         options["release"] = release
-    try:
-        sentry_sdk.init(**options)
-    except Exception as exc:
-        # The DSN can show up in parser errors. Log the class only.
-        logger.warning(
-            "Sentry init failed (%s); booting without Sentry",
-            type(exc).__name__,
-        )
-        return False
-    logger.info("Sentry enabled (environment=%s)", options["environment"])
-    return True
+    return options
 
 
 # ---------------------------------------------------------------------------
