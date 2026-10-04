@@ -143,7 +143,8 @@ class SecurityTests(unittest.TestCase):
         user = self.school.get_user_by_email("mfa@gmail.com")
         assert user is not None
         client.post("/verify-email", data={"code": user["verification_code"]})
-        home = client.get("/staff")
+        # MCK-183: no course yet, so /staff lands on Welcome (still signed in).
+        home = client.get("/staff", follow_redirects=True)
         self.assertEqual(home.status_code, 200)
         client.get("/logout")
         second = client.get("/auth/google?portal=staff")
