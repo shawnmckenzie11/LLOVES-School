@@ -2697,6 +2697,39 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             school_name=SCHOOL_NAME,
         )
 
+    #: Shawn's accounts when ``SENTRY_OWNER_EMAILS`` is unset (fly.toml sets it).
+    OWNER_EMAILS_DEFAULT = ("shawnmckenzie11.sm@gmail.com", "solutions@mckenzian.com")
+
+    def _owner_emails() -> set[str]:
+        """Shawn's own sign-in emails (the onboarding tour never auto-opens for him)."""
+        raw = (os.getenv("SENTRY_OWNER_EMAILS") or "").strip()
+        values = raw.split(",") if raw else list(OWNER_EMAILS_DEFAULT)
+        return {v.strip().lower() for v in values if v.strip()}
+
+    def _help_contact_email() -> str:
+        """Help → "Ask Shawn for help" mailto target."""
+        for key in ("HELP_CONTACT_EMAIL", "INVITE_REPLY_TO"):
+            value = (os.getenv(key) or "").strip()
+            if value:
+                return value
+        return "solutions@mckenzian.com"
+
+    @app.context_processor
+    def _help_menu_context() -> dict[str, Any]:
+        """MCK-183 slice D: the Help menu's contact address on staff pages."""
+        return {"help_contact_email": _help_contact_email()}
+
+    def _tour_offer(user: dict[str, Any], classes: list[dict[str, Any]]) -> bool:
+        """May the Dashboard tour open by itself for this teacher?
+
+        Staff teachers with a class, never Admin accounts or Shawn. New
+        teachers arrive from the names step; existing teachers get it once
+        (the browser remembers Skip or Done per teacher).
+        """
+        if str(user.get("role") or "") != "staff" or not classes:
+            return False
+        return str(user.get("email") or "").strip().lower() not in _owner_emails()
+
     def _needs_first_run(
         user: dict[str, Any],
         offerings: list[dict[str, Any]],
@@ -2849,6 +2882,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if step not in {"class", "names"}:
             step = "welcome"
         names_offering = None
+        names_next = url_for("staff_home", tour=1)
         if step == "names":
             pending = [o for o in offerings if not o.get("classes")]
             wanted = request.args.get("offering", type=int)
@@ -2857,6 +2891,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
             if names_offering is None:
                 return redirect(url_for("staff_home") if classes else url_for("staff_welcome", step="class"))
+            more = [o for o in pending if int(o["id"]) != int(names_offering["id"])]
+            # Last course named: on to the Dashboard tour (slice D).
+            names_next = (
+                url_for("staff_welcome", step="names") if more else url_for("staff_home", tour=1)
+            )
         elif classes:
             return redirect(url_for("staff_home"))
         return render_template(
@@ -2867,6 +2906,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             presets=onboarding_preset_lists(school),
             class_rows=_onboarding_class_rows(user, offerings),
             names_offering=names_offering,
+            names_next=names_next,
             school_name=SCHOOL_NAME,
         )
 
@@ -3025,6 +3065,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             classes=classes,
             active_live_session=active_live_session,
             whats_new_hold=whats_new_hold,
+            tour_offer=_tour_offer(user, classes),
+            tour_class_href=(
+                url_for("staff_course", class_id=int(classes[0]["id"]), tab="ap", view="attendance", tour="done")
+                if classes
+                else ""
+            ),
             nav_courses=_staff_nav_courses(int(user["id"])),
             time_options=list(TIME_OPTIONS),
             school_name=SCHOOL_NAME,
@@ -3612,6 +3658,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             take_attendance=request.args.get("take") == "1",
             log_participation=request.args.get("participate") == "1",
             run_live=request.args.get("run") == "1",
+            tour_done=request.args.get("tour") == "done" and tab == "ap",
             live_session_id=live_session_id,
             live_session_code=live_session_code,
             live_step=live_step,

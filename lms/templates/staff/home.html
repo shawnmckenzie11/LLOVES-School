@@ -7,11 +7,12 @@
   <link rel="stylesheet" href="/static/lloves.css">
   <link rel="stylesheet" href="/static/staff-shell.css">
 </head>
-<body class="staff-shell staff-home" data-user-id="{{ user.id }}">
+<body class="staff-shell staff-home" data-user-id="{{ user.id }}" data-tour-offer="{{ '1' if tour_offer and not whats_new_hold else '0' }}">
   <div class="staff-home-corner" aria-label="Account">
     {% if user.role == 'it' %}<a class="staff-corner-link" href="{{ url_for('staff_bots') }}">Bots</a>{% endif %}
     {% if user.role == 'it' %}<a class="staff-corner-link" href="{{ url_for('it_dashboard') }}">Admin</a>{% endif %}
     {% if not whats_new_hold %}<button type="button" class="staff-corner-link" id="whats-new-open" hidden>What's new</button>{% endif %}
+    {% with help_on_dashboard=true, help_hold=whats_new_hold %}{% include "staff/_help_menu.html" %}{% endwith %}
     <a class="staff-corner-link" href="{{ url_for('logout') }}">Log out</a>
   </div>
   <div class="wrap staff-home-wrap">
@@ -297,5 +298,6 @@
   <script type="module" src="/static/staff_celebration.js"></script>
   {# MCK-124: no What's new while any of this teacher's classes is live. #}
   {% if not whats_new_hold %}{% include "staff/_whats_new.html" %}{% endif %}
+  {% if not whats_new_hold and classes %}{% include "staff/_tour.html" %}{% endif %}
 </body>
 </html>

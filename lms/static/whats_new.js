@@ -101,6 +101,29 @@ export function shouldAutoOpen({ doc, storage, userId, release }) {
 }
 
 /**
+ * MCK-183: while the Dashboard tour is still owed to this teacher (offered
+ * and not skipped or done), or restarted with ``?tour=1``, What's new waits
+ * and opens after the tour ends (``alc-tour-end``). Same storage key as
+ * ``onboarding_tour.js``; read here so this module needs no import.
+ * @param {{doc: Document, storage: Storage|null, userId: string, search?: string}} args
+ * @returns {boolean}
+ */
+export function tourHolds({ doc, storage, userId, search }) {
+  if (!doc || !doc.getElementById || !doc.getElementById("onb-tour")) return false;
+  if (/(?:^|[?&])tour=1(?:&|$)/.test(String(search || ""))) return true;
+  const body = doc.body;
+  if (!body || !body.dataset || body.dataset.tourOffer !== "1") return false;
+  let status = "";
+  try {
+    const raw = storage ? storage.getItem(`alc-onboarding:${String(userId || "").trim()}`) : null;
+    status = raw ? String((JSON.parse(raw) || {}).status || "") : "";
+  } catch (_err) {
+    status = "";
+  }
+  return status !== "skipped" && status !== "done";
+}
+
+/**
  * Fill the dialog with one release. textContent only, never innerHTML.
  * @param {Document} doc
  * @param {HTMLElement} dialog
@@ -158,7 +181,7 @@ export function renderRelease(doc, dialog, release) {
 /**
  * Wire the panel on a staff page. Safe to call on any page.
  * @param {{document: Document, window?: any, fetch?: Function, storage?: Storage|null}} env
- * @returns {Promise<"live"|"absent"|"empty"|"error"|"opened"|"seen">}
+ * @returns {Promise<"live"|"absent"|"empty"|"error"|"opened"|"held"|"seen">}
  */
 export async function initWhatsNew(env) {
   const doc = env.document;
@@ -205,7 +228,22 @@ export async function initWhatsNew(env) {
       open();
     });
   }
+  const loc = env.window && env.window.location;
+  const search = String((loc && loc.search) || "");
+  // Help → What's new from another staff page lands here with ?whats_new=1.
+  if (/(?:^|[?&])whats_new=1(?:&|$)/.test(search)) {
+    open();
+    return "opened";
+  }
   if (shouldAutoOpen({ doc, storage, userId, release })) {
+    if (tourHolds({ doc, storage, userId, search })) {
+      if (typeof doc.addEventListener === "function") {
+        doc.addEventListener("alc-tour-end", () => {
+          if (shouldAutoOpen({ doc, storage, userId, release })) open();
+        });
+      }
+      return "held";
+    }
     open();
     return "opened";
   }

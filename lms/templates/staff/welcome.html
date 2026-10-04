@@ -31,7 +31,7 @@
       <h1 id="ob-title">Who's in {{ code }}?</h1>
       <p class="ob-body">Type each student's first name, one per line. Students type the same name to join.</p>
       <form id="ob-names-form" data-endpoint="{{ url_for('staff_classes') }}" data-offering-id="{{ names_offering.id }}"
-            data-next="{{ url_for('staff_welcome', step='names') }}" novalidate>
+            data-next="{{ names_next }}" novalidate>
         <label class="ob-field" for="ob-names">First names</label>
         <textarea class="ob-names" id="ob-names" rows="10" autocomplete="off" spellcheck="false"></textarea>
         <p class="ob-help" id="ob-names-count" data-one="1 student. You can add or change names any time." data-many="{n} students. You can add or change names any time." aria-live="polite">0 students. You can add or change names any time.</p>
