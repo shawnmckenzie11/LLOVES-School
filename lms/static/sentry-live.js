@@ -146,6 +146,52 @@
    * @param {object} crumb
    * @returns {object|null}
    */
+  var SPAN_QUERY_KEYS = ["url.query", "http.query", "http.fragment"];
+  var SPAN_URL_KEYS = ["url", "http.url", "url.full", "http.target", "server.address.full"];
+
+  /**
+   * Remove query strings (the student ``?v=`` visit token) from one span or
+   * span-like object in place: name/description and URL attributes.
+   * @param {object} span
+   * @returns {object}
+   */
+  function stripSpanQueries(span) {
+    if (!span || typeof span !== "object") return span;
+    ["description", "name", "op_description"].forEach(function (key) {
+      if (typeof span[key] === "string") span[key] = stripQuery(span[key]);
+    });
+    [span.data, span.attributes].forEach(function (bag) {
+      if (!bag || typeof bag !== "object") return;
+      SPAN_QUERY_KEYS.forEach(function (key) {
+        delete bag[key];
+      });
+      SPAN_URL_KEYS.forEach(function (key) {
+        if (typeof bag[key] === "string") bag[key] = stripQuery(bag[key]);
+      });
+    });
+    return span;
+  }
+
+  /**
+   * Same scrub for a whole transaction event: name, request URL, the trace
+   * context and every child span.
+   * @param {object} event
+   * @returns {object}
+   */
+  function scrubTransaction(event) {
+    if (!event) return event;
+    if (typeof event.transaction === "string") event.transaction = stripQuery(event.transaction);
+    if (event.request) {
+      if (event.request.url) event.request.url = stripQuery(event.request.url);
+      delete event.request.query_string;
+      delete event.request.cookies;
+      delete event.request.data;
+    }
+    if (event.contexts && event.contexts.trace) stripSpanQueries(event.contexts.trace);
+    (event.spans || []).forEach(stripSpanQueries);
+    return event;
+  }
+
   function filterLivePollBreadcrumb(crumb) {
     if (!crumb) return crumb;
     if (crumb.category !== "fetch" && crumb.category !== "xhr") return crumb;
@@ -448,10 +494,17 @@
     beforeSendSpan: function (span) {
       try {
         if (shouldDropLivePollSpan(span)) return null;
+        return stripSpanQueries(span);
       } catch (_err) {
         return span;
       }
-      return span;
+    },
+    beforeSendTransaction: function (event) {
+      try {
+        return scrubTransaction(event);
+      } catch (_err) {
+        return event;
+      }
     },
     beforeBreadcrumb: function (crumb) {
       try {
@@ -481,9 +534,14 @@
    * @param {unknown} err
    * @param {string} where
    */
+  var MAX_REPORTS_PER_PAGE = 3;
+  var reportsSent = 0;
   window.llovesSentryReport = function (err, where) {
     try {
       if (typeof sentryClient.captureException !== "function") return;
+      // A paint bug in a 1 s poll would otherwise send one event per beat.
+      if (reportsSent >= MAX_REPORTS_PER_PAGE) return;
+      reportsSent += 1;
       sentryClient.captureException(err, { tags: { "lloves.where": String(where || "") } });
     } catch (_err) {
       /* never break the page */

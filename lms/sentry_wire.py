@@ -12,6 +12,7 @@ static JavaScript.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -283,14 +284,14 @@ def init_flask_sentry() -> bool:
 
 
 _INVITE_TOKEN_RE = re.compile(r"/invite/[^/?#]+")
-_PII_QUERY_RE = re.compile(r"(?i)(login_hint|email)=")
 
 
 def _drop_request_body(event: dict[str, Any]) -> dict[str, Any]:
-    """Remove request bodies, invite tokens and emailed hints from an event.
+    """Remove request bodies, query strings and invite tokens from an event.
 
     Roster names live in bodies; ``/invite/<token>`` paths carry a sign-in
-    secret; ``/auth/google?login_hint=`` carries the invited email.
+    secret; ``?v=`` carries a student visit token and ``login_hint`` an
+    invited email.
     """
     request = event.get("request")
     if isinstance(request, dict):
@@ -299,21 +300,67 @@ def _drop_request_body(event: dict[str, Any]) -> dict[str, Any]:
         url = request.get("url")
         if isinstance(url, str):
             request["url"] = _INVITE_TOKEN_RE.sub("/invite/[token]", url)
-        query = request.get("query_string")
-        if isinstance(query, str) and _PII_QUERY_RE.search(query):
-            request["query_string"] = "[filtered]"
+        # No query strings at all: ``?v=`` is a student visit token and
+        # ``login_hint`` an invited email (MCK-183 gate F2). Tags carry the tab.
+        if request.get("query_string"):
+            request.pop("query_string", None)
     transaction = event.get("transaction")
     if isinstance(transaction, str):
         event["transaction"] = _INVITE_TOKEN_RE.sub("/invite/[token]", transaction)
     return event
 
 
+_QUERY_DATA_KEYS = ("http.query", "url.query", "http.fragment")
+_URL_DATA_KEYS = ("url", "http.url", "url.full", "http.target", "url.path")
+
+
+def _strip_url_query(value: Any) -> Any:
+    """Cut ``?query`` and ``#fragment`` from a URL-ish string."""
+    if not isinstance(value, str):
+        return value
+    cut = min((i for i in (value.find("?"), value.find("#")) if i >= 0), default=-1)
+    text = value[:cut] if cut >= 0 else value
+    return _INVITE_TOKEN_RE.sub("/invite/[token]", text)
+
+
+def _strip_span_queries(span: dict[str, Any]) -> None:
+    """Remove queries (student ``?v=`` visit tokens) from one span in place."""
+    if not isinstance(span, dict):
+        return
+    for key in ("description", "name"):
+        if key in span:
+            span[key] = _strip_url_query(span[key])
+    data = span.get("data")
+    if isinstance(data, dict):
+        for key in _QUERY_DATA_KEYS:
+            data.pop(key, None)
+        for key in _URL_DATA_KEYS:
+            if key in data:
+                data[key] = _strip_url_query(data[key])
+
+
 def before_send_transaction(
     event: dict[str, Any], _hint: dict[str, Any] | None = None
 ) -> dict[str, Any] | None:
-    """Sampled transactions never carry a request body (MCK-183)."""
+    """Sampled transactions carry no request body and no query string.
+
+    The student visit token rides in ``?v=``, so the transaction name, the
+    request URL/query and every span URL/description lose their query here
+    (MCK-183, gate F2).
+    """
     try:
-        return _drop_request_body(event)
+        _drop_request_body(event)
+        request = event.get("request")
+        if isinstance(request, dict):
+            request["url"] = _strip_url_query(request.get("url"))
+            request.pop("query_string", None)
+        if "transaction" in event:
+            event["transaction"] = _strip_url_query(event["transaction"])
+        trace = ((event.get("contexts") or {}).get("trace")) or {}
+        _strip_span_queries(trace)
+        for span in event.get("spans") or []:
+            _strip_span_queries(span)
+        return event
     except Exception:  # noqa: BLE001
         return event
 
@@ -465,7 +512,7 @@ def teacher_kind(email: str | None) -> str:
 
 
 def email_hash(email: str | None) -> str:
-    """Short sha256 of a lowercased email. The raw address is never sent.
+    """Short HMAC-sha256 of a lowercased email. The raw address is never sent.
 
     Args:
         email: Teacher email.
@@ -476,7 +523,10 @@ def email_hash(email: str | None) -> str:
     cleaned = str(email or "").strip().lower()
     if not cleaned:
         return ""
-    return hashlib.sha256(cleaned.encode("utf-8")).hexdigest()[:_EMAIL_HASH_LEN]
+    # Keyed with the server's Flask secret (same source as app.secret_key), so
+    # someone with Sentry access can't confirm a guessed address.
+    key = os.getenv("FLASK_SECRET_KEY", "lloves-dev-secret-change-me").encode("utf-8")
+    return hmac.new(key, cleaned.encode("utf-8"), hashlib.sha256).hexdigest()[:_EMAIL_HASH_LEN]
 
 
 def tool_for_request(path: str, args: Any = None) -> str:
