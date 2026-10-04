@@ -6769,3 +6769,31 @@ body.staff-shell .rank-turn-skip-note {
 body.staff-shell .live-group-rank-mode {
   margin-bottom: 0.35rem;
 }
+/* MCK-171 Team challenge toggle in the Group line (after Group mode). */
+body.staff-shell .live-group-race {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem 0.9rem;
+  margin: 0 0 0.35rem;
+}
+body.staff-shell .live-group-race-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-weight: 650;
+  color: #12202e;
+}
+body.staff-shell .live-group-race-check input {
+  flex: none;
+  width: auto;
+  margin: 0;
+}
+body.staff-shell .live-group-race-check span {
+  white-space: nowrap;
+}
+body.staff-shell .live-group-race-help {
+  flex-basis: 100%;
+  order: 3;
+  color: #475569;
+}

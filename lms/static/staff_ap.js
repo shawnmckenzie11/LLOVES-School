@@ -96,6 +96,7 @@ import {
   isGroupModeToken,
   mediaRowPublishMode,
   mintGroupQ,
+  rankRaceSettings,
 } from "/static/group_setup.js";
 import { rankStackHtml } from "/static/rank_stack.js";
 
@@ -1340,6 +1341,13 @@ function groupPicksHtml(row) {
 
 /** MCK-155 PR C: optimistic rank Group mode picks, by live item id. @type {Map<number, string>} */
 const rankModeIntent = new Map();
+
+/**
+ * MCK-171: optimistic Team challenge ticks, by live item id, until the
+ * settings PATCH lands.
+ * @type {Map<number, {on: boolean}>}
+ */
+const rankRaceIntent = new Map();
 
 /** MCK-155 PR C teacher copy (NEW strings; listed in the change note). */
 const PICKS_COPY = Object.freeze({
@@ -4458,6 +4466,8 @@ function paintLiveQuestionCards() {
               : "rank_together"
             : groupSubmitVariant(item, card)
           : "";
+      // MCK-171: Team challenge (optimistic while the PATCH lands).
+      const raceSettings = { ...rankRaceSettings(item, card), ...(rankRaceIntent.get(liveItemId) || {}) };
       const groupSetup = liveItemId
         ? groupSetupHtml({
             key: groupKey,
@@ -4466,6 +4476,7 @@ function paintLiveQuestionCards() {
             mode: groupPick,
             teamsReady,
             variant: groupVariant,
+            challenge: isRank && raceSettings.available && raceSettings.on,
           })
         : "";
       const groupOpts = liveItemId
@@ -4477,6 +4488,7 @@ function paintLiveQuestionCards() {
             teamsReady,
             teamNames: groupTeamNames(),
             variant: groupVariant,
+            race: isRank ? raceSettings : null,
           })
         : "";
       const publishToken = groupPublishToken(groupStyle, groupPick, teamsReady);
@@ -5149,6 +5161,29 @@ async function persistRankMode(liveItemId, mode) {
     rankModeIntent.delete(liveItemId);
     showError("#ap-overlay-error", new Error(GROUP_SETUP_COPY.saveFailed));
   }
+  paintLiveQuestionCards();
+}
+
+/**
+ * MCK-171: save the "Team challenge" toggle on the rank item.
+ * @param {number} liveItemId
+ * @param {boolean} on
+ */
+async function persistRankRace(liveItemId, on) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId || !liveItemId) return;
+  rankRaceIntent.set(liveItemId, { on });
+  paintLiveQuestionCards();
+  try {
+    const result = await api(`/api/live-sessions/${sessionId}/items/${liveItemId}/settings`, {
+      method: "PATCH",
+      body: JSON.stringify({ group_rank_race: on }),
+    });
+    adoptLiveItem(result?.item);
+  } catch (_err) {
+    showError("#ap-overlay-error", new Error(GROUP_SETUP_COPY.saveFailed));
+  }
+  rankRaceIntent.delete(liveItemId);
   paintLiveQuestionCards();
 }
 
@@ -11192,6 +11227,13 @@ async function onGroupSetupChange(event) {
       groupQ.checked = !groupQ.checked;
       showError("#ap-overlay-error", new Error(GROUP_SETUP_COPY.saveFailed));
     }
+    return;
+  }
+  // MCK-171: Team challenge checkbox.
+  const raceBox = target?.closest("input[data-group-rank-race]");
+  if (raceBox instanceof HTMLInputElement) {
+    const [, raceId] = String(raceBox.getAttribute("data-group-rank-race") || "").split(":");
+    await persistRankRace(Number(raceId) || 0, raceBox.checked);
     return;
   }
   const rankMode = target?.closest("input[data-group-rank-mode]");
