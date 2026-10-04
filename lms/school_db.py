@@ -19697,8 +19697,10 @@ class SchoolDB(LovesDB):
             session_id: ``live_class_sessions.id``.
             placement_or_item: Placement key or lifecycle id.
             awards: ``[{"team_id": int, "points": number}]``. Points are
-                rounded and clamped to a whole 0..999 (gate LOW on f0a15be:
-                5.7 used to be cut to 5); ``true``, text and NaN are refused.
+                rounded to a whole number and capped at 999 (gate LOW on
+                f0a15be: 5.7 used to be cut to 5); ``true``, text, NaN and
+                negatives are refused. All teams in one call apply together
+                or not at all.
             team_rule: ``each_member`` (default), ``split_members``,
                 ``team_only``.
 
@@ -19739,31 +19741,66 @@ class SchoolDB(LovesDB):
                 raise ValueError("Each award needs a team_id and points")
             points = rank_challenge.clamp_award_points(award.get("points"))
             if points is None:
-                raise ValueError("Points must be a number")
+                raise ValueError(
+                    rank_challenge.award_points_problem(award.get("points")) or "Points must be a number"
+                )
             team = teams.get(team_id)
             if team is None:
                 raise ValueError("That team is not on this question")
             if not team["scored"]:
                 raise ValueError("No order sent")
             wanted.append((team_id, points))
-        out = [
-            self._assign_rank_team(class_id, live_item_id, team_id, points, rule)
-            for team_id, points in wanted
-        ]
+        # Gate LOW-1 on 2cc6a9e: every team in one request lands together or
+        # not at all. ``_assign_rank_team`` joins this transaction (it only
+        # begins and commits its own when none is open).
+        # Members are read first, outside the write transaction.
+        members = {
+            team_id: self._rank_team_award_members(class_id, live_item_id, team_id)
+            for team_id, _points in wanted
+        }
+        game_conn = self.game.conn
+        with self._lock:
+            own = not game_conn.in_transaction
+            if own:
+                game_conn.execute("BEGIN IMMEDIATE")
+            try:
+                out = [
+                    self._assign_rank_team(
+                        class_id, live_item_id, team_id, points, rule, members[team_id]
+                    )
+                    for team_id, points in wanted
+                ]
+                if own and game_conn.in_transaction:
+                    game_conn.execute("COMMIT")
+            except BaseException:
+                if own and game_conn.in_transaction:
+                    game_conn.execute("ROLLBACK")
+                raise
         return {
             "teams": out,
             "results": self._rank_race_results(session_id, item),
             "game": self.game.game_state(class_id),
         }
 
-    def _assign_rank_team(
-        self, class_id: int, live_item_id: int, team_id: int, points: int, rule: str
-    ) -> dict[str, Any]:
-        """Replace one team's "Score teams" award (see ``assign_rank_team_points``)."""
+    def _rank_team_award_members(self, class_id: int, live_item_id: int, team_id: int) -> list[int]:
+        """Team members seen present while the question was open (sorted)."""
         seen = self._rank_race_seen_ids(live_item_id, team_id)
-        members = sorted(
+        return sorted(
             int(sid) for sid in self._teammate_ids_for_class(class_id, team_id) if int(sid) in seen
         )
+
+    def _assign_rank_team(
+        self,
+        class_id: int,
+        live_item_id: int,
+        team_id: int,
+        points: int,
+        rule: str,
+        members: list[int] | None = None,
+    ) -> dict[str, Any]:
+        """Replace one team's "Score teams" award (see ``assign_rank_team_points``)."""
+        if members is None:
+            members = self._rank_team_award_members(class_id, live_item_id, team_id)
         game_conn = self.game.conn
         now = _now()
         with self._lock:
@@ -29195,8 +29232,14 @@ class SchoolDB(LovesDB):
         """``game_points`` plus ``game_points_ver`` for the staff ``/state``.
 
         Both come from one ``game_state`` read. ``game_points_ver`` is
-        ``{"game_id", "seq"}`` (the game's event sequence, bumped by every
-        award), or ``None`` with no open game.
+        ``{"game_id", "game_key", "seq"}`` (``game_key`` tells a new game
+        from a deleted one that had the same id; ``seq`` is the game's event
+        sequence, bumped by every award), or ``None`` with no open game.
+        When the read fails or the poll budget is spent, neither field is
+        sent.
+        ``game_points`` lists every student in the game, zeros included, so
+        a new game's totals replace the old ones on the page (gate LOW-3 on
+        2cc6a9e).
 
         Args:
             session_id: ``live_class_sessions.id`` (for poll logs).
@@ -29206,22 +29249,33 @@ class SchoolDB(LovesDB):
         def build() -> dict[str, Any]:
             try:
                 state = self.game.game_state(int(class_id))
-            except Exception:  # noqa: BLE001 — no open game yet
+            except KeyError:  # no open game: say so, the page drops its version
                 return {"game_points": {}, "game_points_ver": None}
             game = state.get("game") or {}
             ver = (
-                {"game_id": int(game["id"]), "seq": int(game.get("event_seq") or 0)}
+                {
+                    "game_id": int(game["id"]),
+                    "game_key": f"{game['id']}|{game.get('session_id') or ''}|{game.get('created_at') or ''}",
+                    "seq": int(game.get("event_seq") or 0),
+                }
                 if game.get("id") is not None
                 else None
             )
-            points = {
-                str(sid): int(n) for sid, n in self._awarded_points_from_state(state).items()
-            }
+            awarded = self._awarded_points_from_state(state)
+            points: dict[str, int] = {}
+            for row in state.get("students") or []:
+                sid = row.get("id")
+                if sid in (None, ""):
+                    continue
+                try:
+                    points[str(int(sid))] = int(awarded.get(int(sid), 0))
+                except (TypeError, ValueError):
+                    continue
             return {"game_points": points, "game_points_ver": ver}
 
-        return live_state_field(
-            session_id, "game_points", build, {"game_points": {}, "game_points_ver": None}
-        )
+        # A failed or skipped read sends neither field, so the page keeps what
+        # it has instead of taking an empty, unversioned set of totals.
+        return live_state_field(session_id, "game_points", build, {})
 
     def live_awarded_session_points(self, class_id: int) -> dict[int, int]:
         """Map student id → live game points from teacher awards only.

@@ -19,7 +19,9 @@ o3, o1, o4, o2.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
+import time
 import unittest
 from pathlib import Path
 from typing import Any
@@ -338,16 +340,64 @@ class ScoreTeamsTests(SpotsHarness):
                 self.assertEqual(self._post_raw(item, body).status_code, 400)
         self.assertEqual(self._events(), 0)
 
-    def test_points_are_clamped_to_a_whole_0_to_999(self) -> None:
+    def test_points_are_rounded_and_capped_at_999(self) -> None:
         item = self._turns_two_teams()
         a = self._team("Ava", item)
-        for sent, kept in ((5.7, 6), ("7", 7), (-3, 0), (5000, 999), (4.0, 4)):
+        for sent, kept in ((5.7, 6), ("7", 7), (0, 0), (5000, 999), (4.0, 4)):
             with self.subTest(sent=sent):
                 rv = self._post_raw(item, {"awards": [{"team_id": a, "points": sent}], "team_rule": "each_member"})
                 self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
                 self.assertEqual(rv.get_json()["teams"][0]["points"], kept)
                 self.assertEqual([self._session_points(n) for n in TEAM_A], [kept] * 3)
         self.assertEqual(rank_challenge.clamp_award_points(float("nan")), None)
+
+    def test_negative_points_are_refused_and_keep_the_award(self) -> None:
+        """Gate LOW-2 on 2cc6a9e: a negative used to clamp to 0 and wipe the award."""
+        item = self._turns_two_teams()
+        a = self._team("Ava", item)
+        self.assertEqual(self._assign(item, [(a, 8)]).status_code, 200)
+        events = self._events()
+        for sent in (-3, "-5", -0.4, -1000):
+            with self.subTest(sent=sent):
+                rv = self._post_raw(item, {"awards": [{"team_id": a, "points": sent}], "team_rule": "each_member"})
+                self.assertEqual(rv.status_code, 400, rv.get_data(as_text=True))
+                self.assertEqual(rv.get_json()["error"], "Points can't be negative")
+        self.assertEqual(self._events(), events)
+        self.assertEqual([self._session_points(n) for n in TEAM_A], [8, 8, 8])
+        team = next(t for t in self._results(item)["teams"] if t["team_id"] == a)
+        self.assertEqual(team["assigned"], {"points": 8, "team_rule": "each_member"})
+        self.assertIsNone(rank_challenge.clamp_award_points(-1))
+        self.assertEqual(rank_challenge.award_points_problem("abc"), "Points must be a number")
+        self.assertIsNone(rank_challenge.award_points_problem(12))
+
+    def test_assign_all_is_all_or_nothing(self) -> None:
+        """Gate LOW-1 on 2cc6a9e: if one team's award fails, no team changes."""
+        item = self._turns_two_teams()
+        a, b = self._team("Ava", item), self._team("Ben", item)
+        self.assertEqual(self._assign(item, [(a, 8)]).status_code, 200)
+        start_a, start_b, events = self._team_score(a), self._team_score(b), self._events()
+        real = self.school.game.award_points
+
+        def fail_team_b(*args: Any, **kwargs: Any):
+            if int(kwargs.get("target_id") or 0) == b:
+                raise ValueError("Scoring is closed")
+            return real(*args, **kwargs)
+
+        with mock.patch.object(self.school.game, "award_points", side_effect=fail_team_b):
+            rv = self._assign(item, [(a, 5), (b, 4)])
+        self.assertEqual(rv.status_code, 400, rv.get_data(as_text=True))
+        self.assertFalse(self.school.game.conn.in_transaction)
+        self.assertEqual((self._team_score(a), self._team_score(b)), (start_a, start_b))
+        self.assertEqual(self._events(), events)
+        self.assertEqual([self._session_points(n) for n in TEAM_A], [8, 8, 8])
+        self.assertEqual([self._session_points(n) for n in TEAM_B], [0, 0, 0])
+        teams = {t["team_id"]: t for t in self._results(item)["teams"]}
+        self.assertEqual(teams[a]["assigned"], {"points": 8, "team_rule": "each_member"})
+        self.assertIsNone(teams[b]["assigned"])
+        # Nothing was left half-done: the same request now goes through.
+        self.assertEqual(self._assign(item, [(a, 5), (b, 4)]).status_code, 200)
+        self.assertEqual([self._session_points(n) for n in TEAM_A], [5, 5, 5])
+        self.assertEqual([self._session_points(n) for n in TEAM_B], [4, 4, 4])
 
     def test_reassign_is_one_transaction(self) -> None:
         """Gate LOW on f0a15be: the reversal used to commit before the new
@@ -379,13 +429,49 @@ class ScoreTeamsTests(SpotsHarness):
         a = self._team("Ava", item)
         before = self.school._assemble_live_session_state(self.session_id)
         ver = before["game_points_ver"]
-        self.assertEqual(set(ver), {"game_id", "seq"})
+        self.assertEqual(set(ver), {"game_id", "game_key", "seq"})
         self.assertEqual(self._assign(item, [(a, 8)]).status_code, 200)
         after = self.school._assemble_live_session_state(self.session_id)
         self.assertEqual(after["game_points_ver"]["game_id"], ver["game_id"])
         self.assertGreater(after["game_points_ver"]["seq"], ver["seq"])
         self.assertEqual(after["game_points"][str(self.ids["Ava"])], 8)
         self.assertNotIn("game_points_ver", self.school._assemble_live_session_state(self.session_id, light=True))
+
+    def test_a_new_game_after_quit_gets_a_new_version_and_zeroed_totals(self) -> None:
+        """Gate LOW-3 on 2cc6a9e: Quit (keep the live class) + Begin re-uses
+        the game id with seq 0. The version's game_key changes, and every
+        student is listed (zeros too), so the page takes the new totals."""
+        item = self._turns_two_teams()
+        a = self._team("Ava", item)
+        self.assertEqual(self._assign(item, [(a, 8)]).status_code, 200)
+        old = self.school._assemble_live_session_state(self.session_id)
+        self.assertEqual(old["game_points"][str(self.ids["Ava"])], 8)
+        self.assertEqual(old["game_points"][str(self.ids["Ben"])], 0)  # zeros are listed
+        quit_rv = self.client.post(
+            f"/api/classes/{self.class_id}/game/cancel", json={"preserve_live_session": True}
+        )
+        self.assertEqual(quit_rv.status_code, 200, quit_rv.get_data(as_text=True))
+        between = self.school._assemble_live_session_state(self.session_id)
+        self.assertIn("game_points_ver", between)
+        self.assertIsNone(between["game_points_ver"])  # no open game: the page forgets the old one
+        time.sleep(1.05)  # games.created_at has whole seconds
+        begun = self.client.post(f"/api/classes/{self.class_id}/begin", json={})
+        self.assertEqual(begun.status_code, 200, begun.get_data(as_text=True))
+        new = self.school._assemble_live_session_state(self.session_id)
+        ver_old, ver_new = old["game_points_ver"], new["game_points_ver"]
+        self.assertNotEqual(ver_new["game_key"], ver_old["game_key"])
+        self.assertLess(ver_new["seq"], ver_old["seq"])
+        self.assertEqual(new["game_points"][str(self.ids["Ava"])], 0)
+        # The key matches what the page builds from a game state's game block.
+        game = self.client.get(f"/api/classes/{self.class_id}/game").get_json()["game"]
+        self.assertEqual(ver_new["game_key"], f"{game['id']}|{game['session_id']}|{game['created_at']}")
+
+    def test_a_failed_points_read_sends_no_totals(self) -> None:
+        """A failed read must not look like "no game" (that resets the page)."""
+        with mock.patch.object(self.school.game, "game_state", side_effect=RuntimeError("busy")):
+            state = self.school._assemble_live_session_state(self.session_id)
+        self.assertNotIn("game_points", state)
+        self.assertNotIn("game_points_ver", state)
 
     def test_no_auto_award_through_end_of_class(self) -> None:
         """Closing the pop-up (or never opening it) gives nothing."""
@@ -648,9 +734,55 @@ class ViewTests(unittest.TestCase):
         self.assertIn("const pointsFresh = adoptGamePointsVer(payload?.game_points_ver);", staff)
         self.assertIn("if (!adoptGamePointsVer(state.game)) return;", staff)
         self.assertIn("seq < gamePointsVer.seq", staff)
+        # Gate LOW-3 on 2cc6a9e: forget the version whenever a game ends,
+        # is quit or begins, and when a full poll says there is no game.
+        self.assertEqual(staff.count("resetGamePointsVer();"), 6, "begin x2, cancel, stuck-game clear, end, poll")
+        self.assertIn('hasOwnProperty.call(payload || {}, "game_points_ver") && !payload.game_points_ver', staff)
         # Gate LOW-3: at ~390px the rows wrap and the dialog scrolls.
         self.assertIn('"stepper stepper action"', css)
         self.assertIn("overflow-y: auto", css.split("body.staff-shell .rank-score-dialog {")[2])
+
+
+    def test_points_version_rules_in_node(self) -> None:
+        """Run the page's own adoptGamePointsVer through a Quit + Begin."""
+        staff = (STATIC / "staff_ap.js").read_text(encoding="utf-8")
+        parts = []
+        for name in ("adoptGamePointsVer", "gamePointsKey", "resetGamePointsVer"):
+            match = re.search(rf"^function {name}\(.*?^\}}$", staff, re.S | re.M)
+            self.assertIsNotNone(match, name)
+            parts.append(match.group(0))
+        script = "let gamePointsVer = null; let sessionGamePoints = {};\n" + "\n".join(parts) + r"""
+const out = [];
+const adopt = (v) => { const ok = adoptGamePointsVer(v); out.push([ok, JSON.stringify(sessionGamePoints)]); };
+adopt({ game_id: 1, game_key: "1|5|t1", seq: 4 });
+sessionGamePoints = { "11": 7 };
+adopt({ game_id: 1, game_key: "1|5|t1", seq: 3 });          // older poll, same game: ignored
+adopt({ id: 1, session_id: 5, created_at: "t1", event_seq: 5 });  // game-state block, same game
+adopt({ game_id: 1, game_key: "1|5|t2", seq: 0 });          // new game, same id: accepted, totals dropped
+sessionGamePoints = { "11": 0 };
+adopt({ game_id: 1, game_key: "1|5|t2", seq: 2 });          // new game's refresh
+adopt({ id: 1, session_id: 5, created_at: "t2", event_seq: 1 });  // older, new game: ignored
+resetGamePointsVer();
+adopt({ game_id: 1, game_key: "1|5|t2", seq: 0 });          // after a reset anything is taken
+adopt(null);
+console.log(JSON.stringify(out));
+"""
+        proc = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=60, check=False)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        got = json.loads(proc.stdout.strip())
+        self.assertEqual(
+            got,
+            [
+                [True, "{}"],
+                [False, '{"11":7}'],
+                [True, '{"11":7}'],
+                [True, "{}"],
+                [True, '{"11":0}'],
+                [False, '{"11":0}'],
+                [True, '{"11":0}'],
+                [True, '{"11":0}'],
+            ],
+        )
 
 
 if __name__ == "__main__":
