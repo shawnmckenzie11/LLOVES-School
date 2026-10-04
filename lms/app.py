@@ -93,6 +93,9 @@ from school_db import (  # noqa: E402
     RankAgreeConflict,
     RankTurnConflict,
     SchoolDB,
+    WHITEBOARD_REOPEN_CLASS_ENDED,
+    WHITEBOARD_REOPEN_ENDED_REASON,
+    WhiteboardReopenConflict,
     json_safe,
 )
 from celebration import (  # noqa: E402
@@ -6811,8 +6814,36 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         publish sends.
         """
 
+        def reopen_conflict(exc: WhiteboardReopenConflict):
+            # 409 with a machine-readable reason (MCK-174): "already_open"
+            # (not closed, or a second tab reopened it first) repaints
+            # quietly; "class_ended" shows wb.reopen.error.ended.
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": str(exc),
+                        "conflict": True,
+                        "reason": exc.reason,
+                    }
+                ),
+                409,
+            )
+
         _row, error = _active_owned_live_session(session_id)
         if error is not None:
+            session_row = school.get_live_session(session_id)
+            if (
+                session_row is not None
+                and _can_view_live_session(session_row)
+                and str(session_row.get("status") or "") != "active"
+            ):
+                return reopen_conflict(
+                    WhiteboardReopenConflict(
+                        WHITEBOARD_REOPEN_CLASS_ENDED,
+                        reason=WHITEBOARD_REOPEN_ENDED_REASON,
+                    )
+                )
             return error
         body = request.get_json(silent=True) or {}
         try:
@@ -6821,6 +6852,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 live_item_id,
                 start=str(body.get("start") or "last"),
             )
+        except WhiteboardReopenConflict as exc:
+            return reopen_conflict(exc)
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         seq = teacher_state_seq(school, session_id)
