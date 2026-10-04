@@ -7167,6 +7167,34 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return _json_error(exc)
         return jsonify({"ok": True, **result})
 
+    @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/rank-points",
+        methods=["POST"],
+    )
+    @login_required
+    def api_award_group_rank_points(session_id: int, live_item_id: int):
+        """MCK-185: teacher award for one group on an answer-order rank.
+
+        Body ``{team_id, amount, team_rule}``, the Class list team chips'
+        values. Manual only; a paying Team challenge refuses.
+        """
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        body = request.get_json(silent=True) or {}
+        try:
+            result = school.award_group_rank_points(
+                session_id,
+                live_item_id,
+                team_id=int(body.get("team_id")),
+                amount=int(body.get("amount") or 0),
+                team_rule=(str(body["team_rule"]) if body.get("team_rule") else None),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, **result})
+
     def _without_response_names(rows: list[Any]) -> list[Any]:
         """Response rows with names and characters blanked (Hide names).
 

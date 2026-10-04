@@ -285,6 +285,10 @@ export const RESULTS_COPY = Object.freeze({
   next: "Next", // race.next
   done: "Back to question", // results.done
   absent: "No one here yet", // race.lane.absent
+  // MCK-185 drafts (Wonder to confirm): spots results (no Team challenge).
+  spotsHint: "{k} of {n} spots right", // results.scoring.hint (teacher only)
+  noOrder: "No order sent", // results.scoring.none
+  spots: "{k} of {n} spots", // results.spots (podium, "Also on the board")
 });
 
 /**
@@ -315,7 +319,28 @@ export function rightText(k, n) {
  * @returns {number} The last step index.
  */
 export function lastResultsStep(results) {
-  return (Number(results?.total) || 0) + 2;
+  // MCK-185: spots results (no Team challenge) skip the Points step.
+  return (Number(results?.total) || 0) + (results?.challenge === false ? 1 : 2);
+}
+
+/**
+ * MCK-185: true for the spots results (group answer-order rank that is not
+ * a Team challenge): the podium ranks right spots and nothing is paid.
+ * @param {any} results
+ * @returns {boolean}
+ */
+export function spotsResults(results) {
+  return results?.challenge === false;
+}
+
+/**
+ * "{k} of {n} spots" for the spots podium and "Also on the board".
+ * @param {number} k
+ * @param {number} n
+ * @returns {string}
+ */
+export function spotsText(k, n) {
+  return fill(RESULTS_COPY.spots, { k: Number(k) || 0, n: Number(n) || 0 });
 }
 
 /**
@@ -425,6 +450,10 @@ function pointsFrame(results) {
  */
 function podiumFrame(results) {
   const teams = Array.isArray(results?.teams) ? results.teams : [];
+  const bySpots = spotsResults(results);
+  const total = Number(results?.total) || 0;
+  // Team challenge: "{pts} points each". Spots results: "{k} of {n} spots".
+  const stepText = (step) => (bySpots ? spotsText(step.right ?? step.points, total) : pointsText(step.points));
   const byId = new Map(teams.map((team, i) => [Number(team.team_id), { ...team, slot: Number.isFinite(Number(team.slot)) ? Number(team.slot) : i }]));
   const steps = Array.isArray(results?.podium?.steps) ? results.podium.steps : [];
   const stepHtml = (step) => {
@@ -442,7 +471,7 @@ function podiumFrame(results) {
       .join("");
     const tie = ids.length > 1 ? `<span class="race-step-tie">${esc(fill(RESULTS_COPY.tie, { n: ids.length }))}</span>` : "";
     return `<div class="race-step is-step-${step.step}">
-        <div class="race-step-who">${tie}${names}<span class="race-step-pts">${esc(pointsText(step.points))}</span></div>
+        <div class="race-step-who">${tie}${names}<span class="race-step-pts">${esc(stepText(step))}</span></div>
         <div class="race-step-block"><span>${step.step}</span></div>
       </div>`;
   };
@@ -451,8 +480,12 @@ function podiumFrame(results) {
     .map((id) => byId.get(Number(id)))
     .filter(Boolean)
     // Each team its own points ("Vectors 2 points each · Sines 0 points each").
-    .map((team) => `${esc(team.team_name)} ${esc(pointsText(team.scored ? team.points : 0))}`)
-    .join(" · ");
+    .map((team) =>
+      bySpots
+        ? `${esc(team.team_name)} · ${esc(spotsText(team.right, total))}`
+        : `${esc(team.team_name)} ${esc(pointsText(team.scored ? team.points : 0))}`
+    )
+    .join(bySpots ? ", " : " · ");
   const confetti = Array.from({ length: 18 }, (_, i) => {
     const colour = teamMark(byId.get(Number(steps[i % Math.max(1, steps.length)]?.team_ids?.[0]))?.slot ?? i).colour;
     return `<i style="--i:${i};--c:${colour}"></i>`;
@@ -485,19 +518,78 @@ export function raceResultsHtml(results, liveItemId, opts = {}) {
   if (step <= n) {
     frame = rowsFrame(results, step, String(opts.stem || ""));
     phase = "rows";
-  } else if (step === n + 1) {
+  } else if (step === n + 1 && !spotsResults(results)) {
     frame = pointsFrame(results);
     phase = "points";
   } else {
     frame = podiumFrame(results);
     phase = "podium";
+    // MCK-185: the teacher's Scoring rows sit under the podium, last step only.
+    if (step >= last && opts.scoringHtml) frame += String(opts.scoringHtml);
   }
   const button =
     step < last
       ? `<button type="button" class="race-view-close" data-race-next="${id}"${opts.busy ? " disabled" : ""}>${esc(RESULTS_COPY.next)} ▸</button>`
       : `<button type="button" class="secondary race-view-exit" data-race-done="${id}">${esc(RESULTS_COPY.done)}</button>`;
-  return `<section class="race-view race-results is-${phase}" data-race-results="${id}" data-race-step="${step}" aria-label="Team challenge results">
+  const label = spotsResults(results) ? "Results" : "Team challenge results";
+  return `<section class="race-view race-results is-${phase}" data-race-results="${id}" data-race-step="${step}" aria-label="${label}">
     ${frame}
     <footer class="race-view-foot">${button}</footer>
+  </section>`;
+}
+
+// ---------------------------------------------------------------------------
+// MCK-185: teacher Scoring rows on a group answer-order rank (spots results).
+// One row per group in Class list team order: colour swatch, name, the
+// "{k} of {n} spots right" hint (muted, teacher only, hidden by Hide key)
+// and the usual team award chips. Manual only: nothing is preselected.
+// ---------------------------------------------------------------------------
+
+/**
+ * The Scoring block. ``controls`` builds the award chips for one team (the
+ * staff shell passes its Class list ``teamControls``), so no new widget.
+ * @param {any} results Teacher ``race.results`` (spots results).
+ * @param {number} liveItemId
+ * @param {{hideKey?: boolean, controls?: (teamId: number) => string, teamOrder?: number[]}} [opts]
+ *   ``teamOrder``: Class list team ids, in order (results order otherwise).
+ * @returns {string} "" unless these are spots results.
+ */
+export function rankScoringHtml(results, liveItemId, opts = {}) {
+  if (!spotsResults(results)) return "";
+  const id = Number(liveItemId) || 0;
+  const teams = (Array.isArray(results?.teams) ? results.teams : []).map((team, i) => ({
+    ...team,
+    slot: Number.isFinite(Number(team.slot)) ? Number(team.slot) : i,
+  }));
+  const order = Array.isArray(opts.teamOrder) ? opts.teamOrder.map(Number) : [];
+  if (order.length) {
+    const at = (team) => {
+      const index = order.indexOf(Number(team.team_id));
+      return index < 0 ? order.length + team.slot : index;
+    };
+    teams.sort((a, b) => at(a) - at(b));
+  }
+  const controls = typeof opts.controls === "function" ? opts.controls : () => "";
+  const rows = teams
+    .map((team) => {
+      const mark = teamMark(team.slot);
+      const teamId = Number(team.team_id) || 0;
+      const awarded = Number(team.awarded_points) || 0;
+      const plus = awarded ? `<span class="rank-scoring-awarded">${awarded > 0 ? "+" : ""}${esc(awarded)}</span>` : "";
+      const body = team.scored
+        ? `${opts.hideKey ? "" : `<span class="rank-scoring-hint">${esc(
+            fill(RESULTS_COPY.spotsHint, { k: Number(team.right) || 0, n: Number(team.total) || 0 })
+          )}</span>`}${plus}<span class="rank-scoring-ctl">${controls(teamId)}</span>`
+        : `<span class="rank-scoring-hint is-none">${esc(RESULTS_COPY.noOrder)}</span>`;
+      return `<li class="rank-scoring-row" data-rank-scoring-team="${teamId}" style="--team:${mark.colour}">
+        <span class="rank-scoring-swatch" aria-hidden="true">${mark.shape}</span>
+        <span class="rank-scoring-name">${esc(team.team_name)}</span>
+        ${body}
+      </li>`;
+    })
+    .join("");
+  return `<section class="rank-scoring" data-rank-scoring="${id}" aria-label="Scoring">
+    <h3 class="rank-scoring-title">Scoring</h3>
+    <ol class="rank-scoring-rows">${rows}</ol>
   </section>`;
 }

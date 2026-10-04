@@ -7207,3 +7207,69 @@ body.staff-shell .race-confetti i {
     outline-offset: 2px;
   }
 }
+
+/* MCK-185 Scoring rows on a group answer-order rank (teacher only, 1280+).
+   One row per group: team swatch, name, a muted spot hint and the Class
+   list team chips. Out of the narrow per-group columns; full card width. */
+body.staff-shell .rank-scoring {
+  margin: 16px 0 4px;
+  padding: 12px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+}
+body.staff-shell .rank-scoring-title {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #12202e;
+}
+body.staff-shell .rank-scoring-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+body.staff-shell .rank-scoring-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 6px 8px;
+  border-left: 4px solid var(--team);
+  border-radius: 4px;
+  background: #f8fafc;
+}
+body.staff-shell .rank-scoring-swatch {
+  color: var(--team);
+  font-size: 20px;
+  line-height: 1;
+}
+body.staff-shell .rank-scoring-name {
+  min-width: 8rem;
+  font-weight: 700;
+  color: var(--team);
+}
+body.staff-shell .rank-scoring-hint {
+  color: #5b6779;
+  font-size: 0.88rem;
+}
+body.staff-shell .rank-scoring-awarded {
+  font-weight: 700;
+  color: #0f766e;
+}
+body.staff-shell .rank-scoring-ctl {
+  margin-left: auto;
+}
+body.staff-shell .rank-scoring .ap-score-chip {
+  color: #12202e;
+}
+body.staff-shell .rank-scoring-ctl .rule-pick {
+  width: auto;
+  min-width: 16rem;
+}
+body.staff-shell .live-question-list.is-key-hidden .rank-scoring-hint:not(.is-none) {
+  display: none;
+}

@@ -31,14 +31,41 @@ RACE_CLOSED_BY = "group_rank_race_closed_by"
 #: ``item_json``, so a deck refresh can never rewrite it from a stale copy.
 
 
-def points_step(spots: int) -> int:
-    """Reveal step that shows points (after every spot row)."""
-    return int(spots) + 1
+#: MCK-185: the coloured results also run on a group answer-order rank that
+#: is not a Team challenge ("spots" results). Same rows and podium, but no
+#: Points step and no automatic points: the podium ranks right spots and the
+#: teacher awards by hand through the usual team scoring chips.
+#: An answer order needs this many spots (same rule as the Team challenge
+#: toggle in ``group_setup.js`` ``rankRaceSettings``).
+MIN_KEY_SPOTS = 3
+#: Team challenge pays ``BASE_PER_SPOT`` per right spot by itself (MCK-171).
+#: Set False to make a challenge behave like the spots results (points become
+#: a hint and the teacher awards by hand); ``SchoolDB._rank_race_pays`` reads
+#: it, and every payout path checks that one method.
+CHALLENGE_AUTO_PAYS = True
 
 
-def podium_step(spots: int) -> int:
-    """Reveal step that shows the podium (last step)."""
-    return int(spots) + 2
+def points_step(spots: int, *, with_points: bool = True) -> int | None:
+    """Reveal step that shows points (after every spot row).
+
+    Args:
+        spots: Spots in the answer order.
+        with_points: False for the spots results, which have no Points step.
+
+    Returns:
+        The step, or ``None`` when there is no Points step.
+    """
+    return int(spots) + 1 if with_points else None
+
+
+def podium_step(spots: int, *, with_points: bool = True) -> int:
+    """Reveal step that shows the podium (last step).
+
+    Args:
+        spots: Spots in the answer order.
+        with_points: False for the spots results (rows, then the podium).
+    """
+    return int(spots) + (2 if with_points else 1)
 
 
 def flag_on(question: Any, key: str, *, default: bool = False) -> bool:
@@ -172,23 +199,34 @@ def team_points(right: int) -> int:
     return BASE_PER_SPOT * max(0, int(right))
 
 
-def podium(teams: Iterable[dict[str, Any]]) -> dict[str, Any]:
+def podium(
+    teams: Iterable[dict[str, Any]], *, by: str = "points", drop_unscored: bool = False
+) -> dict[str, Any]:
     """Top-3 podium by dense ranking; tied teams share a step.
 
     A team is on the podium when it was scored (it placed something) and
-    has points. Everyone else goes to "Also on the board", alphabetical,
-    with no place number. Speed and lock-in time play no part.
+    has points (or, ``by="right"``, at least one right spot). Everyone else
+    goes to "Also on the board", alphabetical, with no place number. Speed
+    and lock-in time play no part.
 
     Args:
-        teams: Dicts with ``team_id``, ``team_name``, ``points``, ``scored``.
+        teams: Dicts with ``team_id``, ``team_name``, ``points``, ``right``,
+            ``scored``.
+        by: ``points`` (Team challenge) or ``right`` (MCK-185 spots results).
+        drop_unscored: Leave teams that sent nothing (absent teams too) off
+            the board entirely instead of listing them under "Also on the
+            board" (MCK-185 spots results).
 
     Returns:
         ``{"steps": [{"step", "points", "team_ids"}], "others": [team_id]}``.
         ``steps`` is ordered 1, 2, 3 (fewer when there are fewer totals).
+        With ``by="right"`` each step also carries ``right``; its
+        ``points`` is the same count (no points are paid).
     """
+    field = "right" if by == "right" else "points"
     rows = list(teams)
     totals = sorted(
-        {int(row["points"]) for row in rows if row.get("scored") and int(row["points"]) > 0},
+        {int(row.get(field) or 0) for row in rows if row.get("scored") and int(row.get(field) or 0) > 0},
         reverse=True,
     )[:PODIUM_STEPS]
     steps = []
@@ -198,17 +236,22 @@ def podium(teams: Iterable[dict[str, Any]]) -> dict[str, Any]:
             (
                 row
                 for row in rows
-                if row.get("scored") and int(row["points"]) == total
+                if row.get("scored") and int(row.get(field) or 0) == total
             ),
             key=lambda row: str(row.get("team_name") or "").casefold(),
         )
-        steps.append(
-            {"step": index + 1, "points": total, "team_ids": [int(row["team_id"]) for row in ids]}
-        )
+        step: dict[str, Any] = {
+            "step": index + 1,
+            "points": total,
+            "team_ids": [int(row["team_id"]) for row in ids],
+        }
+        if field == "right":
+            step["right"] = total
+        steps.append(step)
         on.update(int(row["team_id"]) for row in ids)
     others = [
         int(row["team_id"])
         for row in sorted(rows, key=lambda row: str(row.get("team_name") or "").casefold())
-        if int(row["team_id"]) not in on
+        if int(row["team_id"]) not in on and (row.get("scored") or not drop_unscored)
     ]
     return {"steps": steps, "others": others}

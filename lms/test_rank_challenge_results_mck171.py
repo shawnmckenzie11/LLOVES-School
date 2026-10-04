@@ -354,7 +354,9 @@ class StepRouteTests(StepMixin, ChallengeHarness):
         self.assertEqual(self._post_step(item, 1).status_code, 400)
 
     def test_plain_rank_refuses_a_step(self) -> None:
-        row = self._rank_row()
+        # MCK-185: a keyed group rank now gets the spots reveal (its own
+        # steps), so "plain" here is an opinion rank with no answer order.
+        row = self._rank_row(key=False)
         item = self._publish(row)
         self._close(item)
         self.assertEqual(self._post_step(item, 1).status_code, 400)
