@@ -52,4 +52,6 @@
 .ob-link { background: none; border: 0; padding: 0; margin: 16px 0 0; font: inherit; font-weight: 650; font-size: 14.5px; color: #0f766e; cursor: pointer; }
 .ob-back { color: #0f172a; font-size: 15px; }
 .ob-card .btn[disabled] { opacity: 0.6; cursor: wait; }
+.ob-names { width: 100%; box-sizing: border-box; padding: 10px; font: inherit; font-size: 15px; line-height: 1.5; border: 1px solid #94a3b8; border-radius: 8px; resize: vertical; color: #12202e; }
+.ob-names.is-missing { border-color: #dc2626; box-shadow: 0 0 0 1px #dc2626; }
 

@@ -65,14 +65,14 @@ class YourClassTests(unittest.TestCase):
         self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
         body = rv.get_json()
         self.assertTrue(body["ok"])
-        self.assertEqual(body["next"], "/staff")
+        self.assertEqual(body["next"], "/staff/welcome?step=names")
         rows = self._offerings()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["ontario_code"], "SBI4U")
         self.assertEqual(rows[0]["live_days"], "M/W/F")
         self.assertEqual(rows[0]["live_time"], "2:00pm")
         self.assertFalse(rows[0].get("library_id"))
-        self.assertEqual(self.client.get("/staff").status_code, 200)
+        self.assertTrue(self.client.get("/staff").headers["Location"].endswith("/staff/welcome?step=names"))
 
     def test_repeat_code_is_a_second_section_and_back_next_is_idempotent(self) -> None:
         """Two SPH3U rows → SPH3U and SPH3U-2; pressing Next again adds nothing."""

@@ -105,3 +105,86 @@
 
   renumber();
 })();
+
+/**
+ * MCK-183 slice C: "Who's in {code}?" names step. One first name per line;
+ * at least one name. Same first name twice → Wonder's "Sam 2" hint. Saves
+ * through the existing POST /api/staff/classes.
+ */
+(function initNames() {
+  "use strict";
+  const form = document.getElementById("ob-names-form");
+  if (!form) return;
+  const box = document.getElementById("ob-names");
+  const count = document.getElementById("ob-names-count");
+  const errorEl = document.getElementById("ob-names-error");
+  const nextBtn = document.getElementById("ob-names-next");
+  const DUP = "Two students with the same first name? Add a number so each can find theirs, like Sam 2.";
+
+  function names() {
+    return box.value
+      .split(/\r?\n/)
+      .map((line) => line.trim().replace(/\s+/g, " "))
+      .filter(Boolean);
+  }
+
+  function refresh() {
+    const n = names().length;
+    const tmpl = n === 1 ? count.getAttribute("data-one") : count.getAttribute("data-many");
+    count.textContent = String(tmpl || "").replace("{n}", String(n));
+    nextBtn.disabled = n === 0;
+  }
+
+  function showError(text) {
+    errorEl.textContent = text;
+    errorEl.hidden = false;
+    box.classList.add("is-missing");
+  }
+
+  box.addEventListener("input", () => {
+    errorEl.hidden = true;
+    box.classList.remove("is-missing");
+    refresh();
+  });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const list = names();
+    if (!list.length) return;
+    const seen = new Set();
+    for (const name of list) {
+      const key = name.toLowerCase();
+      if (seen.has(key)) {
+        showError(DUP);
+        return;
+      }
+      seen.add(key);
+    }
+    nextBtn.disabled = true;
+    try {
+      const res = await fetch(form.getAttribute("data-endpoint") || "", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          offering_id: Number(form.getAttribute("data-offering-id")),
+          codenames: list,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        const msg = String(data.error || "");
+        showError(/duplicate/i.test(msg) ? DUP : msg.replace(/Codenames?/g, "Names") || "That didn't save. Press Next again.");
+        return;
+      }
+      window.location.assign(form.getAttribute("data-next") || "/staff");
+    } catch (_err) {
+      showError("That didn't save. Check your connection and press Next again.");
+    } finally {
+      refresh();
+    }
+  });
+
+  refresh();
+})();
+

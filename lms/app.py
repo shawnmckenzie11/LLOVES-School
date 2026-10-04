@@ -2803,11 +2803,20 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         user = current_user()
         assert user is not None
         offerings, classes = _teacher_setup(user)
-        if classes:
-            return redirect(url_for("staff_home"))
         step = (request.args.get("step") or "").strip().lower()
-        if step not in {"class"}:
+        if step not in {"class", "names"}:
             step = "welcome"
+        names_offering = None
+        if step == "names":
+            pending = [o for o in offerings if not o.get("classes")]
+            wanted = request.args.get("offering", type=int)
+            names_offering = next(
+                (o for o in pending if int(o["id"]) == wanted), pending[0] if pending else None
+            )
+            if names_offering is None:
+                return redirect(url_for("staff_home") if classes else url_for("staff_welcome", step="class"))
+        elif classes:
+            return redirect(url_for("staff_home"))
         return render_template(
             "staff/welcome.html",
             user=user,
@@ -2815,6 +2824,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             has_course=bool(offerings),
             presets=onboarding_preset_lists(school),
             class_rows=_onboarding_class_rows(user, offerings),
+            names_offering=names_offering,
             school_name=SCHOOL_NAME,
         )
 
@@ -2919,7 +2929,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         except (KeyError, ValueError) as exc:
             app.logger.warning("onboarding course failed: %s", exc)
             return jsonify({"ok": False, "error": error}), 400
-        return jsonify({"ok": True, "offerings": saved, "next": url_for("staff_home")})
+        return jsonify(
+            {"ok": True, "offerings": saved, "next": url_for("staff_welcome", step="names")}
+        )
 
     @app.route("/staff")
     @staff_required
@@ -2948,6 +2960,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         # accounts keep the Dashboard.
         if _needs_first_run(user, offerings, classes):
             return redirect(url_for("staff_welcome"))
+        # Slice C: course chosen but no class list yet → the names step.
+        if str(user.get("role") or "") == "staff" and offerings and not classes:
+            return redirect(url_for("staff_welcome", step="names"))
         from flask import make_response
 
         active_live_session = school.get_active_live_session_for_teacher(

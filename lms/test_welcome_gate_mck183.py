@@ -95,12 +95,13 @@ class WelcomeGateTests(unittest.TestCase):
         self.assertEqual(rv.status_code, 302)
         self.assertTrue(rv.headers["Location"].endswith("/staff/welcome"))
 
-    def test_teacher_with_a_course_keeps_the_dashboard(self) -> None:
-        """An assigned course (Populate Class path) or a class: no gate."""
+    def test_teacher_with_a_course_but_no_class_gets_the_names_step(self) -> None:
+        """Slice C: an assigned course with no class list → "Who's in {code}?"."""
         self.school.assign_course(teacher_user_id=int(self.teacher["id"]), ontario_code="SBI4U")
         self._sign_in(NEW, "/staff")
         rv = self.client.get("/staff")
-        self.assertEqual(rv.status_code, 200)
+        self.assertEqual(rv.status_code, 302)
+        self.assertTrue(rv.headers["Location"].endswith("/staff/welcome?step=names"))
 
     def test_teacher_with_a_class_skips_welcome(self) -> None:
         """Welcome itself sends a set-up teacher to the Dashboard."""
