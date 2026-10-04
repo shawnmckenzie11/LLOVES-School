@@ -47,6 +47,7 @@ import {
   readOnlyOrderHtml,
   raceDisplayOptions,
 } from "/static/rank_challenge_phone.js";
+import { fullOrderHtml } from "/static/rank_full_order.js";
 import {
   GROUP_INSTRUCTION_COPY,
   consensusWaitHtml,
@@ -3080,6 +3081,19 @@ function rankGroupRevealHtml(results, ownTeamId) {
  * @returns {string}
  */
 function studentGroupCardHtml(item) {
+  const html = studentGroupCardBodyHtml(item);
+  // MCK-185: the class-wide "put every item in the right order" line, at
+  // the very bottom under the answer area (server decides when; names only).
+  const notice = fullOrderHtml(item?.group_submit?.full_order);
+  return notice ? `${html}${notice}` : html;
+}
+
+/**
+ * The group card itself (see ``studentGroupCardHtml``).
+ * @param {any} item
+ * @returns {string}
+ */
+function studentGroupCardBodyHtml(item) {
   const status = String(item?.status || "active");
   const content = item?.content || item?.prompt?.payload || {};
   const rank = String(content.type || content.kind || "").toLowerCase() === "rank";

@@ -7167,6 +7167,45 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return _json_error(exc)
         return jsonify({"ok": True, **result})
 
+    @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/rank-points",
+        methods=["POST"],
+    )
+    @login_required
+    def api_award_group_rank_points(session_id: int, live_item_id: int):
+        """MCK-185 "Score teams": set teams' points on a group answer-order rank.
+
+        Body ``{awards: [{team_id, points}], team_rule}`` (one row's Assign,
+        or Assign all). Re-assigning replaces that team's earlier award for
+        this question; the same points and rule again change nothing.
+        Manual only; nothing is awarded unless the teacher presses Assign.
+        """
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        body = request.get_json(silent=True)
+        # Gate LOW on f0a15be: a malformed body (not an object, awards not
+        # a list of objects) is a 400, never a 500.
+        if not isinstance(body, dict):
+            return jsonify({"ok": False, "error": "Send {awards: [{team_id, points}], team_rule}"}), 400
+        awards = body.get("awards")
+        if not isinstance(awards, list) or not all(isinstance(row, dict) for row in awards):
+            return jsonify({"ok": False, "error": "awards must be a list of {team_id, points}"}), 400
+        rule = body.get("team_rule")
+        if rule is not None and not isinstance(rule, str):
+            return jsonify({"ok": False, "error": "team_rule must be text"}), 400
+        try:
+            result = school.assign_rank_team_points(
+                session_id,
+                live_item_id,
+                awards=awards,
+                team_rule=(rule or None),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, **result})
+
     def _without_response_names(rows: list[Any]) -> list[Any]:
         """Response rows with names and characters blanked (Hide names).
 

@@ -24,7 +24,7 @@ from typing import Any, Callable
 import rank_challenge
 from app import create_app
 from test_rank_challenge_mck171 import KEY_IDS, ChallengeHarness
-from test_rank_challenge_results_mck171 import SWAP, StepMixin
+from test_rank_challenge_results_mck171 import SWAP, PaysOnMixin, StepMixin
 
 POINTS_STEP = rank_challenge.points_step(4)
 PODIUM_STEP = rank_challenge.podium_step(4)
@@ -37,8 +37,11 @@ EXPECT = {"Ava": 8, "Cy": 8, "Eli": 8, "Ben": 4, "Dee": 4, "Fay": 4}
 WORKERS = 4
 
 
-class ConcurrencyHarness(StepMixin, ChallengeHarness):
-    """Several app instances on the same file; the teacher cookie on each."""
+class ConcurrencyHarness(PaysOnMixin, StepMixin, ChallengeHarness):
+    """Several app instances on the same file; the teacher cookie on each.
+
+    Pays-once checks need the payout on (``PaysOnMixin``): MCK-185 option B
+    switched it off by default."""
 
     def setUp(self) -> None:
         super().setUp()
