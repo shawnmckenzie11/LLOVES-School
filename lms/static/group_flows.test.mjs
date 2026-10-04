@@ -11,6 +11,7 @@ import {
   rankTurnCue,
   rankTurnsHtml,
   stillChoosingLine,
+  turnsCardIsStale,
 } from "./group_flows.js";
 import { groupSetupHtml, groupSetupOptionsHtml, groupSubmitVariant, rankModeHtml } from "./group_setup.js";
 
@@ -138,6 +139,22 @@ check(groupSetupOptionsHtml({ ...base, variant: "mc" }).includes("Everyone picks
 check(groupSetupHtml({ ...base, status: "active", variant: "rank_turns" }).includes("● Group · take turns"), "turns chip");
 check(groupSetupHtml({ ...base, status: "active", variant: "mc" }).includes("● Group · pick, then agree"), "mc chip");
 check(groupSetupHtml({ ...base, status: "active" }).includes("● Group · one answer each"), "old chip unchanged");
+
+// MCK-184: a slow POST reply (older rev) never repaints over a newer turn.
+check(turnsCardIsStale({ turns: { rev: 3 } }, { turns: { rev: 2 } }), "older rev is stale");
+check(!turnsCardIsStale({ turns: { rev: 3 } }, { turns: { rev: 3 } }), "same rev applies");
+check(!turnsCardIsStale({ turns: { rev: 3 } }, { turns: { rev: 4 } }), "newer rev applies");
+check(!turnsCardIsStale({}, { turns: { rev: 1 } }) && !turnsCardIsStale({ turns: { rev: 2 } }, { order: [] }), "non-turns cards apply");
+// MCK-184: Undo only for the teammate whose pick is the last spot.
+const undoOpts = { options: [{ id: "a", label: "A" }, { id: "b", label: "B" }, { id: "c", label: "C" }], itemId: 7 };
+const lastMine = rankTurnsHtml({ turns: { mode: "turns", total: 3, rev: 2, can_undo: true, spots: [{ option_id: "a", label: "A", by_name: "Eva", mine: false }, { option_id: "b", label: "B", by_name: "Iggy", mine: true }] } }, undoOpts);
+check(lastMine.includes("data-rank-turn-undo"), "last placer sees Undo");
+const notMine = rankTurnsHtml({ turns: { mode: "turns", total: 3, rev: 2, can_undo: false, can_place: true, spots: [{ option_id: "a", label: "A", by_name: "Iggy", mine: false }, { option_id: "b", label: "B", by_name: "Eva", mine: true }].slice(0, 1) } }, undoOpts);
+check(!notMine.includes("data-rank-turn-undo"), "teammate sees no Undo");
+const staleUndo = rankTurnsHtml({ turns: { mode: "turns", total: 3, rev: 3, can_undo: true, spots: [{ option_id: "a", label: "A", by_name: "Iggy", mine: true }, { option_id: "b", label: "B", by_name: "Eva", mine: false }] } }, undoOpts);
+check(!staleUndo.includes("data-rank-turn-undo"), "no Undo when the last spot is a teammate's (stale can_undo)");
+const doneUndo = rankTurnsHtml({ turns: { mode: "turns", total: 1, rev: 1, done: true, can_undo: true, spots: [{ option_id: "a", label: "A", by_name: "Iggy", mine: true }] } }, undoOpts);
+check(!doneUndo.includes("data-rank-turn-undo"), "no Undo once the order is in");
 
 if (failures) {
   console.error(`${failures} failure(s)`);

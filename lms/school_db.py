@@ -30092,9 +30092,18 @@ class SchoolDB(LovesDB):
                     FROM live_rank_race_steps s
                     INNER JOIN live_session_items i ON i.id = s.live_item_id
                     WHERE i.live_session_id = ?
-                  ), '') AS race_step_rev
+                  ), '') AS race_step_rev,
+                  EXISTS (
+                    SELECT 1 FROM live_session_items
+                    WHERE live_session_id = ? AND status = 'active'
+                      AND response_mode = 'group_submit'
+                      AND json_valid(item_json)
+                      AND (json_extract(item_json, '$.group_rank_mode') = 'turns'
+                           OR json_extract(item_json, '$.group_rank_race') IN (1, 'true'))
+                  ) AS presence_gated
                 """,
                 (
+                    int(session_id),
                     int(session_id),
                     int(session_id),
                     int(session_id),
@@ -30138,14 +30147,58 @@ class SchoolDB(LovesDB):
         # MCK-171: the Team challenge reveal step (the podium step writes no
         # point event, so phones would otherwise get "unchanged").
         race_step_rev = str(row["race_step_rev"] if row is not None else "")
+        # MCK-184: whose turn it is (Take turns) and who can still hold a
+        # Rank together lock-in depend on who is present. A leave, a stale
+        # sweep or a rejoin writes no item row, so without this a waiting
+        # phone got "unchanged" forever and its turn never enabled. Only
+        # read while such an item is open (one cheap query).
+        presence_rev = (
+            self._present_attendee_rev(int(session_id))
+            if row is not None and row["presence_gated"]
+            else ""
+        )
         # Ink lives in board_ops. It must not change this stamp, or every
         # stroke forces a full ``/state`` rebuild.
         return (
             f"{seq}:{prompt_max}:{prompt_active}:{active_n}:{item_n}:{save_n}:"
             f"{item_max}:{response_max}:{group_vote_max}:{event_max}:"
             f"{prompt_rev}:{item_rev}:{group_vote_rev}:{status}:{celebrate}:"
-            f"{group_response_rev}:{race_step_rev}"
+            f"{group_response_rev}:{race_step_rev}:{presence_rev}"
         )
+
+    def _present_attendee_rev(self, session_id: int) -> str:
+        """Token that changes whenever the session's present set changes.
+
+        Postgres presence (when on) is the source of truth; otherwise the
+        sqlite ``left_at`` column. A presence outage reads as ``""`` (the
+        stamp then behaves as before) rather than failing the poll.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        if self.presence is not None:
+            try:
+                return "p" + str(self.presence.present_rev(int(session_id)))
+            except Exception as exc:
+                from live_presence import LivePresenceUnavailable, note_presence_blip
+
+                if not isinstance(exc, (LivePresenceUnavailable, AttributeError)):
+                    raise
+                note_presence_blip(f"present rev skipped session={session_id}")
+                return ""
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT COUNT(*) AS n, COALESCE(SUM(id), 0) AS s1,
+                       COALESCE(SUM(id * id), 0) AS s2
+                FROM live_session_attendees
+                WHERE live_session_id = ? AND left_at IS NULL
+                """,
+                (int(session_id),),
+            ).fetchone()
+        if row is None:
+            return ""
+        return f"s{int(row['n'])}.{int(row['s1'])}.{int(row['s2'])}"
 
     def _student_live_poll_is_open(self, session_id: int) -> bool:
         """True when student ``/state`` should build a snapshot for this id.
