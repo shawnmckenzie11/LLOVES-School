@@ -6546,6 +6546,8 @@ async function pollLiveSessionAttendees(opts = {}) {
   const wantFull = Boolean(opts.full) || staffStateNeedsFull;
   const prevSeq = Number(teacherState.state_seq) || lastGoodStateSeq;
   armStaffPendingFeel();
+  // MCK-183: a throw after /state answered is a paint bug. Report it.
+  let statePainting = false;
   try {
     const qs = wantFull ? "" : "?light=1";
     let payload;
@@ -6557,6 +6559,7 @@ async function pollLiveSessionAttendees(opts = {}) {
       if (/busy|503|unavailable|overloaded|locked/i.test(message)) throw err;
       payload = await api(`/api/live-sessions/${id}/state?light=1`);
     }
+    statePainting = true;
     // Shed / busy / 503 stays on this document. Do not reload.
     if (payload?.phase === "ended" || payload?.session?.status === "ended") {
       const fault = String(payload?.fault || "").trim();
@@ -6680,6 +6683,7 @@ async function pollLiveSessionAttendees(opts = {}) {
       sessionPollQueued = { full: true, force: true };
     }
   } catch (_) {
+    if (statePainting) window.llovesSentryReport?.(_, "staff-state-paint");
     clearGroupPollFeelTimers();
     paintGroupPollFeel("ok");
     setLiveReconnectBanner(true);

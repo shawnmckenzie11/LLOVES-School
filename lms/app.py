@@ -43,6 +43,7 @@ from flask import (  # noqa: E402
     Response,
     abort,
     current_app,
+    has_request_context,
     jsonify,
     make_response,
     redirect,
@@ -129,7 +130,9 @@ from live_news_wire import (  # noqa: E402
 )
 from sentry_wire import (  # noqa: E402
     SENTRY_CONNECT_SRC,
+    browser_context as sentry_browser_tags,
     init_flask_sentry,
+    install_request_scope as install_sentry_request_scope,
     sentry_browser_context,
 )
 from artifact import (  # noqa: E402
@@ -1067,8 +1070,29 @@ def create_app(
 
     @app.context_processor
     def inject_sentry_browser() -> dict[str, str]:
-        """Expose the live-shell Sentry meta values. Empty DSN skips the SDK."""
-        return sentry_browser_context()
+        """Expose the browser Sentry meta values. Empty DSN skips the SDK.
+
+        MCK-183: with a DSN, the page also carries the teacher id (staff
+        only) and the same tags the server sets. No student data.
+        """
+        values = sentry_browser_context()
+        if values["sentry_live_dsn"] and has_request_context():
+            try:
+                values.update(
+                    sentry_browser_tags(
+                        request.path,
+                        request.args,
+                        session,
+                        request.view_args,
+                        school.telemetry_class_course,
+                    )
+                )
+            except Exception:  # noqa: BLE001 - telemetry never breaks a page
+                app.logger.debug("Sentry browser tags failed", exc_info=True)
+        return values
+
+    # MCK-183: Sentry user (staff only), tags, and key-action log lines.
+    install_sentry_request_scope(app, school.telemetry_class_course)
 
     @app.after_request
     def add_security_headers(response: Response) -> Response:

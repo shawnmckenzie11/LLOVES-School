@@ -1,8 +1,13 @@
-{# Public live-shell DSN from SENTRY_DSN_LIVE. Empty skips every tag. #}
+{# Browser Sentry from SENTRY_DSN_LIVE. Empty skips every tag.
+   MCK-183: lloves-sentry-user is the teacher's user id (staff pages only;
+   students never get one). lloves-sentry-tags is JSON with teacher_id,
+   teacher_kind, portal, class_id, course_code and tool. No student data. #}
 {% if sentry_live_dsn %}
 <meta name="lloves-sentry-dsn" content="{{ sentry_live_dsn }}">
 <meta name="lloves-sentry-environment" content="{{ sentry_environment }}">
 <meta name="lloves-sentry-release" content="{{ sentry_release }}">
+<meta name="lloves-sentry-user" content="{{ sentry_user_id }}">
+<meta name="lloves-sentry-tags" content="{{ sentry_tags_json }}">
 <script src="/static/vendor/sentry/bundle.tracing.min.js"></script>
 <script src="/static/sentry-live.js"></script>
 {% endif %}

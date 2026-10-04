@@ -231,7 +231,8 @@ class SentryWireTests(unittest.TestCase):
             encoding="utf-8"
         )
         head, _, _rest = course.partition("</head>")
-        self.assertIn("{% if tab == 'live' %}", head)
+        # MCK-183: every course tab loads browser Sentry, not only Live.
+        self.assertNotIn("{% if tab == 'live' %}", head)
         self.assertIn('{% include "_sentry_browser.html" %}', head)
         for name in ("home.html", "mood.html", "exit.html", "pick.html", "character.html"):
             text = (LMS_DIR / "templates" / "student" / name).read_text(

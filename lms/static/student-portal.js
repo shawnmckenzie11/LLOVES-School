@@ -4995,6 +4995,9 @@ async function tick() {
   }
   studentPollInFlight = true;
   armStudentPendingFeel();
+  // MCK-183: a throw after the response parsed is a paint bug, not a
+  // network blip. It still shows the reconnect strip, and it now reports.
+  let statePainting = false;
   try {
     const params = new URLSearchParams();
     if (lastStateSeq >= 0) params.set("seq", String(lastStateSeq));
@@ -5007,6 +5010,7 @@ async function tick() {
       return;
     }
     const data = await res.json();
+    statePainting = true;
     if (data && (data.error === "state unavailable" || isLiveStateBusy(data))) {
       setStudentReconnectBanner(true);
       noteStudentPollBusy();
@@ -5096,6 +5100,7 @@ async function tick() {
     }
     setStudentReconnectBanner(false);
   } catch (_err) {
+    if (statePainting) window.llovesSentryReport?.(_err, "student-state-paint");
     setStudentReconnectBanner(true);
     noteStudentPollBusy();
   } finally {

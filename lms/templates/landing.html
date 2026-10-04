@@ -6,6 +6,7 @@
   <title>{{ school_display }}</title>
   <meta name="description" content="ALC is the online live-class, attendance, and module workspace for Ontario courses — built for teachers, students, and homeschool families.">
   <link rel="stylesheet" href="/static/lloves.css">
+  {% include "_sentry_browser.html" %}
 </head>
 <body class="landing-page">
   <a class="admin-lock" href="{{ url_for('auth_google', portal='it') }}" title="Admin login" aria-label="Admin login">
