@@ -102,6 +102,7 @@ def sentry_browser_context() -> dict[str, str]:
         "sentry_release": release_name() or "",
         "sentry_user_id": "",
         "sentry_tags_json": "{}",
+        "sentry_defer": True,
     }
 
 
@@ -299,15 +300,46 @@ def _drop_request_body(event: dict[str, Any]) -> dict[str, Any]:
         request.pop("cookies", None)
         url = request.get("url")
         if isinstance(url, str):
-            request["url"] = _INVITE_TOKEN_RE.sub("/invite/[token]", url)
+            request["url"] = _strip_url_query(url)
         # No query strings at all: ``?v=`` is a student visit token and
         # ``login_hint`` an invited email (MCK-183 gate F2). Tags carry the tab.
         if request.get("query_string"):
             request.pop("query_string", None)
+        request.pop("env", None)
+        headers = request.get("headers")
+        if isinstance(headers, dict):
+            request["headers"] = _allowed_headers(headers)
     transaction = event.get("transaction")
     if isinstance(transaction, str):
         event["transaction"] = _INVITE_TOKEN_RE.sub("/invite/[token]", transaction)
     return event
+
+
+# Request headers Sentry may keep (MCK-183 gate, #249 ccff8ef MED). Everything
+# else is dropped: ``X-Student-Visit-Token`` is the student visit token itself,
+# cookies and auth headers are secrets, and forwarding headers carry IPs.
+# ``Referer`` stays with its query cut (``?v=`` on student pages).
+_HEADER_ALLOWLIST = frozenset(
+    {
+        "accept",
+        "accept-language",
+        "content-length",
+        "content-type",
+        "host",
+        "referer",
+        "user-agent",
+    }
+)
+
+
+def _allowed_headers(headers: dict[str, Any]) -> dict[str, Any]:
+    """Allowlisted request headers, with any URL query cut."""
+    kept: dict[str, Any] = {}
+    for name, value in headers.items():
+        if str(name).lower() not in _HEADER_ALLOWLIST:
+            continue
+        kept[name] = _strip_url_query(value) if isinstance(value, str) else ""
+    return kept
 
 
 _QUERY_DATA_KEYS = ("http.query", "url.query", "http.fragment")
@@ -323,13 +355,27 @@ def _strip_url_query(value: Any) -> Any:
     return _INVITE_TOKEN_RE.sub("/invite/[token]", text)
 
 
+_URLISH_QUERY_RE = re.compile(r"(?:^|\s)(?:/|https?://)\S*[?#]")
+
+
+def _strip_urlish(value: Any) -> Any:
+    """Cut the query from a string that is (or ends in) a URL or path.
+
+    SQL span descriptions also use ``?`` placeholders; those are not URLs
+    and are left alone.
+    """
+    if isinstance(value, str) and _URLISH_QUERY_RE.search(value):
+        return _strip_url_query(value)
+    return value
+
+
 def _strip_span_queries(span: dict[str, Any]) -> None:
     """Remove queries (student ``?v=`` visit tokens) from one span in place."""
     if not isinstance(span, dict):
         return
     for key in ("description", "name"):
         if key in span:
-            span[key] = _strip_url_query(span[key])
+            span[key] = _strip_urlish(span[key])
     data = span.get("data")
     if isinstance(data, dict):
         for key in _QUERY_DATA_KEYS:
@@ -337,6 +383,13 @@ def _strip_span_queries(span: dict[str, Any]) -> None:
         for key in _URL_DATA_KEYS:
             if key in data:
                 data[key] = _strip_url_query(data[key])
+        for key, value in list(data.items()):
+            if ".header." in str(key).lower() and "visit-token" in str(key).lower():
+                data.pop(key, None)
+            elif isinstance(value, str):
+                data[key] = _strip_urlish(value)
+            elif isinstance(value, list):
+                data[key] = [_strip_urlish(v) for v in value]
 
 
 def before_send_transaction(
@@ -799,6 +852,10 @@ def browser_context(
     return {
         "sentry_user_id": identity["id"] if identity else "",
         "sentry_tags_json": json.dumps(tags, sort_keys=True),
+        # Student and join pages run classic scripts (student-visit-token.js,
+        # student-live-session.js, inline blocks) that must find Sentry ready,
+        # so they load it without ``defer``. Staff pages keep ``defer``.
+        "sentry_defer": portal_for_request(path, session_data) not in ("student", "public"),
     }
 
 
@@ -853,6 +910,11 @@ def install_request_scope(app: Any, resolver: Callable[..., dict[str, Any]] | No
         try:
             action = action_for(request.endpoint, request.method)
             if action is None or response.status_code >= 400 or not _active():
+                return response
+            if action == "Dashboard opened" and (
+                not 200 <= response.status_code < 300 or staff_identity(session) is None
+            ):
+                # A signed-out 302 to sign-in, or a redirect away, is not an open.
                 return response
             if response.is_json:
                 body = response.get_json(silent=True)

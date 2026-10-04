@@ -324,6 +324,61 @@ class RequestScopeTests(unittest.TestCase):
         self.assertNotIn("VISITTOKEN9", text)
         self.assertNotIn("?v=", text)
 
+    def test_headers_never_carry_the_visit_token(self) -> None:
+        """Referer ?v= and X-Student-Visit-Token: not in errors or transactions.
+
+        #249 gate (ccff8ef) MED: sentry-sdk keeps request headers with
+        ``send_default_pii=False``. Only allowlisted headers go, and
+        Referer loses its query.
+        """
+        headers = {
+            "Referer": "https://alc.mckenzian.com/student/mood?v=HDRTOKEN1&tab=x",
+            "X-Student-Visit-Token": "HDRTOKEN2",
+            "X-Forwarded-For": "203.0.113.9",
+            "User-Agent": "qa-phone",
+        }
+        anon = self.app.test_client()
+        anon.get("/student/boom", headers=headers)
+        anon.get("/student/home", headers=headers)
+        anon.get("/api/student/live-prompt", headers=headers)
+        anon.post("/api/student/live-prompt/response", json={}, headers=headers)
+        sentry_sdk.flush()
+        events = [e for e in _items(self.transport, "event") if e.get("exception")]
+        transactions = _items(self.transport, "transaction")
+        self.assertTrue(events)
+        self.assertTrue(transactions)
+        text = _all_text(self.transport)
+        for needle in ("HDRTOKEN1", "HDRTOKEN2", "?v=", "203.0.113.9", "tab=x"):
+            self.assertNotIn(needle, text)
+        for item in events + transactions:
+            sent = {k.lower(): v for k, v in ((item.get("request") or {}).get("headers") or {}).items()}
+            self.assertNotIn("x-student-visit-token", sent)
+            self.assertNotIn("x-forwarded-for", sent)
+            if "referer" in sent:
+                self.assertEqual(sent["referer"], "https://alc.mckenzian.com/student/mood")
+        self.assertTrue(any(
+            ((e.get("request") or {}).get("headers") or {}).get("User-Agent") == "qa-phone"
+            for e in events
+        ))
+
+    def test_span_scrub_keeps_sql_placeholders(self) -> None:
+        """Only URL-like span values lose a ``?``; SQL keeps its placeholders."""
+        from sentry_wire import before_send_transaction
+
+        event = before_send_transaction({
+            "transaction": "/student/home",
+            "request": {"headers": {"Referer": "/student/mood?v=T1", "X-Student-Visit-Token": "T2"}},
+            "spans": [
+                {"op": "db", "description": "SELECT * FROM students WHERE id = ?"},
+                {"op": "http", "description": "GET /api/x?v=T1", "data": {"http.request.header.referer": ["/student/mood?v=T1"], "note": "a ? b"}},
+            ],
+        })
+        self.assertEqual(event["spans"][0]["description"], "SELECT * FROM students WHERE id = ?")
+        self.assertEqual(event["spans"][1]["description"], "GET /api/x")
+        self.assertEqual(event["spans"][1]["data"]["http.request.header.referer"], ["/student/mood"])
+        self.assertEqual(event["spans"][1]["data"]["note"], "a ? b")
+        self.assertEqual(event["request"]["headers"], {"Referer": "/student/mood"})
+
     def test_staff_error_carries_teacher_identity_and_tags(self) -> None:
         """user id + email hash, teacher_kind other, class and course tags."""
         response = self.client.get(f"/staff/class/{self.class_id}/boom")
@@ -429,6 +484,18 @@ class RequestScopeTests(unittest.TestCase):
             self.assertNotIn(name, text)
         self.assertNotIn(TEACHER, text)
 
+    def test_signed_out_dashboard_is_not_dashboard_opened(self) -> None:
+        """A signed-out /staff (302 to sign-in) logs nothing; a real open logs once."""
+        signed_out = self.app.test_client().get("/staff")
+        self.assertEqual(signed_out.status_code, 302)
+        sentry_sdk.flush()
+        bodies = [row["body"] for row in _items(self.transport, "log")]
+        self.assertNotIn("Dashboard opened", bodies)
+        self.assertEqual(self.client.get("/staff").status_code, 200)
+        sentry_sdk.flush()
+        bodies = [row["body"] for row in _items(self.transport, "log")]
+        self.assertEqual(bodies.count("Dashboard opened"), 1, bodies)
+
     def test_python_logging_does_not_become_sentry_logs(self) -> None:
         """App logger lines are filtered out of Sentry Logs."""
         import logging
@@ -490,6 +557,22 @@ class BrowserMetaTests(unittest.TestCase):
 
         match = re.search(rf'<meta name="{re.escape(name)}" content="([^"]*)">', html)
         return html_lib.unescape(match.group(1)) if match else None
+
+    def test_staff_pages_defer_student_pages_do_not(self) -> None:
+        """Student and join pages load Sentry before their classic scripts."""
+        staff = self.client.get("/staff").get_data(as_text=True)
+        self.assertIn('<script defer src="/static/sentry-live.js"></script>', staff)
+        landing = self.app.test_client().get("/").get_data(as_text=True)
+        self.assertIn('<script src="/static/sentry-live.js"></script>', landing)
+        self.assertIn('<script src="/static/vendor/sentry/bundle.tracing.min.js"></script>', landing)
+        student = self.app.test_client()
+        with student.session_transaction() as sess:
+            sess["student_class_id"] = self.class_id
+            sess["student_course"] = "SPH3U"
+            sess["student_codename"] = ROSTER[0]
+        page = student.get("/student/mood").get_data(as_text=True)
+        if "/static/sentry-live.js" in page:
+            self.assertNotIn('defer src="/static/sentry-live.js"', page)
 
     def test_dashboard_and_attendance_load_browser_sentry_with_tags(self) -> None:
         """Dashboard and A&P carry the SDK, setUser id, and tags."""
@@ -637,14 +720,23 @@ assert(JSON.stringify(ev.user) === '{"id":"7"}', "event user");
     data: { "url.full": "https://alc.mckenzian.com/api/student/live-prompt/response?v=VISITTOKEN1", "url.query": "?v=VISITTOKEN1", "http.url": "/api/student/x?v=VISITTOKEN1" },
   });
   assert(span && !JSON.stringify(span).includes("VISITTOKEN1"), "span leaked " + JSON.stringify(span));
-  const tx = opts.beforeSendTransaction({
-    transaction: "/student/home?v=VISITTOKEN1",
-    request: { url: "https://alc.mckenzian.com/student/home?v=VISITTOKEN1", query_string: "v=VISITTOKEN1" },
-    contexts: { trace: { data: { "url.full": "https://alc.mckenzian.com/student/home?v=VISITTOKEN1" } } },
-    spans: [{ description: "GET /student/mood?v=VISITTOKEN1", data: { "http.url": "/student/mood?v=VISITTOKEN1", "http.query": "v=VISITTOKEN1" } }],
+  // Streamed segment spans: referer header attribute (array), streamed
+  // { value } attributes, a visit-token header attribute (#249 gate MED).
+  const seg = opts.beforeSendSpan({
+    name: "/student/character",
+    attributes: {
+      "http.request.header.referer": ["https://alc.mckenzian.com/student/mood?v=VISITTOKEN1"],
+      "http.request.header.x-student-visit-token": ["VISITTOKEN1"],
+      "url.full": { value: "https://alc.mckenzian.com/student/character?v=VISITTOKEN1", type: "string" },
+      "sentry.op": "pageload",
+    },
   });
-  const txText = JSON.stringify(tx);
-  assert(!txText.includes("VISITTOKEN1") && !txText.includes("?v="), "transaction leaked " + txText);
+  const segText = JSON.stringify(seg);
+  assert(seg && !segText.includes("VISITTOKEN1") && !segText.includes("?v="), "segment span leaked " + segText);
+  assert(seg.attributes["http.request.header.referer"][0] === "https://alc.mckenzian.com/student/mood", "referer kept " + segText);
+  assert(seg.attributes["sentry.op"] === "pageload", "other attributes kept");
+  // No dead transaction hook (streamed tracing ignores it and warns).
+  assert(opts.beforeSendTransaction === undefined, "beforeSendTransaction is back");
   console.log("ok");
 })().catch((err) => { console.error(err.message); process.exit(1); });
 """

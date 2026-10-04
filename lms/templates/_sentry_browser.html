@@ -8,6 +8,8 @@
 <meta name="lloves-sentry-release" content="{{ sentry_release }}">
 <meta name="lloves-sentry-user" content="{{ sentry_user_id }}">
 <meta name="lloves-sentry-tags" content="{{ sentry_tags_json }}">
-<script defer src="/static/vendor/sentry/bundle.tracing.min.js"></script>
-<script defer src="/static/sentry-live.js"></script>
+{# Staff pages defer; student and join pages load Sentry first so early
+   errors in their classic scripts are caught (MCK-183 #249 gate). #}
+<script{% if sentry_defer is not defined or sentry_defer %} defer{% endif %} src="/static/vendor/sentry/bundle.tracing.min.js"></script>
+<script{% if sentry_defer is not defined or sentry_defer %} defer{% endif %} src="/static/sentry-live.js"></script>
 {% endif %}
