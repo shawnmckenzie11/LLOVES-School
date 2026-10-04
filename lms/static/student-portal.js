@@ -58,6 +58,7 @@ import {
   mcLockedHtml,
   mcPickStepHtml,
   rankTurnsHtml,
+  turnsCardIsStale,
 } from "/static/group_flows.js";
 
 const waitEl = document.getElementById("student-wait");
@@ -1592,27 +1593,32 @@ function bindFloatingPane(pane) {
   handle.addEventListener("pointerup", endDrag);
   handle.addEventListener("pointercancel", endDrag);
   resizeHandle?.addEventListener("pointerdown", (event) => {
-    if (
-      window.innerWidth < 720 &&
-      !pane.classList.contains("student-live-card")
-    ) {
-      return;
-    }
+    // MCK-184: never on a phone (the pill is hidden there too). One touch
+    // used to lift a question card, and a lifted card stopped repainting.
+    if (window.innerWidth < 720) return;
     event.preventDefault();
     event.stopPropagation();
-    const { hostRect, paneRect } = floatPaneAtCurrentPosition(pane, host);
-    resizeDrag = {
-      x: event.clientX,
-      y: event.clientY,
-      width: paneRect.width,
-      height: paneRect.height,
-      left: paneRect.left - hostRect.left,
-      top: paneRect.top - hostRect.top,
-    };
+    resizeDrag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, pending: true };
     resizeHandle.setPointerCapture(event.pointerId);
   });
   resizeHandle?.addEventListener("pointermove", (event) => {
-    if (!resizeDrag) return;
+    if (!resizeDrag || event.pointerId !== resizeDrag.pointerId) return;
+    if (resizeDrag.pending) {
+      // MCK-184: lift only once the pointer really moves (~4px), like the
+      // title-bar drag; a tap or a resting thumb leaves the card docked.
+      if (Math.hypot(event.clientX - resizeDrag.x, event.clientY - resizeDrag.y) < 4) return;
+      const { hostRect, paneRect } = floatPaneAtCurrentPosition(pane, host);
+      resizeDrag = {
+        ...resizeDrag,
+        pending: false,
+        width: paneRect.width,
+        height: paneRect.height,
+        left: paneRect.left - hostRect.left,
+        top: paneRect.top - hostRect.top,
+      };
+      // Paint skips rebuilding this card mid-resize only.
+      pane.classList.add("is-pane-resizing");
+    }
     const hostRect = host.getBoundingClientRect();
     const maxWidth = Math.max(1, hostRect.width - resizeDrag.left);
     const maxHeight = Math.max(1, hostRect.height - resizeDrag.top);
@@ -1633,12 +1639,14 @@ function bindFloatingPane(pane) {
   const endResize = (event) => {
     if (!resizeDrag) return;
     resizeDrag = null;
+    pane.classList.remove("is-pane-resizing");
     if (resizeHandle?.hasPointerCapture(event.pointerId)) {
       resizeHandle.releasePointerCapture(event.pointerId);
     }
   };
   resizeHandle?.addEventListener("pointerup", endResize);
   resizeHandle?.addEventListener("pointercancel", endResize);
+  resizeHandle?.addEventListener("lostpointercapture", endResize);
   window.addEventListener("resize", () => {
     if (window.innerWidth < 720) resetPane();
   });
@@ -3273,32 +3281,88 @@ const groupFlowNotes = new Map();
 async function postGroupFlow(card, path, body) {
   const itemId = Number(card.dataset.liveCardId) || 0;
   if (!itemId) return;
-  const res = await fetch(
-    `/api/student/live-items/${itemId}/${path}`,
-    visitFetchInit({
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify(body),
-    })
-  );
-  const data = await res.json().catch(() => ({}));
-  if (data.group_submit && lastStudentPayload) {
-    for (const pool of [lastStudentPayload.active_questions, lastStudentPayload.live_items]) {
-      if (!Array.isArray(pool)) continue;
-      const row = pool.find((row) => Number(row.id) === itemId);
-      if (row) row.group_submit = data.group_submit;
+  // MCK-184: whatever happens below (lost reply, bad JSON, a paint that
+  // throws), this phone must not keep the greyed-out buttons. The finally
+  // repaints from what we have and asks the server once for the truth.
+  try {
+    let res = null;
+    let data = {};
+    try {
+      res = await fetch(
+        `/api/student/live-items/${itemId}/${path}`,
+        visitFetchInit({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(body),
+        })
+      );
+      data = await res.json().catch(() => ({}));
+    } catch (_err) {
+      res = null;
+    }
+    if (data.group_submit && lastStudentPayload) {
+      for (const pool of [lastStudentPayload.active_questions, lastStudentPayload.live_items]) {
+        if (!Array.isArray(pool)) continue;
+        const row = pool.find((row) => Number(row.id) === itemId);
+        // MCK-184: a slow reply must not repaint over a newer turn.
+        if (row && !turnsCardIsStale(row.group_submit, data.group_submit)) {
+          row.group_submit = data.group_submit;
+        }
+      }
+    }
+    if (res && res.ok && data.ok !== false) {
+      groupFlowNotes.delete(itemId);
+      liveCardDrafts.delete(`${itemId}:group-pick`);
+    } else if (res && res.status === 409 && data.group_submit) {
+      groupFlowNotes.set(itemId, String(data.error || ""));
+    } else {
+      groupFlowNotes.set(itemId, String(data.error || "Couldn't save that. Try again."));
+    }
+  } finally {
+    try {
+      if (lastStudentPayload) paintLifecycleQuestionStack(lastStudentPayload);
+    } finally {
+      reenableTurnButtons(itemId);
+      queueGroupFlowResync();
     }
   }
-  if (res.ok && data.ok !== false) {
-    groupFlowNotes.delete(itemId);
-    liveCardDrafts.delete(`${itemId}:group-pick`);
-  } else if (res.status === 409 && data.group_submit) {
-    groupFlowNotes.set(itemId, String(data.error || ""));
-  } else {
-    groupFlowNotes.set(itemId, String(data.error || "Couldn't save that. Try again."));
-  }
-  if (lastStudentPayload) paintLifecycleQuestionStack(lastStudentPayload);
+}
+
+/**
+ * MCK-184: the card for ``itemId`` was not rebuilt (the paint threw or
+ * was skipped), so the block the tap greyed out is still on screen. Give
+ * its buttons back; the server still decides whose turn it is and
+ * answers an out-of-turn tap with a 409 and the fresh card.
+ * @param {number} itemId
+ */
+function reenableTurnButtons(itemId) {
+  document
+    .querySelectorAll(`[data-live-card-id="${Number(itemId) || 0}"] [data-rank-turns][data-turn-pending]`)
+    .forEach((block) => {
+      if (!(block instanceof HTMLElement)) return;
+      delete block.dataset.turnPending;
+      block.querySelectorAll("[data-rank-turn], [data-rank-turn-undo]").forEach((button) => {
+        if (button instanceof HTMLButtonElement) button.disabled = false;
+      });
+    });
+}
+
+let groupFlowResyncTimer = 0;
+
+/**
+ * MCK-184: one cheap re-sync after a pick, turn or Undo. The next
+ * /state rebuilds (no "unchanged" against a stamp newer than what this
+ * phone painted), so the card heals from server state even when the
+ * reply was lost. Coalesced: a burst of taps sends one /state.
+ */
+function queueGroupFlowResync() {
+  lastPollStamp = "";
+  if (groupFlowResyncTimer) window.clearTimeout(groupFlowResyncTimer);
+  groupFlowResyncTimer = window.setTimeout(() => {
+    groupFlowResyncTimer = 0;
+    void tick();
+  }, 1200);
 }
 
 /** @type {Map<number, number>} */
@@ -3342,6 +3406,29 @@ function queueGroupDraft(card) {
       void postGroupDraft(card);
     }, 250)
   );
+}
+
+/**
+ * MCK-184: swap a lifted (floating) card for freshly rendered markup while
+ * keeping its place, size and home on the stack.
+ * @param {HTMLElement} card Current floating card.
+ * @param {string} html One ``<article class="student-live-card">``.
+ * @returns {HTMLElement} The card now in the DOM.
+ */
+function refreshFloatingCard(card, html) {
+  const tpl = document.createElement("template");
+  tpl.innerHTML = String(html || "").trim();
+  const fresh = tpl.content.firstElementChild;
+  if (!(fresh instanceof HTMLElement)) return card;
+  fresh.classList.add("is-floating");
+  fresh.style.cssText = card.style.cssText;
+  fresh.hidden = card.hidden;
+  const home = paneHomes.get(card);
+  if (home) paneHomes.set(fresh, home);
+  // The old node's listeners (window resize -> reset) must not put it back.
+  paneHomes.delete(card);
+  card.replaceWith(fresh);
+  return fresh;
 }
 
 function paintLifecycleQuestionStack(payload) {
@@ -3427,8 +3514,7 @@ function paintLifecycleQuestionStack(payload) {
     }
   });
   const stacked = visible.filter((item) => !floatingCards.has(liveCardDockKey(item)));
-  liveQuestionStackBody.innerHTML = stacked
-    .map((item) => {
+  const renderLiveCard = (item) => {
       const content = item.content || item.prompt?.payload || {};
       const status = String(item.status || "active");
       const groupMode = item.response_mode === "group_consensus";
@@ -3551,9 +3637,21 @@ function paintLifecycleQuestionStack(payload) {
         ${unsentDraftNoteHtml(item)}
         ${results}
       </article>`;
-    })
-    .join("");
+  };
+  liveQuestionStackBody.innerHTML = stacked.map(renderLiveCard).join("");
+  // MCK-184: a card the student lifted (phone resize pill, desktop drag)
+  // used to keep its old DOM forever: a Take turns pick greyed the
+  // buttons, the server took it, and that phone never showed it or any
+  // later turn. Rebuild lifted cards in place, keeping where they sit.
+  floatingCards.forEach((card, key) => {
+    if (!visibleKeys.has(key) || paneIsBeingGrabbed(card) || card.classList.contains("is-pane-resizing")) {
+      return;
+    }
+    const item = visible.find((row) => liveCardDockKey(row) === key);
+    if (item) floatingCards.set(key, refreshFloatingCard(card, renderLiveCard(item)));
+  });
   void renderLiveQuestionMath(liveQuestionStackBody);
+  floatingCards.forEach((card) => void renderLiveQuestionMath(card));
   visible.forEach((item, index) => {
     const key = liveCardDockKey(item);
     const card =
@@ -5252,6 +5350,8 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
       card.querySelectorAll("[data-rank-turn]").forEach((button) => {
         if (button instanceof HTMLButtonElement) button.disabled = true;
       });
+      const block = turnPick.closest("[data-rank-turns]");
+      if (block instanceof HTMLElement) block.dataset.turnPending = "1";
       void postGroupFlow(card, "rank-turn", { option_id: turnPick.getAttribute("data-rank-turn") || "" });
     }
     return;
@@ -5261,6 +5361,8 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
     const card = turnUndo.closest("[data-live-card-id]");
     if (card instanceof HTMLElement) {
       turnUndo.disabled = true;
+      const block = turnUndo.closest("[data-rank-turns]");
+      if (block instanceof HTMLElement) block.dataset.turnPending = "1";
       void postGroupFlow(card, "rank-turn", { undo: true });
     }
     return;

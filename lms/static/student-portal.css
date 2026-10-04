@@ -686,8 +686,24 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
   display: flex;
 }
 
-.student-live-card .student-pane-resize {
-  display: block;
+/* MCK-184: no resize pill on a phone (it shows from 48rem up). One touch
+   on it lifted the card, and a lifted card never repainted, so a Take
+   turns pick froze the card. Without the pill, a tall card (a seeded bank
+   rank with long steps) still has to reach its options: the live area
+   clips (overflow: hidden) and cannot be scrolled, so cap the docked card
+   at the live area and let the card scroll itself. */
+@media (max-width: 47.99rem) {
+  body.student-home .live-question-stack {
+    bottom: 0.7rem;
+  }
+
+  body.student-home .live-question-stack-body {
+    height: 100%;
+  }
+
+  body.student-home .live-question-stack-body > .student-live-card.student-floating-pane {
+    max-height: 100%;
+  }
 }
 
 @media (min-width: 48rem) {

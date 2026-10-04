@@ -583,6 +583,30 @@ class LivePresenceStore:
             ).fetchone()
         return int(row["count"] if row else 0)
 
+    def present_rev(self, session_id: int) -> str:
+        """Cheap token that changes whenever the present set changes.
+
+        One query: how many are present, plus two sums over their ids, so a
+        leave, a sweep, a join or a rejoin all move it (MCK-184).
+
+        Args:
+            session_id: ``live_presence_sessions.id``.
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS n,
+                       COALESCE(SUM(id), 0) AS s1,
+                       COALESCE(SUM(id::bigint * id::bigint), 0) AS s2
+                FROM live_presence_attendees
+                WHERE live_session_id = %s AND left_at IS NULL
+                """,
+                (int(session_id),),
+            ).fetchone()
+        if not row:
+            return "0"
+        return f"{int(row['n'])}.{int(row['s1'])}.{int(row['s2'])}"
+
     def resume_if_stale(
         self,
         attendee: dict[str, Any],

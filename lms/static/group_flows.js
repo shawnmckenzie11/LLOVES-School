@@ -213,6 +213,19 @@ export function rankTurnCue(turns) {
 }
 
 /**
+ * True when ``next`` is an older Take turns card than ``prev`` (a slow
+ * POST reply landing after a newer /state). ``rev`` only ever grows.
+ * @param {any} prev Current ``group_submit``.
+ * @param {any} next Incoming ``group_submit``.
+ * @returns {boolean}
+ */
+export function turnsCardIsStale(prev, next) {
+  const a = Number(prev?.turns?.rev);
+  const b = Number(next?.turns?.rev);
+  return Boolean(prev?.turns && next?.turns) && Number.isFinite(a) && Number.isFinite(b) && b < a;
+}
+
+/**
  * Take-turns card: spots, remaining options, one cue line, Undo.
  * @param {any} group ``item.group_submit`` with ``turns``
  * @param {{options: {id: string, label: string}[], itemId: number, note?: string}} opts
@@ -266,7 +279,9 @@ export function rankTurnsHtml(group, opts) {
   ]
     .map((line) => `<p class="rank-turn-skipped">${esc(line)}</p>`)
     .join("");
-  const undo = turns.can_undo
+  // MCK-184: Undo is only for the teammate whose pick is the last spot.
+  const lastSpot = spots.length ? spots[spots.length - 1] : null;
+  const undo = turns.can_undo && !turns.done && lastSpot && lastSpot.mine === true
     ? ` <button type="button" class="link-button rank-turn-undo" data-rank-turn-undo>${esc(C.undo)}</button>`
     : "";
   const note = String(opts.note || "").trim();
