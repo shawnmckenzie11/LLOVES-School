@@ -416,15 +416,24 @@ def _tap_staff_class_list(db: SchoolDB, live_session_id: int, student_id: Any) -
         pass
 
 
+#: ``next`` may only land on the teacher or Admin portals (#250 gate LOW):
+#: never ``/logout``, ``/auth/...`` (Slides consent) or a public page.
+_NEXT_PREFIXES = ("/staff", "/it")
+
+
 def _safe_next_url(next_url: str | None) -> str | None:
     """Return a same-site relative redirect target when safe.
 
-    Rejects protocol-relative ``//host``, backslash tricks browsers read as
-    ``//`` (``/\\host``), and control characters.
+    Only ``/staff…`` and ``/it…`` paths, printable ASCII only (no control
+    characters, DEL, spaces, or Unicode look-alikes such as fullwidth
+    slashes, U+2028 or U+202E), no ``//host`` and no backslashes.
     """
     if not next_url or not next_url.startswith("/") or next_url.startswith("//"):
         return None
-    if "\\" in next_url or any(ord(ch) < 32 for ch in next_url):
+    if any(not (0x21 <= ord(ch) <= 0x7E) for ch in next_url) or "\\" in next_url:
+        return None
+    path = next_url.split("?", 1)[0].split("#", 1)[0]
+    if not any(path == p or path.startswith(p + "/") for p in _NEXT_PREFIXES):
         return None
     return next_url
 
@@ -767,6 +776,7 @@ def _finish_google_identity(
     email_key = (email or "").strip().lower()
     user = db.get_user_by_google_sub(google_sub) or db.get_user_by_email(email_key)
     if not user:
+        session.pop("google_oauth_next", None)
         return render_template(
             "forbidden.html",
             message="This Google account is not registered. Ask IT, or request access from the home page.",
@@ -787,11 +797,13 @@ def _finish_google_identity(
         if local_dev_login_enabled():
             portal_key = "staff"
         else:
+            session.pop("google_oauth_next", None)
             return render_template(
                 "forbidden.html",
                 message="Ask Admin to grant access.",
             ), 403
     if portal_key == "staff" and user["role"] not in {"staff", "it"} and not is_it:
+        session.pop("google_oauth_next", None)
         return render_template(
             "forbidden.html",
             message="This Google account is not registered. Ask IT, or request access from the home page.",
@@ -934,6 +946,9 @@ def register_auth_routes(app: Flask) -> None:
         next_url = _safe_next_url(request.args.get("next"))
         if next_url:
             session["google_oauth_next"] = next_url
+        else:
+            # A fresh sign-in without next drops any abandoned one (#250 LOW).
+            session.pop("google_oauth_next", None)
 
         user = current_user()
         if user and user.get("verified_at"):
@@ -941,6 +956,7 @@ def register_auth_routes(app: Flask) -> None:
             is_it = user["role"] == "it" or email_l in it_emails()
             if portal == "it" and is_it:
                 session["portal"] = "it"
+                session.pop("google_oauth_next", None)
                 return redirect(url_for("it_dashboard"))
             if portal == "staff" and (user["role"] in {"staff", "it"} or is_it):
                 session["portal"] = "staff"
