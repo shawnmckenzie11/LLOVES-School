@@ -381,10 +381,13 @@ class RankBankImportPublishTests(unittest.TestCase):
         prompt = self.school._prompt_for_live_item(self.school.get_live_session_item(session_id, int(live["id"])))
         self.assertEqual(prompt["kind"], "rank")
         self.assertEqual(prompt["payload"]["rank_key"], item["payload"]["rank_key"])
+        # MCK-176: same options (ids kept), never shown in answer order.
+        shown = prompt["payload"]["rank_options"]
         self.assertEqual(
-            [o["label"] for o in prompt["payload"]["rank_options"]],
-            [o["label"] for o in item["payload"]["rank_options"]],
+            sorted((o["id"], o["label"]) for o in shown),
+            sorted((o["id"], o["label"]) for o in item["payload"]["rank_options"]),
         )
+        self.assertNotEqual([o["id"] for o in shown], item["payload"]["rank_key"])
 
     def test_mcr3u_seed_item(self) -> None:
         """The MCR3U M2 seed item (factor by grouping) plays as a keyed rank."""

@@ -1039,6 +1039,8 @@ def create_app(
     app.config["DATA_DIR"] = store
     # MCK-118 LOW-A: Most Engaged fingerprints are keyed to the app secret.
     bind_celebration_secret(school, app.secret_key)
+    # MCK-176: rank option aliases for students are keyed to the app secret.
+    school.rank_alias_secret = str(app.secret_key or "")
     try:
         # MCK-118: CELEBRATIONS_FROZEN=0 at boot retires the old snapshot.
         note_celebrations_unfrozen(school)
@@ -3644,6 +3646,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": "Forbidden"}), 403
         module_key = str(module or "").strip().upper()
         slot_key = str(slot or "").strip().upper()
+        # MCK-178: a catalogue fix reaches the bank rows and unedited class
+        # imports before the deck is built, even if nobody searched the bank
+        # since the deploy. Cheap when current (per-process memo).
+        library_id = school._class_library_id(int(class_id))
+        if library_id is not None:
+            school.ensure_rank_bank(int(library_id))
         try:
             live_metadata = school.live_class_metadata_for_class_lesson(
                 int(class_id), module_key, slot_key, fresh=True
@@ -5679,6 +5687,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             student_id=int(student_id) if student_id not in (None, "") else None,
             count=prompt_response_count(school, prompt_id),
         )
+        # MCK-176: students only ever see rank option aliases.
+        body = school.alias_student_prompt_reply(prompt_id, body)
         return jsonify(body)
 
     @app.route(

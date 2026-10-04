@@ -53,14 +53,18 @@ def create_live_bank_question(
     rank_key: list[str] | None = None
     if kind == "rank":
         try:
-            from live_rank import build_rank_options, parse_rank_key
+            from live_rank import build_rank_options, minted_rank_key, parse_rank_key
         except ImportError:
-            from lms.live_rank import build_rank_options, parse_rank_key
+            from lms.live_rank import build_rank_options, minted_rank_key, parse_rank_key
 
+        # MCK-176: new items get opaque ids, never o1… in typed order.
         rank_options = build_rank_options(
-            body.get("rank_options") or body.get("options") or []
+            body.get("rank_options") or body.get("options") or [], mint=True
         )
-        rank_key = parse_rank_key(body.get("rank_key", body.get("rankKey")), rank_options)
+        rank_key = parse_rank_key(
+            minted_rank_key(body.get("rank_key", body.get("rankKey")), rank_options),
+            rank_options,
+        )
     if kind == "numeric":
         key = str(body.get("correct_answer") or body.get("correctAnswer") or "").strip()
         if not key:
