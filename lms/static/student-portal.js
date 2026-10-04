@@ -795,6 +795,12 @@ const WB_STUDENT_REOPEN_CUE = Object.freeze({
 
 /** Reopen cue showing under the board, or "" when none is. */
 let studentReopenCue = "";
+/**
+ * MCK-181: the last reopen marker this page saw was Fresh board. It
+ * outlives the cue line (a stroke clears that), so a board refetch that
+ * fails right after a Fresh reopen still says Fresh, not "new class".
+ */
+let studentSawFreshReopen = false;
 
 /**
  * True once this tab has loaded its own stored text labels for an
@@ -1069,7 +1075,13 @@ function refreshStudentBoard() {
         bindStudentCanvas.resetRun(empty);
       }
       if (studentCanvas instanceof HTMLCanvasElement) {
-        showBoardRefreshCue(studentCanvas);
+        // MCK-181 LOW-1: the refetch itself failed. If this run change is
+        // a reopen (a cue is up, the last marker was Fresh, or the key is
+        // a ~g<n> Fresh key), keep the reopen line, not the new-class one.
+        showBoardRefreshCue(
+          studentCanvas,
+          data ? undefined : failedBoardFetchCue()
+        );
       }
       return;
     }
@@ -1095,6 +1107,7 @@ function refreshStudentBoard() {
       // A run change onto a ~g<n> key without the /state cue (a frozen tab,
       // or a page left open across a deploy) is still a Fresh board.
       const freshKey = isFreshBoardRunKey(data.run_key);
+      if (!freshKey && !studentReopenCue) studentSawFreshReopen = false;
       showBoardRefreshCue(
         studentCanvas,
         studentReopenCue || (freshKey ? WB_STUDENT_REOPEN_CUE.fresh : undefined)
@@ -1104,6 +1117,21 @@ function refreshStudentBoard() {
     studentBoardRefresh = null;
   });
   return studentBoardRefresh;
+}
+
+/**
+ * Cue line for a board refetch that failed (MCK-181 LOW-1).
+ *
+ * ``undefined`` keeps the default new-class line: with no reopen signal
+ * and no Fresh key, a failed refetch cannot tell a new class apart.
+ * @returns {string | undefined}
+ */
+function failedBoardFetchCue() {
+  if (studentReopenCue) return studentReopenCue;
+  if (studentSawFreshReopen || isFreshBoardRunKey(studentBoardRun.key)) {
+    return WB_STUDENT_REOPEN_CUE.fresh;
+  }
+  return undefined;
 }
 
 function ensureStudentBoardPoll() {
@@ -1271,6 +1299,7 @@ function paintWhiteboardReopenCue(payload) {
   if (!marker || count <= (Number(seen) || 0)) return;
   writeSessionValue(key, String(count));
   const fresh = String(marker.start || "") === "fresh";
+  studentSawFreshReopen = fresh;
   studentReopenCue = fresh ? WB_STUDENT_REOPEN_CUE.fresh : WB_STUDENT_REOPEN_CUE.last;
   if (studentCanvas instanceof HTMLCanvasElement) {
     showBoardRefreshCue(studentCanvas, studentReopenCue);
