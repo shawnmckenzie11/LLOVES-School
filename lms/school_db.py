@@ -11823,6 +11823,38 @@ class SchoolDB(LovesDB):
             )
             self.game.conn.commit()
 
+    def teacher_setup_elsewhere(
+        self, teacher_user_id: int, active_semester_id: int | None
+    ) -> dict[str, bool]:
+        """Does this teacher have classes or courses outside the setup view?
+
+        The MCK-183 first-run gate looks at the active semester only. A teacher
+        with any class (any semester) or a non-archived course in another
+        semester is set up and must keep the Dashboard (gate MED, #250).
+
+        Args:
+            teacher_user_id: ``users.id``.
+            active_semester_id: Active semester, or ``None``.
+
+        Returns:
+            ``{"any_class": bool, "other_offering": bool}``.
+        """
+        uid = int(teacher_user_id)
+        with self.game._lock:
+            any_class = self.game.conn.execute(
+                "SELECT 1 FROM classes WHERE teacher_user_id = ? LIMIT 1", (uid,)
+            ).fetchone() is not None
+            other = self.game.conn.execute(
+                """
+                SELECT 1 FROM course_offerings
+                WHERE teacher_user_id = ? AND archived_at IS NULL
+                  AND (? IS NULL OR semester_id != ?)
+                LIMIT 1
+                """,
+                (uid, active_semester_id, active_semester_id),
+            ).fetchone() is not None
+        return {"any_class": any_class, "other_offering": other}
+
     def list_staff_classes(
         self, teacher_user_id: int, semester_id: int | None = None
     ) -> list[dict[str, Any]]:

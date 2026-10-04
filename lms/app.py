@@ -2697,22 +2697,35 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             school_name=SCHOOL_NAME,
         )
 
-    def _needs_first_run(
+    def _first_run_step(
         user: dict[str, Any],
         offerings: list[dict[str, Any]],
         classes: list[dict[str, Any]],
-    ) -> bool:
-        """True for a teacher with no course and no class this semester.
+    ) -> str | None:
+        """Which setup step ``/staff`` should send this teacher to, if any.
+
+        ``"welcome"``: no course and no class. ``"names"``: courses but no
+        class list yet. ``None`` (keep the Dashboard) for Admin accounts, when
+        no semester is active, while she has a live session, or when she has
+        any class in any semester or a course in another semester (#250
+        gate MED: never trap a set-up teacher on Welcome).
 
         Args:
             user: Signed-in user row.
             offerings: Her active-semester offerings.
             classes: Her active-semester classes.
-
-        Returns:
-            Whether ``/staff`` should send her to ``/staff/welcome``.
         """
-        return str(user.get("role") or "") == "staff" and not offerings and not classes
+        if str(user.get("role") or "") != "staff" or classes:
+            return None
+        active = school.get_active_semester()
+        if not active:
+            return None
+        if school.get_active_live_session_for_teacher(int(user["id"])) is not None:
+            return None
+        elsewhere = school.teacher_setup_elsewhere(int(user["id"]), int(active["id"]))
+        if elsewhere["any_class"] or elsewhere["other_offering"]:
+            return None
+        return "names" if offerings else "welcome"
 
     def _teacher_setup(user: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Her active-semester offerings and classes (empty with no semester)."""
@@ -2958,10 +2971,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         # MCK-183 first-run gate: a teacher with no course and no class gets
         # the Welcome setup instead of the "Ask Admin" dead end. Admin (IT)
         # accounts keep the Dashboard.
-        if _needs_first_run(user, offerings, classes):
+        # MCK-183 first-run gate: no course → Welcome; a course but no class
+        # list → the names step. Never for Admin, a set-up teacher (any
+        # semester), a live session, or no active semester.
+        setup_step = _first_run_step(user, offerings, classes)
+        if setup_step == "welcome":
             return redirect(url_for("staff_welcome"))
-        # Slice C: course chosen but no class list yet → the names step.
-        if str(user.get("role") or "") == "staff" and offerings and not classes:
+        if setup_step == "names":
             return redirect(url_for("staff_welcome", step="names"))
         from flask import make_response
 
