@@ -31,18 +31,42 @@ RACE_CLOSED_BY = "group_rank_race_closed_by"
 #: ``item_json``, so a deck refresh can never rewrite it from a stale copy.
 
 
-#: MCK-185: the coloured results also run on a group answer-order rank that
-#: is not a Team challenge ("spots" results). Same rows and podium, but no
-#: Points step and no automatic points: the podium ranks right spots and the
-#: teacher awards by hand through the usual team scoring chips.
+#: MCK-185: the coloured results run on every group answer-order rank (Team
+#: challenge, Rank together, Take turns). Rows, then a podium by right spots;
+#: no Points step and no automatic points. The teacher scores teams in the
+#: "Score teams" pop-up (default ``BASE_PER_SPOT`` per right spot).
 #: An answer order needs this many spots (same rule as the Team challenge
 #: toggle in ``group_setup.js`` ``rankRaceSettings``).
 MIN_KEY_SPOTS = 3
-#: Team challenge pays ``BASE_PER_SPOT`` per right spot by itself (MCK-171).
-#: Set False to make a challenge behave like the spots results (points become
-#: a hint and the teacher awards by hand); ``SchoolDB._rank_race_pays`` reads
-#: it, and every payout path checks that one method.
-CHALLENGE_AUTO_PAYS = True
+#: MCK-185 (Shawn, option B): nothing is awarded automatically on any group
+#: answer-order rank. ``SchoolDB._rank_race_pays`` reads this and every
+#: MCK-171 payout path (points step, End Game, End Live Class) checks that
+#: one method, so turning the automatic payout back on is this one switch.
+CHALLENGE_AUTO_PAYS = False
+#: MCK-185 full-order notice timing: ``"reveal"`` shows "{team} put every item
+#: in the right order." after Close & reveal; ``"lock"`` shows it as soon as
+#: a team's final order (locked, sent, or last Take turns spot) is all right.
+#: Drafts never count. Shawn to confirm; default ``"reveal"``.
+FULL_ORDER_WHEN = "reveal"
+FULL_ORDER_TIMINGS = ("reveal", "lock")
+
+
+def full_order_visible(status: str, when: str | None = None) -> bool:
+    """True when the full-order notice may show for an item in ``status``.
+
+    Args:
+        status: Lifecycle status (``active``, ``closed``, ...).
+        when: ``"reveal"`` or ``"lock"`` (default: ``FULL_ORDER_WHEN``).
+    """
+    timing = when or FULL_ORDER_WHEN
+    if timing == "lock":
+        return status in {"active", "closed"}
+    return status == "closed"
+
+
+def score_default(right: int) -> int:
+    """The "Score teams" default: ``BASE_PER_SPOT`` per right spot."""
+    return team_points(right)
 
 
 def points_step(spots: int, *, with_points: bool = True) -> int | None:

@@ -108,9 +108,13 @@ import {
   raceOptionLabels,
   raceResultsHtml,
   raceStem,
-  rankScoringHtml,
+  scoreTeamsButtonHtml,
+  scoreTeamsDialogHtml,
+  scoreTeamsPending,
+  scoreTeamsRows,
   spotsResults,
 } from "/static/rank_challenge_view.js";
+import { fullOrderHtml } from "/static/rank_full_order.js";
 
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -1444,17 +1448,17 @@ function rankRaceTeacherHtml(result, revealed, liveItemId) {
       step: raceStepFor(liveItemId, race.results),
       stem: raceStem(result?.item),
       busy: raceStepInFlight.has(liveItemId),
-      // MCK-185: Scoring rows under the podium (spots results, last step).
-      scoringHtml: rankScoringRowsHtml(race.results, liveItemId),
+      // MCK-185: the full-order line under the results (names only).
+      footHtml: fullOrderHtml(result?.full_order),
     });
   }
   // MCK-185: spots results exist only after Close; the open card is unchanged.
   if (race.challenge === false) return "";
-  return raceLanesHtml(race, liveItemId, {
+  return `${raceLanesHtml(race, liveItemId, {
     popped: racePoppedFor(liveItemId, race),
     stem: raceStem(result?.item),
     options: raceOptionLabels(result?.item),
-  });
+  })}${fullOrderHtml(result?.full_order)}`;
 }
 
 /**
@@ -1473,60 +1477,155 @@ function rankRaceEnterHtml(result, liveItemId) {
 }
 
 /**
- * MCK-185: one award chip set per rank group, kept apart from the Class
- * list's own pending pick so the two never cross.
- * @type {{itemId: number, id: number, amount: number} | null}
+ * MCK-185 "Score teams" pop-up state: which question, the stepper values
+ * changed but not yet assigned, the "Give as" rule, and an in-flight flag.
  */
-let pendingRankTeam = null;
+const rankScore = { itemId: 0, drafts: new Map(), rule: "each_member", busy: false, error: "" };
 
 /**
- * MCK-185: the teacher's Scoring rows on a group answer-order rank (not a
- * Team challenge), after the reveal reached its last step. Each row reuses
- * the Class list team chips (``teamControls``): +1 / +5 / +10, then "Apply
- * +n as" Each member / Split across team / Team bonus only, and −5. The
- * spot hint is teacher-only and follows Hide key; nothing auto-awards.
+ * True once the reveal reached the podium on a hand-scored rank (the
+ * "Score teams" button shows from then on).
  * @param {any} results Teacher ``race.results``.
  * @param {number} liveItemId
- * @returns {string}
+ * @returns {boolean}
  */
-function rankScoringRowsHtml(results, liveItemId) {
-  if (!spotsResults(results)) return "";
-  if (raceStepFor(liveItemId, results) < lastResultsStep(results)) return "";
-  const pending =
-    pendingRankTeam && pendingRankTeam.itemId === liveItemId ? pendingRankTeam : null;
-  return rankScoringHtml(results, liveItemId, {
-    hideKey: hideKeyOn(),
-    controls: (teamId) => teamControls(teamId, pending),
-    teamOrder: (overlayState?.teams || []).map((team) => Number(team.id) || 0),
-  });
+function rankScoreReady(results, liveItemId) {
+  return Boolean(results) && spotsResults(results) && raceStepFor(liveItemId, results) >= lastResultsStep(results);
 }
 
 /**
- * MCK-185: award one rank group through the item route, which applies the
- * same team award as the Class list chips (tally, Celebrations) and keeps
- * the "+n" for the row. Then refresh the card and the game points.
- * @param {number} liveItemId
- * @param {HTMLButtonElement} btn A ``teamControls`` rule / −5 button.
+ * Paint the pop-up from the cached results (never auto-opened).
+ * @param {{focus?: string}} [opts] CSS selector to refocus after painting.
  */
-async function awardRankScoring(liveItemId, btn) {
-  const sessionId = liveSessionId || readLiveSessionId();
-  const teamId = Number(btn.dataset.id) || 0;
-  if (!sessionId || !liveItemId || !teamId) return;
-  btn.disabled = true;
-  await api(`/api/live-sessions/${sessionId}/items/${liveItemId}/rank-points`, {
-    method: "POST",
-    body: JSON.stringify({
-      team_id: teamId,
-      amount: Number(btn.dataset.amount),
-      team_rule: btn.dataset.rule || null,
-    }),
+function paintRankScoreDialog(opts = {}) {
+  const dialog = $("rank-score-dialog");
+  if (!(dialog instanceof HTMLDialogElement) || !rankScore.itemId) return;
+  const result = lifecycleResults.get(rankScore.itemId) || {};
+  const results = result?.race?.results;
+  if (!results) {
+    if (dialog.open) dialog.close();
+    return;
+  }
+  dialog.innerHTML = scoreTeamsDialogHtml(results, rankScore.itemId, {
+    stem: raceStem(result?.item),
+    teamOrder: (overlayState?.teams || []).map((team) => Number(team.id) || 0),
+    drafts: rankScore.drafts,
+    rule: rankScore.rule,
+    busy: rankScore.busy,
   });
-  pendingRankTeam = null;
-  spawnScorePop("Team");
-  await refreshLifecycleResults();
+  if (rankScore.error) {
+    dialog
+      .querySelector(".rank-score-help")
+      ?.insertAdjacentHTML("afterend", `<p class="field-error rank-score-error" role="alert">${escapeHtml(rankScore.error)}</p>`);
+  }
+  if (opts.focus) {
+    const el = dialog.querySelector(opts.focus);
+    if (el instanceof HTMLElement && !el.hasAttribute("disabled")) el.focus();
+  }
+}
+
+/**
+ * Open (or reopen) "Score teams" for one question.
+ * @param {number} liveItemId
+ */
+function openRankScoreDialog(liveItemId) {
+  const dialog = $("rank-score-dialog");
+  if (!(dialog instanceof HTMLDialogElement) || !liveItemId) return;
+  if (rankScore.itemId !== liveItemId) {
+    rankScore.drafts = new Map();
+    rankScore.rule = "each_member";
+  }
+  rankScore.itemId = liveItemId;
+  rankScore.error = "";
+  paintRankScoreDialog();
+  if (!dialog.open) dialog.showModal();
+}
+
+/**
+ * Assign one row, or every new / changed row ("Assign all"). Re-assigning
+ * replaces that team's earlier award on this question (server side), so
+ * nothing stacks. Then refresh the podium card, the dialog and the tally.
+ * @param {number[] | null} teamIds ``null`` for Assign all.
+ */
+async function assignRankScores(teamIds) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  const itemId = rankScore.itemId;
+  const result = lifecycleResults.get(itemId) || {};
+  const results = result?.race?.results;
+  if (!sessionId || !itemId || !results || rankScore.busy) return;
+  const rows = scoreTeamsRows(results, {
+    teamOrder: (overlayState?.teams || []).map((team) => Number(team.id) || 0),
+    drafts: rankScore.drafts,
+  });
+  const pick = teamIds === null ? scoreTeamsPending(rows) : rows.filter((row) => row.sent && teamIds.includes(row.teamId));
+  if (!pick.length) return;
+  rankScore.busy = true;
+  rankScore.error = "";
+  paintRankScoreDialog();
+  try {
+    const payload = await api(`/api/live-sessions/${sessionId}/items/${itemId}/rank-points`, {
+      method: "POST",
+      body: JSON.stringify({
+        awards: pick.map((row) => ({ team_id: row.teamId, points: row.value })),
+        team_rule: rankScore.rule,
+      }),
+    });
+    if (payload?.results) {
+      const entry = lifecycleResults.get(itemId) || {};
+      lifecycleResults.set(itemId, { ...entry, race: { ...(entry.race || {}), results: payload.results } });
+    }
+    for (const row of pick) rankScore.drafts.delete(row.teamId);
+  } catch (err) {
+    rankScore.error = String(err?.message || err || "Could not assign points");
+  } finally {
+    rankScore.busy = false;
+  }
+  paintRankScoreDialog({ focus: teamIds === null ? "[data-score-close]" : `[data-score-team="${pick[0].teamId}"] [data-score-assign]` });
   paintLiveQuestionCards();
   await refreshRaceGamePoints();
 }
+
+$("rank-score-dialog")?.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target) return;
+  const dialog = $("rank-score-dialog");
+  if (target.closest("[data-score-close]")) {
+    // Closing awards nothing.
+    if (dialog instanceof HTMLDialogElement) dialog.close();
+    return;
+  }
+  if (target.closest("[data-score-all]")) {
+    void assignRankScores(null);
+    return;
+  }
+  const row = target.closest("[data-score-team]");
+  const teamId = Number(row?.getAttribute("data-score-team")) || 0;
+  if (!teamId) return;
+  const stepBtn = target.closest("[data-score-step]");
+  if (stepBtn) {
+    const input = row?.querySelector("[data-score-value]");
+    const now = Math.max(0, Math.round(Number(input instanceof HTMLInputElement ? input.value : 0) || 0));
+    const delta = Number(stepBtn.getAttribute("data-score-step")) || 0;
+    rankScore.drafts.set(teamId, Math.min(999, Math.max(0, now + delta)));
+    paintRankScoreDialog({ focus: `[data-score-team="${teamId}"] [data-score-step="${delta}"]` });
+    return;
+  }
+  if (target.closest("[data-score-assign]")) void assignRankScores([teamId]);
+});
+
+$("rank-score-dialog")?.addEventListener("change", (event) => {
+  const target = event.target;
+  if (target instanceof HTMLSelectElement && target.matches("[data-score-rule]")) {
+    rankScore.rule = target.value;
+    return;
+  }
+  if (target instanceof HTMLInputElement && target.matches("[data-score-value]")) {
+    const teamId = Number(target.closest("[data-score-team]")?.getAttribute("data-score-team")) || 0;
+    if (!teamId) return;
+    rankScore.drafts.set(teamId, Math.min(999, Math.max(0, Math.round(Number(target.value) || 0))));
+    paintRankScoreDialog({ focus: `[data-score-team="${teamId}"] [data-score-assign]` });
+  }
+});
 
 /**
  * MCK-171: teacher "Lock in for {team}" (Rank together challenge).
@@ -1626,10 +1725,10 @@ async function postRankRaceStep(liveItemId, step) {
   }
   if (payload) applyRankRaceStep(liveItemId, payload);
   paintLiveQuestionCards();
-  // Points screen is n+1 (rank_challenge.points_step). MCK-185: spots
-  // results pay nothing at any step.
+  // Points screen is n+1 (rank_challenge.points_step). MCK-185: nothing
+  // pays at any step unless the MCK-171 payout is switched back on.
   const points = (Number(payload?.results?.total) || 0) + 1;
-  if (payload?.ok && !spotsResults(payload.results) && Number(payload.step) >= points) {
+  if (payload?.ok && payload?.results?.pays === true && Number(payload.step) >= points) {
     await refreshRaceGamePoints();
   }
 }
@@ -4446,18 +4545,23 @@ function groupSubmitTeacherHtml(result, revealed, liveItemId) {
     const itemId = Number(result?.item?.id) || hostId;
     const race = rankRaceTeacherHtml(result, revealed, itemId);
     if (race) return `${open}${race}</div>`;
+    const notice = fullOrderHtml(result?.full_order);
     // MCK-154 S1: no submitter-log list under the stack. "last: name"
     // moved into each group column header title (and Responses).
     const log = Array.isArray(result?.submitter_log) ? result.submitter_log : [];
     // MCK-155 take-turns rows sit above the #226 stack; the stack carries
     // the submitter names, so no separate list goes under it.
-    // MCK-185: Scoring rows under the revealed stack (after the podium step).
-    const scoring = revealed && result?.race?.results ? rankScoringRowsHtml(result.race.results, itemId) : "";
-    const rankHtml = `${rankRaceEnterHtml(result, itemId)}${rankTurnsTeacherHtml(result, itemId)}${rankCollateHtml(
+    // MCK-185: "Score teams" stays by the reveal link once the podium
+    // showed; the full-order line sits under the stack.
+    const scoreBtn =
+      revealed && rankScoreReady(result?.race?.results, itemId)
+        ? `<p class="race-score-again">${scoreTeamsButtonHtml(itemId)}</p>`
+        : "";
+    const rankHtml = `${rankRaceEnterHtml(result, itemId)}${scoreBtn}${rankTurnsTeacherHtml(result, itemId)}${rankCollateHtml(
       result.rank,
       Number(result?.item?.id) || hostId,
       log
-    )}${scoring}`;
+    )}${notice}`;
     return `${open}${rankHtml}</div>`;
   }
   const reveal = revealed && Array.isArray(result?.reveal) ? result.reveal : [];
@@ -10452,9 +10556,9 @@ function renderScoreList() {
  * +/- buttons for team scoring.
  * @param {number} teamId
  */
-function teamControls(teamId, pending = pendingTeam) {
-  if (pending && pending.id === teamId) {
-    const amount = pending.amount;
+function teamControls(teamId) {
+  if (pendingTeam && pendingTeam.id === teamId) {
+    const amount = pendingTeam.amount;
     const choices = TEAM_RULES.map(
       (rule) =>
         `<button type="button" class="ap-score-chip rule-pick-btn" data-kind="team" data-id="${teamId}" data-amount="${amount}" data-rule="${rule.id}">${escapeHtml(rule.label)}</button>`
@@ -11736,30 +11840,11 @@ $("live-question-list")?.addEventListener("click", async (event) => {
       void postRankRaceStep(itemId, next);
       return;
     }
-    // MCK-185: Scoring rows reuse the Class list chips (teamControls).
-    const scoringHost = event.target.closest("[data-rank-scoring]");
-    if (scoringHost instanceof HTMLElement) {
-      const scoringItem = Number(scoringHost.dataset.rankScoring) || 0;
-      if (event.target.closest("[data-cancel-rule]")) {
-        pendingRankTeam = null;
-        paintLiveQuestionCards();
-        return;
-      }
-      const amt = event.target.closest("button[data-team-amt]");
-      if (amt instanceof HTMLButtonElement) {
-        pendingRankTeam = {
-          itemId: scoringItem,
-          id: Number(amt.dataset.id) || 0,
-          amount: Number(amt.dataset.amount) || 0,
-        };
-        paintLiveQuestionCards();
-        return;
-      }
-      const rule = event.target.closest('button[data-kind="team"]');
-      if (rule instanceof HTMLButtonElement) {
-        await awardRankScoring(scoringItem, rule);
-        return;
-      }
+    // MCK-185: "Score teams" opens the pop-up (never auto-opened).
+    const scoreOpen = event.target.closest("[data-rank-score-open]");
+    if (scoreOpen instanceof HTMLButtonElement) {
+      openRankScoreDialog(Number(scoreOpen.dataset.rankScoreOpen) || 0);
+      return;
     }
     if (raceDone instanceof HTMLButtonElement) {
       // Back to question: the normal (now revealed) rank card.

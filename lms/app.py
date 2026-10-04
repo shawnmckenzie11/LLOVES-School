@@ -7173,10 +7173,12 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     )
     @login_required
     def api_award_group_rank_points(session_id: int, live_item_id: int):
-        """MCK-185: teacher award for one group on an answer-order rank.
+        """MCK-185 "Score teams": set teams' points on a group answer-order rank.
 
-        Body ``{team_id, amount, team_rule}``, the Class list team chips'
-        values. Manual only; a paying Team challenge refuses.
+        Body ``{awards: [{team_id, points}], team_rule}`` (one row's Assign,
+        or Assign all). Re-assigning replaces that team's earlier award for
+        this question; the same points and rule again change nothing.
+        Manual only; nothing is awarded unless the teacher presses Assign.
         """
 
         _row, error = _active_owned_live_session(session_id)
@@ -7184,11 +7186,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return error
         body = request.get_json(silent=True) or {}
         try:
-            result = school.award_group_rank_points(
+            result = school.assign_rank_team_points(
                 session_id,
                 live_item_id,
-                team_id=int(body.get("team_id")),
-                amount=int(body.get("amount") or 0),
+                awards=list(body.get("awards") or []),
                 team_rule=(str(body["team_rule"]) if body.get("team_rule") else None),
             )
         except (KeyError, TypeError, ValueError) as exc:

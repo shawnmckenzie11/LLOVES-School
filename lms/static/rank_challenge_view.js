@@ -285,11 +285,36 @@ export const RESULTS_COPY = Object.freeze({
   next: "Next", // race.next
   done: "Back to question", // results.done
   absent: "No one here yet", // race.lane.absent
-  // MCK-185 drafts (Wonder to confirm): spots results (no Team challenge).
-  spotsHint: "{k} of {n} spots right", // results.scoring.hint (teacher only)
-  noOrder: "No order sent", // results.scoring.none
+  // MCK-185 (Wonder): podium by right spots on every group answer-order rank.
   spots: "{k} of {n} spots", // results.spots (podium, "Also on the board")
 });
+
+/** MCK-185 "Score teams" pop-up (Mobbin layout, Wonder copy). Teacher only. */
+export const SCORE_COPY = Object.freeze({
+  open: "Score teams", // score.open (results header button)
+  title: "Score teams", // score.title
+  help: "Nothing is given until you press Assign. The default is 2 points per correct spot.", // score.help
+  spots: "{k} of {n} spots", // score.spots
+  auto: "(auto {pts})", // score.auto (after a change)
+  assign: "Assign", // score.assign
+  assigned: "Assigned · {pts} each", // score.assigned
+  assignedOne: "Assigned · 1 each", // score.assigned.one
+  update: "Update", // score.update
+  noOrder: "No order sent", // score.no_order
+  giveAs: "Give as", // score.give_as
+  assignAll: "Assign all ({count})", // score.assign_all
+  close: "Close", // score.close
+  fewer: "Fewer points for {team}", // score.minus (aria)
+  more: "More points for {team}", // score.plus (aria)
+  points: "Points for {team}", // score.points (aria)
+});
+
+/** "Give as" choices: the Class list's TEAM_RULES (staff_ap.js). */
+export const SCORE_RULES = Object.freeze([
+  { id: "each_member", label: "Each member" },
+  { id: "split_members", label: "Split across team" },
+  { id: "team_only", label: "Team bonus only" },
+]);
 
 /**
  * "{pts} points each" / "1 point each".
@@ -319,18 +344,19 @@ export function rightText(k, n) {
  * @returns {number} The last step index.
  */
 export function lastResultsStep(results) {
-  // MCK-185: spots results (no Team challenge) skip the Points step.
-  return (Number(results?.total) || 0) + (results?.challenge === false ? 1 : 2);
+  // MCK-185: no Points step unless the MCK-171 payout is switched on.
+  return (Number(results?.total) || 0) + (spotsResults(results) ? 1 : 2);
 }
 
 /**
- * MCK-185: true for the spots results (group answer-order rank that is not
- * a Team challenge): the podium ranks right spots and nothing is paid.
+ * MCK-185: true when the results are scored by hand (every group
+ * answer-order rank, Team challenge included, while the MCK-171 payout is
+ * off): rows, then a podium by right spots, then "Score teams".
  * @param {any} results
  * @returns {boolean}
  */
 export function spotsResults(results) {
-  return results?.challenge === false;
+  return results?.challenge === false || results?.pays === false;
 }
 
 /**
@@ -524,43 +550,57 @@ export function raceResultsHtml(results, liveItemId, opts = {}) {
   } else {
     frame = podiumFrame(results);
     phase = "podium";
-    // MCK-185: the teacher's Scoring rows sit under the podium, last step only.
-    if (step >= last && opts.scoringHtml) frame += String(opts.scoringHtml);
+    // MCK-185: once the podium shows, "Score teams" sits in the header
+    // (never auto-opened: the pop-up would cover the podium).
+    if (step >= last && spotsResults(results) && opts.scoreButton !== false) {
+      frame = frame.replace("</header>", `${scoreTeamsButtonHtml(id)}</header>`);
+    }
   }
   const button =
     step < last
       ? `<button type="button" class="race-view-close" data-race-next="${id}"${opts.busy ? " disabled" : ""}>${esc(RESULTS_COPY.next)} ▸</button>`
       : `<button type="button" class="secondary race-view-exit" data-race-done="${id}">${esc(RESULTS_COPY.done)}</button>`;
-  const label = spotsResults(results) ? "Results" : "Team challenge results";
+  const label = results?.challenge ? "Team challenge results" : "Results";
   return `<section class="race-view race-results is-${phase}" data-race-results="${id}" data-race-step="${step}" aria-label="${label}">
     ${frame}
+    ${opts.footHtml ? String(opts.footHtml) : ""}
     <footer class="race-view-foot">${button}</footer>
   </section>`;
 }
 
 // ---------------------------------------------------------------------------
-// MCK-185: teacher Scoring rows on a group answer-order rank (spots results).
-// One row per group in Class list team order: colour swatch, name, the
-// "{k} of {n} spots right" hint (muted, teacher only, hidden by Hide key)
-// and the usual team award chips. Manual only: nothing is preselected.
+// MCK-185: "Score teams" pop-up (teacher only). One row per team in Class
+// list order: chip + name, "{k} of {n} spots", a [−] n [+] stepper (step 1,
+// min 0, default 2 per right spot, "(auto n)" once changed), and Assign /
+// "Assigned · n each" / Update. Teams that sent nothing are a dimmed "No
+// order sent" row; teams with no one here are not listed. Footer: Give as,
+// Assign all (new or changed rows), Close. Nothing is given until Assign.
 // ---------------------------------------------------------------------------
 
 /**
- * The Scoring block. ``controls`` builds the award chips for one team (the
- * staff shell passes its Class list ``teamControls``), so no new widget.
- * @param {any} results Teacher ``race.results`` (spots results).
+ * Primary "Score teams" button (results header, and by the reveal link on
+ * the card) that opens or reopens the pop-up.
  * @param {number} liveItemId
- * @param {{hideKey?: boolean, controls?: (teamId: number) => string, teamOrder?: number[]}} [opts]
- *   ``teamOrder``: Class list team ids, in order (results order otherwise).
- * @returns {string} "" unless these are spots results.
+ * @returns {string}
  */
-export function rankScoringHtml(results, liveItemId, opts = {}) {
-  if (!spotsResults(results)) return "";
+export function scoreTeamsButtonHtml(liveItemId) {
   const id = Number(liveItemId) || 0;
-  const teams = (Array.isArray(results?.teams) ? results.teams : []).map((team, i) => ({
-    ...team,
-    slot: Number.isFinite(Number(team.slot)) ? Number(team.slot) : i,
-  }));
+  return `<button type="button" class="race-score-open" data-rank-score-open="${id}">${esc(SCORE_COPY.open)}</button>`;
+}
+
+/**
+ * Row models for the pop-up (pure, so the counts are testable).
+ * @param {any} results Teacher ``race.results``.
+ * @param {{teamOrder?: number[], drafts?: Map<number, number>}} [opts]
+ *   ``teamOrder``: Class list team ids in order. ``drafts``: stepper values
+ *   the teacher changed and has not assigned yet.
+ * @returns {Array<{teamId: number, name: string, slot: number, right: number, total: number, sent: boolean, auto: number, value: number, assigned: number | null, state: "none" | "new" | "assigned" | "changed"}>}
+ */
+export function scoreTeamsRows(results, opts = {}) {
+  const drafts = opts.drafts instanceof Map ? opts.drafts : new Map();
+  const teams = (Array.isArray(results?.teams) ? results.teams : [])
+    .map((team, i) => ({ ...team, slot: Number.isFinite(Number(team.slot)) ? Number(team.slot) : i }))
+    .filter((team) => team.present !== false || team.scored);
   const order = Array.isArray(opts.teamOrder) ? opts.teamOrder.map(Number) : [];
   if (order.length) {
     const at = (team) => {
@@ -569,27 +609,103 @@ export function rankScoringHtml(results, liveItemId, opts = {}) {
     };
     teams.sort((a, b) => at(a) - at(b));
   }
-  const controls = typeof opts.controls === "function" ? opts.controls : () => "";
-  const rows = teams
-    .map((team) => {
-      const mark = teamMark(team.slot);
-      const teamId = Number(team.team_id) || 0;
-      const awarded = Number(team.awarded_points) || 0;
-      const plus = awarded ? `<span class="rank-scoring-awarded">${awarded > 0 ? "+" : ""}${esc(awarded)}</span>` : "";
-      const body = team.scored
-        ? `${opts.hideKey ? "" : `<span class="rank-scoring-hint">${esc(
-            fill(RESULTS_COPY.spotsHint, { k: Number(team.right) || 0, n: Number(team.total) || 0 })
-          )}</span>`}${plus}<span class="rank-scoring-ctl">${controls(teamId)}</span>`
-        : `<span class="rank-scoring-hint is-none">${esc(RESULTS_COPY.noOrder)}</span>`;
-      return `<li class="rank-scoring-row" data-rank-scoring-team="${teamId}" style="--team:${mark.colour}">
-        <span class="rank-scoring-swatch" aria-hidden="true">${mark.shape}</span>
-        <span class="rank-scoring-name">${esc(team.team_name)}</span>
-        ${body}
+  return teams.map((team) => {
+    const teamId = Number(team.team_id) || 0;
+    const sent = Boolean(team.scored);
+    const auto = sent ? Number(team.auto ?? 2 * (Number(team.right) || 0)) || 0 : 0;
+    const assigned = team.assigned && Number.isFinite(Number(team.assigned.points)) ? Number(team.assigned.points) : null;
+    const draft = drafts.has(teamId) ? Math.max(0, Math.round(Number(drafts.get(teamId)) || 0)) : null;
+    const value = draft ?? assigned ?? auto;
+    let state = "new";
+    if (!sent) state = "none";
+    else if (assigned !== null) state = value === assigned ? "assigned" : "changed";
+    return {
+      teamId,
+      name: String(team.team_name || ""),
+      slot: team.slot,
+      right: Number(team.right) || 0,
+      total: Number(team.total ?? results?.total) || 0,
+      sent,
+      auto,
+      value,
+      assigned,
+      state,
+    };
+  });
+}
+
+/**
+ * Rows "Assign all" would send (new or changed).
+ * @param {ReturnType<typeof scoreTeamsRows>} rows
+ * @returns {ReturnType<typeof scoreTeamsRows>}
+ */
+export function scoreTeamsPending(rows) {
+  return rows.filter((row) => row.state === "new" || row.state === "changed");
+}
+
+/**
+ * The pop-up body (inside ``<dialog id="rank-score-dialog">``).
+ * @param {any} results Teacher ``race.results``.
+ * @param {number} liveItemId
+ * @param {{stem?: string, teamOrder?: number[], drafts?: Map<number, number>, rule?: string, busy?: boolean}} [opts]
+ * @returns {string}
+ */
+export function scoreTeamsDialogHtml(results, liveItemId, opts = {}) {
+  const C = SCORE_COPY;
+  const id = Number(liveItemId) || 0;
+  const rows = scoreTeamsRows(results, opts);
+  const busy = opts.busy ? " disabled" : "";
+  const rowHtml = rows
+    .map((row) => {
+      const mark = teamMark(row.slot);
+      const who = `<span class="race-chip rank-score-chip" aria-hidden="true">${mark.shape}</span><span class="rank-score-name">${esc(row.name)}</span>`;
+      if (!row.sent) {
+        return `<li class="rank-score-row is-none" data-score-team="${row.teamId}" style="--team:${mark.colour}">${who}<span class="rank-score-spots">${esc(
+          C.noOrder
+        )}</span></li>`;
+      }
+      const changed = row.value !== row.auto ? `<span class="rank-score-auto">${esc(fill(C.auto, { pts: row.auto }))}</span>` : "";
+      const label =
+        row.state === "assigned"
+          ? row.value === 1
+            ? C.assignedOne
+            : fill(C.assigned, { pts: row.value })
+          : row.state === "changed"
+            ? C.update
+            : C.assign;
+      const team = { team: row.name };
+      return `<li class="rank-score-row is-${row.state}" data-score-team="${row.teamId}" style="--team:${mark.colour}">${who}
+        <span class="rank-score-spots">${esc(fill(C.spots, { k: row.right, n: row.total }))}</span>
+        <span class="rank-score-stepper">
+          <button type="button" class="secondary rank-score-step" data-score-step="-1" aria-label="${esc(fill(C.fewer, team))}"${row.value <= 0 || opts.busy ? " disabled" : ""}>−</button>
+          <input type="number" class="rank-score-value" data-score-value min="0" max="999" step="1" inputmode="numeric" value="${row.value}" aria-label="${esc(fill(C.points, team))}"${busy}>
+          <button type="button" class="secondary rank-score-step" data-score-step="1" aria-label="${esc(fill(C.more, team))}"${busy}>+</button>
+          ${changed}
+        </span>
+        <button type="button" class="rank-score-assign${row.state === "assigned" ? " secondary is-done" : ""}" data-score-assign="${row.teamId}"${
+          row.state === "assigned" || opts.busy ? " disabled" : ""
+        }>${esc(label)}</button>
       </li>`;
     })
     .join("");
-  return `<section class="rank-scoring" data-rank-scoring="${id}" aria-label="Scoring">
-    <h3 class="rank-scoring-title">Scoring</h3>
-    <ol class="rank-scoring-rows">${rows}</ol>
-  </section>`;
+  const pending = scoreTeamsPending(rows).length;
+  const rule = SCORE_RULES.some((r) => r.id === opts.rule) ? opts.rule : "each_member";
+  const options = SCORE_RULES.map(
+    (r) => `<option value="${r.id}"${r.id === rule ? " selected" : ""}>${esc(r.label)}</option>`
+  ).join("");
+  const stem = String(opts.stem || "");
+  return `<div class="live-responses-card rank-score-card" data-rank-score="${id}">
+    <header class="live-responses-head rank-score-head">
+      <h2 id="rank-score-title" class="rank-score-title"><span>${esc(C.title)}</span>${stem ? `<span class="rank-score-stem">${esc(stem)}</span>` : ""}</h2>
+    </header>
+    <p class="hint compact rank-score-help">${esc(C.help)}</p>
+    <ol class="rank-score-rows">${rowHtml}</ol>
+    <footer class="rank-score-foot">
+      <label class="rank-score-rule">${esc(C.giveAs)} <select data-score-rule>${options}</select></label>
+      <span class="rank-score-foot-actions">
+        <button type="button" class="rank-score-all" data-score-all${pending && !opts.busy ? "" : " disabled"}>${esc(fill(C.assignAll, { count: pending }))}</button>
+        <button type="button" class="secondary" data-score-close>${esc(C.close)}</button>
+      </span>
+    </footer>
+  </div>`;
 }

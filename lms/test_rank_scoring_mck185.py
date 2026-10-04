@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""MCK-185: teacher Scoring and coloured results on group answer-order ranks.
+"""MCK-185: coloured results, "Score teams" and the full-order line on
+group answer-order ranks.
 
-A group rank with an answer order (3+ spots) that is not a Team challenge,
-Rank together or Take turns, gets the MCK-171 results at Close: spot rows,
-then a podium ranked by right spots (no Points step, nothing paid). The
-teacher awards each group by hand with the Class list team chips; the award
-is the same ``game.award_points`` team award, so it reaches the tally the
-same way. A Team challenge keeps its own 2-per-spot payout and refuses a
-manual award (no double scoring).
+Every group rank with an answer order (3+ spots), Team challenge, Rank
+together or Take turns, gets the MCK-171 results at Close: spot rows, then a
+podium ranked by right spots. Nothing is awarded automatically (Shawn,
+option B). The teacher scores teams in the "Score teams" pop-up (default 2
+per right spot); each Assign is a normal team award (``game.award_points``,
+the "Give as" rule) to members seen while the question was open, and
+re-assigning replaces the earlier award. After Close & reveal, every phone
+shows "{team} put every item in the right order." when a team's final order
+was all right.
 
 Two teams of three: Ava + Cy + Eli, Ben + Dee + Fay. Answer order:
 o3, o1, o4, o2.
@@ -20,6 +23,7 @@ import subprocess
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 import rank_challenge
 from test_rank_challenge_mck171 import KEY_IDS, ChallengeHarness
@@ -69,7 +73,7 @@ class SpotsRuleTests(unittest.TestCase):
         self.assertEqual(board["others"], [5])  # Sines sent nothing: off the board
 
     def test_challenge_payout_switch_is_one_constant(self) -> None:
-        self.assertTrue(rank_challenge.CHALLENGE_AUTO_PAYS)
+        self.assertFalse(rank_challenge.CHALLENGE_AUTO_PAYS)  # option B: all manual
         self.assertEqual(rank_challenge.MIN_KEY_SPOTS, 3)
 
 
@@ -189,65 +193,135 @@ class SpotsResultsTests(SpotsHarness):
         self.assertNotIn("race", self._view(item))
 
 
-class ManualAwardTests(SpotsHarness):
-    """The teacher's award: same team award as the Class list, manual only."""
+class ScoreTeamsTests(SpotsHarness):
+    """The "Score teams" pop-up: defaults, Assign, Assign all, replace."""
 
-    def _check_award_matches_class_list(self, item: dict[str, Any]) -> None:
-        a, b = self._team("Ava", item), self._team("Ben", item)
-        before = self._team_score(a)
-        rv = self._award(item, a, 5, "each_member")
-        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
-        body = rv.get_json()
-        self.assertEqual(body["awarded_points"], 5)
-        self.assertIn("teams", body["game"])  # the game state the tally paints
-        rank_delta = self._team_score(a) - before
-        rank_points = [self._session_points(n) for n in TEAM_A]
-        # The Class list chip (used for an MC award too): same rule, other team.
-        before_b = self._team_score(b)
-        rv = self.client.post(
-            f"/api/classes/{self.class_id}/game/score",
-            json={"kind": "team", "id": b, "amount": 5, "team_rule": "each_member"},
+    def _assign(self, item: dict[str, Any], awards: list[tuple[int, int]], rule: str | None = "each_member"):
+        return self.client.post(
+            f"/api/live-sessions/{self.session_id}/items/{item['id']}/rank-points",
+            json={"awards": [{"team_id": t, "points": p} for t, p in awards], "team_rule": rule},
         )
-        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
-        self.assertEqual(rank_delta, self._team_score(b) - before_b)
-        self.assertEqual(rank_points, [self._session_points(n) for n in TEAM_B])
-        self.assertEqual(rank_points, [5, 5, 5])
-        # "+n" on the row, and a second award adds up (like Responses).
-        self.assertEqual(self._award(item, a, -5, "team_only").status_code, 200)
-        team = next(t for t in self._results(item)["teams"] if t["team_id"] == a)
-        self.assertEqual(team["awarded_points"], 0)
-        self.assertEqual(self._award(item, a, 1, "split_members").status_code, 200)
-        team = next(t for t in self._results(item)["teams"] if t["team_id"] == a)
-        self.assertEqual(team["awarded_points"], 1)
 
-    def test_take_turns_award_updates_the_tally_like_the_class_list(self) -> None:
+    def _events(self) -> int:
+        with self.school.game._lock:
+            row = self.school.game.conn.execute("SELECT COUNT(*) AS n FROM point_events").fetchone()
+        return int(row["n"])
+
+    def _turns_two_teams(self) -> dict[str, Any]:
         item = self._spots(mode="turns")
         self._turns(item, TEAM_A, KEY_IDS)
         self._turns(item, TEAM_B, SWAP)
         self._close(item)
-        self._step(item, 5)
-        self._check_award_matches_class_list(item)
+        return item
 
-    def test_rank_together_award_updates_the_tally_like_the_class_list(self) -> None:
+    def test_defaults_are_two_per_spot_and_nothing_is_given(self) -> None:
+        item = self._turns_two_teams()
+        res = self._results(item)
+        teams = {t["team_id"]: t for t in res["teams"]}
+        a, b = self._team("Ava", item), self._team("Ben", item)
+        self.assertEqual((teams[a]["auto"], teams[b]["auto"]), (8, 4))
+        self.assertEqual((teams[a]["assigned"], teams[b]["assigned"]), (None, None))
+        self.assertTrue(teams[a]["present"] and teams[b]["present"])
+        self._step(item, 5)  # the podium: still nothing given
+        self.assertEqual(sum(self._session_points(n) for n in TEAM_A + TEAM_B), 0)
+        self.assertEqual(self._events(), 0)
+
+    def test_assign_writes_once_and_a_second_assign_is_a_no_op(self) -> None:
+        item = self._turns_two_teams()
+        a = self._team("Ava", item)
+        before = self._team_score(a)
+        rv = self._assign(item, [(a, 8)])
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        body = rv.get_json()
+        self.assertEqual(body["teams"], [{"team_id": a, "points": 8, "team_rule": "each_member", "changed": True}])
+        self.assertIn("teams", body["game"])  # the game state the tally paints
+        self.assertEqual([self._session_points(n) for n in TEAM_A], [8, 8, 8])
+        team = next(t for t in body["results"]["teams"] if t["team_id"] == a)
+        self.assertEqual(team["assigned"], {"points": 8, "team_rule": "each_member"})
+        delta, events = self._team_score(a) - before, self._events()
+        # Same as the Class list chip (Each member +8) on the other team.
+        b = self._team("Ben", item)
+        before_b = self._team_score(b)
+        self.client.post(
+            f"/api/classes/{self.class_id}/game/score",
+            json={"kind": "team", "id": b, "amount": 8, "team_rule": "each_member"},
+        )
+        self.assertEqual(delta, self._team_score(b) - before_b)
+        events = self._events()
+        rv = self._assign(item, [(a, 8)])
+        self.assertEqual(rv.get_json()["teams"][0]["changed"], False)
+        self.assertEqual(self._events(), events)
+        self.assertEqual([self._session_points(n) for n in TEAM_A], [8, 8, 8])
+
+    def test_reassign_replaces_and_never_stacks(self) -> None:
+        item = self._turns_two_teams()
+        a = self._team("Ava", item)
+        start = self._team_score(a)
+        self.assertEqual(self._assign(item, [(a, 8)]).status_code, 200)
+        first = self._team_score(a) - start
+        self.assertEqual(self._assign(item, [(a, 5)]).status_code, 200)  # Update
+        self.assertEqual([self._session_points(n) for n in TEAM_A], [5, 5, 5])
+        self.assertAlmostEqual(self._team_score(a) - start, first * 5 / 8)
+        self.assertEqual(self._assign(item, [(a, 6)], "split_members").status_code, 200)
+        self.assertEqual([self._session_points(n) for n in TEAM_A], [2, 2, 2])
+        self.assertAlmostEqual(self._team_score(a) - start, 6)
+        self.assertEqual(self._assign(item, [(a, 3)], "team_only").status_code, 200)
+        self.assertEqual([self._session_points(n) for n in TEAM_A], [0, 0, 0])
+        self.assertAlmostEqual(self._team_score(a) - start, 3)
+        self.assertEqual(self._assign(item, [(a, 0)]).status_code, 200)  # back to nothing
+        self.assertEqual([self._session_points(n) for n in TEAM_A], [0, 0, 0])
+        self.assertAlmostEqual(self._team_score(a) - start, 0)
+        team = next(t for t in self._results(item)["teams"] if t["team_id"] == a)
+        self.assertEqual(team["assigned"], {"points": 0, "team_rule": "each_member"})
+
+    def test_assign_all_gives_every_listed_team_once(self) -> None:
+        item = self._turns_two_teams()
+        a, b = self._team("Ava", item), self._team("Ben", item)
+        self.assertEqual(self._assign(item, [(a, 8)]).status_code, 200)
+        rv = self._assign(item, [(a, 8), (b, 4)])
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        self.assertEqual([t["changed"] for t in rv.get_json()["teams"]], [False, True])
+        self.assertEqual([self._session_points(n) for n in TEAM_A], [8, 8, 8])
+        self.assertEqual([self._session_points(n) for n in TEAM_B], [4, 4, 4])
+
+    def test_member_not_seen_while_open_gets_nothing(self) -> None:
+        self._leave("Eli")
         item = self._spots()
         self._submit(item, "Ava", KEY_IDS)
-        self._submit(item, "Ben", SWAP)
+        self._view(item)
+        self._card("Cy", item)
         self._close(item)
-        self._check_award_matches_class_list(item)
+        a = self._team("Ava", item)
+        self.assertEqual(self._assign(item, [(a, 8)]).status_code, 200)
+        self.assertEqual(
+            (self._session_points("Ava"), self._session_points("Cy"), self._session_points("Eli")), (8, 8, 0)
+        )
 
-    def test_award_refused_before_reveal_without_order_or_rule(self) -> None:
+    def test_refusals(self) -> None:
         item = self._spots()
         self._submit(item, "Ava", KEY_IDS)
         a, b = self._team("Ava", item), self._team("Ben", item)
-        self.assertEqual(self._award(item, a, 5, "each_member").status_code, 400)  # still open
+        self.assertEqual(self._assign(item, [(a, 8)]).status_code, 400)  # still open
         self._close(item)
-        rv = self._award(item, b, 5, "each_member")
-        self.assertEqual(rv.status_code, 400)
-        self.assertEqual(rv.get_json()["error"], "No order sent")
-        self.assertEqual(self._award(item, a, 5, None).status_code, 400)  # chips always pick a rule
+        rv = self._assign(item, [(b, 4)])
+        self.assertEqual((rv.status_code, rv.get_json()["error"]), (400, "No order sent"))
+        self.assertEqual(self._assign(item, [(a, -1)]).status_code, 400)
+        self.assertEqual(self._assign(item, [(a, 8)], "bonus").status_code, 400)
+        self.assertEqual(self._assign(item, []).status_code, 400)
         self.assertEqual(sum(self._session_points(n) for n in TEAM_A + TEAM_B), 0)
+        opinion = self._publish(self._rank_row(key=False))
+        self._submit(opinion, "Ava", SWAP)
+        self._close(opinion)
+        self.assertEqual(self._assign(opinion, [(a, 5)]).status_code, 400)
 
-    def test_team_challenge_keeps_its_payout_and_refuses_a_manual_award(self) -> None:
+    def test_no_auto_award_through_end_of_class(self) -> None:
+        """Closing the pop-up (or never opening it) gives nothing."""
+        item = self._turns_two_teams()
+        self._step(item, 5)
+        self.client.post(f"/staff/class/{self.class_id}/end-live", data={})
+        self.assertEqual(self._events(), 0)
+
+    def test_team_challenge_is_scored_the_same_way(self) -> None:
         for mode in ("together", "turns"):
             with self.subTest(mode=mode):
                 item = self._challenge(mode=mode)
@@ -258,23 +332,91 @@ class ManualAwardTests(SpotsHarness):
                 self._close(item)
                 res = self._results(item)
                 self.assertTrue(res["challenge"])
-                self.assertTrue(res["pays"])
-                self.assertEqual(res["points_step"], 5)
-                self.assertNotIn("awarded_points", res["teams"][0])
+                self.assertFalse(res["pays"])
+                # No Points step any more: rows, then the podium by spots.
+                self.assertEqual((res["points_step"], res["podium_step"]), (None, 5))
                 a = self._team("Ava", item)
-                rv = self._award(item, a, 5, "each_member")
-                self.assertEqual(rv.status_code, 400)
-                self.assertEqual(rv.get_json()["error"], "A Team challenge pays its own points.")
+                team_a = next(t for t in res["teams"] if t["team_id"] == a)
+                self.assertEqual((team_a["right"], team_a["auto"], team_a["points"]), (4, 8, 0))
                 before = self._points("Ava")
-                self._step(item, 5)  # 171's own points step still pays 2 per spot
-                self.assertEqual(self._points("Ava") - before, 8)
+                self._step(item, 5)
+                self.assertEqual(self._post_step(item, 6).status_code, 409)
+                self.assertEqual(self._points("Ava"), before)  # nothing automatic
+                card = self._card("Ava", item)["race"]["results"]
+                self.assertEqual((card["points"], card["show_points"]), (None, False))
+                rv = self._assign(item, [(a, 8)])
+                self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+                self.assertEqual(self._session_points("Ava") - 0, self._session_points("Cy"))
+                # Phones: "8 points each" once assigned (as in MCK-171).
+                card = self._card("Ava", item)["race"]["results"]
+                self.assertEqual((card["points"], card["show_points"]), (8, True))
+                self._assign(item, [(a, 6)], "split_members")
+                card = self._card("Ava", item)["race"]["results"]
+                self.assertEqual(card["points"], 2)
+                b = self._team("Ben", item)
+                rv = self._assign(item, [(b, 5)])
+                self.assertEqual((rv.status_code, rv.get_json()["error"]), (400, "No order sent"))
 
-    def test_opinion_rank_refuses(self) -> None:
-        item = self._publish(self._rank_row(key=False))
+
+class FullOrderTests(SpotsHarness):
+    """Class-wide "put every item in the right order" notice."""
+
+    def _notice(self, name: str, item: dict[str, Any]) -> Any:
+        return self._card(name, item).get("full_order")
+
+    def test_reveal_timing_shows_only_after_close_and_only_names(self) -> None:
+        self.assertEqual(rank_challenge.FULL_ORDER_WHEN, "reveal")
+        item = self._spots(mode="turns")
+        self._turns(item, TEAM_A, KEY_IDS)
+        self._turns(item, TEAM_B, SWAP)
+        self.assertIsNone(self._notice("Ava", item))
+        self.assertIsNone(self._notice("Ben", item))
+        self.assertNotIn("full_order", self._view(item))
+        self._close(item)
+        a_name = self._row(item, "Ava").get("team_name") or next(
+            t["team_name"] for t in self._results(item)["teams"] if t["team_id"] == self._team("Ava", item)
+        )
+        mine = self._notice("Ava", item)
+        self.assertEqual((mine["you"], mine["teams"]), (True, []))
+        other = self._notice("Ben", item)
+        self.assertFalse(other["you"])
+        self.assertEqual([t["name"] for t in other["teams"]], [a_name])
+        self.assertEqual(set(other["teams"][0]), {"name", "slot"})  # no order, no spots
+        self.assertEqual([t["name"] for t in self._view(item)["full_order"]["teams"]], [a_name])
+
+    def test_nothing_when_no_team_got_it_all(self) -> None:
+        item = self._spots()
         self._submit(item, "Ava", SWAP)
         self._close(item)
-        rv = self._award(item, self._team("Ava", item), 5, "each_member")
-        self.assertEqual(rv.status_code, 400)
+        self.assertIsNone(self._notice("Ava", item))
+        self.assertNotIn("full_order", self._view(item))
+
+    def test_a_draft_never_counts(self) -> None:
+        item = self._challenge()
+        self._order("Ava", item, KEY_IDS)  # right, but never locked in
+        self._close(item)
+        self.assertIsNone(self._notice("Ben", item))
+        self.assertNotIn("full_order", self._view(item))
+
+    def test_lock_timing_shows_as_soon_as_a_final_order_is_right(self) -> None:
+        with mock.patch.object(rank_challenge, "FULL_ORDER_WHEN", "lock"):
+            item = self._challenge()
+            self._order("Ben", item, KEY_IDS)  # a right draft: not yet
+            self.assertIsNone(self._notice("Ava", item))
+            self._lock_team(item, TEAM_A, KEY_IDS)
+            other = self._notice("Ben", item)
+            self.assertEqual(len(other["teams"]), 1)
+            self.assertTrue(self._notice("Ava", item)["you"])
+            self.assertIn("full_order", self._view(item))
+            self._close(item)
+            self.assertTrue(self._notice("Ava", item)["you"])
+
+    def test_timing_rule(self) -> None:
+        self.assertFalse(rank_challenge.full_order_visible("active", "reveal"))
+        self.assertTrue(rank_challenge.full_order_visible("closed", "reveal"))
+        self.assertTrue(rank_challenge.full_order_visible("active", "lock"))
+        self.assertFalse(rank_challenge.full_order_visible("ended", "lock"))
+        self.assertEqual(rank_challenge.FULL_ORDER_TIMINGS, ("reveal", "lock"))
 
 
 class StudentLeakTests(SpotsHarness):
@@ -343,15 +485,23 @@ class ViewTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
         self.assertIn("ok", proc.stdout)
 
-    def test_staff_shell_reuses_team_controls(self) -> None:
+    def test_staff_shell_wires_score_teams(self) -> None:
         staff = (STATIC / "staff_ap.js").read_text(encoding="utf-8")
-        self.assertIn("function teamControls(teamId, pending = pendingTeam)", staff)
-        self.assertIn("controls: (teamId) => teamControls(teamId, pending)", staff)
         self.assertIn("/rank-points`", staff)
-        self.assertIn("hideKey: hideKeyOn()", staff)
-        self.assertIn("scoringHtml: rankScoringRowsHtml(race.results, liveItemId)", staff)
+        self.assertIn("openRankScoreDialog(Number(scoreOpen.dataset.rankScoreOpen)", staff)
+        self.assertIn("// Closing awards nothing.", staff)
+        self.assertNotIn("dialog.showModal();\n  rankScore", staff)
+        # Never auto-opened: only the Score teams button opens it.
+        self.assertEqual(staff.count("openRankScoreDialog("), 2)  # definition + the button
+        self.assertNotIn("rankScoringRowsHtml", staff)
+        self.assertIn("function teamControls(teamId) {", staff)  # Class list chips untouched
+        template = (LMS_DIR / "templates" / "staff" / "course.html").read_text(encoding="utf-8")
+        self.assertIn('<dialog id="rank-score-dialog" class="live-responses-dialog rank-score-dialog"', template)
+        portal = (STATIC / "student-portal.js").read_text(encoding="utf-8")
+        self.assertIn("fullOrderHtml(item?.group_submit?.full_order)", portal)
         css = (STATIC / "staff-shell.css").read_text(encoding="utf-8")
-        self.assertIn(".live-question-list.is-key-hidden .rank-scoring-hint:not(.is-none)", css)
+        self.assertIn(".rank-score-dialog", css)
+        self.assertNotIn(".rank-scoring", css)
 
 
 if __name__ == "__main__":

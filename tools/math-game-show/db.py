@@ -13,7 +13,7 @@ import threading
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
@@ -5685,6 +5685,8 @@ class GameShowDB:
         amount: int,
         team_rule: str | None = None,
         label: str | None = None,
+        member_ids: Iterable[int] | None = None,
+        reverse: bool = False,
     ) -> dict[str, Any]:
         """Apply a teacher award as an immutable event plus live caches.
 
@@ -5711,6 +5713,16 @@ class GameShowDB:
             team_rule: Required for team awards.
             label: Optional human action label (Open Question chips) stored on
                 ``last_event`` for overlay/feedback.
+            member_ids: Team awards only: credit just these members (LMS
+                MCK-185 "Score teams": members seen present while a group
+                rank was open). Others on the team get nothing. On a forward
+                award the list is narrowed to current team members; on a
+                ``reverse`` it is used as given, so a reversal undoes exactly
+                the members the original award credited.
+            reverse: Team awards only: undo an earlier award of ``-amount``
+                with the same rule and ``member_ids`` (``amount`` negative,
+                any rule). Split shares are recomputed from the same members,
+                so the reversal cancels the original to the tenth.
 
         Returns:
             Updated game state (includes last_event for the scoreboard).
@@ -5725,10 +5737,12 @@ class GameShowDB:
                 raise ValueError(
                     "Team awards need a rule: each_member, split_members, or team_only"
                 )
-            if amount < 0 and rule != "team_only":
+            if amount < 0 and rule != "team_only" and not reverse:
                 raise ValueError("Team penalties must use the team-only bucket")
         else:
             rule = None
+            if member_ids is not None or reverse:
+                raise ValueError("member_ids and reverse are for team awards")
         action_label = (label or "").strip() or None
         with self._lock:
             game = self._game_row(class_id)
@@ -5816,13 +5830,25 @@ class GameShowDB:
                 ).fetchone()
                 if team_row is None:
                     raise KeyError(f"team {target_id}")
-                member_ids = self._team_member_ids(game_id, target_id)
+                team_members = self._team_member_ids(game_id, target_id)
+                if member_ids is None:
+                    members = team_members
+                elif reverse:
+                    members = [int(sid) for sid in member_ids]
+                else:
+                    wanted = {int(sid) for sid in member_ids}
+                    members = [sid for sid in team_members if sid in wanted]
                 if rule == "each_member":
-                    for sid in member_ids:
+                    for sid in members:
                         self._credit_student(session_id, sid, amount, score_bucket)
                 elif rule == "split_members":
-                    shares = split_amount(amount, len(member_ids))
-                    for sid, share in zip(member_ids, shares, strict=True):
+                    if members or member_ids is None:
+                        shares = split_amount(abs(amount), len(members))
+                        if amount < 0:
+                            shares = [-share for share in shares]
+                    else:
+                        shares = []
+                    for sid, share in zip(members, shares, strict=True):
                         if share:
                             self._credit_student(session_id, sid, share, score_bucket)
                     remainder = as_points(amount - sum(shares))

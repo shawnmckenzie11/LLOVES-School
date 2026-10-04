@@ -3085,3 +3085,29 @@ body.rw-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .race-phone-burst { display: none; }
 }
+
+/* MCK-185 full-order line: one calm soft pill at the very bottom of the
+   question card. No motion (nothing to reduce): it simply appears. */
+.full-order-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #12202e;
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+.full-order-dots {
+  display: inline-flex;
+  flex: none;
+  gap: 3px;
+}
+.full-order-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--team);
+}
