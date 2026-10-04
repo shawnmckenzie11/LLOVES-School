@@ -429,6 +429,25 @@ class RequestScopeTests(unittest.TestCase):
             self.assertNotIn(name, text)
         self.assertNotIn(TEACHER, text)
 
+    def test_redirected_dashboard_is_not_dashboard_opened(self) -> None:
+        """A 302 from /staff (e.g. the first-run Welcome gate) is not a Dashboard view."""
+        from flask import redirect
+
+        original = self.app.view_functions["staff_home"]
+        self.app.view_functions["staff_home"] = lambda *a, **k: redirect("/staff/welcome")
+        try:
+            response = self.client.get("/staff")
+        finally:
+            self.app.view_functions["staff_home"] = original
+        self.assertEqual(response.status_code, 302)
+        sentry_sdk.flush()
+        bodies = [row["body"] for row in _items(self.transport, "log")]
+        self.assertNotIn("Dashboard opened", bodies)
+        self.client.get("/staff")
+        sentry_sdk.flush()
+        bodies = [row["body"] for row in _items(self.transport, "log")]
+        self.assertEqual(bodies.count("Dashboard opened"), 1, bodies)
+
     def test_python_logging_does_not_become_sentry_logs(self) -> None:
         """App logger lines are filtered out of Sentry Logs."""
         import logging

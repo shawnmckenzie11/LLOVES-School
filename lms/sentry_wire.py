@@ -1005,6 +1005,9 @@ def install_request_scope(app: Any, resolver: Callable[..., dict[str, Any]] | No
             action = action_for(request.endpoint, request.method)
             if action is None or response.status_code >= 400 or not _active():
                 return response
+            if action == "Dashboard opened" and response.status_code != 200:
+                # A redirect away (first-run Welcome gate, sign-in) is not a view.
+                return response
             if response.is_json:
                 body = response.get_json(silent=True)
                 if isinstance(body, dict) and body.get("ok") is False:
