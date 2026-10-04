@@ -7,6 +7,12 @@
  * ``alc-whats-new:<user id>``. "Got it", × and Esc all close the dialog,
  * and closing marks the release seen. The "What's new" link reopens it.
  *
+ * MCK-182: ``releases.json`` schema 2 adds one release per deploy that has
+ * notes (``{id, sha, deployed_at, day, items: [{text, audience, refs}]}``),
+ * written by ``.github/scripts/whats_new.py`` at deploy time. Legacy items
+ * (``title`` + ``line``) still render. Null, blank and non-object items are
+ * skipped, and a release left with no items is skipped too (housekeeping).
+ *
  * Hard rule: never on the live class. On ``body.course-live`` (the teacher
  * may be projecting) this module renders nothing, fetches nothing and never
  * opens, not even from the link. Text goes in with ``textContent`` only.
@@ -35,16 +41,35 @@ export function seenKey(userId) {
 }
 
 /**
- * Newest release from the releases.json body, or null.
+ * Items worth showing: objects with some ``text``, ``title`` or ``line``.
+ * Null, blank or malformed entries drop out (MCK-124 LOW).
+ * @param {any} release
+ * @returns {any[]}
+ */
+export function cleanItems(release) {
+  const items = release && Array.isArray(release.items) ? release.items : [];
+  return items.filter(
+    (item) =>
+      item &&
+      typeof item === "object" &&
+      ["text", "title", "line"].some((k) => String(item[k] == null ? "" : item[k]).trim()),
+  );
+}
+
+/**
+ * Newest release that has something to show, or null. Releases are newest
+ * first; one with no usable items (a housekeeping deploy) is skipped.
  * @param {any} data
  * @returns {any|null}
  */
 export function newestRelease(data) {
   const releases = data && Array.isArray(data.releases) ? data.releases : [];
-  const first = releases[0];
-  return first && typeof first.id === "string" && first.id && Array.isArray(first.items)
-    ? first
-    : null;
+  for (const release of releases) {
+    if (!release || typeof release.id !== "string" || !release.id) continue;
+    const items = cleanItems(release);
+    if (items.length) return { ...release, items };
+  }
+  return null;
 }
 
 /**
@@ -83,19 +108,23 @@ export function shouldAutoOpen({ doc, storage, userId, release }) {
  */
 export function renderRelease(doc, dialog, release) {
   const date = dialog.querySelector("[data-whats-new-date]");
-  if (date) date.textContent = formatReleaseDate(release.date || release.id);
+  if (date) date.textContent = formatReleaseDate(release.day || release.date || release.id);
   const list = dialog.querySelector("[data-whats-new-list]");
   if (list) {
     list.replaceChildren();
-    for (const item of release.items) {
+    for (const item of cleanItems(release)) {
       const li = doc.createElement("li");
       li.className = "whats-new-item";
-      const title = doc.createElement("h3");
-      title.className = "whats-new-item-title";
-      title.textContent = String(item.title || "");
+      // Schema 2 items are one ``text`` line with no title (MCK-182).
+      const titleText = String(item.title || "").trim();
+      const title = titleText ? doc.createElement("h3") : null;
+      if (title) {
+        title.className = "whats-new-item-title";
+        title.textContent = titleText;
+      }
       const line = doc.createElement("p");
       line.className = "whats-new-item-line";
-      line.textContent = String(item.line || "");
+      line.textContent = String(item.text || item.line || "");
       const meta = doc.createElement("div");
       meta.className = "whats-new-item-meta";
       const audience = String(item.audience || "");
@@ -111,7 +140,8 @@ export function renderRelease(doc, dialog, release) {
         refs.textContent = String(item.refs);
         meta.appendChild(refs);
       }
-      li.append(title, line, meta);
+      if (title) li.append(title);
+      li.append(line, meta);
       list.appendChild(li);
     }
   }
