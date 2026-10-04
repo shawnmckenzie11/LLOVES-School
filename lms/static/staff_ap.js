@@ -2355,7 +2355,14 @@ function whiteboardReopenOptionsHtml(item) {
  */
 function openWhiteboardReopenPopover() {
   const item = lifecycleItemForSurface("canvas");
-  if (!item || String(item.status || "") !== "closed") return;
+  if (!item) return;
+  if (String(item.status || "") !== "closed") {
+    // MCK-181: this tab already heard the board is open (another tab
+    // reopened it) but still showed Closed. Repaint instead of ignoring
+    // the click.
+    paintSurfacePublishing();
+    return;
+  }
   const pop = $("live-reopen-pop");
   const button = document.querySelector('[data-surface-reopen="canvas"]');
   if (!(pop instanceof HTMLElement)) return;
@@ -3255,7 +3262,7 @@ function applyLiveMcImportPayload(payload) {
     lastLiveMetadata = payload.live_metadata;
   }
   if (Array.isArray(payload?.live_items)) {
-    lastLiveItems = absorbSaveToCardSnapshot(payload.live_items);
+    adoptLiveItemsSnapshot(payload.live_items);
   }
   if (Array.isArray(payload?.question_cards)) {
     lastQuestionCards = questionCardsFromMetadata(payload.question_cards);
@@ -3453,7 +3460,7 @@ async function refreshLiveQuestionCards() {
       lastLiveMetadata = snapshot.live_metadata;
     }
     if (Array.isArray(snapshot?.live_items)) {
-      lastLiveItems = absorbSaveToCardSnapshot(snapshot.live_items);
+      adoptLiveItemsSnapshot(snapshot.live_items);
     }
     if (Array.isArray(snapshot?.question_cards)) {
       lastQuestionCards = questionCardsFromMetadata(snapshot.question_cards);
@@ -3943,6 +3950,32 @@ function teacherSettingMatches(field, held, incoming) {
  * @param {any[]} items
  * @returns {any[]}
  */
+/**
+ * Lifecycle id and status per content surface, to spot a status change.
+ * @returns {string}
+ */
+function surfaceStatusSignature() {
+  return ["media", "canvas", "slides"]
+    .map((surface) => {
+      const item = lifecycleItemForSurface(surface);
+      return `${Number(item?.id) || 0}:${String(item?.status || "")}`;
+    })
+    .join("|");
+}
+
+/**
+ * Adopt a ``live_items`` snapshot from /state (poll, wire follow-up, or
+ * repaint). MCK-181: when a surface's status moved (another teacher tab
+ * reopened or closed the whiteboard), repaint Active/Closed and the
+ * Reopen control now, not on the next Whiteboard tab click.
+ * @param {any[]} items
+ */
+function adoptLiveItemsSnapshot(items) {
+  const before = surfaceStatusSignature();
+  lastLiveItems = absorbSaveToCardSnapshot(items);
+  if (surfaceStatusSignature() !== before) paintSurfacePublishing();
+}
+
 function absorbSaveToCardSnapshot(items) {
   const rows = Array.isArray(items) ? items : [];
   const nextRows = rows.map((row) => {
@@ -6345,7 +6378,7 @@ async function pollLiveSessionAttendees(opts = {}) {
       }
     }
     if (Array.isArray(payload?.live_items)) {
-      lastLiveItems = absorbSaveToCardSnapshot(payload.live_items);
+      adoptLiveItemsSnapshot(payload.live_items);
     }
     if (Array.isArray(payload?.active_questions)) {
       lastActiveQuestions = payload.active_questions;
@@ -7095,7 +7128,7 @@ async function mintArtifactFromMedia(data) {
       adoptTeacherState(res.teacher_state);
     }
     if (Array.isArray(res?.live_items)) {
-      lastLiveItems = absorbSaveToCardSnapshot(res.live_items);
+      adoptLiveItemsSnapshot(res.live_items);
     }
     if (Array.isArray(res?.question_cards)) {
       lastQuestionCards = questionCardsFromMetadata(res.question_cards);
