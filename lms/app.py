@@ -2535,7 +2535,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         offerings: list[dict[str, Any]],
         classes: list[dict[str, Any]],
     ) -> bool:
-        """True for a teacher with no course and no class this semester.
+        """True for a staff teacher with nothing set up anywhere.
+
+        No course and no class this semester, and none of these: no active
+        semester, an active live session, or any non-archived class or
+        course in any semester (#250 gate MED: never trap a set-up teacher,
+        e.g. right after a semester rollover, on Welcome). Admin (IT)
+        accounts never get it.
 
         Args:
             user: Signed-in user row.
@@ -2545,7 +2551,15 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         Returns:
             Whether ``/staff`` should send her to ``/staff/welcome``.
         """
-        return str(user.get("role") or "") == "staff" and not offerings and not classes
+        if str(user.get("role") or "") != "staff" or offerings or classes:
+            return False
+        active = school.get_active_semester()
+        if not active:
+            return False
+        if school.get_active_live_session_for_teacher(int(user["id"])) is not None:
+            return False
+        elsewhere = school.teacher_setup_elsewhere(int(user["id"]), int(active["id"]))
+        return not (elsewhere["any_class"] or elsewhere["other_offering"])
 
     def _teacher_setup(user: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Her active-semester offerings and classes (empty with no semester)."""
