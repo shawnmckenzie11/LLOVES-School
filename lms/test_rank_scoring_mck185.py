@@ -305,7 +305,7 @@ class ScoreTeamsTests(SpotsHarness):
         self._close(item)
         rv = self._assign(item, [(b, 4)])
         self.assertEqual((rv.status_code, rv.get_json()["error"]), (400, "No order sent"))
-        self.assertEqual(self._assign(item, [(a, -1)]).status_code, 400)
+        self.assertEqual(self._assign(item, [(a, 0)]).status_code, 200)  # 0 gives nothing
         self.assertEqual(self._assign(item, [(a, 8)], "bonus").status_code, 400)
         self.assertEqual(self._assign(item, []).status_code, 400)
         self.assertEqual(sum(self._session_points(n) for n in TEAM_A + TEAM_B), 0)
@@ -313,6 +313,79 @@ class ScoreTeamsTests(SpotsHarness):
         self._submit(opinion, "Ava", SWAP)
         self._close(opinion)
         self.assertEqual(self._assign(opinion, [(a, 5)]).status_code, 400)
+
+    def _post_raw(self, item: dict[str, Any], body: Any):
+        return self.client.post(
+            f"/api/live-sessions/{self.session_id}/items/{item['id']}/rank-points", json=body
+        )
+
+    def test_malformed_bodies_are_400_never_500(self) -> None:
+        """Gate LOW on f0a15be: objects or ints for awards used to 500."""
+        item = self._turns_two_teams()
+        a = self._team("Ava", item)
+        for body in (
+            {"awards": {"team_id": a, "points": 4}},
+            {"awards": [a, 4]},
+            {"awards": [{"team_id": a, "points": 4}], "team_rule": 3},
+            [{"team_id": a, "points": 4}],
+            "awards",
+            {"awards": [{"team_id": True, "points": 4}]},
+            {"awards": [{"team_id": a, "points": True}]},
+            {"awards": [{"team_id": a, "points": "lots"}]},
+            {"awards": [{"team_id": a}]},
+        ):
+            with self.subTest(body=body):
+                self.assertEqual(self._post_raw(item, body).status_code, 400)
+        self.assertEqual(self._events(), 0)
+
+    def test_points_are_clamped_to_a_whole_0_to_999(self) -> None:
+        item = self._turns_two_teams()
+        a = self._team("Ava", item)
+        for sent, kept in ((5.7, 6), ("7", 7), (-3, 0), (5000, 999), (4.0, 4)):
+            with self.subTest(sent=sent):
+                rv = self._post_raw(item, {"awards": [{"team_id": a, "points": sent}], "team_rule": "each_member"})
+                self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+                self.assertEqual(rv.get_json()["teams"][0]["points"], kept)
+                self.assertEqual([self._session_points(n) for n in TEAM_A], [kept] * 3)
+        self.assertEqual(rank_challenge.clamp_award_points(float("nan")), None)
+
+    def test_reassign_is_one_transaction(self) -> None:
+        """Gate LOW on f0a15be: the reversal used to commit before the new
+        award. If the new award fails, the claim and the reversal roll back."""
+        item = self._turns_two_teams()
+        a = self._team("Ava", item)
+        self.assertEqual(self._assign(item, [(a, 8)]).status_code, 200)
+        start, events = self._team_score(a), self._events()
+        real = self.school.game.award_points
+
+        def fail_forward(*args: Any, **kwargs: Any):
+            if not kwargs.get("reverse"):
+                raise ValueError("Scoring is closed")
+            return real(*args, **kwargs)
+
+        with mock.patch.object(self.school.game, "award_points", side_effect=fail_forward):
+            self.assertEqual(self._assign(item, [(a, 5)]).status_code, 400)
+        self.assertEqual(self._team_score(a), start)
+        self.assertEqual(self._events(), events)
+        self.assertEqual([self._session_points(n) for n in TEAM_A], [8, 8, 8])
+        team = next(t for t in self._results(item)["teams"] if t["team_id"] == a)
+        self.assertEqual(team["assigned"], {"points": 8, "team_rule": "each_member"})
+        self.assertEqual(self._assign(item, [(a, 5)]).status_code, 200)  # and it still works
+        self.assertEqual([self._session_points(n) for n in TEAM_A], [5, 5, 5])
+
+    def test_staff_state_totals_carry_a_game_version(self) -> None:
+        """Gate LOW-1: the page drops a full poll older than an Assign."""
+        item = self._turns_two_teams()
+        a = self._team("Ava", item)
+        before = self.school._assemble_live_session_state(self.session_id)
+        ver = before["game_points_ver"]
+        self.assertEqual(set(ver), {"game_id", "seq"})
+        self.assertEqual(self._assign(item, [(a, 8)]).status_code, 200)
+        after = self.school._assemble_live_session_state(self.session_id)
+        self.assertEqual(after["game_points_ver"]["game_id"], ver["game_id"])
+        self.assertGreater(after["game_points_ver"]["seq"], ver["seq"])
+        self.assertEqual(after["game_points"][str(self.ids["Ava"])], 8)
+        self.assertNotIn("game_points_ver", self.school._assemble_live_session_state(self.session_id, light=True))
 
     def test_no_auto_award_through_end_of_class(self) -> None:
         """Closing the pop-up (or never opening it) gives nothing."""
@@ -394,6 +467,54 @@ class FullOrderTests(SpotsHarness):
         self._turns(item, TEAM_A, KEY_IDS[-1:])  # last spot: final, all right
         self.assertEqual(len(self._notice("Ben", item)["teams"]), 1)
         self.assertTrue(self._notice("Ava", item)["you"])
+
+    def _all_phone_states(self) -> str:
+        out = []
+        for name in TEAM_A + TEAM_B:
+            rv = self.students[name].get("/api/student/state")
+            self.assertEqual(rv.status_code, 200)
+            out.append(rv.get_data(as_text=True))
+        return "\n".join(out)
+
+    def test_rank_together_resend_loop_cannot_reveal_correctness_before_close(self) -> None:
+        """Gate MED-1 on f0a15be: a sent Rank together order can be changed
+        and resent, so under "lock" a team could resend until the line came.
+        Plain Rank together now waits for Close: no line in any phone's
+        state, or the teacher view, however often a team resends."""
+        self.assertEqual(rank_challenge.FULL_ORDER_WHEN, "lock")
+        item = self._spots()  # Rank together, not a Team challenge
+        tries = [SWAP, ["o2", "o1", "o3", "o4"], KEY_IDS, SWAP, KEY_IDS]
+        for n, order in enumerate(tries):
+            sender = TEAM_A[n % len(TEAM_A)]
+            self._submit(item, sender, order)
+            self._submit(item, "Ben", KEY_IDS if n % 2 else SWAP)
+            with self.subTest(send=n):
+                self.assertNotIn("full_order", self._all_phone_states())
+                for name in TEAM_A + TEAM_B:
+                    self.assertIsNone(self._notice(name, item))
+                self.assertNotIn("full_order", self._view(item))
+        self._close(item)  # the last sends were right: the line comes at Close
+        self.assertTrue(self._notice("Ava", item)["you"])
+        self.assertIn("full_order", self._all_phone_states())
+
+    def test_lock_waits_for_close_with_live_results_off(self) -> None:
+        row = self._rank_row()
+        rv = self._settings(row, {"group_rank_mode": "turns", "show_live_results": False})
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        item = self._publish(row)
+        self._turns(item, TEAM_A, KEY_IDS)  # final and right
+        self.assertNotIn("full_order", self._all_phone_states())
+        self.assertIsNone(self._notice("Ben", item))
+        self._close(item)
+        self.assertEqual(len(self._notice("Ben", item)["teams"]), 1)
+
+    def test_lock_timing_per_mode(self) -> None:
+        timing = rank_challenge.full_order_timing
+        self.assertEqual(timing(challenge=True, rank_mode="together", results_on=True), "lock")
+        self.assertEqual(timing(challenge=False, rank_mode="turns", results_on=True), "lock")
+        self.assertEqual(timing(challenge=False, rank_mode="together", results_on=True), "reveal")
+        self.assertEqual(timing(challenge=True, rank_mode="turns", results_on=False), "reveal")
+        self.assertEqual(timing(challenge=True, rank_mode="turns", results_on=True, when="reveal"), "reveal")
 
     def test_nothing_when_no_team_got_it_all(self) -> None:
         item = self._spots()
@@ -523,6 +644,13 @@ class ViewTests(unittest.TestCase):
         self.assertIn("function paintScoreboardPreviewTotals() {", staff)
         css = (STATIC / "staff-shell.css").read_text(encoding="utf-8")
         self.assertIn("auto auto 9.6rem", css)  # fixed action column
+        # Gate LOW-1: an older full poll never paints totals back.
+        self.assertIn("const pointsFresh = adoptGamePointsVer(payload?.game_points_ver);", staff)
+        self.assertIn("if (!adoptGamePointsVer(state.game)) return;", staff)
+        self.assertIn("seq < gamePointsVer.seq", staff)
+        # Gate LOW-3: at ~390px the rows wrap and the dialog scrolls.
+        self.assertIn('"stepper stepper action"', css)
+        self.assertIn("overflow-y: auto", css.split("body.staff-shell .rank-score-dialog {")[2])
 
 
 if __name__ == "__main__":

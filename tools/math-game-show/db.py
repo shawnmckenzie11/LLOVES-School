@@ -5687,6 +5687,7 @@ class GameShowDB:
         label: str | None = None,
         member_ids: Iterable[int] | None = None,
         reverse: bool = False,
+        commit: bool = True,
     ) -> dict[str, Any]:
         """Apply a teacher award as an immutable event plus live caches.
 
@@ -5723,6 +5724,9 @@ class GameShowDB:
                 with the same rule and ``member_ids`` (``amount`` negative,
                 any rule). Split shares are recomputed from the same members,
                 so the reversal cancels the original to the tenth.
+            commit: False leaves the write in the caller's open transaction
+                (LMS MCK-185 "Score teams": reverse + re-apply + claim commit
+                together, or not at all).
 
         Returns:
             Updated game state (includes last_event for the scoreboard).
@@ -5890,7 +5894,8 @@ class GameShowDB:
                 """,
                 (seq, json.dumps(last_event), game_id),
             )
-            self.conn.commit()
+            if commit:
+                self.conn.commit()
         return self.game_state(class_id)
 
     def end_game(

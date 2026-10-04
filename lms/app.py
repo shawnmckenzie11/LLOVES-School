@@ -7184,13 +7184,23 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         _row, error = _active_owned_live_session(session_id)
         if error is not None:
             return error
-        body = request.get_json(silent=True) or {}
+        body = request.get_json(silent=True)
+        # Gate LOW on f0a15be: a malformed body (not an object, awards not
+        # a list of objects) is a 400, never a 500.
+        if not isinstance(body, dict):
+            return jsonify({"ok": False, "error": "Send {awards: [{team_id, points}], team_rule}"}), 400
+        awards = body.get("awards")
+        if not isinstance(awards, list) or not all(isinstance(row, dict) for row in awards):
+            return jsonify({"ok": False, "error": "awards must be a list of {team_id, points}"}), 400
+        rule = body.get("team_rule")
+        if rule is not None and not isinstance(rule, str):
+            return jsonify({"ok": False, "error": "team_rule must be text"}), 400
         try:
             result = school.assign_rank_team_points(
                 session_id,
                 live_item_id,
-                awards=list(body.get("awards") or []),
-                team_rule=(str(body["team_rule"]) if body.get("team_rule") else None),
+                awards=awards,
+                team_rule=(rule or None),
             )
         except (KeyError, TypeError, ValueError) as exc:
             return _json_error(exc)

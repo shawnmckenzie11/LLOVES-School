@@ -7355,6 +7355,52 @@ body.staff-shell .rank-score-foot-actions {
   gap: 8px;
 }
 
+/* Gate LOW-3: never cut off. The dialog scrolls down if it is tall, and on
+   a narrow teacher window (about 390px) each row wraps onto two lines:
+   chip, name and spots, then the stepper and the (still fixed-width)
+   action button. The footer wraps too, so Assign all and Close stay in. */
+body.staff-shell .rank-score-dialog {
+  max-height: calc(100dvh - 1rem);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+@media (max-width: 34rem) {
+  body.staff-shell .rank-score-dialog {
+    width: calc(100vw - 1rem);
+    max-width: none;
+  }
+  body.staff-shell .rank-score-card {
+    padding: 0.8rem 0.7rem;
+  }
+  body.staff-shell .rank-score-title {
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+  body.staff-shell .rank-score-row {
+    grid-template-columns: 1.3rem minmax(0, 1fr) 9.6rem;
+    grid-template-areas:
+      "chip name spots"
+      "stepper stepper action";
+    row-gap: 4px;
+    padding: 6px;
+  }
+  body.staff-shell .rank-score-row > .rank-score-chip { grid-area: chip; }
+  body.staff-shell .rank-score-row > .rank-score-name { grid-area: name; }
+  body.staff-shell .rank-score-row > .rank-score-spots { grid-area: spots; justify-self: end; }
+  body.staff-shell .rank-score-row > .rank-score-stepper { grid-area: stepper; justify-self: start; }
+  body.staff-shell .rank-score-row > .rank-score-assign { grid-area: action; }
+  body.staff-shell .rank-score-row.is-none {
+    grid-template-columns: 1.3rem minmax(0, 1fr) auto;
+    grid-template-areas: "chip name spots";
+  }
+  body.staff-shell .rank-score-foot {
+    flex-wrap: wrap;
+  }
+  body.staff-shell .rank-score-foot-actions {
+    margin-left: auto;
+  }
+}
+
 /* MCK-185 full-order line: one calm soft pill under the lanes / stack. */
 body.staff-shell .full-order-line {
   display: flex;

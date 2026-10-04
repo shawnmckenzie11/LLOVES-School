@@ -65,6 +65,64 @@ def full_order_visible(status: str, when: str | None = None) -> bool:
     return status == "closed"
 
 
+def full_order_timing(
+    *, challenge: bool, rank_mode: str, results_on: bool, when: str | None = None
+) -> str:
+    """The timing that applies to one item (gate MED-1 on f0a15be).
+
+    ``"lock"`` only holds where a final order really is final: a Team
+    challenge lock-in (unlock is refused) or the last Take turns spot (Undo
+    is refused). A plain Rank together send can be changed and resent while
+    the question is open, so under ``"lock"`` it would let a team resend
+    until the line appears (a right/wrong check before Close). That mode
+    shows the line at Close instead. With live results off the line also
+    waits for Close.
+
+    Args:
+        challenge: The item is a Team challenge.
+        rank_mode: ``"together"`` or ``"turns"``.
+        results_on: The item's Show Live Results setting.
+        when: Override (default: ``FULL_ORDER_WHEN``).
+    """
+    timing = when or FULL_ORDER_WHEN
+    if timing != "lock":
+        return timing
+    if not results_on:
+        return "reveal"
+    if challenge or str(rank_mode) == "turns":
+        return "lock"
+    return "reveal"
+
+
+#: Highest "Score teams" award per team on one question.
+MAX_AWARD_POINTS = 999
+
+
+def clamp_award_points(value: Any) -> int | None:
+    """A "Score teams" points value as a whole number in 0..999.
+
+    Numbers (and numeric text, as a form would send) are rounded and
+    clamped; ``True``/``False``, other text, NaN and infinity give ``None``
+    (the route answers 400).
+
+    Args:
+        value: Raw JSON value.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            value = float(value.strip())
+        except ValueError:
+            return None
+    if not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if number != number or number in (float("inf"), float("-inf")):
+        return None
+    return max(0, min(MAX_AWARD_POINTS, int(round(number))))
+
+
 def score_default(right: int) -> int:
     """The "Score teams" default: ``BASE_PER_SPOT`` per right spot."""
     return team_points(right)

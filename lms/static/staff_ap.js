@@ -161,6 +161,14 @@ let liveStamp = "";
 let pendingScoreboard = false;
 /** @type {Record<string, number>} */
 let sessionGamePoints = {};
+/**
+ * MCK-185 gate LOW-1: game version (game id + award sequence) of the totals
+ * in ``sessionGamePoints``. A full ``/state`` that was built before an
+ * Assign carries an older version and is ignored, so the Class list never
+ * goes backwards after an award.
+ * @type {{game_id: number, seq: number} | null}
+ */
+let gamePointsVer = null;
 /** @type {Record<string, number>} */
 let sessionCareerTotals = {};
 let liveSessionId = Number(root?.dataset.liveSessionId || 0) || 0;
@@ -1591,11 +1599,31 @@ async function assignRankScores(teamIds) {
 }
 
 /**
+ * MCK-185 gate LOW-1: true when totals at ``ver`` are not older than the
+ * ones on screen (then remember ``ver``). Unknown versions are accepted.
+ * @param {any} ver ``{game_id, seq}`` from ``/state``, or a game state's
+ *   ``game`` block (``{id, event_seq}``).
+ * @returns {boolean}
+ */
+function adoptGamePointsVer(ver) {
+  if (!ver || typeof ver !== "object") return true;
+  const gameId = Number(ver.game_id ?? ver.id);
+  const seq = Number(ver.seq ?? ver.event_seq);
+  if (!Number.isFinite(gameId) || !Number.isFinite(seq)) return true;
+  if (gamePointsVer && gamePointsVer.game_id === gameId && seq < gamePointsVer.seq) {
+    return false;
+  }
+  gamePointsVer = { game_id: gameId, seq };
+  return true;
+}
+
+/**
  * Paint the Class list and the live scoring panel from a game state the
  * server just returned (same as a Class list chip, ``postScoreFromButton``).
  * @param {any} game ``game_state`` payload.
  */
 function applyRankScoreGame(game) {
+  adoptGamePointsVer(game?.game);
   overlayState = game;
   const nextPoints = { ...sessionGamePoints };
   for (const student of game.students || []) {
@@ -1696,6 +1724,7 @@ async function refreshRaceGamePoints() {
   try {
     const state = await api(`/api/classes/${classId}/game`);
     if (!state || typeof state !== "object") return;
+    if (!adoptGamePointsVer(state.game)) return;
     overlayState = state;
     const nextPoints = { ...sessionGamePoints };
     for (const student of state.students || []) {
@@ -6829,10 +6858,11 @@ async function pollLiveSessionAttendees(opts = {}) {
     syncAllowGuestsCheckbox(
       payload?.allow_unmatched_guests ?? payload?.session?.allow_unmatched_guests
     );
-    if (payload?.game_points && typeof payload.game_points === "object") {
+    const pointsFresh = adoptGamePointsVer(payload?.game_points_ver);
+    if (pointsFresh && payload?.game_points && typeof payload.game_points === "object") {
       sessionGamePoints = payload.game_points;
     }
-    if (payload?.career_totals && typeof payload.career_totals === "object") {
+    if (pointsFresh && payload?.career_totals && typeof payload.career_totals === "object") {
       sessionCareerTotals = payload.career_totals;
     }
     await applySessionPresentTicks(
@@ -10751,6 +10781,7 @@ async function postScoreFromButton(btn) {
     method: "POST",
     body: JSON.stringify(payload),
   });
+  adoptGamePointsVer(overlayState?.game);
   spawnScorePop(btn.dataset.popName || (payload.kind === "team" ? "Team" : "Student"));
   const nextPoints = { ...sessionGamePoints };
   for (const student of overlayState.students || []) {

@@ -959,6 +959,24 @@ def _reward_quiet_prompt(prompt: dict[str, Any] | None) -> bool:
     return is_minds_on_payload(prompt.get("payload"))
 
 
+def _strict_int(value: Any) -> int | None:
+    """``value`` as an int when it is one (an int, or a whole float or digit
+    string), else ``None``. ``True``/``False`` are not ids.
+
+    Args:
+        value: Raw JSON value.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else None
+    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        return int(value.strip())
+    return None
+
+
 def _now() -> str:
     """Return a local ISO timestamp without microseconds."""
     return datetime.now().replace(microsecond=0).isoformat()
@@ -17882,8 +17900,10 @@ class SchoolDB(LovesDB):
 
         Only a final order counts (locked, sent, or the last Take turns spot
         placed), never a draft. Empty unless the notice may show now
-        (``rank_challenge.FULL_ORDER_WHEN``: after Close & reveal, or as soon
-        as a team locks with ``"lock"``). ``when="any"`` skips the timing
+        (``rank_challenge.full_order_timing``: after Close & reveal, or with
+        ``"lock"`` as soon as a Team challenge locks in or a Take turns team
+        places its last spot; a Rank together send and results-off wait for
+        Close). ``when="any"`` skips the timing
         check (teacher results after Close). Names only: never which spots
         or what order.
 
@@ -17895,8 +17915,18 @@ class SchoolDB(LovesDB):
         if not self._rank_results_mode(item):
             return []
         status = str(item.get("status") or "")
-        if when != "any" and not rank_challenge.full_order_visible(status, when):
-            return []
+        if when != "any":
+            # Gate MED-1: "lock" only where a final order can't be resent
+            # (Team challenge lock-in, last Take turns spot), and only with
+            # live results on; otherwise the line waits for Close.
+            timing = rank_challenge.full_order_timing(
+                challenge=bool(self._rank_race_on(item)),
+                rank_mode=self._group_rank_mode(item),
+                results_on=bool(item.get("show_live_results")),
+                when=when,
+            )
+            if not rank_challenge.full_order_visible(status, timing):
+                return []
         key = self._rank_race_key(item)
         out: list[dict[str, Any]] = []
         for slot, (team_id, team_name, _state) in enumerate(
@@ -19656,7 +19686,9 @@ class SchoolDB(LovesDB):
         Args:
             session_id: ``live_class_sessions.id``.
             placement_or_item: Placement key or lifecycle id.
-            awards: ``[{"team_id": int, "points": int}]`` (points 0..999).
+            awards: ``[{"team_id": int, "points": number}]``. Points are
+                rounded and clamped to a whole 0..999 (gate LOW on f0a15be:
+                5.7 used to be cut to 5); ``true``, text and NaN are refused.
             team_rule: ``each_member`` (default), ``split_members``,
                 ``team_only``.
 
@@ -19690,13 +19722,14 @@ class SchoolDB(LovesDB):
         teams = {int(team["team_id"]): team for team in results["teams"]}
         wanted: list[tuple[int, int]] = []
         for award in awards:
-            try:
-                team_id = int((award or {}).get("team_id"))
-                points = int((award or {}).get("points"))
-            except (TypeError, ValueError):
-                raise ValueError("Each award needs a team_id and whole points") from None
-            if points < 0 or points > 999:
-                raise ValueError("Points must be 0 to 999")
+            if not isinstance(award, dict):
+                raise ValueError("Each award needs a team_id and points")
+            team_id = _strict_int(award.get("team_id"))
+            if team_id is None:
+                raise ValueError("Each award needs a team_id and points")
+            points = rank_challenge.clamp_award_points(award.get("points"))
+            if points is None:
+                raise ValueError("Points must be a number")
             team = teams.get(team_id)
             if team is None:
                 raise ValueError("That team is not on this question")
@@ -19760,7 +19793,10 @@ class SchoolDB(LovesDB):
                         prev_members = [int(sid) for sid in json.loads(prev["member_ids_json"] or "[]")]
                     except (TypeError, ValueError):
                         prev_members = []
-                    # Reverse the earlier award exactly (commits the claim too).
+                    # Reverse the earlier award exactly. With our own
+                    # transaction nothing commits until the end: the claim,
+                    # the reversal and the new award land together or not
+                    # at all (gate LOW on f0a15be).
                     self.game.award_points(
                         int(class_id),
                         kind="team",
@@ -19769,6 +19805,7 @@ class SchoolDB(LovesDB):
                         team_rule=str(prev["team_rule"]),
                         member_ids=prev_members,
                         reverse=True,
+                        commit=False,
                     )
                 if int(points) > 0:
                     self.game.award_points(
@@ -19778,6 +19815,7 @@ class SchoolDB(LovesDB):
                         amount=int(points),
                         team_rule=rule,
                         member_ids=members,
+                        commit=False,
                     )
                 if own and game_conn.in_transaction:
                     game_conn.execute("COMMIT")
@@ -29143,6 +29181,38 @@ class SchoolDB(LovesDB):
         """Map student id → QH counts (alias used by Save and End Class)."""
         return self.participation_question_credits_for_class(class_id)
 
+    def _live_game_points_fields(self, session_id: int, class_id: int) -> dict[str, Any]:
+        """``game_points`` plus ``game_points_ver`` for the staff ``/state``.
+
+        Both come from one ``game_state`` read. ``game_points_ver`` is
+        ``{"game_id", "seq"}`` (the game's event sequence, bumped by every
+        award), or ``None`` with no open game.
+
+        Args:
+            session_id: ``live_class_sessions.id`` (for poll logs).
+            class_id: Game-show ``classes.id``.
+        """
+
+        def build() -> dict[str, Any]:
+            try:
+                state = self.game.game_state(int(class_id))
+            except Exception:  # noqa: BLE001 — no open game yet
+                return {"game_points": {}, "game_points_ver": None}
+            game = state.get("game") or {}
+            ver = (
+                {"game_id": int(game["id"]), "seq": int(game.get("event_seq") or 0)}
+                if game.get("id") is not None
+                else None
+            )
+            points = {
+                str(sid): int(n) for sid, n in self._awarded_points_from_state(state).items()
+            }
+            return {"game_points": points, "game_points_ver": ver}
+
+        return live_state_field(
+            session_id, "game_points", build, {"game_points": {}, "game_points_ver": None}
+        )
+
     def live_awarded_session_points(self, class_id: int) -> dict[int, int]:
         """Map student id → live game points from teacher awards only.
 
@@ -29153,6 +29223,11 @@ class SchoolDB(LovesDB):
             state = self.game.game_state(int(class_id))
         except Exception:  # noqa: BLE001 — no open game yet
             return {}
+        return self._awarded_points_from_state(state)
+
+    @staticmethod
+    def _awarded_points_from_state(state: dict[str, Any]) -> dict[int, int]:
+        """Student id → session points from one ``game_state`` payload."""
         out: dict[int, int] = {}
         for row in state.get("students") or []:
             sid = row.get("id")
@@ -30854,17 +30929,11 @@ class SchoolDB(LovesDB):
                     lambda: self.live_scoreboard_projection(session_id),
                     None,
                 ),
-                "game_points": live_state_field(
-                    session_id,
-                    "game_points",
-                    lambda: {
-                        str(sid): int(n)
-                        for sid, n in self.live_awarded_session_points(
-                            class_id
-                        ).items()
-                    },
-                    {},
-                ),
+                # MCK-185 gate LOW-1: the totals carry the game version
+                # they were read at (read first, from the same game state),
+                # so the staff page drops a slower, older full poll instead
+                # of painting pre-award totals back over an Assign.
+                **self._live_game_points_fields(session_id, class_id),
                 "career_totals": live_state_field(
                     session_id,
                     "career_totals",
