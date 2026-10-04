@@ -1244,16 +1244,26 @@ def roster_shown_name(student: dict[str, Any] | None) -> str:
 def first_name_only(raw: str) -> str:
     """Keep the first token of a typed name; never persist a last name.
 
+    A short number after the first name stays (MCK-183): Welcome tells
+    teachers to type a repeated first name as "Sam 2", and dropping the
+    number showed both students as "Sam".
+
     Args:
         raw: Student-entered name or Codename.
 
     Returns:
-        Trimmed first token, or ``""``.
+        Trimmed first token (plus a trailing 1-2 digit number), or ``""``.
     """
     text = (raw or "").strip()
     if not text:
         return ""
-    return text.split()[0]
+    tokens = text.split()
+    if len(tokens) > 1 and _REPEAT_NUMBER.fullmatch(tokens[1]):
+        return f"{tokens[0]} {tokens[1]}"
+    return tokens[0]
+
+
+_REPEAT_NUMBER = re.compile(r"[0-9]{1,2}")
 
 
 def _parse_iso_datetime(raw: Any) -> datetime | None:
@@ -30605,11 +30615,23 @@ class SchoolDB(LovesDB):
                 if str(row.get(col) or "").strip()
             ]
 
+        def numbered(label_key: str, typed_full: str) -> bool:
+            """ "sam 2" for a typed "sam": a repeated name from Welcome (MCK-183)."""
+            head, _, tail = label_key.rpartition(" ")
+            return head == typed_full and bool(_REPEAT_NUMBER.fullmatch(tail))
+
         def tier(fold: Any, typed_full: str, typed_first: str) -> list[dict[str, Any]]:
             exact = [
                 row for row in rows
                 if any(fold(label) == typed_full for label in labels(row))
             ]
+            if exact and " " not in typed_full:
+                # A bare "Sam" also offers "Sam 2", so the picker shows both.
+                exact += [
+                    row for row in rows
+                    if row not in exact
+                    and any(numbered(fold(label), typed_full) for label in labels(row))
+                ]
             if exact:
                 return exact
             return [
