@@ -2728,6 +2728,34 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         elsewhere = school.teacher_setup_elsewhere(int(user["id"]), int(active["id"]))
         return not (elsewhere["any_class"] or elsewhere["other_offering"])
 
+    def _needs_names_step(
+        user: dict[str, Any],
+        offerings: list[dict[str, Any]],
+        classes: list[dict[str, Any]],
+    ) -> bool:
+        """True for a staff teacher with a course this semester and no class anywhere.
+
+        Same guards as ``_needs_first_run`` (#250 gate MED): never with no
+        active semester, during a live session, or once she has any
+        non-archived class in any semester (she then uses Populate Class).
+
+        Args:
+            user: Signed-in user row.
+            offerings: Her active-semester offerings.
+            classes: Her active-semester classes.
+
+        Returns:
+            Whether ``/staff`` should send her to the names step.
+        """
+        if str(user.get("role") or "") != "staff" or not offerings or classes:
+            return False
+        active = school.get_active_semester()
+        if not active:
+            return False
+        if school.get_active_live_session_for_teacher(int(user["id"])) is not None:
+            return False
+        return not school.teacher_setup_elsewhere(int(user["id"]), int(active["id"]))["any_class"]
+
     def _teacher_setup(user: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Her active-semester offerings and classes (empty with no semester)."""
         active = school.get_active_semester()
@@ -2975,7 +3003,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if _needs_first_run(user, offerings, classes):
             return redirect(url_for("staff_welcome"))
         # Slice C: course chosen but no class list yet → the names step.
-        if str(user.get("role") or "") == "staff" and offerings and not classes:
+        if _needs_names_step(user, offerings, classes):
             return redirect(url_for("staff_welcome", step="names"))
         from flask import make_response
 

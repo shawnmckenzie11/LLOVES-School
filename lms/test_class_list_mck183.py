@@ -87,5 +87,38 @@ class ClassListTests(unittest.TestCase):
         self.assertTrue(rv.headers["Location"].endswith("/staff"))
 
 
+    def _rollover(self) -> None:
+        """A new active semester (her old classes stay in the last one)."""
+        from datetime import datetime
+
+        conn = self.school.conn
+        conn.execute("UPDATE semesters SET is_active = 0")
+        conn.execute(
+            "INSERT INTO semesters (label, year_display, term, is_active, payload_json, created_at)"
+            " VALUES ('Next term', '2027', 'S2', 1, '{}', ?)",
+            (datetime.now().isoformat(),),
+        )
+        conn.commit()
+
+    def test_rollover_with_new_course_keeps_the_dashboard(self) -> None:
+        """Old classes last term, a new Admin course this term: Dashboard, not names."""
+        first, = self._setup_courses("SBI4U")
+        self.client.post("/api/staff/classes", json={"offering_id": first, "codenames": ["Ana"]})
+        self._rollover()
+        self.school.assign_course(teacher_user_id=int(self.teacher["id"]), ontario_code="SCH4U")
+        self.assertEqual(self.client.get("/staff").status_code, 200)
+
+    def test_live_session_keeps_the_dashboard(self) -> None:
+        """Mid-live-class she is never sent to the names step."""
+        first, = self._setup_courses("SBI4U")
+        cls = self.client.post(
+            "/api/staff/classes", json={"offering_id": first, "codenames": ["Ana"]}
+        ).get_json()["class"]
+        self.school.start_live_class_session(int(cls["id"]), int(self.teacher["id"]))
+        self._rollover()
+        self.school.assign_course(teacher_user_id=int(self.teacher["id"]), ontario_code="SCH4U")
+        self.assertEqual(self.client.get("/staff").status_code, 200)
+
+
 if __name__ == "__main__":
     unittest.main()
