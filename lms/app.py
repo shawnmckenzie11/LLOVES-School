@@ -243,6 +243,9 @@ from student_portal import (  # noqa: E402
 )
 import syllabus as syllabus_mod  # noqa: E402
 from schedule import TIME_OPTIONS, format_live_schedule_line, wizard_defaults  # noqa: E402
+import staff_invites  # noqa: E402
+from onboarding_presets import clean_preset as onboarding_clean_preset  # noqa: E402
+from onboarding_presets import preset_lists as onboarding_preset_lists  # noqa: E402
 
 MGS_TEMPLATES = MGS_PATH / "templates"
 MGS_STATIC = MGS_PATH / "static"
@@ -1783,10 +1786,103 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             only_live_class_days=school.only_live_class_days(),
             staff_2fa_mode=school.staff_2fa_mode(),
             staff_2fa_modes=STAFF_2FA_MODE_LABELS,
+            invite_presets=onboarding_preset_lists(school),
+            invite_flash=session.pop("invite_flash", None),
         )
         resp = make_response(html)
         resp.set_cookie("lloves_seen", "1", max_age=86400 * 400, samesite="Lax")
         return resp
+
+    def _invite_link(token: str) -> str:
+        """Absolute ``/invite/<token>`` URL (``PUBLIC_APP_URL`` on Fly)."""
+        base = (os.getenv("PUBLIC_APP_URL") or "").strip().rstrip("/")
+        if not base:
+            base = request.host_url.rstrip("/")
+        return f"{base}/invite/{token}"
+
+    def _invite_reply_to(actor: dict[str, Any] | None) -> str | None:
+        """Reply-To for invites: ``INVITE_REPLY_TO``, else the inviting Admin."""
+        configured = (os.getenv("INVITE_REPLY_TO") or "").strip()
+        if configured:
+            return configured
+        return str((actor or {}).get("email") or "").strip() or None
+
+    def _send_invite_email(
+        invite: dict[str, Any], token: str, actor: dict[str, Any] | None
+    ) -> bool:
+        """Send one invite email and log it for the rate limit."""
+        link = _invite_link(token)
+        try:
+            delivered = email_service.send_staff_invite(
+                str(invite["email"]),
+                str(invite.get("first_name") or ""),
+                link,
+                reply_to=_invite_reply_to(actor),
+            )
+        except Exception:  # noqa: BLE001 - a failed send still keeps the invite
+            app.logger.exception("invite email failed")
+            delivered = False
+        staff_invites.record_send(
+            school, int(invite["id"]), int(actor["id"]) if actor else None, delivered
+        )
+        return delivered
+
+    @app.route("/it/invites", methods=["POST"])
+    @it_required
+    def it_send_invite():
+        """MCK-183 I2: allowlist a teacher, create her invite, email the link.
+
+        Re-inviting the same email refreshes the open invite (new link, new
+        7-day expiry) and sends it again. A failed email still saves the
+        invite; the Admin page then offers Copy link.
+        """
+        actor = current_user()
+        email = (request.form.get("email") or "").strip().lower()
+        try:
+            preset = onboarding_clean_preset(
+                school,
+                request.form.get("preset_code"),
+                request.form.get("preset_days"),
+                request.form.get("preset_time"),
+                required=False,
+            )
+            existing = school.get_user_by_email(email) if "@" in email else None
+            open_invite = None
+            if existing:
+                open_invite = staff_invites.open_invite_for(
+                    school, int(existing.get("tenant_id") or 1), email
+                )
+            staff_invites.check_send_rate(
+                school, int(actor["id"]) if actor else None, open_invite
+            )
+            invite, token = staff_invites.create_or_refresh_invite(
+                school,
+                email=email,
+                first_name=request.form.get("first_name") or "",
+                kind=request.form.get("kind") or "teacher",
+                preset=preset,
+                created_by_user_id=int(actor["id"]) if actor else None,
+                tenant_id=school.tenant_id_of(actor),
+            )
+        except ValueError as exc:
+            session["invite_flash"] = {"kind": "error", "message": str(exc)}
+            return redirect(url_for("it_dashboard"))
+        delivered = _send_invite_email(invite, token, actor)
+        _audit(
+            "invite.send",
+            "staff",
+            resource_id=invite.get("user_id"),
+            detail={"invite_id": invite.get("id"), "delivered": delivered},
+        )
+        if delivered:
+            session["invite_flash"] = {"kind": "sent", "email": invite["email"]}
+        else:
+            session["invite_flash"] = {
+                "kind": "not_sent",
+                "email": invite["email"],
+                "link": _invite_link(token),
+            }
+        return redirect(url_for("it_dashboard"))
 
     @app.route("/it/audit.csv")
     @it_required

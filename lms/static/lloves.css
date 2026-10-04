@@ -309,6 +309,13 @@ body.it-dashboard .badge-pending { background: #2a2e38; color: #9ca3af; }
 body.it-dashboard .badge-archived{ background: #450a0a; color: #fca5a5; }
 body.it-dashboard .badge-ok      { background: #14532d; color: #bbf7d0; }
 body.it-dashboard .badge-warn    { background: #451a03; color: #fcd34d; }
+/* MCK-183 invites */
+body.it-dashboard .badge-test    { background: #2e1065; color: #ddd6fe; }
+body.it-dashboard .it-invite-toast { margin: 0 0 12px; padding: 8px 12px; border-radius: 8px; background: #14532d; color: #bbf7d0; font-weight: 600; }
+body.it-dashboard .it-invite-toast.is-warn { background: #451a03; color: #fcd34d; }
+body.it-dashboard .it-invite-toast.is-error { background: #450a0a; color: #fca5a5; }
+body.it-dashboard .it-invite-form fieldset { border: 0; padding: 0; margin: 12px 0 0; }
+body.it-dashboard .it-invite-kind label { margin-right: 16px; }
 body.it-dashboard .it-tab-bar { gap: 0.4rem; margin-bottom: 1rem; }
 body.it-dashboard .it-tab-btn {
   padding: 0.45rem 0.9rem;

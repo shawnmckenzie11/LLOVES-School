@@ -801,3 +801,16 @@ function initQuickPhrasesTab() {
 
   refresh().catch(() => {});
 }
+
+/**
+ * MCK-183: Copy link on the invite toast (the email didn't send).
+ */
+document.addEventListener("click", (event) => {
+  const button = event.target instanceof Element ? event.target.closest("[data-copy-invite-link]") : null;
+  if (!button) return;
+  const link = button.getAttribute("data-copy-invite-link") || "";
+  if (!link || !navigator.clipboard) return;
+  navigator.clipboard.writeText(link).then(() => {
+    button.textContent = "Link copied";
+  });
+});

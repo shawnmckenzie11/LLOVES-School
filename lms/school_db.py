@@ -1668,6 +1668,7 @@ class LovesDB:
             self._ensure_save_to_card_columns()
             self._ensure_live_class_feature_schema()
             self._ensure_access_request_schema()
+            self._ensure_staff_invite_schema()
             self._seed()
             self._seed_live_class_features()
             self.conn.commit()
@@ -2433,6 +2434,14 @@ class LovesDB:
             );
             """
         )
+
+    def _ensure_staff_invite_schema(self) -> None:
+        """MCK-183: ``staff_invites`` + ``users.is_test`` (see staff_invites.py)."""
+        try:
+            from staff_invites import ensure_schema
+        except ImportError:
+            from lms.staff_invites import ensure_schema
+        ensure_schema(self.conn)
 
     def _ensure_archived_column(self) -> None:
         """Add users.archived_at if the column does not yet exist (live migration).
