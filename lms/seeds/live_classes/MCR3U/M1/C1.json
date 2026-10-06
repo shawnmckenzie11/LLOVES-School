@@ -37,6 +37,17 @@
         "individual"
       ],
       "response_mode": "individual"
+    },
+    {
+      "ref": "course/MCR3U/media/real-slice",
+      "stage": "play",
+      "page_number": 5,
+      "order": 2,
+      "default_status": "inactive",
+      "publish_modes": [
+        "individual"
+      ],
+      "response_mode": "individual"
     }
   ],
   "pages": [

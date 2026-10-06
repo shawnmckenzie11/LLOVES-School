@@ -10793,14 +10793,22 @@ class SchoolDB(LovesDB):
                     normalize_course_warmup,
                 )
 
-            confirmed = self.list_module_bank_links(int(library_id), int(module_number))
-            allowed_banks = {int(link["bank_id"]) for link in confirmed}
+            # MCK-190: Add New may pull from any module's confirmed banks in
+            # this same course library (the query above already scopes the
+            # question to library_id), not just the deck's own module.
+            allowed_banks = {
+                int(link["bank_id"])
+                for link in self.conn.execute(
+                    "SELECT DISTINCT bank_id FROM course_module_bank_links WHERE library_id = ?",
+                    (int(library_id),),
+                ).fetchall()
+            }
             course_warmup_bank = (
                 str(row["bank_import_key"] or "") == COURSE_WIDE_WARMUP_BANK_KEY
             )
             if int(row["bank_id"]) not in allowed_banks and not course_warmup_bank:
                 raise KeyError(
-                    f"question {question_id} is not in confirmed banks for {module_key}"
+                    f"question {question_id} is not in this course's confirmed banks"
                 )
             try:
                 payload = json.loads(row["payload_json"] or "{}")
@@ -21722,6 +21730,43 @@ class SchoolDB(LovesDB):
         offering = self.get_offering(int(offering_id))
         return str((offering or {}).get("ontario_code") or "").strip().upper()
 
+    def _class_deck_media_choice(
+        self, session_id: int
+    ) -> tuple[dict[str, str] | None, set[str]]:
+        """Return this class deck's primary media and every media URL it lists.
+
+        MCK-190. The primary is the deck's ``media`` slot when it differs
+        from the course seed file (a copied working deck); the URL set covers
+        every media item on the deck, so a teacher-mounted deck item stays.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            ``(primary or None, urls)``. Errors fall back to ``(None, set())``.
+        """
+        try:
+            meta = self.live_class_metadata_for_session(session_id)
+        except Exception:  # noqa: BLE001 - seed fallback keeps the old behaviour
+            return None, set()
+        urls: set[str] = set()
+        for item in meta.get("items") or []:
+            if isinstance(item, dict) and str(item.get("item_type") or "").lower() == "media":
+                url = str(item.get("file") or item.get("url") or "").strip()
+                if url:
+                    urls.add(url)
+        media = meta.get("media") if isinstance(meta.get("media"), dict) else {}
+        primary_url = str(media.get("file") or media.get("url") or "").strip()
+        if not primary_url:
+            return None, urls
+        urls.add(primary_url)
+        title = str(media.get("title") or media.get("stem") or "").strip()
+        return {
+            "url": primary_url,
+            "title": title,
+            "stem": str(media.get("stem") or title).strip(),
+        }, urls
+
     def ensure_live_class_media(self, session_id: int) -> dict[str, Any] | None:
         """Seed course-specific Join/Play or playlist media when authored.
 
@@ -21740,10 +21785,19 @@ class SchoolDB(LovesDB):
             self.session_live_module(session_id),
             self.session_live_slot(session_id),
         )
+        # MCK-190: the class's own deck wins over the course seed. A copied
+        # deck (Previous / Course deck) or a deck with extra media (MCR3U
+        # M1C1 Real Slice) must not be swapped back to the seed on every
+        # poll or when Use current opens the class.
+        deck_seed, deck_urls = self._class_deck_media_choice(session_id)
+        if seed is not None and deck_seed is not None and deck_seed["url"] != seed["url"]:
+            seed = deck_seed
         if seed is None:
             return self.live_session_active_media_payload(session_id)
         current = self.live_session_active_media_payload(session_id)
         current_url = str((current or {}).get("url") or "")
+        if current_url and current_url != seed["url"] and current_url in deck_urls:
+            return current
         session_row = self.get_live_session(session_id)
         overlay = (
             self.get_class_live_media_copy(
@@ -25307,7 +25361,11 @@ class SchoolDB(LovesDB):
                 ontario,
                 self.session_live_module(session_id),
                 self.session_live_slot(session_id),
-            ):
+            ) and str(public.get("url") or "").strip() not in self._class_deck_media_choice(
+                session_id
+            )[1]:
+                # MCK-190: a Real Slice the class deck lists (MCR3U M1C1)
+                # is real media there, not a wrong-course leftover.
                 return None
         return public
 

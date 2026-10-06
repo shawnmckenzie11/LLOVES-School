@@ -188,6 +188,24 @@
         "dismissible": true
       }
     },
+    "course/MCR3U/media/real-slice": {
+      "scope": "course",
+      "course": "MCR3U",
+      "item_type": "media",
+      "id": "real-slice",
+      "file": "/static/live-media/m1c1-c1-real-slice.html",
+      "title": "Real Slice",
+      "shared_across_rounds": true,
+      "capabilities": {
+        "publish_modes": [
+          "individual"
+        ],
+        "response_modes": [
+          "individual"
+        ],
+        "dismissible": true
+      }
+    },
     "course/MCR3U/media/square-root-transformation": {
       "scope": "course",
       "course": "MCR3U",
