@@ -41,6 +41,9 @@ kill_timeout = 35
 [env]
   FLASK_ENV = 'production'
   IT_EMAILS = 'solutions@mckenzian.com'
+  # MCK-183: Sentry tags these teachers teacher_kind=owner; everyone else
+  # is 'other'. Unset means everyone is 'other' (never hides an error).
+  SENTRY_OWNER_EMAILS = 'shawnmckenzie11.sm@gmail.com,solutions@mckenzian.com'
   # Live heartbeat / Artifact polls use Postgres when LIVE_DATABASE_URL or a
   # postgres DATABASE_URL is set (fly mpg attach). Unset → sqlite. See
   # lms/LIVE_PRESENCE.md. This file does not set that secret.

@@ -12356,6 +12356,59 @@ class SchoolDB(LovesDB):
 
         return pick_session_code(taken, self.count_active_live_sessions())
 
+    def telemetry_class_course(
+        self,
+        *,
+        class_id: int | None = None,
+        session_id: int | None = None,
+        offering_id: int | None = None,
+    ) -> dict[str, Any]:
+        """Class id and course code for a Sentry event (MCK-183).
+
+        Teacher/course info only: no roster or student columns are read.
+        The shared lock is taken with a short timeout so an error raised
+        while another thread holds it never blocks the event.
+
+        Args:
+            class_id: Game ``classes.id`` named by the request.
+            session_id: ``live_class_sessions.id`` named by the request.
+            offering_id: ``course_offerings.id`` named by the request.
+
+        Returns:
+            ``class_id`` and ``course_code`` when they can be found.
+        """
+        out: dict[str, Any] = {}
+        if not self._lock.acquire(timeout=0.25):
+            return out
+        try:
+            if class_id is None and session_id is not None:
+                row = self.conn.execute(
+                    "SELECT class_id, offering_id FROM live_class_sessions WHERE id = ?",
+                    (int(session_id),),
+                ).fetchone()
+                if row is not None:
+                    class_id = int(row[0])
+                    offering_id = offering_id or (int(row[1]) if row[1] else None)
+            if class_id is not None:
+                out["class_id"] = int(class_id)
+                row = self.conn.execute(
+                    "SELECT course_code, offering_id FROM classes WHERE id = ?",
+                    (int(class_id),),
+                ).fetchone()
+                if row is not None:
+                    out["course_code"] = str(row[0] or "")
+                    offering_id = offering_id or (int(row[1]) if row[1] else None)
+            if offering_id is not None and not out.get("course_code"):
+                row = self.conn.execute(
+                    "SELECT ontario_code FROM course_offerings WHERE id = ?",
+                    (int(offering_id),),
+                ).fetchone()
+                if row is not None:
+                    out["course_code"] = str(row[0] or "")
+        finally:
+            self._lock.release()
+        return out
+
     def get_live_session(self, session_id: int) -> dict[str, Any] | None:
         """Return one live-class session row by id.
 

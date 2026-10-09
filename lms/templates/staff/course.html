@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/lloves.css">
   <link rel="stylesheet" href="/static/app.css">
   <link rel="stylesheet" href="/static/staff-shell.css">
-  {% if tab == 'live' %}{% include "_sentry_browser.html" %}{% endif %}
+  {% include "_sentry_browser.html" %}
 </head>
 <body class="staff-shell{% if tab in ['modules', 'pages', 'assignments', 'quizzes', 'question-banks'] %} course-modules{% elif tab == 'live' %} course-live{% endif %}">
   <div class="wrap course-shell">
