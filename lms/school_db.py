@@ -1755,7 +1755,7 @@ class LovesDB:
             logger.exception("whats-new history sync failed")
             return None
 
-    def whats_new_teacher_payload(self) -> dict[str, Any]:
+    def whats_new_teacher_payload(self, legacy_seen: str | None = None) -> dict[str, Any]:
         """Stored What's new history for the staff Dashboard (no refs).
 
         Entries in the shipped file that are missing from the table (a boot
@@ -1772,7 +1772,12 @@ class LovesDB:
             logger.exception("whats-new history read failed")
         ids = {str(r.get("id")) for r in stored}
         extra = [r for r in whats_new_store.read_file() if str(r.get("id")) not in ids]
-        return whats_new_store.teacher_payload(stored + extra)
+        payload = whats_new_store.teacher_payload(stored + extra)
+        if legacy_seen:
+            seen_at = whats_new_store.legacy_seen_at(stored + extra, legacy_seen)
+            if seen_at:
+                payload["legacy_seen_at"] = seen_at
+        return payload
 
     def close(self) -> None:
         """Close the sqlite connection and the presence pool."""
@@ -20015,6 +20020,18 @@ class SchoolDB(LovesDB):
                     if own and game_conn.in_transaction:
                         game_conn.execute("ROLLBACK")
                     return {"team_id": int(team_id), "points": int(points), "team_rule": rule, "changed": False}
+                # MCK-192 (a): store exactly who this award credits. The forward
+                # award only credits current team members, read here inside the
+                # write transaction (no cache), so a student who moved team
+                # between the members read and now is neither credited nor
+                # later debited by a re-award.
+                game_row = self.game._game_row(int(class_id))
+                wanted_ids = {int(sid) for sid in members}
+                members = [
+                    int(sid)
+                    for sid in self.game._team_member_ids(int(game_row["id"]), int(team_id))
+                    if int(sid) in wanted_ids
+                ]
                 game_conn.execute(
                     """
                     INSERT INTO live_rank_team_awards

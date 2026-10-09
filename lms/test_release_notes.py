@@ -546,6 +546,16 @@ for (const [key, seed] of [["legacyDate", "2026-10-02"], ["legacyId", payload.re
   const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch(payload), storage: s, now: NOON_OCT4 });
   out[key] = { result, ...view(p) };
 }
+// 8b. MCK-192: ids are deploy times now; a stored SHA is asked about once.
+{
+  const p = makePage();
+  const s = makeStorage({ "alc-whats-new:7": "65d69dbABC" });
+  const opaque = { ...payload, legacy_seen_at: payload.releases[0].deployed_at,
+    releases: payload.releases.map((r) => ({ ...r, id: r.deployed_at })) };
+  const fetch = makeFetch(opaque);
+  const result = await mod.initWhatsNew({ document: p.document, fetch, storage: s, now: NOON_OCT4 });
+  out.legacyMigrated = { result, url: fetch.calls[0], seen: s.getItem("alc-whats-new:7"), ...view(p) };
+}
 // 9. Housekeeping release (no items) on top of a seen history: silent.
 {
   const p = makePage();
@@ -732,6 +742,12 @@ class WhatsNewScriptTests(unittest.TestCase):
         self.assertNotIn("Fri Oct 2", legacy["days"])
         self.assertEqual(self.out["legacyId"]["result"], "seen")
         self.assertTrue(self.out["legacyId"]["dotHidden"])
+
+    def test_a_stored_sha_is_migrated_to_the_deploy_time_mck192(self) -> None:
+        got = self.out["legacyMigrated"]
+        self.assertEqual(got["url"], "/api/staff/whats-new?legacy_seen=65d69dbABC")
+        self.assertEqual(got["result"], "seen", got)
+        self.assertRegex(got["seen"], r"^\d{4}-\d{2}-\d{2}T")
 
     def test_already_popped_today_shows_the_dot_only(self) -> None:
         popped = self.out["popped"]

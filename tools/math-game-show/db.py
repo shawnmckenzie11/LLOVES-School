@@ -1079,6 +1079,16 @@ class GameShowDB:
         """Return an ISO-8601 local timestamp."""
         return datetime.now().replace(microsecond=0).isoformat()
 
+    def _now_precise(self) -> str:
+        """``_now()`` plus this instant's microseconds (MCK-192 game_key).
+
+        Built on ``_now()`` so a patched clock still decides the second.
+        """
+        base = self._now()
+        if "." in base[19:]:
+            return base
+        return f"{base[:19]}.{datetime.now().microsecond:06d}{base[19:]}"
+
     def _insert_student_row(
         self,
         class_id: int,
@@ -3521,7 +3531,10 @@ class GameShowDB:
                 )
                 VALUES (?, ?, 'attendance', ?, ?)
                 """,
-                (class_id, session_id, self._now(), owns_session),
+                # MCK-192 (e): microseconds, so a Quit + Begin in the same
+                # second (same reused rowid and session) still gets a new
+                # ``game_key`` on the staff /state.
+                (class_id, session_id, self._now_precise(), owns_session),
             )
             game_id = int(cur.lastrowid)
             self.conn.commit()
