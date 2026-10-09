@@ -6,12 +6,14 @@
   <title>Staff · {{ school_name }}</title>
   <link rel="stylesheet" href="/static/lloves.css">
   <link rel="stylesheet" href="/static/staff-shell.css">
+  {% include "_sentry_browser.html" %}
 </head>
-<body class="staff-shell staff-home" data-user-id="{{ user.id }}">
+<body class="staff-shell staff-home" data-user-id="{{ user.id }}" data-tour-offer="{{ '1' if tour_offer and not whats_new_hold else '0' }}">
   <div class="staff-home-corner" aria-label="Account">
     {% if user.role == 'it' %}<a class="staff-corner-link" href="{{ url_for('staff_bots') }}">Bots</a>{% endif %}
     {% if user.role == 'it' %}<a class="staff-corner-link" href="{{ url_for('it_dashboard') }}">Admin</a>{% endif %}
     {% if not whats_new_hold %}<button type="button" class="staff-corner-link whats-new-open" id="whats-new-open" aria-label="What's new" hidden>What's new<span class="whats-new-dot" data-whats-new-dot hidden></span></button>{% endif %}
+    {% with help_on_dashboard=true, help_hold=whats_new_hold %}{% include "staff/_help_menu.html" %}{% endwith %}
     <a class="staff-corner-link" href="{{ url_for('logout') }}">Log out</a>
   </div>
   <div class="wrap staff-home-wrap">
@@ -25,6 +27,7 @@
       {% set cls = o.classes[0] if o.classes else none %}
       {% set sched_days = cls.days if cls else o.live_days %}
       {% set sched_time = cls.time if cls else o.live_time %}
+      {% set simple = simple_course(o.ontario_code, o.library_id) %}
       <article class="card course-card{% if o.pack_busy %} pack-busy{% endif %}"
                data-ontario-code="{{ o.ontario_code }}"
                data-offering-id="{{ o.id }}"
@@ -38,12 +41,12 @@
         {% if sched_days and sched_time %}
         <p class="course-card-schedule">{{ live_schedule(sched_days, sched_time) }}</p>
         {% else %}
-        <p class="course-card-schedule is-placeholder">Schedule set when you Populate Class</p>
+        <p class="course-card-schedule is-placeholder">{% if simple %}Schedule set when you add your class list{% else %}Schedule set when you Populate Class{% endif %}</p>
         {% endif %}
         {% if not cls %}
-        <p class="course-card-join hint">No roster yet — Populate Class to add Codenames.</p>
+        <p class="course-card-join hint">{% if simple %}No class list yet. Add your students' first names.{% else %}No roster yet — Populate Class to add Codenames.{% endif %}</p>
         {% endif %}
-        {% if not o.library_id %}
+        {% if not o.library_id and not simple %}
         <p class="course-card-pack-hint hint">Ask Admin to attach a module pack.{% if not cls %} You can still Populate Class.{% endif %}</p>
         {% endif %}
 
@@ -99,7 +102,7 @@
           <div class="course-action-row">
             <button type="button" class="course-action btn-populate secondary{% if live_here %} is-disabled{% endif %}"
                     data-offering-id="{{ o.id }}"
-                    data-class-id="{{ cls.id }}"
+                    data-class-id="{{ cls.id }}"{% if simple %} data-simple="1"{% endif %}
                     {% if o.live_days %}data-live-days="{{ o.live_days }}"{% endif %}
                     {% if o.live_time %}data-live-time="{{ o.live_time }}"{% endif %}
                     {% if live_here %}disabled aria-disabled="true" title="End the live class before editing the roster"{% endif %}>
@@ -112,13 +115,13 @@
           {% else %}
           <div class="course-action-row">
             <button type="button" class="course-action btn-populate secondary"
-                    data-offering-id="{{ o.id }}"
+                    data-offering-id="{{ o.id }}"{% if simple %} data-simple="1"{% endif %}
                     {% if o.live_days %}data-live-days="{{ o.live_days }}"{% endif %}
                     {% if o.live_time %}data-live-time="{{ o.live_time }}"{% endif %}>
               <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
                 <path fill="currentColor" d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm0 2c-4 0-8 2-8 4v2h16v-2c0-2-4-4-8-4z"/>
               </svg>
-              <span>Populate Class</span>
+              <span>{% if simple %}Class list{% else %}Populate Class{% endif %}</span>
             </button>
           </div>
           {% endif %}
@@ -153,18 +156,19 @@
         <p id="offering-chosen" class="sub"></p>
       </div>
       <div id="step-roster" class="hidden">
-        <p class="roster-disclaimer" role="note">
+        {# MCK-183: data-plain is the wording for pack-less non-math courses (staff_home.js swaps it in). #}
+        <p class="roster-disclaimer" role="note" data-plain="Professional use only: enter first names only, not full names, emails, student numbers, or other personal student information.">
           Professional use only: enter Codenames, not legal names, emails, student numbers,
           or other personal student information.
         </p>
-        <label class="field" for="codename-input">Codenames (one per student)</label>
+        <label class="field" for="codename-input" data-plain="First names (one per student)">Codenames (one per student)</label>
         <div class="codename-list" id="codename-list"></div>
-        <input id="codename-input" type="text" autocomplete="off" placeholder="Add a Codename">
+        <input id="codename-input" type="text" autocomplete="off" placeholder="Add a Codename" data-plain-placeholder="Add a first name">
         <div class="row-actions" style="margin-top:0.5rem">
           <button type="button" class="secondary" id="add-codename">Add</button>
         </div>
-        <p class="hint">Paste several lines below; they are added only when you click Populate class or Save roster. No commas. <span id="roster-count">0</span> students. Existing scores stay on Codenames you keep.</p>
-        <textarea id="codename-paste" rows="4" placeholder="Paste one Codename per line (applied on Populate class / Save roster)"></textarea>
+        <p class="hint">Paste several lines below; they are added only when you click Populate class or Save roster. No commas. <span id="roster-count">0</span> students. <span data-plain="Existing scores stay on names you keep.">Existing scores stay on Codenames you keep.</span></p>
+        <textarea id="codename-paste" rows="4" placeholder="Paste one Codename per line (applied on Populate class / Save roster)" data-plain-placeholder="Paste one first name per line (applied on Save roster)"></textarea>
       </div>
       <div id="step-days" class="hidden">
         <label class="field" for="days">Live-class days</label>
@@ -220,9 +224,9 @@
       <p class="sub">Now featuring <strong>{{ celebration_award.name }}</strong>{% if celebration_award.detail %} — {{ celebration_award.detail }}{% endif %}</p>
       {% endif %}
       <form id="celebrate-form">
-        <label class="field" for="celebrate-student">Codename</label>
+        <label class="field" for="celebrate-student">{{ 'Student' if plain_teacher else 'Codename' }}</label>
         <select id="celebrate-student" required>
-          <option value="">Select a Codename</option>
+          <option value="">{{ 'Select a student' if plain_teacher else 'Select a Codename' }}</option>
           {% for s in celebration_candidates %}
           <option value="{{ s.class_id }}:{{ s.student_id }}"
             {% if celebration_award and celebration_award.student_id == s.student_id and celebration_award.class_id == s.class_id %}selected{% endif %}>
@@ -297,5 +301,6 @@
   <script type="module" src="/static/staff_celebration.js"></script>
   {# MCK-124: no What's new while any of this teacher's classes is live. #}
   {% if not whats_new_hold %}{% include "staff/_whats_new.html" %}{% endif %}
+  {% if not whats_new_hold and classes %}{% include "staff/_tour.html" %}{% endif %}
 </body>
 </html>

@@ -72,6 +72,8 @@ check(ready.includes("data-group-send-reason hidden"), "reason hidden when ready
 const locked = mcLockedHtml({ last_submitter: "Cy", submitted_choice: "2", submitted_why: "Ava's idea" });
 check(locked.includes("Cy sent your group&#39;s answer.") && locked.includes("Your group&#39;s answer is locked."), "locked lines");
 check(!locked.includes("<button"), "no change button");
+const lockedSam2 = mcLockedHtml({ last_submitter: "Sam 2", submitted_choice: "2" });
+check(lockedSam2.includes("Sam 2 sent your group&#39;s answer."), "sent by keeps the number (MCK-183)");
 
 // Take turns.
 const options = [

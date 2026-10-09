@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/lloves.css">
   <link rel="stylesheet" href="/static/app.css">
   <link rel="stylesheet" href="/static/staff-shell.css">
-  {% if tab == 'live' %}{% include "_sentry_browser.html" %}{% endif %}
+  {% include "_sentry_browser.html" %}
 </head>
 <body class="staff-shell{% if tab in ['modules', 'pages', 'assignments', 'quizzes', 'question-banks'] %} course-modules{% elif tab == 'live' %} course-live{% endif %}">
   <div class="wrap course-shell">
@@ -19,8 +19,10 @@
          href="{{ item.href }}">{{ item.label }}</a>
       {% endfor %}
       <span class="staff-top-spacer"></span>
+      {% with help_summary_class='staff-top-link' %}{% include "staff/_help_menu.html" %}{% endwith %}
       <a class="staff-top-link" href="{{ url_for('logout') }}">Log out</a>
     </nav>
+    {% if tour_done %}{% include "staff/_tour_done.html" %}{% endif %}
 
     <div class="topbar">
       <div>
@@ -37,17 +39,17 @@
       </button>
       <div class="course-tabs-panel" id="course-tabs-panel">
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='live') }}" class="{{ 'on' if tab == 'live' else '' }}">Run Live Class</a>
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='lesson-slides') }}" class="{{ 'on' if tab == 'lesson-slides' else '' }}">Lesson Slides</a>
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='modules') }}" class="{{ 'on' if tab == 'modules' else '' }}">Modules</a>
+        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='lesson-slides') }}" class="{{ 'on' if tab == 'lesson-slides' else '' }}">Lesson Slides</a>{% endif %}
+        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='modules') }}" class="{{ 'on' if tab == 'modules' else '' }}">Modules</a>{% endif %}
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}" class="{{ 'on' if tab == 'ap' else '' }}">Attendance &amp; Participation</a>
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='gradebook') }}" class="{{ 'on' if tab == 'gradebook' else '' }}">Grades</a>
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='pages') }}" class="{{ 'on' if tab == 'pages' else '' }}">Pages</a>
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='assignments') }}" class="{{ 'on' if tab == 'assignments' else '' }}">Assignments</a>
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='quizzes') }}" class="{{ 'on' if tab == 'quizzes' else '' }}">Quizzes</a>
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='question-banks') }}" class="{{ 'on' if tab == 'question-banks' else '' }}">Question banks</a>
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='syllabus') }}" class="{{ 'on' if tab == 'syllabus' else '' }}">Syllabus</a>
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='expectations') }}" class="{{ 'on' if tab == 'expectations' else '' }}">Expectations</a>
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='profiles') }}" class="{{ 'on' if tab == 'profiles' else '' }}">Profiles</a>
+        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='gradebook') }}" class="{{ 'on' if tab == 'gradebook' else '' }}">Grades</a>{% endif %}
+        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='pages') }}" class="{{ 'on' if tab == 'pages' else '' }}">Pages</a>{% endif %}
+        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='assignments') }}" class="{{ 'on' if tab == 'assignments' else '' }}">Assignments</a>{% endif %}
+        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='quizzes') }}" class="{{ 'on' if tab == 'quizzes' else '' }}">Quizzes</a>{% endif %}
+        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='question-banks') }}" class="{{ 'on' if tab == 'question-banks' else '' }}">Question banks</a>{% endif %}
+        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='syllabus') }}" class="{{ 'on' if tab == 'syllabus' else '' }}">Syllabus</a>{% endif %}
+        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='expectations') }}" class="{{ 'on' if tab == 'expectations' else '' }}">Expectations</a>{% endif %}
+        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='profiles') }}" class="{{ 'on' if tab == 'profiles' else '' }}">Profiles</a>{% endif %}
         {% if show_portfolio_tab %}
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='portfolio') }}" class="{{ 'on' if tab == 'portfolio' else '' }}">Portfolio</a>
         {% endif %}
@@ -110,7 +112,7 @@
         </label>
         <label class="live-bank-field" for="live-bank-kind">Kind
           <select id="live-bank-kind" aria-label="Kind">
-            <option value="" selected>Core Math</option>
+            {% if course_simple %}<option value="" selected>Course</option>{% else %}<option value="" selected>Core Math</option>{% endif %}
             <option value="standard">Custom</option>
             <option value="contest">Contest</option>
             <option value="warmup">Warmup</option>
@@ -124,7 +126,7 @@
           <button type="button" id="live-bank-edit" data-live-bank-mode="edit" data-bank-edit aria-pressed="false" aria-label="Edit bank">Edit</button>
         </div>
         <div id="live-bank-types" data-bank-type-chips></div>
-        <p class="hint compact live-bank-note">Same live bank as Run Live Class Import and Add New. Core Math hides warmup and Custom.</p>
+        <p class="hint compact live-bank-note">Same live bank as Run Live Class Import and Add New. {{ 'Course' if course_simple else 'Core Math' }} hides warmup and Custom.</p>
       </div>
       <aside class="card module-nav-pane">
         <div id="catalog-list">Loading live bank…</div>
@@ -351,7 +353,7 @@
         <div class="live-pack-strip" id="live-pack-strip"
              data-course="{{ packs.course or 'MCF3M' }}"
              data-slots-by-module='{{ (packs.slots_by_module or {"M1": ["C1", "C2", "C3", "C4"]}) | tojson }}'>
-          <label class="live-pack-field" for="live-module-select">
+          <label class="live-pack-field" for="live-module-select"{% if course_simple %} hidden{% endif %}>
             <span>Module</span>
             <select id="live-module-select" aria-label="Module">
               {% for mod in packs.modules or ['M1'] %}
@@ -359,7 +361,7 @@
               {% endfor %}
             </select>
           </label>
-          <label class="live-pack-field" for="live-class-select">
+          <label class="live-pack-field" for="live-class-select"{% if course_simple %} hidden{% endif %}>
             <span>Live class</span>
             <select id="live-class-select" aria-label="Live class">
               {% for slot in (packs.slots_by_module or {}).get('M1', ['C1', 'C2', 'C3', 'C4']) %}
@@ -689,7 +691,7 @@
           </fieldset>
           <label class="live-add-q-kind live-add-q-side" for="live-add-q-bank-kind">Kind
             <select id="live-add-q-bank-kind" aria-label="Kind">
-              <option value="" selected>Core Math</option>
+              {% if course_simple %}<option value="" selected>Course</option>{% else %}<option value="" selected>Core Math</option>{% endif %}
               <option value="standard">Custom</option>
               <option value="contest">Contest</option>
               <option value="warmup">Warmup</option>
@@ -1095,6 +1097,8 @@
             <button type="button" class="secondary" id="part-clear">Clear</button>
             <button type="button" class="secondary" id="sort-toggle">Sort: A–Z</button>
             <a class="btn secondary" id="export-results-csv" href="{{ url_for('staff_class_results_csv', class_id=cls.id) }}" download>Export results (CSV)</a>
+            {# MCK-183: pack-less non-math courses show Total only (no math round slices). #}
+            {% if not course_simple %}
             <label class="field ap-view-field" for="round-view-select">
               <span class="ap-view-label">Class Data View</span>
               <select id="round-view-select" aria-label="Class Data View">
@@ -1104,11 +1108,12 @@
                 <option value="r3">Formative</option>
               </select>
             </label>
+            {% endif %}
           </div>
         </div>
         <div id="error" class="error" hidden></div>
         <p class="hint" id="part-clear-hint" hidden>Clear mode: click a date label in the top row (e.g. S23) to remove that day&apos;s participation and attendance.</p>
-        <section class="card ap-evidence-coverage" id="ap-evidence-coverage">
+        <section class="card ap-evidence-coverage" id="ap-evidence-coverage"{% if course_simple %} hidden{% endif %}>
           <h2>Process evidence (this live session)</h2>
           <p class="hint compact">Qualitative observations from Team Challenge. Not written to participation points.</p>
           <div id="ap-coverage-matrix"></div>

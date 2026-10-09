@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Admin · {{ school_name }}</title>
   <link rel="stylesheet" href="/static/lloves.css">
+  {% include "_sentry_browser.html" %}
 </head>
 <body class="it-dashboard">
   <div class="wrap it-wrap">
@@ -29,28 +30,127 @@
 
     <div class="it-tab-panel" id="tab-staff" role="tabpanel">
 
-      <section class="card">
-        <h2>Add staff</h2>
-        <p class="hint">Personal Google accounts only. Production requires an email code on every staff/admin sign-in.</p>
-        <form method="post" action="{{ url_for('it_register_staff') }}" class="it-add-staff">
+      <section class="card it-invite-card" id="invite-teacher">
+        <h2>Invite a teacher</h2>
+        {% if invite_flash %}
+          {% if invite_flash.kind == 'sent' %}
+          <p class="it-invite-toast" role="status">Invite sent to {{ invite_flash.email }}.</p>
+          {% elif invite_flash.kind == 'not_sent' %}
+          <p class="it-invite-toast is-warn" role="status">The invite is saved, but the email didn't send. Copy the link and send it yourself.
+            <button type="button" class="btn secondary" data-copy-invite-link="{{ invite_flash.link }}">Copy link</button></p>
+          {% else %}
+          <p class="it-invite-toast is-error" role="alert">{{ invite_flash.message }}</p>
+          {% endif %}
+        {% endif %}
+        <form method="post" action="{{ url_for('it_send_invite') }}" class="it-add-staff it-invite-form">
           <div class="it-add-staff-fields">
             <div>
-              <label class="field" for="email">Google email</label>
-              <input id="email" name="email" type="email" required>
+              <label class="field" for="invite-email">Google email</label>
+              <input id="invite-email" name="email" type="email" required>
+              <p class="hint">They'll sign in with this exact Google account.</p>
             </div>
             <div>
-              <label class="field" for="display_name">Display name (optional)</label>
-              <input id="display_name" name="display_name">
+              <label class="field" for="invite-first">First name</label>
+              <input id="invite-first" name="first_name" maxlength="80">
             </div>
           </div>
-          <div class="row-actions"><button type="submit">Add staff</button></div>
+          <fieldset class="it-invite-kind">
+            <legend class="field">Account type</legend>
+            <label><input type="radio" name="kind" value="teacher" checked> Teacher</label>
+            <label><input type="radio" name="kind" value="test"> Test user</label>
+            <p class="hint">For trying ALC out. Marked Test in Admin and left out of staff reports.</p>
+          </fieldset>
+          <fieldset class="it-invite-course">
+            <legend class="field">Course (optional)</legend>
+            <p class="hint">Pick one to set up their first class for them. They can change it.</p>
+            <div class="it-add-staff-fields">
+              <div>
+                <label class="field" for="invite-code">Course code</label>
+                <select id="invite-code" name="preset_code">
+                  <option value="">Choose…</option>
+                  {% for c in invite_presets.courses %}<option value="{{ c.code }}">{{ c.code }} · {{ c.title }}</option>{% endfor %}
+                </select>
+              </div>
+              <div>
+                <label class="field" for="invite-days">Days</label>
+                <select id="invite-days" name="preset_days">
+                  <option value="">Choose…</option>
+                  {% for d in invite_presets.day_options %}<option value="{{ d.value }}">{{ d.label }}</option>{% endfor %}
+                </select>
+              </div>
+              <div>
+                <label class="field" for="invite-time">Start time</label>
+                <select id="invite-time" name="preset_time">
+                  <option value="">Choose…</option>
+                  {% for t in invite_presets.time_options %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+                </select>
+              </div>
+            </div>
+          </fieldset>
+          <div class="row-actions"><button type="submit">Send invite</button></div>
         </form>
+      </section>
+
+      <section class="card it-invites-card" id="invites">
+        <h2>Invites</h2>
+        {% if invite_flash and invite_flash.kind == 'revoked' %}
+        <p class="it-invite-toast" role="status">Invite revoked for {{ invite_flash.first }}.</p>
+        {% endif %}
+        <p class="it-invite-toast" role="status" data-invite-copy-toast hidden>Link copied. Older links for this invite stop working.</p>
+        <div class="it-invite-tabs" role="tablist" aria-label="Invites">
+          {% for key, label in [('pending', 'Pending'), ('joined', 'Joined'), ('expired', 'Expired')] %}
+          <button type="button" class="it-invite-tab{% if loop.first %} on{% endif %}" role="tab"
+                  id="invite-tab-{{ key }}" aria-controls="invite-panel-{{ key }}"
+                  aria-selected="{{ 'true' if loop.first else 'false' }}" data-invite-tab="{{ key }}">{{ label }} <span class="it-invite-count">{{ invite_tabs[key]|length }}</span></button>
+          {% endfor %}
+        </div>
+        {% for key in ['pending', 'joined', 'expired'] %}
+        <div class="it-invite-panel" id="invite-panel-{{ key }}" role="tabpanel" aria-labelledby="invite-tab-{{ key }}"{% if key != 'pending' %} hidden{% endif %}>
+          {% if not invite_tabs[key] %}
+          <p class="hint">No invites here.</p>
+          {% else %}
+          <div class="it-table-wrap">
+            <table class="data it-invites-table">
+              <thead><tr><th>Name</th><th>Email</th><th>Class</th><th>{{ 'Joined' if key == 'joined' else 'Sent' }}</th>{% if key == 'pending' %}<th>Expires</th>{% endif %}{% if key != 'joined' %}<th></th>{% endif %}</tr></thead>
+              <tbody>
+                {% for inv in invite_tabs[key] %}
+                <tr data-invite-id="{{ inv.id }}">
+                  <td>{{ inv.first_name or "—" }}{% if inv.kind == 'test' %} <span class="badge badge-test">Test</span>{% endif %}</td>
+                  <td>{{ inv.email }}</td>
+                  <td>{{ inv.preset_label or "—" }}</td>
+                  <td>{{ inv.joined_label if key == 'joined' else inv.sent_label }}</td>
+                  {% if key == 'pending' %}<td>{{ inv.left_label }}</td>{% endif %}
+                  {% if key != 'joined' %}
+                  <td class="it-invite-actions">
+                    <form method="post" action="{{ url_for('it_resend_invite', invite_id=inv.id) }}"><button type="submit" class="btn secondary">Resend</button></form>
+                    <button type="button" class="btn secondary" data-invite-link-url="{{ url_for('it_invite_link', invite_id=inv.id) }}">Copy link</button>
+                    <button type="button" class="btn danger" data-invite-revoke="{{ url_for('it_revoke_invite', invite_id=inv.id) }}" data-invite-first="{{ inv.first_name or inv.email }}">Revoke</button>
+                  </td>
+                  {% endif %}
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+        <dialog class="it-invite-dialog" data-invite-revoke-dialog aria-labelledby="invite-revoke-title">
+          <form method="post" data-invite-revoke-form>
+            <h3 id="invite-revoke-title" data-invite-revoke-title>Revoke invite?</h3>
+            <p>Their link stops working and they won't be able to sign in. You can invite them again later.</p>
+            <div class="row-actions">
+              <button type="button" class="btn secondary" data-invite-revoke-cancel>Cancel</button>
+              <button type="submit" class="btn danger">Revoke</button>
+            </div>
+          </form>
+        </dialog>
       </section>
 
       {% if access_requests %}
       <section class="card">
         <h2>Access requests</h2>
-        <p class="hint">Public signup requests. Reviewing does not create an account — add them under Add staff if you approve.</p>
+        <p class="hint">Public signup requests. Reviewing does not create an account — invite them under Invite a teacher if you approve.</p>
         <div class="it-table-wrap">
           <table class="data">
             <thead>
@@ -111,7 +211,7 @@
               {% set is_verified = person.verified_at is not none %}
               {% set status = "archived" if is_archived else ("active" if is_verified else "pending") %}
               <tr data-archived="{{ 'true' if is_archived else 'false' }}" {% if is_archived %}hidden{% endif %}>
-                <td>{{ person.display_name or "—" }}</td>
+                <td>{{ person.display_name or "—" }}{% if person.is_test %} <span class="badge badge-test">Test</span>{% endif %}</td>
                 <td>{{ person.email }}</td>
                 <td>{{ "Admin" if person.role == "it" else person.role | capitalize }}</td>
                 <td><span class="badge badge-{{ status }}">{{ status }}</span></td>

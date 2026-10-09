@@ -182,7 +182,9 @@ export function mcAgreeStepHtml(group, opts) {
  */
 export function mcLockedHtml(group) {
   const C = GROUP_FLOW_COPY;
-  const who = String(group?.last_submitter || "").trim().split(/\s+/)[0] || "";
+  // Full display name: the server already sends first name only, and
+  // "Sam 2" must not read as "Sam" (MCK-183).
+  const who = String(group?.last_submitter || "").trim();
   return `<div class="student-group-locked" data-mc-step="locked" aria-live="polite">
     ${who ? `<p class="student-group-sent">${esc(C.sent.replace("{name}", who))}</p>` : ""}
     <p class="student-group-final"><strong>${esc(group?.submitted_choice || "")}</strong>${

@@ -283,6 +283,15 @@ class PackProgressTests(unittest.TestCase):
     def test_staff_home_has_pack_progress_hook(self) -> None:
         """Staff home cards expose a status URL and bottom progress bar."""
         self._login_teacher()
+        # MCK-183: with no class at all she gets Welcome's names step first.
+        other = self.school.assign_course(
+            teacher_user_id=int(self.offering["teacher_user_id"]), ontario_code="SBI4U"
+        )
+        rv = self.client.post(
+            "/api/staff/classes",
+            json={"offering_id": other["id"], "days": "T/Th/F", "time": "9:15am", "codenames": ["Pine"]},
+        )
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
         html = self.client.get("/staff").get_data(as_text=True)
         self.assertIn(
             f"/staff/offerings/{self.offering['id']}/module-pack/status", html

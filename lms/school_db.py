@@ -20,7 +20,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from name_match import first_token_key, loose_name_key, name_key, same_name  # noqa: E402
+from name_match import loose_name_key, name_key, same_name  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -1263,26 +1263,48 @@ def roster_shown_name(student: dict[str, Any] | None) -> str:
 def first_name_only(raw: str) -> str:
     """Keep the first token of a typed name; never persist a last name.
 
-    A short number after the first name stays (MCK-183): Welcome tells
-    teachers to type a repeated first name as "Sam 2", and dropping the
-    number showed both students as "Sam".
+    A short number stays (MCK-183): Welcome tells teachers to type a
+    repeated first name as "Sam 2", and dropping the number showed both
+    students as "Sam". The number may follow the first word ("Sam 2"),
+    be glued on ("Sam2" → "Sam 2"), or end a multi-word name, which is then
+    kept whole ("Jean Luc 2" stays "Jean Luc 2"; plain "Jean Luc" → "Jean").
 
     Args:
         raw: Student-entered name or Codename.
 
     Returns:
-        Trimmed first token (plus a trailing 1-2 digit number), or ``""``.
+        First token (plus a 1-2 digit number), a whole numbered name, or ``""``.
     """
-    text = (raw or "").strip()
-    if not text:
+    tokens = _number_tokens(raw)
+    if not tokens:
         return ""
-    tokens = text.split()
     if len(tokens) > 1 and _REPEAT_NUMBER.fullmatch(tokens[1]):
         return f"{tokens[0]} {tokens[1]}"
+    if len(tokens) > 2 and _REPEAT_NUMBER.fullmatch(tokens[-1]):
+        # "Jean Luc 2" is a roster name with a repeat number: keep it whole
+        # (#269 gate), so it never shows as "Jean 2".
+        return " ".join(tokens)
     return tokens[0]
 
 
 _REPEAT_NUMBER = re.compile(r"[0-9]{1,2}")
+#: "Sam2", "Mary-Jo2": letters (with ' or - joins) then 1-2 digits. "R2D2" is
+#: not one (digits inside), so it stays a single name.
+_GLUED_NUMBER = re.compile(r"([^\W\d_]+(?:['’\-][^\W\d_]+)*)([0-9]{1,2})")
+
+
+def _number_tokens(raw: str) -> list[str]:
+    """Whitespace tokens with a glued trailing number split off ("Sam2")."""
+    out: list[str] = []
+    for token in (raw or "").split():
+        glued = _GLUED_NUMBER.fullmatch(token)
+        out.extend(glued.groups() if glued else (token,))
+    return out
+
+
+def _spaced_number_key(key: str) -> str:
+    """A folded name key with glued numbers split: "sam2" → "sam 2"."""
+    return " ".join(_number_tokens(key))
 
 
 def _parse_iso_datetime(raw: Any) -> datetime | None:
@@ -1697,6 +1719,7 @@ class LovesDB:
             self._ensure_save_to_card_columns()
             self._ensure_live_class_feature_schema()
             self._ensure_access_request_schema()
+            self._ensure_staff_invite_schema()
             self._seed()
             self._seed_live_class_features()
             self.conn.commit()
@@ -2511,6 +2534,14 @@ class LovesDB:
             );
             """
         )
+
+    def _ensure_staff_invite_schema(self) -> None:
+        """MCK-183: ``staff_invites`` + ``users.is_test`` (see staff_invites.py)."""
+        try:
+            from staff_invites import ensure_schema
+        except ImportError:
+            from lms.staff_invites import ensure_schema
+        ensure_schema(self.conn)
 
     def _ensure_archived_column(self) -> None:
         """Add users.archived_at if the column does not yet exist (live migration).
@@ -11916,6 +11947,44 @@ class SchoolDB(LovesDB):
             )
             self.game.conn.commit()
 
+    def teacher_setup_elsewhere(
+        self, teacher_user_id: int, active_semester_id: int | None
+    ) -> dict[str, bool]:
+        """Does this teacher have classes or courses outside the setup view?
+
+        The MCK-183 first-run gate looks at the active semester only. A teacher
+        with any non-archived class or course in any semester is set up and must keep the Dashboard (gate MED, #250).
+
+        Args:
+            teacher_user_id: ``users.id``.
+            active_semester_id: Active semester, or ``None``.
+
+        Returns:
+            ``{"any_class": bool, "other_offering": bool}``.
+        """
+        uid = int(teacher_user_id)
+        with self.game._lock:
+            # A class counts unless its course is archived.
+            any_class = self.game.conn.execute(
+                """
+                SELECT 1 FROM classes c
+                LEFT JOIN course_offerings o ON o.id = c.offering_id
+                WHERE c.teacher_user_id = ? AND o.archived_at IS NULL
+                LIMIT 1
+                """,
+                (uid,),
+            ).fetchone() is not None
+            other = self.game.conn.execute(
+                """
+                SELECT 1 FROM course_offerings
+                WHERE teacher_user_id = ? AND archived_at IS NULL
+                  AND (? IS NULL OR semester_id != ?)
+                LIMIT 1
+                """,
+                (uid, active_semester_id, active_semester_id),
+            ).fetchone() is not None
+        return {"any_class": any_class, "other_offering": other}
+
     def list_staff_classes(
         self, teacher_user_id: int, semester_id: int | None = None
     ) -> list[dict[str, Any]]:
@@ -12358,6 +12427,59 @@ class SchoolDB(LovesDB):
 
         return pick_session_code(taken, self.count_active_live_sessions())
 
+    def telemetry_class_course(
+        self,
+        *,
+        class_id: int | None = None,
+        session_id: int | None = None,
+        offering_id: int | None = None,
+    ) -> dict[str, Any]:
+        """Class id and course code for a Sentry event (MCK-183).
+
+        Teacher/course info only: no roster or student columns are read.
+        The shared lock is taken with a short timeout so an error raised
+        while another thread holds it never blocks the event.
+
+        Args:
+            class_id: Game ``classes.id`` named by the request.
+            session_id: ``live_class_sessions.id`` named by the request.
+            offering_id: ``course_offerings.id`` named by the request.
+
+        Returns:
+            ``class_id`` and ``course_code`` when they can be found.
+        """
+        out: dict[str, Any] = {}
+        if not self._lock.acquire(timeout=0.25):
+            return out
+        try:
+            if class_id is None and session_id is not None:
+                row = self.conn.execute(
+                    "SELECT class_id, offering_id FROM live_class_sessions WHERE id = ?",
+                    (int(session_id),),
+                ).fetchone()
+                if row is not None:
+                    class_id = int(row[0])
+                    offering_id = offering_id or (int(row[1]) if row[1] else None)
+            if class_id is not None:
+                out["class_id"] = int(class_id)
+                row = self.conn.execute(
+                    "SELECT course_code, offering_id FROM classes WHERE id = ?",
+                    (int(class_id),),
+                ).fetchone()
+                if row is not None:
+                    out["course_code"] = str(row[0] or "")
+                    offering_id = offering_id or (int(row[1]) if row[1] else None)
+            if offering_id is not None and not out.get("course_code"):
+                row = self.conn.execute(
+                    "SELECT ontario_code FROM course_offerings WHERE id = ?",
+                    (int(offering_id),),
+                ).fetchone()
+                if row is not None:
+                    out["course_code"] = str(row[0] or "")
+        finally:
+            self._lock.release()
+        return out
+
     def get_live_session(self, session_id: int) -> dict[str, Any] | None:
         """Return one live-class session row by id.
 
@@ -12687,7 +12809,15 @@ class SchoolDB(LovesDB):
                     "That name’s already in class. If it’s you, reopen the "
                     "tab that’s still open — or wait a beat and try again."
                 )
-            return self._resume_live_attendee(existing, name=name or str(existing.get("codename") or ""))
+            # Seat left (Leave, or a stale heartbeat) and reclaimed by a device
+            # without its token: mint a fresh token, so the old tab's token no
+            # longer acts for this seat (MCK-183 #260 gate LOW).
+            fresh = (not present) and token_in != existing_token
+            return self._resume_live_attendee(
+                existing,
+                name=name or str(existing.get("codename") or ""),
+                fresh_token=fresh,
+            )
 
         now = _now()
         participant_uuid = str(uuid.uuid4())
@@ -12775,19 +12905,33 @@ class SchoolDB(LovesDB):
         return self._apply_presence(dict(row))
 
     def _resume_live_attendee(
-        self, existing: dict[str, Any], *, name: str = ""
+        self,
+        existing: dict[str, Any],
+        *,
+        name: str = "",
+        fresh_token: bool = False,
     ) -> dict[str, Any]:
         """Clear ``left_at``, keep uuid + token, refresh heartbeat.
 
         Args:
             existing: Current attendee row.
             name: Optional display-name refresh (first token only).
+            fresh_token: Mint a new visit token (seat reclaimed after Leave
+                by a device that did not hold the old one).
         """
         display = first_name_only(name) or str(existing.get("codename") or "")
         now = _now()
         token = str(existing.get("visit_token") or "").strip()
-        if not token:
+        if not token or fresh_token:
             token = secrets.token_urlsafe(24)
+        if fresh_token:
+            # SQLite holds the token lookups (resolve, by-token) in every mode.
+            with self._lock:
+                self.conn.execute(
+                    "UPDATE live_session_attendees SET visit_token = ? WHERE id = ?",
+                    (token, int(existing["id"])),
+                )
+                self.conn.commit()
         if self.presence is not None:
             payload = dict(existing)
             payload["codename"] = display
@@ -16257,7 +16401,8 @@ class SchoolDB(LovesDB):
         last_id = row.get("last_submitter_student_id")
         last_name = ""
         if last_id not in (None, ""):
-            last_name = self._roster_codename(class_id, int(last_id))
+            # Same display name the class sees ("Sam 2", not "Sam"; MCK-183).
+            last_name = first_name_only(self._roster_codename(class_id, int(last_id)))
         active = str(item.get("status") or "") == "active"
         card = {
             "team_id": int(team_id),
@@ -31274,10 +31419,10 @@ class SchoolDB(LovesDB):
         session_row = self.get_live_session(session_id)
         if session_row is None or session_row.get("status") != "active":
             return []
-        full = name_key(name)
+        full = _spaced_number_key(name_key(name))
         if not full:
             return []
-        first = first_token_key(name)
+        first = full.split(" ", 1)[0]
         class_id = int(session_row["class_id"])
         with self.game._lock:
             rows = [
@@ -31300,13 +31445,19 @@ class SchoolDB(LovesDB):
             head, _, tail = label_key.rpartition(" ")
             return head == typed_full and bool(_REPEAT_NUMBER.fullmatch(tail))
 
-        def tier(fold: Any, typed_full: str, typed_first: str) -> list[dict[str, Any]]:
+        def tier(raw_fold: Any, typed_full: str, typed_first: str) -> list[dict[str, Any]]:
+            def fold(label: str) -> str:
+                return _spaced_number_key(raw_fold(label))
+
             exact = [
                 row for row in rows
                 if any(fold(label) == typed_full for label in labels(row))
             ]
-            if exact and " " not in typed_full:
-                # A bare "Sam" also offers "Sam 2", so the picker shows both.
+            typed_number = _REPEAT_NUMBER.fullmatch(typed_full.rpartition(" ")[2])
+            if exact and not typed_number:
+                # A bare "Sam" (or "Mary-Jo", "Jean Luc") also offers the
+                # numbered "Sam 2", so the picker shows both. Typing the
+                # number ("Sam 2") picks that student directly.
                 exact += [
                     row for row in rows
                     if row not in exact
@@ -31326,7 +31477,7 @@ class SchoolDB(LovesDB):
         matches = tier(name_key, full, first)
         if matches:
             return matches
-        loose_full = loose_name_key(name)
+        loose_full = _spaced_number_key(loose_name_key(name))
         loose_first = loose_full.split(" ", 1)[0] if loose_full else ""
         if not loose_full:
             return []

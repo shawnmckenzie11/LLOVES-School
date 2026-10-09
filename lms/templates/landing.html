@@ -6,6 +6,7 @@
   <title>{{ school_display }}</title>
   <meta name="description" content="ALC is the online live-class, attendance, and module workspace for Ontario courses — built for teachers, students, and homeschool families.">
   <link rel="stylesheet" href="/static/lloves.css">
+  {% include "_sentry_browser.html" %}
 </head>
 <body class="landing-page">
   <a class="admin-lock" href="{{ url_for('auth_google', portal='it') }}" title="Admin login" aria-label="Admin login">
@@ -27,11 +28,11 @@
       </a>
       <button type="button" class="role-card{% if student_error %} is-open{% endif %}" id="student-role-btn" aria-expanded="{{ 'true' if student_error else 'false' }}" aria-controls="student-code-panel">
         <strong>Student</strong>
-        <span class="hint">Enter your course code and name to join the live lesson.</span>
+        <span class="hint">Enter the join code and your first name to join the live lesson.</span>
       </button>
     </div>
     <form class="student-code-panel{% if not student_error %} hidden{% endif %}" id="student-code-panel" method="post" action="{{ url_for('auth_student_code') }}">
-      <label class="field" for="code">Course code</label>
+      <label class="field" for="code">Join code</label>
       <input id="code" name="code" minlength="4" maxlength="24" pattern="\s*(?:(?:[A-Za-z0-9]\s*){4,6}|(?:[A-Za-z0-9]\s*){8})" title="The code on your teacher's screen: 4 to 6 letters and numbers (older codes have 8)" autocomplete="off" autocapitalize="characters" spellcheck="false" required placeholder="Code on the screen" value="{{ student_code or '' }}">
       <label class="field" for="student-name">First name or Codename</label>
       <input id="student-name" name="name" autocomplete="given-name" required placeholder="First name on the roster" value="{{ student_name or '' }}">

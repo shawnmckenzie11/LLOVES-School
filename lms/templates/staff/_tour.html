@@ -1,0 +1,44 @@
+{# MCK-183 slice D: the 4-step Dashboard tour. Copy: Wonder v1.3 step 1,
+   Part 3 steps 2-4, v1.2 onb.back / onb.tour.skip. Never clicks or starts a
+   live class: steps 2-4 show small static pictures. onboarding_tour.js opens
+   it (localStorage alc-onboarding:<user id>). Not rendered while live. #}
+<section class="onb-tour" id="onb-tour" role="dialog" aria-modal="false" aria-labelledby="onb-tour-title"
+         data-class-href="{{ tour_class_href }}" hidden>
+  <h2 class="visually-hidden" id="onb-tour-title">Tour</h2>
+  <div class="onb-tour-step" data-tour-step="1" data-tour-target=".course-action-live">
+    <p><b>Start class.</b> Press <b>Run Live Class</b> on your Dashboard. A join code appears on the screen for students.</p>
+  </div>
+  <div class="onb-tour-step" data-tour-step="2" data-tour-target=".course-card" hidden>
+    <p><b>Students join.</b> They go to alc.mckenzian.com and type their first name and the code. Attendance fills in as they arrive.</p>
+    <div class="onb-inset onb-inset-join" aria-hidden="true">
+      <div class="onb-inset-board"><span>JOIN CODE</span><b>K7Q2M9TB</b></div>
+      <div class="onb-inset-phone">
+        <span class="onb-inset-label">Join code</span><span class="onb-inset-field">K7Q2M9TB</span>
+        <span class="onb-inset-label">First name or Codename</span><span class="onb-inset-field">Sam</span>
+        <span class="onb-inset-btn">Join</span>
+      </div>
+    </div>
+  </div>
+  <div class="onb-tour-step" data-tour-step="3" data-tour-target=".course-action-live" hidden>
+    <p><b>Ask a quick question.</b> Pick a question or poll and press <b>Publish</b>. Each answer counts toward participation. You don't need a math question; a check-in like 'How ready do you feel?' works.</p>
+    <div class="onb-inset onb-inset-poll" aria-hidden="true">
+      <span class="onb-inset-row">How ready do you feel?</span><span class="onb-inset-btn">Publish</span>
+    </div>
+  </div>
+  <div class="onb-tour-step" data-tour-step="4" data-tour-target='a[aria-label="Take Attendance"]' hidden>
+    <p><b>End class.</b> Press <b>End Live Class</b> to save attendance and participation. You'll find them under <b>Attendance &amp; Participation</b>. Quit closes the class without saving.</p>
+    <div class="onb-inset onb-inset-end" aria-hidden="true">
+      <span class="onb-inset-check">Save attendance</span>
+      <span class="onb-inset-check">Save participation</span>
+      <span class="onb-inset-btn">End Live Class</span>
+    </div>
+  </div>
+  <div class="onb-tour-nav">
+    <button type="button" class="onb-tour-skip" data-tour-skip>Skip tour</button>
+    <span class="onb-tour-count" data-tour-count aria-live="polite"></span>
+    <button type="button" class="secondary" data-tour-back>Back</button>
+    <button type="button" data-tour-next>Next</button>
+    <button type="button" data-tour-finish hidden>Go to my class</button>
+  </div>
+</section>
+<script type="module" src="/static/onboarding_tour.js?v={{ sentry_release }}"></script>

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Invite · {{ school_name }}</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+  <link rel="stylesheet" href="/static/staff-shell.css">
+  <link rel="stylesheet" href="/static/onboarding.css">
+</head>
+<body class="staff-shell staff-onboarding" data-invite-state="{{ state }}">
+  <main class="ob-wrap">
+    <section class="ob-card" aria-labelledby="ob-title">
+      {% if state == 'valid' %}
+      <h1 id="ob-title">You're invited to ALC</h1>
+      <p class="ob-body">Sign in with {{ email }} to set up your class.</p>
+      <div class="ob-btns"><span></span><a class="btn" href="{{ continue_url }}">Continue with Google</a></div>
+      {% elif state == 'mismatch' %}
+      <h1 id="ob-title">That's a different Google account</h1>
+      <p class="ob-body">This invite is for {{ invite_email }}, but you signed in as {{ google_email }}. Your invite is still waiting.</p>
+      <div class="ob-btns"><span></span><form method="post" action="{{ retry_url }}" class="ob-inline-form"><button type="submit" class="btn">Use another Google account</button></form></div>
+      {% elif state == 'expired' %}
+      <h1 id="ob-title">This invite has expired</h1>
+      <p class="ob-body">Invite links last 7 days. Ask Shawn to send you a new one.</p>
+      {% elif state == 'used' %}
+      <h1 id="ob-title">You've already joined</h1>
+      <p class="ob-body">This invite has been used. Sign in to get to your classes.</p>
+      <div class="ob-btns"><span></span><a class="btn" href="{{ signin_url }}">Sign in</a></div>
+      {% else %}
+      <h1 id="ob-title">This invite link doesn't work</h1>
+      <p class="ob-body">It may have been replaced or cancelled. Ask Shawn for a new one.</p>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>

@@ -167,6 +167,29 @@ function showPicker() {
 }
 
 /**
+ * MCK-183: pack-less non-math courses say "first names", not Codenames.
+ * Elements carry their plain wording in ``data-plain`` /
+ * ``data-plain-placeholder``; the math wording is kept on first swap.
+ * @param {boolean} plain
+ */
+function applyNameWording(plain, root = document) {
+  for (const el of root.querySelectorAll("[data-plain]")) {
+    if (!el.hasAttribute("data-math")) el.setAttribute("data-math", el.textContent);
+    el.textContent = plain ? el.getAttribute("data-plain") : el.getAttribute("data-math");
+  }
+  for (const el of root.querySelectorAll("[data-plain-placeholder]")) {
+    if (!el.hasAttribute("data-math-placeholder")) {
+      el.setAttribute("data-math-placeholder", el.getAttribute("placeholder") || "");
+    }
+    el.setAttribute(
+      "placeholder",
+      plain ? el.getAttribute("data-plain-placeholder") : el.getAttribute("data-math-placeholder")
+    );
+  }
+  TITLES.roster = plain ? "First names" : "Codenames";
+}
+
+/**
  * Open the wizard for an offering (populate or edit existing roster).
  * @param {HTMLElement} btn
  */
@@ -175,6 +198,7 @@ async function startWizard(btn) {
   const classId = Number(btn.getAttribute("data-class-id") || 0);
   lockedDays = (btn.getAttribute("data-live-days") || "").trim();
   lockedTime = (btn.getAttribute("data-live-time") || "").trim();
+  applyNameWording(btn.getAttribute("data-simple") === "1");
   const select = $("offering");
   if (select) select.value = String(offeringId);
   const label = select?.selectedOptions?.[0]?.textContent || "";

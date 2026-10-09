@@ -801,3 +801,82 @@ function initQuickPhrasesTab() {
 
   refresh().catch(() => {});
 }
+
+/**
+ * MCK-183: Copy link on the invite toast (the email didn't send).
+ */
+document.addEventListener("click", (event) => {
+  const button = event.target instanceof Element ? event.target.closest("[data-copy-invite-link]") : null;
+  if (!button) return;
+  const link = button.getAttribute("data-copy-invite-link") || "";
+  if (!link || !navigator.clipboard) return;
+  navigator.clipboard.writeText(link).then(() => {
+    button.textContent = "Link copied";
+  });
+});
+
+/**
+ * MCK-183 I4: Invites card. Pending / Joined / Expired tabs, Copy link
+ * (mints a new link; older ones stop working) and the Revoke confirm.
+ */
+(function initInvitesCard() {
+  const card = document.getElementById("invites");
+  if (!card) return;
+  const tabs = card.querySelectorAll("[data-invite-tab]");
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      tabs.forEach((other) => {
+        const on = other === tab;
+        other.classList.toggle("on", on);
+        other.setAttribute("aria-selected", on ? "true" : "false");
+        const panel = document.getElementById(other.getAttribute("aria-controls") || "");
+        if (panel) panel.hidden = !on;
+      });
+    });
+  });
+
+  const toast = card.querySelector("[data-invite-copy-toast]");
+  card.addEventListener("click", async (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const copyBtn = target ? target.closest("[data-invite-link-url]") : null;
+    if (copyBtn) {
+      copyBtn.disabled = true;
+      try {
+        const res = await fetch(copyBtn.getAttribute("data-invite-link-url") || "", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { Accept: "application/json" },
+        });
+        const data = await res.json();
+        if (!res.ok || !data.link) throw new Error(data.error || "copy failed");
+        let copied = false;
+        try {
+          await navigator.clipboard.writeText(data.link);
+          copied = true;
+        } catch (_err) {
+          window.prompt("Copy this link:", data.link);
+        }
+        if (copied) copyBtn.textContent = "Link copied";
+        if (toast) toast.hidden = false;
+      } catch (_err) {
+        copyBtn.textContent = "Try again";
+      } finally {
+        copyBtn.disabled = false;
+      }
+      return;
+    }
+    const revokeBtn = target ? target.closest("[data-invite-revoke]") : null;
+    const dialog = card.querySelector("[data-invite-revoke-dialog]");
+    if (revokeBtn && dialog) {
+      const form = dialog.querySelector("[data-invite-revoke-form]");
+      const title = dialog.querySelector("[data-invite-revoke-title]");
+      if (form) form.setAttribute("action", revokeBtn.getAttribute("data-invite-revoke") || "");
+      if (title) title.textContent = `Revoke invite for ${revokeBtn.getAttribute("data-invite-first") || ""}?`;
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else if (window.confirm(title ? title.textContent : "Revoke invite?") && form) form.submit();
+      return;
+    }
+    if (target && target.closest("[data-invite-revoke-cancel]") && dialog) dialog.close();
+  });
+})();
+

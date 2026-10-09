@@ -290,6 +290,29 @@ function renderDay(doc, group, showNew, tag = "section") {
 }
 
 /**
+ * MCK-183: while the Dashboard tour is still owed to this teacher (offered
+ * and not skipped or done), or restarted with ``?tour=1``, What's new waits
+ * and opens after the tour ends (``alc-tour-end``). Same storage key as
+ * ``onboarding_tour.js``; read here so this module needs no import.
+ * @param {{doc: Document, storage: Storage|null, userId: string, search?: string}} args
+ * @returns {boolean}
+ */
+export function tourHolds({ doc, storage, userId, search }) {
+  if (!doc || !doc.getElementById || !doc.getElementById("onb-tour")) return false;
+  if (/(?:^|[?&])tour=1(?:&|$)/.test(String(search || ""))) return true;
+  const body = doc.body;
+  if (!body || !body.dataset || body.dataset.tourOffer !== "1") return false;
+  let status = "";
+  try {
+    const raw = storage ? storage.getItem(`alc-onboarding:${String(userId || "").trim()}`) : null;
+    status = raw ? String((JSON.parse(raw) || {}).status || "") : "";
+  } catch (_err) {
+    status = "";
+  }
+  return status !== "skipped" && status !== "done";
+}
+
+/**
  * Pop-up: unseen items only, at most ``POP_MAX_ITEMS``, then "+n more".
  * @returns {{shown: number, more: number}}
  */
@@ -364,7 +387,7 @@ export function setDot(button, count) {
 /**
  * Wire the panel on a staff page. Safe to call on any page.
  * @param {{document: Document, window?: any, fetch?: Function, storage?: Storage|null, now?: Date}} env
- * @returns {Promise<"live"|"absent"|"empty"|"error"|"opened"|"dot"|"seen">}
+ * @returns {Promise<"live"|"absent"|"empty"|"error"|"opened"|"held"|"dot"|"seen">}
  */
 export async function initWhatsNew(env) {
   const doc = env.document;
@@ -440,7 +463,26 @@ export async function initWhatsNew(env) {
       open("all");
     });
   }
+  const loc = env.window && env.window.location;
+  const search = String((loc && loc.search) || "");
+  // MCK-183: Help → What's new from another staff page lands here with ?whats_new=1.
+  if (/(?:^|[?&])whats_new=1(?:&|$)/.test(search)) {
+    open("all");
+    return "opened";
+  }
   if (shouldAutoOpen({ doc, storage, userId, model })) {
+    // MCK-183: the Dashboard tour goes first; the once-a-day pop-up waits
+    // for it to end (Skip or Done) and is only counted when it shows.
+    if (tourHolds({ doc, storage, userId, search })) {
+      if (typeof doc.addEventListener === "function") {
+        doc.addEventListener("alc-tour-end", () => {
+          if (!shouldAutoOpen({ doc, storage, userId, model })) return;
+          write(poppedKey(userId), today);
+          open("popup");
+        });
+      }
+      return "held";
+    }
     write(poppedKey(userId), today);
     open("popup");
     return "opened";
