@@ -1723,12 +1723,56 @@ class LovesDB:
             self._seed()
             self._seed_live_class_features()
             self.conn.commit()
+            # MCK-182 slice 2: keep every shipped What's new entry.
+            self.sync_whats_new()
             try:
                 self.prune_live_result_snapshots()
             except Exception:  # noqa: BLE001 - retention must never block boot
                 logger.exception("live result snapshot prune at boot failed")
         self._install_sqlite_board_ops()
         self._attach_live_presence()
+
+    def sync_whats_new(self, path: Path | str | None = None) -> dict[str, int] | None:
+        """Copy the shipped What's new file into ``whats_new_releases`` (MCK-182).
+
+        Called at boot inside the schema lock. It never blocks boot: a bad
+        file is logged and the stored history stays as it was.
+
+        Args:
+            path: ``releases.json`` to read; defaults to the shipped file.
+
+        Returns:
+            The sync counts, or ``None`` when it failed.
+        """
+        import whats_new_store
+
+        try:
+            with self._lock:
+                counts = whats_new_store.sync_from_file(self.conn, path)
+            logger.info("whats-new history sync %s", counts)
+            return counts
+        except Exception:  # noqa: BLE001 - What's new must never block boot
+            logger.exception("whats-new history sync failed")
+            return None
+
+    def whats_new_teacher_payload(self) -> dict[str, Any]:
+        """Stored What's new history for the staff Dashboard (no refs).
+
+        Entries in the shipped file that are missing from the table (a boot
+        sync that failed) are added on the fly, so a teacher never sees less
+        than the file has.
+        """
+        import whats_new_store
+
+        stored: list[dict[str, Any]] = []
+        try:
+            with self._lock:
+                stored = whats_new_store.stored_releases(self.conn)
+        except Exception:  # noqa: BLE001 - fall back to the shipped file
+            logger.exception("whats-new history read failed")
+        ids = {str(r.get("id")) for r in stored}
+        extra = [r for r in whats_new_store.read_file() if str(r.get("id")) not in ids]
+        return whats_new_store.teacher_payload(stored + extra)
 
     def close(self) -> None:
         """Close the sqlite connection and the presence pool."""

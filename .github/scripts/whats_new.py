@@ -18,7 +18,13 @@ Two commands:
     merged in that deploy::
 
         {"id": "<sha7>", "sha": "<sha>", "deployed_at": "<ISO, Toronto>",
-         "day": "YYYY-MM-DD", "items": [{"text", "audience", "refs"}]}
+         "day": "YYYY-MM-DD", "items": [{"text", "audience", "refs"}],
+         "source": "deploy"}
+
+    Slice 2: each app boot copies the shipped file into the
+    ``whats_new_releases`` table (``lms/whats_new_store.py``). Deploy entries
+    are stored once and never overwritten, so they stay after they fall out
+    of this lookback window and a later PR-body edit can't rewrite them.
 
     A deploy whose PRs only say ``none`` (or nothing) writes no entry. Any
     GitHub API failure keeps the committed file as it is, and the command
@@ -243,6 +249,9 @@ def release_entry(sha: str, moment: datetime, items: list[dict[str, Any]]) -> di
         "deployed_at": local.isoformat(),
         "day": local.date().isoformat(),
         "items": items,
+        # The app stores deploy entries once and never overwrites them
+        # (lms/whats_new_store.py), so history outlives this window.
+        "source": "deploy",
     }
 
 
@@ -384,12 +393,19 @@ def build_releases(
 
     history = deployed_runs(gh, workflow, exclude_run_id=run_id)
     chain: list[dict[str, Any]] = [{"sha": sha, "moment": now}]
+    reached = bool(baseline) and sha.startswith(baseline)
     for run in history:
         if run["sha"] == chain[-1]["sha"]:
             continue  # a redeploy of the same commit
         chain.append({"sha": run["sha"], "moment": parse_iso(run["at"])})
         if baseline and (run["sha"] == baseline or run["sha"].startswith(baseline)):
+            reached = True
             break
+    if baseline and history and not reached:
+        warn(
+            f"the committed baseline {baseline[:7]} is not in the last {LOOKBACK_RUNS} Deploy runs; "
+            "older entries are kept by the app's stored history (whats_new_releases)."
+        )
     if len(chain) < 2:
         return {**committed, "schema": 2, "releases": releases}, []
 

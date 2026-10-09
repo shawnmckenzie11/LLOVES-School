@@ -1,18 +1,19 @@
-{# MCK-124 slice 1: staff "What's new" panel. Dashboard only. Never include
+{# MCK-124 / MCK-182: staff "What's new" panel. Dashboard only. Never include
    this on the Live tab (body.course-live) or on any student page; whats_new.js
-   also refuses to render or open there. #}
+   also refuses to render or open there. Teachers never see ticket ids, PR
+   numbers or SHAs here: the build id stays in a data attribute for Ops. #}
 <dialog id="whats-new-dialog" class="whats-new-dialog" aria-labelledby="whats-new-title"
-        data-releases-src="/static/whats-new/releases.json?v={{ sentry_release }}">
+        data-releases-src="{{ url_for('api_staff_whats_new') }}"
+        data-build="{{ (sentry_release or '')[:7] }}">
   <div class="whats-new-card">
     <header class="whats-new-head">
       <h2 id="whats-new-title">What's new in {{ school_name }}</h2>
-      <span class="whats-new-date" data-whats-new-date></span>
+      <span class="whats-new-sub" data-whats-new-sub></span>
       <button type="button" class="whats-new-x" data-whats-new-close aria-label="Close">×</button>
     </header>
-    <ol class="whats-new-list" data-whats-new-list></ol>
-    <p class="whats-new-notyet" data-whats-new-notyet hidden><b>Not in this update:</b> <span data-whats-new-notyet-text></span></p>
+    <div class="whats-new-body" data-whats-new-list></div>
     <footer class="whats-new-foot">
-      <span class="whats-new-build">{% if sentry_release %}Build {{ sentry_release[:7] }}{% endif %}</span>
+      <button type="button" class="whats-new-all" data-whats-new-all hidden>See all updates</button>
       <button type="button" class="whats-new-ok" data-whats-new-close autofocus>Got it</button>
     </footer>
   </div>
