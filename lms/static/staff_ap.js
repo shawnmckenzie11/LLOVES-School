@@ -6708,7 +6708,7 @@ function reissueLiveStateOnce() {
   if (sessionPollInFlight) {
     // MCK-192 (b): Retry while a /state hangs cuts it and asks again at once.
     if (sessionPollAbort) {
-      sessionPollQueued = { full: Boolean(sessionPollQueued?.full), force: true };
+      sessionPollQueued = { full: Boolean(sessionPollQueued?.full), retryGesture: true };
       sessionPollAbort.abort();
     }
     return;
