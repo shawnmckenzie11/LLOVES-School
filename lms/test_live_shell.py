@@ -2508,7 +2508,7 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("staffStateNeedsFull", js)
         self.assertIn("optimisticTeacherState(", js)
         self.assertIn("?light=1", js)
-        self.assertIn("if (!wantFull) throw", js)
+        self.assertIn("if (!wantFull || pollAbort?.signal.aborted) throw", js)
         self.assertIn("hasOwnProperty.call(payload || {}, \"active_media\")", js)
         self.assertIn("function setLiveReconnectBanner(", js)
         self.assertIn("Reconnecting…", js)

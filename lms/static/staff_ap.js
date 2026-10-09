@@ -178,6 +178,10 @@ let joinBillboardCopyTimer = null;
 let sessionPollTimer = null;
 let sessionPollMs = 0;
 let sessionPollInFlight = false;
+/** MCK-192 (b): the in-flight staff /state can be aborted (timeout or Retry). */
+let sessionPollAbort = null;
+/** A hung staff /state is cut after this long, so polling never freezes. */
+const STAFF_STATE_TIMEOUT_MS = 15000;
 /** @type {{full?: boolean, force?: boolean}|null} */
 let sessionPollQueued = null;
 /** Automatic delay after a busy/503. ``0`` means the slow fallback poll. */
@@ -6701,7 +6705,14 @@ function armStaffPendingFeel() {
  * User Retry: one /state if none is in flight. Does not reload or zero the delay.
  */
 function reissueLiveStateOnce() {
-  if (sessionPollInFlight) return;
+  if (sessionPollInFlight) {
+    // MCK-192 (b): Retry while a /state hangs cuts it and asks again at once.
+    if (sessionPollAbort) {
+      sessionPollQueued = { full: Boolean(sessionPollQueued?.full), retryGesture: true };
+      sessionPollAbort.abort();
+    }
+    return;
+  }
   void pollLiveSessionAttendees({ retryGesture: true });
 }
 
@@ -6799,16 +6810,22 @@ async function pollLiveSessionAttendees(opts = {}) {
   const wantFull = Boolean(opts.full) || staffStateNeedsFull;
   const prevSeq = Number(teacherState.state_seq) || lastGoodStateSeq;
   armStaffPendingFeel();
+  const pollAbort = typeof AbortController === "function" ? new AbortController() : null;
+  sessionPollAbort = pollAbort;
+  const pollTimeout = pollAbort
+    ? window.setTimeout(() => pollAbort.abort(), STAFF_STATE_TIMEOUT_MS)
+    : 0;
+  const fetchOpts = pollAbort ? { signal: pollAbort.signal } : {};
   try {
     const qs = wantFull ? "" : "?light=1";
     let payload;
     try {
-      payload = await api(`/api/live-sessions/${id}/state${qs}`);
+      payload = await api(`/api/live-sessions/${id}/state${qs}`, fetchOpts);
     } catch (err) {
-      if (!wantFull) throw err;
+      if (!wantFull || pollAbort?.signal.aborted) throw err;
       const message = String(err?.message || err || "");
       if (/busy|503|unavailable|overloaded|locked/i.test(message)) throw err;
-      payload = await api(`/api/live-sessions/${id}/state?light=1`);
+      payload = await api(`/api/live-sessions/${id}/state?light=1`, fetchOpts);
     }
     // Shed / busy / 503 stays on this document. Do not reload.
     if (payload?.phase === "ended" || payload?.session?.status === "ended") {
@@ -6943,6 +6960,8 @@ async function pollLiveSessionAttendees(opts = {}) {
     setLiveReconnectBanner(true);
     noteStaffPollBusy();
   } finally {
+    if (pollTimeout) window.clearTimeout(pollTimeout);
+    if (sessionPollAbort === pollAbort) sessionPollAbort = null;
     sessionPollInFlight = false;
     staffNewsFetch = false;
     const queued = sessionPollQueued;
@@ -7916,32 +7935,6 @@ function syncAllowGuestsCheckbox(raw) {
   const on = raw === true || raw === 1 || raw === "1" || String(raw).toLowerCase() === "true";
   if (box) box.checked = on;
   if (chip) chip.hidden = !on;
-}
-
-/**
- * Clear leftover MGS live/setup so Mark Attendance can open for a live session.
- * Always preserves the live_class_sessions row — never ends the join code.
- */
-async function clearStuckGameForLiveSession() {
-  const preserveBody = JSON.stringify({ preserve_live_session: true });
-  resetGamePointsVer();
-  try {
-    await api(`/api/classes/${classId}/game/end`, {
-      method: "POST",
-      body: preserveBody,
-    });
-    return;
-  } catch (_) {
-    /* end only works while MGS status is live — fall through to cancel */
-  }
-  try {
-    await api(`/api/classes/${classId}/game/cancel`, {
-      method: "POST",
-      body: preserveBody,
-    });
-  } catch (_) {
-    /* ignore — no open game is fine */
-  }
 }
 
 /**
@@ -9081,7 +9074,8 @@ for (const id of ["ap-validate-cancel", "ap-score-cancel"]) {
       return;
     }
     if (id === "ap-score-cancel") {
-      if (!window.confirm("Quit scoring? Scores already logged stay registered.")) return;
+      // MCK-192 (c): Quit discards this game's points.
+      if (!window.confirm("Quit scoring? This game's points won't be saved.")) return;
     }
     cancelOverlay();
   });

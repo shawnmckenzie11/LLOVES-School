@@ -115,8 +115,8 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(len(ids), 35 + len(base))
         self.assertIn(deploy_entry(1)["id"], ids, "the first deploy is still there")
         payload = store.teacher_payload(store.stored_releases(self.conn))
-        self.assertEqual(payload["releases"][0]["id"], deploy_entry(35)["id"])
-        self.assertIn(deploy_entry(1)["id"], [r["id"] for r in payload["releases"]])
+        self.assertEqual(payload["releases"][0]["id"], store.sort_at(deploy_entry(35)))
+        self.assertIn(store.sort_at(deploy_entry(1)), [r["id"] for r in payload["releases"]])
 
     def test_sync_is_all_or_nothing(self) -> None:
         """A failure part way leaves the stored history as it was."""
@@ -211,7 +211,7 @@ class AppTests(unittest.TestCase):
             rows = self.school.conn.execute("SELECT id, source FROM whats_new_releases").fetchall()
         self.assertEqual({r[0] for r in rows}, {r["id"] for r in committed()["releases"]})
         got = self.payload()
-        self.assertEqual([r["id"] for r in got["releases"]], [r["id"] for r in committed()["releases"]])
+        self.assertEqual([r["deployed_at"] for r in got["releases"]], [store.sort_at(r) for r in committed()["releases"]])
         self.assertNotRegex(json.dumps([i for r in got["releases"] for i in r["items"]]), REF_RE)
         self.assertNotIn('"refs"', json.dumps(got))
 
@@ -224,14 +224,14 @@ class AppTests(unittest.TestCase):
             ids = [r["id"] for r in reopened.whats_new_teacher_payload()["releases"]]
         finally:
             reopened.close()
-        self.assertEqual(ids[0], extra["id"])
+        self.assertEqual(ids[0], store.sort_at(extra))
         self.school = SchoolDB(self.db_path, live_database_url="")  # for tearDown
 
     def test_a_missing_row_still_shows_from_the_shipped_file(self) -> None:
-        newest = committed()["releases"][0]["id"]
+        newest = committed()["releases"][0]
         with self.school._lock:
-            self.school.conn.execute("DELETE FROM whats_new_releases WHERE id = ?", (newest,))
-        self.assertEqual(self.payload()["releases"][0]["id"], newest)
+            self.school.conn.execute("DELETE FROM whats_new_releases WHERE id = ?", (newest["id"],))
+        self.assertEqual(self.payload()["releases"][0]["id"], store.sort_at(newest))
 
     def test_a_broken_file_never_blocks_boot(self) -> None:
         bad = self.root / "bad.json"
@@ -244,6 +244,67 @@ class AppTests(unittest.TestCase):
         anon = self.app.test_client().get("/api/staff/whats-new")
         self.assertIn(anon.status_code, (401, 403))
         self.assertNotIn("releases", anon.get_data(as_text=True))
+
+
+class Mck192GateLowTests(unittest.TestCase):
+    """Ops' #262 LOWs: refs, ids and the public source file."""
+
+    def test_scrub_refs_cases(self) -> None:
+        cases = {
+            "In Grades, LLOVES-LMS-9 is fixed.": "In Grades, is fixed.",
+            "Shipped at ABCDEF1 and 65D69DB0c.": "Shipped at and.",
+            "From feat/mck-182-whats-new-history today.": "From today.",
+            "Question #3 now shows its picture.": "Question #3 now shows its picture.",
+            "Step #2 is clearer (#262 · LLOVES-LMS-9).": "Step #2 is clearer.",
+            "COVID-19 notes stay; mck-12 and #44 go.": "COVID-19 notes stay; and go.",
+        }
+        for raw, want in cases.items():
+            with self.subTest(raw=raw):
+                self.assertEqual(store.scrub_refs(raw), want)
+
+    def test_payload_ids_are_deploy_times_not_shas(self) -> None:
+        a = deploy_entry(1)
+        b = dict(deploy_entry(2), deployed_at=a.get("deployed_at"))
+        b["id"] = "e" * 7
+        payload = store.teacher_payload([a, b, deploy_entry(3)])
+        ids = [r["id"] for r in payload["releases"]]
+        self.assertEqual(len(ids), len(set(ids)))
+        for release in payload["releases"]:
+            self.assertTrue(release["id"].startswith(release["deployed_at"]), release["id"])
+            self.assertNotRegex(release["id"], r"^[0-9a-fA-F]{7,40}$")
+
+    def test_legacy_seen_maps_a_stored_sha(self) -> None:
+        entry = deploy_entry(4)
+        self.assertEqual(store.legacy_seen_at([entry], entry["id"]), store.sort_at(entry))
+        self.assertEqual(store.legacy_seen_at([entry], entry["id"].upper()), store.sort_at(entry))
+        self.assertIsNone(store.legacy_seen_at([entry], "0000000"))
+        self.assertIsNone(store.legacy_seen_at([entry], "2026-10-04"))
+
+
+class Mck192ApiTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.app = create_app(db_path=root / "s.db", data_dir=root, testing=True)
+        self.school = self.app.config["SCHOOL_DB"]
+
+    def tearDown(self) -> None:
+        self.school.close()
+        self.tmp.cleanup()
+
+    def test_source_file_is_not_served(self) -> None:
+        client = self.app.test_client()
+        for path in ("/static/whats-new/releases.json", "/static/WHATS-NEW/releases.json"):
+            resp = client.get(path)
+            self.assertEqual(resp.status_code, 404, path)
+            self.assertNotIn("releases", resp.get_data(as_text=True))
+
+    def test_payload_answers_a_legacy_seen_sha(self) -> None:
+        newest = committed()["releases"][0]
+        got = self.school.whats_new_teacher_payload(legacy_seen=newest["id"])
+        self.assertEqual(got.get("legacy_seen_at"), store.sort_at(newest))
+        self.assertNotIn("legacy_seen_at", self.school.whats_new_teacher_payload(legacy_seen="nope"))
+        self.assertNotIn(newest["id"], json.dumps(self.school.whats_new_teacher_payload()))
 
 
 if __name__ == "__main__":

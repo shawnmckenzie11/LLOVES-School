@@ -57,12 +57,19 @@ CREATE TABLE IF NOT EXISTS whats_new_releases (
 CREATE INDEX IF NOT EXISTS idx_whats_new_releases_sort ON whats_new_releases(sort_at DESC);
 """
 
+#: A ticket id: MCK-12, LMS-4, or any multi-part key like LLOVES-LMS-9.
+#: Single-word caps ("COVID-19") stay: they read as plain words.
+_TICKET = r"\b(?:(?i:mck)|LMS|(?:[A-Z][A-Z0-9]+-)+[A-Z][A-Z0-9]+)-\d+\b"
+#: A PR ref "#12" that is not a phrase like "Question #3" / "Step #2".
+_PR = r"(?<![\w&])(?<!Question )(?<!question )(?<!Step )(?<!step )(?<!No\. )(?<!Number )(?<!number )#\d+\b"
 _REF_PATTERNS = (
     # "(#202 · MCK-46)"-style groups first, then bare tokens.
-    re.compile(r"\(\s*[^()]*?(?:#\d+|MCK-\d+)[^()]*\)", re.IGNORECASE),
-    re.compile(r"\bMCK-\d+\b", re.IGNORECASE),
-    re.compile(r"(?<![\w&])#\d+\b"),
-    re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b"),
+    re.compile(r"\(\s*[^()]*?(?:" + _PR + "|" + _TICKET + r")[^()]*\)"),
+    # Branch names go whole: "feat/mck-182-whats-new-history".
+    re.compile(r"\b(?:feat|fix|chore|hotfix|refactor)/[\w./-]+"),
+    re.compile(_TICKET),
+    re.compile(_PR),
+    re.compile(r"\b(?=[0-9a-fA-F]*\d)(?=[0-9a-fA-F]*[a-fA-F])[0-9a-fA-F]{7,40}\b"),
 )
 
 
@@ -269,6 +276,7 @@ def teacher_payload(releases: list[dict[str, Any]], limit: int = PAYLOAD_LIMIT) 
     """
     shaped: list[dict[str, Any]] = []
     seen: set[str] = set()
+    public_ids: set[str] = set()
     for release in sorted(releases, key=sort_at, reverse=True):
         rid = str(release.get("id") or "").strip()
         day = release_day(release)
@@ -279,7 +287,44 @@ def teacher_payload(releases: list[dict[str, Any]], limit: int = PAYLOAD_LIMIT) 
         if not items:
             continue
         seen.add(rid)
-        shaped.append({"id": rid, "deployed_at": key, "day": day, "items": items})
+        # MCK-182 gate LOW: the id teachers get is the deploy time, never the
+        # deploy SHA. A repeat time gets "~2", "~3"...
+        public = key
+        n = 1
+        while public in public_ids:
+            n += 1
+            public = f"{key}~{n}"
+        public_ids.add(public)
+        shaped.append({"id": public, "deployed_at": key, "day": day, "items": items})
         if len(shaped) >= limit:
             break
     return {"schema": 2, "releases": shaped}
+
+
+_LEGACY_ID = re.compile(r"[0-9a-fA-F]{7,40}")
+
+
+def legacy_seen_at(releases: list[dict[str, Any]], value: Any) -> str | None:
+    """Map a seen value saved by an older Dashboard (a release SHA id) to time.
+
+    Teachers who last saw What's new before ids became deploy times have
+    the SHA in their browser. The page asks once; the answer is that
+    release's ``deployed_at``, which it stores instead.
+
+    Args:
+        releases: Raw releases.
+        value: The stored value from the browser.
+
+    Returns:
+        The release's sort time, or ``None`` when nothing matches.
+    """
+    text = str(value or "").strip()
+    if not _LEGACY_ID.fullmatch(text):
+        return None
+    low = text.lower()
+    for release in releases:
+        rid = str(release.get("id") or "").strip().lower()
+        sha = str(release.get("sha") or "").strip().lower()
+        if rid and (rid == low or (sha and sha.startswith(low))):
+            return sort_at(release) or None
+    return None
