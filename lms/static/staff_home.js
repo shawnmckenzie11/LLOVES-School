@@ -172,7 +172,7 @@ function showPicker() {
  * ``data-plain-placeholder``; the math wording is kept on first swap.
  * @param {boolean} plain
  */
-export function applyNameWording(plain, root = document) {
+function applyNameWording(plain, root = document) {
   for (const el of root.querySelectorAll("[data-plain]")) {
     if (!el.hasAttribute("data-math")) el.setAttribute("data-math", el.textContent);
     el.textContent = plain ? el.getAttribute("data-plain") : el.getAttribute("data-math");
