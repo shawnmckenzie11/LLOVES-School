@@ -6091,6 +6091,10 @@ class GameShowDB:
                 "id": int(game["id"]),
                 "status": game["status"],
                 "session_id": int(game["session_id"]),
+                # MCK-185 LOW-3: Quit + Begin can re-use a deleted game's id
+                # (SQLite re-uses the top rowid), so pages tell games apart
+                # by id plus start time.
+                "created_at": str(game["created_at"] or ""),
                 "event_seq": int(game["event_seq"] or 0),
                 "last_event": last_event,
                 "overlay_phase": str(game.get("overlay_phase") or "") or None,

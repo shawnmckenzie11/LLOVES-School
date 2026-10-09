@@ -98,16 +98,8 @@ def full_order_timing(
 MAX_AWARD_POINTS = 999
 
 
-def clamp_award_points(value: Any) -> int | None:
-    """A "Score teams" points value as a whole number in 0..999.
-
-    Numbers (and numeric text, as a form would send) are rounded and
-    clamped; ``True``/``False``, other text, NaN and infinity give ``None``
-    (the route answers 400).
-
-    Args:
-        value: Raw JSON value.
-    """
+def _award_number(value: Any) -> float | None:
+    """The raw "Score teams" points as a finite float, or ``None``."""
     if isinstance(value, bool) or value is None:
         return None
     if isinstance(value, str):
@@ -120,7 +112,34 @@ def clamp_award_points(value: Any) -> int | None:
     number = float(value)
     if number != number or number in (float("inf"), float("-inf")):
         return None
-    return max(0, min(MAX_AWARD_POINTS, int(round(number))))
+    return number
+
+
+def clamp_award_points(value: Any) -> int | None:
+    """A "Score teams" points value as a whole number in 0..999.
+
+    Numbers (and numeric text, as a form would send) are rounded and
+    capped at 999. ``True``/``False``, other text, NaN, infinity and any
+    negative amount give ``None`` (the route answers 400). Gate LOW-2 on
+    2cc6a9e: a negative used to clamp to 0, which wiped an earlier award.
+
+    Args:
+        value: Raw JSON value.
+    """
+    number = _award_number(value)
+    if number is None or number < 0:
+        return None
+    return min(MAX_AWARD_POINTS, int(round(number)))
+
+
+def award_points_problem(value: Any) -> str | None:
+    """Why ``value`` is refused as "Score teams" points, or ``None`` if fine."""
+    number = _award_number(value)
+    if number is None:
+        return "Points must be a number"
+    if number < 0:
+        return "Points can't be negative"
+    return None
 
 
 def score_default(right: int) -> int:
