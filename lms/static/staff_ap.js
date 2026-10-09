@@ -897,7 +897,8 @@ async function applyDeckSeedChoice() {
   /** @type {Record<string, string|boolean>} */
   const body = { mode };
   // The server keeps an existing deck when the mode was not clicked.
-  if (!deckSeedModeChosen) body.keep_existing = true;
+  // MCK-193: a blank start (nothing to copy) never replaces a deck either.
+  if (!deckSeedModeChosen || mode === "blank") body.keep_existing = true;
   if (mode === "previous") {
     const previous = $("live-deck-seed-previous");
     if (previous instanceof HTMLInputElement && previous.disabled) {

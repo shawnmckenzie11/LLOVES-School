@@ -65,6 +65,10 @@ export function deckSeedHelpText(state = {}) {
   if (mode === "course" && !courseDisabled) {
     return "Starts from a copy of the deck you pick.";
   }
+  // MCK-193: a plain course (no pack, no decks, C1) starts blank, calmly.
+  if (courseDisabled && !previousAvailable && !String(state.previousSlot || "").trim()) {
+    return "No decks yet, and that's fine. Class starts with a blank deck.";
+  }
   if (courseDisabled) return "No other decks in this course yet.";
   if (!previousAvailable) {
     if (String(state.previousSlot || "").trim()) {
@@ -118,28 +122,38 @@ export function deckSeedDefaultMode(state = {}) {
  * belong to another slot (still loading, or a stale reply), nothing is
  * written ("current").
  *
+ * MCK-193: when the loaded options say this slot has no deck and no
+ * previous deck to copy (a plain course with no pack, or any C1 with no
+ * other decks), Previous cannot run, so "blank" is sent instead of
+ * failing with "No previous challenge in this module." The server keeps
+ * an existing deck (keep_existing), so this never replaces one.
+ *
  * @param {{selected?: string, chosen?: boolean, catalog?: any, pack?: {module?: string, slot?: string}}} state
- * @returns {"current"|"previous"|"course"}
+ * @returns {"current"|"previous"|"course"|"blank"}
  */
 export function deckSeedConfirmMode(state = {}) {
   const selected = String(state.selected || "current");
-  if (state.chosen) {
-    return selected === "previous" || selected === "course" ? selected : "current";
-  }
   const catalog = state.catalog;
   const pack = state.pack || {};
   const sameSlot =
     Boolean(catalog) &&
     String(catalog.module || "").toUpperCase() === String(pack.module || "").toUpperCase() &&
     String(catalog.slot || "").toUpperCase() === String(pack.slot || "").toUpperCase();
+  const previousCannotRun =
+    sameSlot && !catalog.current?.available && !catalog.previous?.available;
+  if (state.chosen) {
+    if (selected === "previous" && previousCannotRun) return "blank";
+    return selected === "previous" || selected === "course" ? selected : "current";
+  }
   if (!sameSlot || catalog.current?.available) return "current";
   const decks = Array.isArray(catalog.decks) ? catalog.decks : [];
-  return deckSeedDefaultMode({
+  const mode = deckSeedDefaultMode({
     chosen: false,
     currentAvailable: false,
     previousAvailable: Boolean(catalog.previous?.available),
     courseDeckCount: decks.length,
   });
+  return mode === "previous" && previousCannotRun ? "blank" : mode;
 }
 
 /**
