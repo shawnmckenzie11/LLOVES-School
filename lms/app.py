@@ -2586,6 +2586,18 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         resp.set_cookie("lloves_seen", "1", max_age=86400 * 400, samesite="Lax")
         return resp
 
+    @app.route("/api/staff/whats-new")
+    @staff_required
+    def api_staff_whats_new():
+        """What's new history for the Dashboard panel (MCK-182 slice 2).
+
+        Read from the ``whats_new_releases`` table, which keeps every entry
+        that has shipped. Refs, SHAs and ticket ids never leave the server.
+        """
+        resp = jsonify(school.whats_new_teacher_payload())
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
     @app.route("/staff/bots")
     @staff_required
     def staff_bots():

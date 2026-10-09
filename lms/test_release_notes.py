@@ -10,9 +10,10 @@ Three groups:
 * server pages: the panel is on the staff Dashboard only, never on the
   Live tab (``body.course-live``), never on a student page, and held off
   the Dashboard while any of the teacher's classes is live;
-* the real ``whats_new.js`` in node with a small fake DOM: it opens once
-  per user per release, and on ``body.course-live`` it renders nothing,
-  fetches nothing and never opens, not even from the link.
+* the real ``whats_new.js`` in node with a small fake DOM (MCK-182 slice 2):
+  unseen items only, at most once a day, a plain dot, the full list, legacy
+  seen values, no refs on screen; on ``body.course-live`` it renders
+  nothing, fetches nothing and never opens, not even from the button.
 """
 
 from __future__ import annotations
@@ -50,7 +51,13 @@ SHA_ID = re.compile(r"^[0-9a-f]{7}$")
 # hand-written v216-v218 backfill (Wonder v1.3) runs to 39; trim it here.
 MAX_BACKFILL_WORDS = 40
 # Markers that only the What's new panel puts on a page.
-PANEL_MARKERS = ("whats-new-dialog", "whats_new.js", "whats-new-open", "whats-new/releases.json")
+PANEL_MARKERS = (
+    "whats-new-dialog",
+    "whats_new.js",
+    "whats-new-open",
+    "whats-new/releases.json",
+    "/api/staff/whats-new",
+)
 
 
 def _releases() -> list[dict]:
@@ -220,7 +227,10 @@ class WhatsNewPagesTests(unittest.TestCase):
         self.assertIn('<dialog id="whats-new-dialog"', html)
         self.assertIn('id="whats-new-open"', html)
         self.assertIn('src="/static/whats_new.js?v=', html)
-        self.assertIn('data-releases-src="/static/whats-new/releases.json?v=', html)
+        self.assertIn('data-releases-src="/api/staff/whats-new"', html)
+        # MCK-182 slice 2: no build SHA, ticket id or PR number on screen.
+        self.assertNotIn("Build ", html)
+        self.assertIn("data-whats-new-dot", html)
         self.assertIn("What's new in ALC", html)
         self.assertIn("Got it", html)
 
@@ -313,8 +323,8 @@ class WhatsNewPagesTests(unittest.TestCase):
         self.assertIn('<dialog id="whats-new-dialog"', html)
         self.assertIn('id="whats-new-open"', html)
 
-    def test_course_tabs_wait_for_slice_2(self) -> None:
-        """Slice 1 is Dashboard only; course tabs get it in slice 2."""
+    def test_course_tabs_never_have_the_panel(self) -> None:
+        """Dashboard only (Mobbin S2): the course tabs carry no panel."""
         for tab in ("modules", "attendance", "grades"):
             html = self.staff.get(f"/staff/class/{self.class_id}?tab={tab}").get_data(as_text=True)
             self.assertNoPanel(html, f"tab={tab}")
@@ -362,8 +372,10 @@ class ClassList {
 class El {
   constructor(tag, attrs = {}) {
     this.tag = tag; this.attrs = { ...attrs }; this.children = []; this.listeners = {};
-    this.className = ""; this.textContent = ""; this.hidden = "hidden" in attrs; this.dataset = {};
+    this.className = ""; this._text = ""; this.hidden = "hidden" in attrs; this.dataset = {}; this.open = false;
   }
+  get textContent() { return this._text + this.children.map((c) => (typeof c === "string" ? c : c.textContent)).join(""); }
+  set textContent(v) { this._text = String(v); this.children = []; }
   getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
   setAttribute(k, v) { this.attrs[k] = String(v); }
   hasAttribute(k) { return k in this.attrs; }
@@ -372,42 +384,45 @@ class El {
   click() { this.dispatch("click"); }
   append(...els) { this.children.push(...els); }
   appendChild(el) { this.children.push(el); return el; }
-  replaceChildren() { this.children = []; }
-  all() { return this.children.flatMap((c) => [c, ...c.all()]); }
+  replaceChildren() { this.children = []; this._text = ""; }
+  all() { return this.children.filter((c) => typeof c !== "string").flatMap((c) => [c, ...c.all()]); }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
   querySelectorAll(sel) {
-    const m = /^\[([\w-]+)\]$/.exec(sel);
-    return m ? this.all().filter((c) => c.hasAttribute(m[1])) : [];
+    const attr = /^\[([\w-]+)\]$/.exec(sel);
+    if (attr) return this.all().filter((c) => c.hasAttribute(attr[1]));
+    const cls = /^\.([\w-]+)$/.exec(sel);
+    if (cls) return this.all().filter((c) => c.className.split(" ").includes(cls[1]));
+    return this.all().filter((c) => c.tag === sel);
   }
   set innerHTML(_v) { throw new Error("innerHTML must not be used"); }
 }
 
-function makePage({ live, userId, withDialog = true }) {
+function makePage({ live = false, userId = 7, withDialog = true } = {}) {
   const counters = { showModal: 0 };
-  const dialog = new El("dialog", { id: "whats-new-dialog", "data-releases-src": "/static/whats-new/releases.json?v=abc" });
-  dialog.open = false;
+  const dialog = new El("dialog", { id: "whats-new-dialog", "data-releases-src": "/api/staff/whats-new" });
   dialog.showModal = () => { counters.showModal += 1; dialog.open = true; };
   dialog.close = () => { if (!dialog.open) return; dialog.open = false; dialog.dispatch("close"); };
-  const date = new El("span", { "data-whats-new-date": "" });
+  const sub = new El("span", { "data-whats-new-sub": "" });
   const x = new El("button", { "data-whats-new-close": "" });
-  const list = new El("ol", { "data-whats-new-list": "" });
-  const notYet = new El("p", { "data-whats-new-notyet": "", hidden: "" });
-  const notYetText = new El("span", { "data-whats-new-notyet-text": "" });
-  notYet.append(notYetText);
+  const body = new El("div", { "data-whats-new-list": "" });
+  const all = new El("button", { "data-whats-new-all": "", hidden: "" });
   const ok = new El("button", { "data-whats-new-close": "" });
-  dialog.append(date, x, list, notYet, ok);
-  const link = new El("button", { id: "whats-new-open", hidden: "" });
-  const body = new El("body");
-  body.classList = new ClassList(live ? ["staff-shell", "course-live"] : ["staff-shell", "staff-home"]);
-  if (userId) body.dataset.userId = String(userId);
+  dialog.append(sub, x, body, all, ok);
+  const dot = new El("span", { "data-whats-new-dot": "", hidden: "" });
+  const link = new El("button", { id: "whats-new-open", hidden: "", "aria-label": "What's new" });
+  link.append(dot);
+  const page = new El("body");
+  page.classList = new ClassList(live ? ["staff-shell", "course-live"] : ["staff-shell", "staff-home"]);
+  if (userId) page.dataset.userId = String(userId);
   const byId = { "whats-new-open": link };
   if (withDialog) byId["whats-new-dialog"] = dialog;
   const document = {
-    body,
+    body: page,
     getElementById: (id) => byId[id] || null,
     createElement: (tag) => new El(tag),
+    createTextNode: (t) => String(t),
   };
-  return { document, dialog, list, date, notYet, notYetText, x, ok, link, counters };
+  return { document, dialog, sub, body, all, ok, x, link, dot, counters };
 }
 
 function makeStorage(seed = {}) {
@@ -415,140 +430,184 @@ function makeStorage(seed = {}) {
   return { data, getItem: (k) => (k in data ? data[k] : null), setItem: (k, v) => { data[k] = String(v); } };
 }
 
-function makeFetch(body, { ok = true, onCall } = {}) {
+function makeFetch(payload, { ok = true, onCall } = {}) {
   const calls = [];
-  const fn = async (url) => { calls.push(url); if (onCall) onCall(); return { ok, json: async () => body }; };
+  const fn = async (url) => { calls.push(url); if (onCall) onCall(); return { ok, json: async () => payload }; };
   fn.calls = calls;
   return fn;
 }
 
-const releases = input.releases;
-const out = {};
-const part = (li, cls) => { const el = li.children.find((c) => c.className === cls); return el ? el.textContent : null; };
-const snapshot = (p) => ({
+const view = (p) => ({
+  mode: p.dialog.getAttribute("data-mode"),
   showModal: p.counters.showModal,
   open: p.dialog.open,
-  items: p.list.children.length,
+  sub: p.sub.textContent,
+  days: p.body.querySelectorAll(".whats-new-day-head").map((h) => h.textContent),
+  lines: p.body.querySelectorAll(".whats-new-item-line").map((l) => l.textContent),
+  titles: p.body.querySelectorAll(".whats-new-item-title").map((l) => l.textContent),
+  chips: p.body.querySelectorAll(".whats-new-aud").map((c) => c.textContent),
+  tags: p.body.querySelectorAll(".whats-new-tag").length,
+  more: p.body.querySelectorAll(".whats-new-more").map((b) => b.textContent),
+  earlier: p.body.querySelectorAll(".whats-new-earlier").map((d) => d.children[0].textContent),
+  earlierRows: p.body.querySelectorAll(".whats-new-earlier-day").map((d) => d.children[0].textContent),
+  allHidden: p.all.hidden,
   linkHidden: p.link.hidden,
+  dotHidden: p.dot.hidden,
+  aria: p.link.getAttribute("aria-label"),
+  text: p.dialog.textContent,
 });
 
-// 1. Live class page: nothing at all, even with an unseen release and a link click.
+const payload = input.payload;
+const NOON_OCT4 = new Date("2026-10-04T16:00:00Z");
+const NOON_OCT5 = new Date("2026-10-05T16:00:00Z");
+const out = {};
+
+// 1. Live class page: nothing at all, even with unseen items and a click.
 {
-  const p = makePage({ live: true, userId: 7 });
-  const fetch = makeFetch(releases);
+  const p = makePage({ live: true });
+  const fetch = makeFetch(payload);
   const storage = makeStorage();
-  const result = await mod.initWhatsNew({ document: p.document, fetch, storage });
+  const result = await mod.initWhatsNew({ document: p.document, fetch, storage, now: NOON_OCT4 });
   p.link.click();
-  out.live = { result, fetches: fetch.calls.length, stored: storage.data, ...snapshot(p) };
+  out.live = { result, fetches: fetch.calls.length, stored: storage.data, ...view(p) };
 }
-// 2. The page goes live while releases.json loads: still nothing.
+// 2. The page goes live while the history loads: still nothing.
 {
-  const p = makePage({ live: false, userId: 7 });
-  const fetch = makeFetch(releases, { onCall: () => p.document.body.classList.add("course-live") });
-  const result = await mod.initWhatsNew({ document: p.document, fetch, storage: makeStorage() });
+  const p = makePage();
+  const fetch = makeFetch(payload, { onCall: () => p.document.body.classList.add("course-live") });
+  const result = await mod.initWhatsNew({ document: p.document, fetch, storage: makeStorage(), now: NOON_OCT4 });
   p.link.click();
-  out.wentLive = { result, ...snapshot(p) };
+  out.wentLive = { result, ...view(p) };
 }
-// 3. First Dashboard visit after the deploy: opens once; Got it marks seen.
+// 3. First Dashboard visit: unseen-only pop-up, 6 items, "+n more", dot.
 const storage = makeStorage();
 {
-  const p = makePage({ live: false, userId: 7 });
-  const fetch = makeFetch(releases);
-  const result = await mod.initWhatsNew({ document: p.document, fetch, storage });
-  out.first = {
-    result,
-    fetchUrl: fetch.calls[0],
-    date: p.date.textContent,
-    titles: p.list.children.map((li) => part(li, "whats-new-item-title")),
-    lines: p.list.children.map((li) => part(li, "whats-new-item-line")),
-    chips: p.list.children.map((li) => { const m = li.children[li.children.length - 1]; return [m.children[0].className, m.children[0].textContent]; }),
-    refs: p.list.children.map((li) => li.children[li.children.length - 1].children[1].textContent),
-    notYet: p.notYetText.textContent,
-    notYetHidden: p.notYet.hidden,
-    ...snapshot(p),
-  };
-  out.first.seenBeforeClose = storage.getItem("alc-whats-new:7");
+  const p = makePage();
+  const fetch = makeFetch(payload);
+  const result = await mod.initWhatsNew({ document: p.document, fetch, storage, now: NOON_OCT4 });
+  out.first = { result, fetchUrl: fetch.calls[0], popped: storage.getItem("alc-whats-new:7:popped"), ...view(p) };
+  p.body.querySelector(".whats-new-more").click();
+  out.firstMore = view(p);
   p.ok.click();
-  out.first.openAfterOk = p.dialog.open;
-  out.first.seenAfterOk = storage.getItem("alc-whats-new:7");
+  out.firstClosed = { seen: storage.getItem("alc-whats-new:7"), ...view(p) };
 }
-// 4. Reload: no auto-open; the link reopens; × closes.
+// 4. Reload the same day: no pop-up, no dot; the button opens the full list.
 {
-  const p = makePage({ live: false, userId: 7 });
-  const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch(releases), storage });
-  const before = snapshot(p);
+  const p = makePage();
+  const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch(payload), storage, now: NOON_OCT4 });
+  const before = view(p);
   p.link.click();
-  const afterLink = snapshot(p);
+  const afterLink = view(p);
   p.x.click();
   out.reload = { result, before, afterLink, openAfterX: p.dialog.open };
 }
-// 5. Another staff user in the same browser has their own key.
+// 5. A second deploy the same day: only the dot (once a day), "New" in the list.
+const later = {
+  schema: 2,
+  releases: [
+    { id: "eeeeeee", deployed_at: "2026-10-04T22:00:00+00:00", day: "2026-10-04",
+      items: [{ text: "In Run Live Class, a later same-day line.", audience: "Teacher" }] },
+    ...payload.releases,
+  ],
+};
 {
-  const p = makePage({ live: false, userId: 8 });
-  const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch(releases), storage });
-  out.otherUser = { result, ...snapshot(p) };
+  const p = makePage();
+  const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch(later), storage, now: new Date("2026-10-04T23:00:00Z") });
+  const before = view(p);
+  p.link.click();
+  const list = view(p);
+  p.ok.click();
+  out.sameDay = { result, before, list, after: view(p) };
 }
-// 6. No releases / failed fetch / footer removed / no dialog.
+// 6. Next day, another unseen deploy: it pops again with just that item.
+const nextDay = {
+  schema: 2,
+  releases: [
+    { id: "fffffff", deployed_at: "2026-10-05T14:00:00+00:00", day: "2026-10-05",
+      items: [{ text: "In Import from bank, a next-day line.", audience: "Both" }] },
+    ...later.releases,
+  ],
+};
 {
-  const p = makePage({ live: false, userId: 7 });
-  const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch({ releases: [] }), storage: makeStorage() });
-  out.empty = { result, ...snapshot(p) };
+  const p = makePage();
+  const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch(nextDay), storage, now: NOON_OCT5 });
+  out.nextDay = { result, ...view(p) };
+}
+// 7. Another staff user in the same browser has their own keys.
+{
+  const p = makePage({ userId: 8 });
+  const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch(payload), storage, now: NOON_OCT4 });
+  out.otherUser = { result, ...view(p) };
+}
+// 8. Legacy seen values: a bare date (MCK-124) and a slice 1 release id.
+for (const [key, seed] of [["legacyDate", "2026-10-02"], ["legacyId", payload.releases[0].id], ["popped", null]]) {
+  const p = makePage();
+  const s = makeStorage(seed ? { "alc-whats-new:7": seed } : { "alc-whats-new:7:popped": "2026-10-04" });
+  const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch(payload), storage: s, now: NOON_OCT4 });
+  out[key] = { result, ...view(p) };
+}
+// 9. Housekeeping release (no items) on top of a seen history: silent.
+{
+  const p = makePage();
+  const s = makeStorage({ "alc-whats-new:7": payload.releases[0].deployed_at });
+  const hk = { releases: [{ id: "aaaaaaa", deployed_at: "2026-10-04T20:00:00+00:00", day: "2026-10-04", items: [] },
+    { id: "bbbbbbb", deployed_at: "2026-10-04T20:30:00+00:00", day: "2026-10-04", items: [null, { text: "  " }, "x"] },
+    ...payload.releases] };
+  const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch(hk), storage: s, now: NOON_OCT4 });
+  out.housekeeping = { result, ...view(p) };
+}
+// 10. Empty history / failed fetch / no dialog.
+{
+  const p = makePage();
+  const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch({ releases: [] }), storage: makeStorage(), now: NOON_OCT4 });
+  out.empty = { result, ...view(p) };
 }
 {
-  const p = makePage({ live: false, userId: 7 });
-  const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch(null, { ok: false }), storage: makeStorage() });
-  out.failed = { result, ...snapshot(p) };
+  const p = makePage();
+  const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch(null, { ok: false }), storage: makeStorage(), now: NOON_OCT4 });
+  out.failed = { result, ...view(p) };
 }
 {
-  const p = makePage({ live: false, userId: 7 });
-  const trimmed = { releases: [{ ...releases.releases[0] }] };
-  delete trimmed.releases[0].not_yet;
-  delete trimmed.releases[0].not_yet_refs;
-  const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch(trimmed), storage: makeStorage() });
-  out.noFooter = { result, notYetHidden: p.notYet.hidden, ...snapshot(p) };
-}
-// Footer variants: blank text renders nothing; a real line still renders.
-for (const [key, value] of [["blankFooter", "   "], ["withFooter", "Fixture footer line for the harness."]]) {
-  const p = makePage({ live: false, userId: 7 });
-  const variant = { releases: [{ ...releases.releases[0], not_yet: value, not_yet_refs: "" }] };
-  const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch(variant), storage: makeStorage() });
-  out[key] = { result, notYet: p.notYetText.textContent, notYetHidden: p.notYet.hidden };
-}
-{
-  const p = makePage({ live: false, userId: 7, withDialog: false });
-  const fetch = makeFetch(releases);
-  const result = await mod.initWhatsNew({ document: p.document, fetch, storage: makeStorage() });
+  const p = makePage({ withDialog: false });
+  const fetch = makeFetch(payload);
+  const result = await mod.initWhatsNew({ document: p.document, fetch, storage: makeStorage(), now: NOON_OCT4 });
   out.noDialog = { result, fetches: fetch.calls.length };
 }
-// 7. MCK-182: null / blank items drop out; a release with none left
-// (housekeeping) is skipped for the next one; legacy items still render.
+// 11. Full list: 3 open days, then "Earlier" back 30 days; refs scrubbed.
 {
-  const p = makePage({ live: false, userId: 7 });
-  const legacy = releases.releases[releases.releases.length - 1];
-  const messy = {
-    schema: 2,
-    releases: [
-      { id: "aaaaaaa", sha: "a".repeat(40), deployed_at: "2026-10-05T09:00:00-04:00", day: "2026-10-05", items: [] },
-      { id: "bbbbbbb", sha: "b".repeat(40), deployed_at: "2026-10-04T20:00:00-04:00", day: "2026-10-04",
-        items: [null, { text: "   " }, "text", { text: "In Run Live Class, a real line.", audience: "Both", refs: "#1" }] },
-      legacy,
-    ],
-  };
-  const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch(messy), storage: makeStorage() });
-  out.messy = {
-    result,
-    date: p.date.textContent,
-    titles: p.list.children.map((li) => part(li, "whats-new-item-title")),
-    lines: p.list.children.map((li) => part(li, "whats-new-item-line")),
-    newestId: mod.newestRelease(messy).id,
-    onlyEmpty: mod.newestRelease({ releases: [messy.releases[0], { id: "c", items: [null] }] }),
-  };
-  const p2 = makePage({ live: false, userId: 7 });
-  const r2 = await mod.initWhatsNew({ document: p2.document, fetch: makeFetch({ releases: [legacy] }), storage: makeStorage() });
-  out.legacyOnly = { result: r2, titles: p2.list.children.map((li) => part(li, "whats-new-item-title")), date: p2.date.textContent };
+  const day = (d, n, extra = {}) => ({ id: `d${d}`, deployed_at: `${d}T15:00:00+00:00`, day: d,
+    items: Array.from({ length: n }, (_, i) => ({ text: `In Run Live Class, line ${i + 1} on ${d}.`, audience: "Teacher", ...extra })) });
+  const long = { releases: [
+    day("2026-10-04", 1, { text: "In Run Live Class (#243 · MCK-171), see MCK-9 and #12 at abc1234.", audience: "Both" }),
+    day("2026-10-03", 1), day("2026-10-01", 2), day("2026-09-29", 1), day("2026-09-28", 2), day("2026-09-10", 1),
+    day("2026-08-20", 3),
+  ] };
+  const p = makePage();
+  const s = makeStorage({ "alc-whats-new:7": "2026-10-02T12:00:00-04:00", "alc-whats-new:7:popped": "2026-10-04" });
+  const result = await mod.initWhatsNew({ document: p.document, fetch: makeFetch(long), storage: s, now: NOON_OCT4 });
+  p.link.click();
+  out.earlier = { result, ...view(p) };
 }
+// 12. Helpers.
+out.helpers = {
+  header: mod.formatDayHeader("2026-10-04"),
+  headerSat: mod.formatDayHeader("2026-10-03"),
+  torontoLateNight: mod.torontoDay(new Date("2026-10-05T03:30:00Z")),
+  minus: mod.dayMinus("2026-10-04", 30),
+  scrub: mod.scrubRefs("Export to CSV (#202 (+#200) · MCK-46) now works, see #9 and MCK-1 at 41162ea."),
+};
 console.log(JSON.stringify(out));
 """
+
+
+def _teacher_payload() -> dict:
+    """What ``/api/staff/whats-new`` sends for the committed file alone."""
+    import whats_new_store
+
+    return whats_new_store.teacher_payload(_releases())
+
+
+REF_RE = re.compile(r"MCK-\d|#\d|\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
 
 
 @unittest.skipUnless(shutil.which("node"), "node is required for the whats_new.js harness")
@@ -557,10 +616,8 @@ class WhatsNewScriptTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        payload = {
-            "module": WHATS_NEW_JS.resolve().as_uri(),
-            "releases": json.loads(RELEASES_JSON.read_text(encoding="utf-8")),
-        }
+        cls.payload = _teacher_payload()
+        payload = {"module": WHATS_NEW_JS.resolve().as_uri(), "payload": cls.payload}
         done = subprocess.run(
             [shutil.which("node"), "--input-type=module", "-e", HARNESS],
             input=json.dumps(payload),
@@ -572,67 +629,123 @@ class WhatsNewScriptTests(unittest.TestCase):
         if done.returncode != 0:
             raise AssertionError(done.stderr or done.stdout)
         cls.out = json.loads(done.stdout.strip().splitlines()[-1])
-        cls.newest = _releases()[0]
+        cls.all_items = [i for r in cls.payload["releases"] for i in r["items"]]
 
     def test_never_renders_or_opens_on_course_live(self) -> None:
-        """Hard rule, JS side: no fetch, no render, no open, link stays hidden."""
+        """Hard rule, JS side: no fetch, no render, no open, button stays hidden."""
         live = self.out["live"]
         self.assertEqual(live["result"], "live", live)
         self.assertEqual(live["fetches"], 0, live)
         self.assertEqual(live["showModal"], 0, live)
         self.assertFalse(live["open"], live)
-        self.assertEqual(live["items"], 0, live)
+        self.assertEqual(live["lines"], [], live)
         self.assertTrue(live["linkHidden"], live)
+        self.assertTrue(live["dotHidden"], live)
         self.assertEqual(live["stored"], {}, live)
 
     def test_going_live_while_loading_still_never_opens(self) -> None:
         went = self.out["wentLive"]
         self.assertEqual(went["result"], "live", went)
         self.assertEqual(went["showModal"], 0, went)
-        self.assertEqual(went["items"], 0, went)
+        self.assertEqual(went["lines"], [], went)
         self.assertTrue(went["linkHidden"], went)
 
-    def test_first_visit_opens_the_newest_release_in_wonder_order(self) -> None:
+    def test_first_visit_pops_unseen_items_grouped_by_day_max_six(self) -> None:
         first = self.out["first"]
-        items = self.newest["items"]
+        total = len(self.all_items)
         self.assertEqual(first["result"], "opened", first)
+        self.assertEqual(first["fetchUrl"], "/api/staff/whats-new")
         self.assertEqual(first["showModal"], 1, first)
-        self.assertTrue(first["fetchUrl"].startswith("/static/whats-new/releases.json"), first)
-        # Schema 2 items have no title: one text line each.
-        self.assertEqual(first["titles"], [i.get("title") for i in items])
-        self.assertEqual(first["lines"], [i.get("text") or i.get("line") for i in items])
-        self.assertEqual(first["date"], "Oct 4, 2026")
-        self.assertEqual(first["refs"], [i["refs"] for i in items])
-        self.assertEqual(
-            first["chips"],
-            [
-                ["whats-new-aud is-both" if i["audience"].startswith("Both") else "whats-new-aud", i["audience"]]
-                for i in items
-            ],
-        )
-        self.assertFalse(first["linkHidden"], first)
-        if str(self.newest.get("not_yet") or "").strip():
-            self.assertEqual(first["notYet"], self.newest["not_yet"].strip())
-            self.assertFalse(first["notYetHidden"])
-        else:
-            # Empty footer (Wonder dropped the #214 line): nothing renders.
-            self.assertEqual(first["notYet"], "", first)
-            self.assertTrue(first["notYetHidden"], first)
+        self.assertEqual(first["mode"], "popup")
+        self.assertEqual(first["sub"], f"{total} changes")
+        self.assertEqual(len(first["lines"]), 6, first)
+        self.assertEqual(first["lines"], [i.get("text") or i.get("line") for i in self.all_items][:6])
+        self.assertEqual(first["days"], ["Sun Oct 4", "Sat Oct 3"])
+        self.assertEqual(first["more"], [f"+{total - 6} more"])
+        self.assertEqual(first["tags"], 0, "no New tags in the pop-up")
+        self.assertFalse(first["allHidden"], "See all updates shows in the pop-up")
+        self.assertEqual(first["popped"], "2026-10-04")
+        self.assertFalse(first["dotHidden"])
+        self.assertEqual(first["aria"], f"What's new, {total} new")
+        self.assertFalse(first["linkHidden"])
 
-    def test_got_it_marks_seen_and_reload_does_not_reopen(self) -> None:
-        first, reload = self.out["first"], self.out["reload"]
-        self.assertIsNone(first["seenBeforeClose"], first)
-        self.assertFalse(first["openAfterOk"], first)
-        self.assertEqual(first["seenAfterOk"], self.newest["id"], first)
+    def test_only_both_items_get_a_chip_and_it_reads_students_see_this_too(self) -> None:
+        first = self.out["first"]
+        shown = self.all_items[:6]
+        self.assertEqual(first["chips"], ["Students see this too"] * sum(i["audience"] == "Both" for i in shown))
+
+    def test_more_opens_the_full_list_with_new_tags(self) -> None:
+        more = self.out["firstMore"]
+        self.assertEqual(more["mode"], "all")
+        self.assertEqual(more["sub"], "All updates")
+        self.assertEqual(more["days"], ["Sun Oct 4", "Sat Oct 3", "Fri Oct 2"])
+        self.assertEqual(len(more["lines"]), len(self.all_items))
+        self.assertEqual(more["tags"], len(self.all_items))
+        self.assertEqual(more["titles"][0], "Group work is one switch")
+        self.assertTrue(more["allHidden"])
+        self.assertEqual(more["earlier"], [])
+
+    def test_closing_marks_everything_seen_and_clears_the_dot(self) -> None:
+        closed = self.out["firstClosed"]
+        self.assertFalse(closed["open"])
+        self.assertEqual(closed["seen"], self.payload["releases"][0]["deployed_at"])
+        self.assertTrue(closed["dotHidden"])
+        self.assertEqual(closed["aria"], "What's new")
+        reload = self.out["reload"]
         self.assertEqual(reload["result"], "seen", reload)
-        self.assertEqual(reload["before"]["showModal"], 0, reload)
-        self.assertTrue(reload["afterLink"]["open"], reload)
-        self.assertFalse(reload["openAfterX"], reload)
+        self.assertEqual(reload["before"]["showModal"], 0)
+        self.assertTrue(reload["before"]["dotHidden"])
+        self.assertTrue(reload["afterLink"]["open"])
+        self.assertEqual(reload["afterLink"]["mode"], "all")
+        self.assertEqual(reload["afterLink"]["tags"], 0, "nothing is New after closing")
+        self.assertFalse(reload["openAfterX"])
+
+    def test_second_deploy_the_same_day_only_lights_the_dot(self) -> None:
+        same = self.out["sameDay"]
+        self.assertEqual(same["result"], "dot", same)
+        self.assertEqual(same["before"]["showModal"], 0)
+        self.assertFalse(same["before"]["dotHidden"])
+        self.assertEqual(same["before"]["aria"], "What's new, 1 new")
+        self.assertEqual(same["list"]["mode"], "all")
+        self.assertEqual(same["list"]["tags"], 1)
+        self.assertEqual(same["list"]["lines"][0], "NewIn Run Live Class, a later same-day line.")
+        self.assertTrue(same["after"]["dotHidden"])
+
+    def test_next_day_pops_again_with_only_the_new_item(self) -> None:
+        nxt = self.out["nextDay"]
+        self.assertEqual(nxt["result"], "opened", nxt)
+        self.assertEqual(nxt["sub"], "1 change")
+        self.assertEqual(nxt["days"], ["Mon Oct 5"])
+        self.assertEqual(nxt["lines"], ["In Import from bank, a next-day line."])
+        self.assertEqual(nxt["chips"], ["Students see this too"])
+        self.assertEqual(nxt["more"], [])
 
     def test_seen_state_is_per_staff_user(self) -> None:
         self.assertEqual(self.out["otherUser"]["result"], "opened", self.out["otherUser"])
 
-    def test_no_release_failed_fetch_or_no_dialog_does_nothing(self) -> None:
+    def test_legacy_seen_values_carry_over(self) -> None:
+        """A bare date reads as that day 23:59; a slice 1 id as that release."""
+        legacy = self.out["legacyDate"]
+        newer = [i for r in self.payload["releases"] if r["day"] > "2026-10-02" for i in r["items"]]
+        self.assertEqual(legacy["result"], "opened")
+        self.assertEqual(legacy["sub"], f"{len(newer)} changes")
+        self.assertNotIn("Fri Oct 2", legacy["days"])
+        self.assertEqual(self.out["legacyId"]["result"], "seen")
+        self.assertTrue(self.out["legacyId"]["dotHidden"])
+
+    def test_already_popped_today_shows_the_dot_only(self) -> None:
+        popped = self.out["popped"]
+        self.assertEqual(popped["result"], "dot")
+        self.assertEqual(popped["showModal"], 0)
+        self.assertFalse(popped["dotHidden"])
+
+    def test_housekeeping_release_gives_no_dot_and_no_pop_up(self) -> None:
+        hk = self.out["housekeeping"]
+        self.assertEqual(hk["result"], "seen", hk)
+        self.assertEqual(hk["showModal"], 0)
+        self.assertTrue(hk["dotHidden"])
+
+    def test_no_history_failed_fetch_or_no_dialog_does_nothing(self) -> None:
         for key, result in (("empty", "empty"), ("failed", "error")):
             got = self.out[key]
             self.assertEqual(got["result"], result, got)
@@ -640,35 +753,32 @@ class WhatsNewScriptTests(unittest.TestCase):
             self.assertTrue(got["linkHidden"], got)
         self.assertEqual(self.out["noDialog"], {"result": "absent", "fetches": 0})
 
-    def test_footer_drops_out_cleanly_when_removed(self) -> None:
-        """Keys deleted or blank: no footer. A real line still renders."""
-        got = self.out["noFooter"]
-        self.assertEqual(got["result"], "opened", got)
-        self.assertTrue(got["notYetHidden"], got)
-        blank = self.out["blankFooter"]
-        self.assertTrue(blank["notYetHidden"], blank)
-        self.assertEqual(blank["notYet"], "", blank)
-        shown = self.out["withFooter"]
-        self.assertFalse(shown["notYetHidden"], shown)
-        self.assertEqual(shown["notYet"], "Fixture footer line for the harness.", shown)
+    def test_full_list_has_three_open_days_then_earlier_back_30_days(self) -> None:
+        got = self.out["earlier"]
+        self.assertEqual(got["result"], "dot")
+        self.assertEqual(got["days"], ["Sun Oct 4", "Sat Oct 3", "Thu Oct 1"])
+        self.assertEqual(got["earlier"], ["Earlier"])
+        self.assertEqual(got["earlierRows"], ["Tue Sep 29 · 1 change", "Mon Sep 28 · 2 changes", "Thu Sep 10 · 1 change"])
+        self.assertNotIn("2026-08-20", got["text"])
+        # Only releases after the stored seen time are New.
+        self.assertEqual(got["tags"], 2)
 
-    def test_null_items_and_housekeeping_releases_are_skipped(self) -> None:
-        """MCK-124 LOW + MCK-182: junk items and empty releases never render."""
-        messy = self.out["messy"]
-        self.assertEqual(messy["result"], "opened", messy)
-        self.assertEqual(messy["newestId"], "bbbbbbb", messy)
-        self.assertEqual(messy["lines"], ["In Run Live Class, a real line."], messy)
-        self.assertEqual(messy["titles"], [None], messy)
-        self.assertEqual(messy["date"], "Oct 4, 2026", messy)
-        self.assertIsNone(messy["onlyEmpty"], messy)
-        legacy = self.out["legacyOnly"]
-        self.assertEqual(legacy["result"], "opened", legacy)
-        self.assertEqual(legacy["date"], "Oct 2, 2026", legacy)
-        self.assertEqual(legacy["titles"][0], "Group work is one switch", legacy)
+    def test_no_refs_or_shas_reach_the_screen(self) -> None:
+        for key in ("first", "firstMore", "earlier", "nextDay"):
+            self.assertNotRegex(self.out[key]["text"], REF_RE, key)
+        self.assertEqual(self.out["earlier"]["lines"][0], "NewIn Run Live Class, see and at.")
+        self.assertEqual(self.out["helpers"]["scrub"], "Export to CSV now works, see and at.")
+
+    def test_helpers(self) -> None:
+        h = self.out["helpers"]
+        self.assertEqual(h["header"], "Sun Oct 4")
+        self.assertEqual(h["headerSat"], "Sat Oct 3")
+        self.assertEqual(h["torontoLateNight"], "2026-10-04")
+        self.assertEqual(h["minus"], "2026-09-04")
 
     def test_script_writes_text_only(self) -> None:
         src = WHATS_NEW_JS.read_text(encoding="utf-8")
-        self.assertNotIn("innerHTML", src.replace("never innerHTML", ""))
+        self.assertNotIn("innerHTML", src)
         self.assertIn('classList.contains("course-live")', src)
 
 

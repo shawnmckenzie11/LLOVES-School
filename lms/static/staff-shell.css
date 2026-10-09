@@ -6384,8 +6384,10 @@ body.staff-shell .attendance-grid td.name .roster-name-form {
   min-width: 12rem;
 }
 
-/* MCK-124 slice 1: staff "What's new" panel (Dashboard). Same family as
-   .live-relocate-dialog. Never on body.course-live (whats_new.js guards). */
+/* MCK-124 / MCK-182: staff "What's new" panel (Dashboard). Same family as
+   .live-relocate-dialog. Never on body.course-live (whats_new.js guards).
+   Slice 2 (Mobbin S2/S3): day groups, a plain unread dot on the button, a
+   "+n more" row, "New" tags and an "Earlier" tail in the full list. */
 body.staff-shell.staff-home button.staff-corner-link {
   font: inherit;
   font-weight: 650;
@@ -6393,6 +6395,23 @@ body.staff-shell.staff-home button.staff-corner-link {
   cursor: pointer;
 }
 body.staff-shell.staff-home .staff-corner-link[hidden] {
+  display: none;
+}
+body.staff-shell.staff-home .whats-new-open {
+  position: relative;
+}
+body.staff-shell .whats-new-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #0f766e;
+  box-shadow: 0 0 0 2px #fff;
+  pointer-events: none;
+}
+body.staff-shell .whats-new-dot[hidden] {
   display: none;
 }
 body.staff-shell .whats-new-dialog {
@@ -6422,7 +6441,7 @@ body.staff-shell .whats-new-card {
   flex-direction: column;
   box-sizing: border-box;
   width: min(720px, calc(100vw - 2rem));
-  max-height: 86vh;
+  max-height: min(86vh, calc(100dvh - 2rem));
   margin: 0;
   background: #fff;
   color: #12202e;
@@ -6443,7 +6462,7 @@ body.staff-shell .whats-new-head h2 {
   font-size: 1.2rem;
   color: #0f172a;
 }
-body.staff-shell .whats-new-date {
+body.staff-shell .whats-new-sub {
   color: #64748b;
   font-size: 0.875rem;
 }
@@ -6463,77 +6482,126 @@ body.staff-shell .whats-new-x:hover,
 body.staff-shell .whats-new-x:focus-visible {
   border-color: #94a3b8;
 }
-body.staff-shell .whats-new-list {
+body.staff-shell .whats-new-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  padding: 0.25rem 1.25rem 0.5rem;
+}
+body.staff-shell .whats-new-day + .whats-new-day {
+  margin-top: 0.35rem;
+}
+body.staff-shell .whats-new-day-head {
+  margin: 0.75rem 0 0.1rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #0b5f59;
+}
+body.staff-shell .whats-new-items {
   list-style: none;
   margin: 0;
-  padding: 0.25rem 1.25rem;
+  padding: 0;
 }
 body.staff-shell .whats-new-item {
-  padding: 0.75rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.35rem 0.75rem;
+  padding: 0.65rem 0;
   border-bottom: 1px solid #eef2f7;
 }
 body.staff-shell .whats-new-item:last-child {
   border-bottom: 0;
 }
+body.staff-shell .whats-new-item-main {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
 body.staff-shell .whats-new-item-title {
-  margin: 0 0 0.25rem;
+  margin: 0 0 0.2rem;
   font-size: 0.97rem;
   color: #0f172a;
 }
 body.staff-shell .whats-new-item-line {
-  margin: 0 0 0.4rem;
+  margin: 0;
   font-size: 0.875rem;
   line-height: 1.4;
   color: #334155;
 }
-body.staff-shell .whats-new-item-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.75rem;
-  color: #64748b;
+body.staff-shell .whats-new-tag {
+  display: inline-block;
+  margin-right: 0.4rem;
+  padding: 0 0.4rem;
+  border-radius: 4px;
+  background: #0f766e;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1.35rem;
+  vertical-align: 0.1rem;
 }
 body.staff-shell .whats-new-aud {
+  flex: 0 0 auto;
   display: inline-flex;
   padding: 0.05rem 0.5rem;
-  border: 1px solid #94a3b8;
+  border: 1px solid #0f766e;
   border-radius: 999px;
-  background: #f8fafc;
-  color: #334155;
-  font-weight: 650;
-}
-body.staff-shell .whats-new-aud.is-both {
-  border-color: #0f766e;
   background: #ecfdf5;
   color: #0b5f59;
+  font-size: 0.75rem;
+  font-weight: 650;
+  white-space: nowrap;
 }
-body.staff-shell .whats-new-notyet {
-  margin: 0.5rem 1.25rem 0;
-  padding: 0.55rem 0.75rem;
-  background: #f8fafc;
+body.staff-shell .whats-new-more,
+body.staff-shell .whats-new-all {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #0b5f59;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+body.staff-shell .whats-new-more {
+  margin: 0.6rem 0 0.2rem;
+}
+body.staff-shell .whats-new-all[hidden] {
+  display: none;
+}
+body.staff-shell .whats-new-earlier {
+  margin: 0.9rem 0 0.25rem;
+  padding: 0.5rem 0.75rem;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  font-size: 0.8rem;
-  color: #334155;
+  background: #f8fafc;
 }
-body.staff-shell .whats-new-notyet b {
+body.staff-shell .whats-new-earlier > summary {
+  font-weight: 650;
+  font-size: 0.875rem;
   color: #12202e;
+  cursor: pointer;
+}
+body.staff-shell .whats-new-earlier-day {
+  margin: 0.35rem 0 0 0.6rem;
+}
+body.staff-shell .whats-new-earlier-day > summary {
+  font-size: 0.85rem;
+  color: #334155;
+  cursor: pointer;
 }
 body.staff-shell .whats-new-foot {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.6rem;
+  justify-content: flex-end;
+  gap: 0.6rem 1rem;
   padding: 0.85rem 1.25rem 1rem;
-}
-body.staff-shell .whats-new-build {
-  margin-right: auto;
-  color: #64748b;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.75rem;
+  border-top: 1px solid #e2e8f0;
 }
 body.staff-shell .whats-new-ok {
   padding: 0.45rem 1rem;
@@ -6554,18 +6622,15 @@ body.staff-shell .whats-new-ok:hover {
   }
   body.staff-shell .whats-new-card {
     width: calc(100vw - 1rem);
-    max-height: 92vh;
+    max-height: min(92vh, calc(100dvh - 1rem));
   }
   body.staff-shell .whats-new-head,
   body.staff-shell .whats-new-foot {
     padding-left: 0.9rem;
     padding-right: 0.9rem;
   }
-  body.staff-shell .whats-new-list {
-    padding: 0.25rem 0.9rem;
-  }
-  body.staff-shell .whats-new-notyet {
-    margin: 0.5rem 0.9rem 0;
+  body.staff-shell .whats-new-body {
+    padding: 0.25rem 0.9rem 0.5rem;
   }
 }
 /* MCK-133 Start fresh (Mobbin IA v0): one quiet control in the Celebrations

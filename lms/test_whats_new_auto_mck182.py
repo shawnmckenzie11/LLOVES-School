@@ -177,6 +177,7 @@ class BuildTests(unittest.TestCase):
                     {"text": GOOD, "audience": "Teacher", "refs": "#244 · MCK-244"},
                     {"text": BOTH, "audience": "Both", "refs": "#243 · MCK-171"},
                 ],
+                "source": "deploy",
             },
         )
         self.assertEqual(out["schema"], 2)
