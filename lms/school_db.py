@@ -19826,6 +19826,18 @@ class SchoolDB(LovesDB):
                     if own and game_conn.in_transaction:
                         game_conn.execute("ROLLBACK")
                     return {"team_id": int(team_id), "points": int(points), "team_rule": rule, "changed": False}
+                # MCK-192 (a): store exactly who this award credits. The forward
+                # award only credits current team members, read here inside the
+                # write transaction (no cache), so a student who moved team
+                # between the members read and now is neither credited nor
+                # later debited by a re-award.
+                game_row = self.game._game_row(int(class_id))
+                wanted_ids = {int(sid) for sid in members}
+                members = [
+                    int(sid)
+                    for sid in self.game._team_member_ids(int(game_row["id"]), int(team_id))
+                    if int(sid) in wanted_ids
+                ]
                 game_conn.execute(
                     """
                     INSERT INTO live_rank_team_awards

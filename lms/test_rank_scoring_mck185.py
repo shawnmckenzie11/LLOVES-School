@@ -21,7 +21,6 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-import time
 import unittest
 from pathlib import Path
 from typing import Any
@@ -255,6 +254,44 @@ class ScoreTeamsTests(SpotsHarness):
         self.assertEqual(self._events(), events)
         self.assertEqual([self._session_points(n) for n in TEAM_A], [8, 8, 8])
 
+    def test_member_who_moves_mid_award_is_never_debited(self) -> None:
+        """MCK-192 (a): the stored members are the ones actually credited."""
+        item = self._turns_two_teams()
+        a, b = self._team("Ava", item), self._team("Ben", item)
+        mover = TEAM_A[-1]
+        school = self.school
+        real = school._teammate_ids_for_class
+        fired = []
+
+        def racy(class_id: int, team_id: int):
+            out = real(class_id, team_id)
+            if team_id == a and not fired:
+                fired.append(1)
+                game_id = int(school.game._game_row(self.class_id)["id"])
+                with school.game._lock:
+                    school.game.conn.execute(
+                        "UPDATE game_memberships SET team_id = ? WHERE game_id = ? AND student_id = ?",
+                        (b, game_id, self.ids[mover]),
+                    )
+                    school.game.conn.commit()
+                cache = getattr(school.game, "_team_index_cache", None)
+                if cache is not None:
+                    cache.clear()
+            return out
+
+        school._teammate_ids_for_class = racy
+        try:
+            self.assertEqual(self._assign(item, [(a, 5)]).status_code, 200)
+        finally:
+            school._teammate_ids_for_class = real
+        self.assertTrue(fired)
+        self.assertEqual(self._session_points(mover), 0)
+        self._assign(item, [(a, 7)])
+        self.assertEqual(self._session_points(mover), 0)
+        self._assign(item, [(a, 0)])
+        self.assertEqual(self._session_points(mover), 0)
+        self.assertEqual([self._session_points(n) for n in TEAM_A[:-1]], [0] * (len(TEAM_A) - 1))
+
     def test_reassign_replaces_and_never_stacks(self) -> None:
         item = self._turns_two_teams()
         a = self._team("Ava", item)
@@ -454,7 +491,8 @@ class ScoreTeamsTests(SpotsHarness):
         between = self.school._assemble_live_session_state(self.session_id)
         self.assertIn("game_points_ver", between)
         self.assertIsNone(between["game_points_ver"])  # no open game: the page forgets the old one
-        time.sleep(1.05)  # games.created_at has whole seconds
+        # MCK-192 (e): no wait. Quit + Begin in the same second still gets a
+        # new game_key (games.created_at keeps microseconds).
         begun = self.client.post(f"/api/classes/{self.class_id}/begin", json={})
         self.assertEqual(begun.status_code, 200, begun.get_data(as_text=True))
         new = self.school._assemble_live_session_state(self.session_id)
@@ -689,6 +727,26 @@ class StudentLeakTests(SpotsHarness):
         self.assertNotIn("race", self._card("Ava", item))
 
 
+class Mck192StaffPollTests(unittest.TestCase):
+    """MCK-192 (b)(c)(d): staff_ap.js source checks."""
+
+    src = (Path(__file__).resolve().parent / "static" / "staff_ap.js").read_text(encoding="utf-8")
+
+    def test_state_poll_has_a_timeout_and_retry_cuts_a_hung_poll(self) -> None:
+        self.assertIn("const STAFF_STATE_TIMEOUT_MS = 15000;", self.src)
+        self.assertIn("window.setTimeout(() => pollAbort.abort(), STAFF_STATE_TIMEOUT_MS)", self.src)
+        self.assertIn("api(`/api/live-sessions/${id}/state${qs}`, fetchOpts)", self.src)
+        retry = self.src[self.src.index("function reissueLiveStateOnce()"):]
+        retry = retry[: retry.index("\n}\n")]
+        self.assertIn("sessionPollAbort.abort();", retry)
+        self.assertIn("sessionPollQueued = {", retry)
+
+    def test_quit_copy_and_no_dead_helper(self) -> None:
+        self.assertNotIn("Scores already logged stay registered", self.src)
+        self.assertIn("Quit scoring? This game's points won't be saved.", self.src)
+        self.assertNotIn("clearStuckGameForLiveSession", self.src)
+
+
 class ViewTests(unittest.TestCase):
     """Node harness for the view builders, and the staff shell wiring."""
 
@@ -736,7 +794,7 @@ class ViewTests(unittest.TestCase):
         self.assertIn("seq < gamePointsVer.seq", staff)
         # Gate LOW-3 on 2cc6a9e: forget the version whenever a game ends,
         # is quit or begins, and when a full poll says there is no game.
-        self.assertEqual(staff.count("resetGamePointsVer();"), 6, "begin x2, cancel, stuck-game clear, end, poll")
+        self.assertEqual(staff.count("resetGamePointsVer();"), 5, "begin x2, cancel, end, poll (MCK-192 removed the unused stuck-game helper)")
         self.assertIn('hasOwnProperty.call(payload || {}, "game_points_ver") && !payload.game_points_ver', staff)
         # Gate LOW-3: at ~390px the rows wrap and the dialog scrolls.
         self.assertIn('"stepper stepper action"', css)
