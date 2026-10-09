@@ -197,5 +197,82 @@ function assert(cond, msg) { if (!cond) throw new Error(msg); }
         self.assertIn("ok", completed.stdout)
 
 
+FRAMES_SCRIPT = r"""const fs = require("fs");
+const vm = require("vm");
+const src = fs.readFileSync(process.argv[1], "utf8");
+function meta(content) { return { content, getAttribute() { return this.content; } }; }
+const metas = {
+  'meta[name="lloves-sentry-dsn"]': meta("https://public@o0.ingest.sentry.io/1"),
+  'meta[name="lloves-sentry-environment"]': meta("tip"),
+  'meta[name="lloves-sentry-tags"]': meta('{"portal":"student"}'),
+};
+const sandbox = {
+  console,
+  location: { origin: "https://alc.mckenzian.com" },
+  document: { querySelector(sel) { return metas[sel] || null; } },
+  fetch: function () { return Promise.resolve({ status: 200, ok: true }); },
+};
+sandbox.window = sandbox;
+sandbox.globalThis = sandbox;
+sandbox.Sentry = {
+  init(opts) { sandbox.__opts = opts; },
+  browserTracingIntegration() { return { name: "BrowserTracing" }; },
+  setUser() {}, setTags() {}, captureMessage() {}, captureException() {}, addBreadcrumb() {},
+};
+vm.createContext(sandbox);
+vm.runInContext(src, sandbox);
+const TOK = "VISITtok123secret";
+const frame = (n) => ({
+  filename: `https://alc.mckenzian.com/static/student_${n}.js?v=${TOK}`,
+  abs_path: `https://alc.mckenzian.com/student/home?v=${TOK}#x`,
+  function: "f" + n,
+});
+const event = {
+  message: `Load failed https://alc.mckenzian.com/student/waiting?v=${TOK}`,
+  exception: { values: [
+    { type: "TypeError", value: `bad at /static/a.js?v=${TOK}:1:2`, stacktrace: { frames: [frame(1), frame(2)] } },
+    { type: "Error", value: "x", stacktrace: { frames: [frame(3)] } },
+  ] },
+  threads: { values: [{ stacktrace: { frames: [frame(4)] } }] },
+  request: { url: `https://alc.mckenzian.com/student/s/SEAT${TOK}?v=${TOK}` },
+  breadcrumbs: [
+    { category: "navigation", data: { from: `/student/waiting?v=${TOK}`, to: `/student/s/SEAT${TOK}` } },
+    { category: "sentry.event", message: `Error at https://alc.mckenzian.com/static/b.js?v=${TOK}` },
+    { category: "xhr", data: { url: `/api/student/x?v=${TOK}`, method: "POST", status_code: 500 } },
+  ],
+};
+const out = sandbox.__opts.beforeSend(event);
+const text = JSON.stringify(out);
+if (text.includes(TOK)) { console.error("token leaked: " + text); process.exit(1); }
+if (out.exception.values[0].stacktrace.frames[0].filename !== "https://alc.mckenzian.com/static/student_1.js") {
+  console.error("frame filename: " + out.exception.values[0].stacktrace.frames[0].filename); process.exit(1);
+}
+if (out.exception.values[0].stacktrace.frames[1].abs_path !== "https://alc.mckenzian.com/student/home") {
+  console.error("abs_path: " + out.exception.values[0].stacktrace.frames[1].abs_path); process.exit(1);
+}
+if (!text.includes("/student/s/[token]")) { console.error("seat path not masked"); process.exit(1); }
+console.log("ok");
+"""
+
+
+class StackFrameScrubTests(unittest.TestCase):
+    """#269 gate MED: no visit token in frame filename/abs_path, values or crumbs."""
+
+    def test_frames_values_and_breadcrumbs_lose_the_token(self) -> None:
+        completed = subprocess.run(
+            ["node", "-e", FRAMES_SCRIPT, str(LMS_DIR / "static" / "sentry-live.js")],
+            check=False, capture_output=True, text=True, timeout=20,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+        self.assertIn("ok", completed.stdout)
+
+    def test_server_masks_student_seat_path(self) -> None:
+        self.assertEqual(
+            sentry_wire._strip_url_query("https://alc.mckenzian.com/student/s/AbC123?v=x"),
+            "https://alc.mckenzian.com/student/s/[token]",
+        )
+        self.assertEqual(sentry_wire._strip_url_query("/invite/tok/switch"), "/invite/[token]/switch")
+
+
 if __name__ == "__main__":
     unittest.main()

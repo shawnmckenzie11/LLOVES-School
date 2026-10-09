@@ -1266,14 +1266,14 @@ def first_name_only(raw: str) -> str:
     A short number stays (MCK-183): Welcome tells teachers to type a
     repeated first name as "Sam 2", and dropping the number showed both
     students as "Sam". The number may follow the first word ("Sam 2"),
-    be glued on ("Sam2" → "Sam 2"), or end a two-word name ("Jean Luc 2"
-    → "Jean 2", so it never shows the same as "Jean Luc" → "Jean").
+    be glued on ("Sam2" → "Sam 2"), or end a multi-word name, which is then
+    kept whole ("Jean Luc 2" stays "Jean Luc 2"; plain "Jean Luc" → "Jean").
 
     Args:
         raw: Student-entered name or Codename.
 
     Returns:
-        Trimmed first token (plus a trailing 1-2 digit number), or ``""``.
+        First token (plus a 1-2 digit number), a whole numbered name, or ``""``.
     """
     tokens = _number_tokens(raw)
     if not tokens:
@@ -1281,7 +1281,9 @@ def first_name_only(raw: str) -> str:
     if len(tokens) > 1 and _REPEAT_NUMBER.fullmatch(tokens[1]):
         return f"{tokens[0]} {tokens[1]}"
     if len(tokens) > 2 and _REPEAT_NUMBER.fullmatch(tokens[-1]):
-        return f"{tokens[0]} {tokens[-1]}"
+        # "Jean Luc 2" is a roster name with a repeat number: keep it whole
+        # (#269 gate), so it never shows as "Jean 2".
+        return " ".join(tokens)
     return tokens[0]
 
 

@@ -118,6 +118,60 @@ class InviteListTests(_Base):
         with teacher.session_transaction() as sess:
             self.assertFalse(sess.get("logged_in"))
 
+    def test_existing_teacher_is_never_changed_by_invite_or_revoke(self) -> None:
+        """#269 gate MED: is_test stays 0 and Revoke leaves her account alone."""
+        real = self.school.register_staff("percival.real@gmail.com")
+        uid = int(real["id"])
+        self.school.assign_course(teacher_user_id=uid, ontario_code="MCF3M")
+        inv, _tok = staff_invites.create_or_refresh_invite(
+            self.school, email="percival.real@gmail.com", first_name="P", kind="test",
+        )
+        self.assertEqual(int(self.school.get_user(uid).get("is_test") or 0), 0)
+        self.assertEqual(int(inv.get("owns_account") or 0), 0)
+        # Resend refreshes the same invite and still owns nothing.
+        inv2, _ = staff_invites.create_or_refresh_invite(
+            self.school, email="percival.real@gmail.com", first_name="P", kind="test",
+        )
+        self.assertEqual(int(inv2["id"]), int(inv["id"]))
+        self.assertEqual(int(self.school.get_user(uid).get("is_test") or 0), 0)
+        rv = self.client.post(f"/it/invites/{inv['id']}/revoke")
+        self.assertEqual(rv.status_code, 302)
+        user = self.school.get_user(uid)
+        self.assertFalse(user.get("archived_at"))
+        self.assertEqual(int(user.get("is_test") or 0), 0)
+        self.assertEqual(staff_invites.get_invite(self.school, int(inv["id"]))["revoked_at"] is not None, True)
+
+    def test_admin_send_refuses_existing_teacher(self) -> None:
+        """Admin → Send invite to an active teacher: refused, nothing changes."""
+        real = self.school.register_staff("percival.real@gmail.com")
+        with patch("app.send_email", return_value=True, create=True):
+            rv = self.client.post("/it/invites", data={
+                "email": "percival.real@gmail.com", "first_name": "P", "kind": "test",
+            })
+        self.assertEqual(rv.status_code, 302)
+        self.assertIsNone(staff_invites.open_invite_for(self.school, 1, "percival.real@gmail.com"))
+        self.assertEqual(int(self.school.get_user(int(real["id"])).get("is_test") or 0), 0)
+        page = self.client.get("/it").get_data(as_text=True)
+        self.assertIn("That teacher already has an account and can sign in.", page)
+
+    def test_invite_owned_account_refresh_and_reactivation(self) -> None:
+        """An invite-made account stays owned on resend; a revoked one reactivates and is owned."""
+        self.assertEqual(int(self.invite.get("owns_account") or 0), 1)
+        again, _ = staff_invites.create_or_refresh_invite(
+            self.school, email=NEW, first_name="Rae", kind="teacher",
+        )
+        self.assertEqual(int(again["owns_account"]), 1)
+        user = self.school.get_user_by_email(NEW)
+        self.assertEqual(int(user.get("is_test") or 0), 0)
+        staff_invites.revoke_invite(self.school, int(again["id"]), int(self.it["id"]) if hasattr(self, "it") else 1)
+        self.assertTrue(self.school.get_user_by_email(NEW).get("archived_at"))
+        back, _ = staff_invites.create_or_refresh_invite(
+            self.school, email=NEW, first_name="Rae", kind="test",
+        )
+        self.assertEqual(int(back["owns_account"]), 1)
+        self.assertFalse(self.school.get_user_by_email(NEW).get("archived_at"))
+        self.assertEqual(int(self.school.get_user_by_email(NEW).get("is_test") or 0), 1)
+
     def test_staff_only_and_other_school(self) -> None:
         """Teachers can't use the invite actions; unknown ids 404."""
         self.assertEqual(self.client.post("/it/invites/9999/link").status_code, 404)

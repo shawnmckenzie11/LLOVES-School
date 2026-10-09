@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS staff_invites (
     send_count INTEGER NOT NULL DEFAULT 0,
     expires_at TEXT NOT NULL,
     accepted_at TEXT,
-    revoked_at TEXT
+    revoked_at TEXT,
+    owns_account INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_staff_invites_email ON staff_invites(tenant_id, email);
 CREATE TABLE IF NOT EXISTS staff_invite_sends (
@@ -99,6 +100,13 @@ def ensure_schema(conn: Any) -> None:
     cols = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
     if "is_test" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0")
+    invite_cols = {row[1] for row in conn.execute("PRAGMA table_info(staff_invites)")}
+    if "owns_account" not in invite_cols:
+        # 1 when the invite created (or reactivated) the account, so Revoke
+        # may undo it. An invite to an existing active teacher never owns it.
+        conn.execute(
+            "ALTER TABLE staff_invites ADD COLUMN owns_account INTEGER NOT NULL DEFAULT 0"
+        )
 
 
 def invite_status(row: dict[str, Any], now: datetime | None = None) -> str:
@@ -210,40 +218,50 @@ def create_or_refresh_invite(
     if kind_s not in INVITE_KINDS:
         raise ValueError("Pick Teacher or Test user.")
     first = str(first_name or "").strip()[:80]
+    # #269 gate: an invite to a teacher who already has an active account must
+    # not change that account (Test flag) and Revoke must never archive it.
+    before = school.get_user_by_email(email) if str(email or "").strip() else None
     user = school.register_staff(email, first or None, tenant_id=tenant_id)
     if not user or not user.get("id"):
         raise ValueError("Enter a Google email address")
     if str(user.get("role") or "") == "it":
         raise ValueError("That address is an Admin account and can already sign in.")
-    if user.get("archived_at"):
+    reactivated = bool(user.get("archived_at"))
+    if reactivated:
         user = school.reactivate_staff(int(user["id"]))
     tid = int(user.get("tenant_id") or tenant_id or school.default_tenant_id())
     key = str(user["email"]).strip().lower()
+    existing = open_invite_for(school, tid, key)
+    owns = (
+        before is None
+        or reactivated
+        or bool(existing and int(existing.get("owns_account") or 0))
+    )
     token = new_token()
     now = _now()
     code, days, time = preset if preset else (None, None, None)
     with school._lock:
-        school.conn.execute(
-            "UPDATE users SET is_test = ? WHERE id = ?",
-            (1 if kind_s == "test" else 0, int(user["id"])),
-        )
+        if owns:
+            school.conn.execute(
+                "UPDATE users SET is_test = ? WHERE id = ?",
+                (1 if kind_s == "test" else 0, int(user["id"])),
+            )
         if first and not str(user.get("display_name") or "").strip():
             school.conn.execute(
                 "UPDATE users SET display_name = ? WHERE id = ?", (first, int(user["id"]))
             )
         school.conn.commit()
-    existing = open_invite_for(school, tid, key)
     with school._lock:
         if existing:
             school.conn.execute(
                 """
                 UPDATE staff_invites
                 SET first_name = ?, kind = ?, preset_code = ?, preset_days = ?,
-                    preset_time = ?, token_sha256 = ?, expires_at = ?
+                    preset_time = ?, token_sha256 = ?, expires_at = ?, owns_account = ?
                 WHERE id = ?
                 """,
                 (first, kind_s, code, days, time, token_hash(token),
-                 _iso(now + INVITE_TTL), int(existing["id"])),
+                 _iso(now + INVITE_TTL), 1 if owns else 0, int(existing["id"])),
             )
             invite_id = int(existing["id"])
         else:
@@ -252,11 +270,12 @@ def create_or_refresh_invite(
                 INSERT INTO staff_invites (
                     tenant_id, user_id, email, first_name, kind, preset_code,
                     preset_days, preset_time, token_sha256, created_by_user_id,
-                    created_at, expires_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, expires_at, owns_account
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (tid, int(user["id"]), key, first, kind_s, code, days, time,
-                 token_hash(token), created_by_user_id, _iso(now), _iso(now + INVITE_TTL)),
+                 token_hash(token), created_by_user_id, _iso(now), _iso(now + INVITE_TTL),
+                 1 if owns else 0),
             )
             invite_id = int(cur.lastrowid)
         school.conn.commit()
@@ -342,7 +361,7 @@ def mark_accepted(school: Any, invite_id: int) -> None:
 
 
 def revoke_invite(school: Any, invite_id: int, by_user_id: int) -> dict[str, Any]:
-    """Revoke a pending invite and remove the allowlist entry (archive user).
+    """Revoke a pending invite; archive the account only if the invite made it.
 
     Args:
         school: ``SchoolDB``.
@@ -367,6 +386,10 @@ def revoke_invite(school: Any, invite_id: int, by_user_id: int) -> dict[str, Any
             (_iso(_now()), int(invite_id)),
         )
         school.conn.commit()
+    # Only undo what the invite did: an account it created or reactivated is
+    # archived again; a teacher who already had an account keeps it as is.
+    if not int(row.get("owns_account") or 0):
+        return get_invite(school, invite_id) or {}
     user = school.get_user(int(row["user_id"]))
     if user and not user.get("archived_at") and str(user.get("role")) == "staff":
         school.deactivate_staff(int(row["user_id"]), int(by_user_id))

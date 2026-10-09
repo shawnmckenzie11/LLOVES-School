@@ -433,7 +433,24 @@ def _safe_next_url(next_url: str | None) -> str | None:
     if any(not (0x21 <= ord(ch) <= 0x7E) for ch in next_url) or "\\" in next_url:
         return None
     path = next_url.split("?", 1)[0].split("#", 1)[0]
-    if not any(path == p or path.startswith(p + "/") for p in _NEXT_PREFIXES):
+    # #269 gate: decode first (repeatedly, so %252e%252e and mixed case are
+    # caught), then refuse dot segments, backslashes and empty segments, then
+    # allowlist the decoded path.
+    decoded = path
+    for _ in range(4):
+        step = urllib.parse.unquote(decoded)
+        if step == decoded:
+            break
+        decoded = step
+    else:
+        return None
+    if "\\" in decoded or "//" in decoded:
+        return None
+    if any(not (0x21 <= ord(ch) <= 0x7E) for ch in decoded):
+        return None
+    if any(seg in {".", ".."} for seg in decoded.split("/")):
+        return None
+    if not any(decoded == p or decoded.startswith(p + "/") for p in _NEXT_PREFIXES):
         return None
     return next_url
 

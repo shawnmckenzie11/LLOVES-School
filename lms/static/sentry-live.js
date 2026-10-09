@@ -265,7 +265,29 @@
   function stripQuery(url) {
     var text = String(url || "");
     var cut = text.search(/[?#]/);
-    return cut >= 0 ? text.slice(0, cut) : text;
+    text = cut >= 0 ? text.slice(0, cut) : text;
+    // Path tokens (student seat links, invite links) never leave the browser.
+    return text
+      .replace(/\/student\/s\/[^/?#]+/g, "/student/s/[token]")
+      .replace(/\/invite\/[^/?#]+/g, "/invite/[token]");
+  }
+
+  /**
+   * MCK-183 (#269 gate): stack frames carry the script URL, which on student
+   * pages can be ``...?v=<visit token>``. Cut every frame's filename and
+   * abs_path (exceptions and threads) down to the bare path.
+   * @param {any} holder an object with ``stacktrace.frames``
+   */
+  function scrubFrames(holder) {
+    var frames = holder && holder.stacktrace && holder.stacktrace.frames;
+    if (!Array.isArray(frames)) return;
+    for (var i = 0; i < frames.length; i++) {
+      var frame = frames[i];
+      if (!frame) continue;
+      if (frame.filename) frame.filename = stripQuery(frame.filename);
+      if (frame.abs_path) frame.abs_path = stripQuery(frame.abs_path);
+      if (frame.module && /[?#]/.test(String(frame.module))) frame.module = stripQuery(frame.module);
+    }
   }
 
   /**
@@ -291,8 +313,22 @@
    * @param {object} crumb
    * @returns {object|null}
    */
+  /**
+   * Cut the query from every URL or path inside free text (messages,
+   * exception values): ``.../app.js?v=abc`` → ``.../app.js``.
+   * @param {any} text
+   * @returns {any}
+   */
+  function scrubText(text) {
+    if (typeof text !== "string" || !/[?#]/.test(text)) return text;
+    return text.replace(/((?:https?:\/\/|\/)[^\s?#"'()<>]*)[?#][^\s"'()<>]*/g, function (_m, path) {
+      return stripQuery(path);
+    });
+  }
+
   function scrubBreadcrumb(crumb) {
     if (!crumb) return crumb;
+    if (crumb.message) crumb.message = scrubText(crumb.message);
     var category = String(crumb.category || "");
     if (category === "console") return null;
     if (category.indexOf("ui.") === 0 && crumb.message) {
@@ -327,6 +363,18 @@
         if (headers.referer) headers.referer = stripQuery(headers.referer);
       }
     }
+    var groups = [event.exception, event.threads];
+    for (var g = 0; g < groups.length; g++) {
+      var values = groups[g] && groups[g].values;
+      if (Array.isArray(values)) {
+        values.forEach(function (value) {
+          scrubFrames(value);
+          if (value && value.value) value.value = scrubText(value.value);
+        });
+      }
+    }
+    if (event.message) event.message = scrubText(event.message);
+    if (event.stacktrace) scrubFrames(event);
     if (event.user) {
       event.user = event.user.id ? { id: String(event.user.id) } : undefined;
       if (!event.user) delete event.user;

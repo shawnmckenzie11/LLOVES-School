@@ -1877,6 +1877,14 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 open_invite = staff_invites.open_invite_for(
                     school, int(existing.get("tenant_id") or 1), email
                 )
+                # #269 gate: never invite over a teacher who already has an
+                # active account (only an invite's own pending account resends).
+                if (
+                    str(existing.get("role") or "") == "staff"
+                    and not existing.get("archived_at")
+                    and not (open_invite and int(open_invite.get("owns_account") or 0))
+                ):
+                    raise ValueError("That teacher already has an account and can sign in.")
             staff_invites.check_send_rate(
                 school, int(actor["id"]) if actor else None, open_invite
             )
@@ -2887,9 +2895,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         )
         return render_template("invite.html", **context)
 
-    @app.route("/invite/<token>/switch")
+    @app.route("/invite/<token>/switch", methods=["POST"])
     def logout_to_invite(token: str):
-        """Sign out the other account, then reopen the same invite link."""
+        """Sign out the other account, then reopen the same invite link.
+
+        POST only (#269 gate): a GET link could sign anyone out from another
+        site. The Lax session cookie is not sent on cross-site POSTs.
+        """
         session.clear()
         return redirect(url_for("invite_landing", token=token))
 

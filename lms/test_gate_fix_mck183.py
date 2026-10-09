@@ -95,6 +95,17 @@ class GateFixTests(unittest.TestCase):
         self._sign_in(NEW, "/staff")
         self.assertTrue(self.client.get("/staff").headers["Location"].endswith("/staff/welcome"))
 
+    def test_next_refuses_path_traversal(self) -> None:
+        """#269 gate LOW: decode, refuse dot segments and backslashes, then allowlist."""
+        for bad in (
+            "/staff/../logout", "/staff/welcome/../../logout", "/staff/./welcome",
+            "/staff/%2e%2e/logout", "/staff/%2E%2E/logout", "/staff/.%2E/logout",
+            "/staff/%2e./logout", "/staff/%252e%252e/logout", "/staff/%5c..%5clogout",
+            "/staff\\..\\logout", "/staff/%2f%2fevil.example", "/it/%2e%2e/staff/../logout",
+        ):
+            self.assertIsNone(_safe_next_url(bad), bad)
+        self.assertEqual(_safe_next_url("/staff/welcome?step=names"), "/staff/welcome?step=names")
+
     def test_next_allowlist_and_characters(self) -> None:
         """Only /staff and /it; printable ASCII only."""
         for good in ("/staff", "/staff/welcome", "/staff/class/3?tab=live", "/it", "/it/?x=1", "/staff?"):

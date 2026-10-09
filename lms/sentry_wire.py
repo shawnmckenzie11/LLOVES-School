@@ -285,6 +285,7 @@ def init_flask_sentry() -> bool:
 
 
 _INVITE_TOKEN_RE = re.compile(r"/invite/[^/?#]+")
+_STUDENT_SEAT_RE = re.compile(r"/student/s/[^/?#]+")
 
 
 def _drop_request_body(event: dict[str, Any]) -> dict[str, Any]:
@@ -352,7 +353,8 @@ def _strip_url_query(value: Any) -> Any:
         return value
     cut = min((i for i in (value.find("?"), value.find("#")) if i >= 0), default=-1)
     text = value[:cut] if cut >= 0 else value
-    return _INVITE_TOKEN_RE.sub("/invite/[token]", text)
+    text = _INVITE_TOKEN_RE.sub("/invite/[token]", text)
+    return _STUDENT_SEAT_RE.sub("/student/s/[token]", text)
 
 
 _URLISH_QUERY_RE = re.compile(r"(?:^|\s)(?:/|https?://)\S*[?#]")

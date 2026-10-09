@@ -3,7 +3,7 @@
 
 - "Mary-Jo" with "Mary-Jo 2" on the roster gets the picker (it used to
   take the seat, then block the real Mary-Jo with "already in class").
-- "Jean Luc" and "Jean Luc 2" show as "Jean" and "Jean 2", not both "Jean".
+- "Jean Luc" and "Jean Luc 2" show as "Jean" and "Jean Luc 2" (kept whole, #269 gate).
 - "Sam2" is Sam 2.
 - A seat reclaimed after Leave by another device gets a fresh visit token.
 """
@@ -24,7 +24,8 @@ class NumberRuleTests(unittest.TestCase):
 
     def test_shapes(self) -> None:
         cases = {
-            "Jean Luc 2": "Jean 2",
+            "Jean Luc 2": "Jean Luc 2",
+            "Jean  Luc   2": "Jean Luc 2",
             "Jean Luc": "Jean",
             "Mary-Jo 2": "Mary-Jo 2",
             "Mary-Jo2": "Mary-Jo 2",
@@ -85,11 +86,11 @@ class RepeatedNameShapesJoinTests(test_auth.AuthTests):
         self.assertEqual(self._present(), ["Mary-Jo", "Mary-Jo 2"])
 
     def test_two_word_names_show_apart(self) -> None:
-        """'Jean Luc' gets the picker; the two show as 'Jean' and 'Jean 2'."""
-        self.assertEqual(self._labels("Jean Luc"), ["Jean", "Jean 2"])
+        """'Jean Luc' gets the picker; the two show as 'Jean' and 'Jean Luc 2'."""
+        self.assertEqual(self._labels("Jean Luc"), ["Jean", "Jean Luc 2"])
         self.assertEqual(self._join("Jean Luc 2").status_code, 302)
         self.assertEqual(self._pick("Jean Luc", "Jean").status_code, 302)
-        self.assertEqual(self._present(), ["Jean", "Jean 2"])
+        self.assertEqual(self._present(), ["Jean", "Jean Luc 2"])
 
     def test_glued_number_is_name_plus_number(self) -> None:
         """'Sam2' joins Sam 2 directly; 'R2D2' is still a plain name."""

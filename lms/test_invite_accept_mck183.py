@@ -107,8 +107,15 @@ class InviteAcceptTests(unittest.TestCase):
         html = self.client.get(f"/invite/{self.token}").get_data(as_text=True)
         self.assertIn("That's a different Google account", html)
         self.assertEqual(staff_invites.resolve_invite(self.school, self.token)[0], "valid")
-        rv = self.client.get(f"/invite/{self.token}/switch")
+        self.assertIn(f'<form method="post" action="/invite/{self.token}/switch"', html)
+        # GET must not sign anyone out (#269 gate: logout CSRF).
+        self.assertEqual(self.client.get(f"/invite/{self.token}/switch").status_code, 405)
+        with self.client.session_transaction() as sess:
+            self.assertTrue(sess.get("logged_in"))
+        rv = self.client.post(f"/invite/{self.token}/switch")
         self.assertTrue(rv.headers["Location"].endswith(f"/invite/{self.token}"))
+        with self.client.session_transaction() as sess:
+            self.assertFalse(sess.get("logged_in"))
 
     def test_expired_revoked_unknown_pages(self) -> None:
         """Wonder v1.4 copy for each dead link."""

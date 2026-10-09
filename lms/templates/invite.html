@@ -19,7 +19,7 @@
       {% elif state == 'mismatch' %}
       <h1 id="ob-title">That's a different Google account</h1>
       <p class="ob-body">This invite is for {{ invite_email }}, but you signed in as {{ google_email }}. Your invite is still waiting.</p>
-      <div class="ob-btns"><span></span><a class="btn" href="{{ retry_url }}">Use another Google account</a></div>
+      <div class="ob-btns"><span></span><form method="post" action="{{ retry_url }}" class="ob-inline-form"><button type="submit" class="btn">Use another Google account</button></form></div>
       {% elif state == 'expired' %}
       <h1 id="ob-title">This invite has expired</h1>
       <p class="ob-body">Invite links last 7 days. Ask Shawn to send you a new one.</p>
