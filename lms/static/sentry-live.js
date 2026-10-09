@@ -320,10 +320,43 @@
    * @returns {any}
    */
   function scrubText(text) {
-    if (typeof text !== "string" || !/[?#]/.test(text)) return text;
-    return text.replace(/((?:https?:\/\/|\/)[^\s?#"'()<>]*)[?#][^\s"'()<>]*/g, function (_m, path) {
-      return stripQuery(path);
-    });
+    if (typeof text !== "string") return text;
+    if (/[?#]/.test(text)) {
+      text = text.replace(/((?:https?:\/\/|\/)[^\s?#"'()<>]*)[?#][^\s"'()<>]*/g, function (_m, path) {
+        return stripQuery(path);
+      });
+    }
+    return maskPathTokens(text);
+  }
+
+  /**
+   * MCK-183 Ops LOW-1: mask seat and invite paths anywhere in free text,
+   * with or without a query after them.
+   * @param {any} text
+   * @returns {any}
+   */
+  function maskPathTokens(text) {
+    if (typeof text !== "string") return text;
+    if (text.indexOf("/invite/") < 0 && text.indexOf("/student/s/") < 0) return text;
+    return text
+      .replace(/\/invite\/(?!\[token\])[^\s/?#"'()<>\[\],;]+/g, "/invite/[token]")
+      .replace(/\/student\/s\/(?!\[token\])[^\s/?#"'()<>\[\],;]+/g, "/student/s/[token]");
+  }
+
+  /**
+   * Mask path tokens in every string inside a breadcrumb's data.
+   * @param {any} value
+   * @param {number} depth
+   * @returns {any}
+   */
+  function maskNested(value, depth) {
+    if (depth > 6) return value;
+    if (typeof value === "string") return maskPathTokens(value);
+    if (Array.isArray(value)) return value.map(function (v) { return maskNested(v, depth + 1); });
+    if (value && typeof value === "object") {
+      Object.keys(value).forEach(function (k) { value[k] = maskNested(value[k], depth + 1); });
+    }
+    return value;
   }
 
   function scrubBreadcrumb(crumb) {
@@ -341,6 +374,7 @@
     if ((category === "fetch" || category === "xhr") && crumb.data && crumb.data.url) {
       crumb.data.url = stripQuery(crumb.data.url);
     }
+    if (crumb.data) crumb.data = maskNested(crumb.data, 0);
     return crumb;
   }
 
@@ -374,6 +408,11 @@
       }
     }
     if (event.message) event.message = scrubText(event.message);
+    if (event.transaction) event.transaction = maskPathTokens(event.transaction);
+    if (event.logentry) event.logentry = maskNested(event.logentry, 0);
+    if (event.extra) event.extra = maskNested(event.extra, 0);
+    if (event.tags) event.tags = maskNested(event.tags, 0);
+    if (event.contexts) event.contexts = maskNested(event.contexts, 0);
     if (event.stacktrace) scrubFrames(event);
     if (event.user) {
       event.user = event.user.id ? { id: String(event.user.id) } : undefined;

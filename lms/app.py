@@ -12,6 +12,7 @@ import contextlib
 import json
 import logging
 import os
+import posixpath
 import re
 import shutil
 import sqlite3
@@ -21,6 +22,7 @@ from datetime import date, timedelta
 from html import escape as html_escape
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 LMS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = LMS_DIR.parent
@@ -387,6 +389,91 @@ def _optional_board_seq(raw: Any) -> int | None:
         return max(0, int(raw))
     except (TypeError, ValueError):
         return None
+
+
+_CODENAME_WORD_RE = re.compile(r"\b(Codenames?|codenames?)\b")
+
+
+def plain_name_wording(message: Any) -> str:
+    """Say "first name(s)" instead of "Codename(s)" in a roster message.
+
+    Shawn's decision for plain courses (non-math, no pack): every roster
+    validation message uses first-names wording, e.g. "Codenames cannot
+    contain commas" becomes "First names cannot contain commas". The word
+    is capitalised at the start of the message or a sentence, lower case
+    elsewhere ("Duplicate first name: Sam"). Math courses keep Codename.
+
+    Args:
+        message: Validation message from the roster code.
+    """
+    text = str(message or "")
+
+    def swap(match: re.Match[str]) -> str:
+        """Replace one Codename/Codenames, keeping sentence-start capitals."""
+        plural = match.group(1).lower().endswith("s")
+        word = "first names" if plural else "first name"
+        before = text[: match.start()].rstrip()
+        if not before or before[-1] in ".!?":
+            return word[0].upper() + word[1:]
+        return word
+
+    return _CODENAME_WORD_RE.sub(swap, text)
+
+
+def simple_course(ontario_code: Any, library_id: Any) -> bool:
+    """MCK-183 slice E: a course with no module pack that is not math.
+
+    Ontario math codes start with "M" (MCF3M, MHF4U, MPM2D...), so Shawn's
+    courses, with or without a pack, keep every tab and label. A
+    pack-less non-math course (SBI4U, ENG2D...) shows the plain teacher
+    view: Run Live Class and Attendance & Participation.
+    """
+    code = str(ontario_code or "").strip().upper()
+    return bool(code) and not library_id and not code.startswith("M")
+
+
+def class_is_simple(school: Any, class_id: int) -> bool:
+    """Is this class's course a plain course (non-math, no pack)?
+
+    Module level (#272 gate LOW-1) so every route group can use it.
+
+    Args:
+        school: ``SchoolDB``.
+        class_id: Game-show ``classes.id``.
+    """
+    try:
+        cls = school.game.get_class(int(class_id))
+        offering = (
+            school.get_offering(int(cls["offering_id"]))
+            if cls and cls.get("offering_id")
+            else None
+        )
+    except Exception:  # noqa: BLE001
+        return False
+    if not offering:
+        return False
+    return simple_course(offering.get("ontario_code"), offering.get("library_id"))
+
+
+def _is_whats_new_source_path(path: str) -> bool:
+    """True for any spelling of a path under ``/static/whats-new/``.
+
+    MCK-182 LOW: ``/static/./whats-new/releases.json``, doubled slashes,
+    ``..`` hops, backslashes and percent-encoding all resolve to the same
+    file, so the path is decoded and normalised before the check.
+
+    Args:
+        path: Request path (already URL-decoded once by Werkzeug).
+    """
+    text = str(path or "")
+    for _ in range(3):
+        decoded = unquote(text)
+        if decoded == text:
+            break
+        text = decoded
+    text = text.replace("\\", "/")
+    norm = posixpath.normpath("/" + text.lstrip("/")).lower()
+    return norm == "/static/whats-new" or norm.startswith("/static/whats-new/")
 
 
 def _json_error(exc: BaseException):
@@ -1136,7 +1223,12 @@ def create_app(
         It carries SHAs, PR and ticket refs; teachers read the scrubbed
         ``/api/staff/whats-new`` instead. The app still reads it from disk.
         """
-        if request.path.lower().startswith("/static/whats-new/"):
+        if _is_whats_new_source_path(request.path) or (
+            request.endpoint == "static"
+            and _is_whats_new_source_path(
+                "/static/" + str((request.view_args or {}).get("filename") or "")
+            )
+        ):
             abort(404)
         return None
 
@@ -2762,18 +2854,17 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """MCK-183 slice D: the Help menu's contact address on staff pages."""
         return {"help_contact_email": _help_contact_email()}
 
-    def _simple_course(ontario_code: Any, library_id: Any) -> bool:
-        """MCK-183 slice E: a course with no module pack that is not math.
-
-        Ontario math codes start with "M" (MCF3M, MHF4U, MPM2D...), so Shawn's
-        courses, with or without a pack, keep every tab and label. A
-        pack-less non-math course (SBI4U, ENG2D...) shows the plain teacher
-        view: Run Live Class and Attendance & Participation.
-        """
-        code = str(ontario_code or "").strip().upper()
-        return bool(code) and not library_id and not code.startswith("M")
+    _simple_course = simple_course
 
     app.jinja_env.globals["simple_course"] = _simple_course
+
+    def _class_is_simple(class_id: int) -> bool:
+        """Is this class's course a plain course (non-math, no pack)?"""
+        return class_is_simple(school, class_id)
+
+    def _roster_message(exc: BaseException, simple: bool) -> str:
+        """Roster validation text, in first-names wording on plain courses."""
+        return plain_name_wording(str(exc)) if simple else str(exc)
 
     def _tour_offer(user: dict[str, Any], classes: list[dict[str, Any]]) -> bool:
         """May the Dashboard tour open by itself for this teacher?
@@ -2858,6 +2949,30 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         classes = school.list_staff_classes(int(user["id"]), int(active["id"]))
         return offerings, classes
 
+    def _same_origin_post() -> bool:
+        """True when this POST came from one of our own pages.
+
+        When the browser sends ``Sec-Fetch-Site`` it decides: only
+        ``same-origin`` passes (``cross-site``, ``same-site`` and ``none``
+        are refused), whatever ``Origin`` says. Without it, ``Origin`` must
+        match this host when sent; with no ``Origin``, a ``Referer`` from
+        another host is refused too. Old browsers that send neither pass.
+        """
+        site = str(request.headers.get("Sec-Fetch-Site") or "").strip().lower()
+        if site:
+            # #272 gate MED-1: invite.html sends no Referer, so Chrome posts
+            # ``Origin: null`` with ``Sec-Fetch-Site: same-origin``. Fetch
+            # metadata is the browser's own verdict: trust it when present.
+            return site == "same-origin"
+        own = request.host_url.rstrip("/").lower()
+        origin = str(request.headers.get("Origin") or "").strip().lower()
+        if origin:
+            return origin == own
+        referer = str(request.headers.get("Referer") or "").strip().lower()
+        if referer:
+            return referer == own or referer.startswith(own + "/")
+        return True
+
     @app.route("/invite/<token>")
     def invite_landing(token: str):
         """MCK-183 I3: the invite link. Valid, expired, used, revoked, unknown.
@@ -2911,9 +3026,16 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """Sign out the other account, then reopen the same invite link.
 
         POST only (#269 gate): a GET link could sign anyone out from another
-        site. The Lax session cookie is not sent on cross-site POSTs.
+        site. MCK-183 Ops LOW-2: a cross-site auto-submitted form still
+        reached here, so a POST whose ``Sec-Fetch-Site`` is ``cross-site``
+        or whose ``Origin`` (or, without one, ``Referer``) is another host
+        is refused, and the session is only cleared for a valid open invite.
         """
-        session.clear()
+        if not _same_origin_post():
+            return "Forbidden", 403
+        state, _row = staff_invites.resolve_invite(school, token)
+        if state == "valid":
+            session.clear()
         return redirect(url_for("invite_landing", token=token))
 
     @app.route("/welcome")
@@ -3341,7 +3463,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 teacher_user_id=int(user["id"]),
             )
         except ValueError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
+            simple = _simple_course(offering.get("ontario_code"), offering.get("library_id"))
+            return jsonify({"ok": False, "error": _roster_message(exc, simple)}), 400
         created = school.enrich_class(created)
         return jsonify({"ok": True, "class": created})
 
@@ -3373,7 +3496,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 sort="az",
             )
         except ValueError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
+            return jsonify(
+                {"ok": False, "error": _roster_message(exc, _class_is_simple(class_id))}
+            ), 400
         except KeyError:
             abort(404)
         # Match id and name: a new student can reuse a removed id.
@@ -3422,7 +3547,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         except KeyError:
             return jsonify({"ok": False, "error": "Student not found."}), 404
         except ValueError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
+            return jsonify(
+                {"ok": False, "error": _roster_message(exc, _class_is_simple(class_id))}
+            ), 400
         return jsonify({"ok": True, **updated})
 
     @app.route("/staff/class/<int:class_id>/run-live", methods=["POST"])
@@ -9770,7 +9897,12 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
         def run(body):
             """Apply one staff JSON mutation for this class."""
-            return _dashboard_payload_from_add(class_id, body)
+            try:
+                return _dashboard_payload_from_add(class_id, body)
+            except ValueError as exc:
+                if class_is_simple(school, class_id):
+                    raise ValueError(plain_name_wording(str(exc))) from exc
+                raise
 
         return _staff_post(class_id, run)
 
