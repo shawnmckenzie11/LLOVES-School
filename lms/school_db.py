@@ -31310,6 +31310,56 @@ class SchoolDB(LovesDB):
         finally:
             end_poll_budget(token)
 
+    def assemble_student_home_shell(
+        self,
+        live_session_id: int,
+        class_id: int,
+        student_id: int | None,
+        *,
+        participant_uuid: str = "",
+        codename: str = "",
+        unmatched: bool = False,
+    ) -> dict[str, Any]:
+        """Light snapshot for the ``/student/home`` page render (MCK-191).
+
+        The page template only reads ``scoring``, ``waiting_room``,
+        ``celebrate`` and ``me``; the browser paints everything else from
+        its first ``/api/student/state`` poll, which runs straight after
+        load. Building the full snapshot here as well doubled the heavy
+        work for every page load (and ran outside the ``/state`` slot
+        cap), so a class joining at once spent the poll budget
+        (Sentry LLOVES-LMS-4). This skips the media, teacher-state, group
+        and deck-metadata slices; the poll still sends them.
+
+        Args:
+            live_session_id: ``live_class_sessions.id``.
+            class_id: Game-show ``classes.id``.
+            student_id: Roster id, or ``None`` for an unmatched guest.
+            participant_uuid: Live-session person key.
+            codename: Display name for a guest payload.
+            unmatched: True when the attendee is not on the roster.
+
+        Returns:
+            Page-shell payload (no ``live_metadata`` / ``active_media``).
+
+        Raises:
+            KeyError: If the live session disappears mid-build.
+            PollBudgetExceeded: The poll budget was spent before a later slice.
+        """
+        token = begin_poll_budget()
+        try:
+            return self._fill_student_live_payload(
+                live_session_id,
+                class_id,
+                student_id,
+                participant_uuid=participant_uuid,
+                codename=codename,
+                unmatched=unmatched,
+                shell_only=True,
+            )
+        finally:
+            end_poll_budget(token)
+
     def _fill_student_live_payload(
         self,
         live_session_id: int,
@@ -31319,6 +31369,7 @@ class SchoolDB(LovesDB):
         participant_uuid: str = "",
         codename: str = "",
         unmatched: bool = False,
+        shell_only: bool = False,
     ) -> dict[str, Any]:
         """Fill one student snapshot, stopping between slices at the budget.
 
@@ -31332,6 +31383,8 @@ class SchoolDB(LovesDB):
             participant_uuid: Live-session person key.
             codename: Display name for a guest payload.
             unmatched: True when the attendee is not on the roster.
+            shell_only: Page-render shell (MCK-191): skip the media,
+                teacher-state, group and deck-metadata slices.
 
         Returns:
             Student live payload without poll stamp or display time.
@@ -31359,6 +31412,16 @@ class SchoolDB(LovesDB):
                 participant_uuid=participant_uuid,
             )
         )
+        if shell_only:
+            ensure_poll_budget()
+            self.apply_student_end_overlay(
+                payload,
+                int(live_session_id),
+                int(class_id),
+                sid,
+                participant_uuid,
+            )
+            return payload
         ensure_poll_budget()
         media = self.live_session_active_media_payload(int(live_session_id))
         if isinstance(media, dict) and is_jigsawable_media(media):
