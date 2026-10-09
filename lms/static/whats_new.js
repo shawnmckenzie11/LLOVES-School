@@ -33,6 +33,8 @@ export const EARLIER_DAYS = 30;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+/** A seen value saved by an older page: a release SHA id. */
+const LEGACY_ID_RE = /^[0-9a-f]{7,40}$/i;
 const DAY_MS = 86400000;
 // Last guard: teachers never see ticket ids, PR numbers or SHAs.
 const REF_RES = [
@@ -385,7 +387,12 @@ export async function initWhatsNew(env) {
       /* storage full or blocked: it shows again next time, harmless */
     }
   };
-  const src = dialog.getAttribute("data-releases-src") || "/api/staff/whats-new";
+  let src = dialog.getAttribute("data-releases-src") || "/api/staff/whats-new";
+  // Older pages saved a release SHA as "seen"; ids are deploy times now, so
+  // ask the server once what time that SHA was (MCK-182 gate LOW).
+  const storedSeen = String(read(seenKey(userId)) || "").trim();
+  const legacySeen = LEGACY_ID_RE.test(storedSeen) ? storedSeen : "";
+  if (legacySeen) src += `${src.includes("?") ? "&" : "?"}legacy_seen=${encodeURIComponent(legacySeen)}`;
   let data = null;
   try {
     const res = await env.fetch(src, { credentials: "same-origin", cache: "no-store" });
@@ -393,6 +400,9 @@ export async function initWhatsNew(env) {
     data = await res.json();
   } catch (_err) {
     return "error";
+  }
+  if (legacySeen && data && typeof data.legacy_seen_at === "string" && data.legacy_seen_at) {
+    write(seenKey(userId), data.legacy_seen_at);
   }
   const today = torontoDay(env.now || new Date());
   let model = buildModel(data, { stored: read(seenKey(userId)), today });

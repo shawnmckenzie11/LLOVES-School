@@ -1103,6 +1103,17 @@ def create_app(
         return response
 
     @app.before_request
+    def _hide_whats_new_source_file():
+        """MCK-182 gate LOW: the deploy-written history file is not public.
+
+        It carries SHAs, PR and ticket refs; teachers read the scrubbed
+        ``/api/staff/whats-new`` instead. The app still reads it from disk.
+        """
+        if request.path.lower().startswith("/static/whats-new/"):
+            abort(404)
+        return None
+
+    @app.before_request
     def _shed_live_polls_during_worker_warmup():
         """Shed boot-queue ``/state`` polls so ``/health`` can be served.
 
@@ -2594,7 +2605,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         Read from the ``whats_new_releases`` table, which keeps every entry
         that has shipped. Refs, SHAs and ticket ids never leave the server.
         """
-        resp = jsonify(school.whats_new_teacher_payload())
+        legacy = (request.args.get("legacy_seen") or "").strip()[:40] or None
+        resp = jsonify(school.whats_new_teacher_payload(legacy_seen=legacy))
         resp.headers["Cache-Control"] = "no-store"
         return resp
 

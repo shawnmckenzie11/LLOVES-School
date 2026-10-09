@@ -1732,7 +1732,7 @@ class LovesDB:
             logger.exception("whats-new history sync failed")
             return None
 
-    def whats_new_teacher_payload(self) -> dict[str, Any]:
+    def whats_new_teacher_payload(self, legacy_seen: str | None = None) -> dict[str, Any]:
         """Stored What's new history for the staff Dashboard (no refs).
 
         Entries in the shipped file that are missing from the table (a boot
@@ -1749,7 +1749,12 @@ class LovesDB:
             logger.exception("whats-new history read failed")
         ids = {str(r.get("id")) for r in stored}
         extra = [r for r in whats_new_store.read_file() if str(r.get("id")) not in ids]
-        return whats_new_store.teacher_payload(stored + extra)
+        payload = whats_new_store.teacher_payload(stored + extra)
+        if legacy_seen:
+            seen_at = whats_new_store.legacy_seen_at(stored + extra, legacy_seen)
+            if seen_at:
+                payload["legacy_seen_at"] = seen_at
+        return payload
 
     def close(self) -> None:
         """Close the sqlite connection and the presence pool."""
