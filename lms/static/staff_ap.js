@@ -166,7 +166,9 @@ let sessionGamePoints = {};
  * in ``sessionGamePoints``. A full ``/state`` that was built before an
  * Assign carries an older version and is ignored, so the Class list never
  * goes backwards after an award.
- * @type {{game_id: number, seq: number} | null}
+ * Gate LOW-3 on 2cc6a9e: a new game (Quit + Begin can re-use the old id)
+ * has a new ``key``; it is always accepted and its totals start fresh.
+ * @type {{game_id: number, key: string, seq: number} | null}
  */
 let gamePointsVer = null;
 /** @type {Record<string, number>} */
@@ -1610,11 +1612,35 @@ function adoptGamePointsVer(ver) {
   const gameId = Number(ver.game_id ?? ver.id);
   const seq = Number(ver.seq ?? ver.event_seq);
   if (!Number.isFinite(gameId) || !Number.isFinite(seq)) return true;
-  if (gamePointsVer && gamePointsVer.game_id === gameId && seq < gamePointsVer.seq) {
-    return false;
+  const key = gamePointsKey(ver, gameId);
+  if (gamePointsVer && gamePointsVer.key === key) {
+    if (seq < gamePointsVer.seq) return false;
+  } else if (gamePointsVer) {
+    // Another game since the totals on screen: drop them, never merge.
+    sessionGamePoints = {};
   }
-  gamePointsVer = { game_id: gameId, seq };
+  gamePointsVer = { game_id: gameId, key, seq };
   return true;
+}
+
+/**
+ * Game identity for ``adoptGamePointsVer``: ``/state`` sends ``game_key``;
+ * a game state's ``game`` block has ``id``, ``session_id`` and ``created_at``.
+ * @param {any} ver
+ * @param {number} gameId
+ * @returns {string}
+ */
+function gamePointsKey(ver, gameId) {
+  if (typeof ver.game_key === "string" && ver.game_key) return ver.game_key;
+  return `${gameId}|${ver.session_id ?? ""}|${ver.created_at ?? ""}`;
+}
+
+/**
+ * MCK-185 gate LOW-3: forget the totals' version when a game ends, is
+ * quit or a new one begins, so the next game's totals are never ignored.
+ */
+function resetGamePointsVer() {
+  gamePointsVer = null;
 }
 
 /**
@@ -6265,6 +6291,7 @@ async function cancelOverlay() {
   } catch (_) {
     /* still leave */
   }
+  resetGamePointsVer();
   stopLiveSessionPolling();
   liveSessionId = 0;
   sessionPresentIds = new Set();
@@ -6858,6 +6885,10 @@ async function pollLiveSessionAttendees(opts = {}) {
     syncAllowGuestsCheckbox(
       payload?.allow_unmatched_guests ?? payload?.session?.allow_unmatched_guests
     );
+    // An explicit null version means no open game (Quit): forget the old one.
+    if (Object.prototype.hasOwnProperty.call(payload || {}, "game_points_ver") && !payload.game_points_ver) {
+      resetGamePointsVer();
+    }
     const pointsFresh = adoptGamePointsVer(payload?.game_points_ver);
     if (pointsFresh && payload?.game_points && typeof payload.game_points === "object") {
       sessionGamePoints = payload.game_points;
@@ -7893,6 +7924,7 @@ function syncAllowGuestsCheckbox(raw) {
  */
 async function clearStuckGameForLiveSession() {
   const preserveBody = JSON.stringify({ preserve_live_session: true });
+  resetGamePointsVer();
   try {
     await api(`/api/classes/${classId}/game/end`, {
       method: "POST",
@@ -8118,6 +8150,9 @@ async function proceedRunLiveBegin(iso, opts = {}) {
     method: "POST",
     body: JSON.stringify({ meeting_date: iso }),
   });
+  // Gate LOW-3: a new game's totals start fresh (its id may be re-used).
+  resetGamePointsVer();
+  adoptGamePointsVer(overlayState?.game);
   const pack = selectedSetClassPack();
   if (overlayState.game?.status === "live") {
     await ensureLiveSessionMinted(opts);
@@ -10879,6 +10914,7 @@ async function endGame() {
     showError("#ap-overlay-error", err);
     return;
   }
+  resetGamePointsVer();
   stopLiveSessionPolling();
   liveSessionId = 0;
   sessionPresentIds = new Set();
@@ -11009,6 +11045,8 @@ export async function openLogParticipation() {
       method: "POST",
       body: JSON.stringify({ meeting_date: meeting }),
     });
+    resetGamePointsVer();
+    adoptGamePointsVer(overlayState?.game);
     if (overlayState.game?.status === "live") {
       openLiveScoring(overlayState);
       if (liveSessionId) {
