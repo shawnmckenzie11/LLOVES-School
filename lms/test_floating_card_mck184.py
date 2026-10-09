@@ -12,6 +12,7 @@ Needs ``node``, Chrome, and ``playwright-core`` on ``NODE_PATH`` (set
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -60,7 +61,7 @@ class FloatingCardBrowserTests(unittest.TestCase):
         os.environ["ALLOW_DEV_VERIFICATION_CODE"] = "1"
         from app import create_app
 
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         root = Path(self.tmp.name)
         self.app = create_app(db_path=root / "lloves.sqlite", data_dir=root, testing=True)
         self.school = self.app.config["SCHOOL_DB"]
@@ -111,10 +112,19 @@ class FloatingCardBrowserTests(unittest.TestCase):
         s.ensure_live_session_items(self.session_id)
 
     def tearDown(self) -> None:
-        if getattr(self, "server", None) is not None:
-            self.server.shutdown()
-        logging.disable(logging.NOTSET)
-        self.tmp.cleanup()
+        # MCK-186: safe after a timed-out e2e step too. Stop the server and
+        # close the DB before removing the folder, and never fail the run
+        # on cleanup ("Cannot call rmtree on a symbolic link" under load).
+        try:
+            server = getattr(self, "server", None)
+            if server is not None:
+                server.shutdown()
+                server.server_close()
+            with contextlib.suppress(Exception):
+                self.school.close()
+        finally:
+            logging.disable(logging.NOTSET)
+            self.tmp.cleanup()
 
     def _publish(self, live: dict[str, Any], mode: str) -> dict[str, Any]:
         rv = self.client.post(

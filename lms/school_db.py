@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import logging
 import re
@@ -10792,14 +10793,22 @@ class SchoolDB(LovesDB):
                     normalize_course_warmup,
                 )
 
-            confirmed = self.list_module_bank_links(int(library_id), int(module_number))
-            allowed_banks = {int(link["bank_id"]) for link in confirmed}
+            # MCK-190: Add New may pull from any module's confirmed banks in
+            # this same course library (the query above already scopes the
+            # question to library_id), not just the deck's own module.
+            allowed_banks = {
+                int(link["bank_id"])
+                for link in self.conn.execute(
+                    "SELECT DISTINCT bank_id FROM course_module_bank_links WHERE library_id = ?",
+                    (int(library_id),),
+                ).fetchall()
+            }
             course_warmup_bank = (
                 str(row["bank_import_key"] or "") == COURSE_WIDE_WARMUP_BANK_KEY
             )
             if int(row["bank_id"]) not in allowed_banks and not course_warmup_bank:
                 raise KeyError(
-                    f"question {question_id} is not in confirmed banks for {module_key}"
+                    f"question {question_id} is not in this course's confirmed banks"
                 )
             try:
                 payload = json.loads(row["payload_json"] or "{}")
@@ -21721,6 +21730,43 @@ class SchoolDB(LovesDB):
         offering = self.get_offering(int(offering_id))
         return str((offering or {}).get("ontario_code") or "").strip().upper()
 
+    def _class_deck_media_choice(
+        self, session_id: int
+    ) -> tuple[dict[str, str] | None, set[str]]:
+        """Return this class deck's primary media and every media URL it lists.
+
+        MCK-190. The primary is the deck's ``media`` slot when it differs
+        from the course seed file (a copied working deck); the URL set covers
+        every media item on the deck, so a teacher-mounted deck item stays.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            ``(primary or None, urls)``. Errors fall back to ``(None, set())``.
+        """
+        try:
+            meta = self.live_class_metadata_for_session(session_id)
+        except Exception:  # noqa: BLE001 - seed fallback keeps the old behaviour
+            return None, set()
+        urls: set[str] = set()
+        for item in meta.get("items") or []:
+            if isinstance(item, dict) and str(item.get("item_type") or "").lower() == "media":
+                url = str(item.get("file") or item.get("url") or "").strip()
+                if url:
+                    urls.add(url)
+        media = meta.get("media") if isinstance(meta.get("media"), dict) else {}
+        primary_url = str(media.get("file") or media.get("url") or "").strip()
+        if not primary_url:
+            return None, urls
+        urls.add(primary_url)
+        title = str(media.get("title") or media.get("stem") or "").strip()
+        return {
+            "url": primary_url,
+            "title": title,
+            "stem": str(media.get("stem") or title).strip(),
+        }, urls
+
     def ensure_live_class_media(self, session_id: int) -> dict[str, Any] | None:
         """Seed course-specific Join/Play or playlist media when authored.
 
@@ -21739,10 +21785,19 @@ class SchoolDB(LovesDB):
             self.session_live_module(session_id),
             self.session_live_slot(session_id),
         )
+        # MCK-190: the class's own deck wins over the course seed. A copied
+        # deck (Previous / Course deck) or a deck with extra media (MCR3U
+        # M1C1 Real Slice) must not be swapped back to the seed on every
+        # poll or when Use current opens the class.
+        deck_seed, deck_urls = self._class_deck_media_choice(session_id)
+        if seed is not None and deck_seed is not None and deck_seed["url"] != seed["url"]:
+            seed = deck_seed
         if seed is None:
             return self.live_session_active_media_payload(session_id)
         current = self.live_session_active_media_payload(session_id)
         current_url = str((current or {}).get("url") or "")
+        if current_url and current_url != seed["url"] and current_url in deck_urls:
+            return current
         session_row = self.get_live_session(session_id)
         overlay = (
             self.get_class_live_media_copy(
@@ -25306,7 +25361,11 @@ class SchoolDB(LovesDB):
                 ontario,
                 self.session_live_module(session_id),
                 self.session_live_slot(session_id),
-            ):
+            ) and str(public.get("url") or "").strip() not in self._class_deck_media_choice(
+                session_id
+            )[1]:
+                # MCK-190: a Real Slice the class deck lists (MCR3U M1C1)
+                # is real media there, not a wrong-course leftover.
                 return None
         return public
 
@@ -30643,7 +30702,7 @@ class SchoolDB(LovesDB):
         # phone got "unchanged" forever and its turn never enabled. Only
         # read while such an item is open (one cheap query).
         presence_rev = (
-            self._present_attendee_rev(int(session_id))
+            self._presence_stamp_token(int(session_id))
             if row is not None and row["presence_gated"]
             else ""
         )
@@ -30655,6 +30714,38 @@ class SchoolDB(LovesDB):
             f"{prompt_rev}:{item_rev}:{group_vote_rev}:{status}:{celebrate}:"
             f"{group_response_rev}:{race_step_rev}:{presence_rev}"
         )
+
+    #: Last good presence token per session (MCK-186), so a presence blip
+    #: keeps the stamp steady instead of dropping to "" and back (two full
+    #: rebuilds on every Take turns phone). Bounded; per process.
+    _PRESENCE_TOKEN_CACHE_MAX = 256
+
+    def _presence_stamp_token(self, session_id: int) -> str:
+        """Short keyed hash of the present set, for the student poll stamp.
+
+        The raw token (count, SUM(id), SUM(id²)) told every phone how many
+        students were present and which attendee row ids came and went.
+        The stamp only needs "did it change", so phones get the first 12
+        hex of an HMAC over it, keyed with the app secret (shared by every
+        worker, so all workers agree). During a presence outage the last
+        good token for the session is kept.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        cache = self.__dict__.setdefault("_presence_token_cache", {})
+        raw = self._present_attendee_rev(int(session_id))
+        if not raw:
+            return str(cache.get(int(session_id), ""))
+        from rank_alias import rank_alias_secret
+
+        key = (str(getattr(self, "rank_alias_secret", "") or "") or rank_alias_secret()).encode("utf-8")
+        msg = f"presence\x1f{int(session_id)}\x1f{raw}".encode("utf-8")
+        token = "h" + hmac.new(key, msg, hashlib.sha256).hexdigest()[:12]
+        if int(session_id) not in cache and len(cache) >= self._PRESENCE_TOKEN_CACHE_MAX:
+            cache.pop(next(iter(cache)), None)
+        cache[int(session_id)] = token
+        return token
 
     def _present_attendee_rev(self, session_id: int) -> str:
         """Token that changes whenever the session's present set changes.
