@@ -5052,9 +5052,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return _student_advance()
         live_session_id = int(ctx["live_session_id"])
         pid = str(ctx.get("participant_uuid") or "")
+        # MCK-191 (LLOVES-LMS-4): the page only needs the shell; its first
+        # /api/student/state poll (slot-capped, backed off) paints the rest.
+        # The full build here doubled every page load's heavy work.
+        fallback = False
         try:
             payload = json_safe(
-                school.assemble_student_live_payload(
+                school.assemble_student_home_shell(
                     live_session_id,
                     class_id,
                     int(student_id) if student_id not in (None, "") else None,
@@ -5063,10 +5067,19 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     unmatched=unmatched,
                 )
             )
+        except PollBudgetExceeded:
+            # Same degrade as /state: the waiting shell renders and the
+            # browser's first poll retries with backoff. Not a crash.
+            logger.warning(
+                "student home shell over poll budget session=%s", live_session_id
+            )
+            fallback = True
         except Exception:
             logger.exception(
                 "student home payload failed session=%s", live_session_id
             )
+            fallback = True
+        if fallback:
             payload = {
                 "ok": True,
                 "status": "waiting",
