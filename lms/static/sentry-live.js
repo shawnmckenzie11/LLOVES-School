@@ -411,6 +411,8 @@
     if (event.transaction) event.transaction = maskPathTokens(event.transaction);
     if (event.logentry) event.logentry = maskNested(event.logentry, 0);
     if (event.extra) event.extra = maskNested(event.extra, 0);
+    if (event.tags) event.tags = maskNested(event.tags, 0);
+    if (event.contexts) event.contexts = maskNested(event.contexts, 0);
     if (event.stacktrace) scrubFrames(event);
     if (event.user) {
       event.user = event.user.id ? { id: String(event.user.id) } : undefined;

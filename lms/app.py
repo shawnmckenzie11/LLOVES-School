@@ -420,6 +420,41 @@ def plain_name_wording(message: Any) -> str:
     return _CODENAME_WORD_RE.sub(swap, text)
 
 
+def simple_course(ontario_code: Any, library_id: Any) -> bool:
+    """MCK-183 slice E: a course with no module pack that is not math.
+
+    Ontario math codes start with "M" (MCF3M, MHF4U, MPM2D...), so Shawn's
+    courses, with or without a pack, keep every tab and label. A
+    pack-less non-math course (SBI4U, ENG2D...) shows the plain teacher
+    view: Run Live Class and Attendance & Participation.
+    """
+    code = str(ontario_code or "").strip().upper()
+    return bool(code) and not library_id and not code.startswith("M")
+
+
+def class_is_simple(school: Any, class_id: int) -> bool:
+    """Is this class's course a plain course (non-math, no pack)?
+
+    Module level (#272 gate LOW-1) so every route group can use it.
+
+    Args:
+        school: ``SchoolDB``.
+        class_id: Game-show ``classes.id``.
+    """
+    try:
+        cls = school.game.get_class(int(class_id))
+        offering = (
+            school.get_offering(int(cls["offering_id"]))
+            if cls and cls.get("offering_id")
+            else None
+        )
+    except Exception:  # noqa: BLE001
+        return False
+    if not offering:
+        return False
+    return simple_course(offering.get("ontario_code"), offering.get("library_id"))
+
+
 def _is_whats_new_source_path(path: str) -> bool:
     """True for any spelling of a path under ``/static/whats-new/``.
 
@@ -2819,33 +2854,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """MCK-183 slice D: the Help menu's contact address on staff pages."""
         return {"help_contact_email": _help_contact_email()}
 
-    def _simple_course(ontario_code: Any, library_id: Any) -> bool:
-        """MCK-183 slice E: a course with no module pack that is not math.
-
-        Ontario math codes start with "M" (MCF3M, MHF4U, MPM2D...), so Shawn's
-        courses, with or without a pack, keep every tab and label. A
-        pack-less non-math course (SBI4U, ENG2D...) shows the plain teacher
-        view: Run Live Class and Attendance & Participation.
-        """
-        code = str(ontario_code or "").strip().upper()
-        return bool(code) and not library_id and not code.startswith("M")
+    _simple_course = simple_course
 
     app.jinja_env.globals["simple_course"] = _simple_course
 
     def _class_is_simple(class_id: int) -> bool:
         """Is this class's course a plain course (non-math, no pack)?"""
-        try:
-            cls = school.game.get_class(int(class_id))
-            offering = (
-                school.get_offering(int(cls["offering_id"]))
-                if cls and cls.get("offering_id")
-                else None
-            )
-        except Exception:  # noqa: BLE001
-            return False
-        if not offering:
-            return False
-        return _simple_course(offering.get("ontario_code"), offering.get("library_id"))
+        return class_is_simple(school, class_id)
 
     def _roster_message(exc: BaseException, simple: bool) -> str:
         """Roster validation text, in first-names wording on plain courses."""
@@ -2937,13 +2952,18 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     def _same_origin_post() -> bool:
         """True when this POST came from one of our own pages.
 
-        ``Sec-Fetch-Site: cross-site`` is refused outright. ``Origin`` must
+        When the browser sends ``Sec-Fetch-Site`` it decides: only
+        ``same-origin`` passes (``cross-site``, ``same-site`` and ``none``
+        are refused), whatever ``Origin`` says. Without it, ``Origin`` must
         match this host when sent; with no ``Origin``, a ``Referer`` from
         another host is refused too. Old browsers that send neither pass.
         """
         site = str(request.headers.get("Sec-Fetch-Site") or "").strip().lower()
-        if site == "cross-site":
-            return False
+        if site:
+            # #272 gate MED-1: invite.html sends no Referer, so Chrome posts
+            # ``Origin: null`` with ``Sec-Fetch-Site: same-origin``. Fetch
+            # metadata is the browser's own verdict: trust it when present.
+            return site == "same-origin"
         own = request.host_url.rstrip("/").lower()
         origin = str(request.headers.get("Origin") or "").strip().lower()
         if origin:
@@ -9880,7 +9900,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             try:
                 return _dashboard_payload_from_add(class_id, body)
             except ValueError as exc:
-                if _class_is_simple(class_id):
+                if class_is_simple(school, class_id):
                     raise ValueError(plain_name_wording(str(exc))) from exc
                 raise
 

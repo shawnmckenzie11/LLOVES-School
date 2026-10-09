@@ -136,6 +136,30 @@ class PlainNameWordingTests(_AppCase):
         self.assertEqual(dup.get_json()["error"], "Duplicate first name: sam")
 
 
+class AddStudentValidationTests(PlainNameWordingTests):
+    """#272 gate LOW-1: POST /api/classes/<id>/students validation is a 400."""
+
+    def test_add_student_validation_is_400_plain_and_math(self) -> None:
+        """Plain says first names, math says Codename; never a 500."""
+        cases = (
+            ("SBI4U", {"codename": "Ann, Bo"}, "First names cannot contain commas"),
+            ("SBI4U", {"codename": "X"}, "First names must be 2–32 characters"),
+            ("MCF3M", {"codename": "Ann, Bo"}, "Codenames cannot contain commas"),
+            ("MCF3M", {"codename": "X"}, "Codenames must be 2–32 characters"),
+        )
+        class_ids: dict[str, int] = {}
+        for code, body, want in cases:
+            if code not in class_ids:
+                created = self._populate(code, ["Ava", "Ben"])
+                self.assertEqual(created.status_code, 200, created.get_json())
+                class_ids[code] = int(created.get_json()["class"]["id"])
+            rv = self.client.post(f"/api/classes/{class_ids[code]}/students", json=body)
+            self.assertEqual(rv.status_code, 400, (code, body, rv.get_data(as_text=True)))
+            self.assertEqual(rv.get_json()["error"], want)
+        ok = self.client.post(f"/api/classes/{class_ids['SBI4U']}/students", json={"codename": "Cyd"})
+        self.assertEqual(ok.status_code, 200, ok.get_json())
+
+
 TOKEN_SCRIPT_TAIL = r"""
 const SEAT = "SEATtok987secret";
 const INV = "INVITEtok555secret";
@@ -150,6 +174,8 @@ const ev = {
     { category: "fetch", data: { url: `/invite/${INV}/switch`, method: "POST" } },
     { category: "custom", message: "x", data: { note: `went to /student/s/${SEAT}` } },
   ],
+  tags: { qa: `/student/s/${SEAT}` },
+  contexts: { qa: { where: `/invite/${INV}` } },
 };
 const res = sandbox.__opts.beforeSend(ev);
 const flat = JSON.stringify(res);
@@ -229,6 +255,26 @@ class InviteSwitchCsrfTests(_AppCase):
             rv = self.client.post(f"/invite/{self.token}/switch", headers=headers)
             self.assertEqual(rv.status_code, 403, headers)
             self.assertTrue(self._signed_in(), headers)
+
+    def test_same_origin_with_origin_null_passes(self) -> None:
+        """#272 gate MED-1: real Chrome on invite.html (no-referrer) sends Origin: null."""
+        rv = self.client.post(
+            f"/invite/{self.token}/switch",
+            headers={"Sec-Fetch-Site": "same-origin", "Origin": "null"},
+        )
+        self.assertEqual(rv.status_code, 302)
+        self.assertTrue(rv.headers["Location"].endswith(f"/invite/{self.token}"))
+        self.assertFalse(self._signed_in())
+
+    def test_cross_site_or_same_site_with_origin_null_fails(self) -> None:
+        """Fetch metadata decides: cross-site and same-site are refused."""
+        for site in ("cross-site", "same-site"):
+            rv = self.client.post(
+                f"/invite/{self.token}/switch",
+                headers={"Sec-Fetch-Site": site, "Origin": "null"},
+            )
+            self.assertEqual(rv.status_code, 403, site)
+            self.assertTrue(self._signed_in(), site)
 
     def test_unknown_invite_does_not_sign_out(self) -> None:
         """/invite/anything/switch from our own page leaves the session alone."""
