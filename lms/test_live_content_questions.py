@@ -551,8 +551,11 @@ class ContentQuestionsApiTests(unittest.TestCase):
         self.assertEqual(calls["n"], 0)
         self.assertEqual(self._placement_count(), 0)
 
-    def test_single_import_mc_guard_is_unchanged(self) -> None:
-        """import-mc still refuses another module's bank question."""
+    def test_single_import_mc_takes_another_modules_confirmed_bank(self) -> None:
+        """MCK-190: import-mc (Add New) takes a question from another module's
+        confirmed bank in this course. It used to 404 ("not in confirmed banks
+        for M1"); unconfirmed and other-course banks are still refused (see
+        test_deck_fixes_mck190)."""
         m1_bank = _bank(self.school, self.library_id, "Module 1 Test", "bank:m1-test")
         _mc(self.school, m1_bank, "m1-1", "Module one bank")
         m2_bank = _bank(self.school, self.library_id, "Module 2 Test", "bank:m2-test")
@@ -563,7 +566,7 @@ class ContentQuestionsApiTests(unittest.TestCase):
             f"/api/staff/class/{self.class_id}/live-lessons/M1/C1/import-mc",
             json={"question_id": m2_q, "page_number": 4},
         )
-        self.assertEqual(rv.status_code, 404)
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
 
     def test_other_teacher_is_forbidden(self) -> None:
         """Only the class teacher can list or import."""

@@ -47,6 +47,7 @@ import {
   readOnlyOrderHtml,
   raceDisplayOptions,
 } from "/static/rank_challenge_phone.js";
+import { fullOrderHtml } from "/static/rank_full_order.js";
 import {
   GROUP_INSTRUCTION_COPY,
   consensusWaitHtml,
@@ -1503,6 +1504,10 @@ function floatPaneAtCurrentPosition(pane, host) {
   return { hostRect, paneRect };
 }
 
+/** @type {WeakMap<HTMLElement, () => void>} Dock-back for each bound pane. */
+const paneResets = new WeakMap();
+let paneResizeBound = false;
+
 /**
  * Make one projected pane draggable and visibly resizable inside the workspace.
  * @param {HTMLElement | null} pane
@@ -1647,8 +1652,24 @@ function bindFloatingPane(pane) {
   resizeHandle?.addEventListener("pointerup", endResize);
   resizeHandle?.addEventListener("pointercancel", endResize);
   resizeHandle?.addEventListener("lostpointercapture", endResize);
+  paneResets.set(pane, resetPane);
+  bindPaneResizeOnce();
+}
+
+/**
+ * MCK-186: one window ``resize`` listener for every bound pane. Each
+ * rebuilt question card used to add its own, so listeners piled up over a
+ * long class. Panes are looked up in the document on each resize, so a
+ * card that was rebuilt away is simply gone (the WeakMap lets it go).
+ */
+function bindPaneResizeOnce() {
+  if (paneResizeBound) return;
+  paneResizeBound = true;
   window.addEventListener("resize", () => {
-    if (window.innerWidth < 720) resetPane();
+    if (window.innerWidth >= 720) return;
+    for (const pane of document.querySelectorAll('[data-pane-bound="1"]')) {
+      paneResets.get(pane)?.();
+    }
   });
 }
 
@@ -3080,6 +3101,19 @@ function rankGroupRevealHtml(results, ownTeamId) {
  * @returns {string}
  */
 function studentGroupCardHtml(item) {
+  const html = studentGroupCardBodyHtml(item);
+  // MCK-185: the class-wide "put every item in the right order" line, at
+  // the very bottom under the answer area (server decides when; names only).
+  const notice = fullOrderHtml(item?.group_submit?.full_order);
+  return notice ? `${html}${notice}` : html;
+}
+
+/**
+ * The group card itself (see ``studentGroupCardHtml``).
+ * @param {any} item
+ * @returns {string}
+ */
+function studentGroupCardBodyHtml(item) {
   const status = String(item?.status || "active");
   const content = item?.content || item?.prompt?.payload || {};
   const rank = String(content.type || content.kind || "").toLowerCase() === "rank";

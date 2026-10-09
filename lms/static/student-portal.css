@@ -706,6 +706,189 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
   }
 }
 
+/* MCK-186: on a short phone the header (name, Save View, points, team
+   list, round) and the Scores panel left a question card a 76-103px window
+   (360x640, 375x667). While a question card is on screen, fold the header
+   into one compact bar, the team list into one line and the Scores panel
+   into one sideways strip. Everything stays on screen and tappable; the
+   full layout comes back when the card goes. Phone layout only (the
+   720px+ grid keeps its side column). */
+@media (max-width: 719.98px) {
+  body.student-home:has(#live-question-stack-body > .student-live-card) .student-chrome {
+    padding-top: 0.3rem;
+    padding-bottom: 0.3rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .student-chrome-top {
+    flex-flow: row wrap;
+    align-items: center;
+    column-gap: 0.45rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .student-chrome-top > * {
+    flex: 1 1 100%;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .student-chrome-top > .me-display-time {
+    flex: 0 0 auto;
+    margin: 0;
+    min-height: 0;
+    font-size: 0.78rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .student-me {
+    flex: 1 1 0;
+    min-width: 0;
+    flex-flow: row wrap;
+    align-items: center;
+    gap: 0.25rem 0.55rem;
+    padding: 0.3rem 0.55rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .student-me .me-name-row {
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 0.3rem;
+    margin: 0;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .student-me .student-avatar {
+    font-size: 1.05rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .student-me .me-name {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 0.86rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .student-me .me-save-slot {
+    flex-direction: row;
+    margin: 0;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .student-me .save-work {
+    min-height: 1.75rem;
+    padding: 0.2rem 0.65rem;
+    font-size: 0.72rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .student-me .save-work-toast {
+    font-size: 0.7rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .student-me .me-stats {
+    flex-direction: row;
+    gap: 0.55rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .student-me .me-stat {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 0.25rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .student-me .me-stat-label {
+    font-size: 0.6rem;
+    letter-spacing: 0.04em;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .student-me .me-stat strong {
+    font-size: 0.9rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .me-team-list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem 0.55rem;
+    margin: 0.3rem 0 0;
+    padding: 0.3rem 0.35rem 0;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .me-team-list .me-team-kicker {
+    margin: 0;
+    font-size: 0.62rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .me-team-list .me-team-people {
+    flex-flow: row wrap;
+    justify-content: center;
+    gap: 0.2rem 0.55rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .me-team-list .name-with-avatar {
+    gap: 0.2rem;
+    font-size: 0.76rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .me-team-list .student-avatar {
+    font-size: 0.9rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .student-round-banner {
+    margin-top: 0.3rem;
+    padding: 0.1rem 0.45rem;
+    font-size: 0.66rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .student-chrome-bottom {
+    padding-bottom: calc(0.3rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .student-scoreboard {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.3rem 0.45rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .student-scoreboard .sb-kicker {
+    flex: 0 0 auto;
+    margin: 0;
+    font-size: 0.6rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .sb-espn-board {
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-direction: row;
+    gap: 0.35rem;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .sb-espn {
+    flex: 1 0 5.5rem;
+    min-height: 0;
+    border-top-width: 2px;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .sb-espn-swatch {
+    width: 0.3rem;
+    flex-basis: 0.3rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .sb-espn-meta {
+    gap: 0.3rem;
+    padding: 0.2rem 0.4rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .sb-espn-name {
+    font-size: 0.66rem;
+  }
+
+  body.student-home:has(#live-question-stack-body > .student-live-card) .sb-espn-score {
+    font-size: 0.95rem;
+  }
+}
+
 @media (min-width: 48rem) {
   .student-live-card .student-pane-resize {
     display: block;
@@ -3100,4 +3283,30 @@ body.rw-open { overflow: hidden; }
 }
 @media (prefers-reduced-motion: reduce) {
   .race-phone-burst { display: none; }
+}
+
+/* MCK-185 full-order line: one calm soft pill at the very bottom of the
+   question card. No motion (nothing to reduce): it simply appears. */
+.full-order-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #12202e;
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+.full-order-dots {
+  display: inline-flex;
+  flex: none;
+  gap: 3px;
+}
+.full-order-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--team);
 }

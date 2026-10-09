@@ -17,6 +17,7 @@ import json
 import subprocess
 import unittest
 from pathlib import Path
+from unittest import mock
 from typing import Any
 
 import rank_challenge
@@ -133,8 +134,64 @@ class StepMixin:
             self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
 
 
-class AwardTests(StepMixin, ChallengeHarness):
-    """Points land once, at the projector points step, to members seen present."""
+class PaysOnMixin:
+    """MCK-185 option B turned the automatic payout off
+    (``rank_challenge.CHALLENGE_AUTO_PAYS = False``). The ledger code stays,
+    so these suites switch it back on to keep it covered."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        switch = mock.patch.object(rank_challenge, "CHALLENGE_AUTO_PAYS", True)
+        switch.start()
+        self.addCleanup(switch.stop)
+
+
+class NoAutoAwardTests(StepMixin, ChallengeHarness):
+    """MCK-185 option B: a Team challenge awards nothing by itself."""
+
+    def _ledger(self, item: dict[str, Any]) -> int:
+        with self.school._lock:
+            row = self.school.conn.execute(
+                "SELECT COUNT(*) AS n FROM live_rank_race_awards WHERE live_item_id = ?",
+                (int(item["id"]),),
+            ).fetchone()
+        return int(row["n"])
+
+    def test_points_step_podium_end_game_and_end_live_class_pay_nothing(self) -> None:
+        self.assertFalse(rank_challenge.CHALLENGE_AUTO_PAYS)
+        item = self._challenge()
+        self._lock_team(item, ("Ava", "Cy", "Eli"), KEY_IDS)
+        self._order("Ben", item, SWAP)
+        closed = self._close(item)
+        # No Points step any more: the last row, then the podium (n+1).
+        rv = self._step(item, POINTS_STEP)
+        payload = rv.get_json()
+        self.assertFalse(payload["results"]["pays"])
+        self.assertEqual(payload["results"]["podium_step"], POINTS_STEP)
+        self.assertEqual(self._post_step(item, PODIUM_STEP).status_code, 409)
+        teams = {t["team_id"]: t for t in payload["results"]["teams"]}
+        # The "Score teams" default (2 per right spot); nothing given.
+        self.assertEqual(teams[self._team("Ava", item)]["auto"], 8)
+        self.assertEqual(teams[self._team("Ben", item)]["auto"], 4)
+        self.school._award_rank_race_points(self.session_id, closed)
+        self.school._award_pending_rank_races(self.session_id)
+        self.assertEqual(int(self._row(item, "Ava").get("awarded_points") or 0), 0)
+        live = self.client.post(
+            f"/api/classes/{self.class_id}/game/start-rounds",
+            json={"rounds": [{"kind": "challenge", "minutes": 10}]},
+        )
+        self.assertEqual(live.status_code, 200, live.get_data(as_text=True)[:300])
+        self.client.post(f"/api/classes/{self.class_id}/game/end", json={"preserve_live_session": True})
+        self.client.post(f"/staff/class/{self.class_id}/end-live", data={})
+        self.assertEqual(self.school.get_live_session(self.session_id)["status"], "ended")
+        for name in ("Ava", "Ben", "Cy", "Dee", "Eli", "Fay"):
+            self.assertEqual(self._points(name), 0, name)
+        self.assertEqual(self._ledger(item), 0)
+
+
+class AwardTests(PaysOnMixin, StepMixin, ChallengeHarness):
+    """Points land once, at the projector points step, to members seen present
+    (only with ``CHALLENGE_AUTO_PAYS`` on; off since MCK-185 option B)."""
 
     def test_points_land_at_the_points_step_not_at_close(self) -> None:
         item = self._challenge()
@@ -346,7 +403,7 @@ class AwardTests(StepMixin, ChallengeHarness):
         self.assertNotIn("finalized_at", json.dumps(self._view(item)["race"]))
 
 
-class StepRouteTests(StepMixin, ChallengeHarness):
+class StepRouteTests(PaysOnMixin, StepMixin, ChallengeHarness):
     """The reveal step: closed challenges only, exactly one screen at a time."""
 
     def test_open_challenge_refuses_a_step(self) -> None:
@@ -354,7 +411,9 @@ class StepRouteTests(StepMixin, ChallengeHarness):
         self.assertEqual(self._post_step(item, 1).status_code, 400)
 
     def test_plain_rank_refuses_a_step(self) -> None:
-        row = self._rank_row()
+        # MCK-185: a keyed group rank now gets the spots reveal (its own
+        # steps), so "plain" here is an opinion rank with no answer order.
+        row = self._rank_row(key=False)
         item = self._publish(row)
         self._close(item)
         self.assertEqual(self._post_step(item, 1).status_code, 400)
@@ -420,7 +479,7 @@ class StepRouteTests(StepMixin, ChallengeHarness):
         self.assertEqual(len(news.since(self.session_id, 0, limit=1000)), before)
 
 
-class ResultsBlockTests(StepMixin, ChallengeHarness):
+class ResultsBlockTests(PaysOnMixin, StepMixin, ChallengeHarness):
     """Teacher results after Close only; phones get their own team only."""
 
     def test_teacher_results_only_after_close(self) -> None:

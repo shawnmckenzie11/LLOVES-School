@@ -5064,9 +5064,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return _student_advance()
         live_session_id = int(ctx["live_session_id"])
         pid = str(ctx.get("participant_uuid") or "")
+        # MCK-191 (LLOVES-LMS-4): the page only needs the shell; its first
+        # /api/student/state poll (slot-capped, backed off) paints the rest.
+        # The full build here doubled every page load's heavy work.
+        fallback = False
         try:
             payload = json_safe(
-                school.assemble_student_live_payload(
+                school.assemble_student_home_shell(
                     live_session_id,
                     class_id,
                     int(student_id) if student_id not in (None, "") else None,
@@ -5075,10 +5079,19 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     unmatched=unmatched,
                 )
             )
+        except PollBudgetExceeded:
+            # Same degrade as /state: the waiting shell renders and the
+            # browser's first poll retries with backoff. Not a crash.
+            logger.warning(
+                "student home shell over poll budget session=%s", live_session_id
+            )
+            fallback = True
         except Exception:
             logger.exception(
                 "student home payload failed session=%s", live_session_id
             )
+            fallback = True
+        if fallback:
             payload = {
                 "ok": True,
                 "status": "waiting",
@@ -7174,6 +7187,45 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 live_item_id,
                 team_id=int(body.get("team_id")),
                 amount=int(body.get("amount") or 1),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, **result})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/rank-points",
+        methods=["POST"],
+    )
+    @login_required
+    def api_award_group_rank_points(session_id: int, live_item_id: int):
+        """MCK-185 "Score teams": set teams' points on a group answer-order rank.
+
+        Body ``{awards: [{team_id, points}], team_rule}`` (one row's Assign,
+        or Assign all). Re-assigning replaces that team's earlier award for
+        this question; the same points and rule again change nothing.
+        Manual only; nothing is awarded unless the teacher presses Assign.
+        """
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        body = request.get_json(silent=True)
+        # Gate LOW on f0a15be: a malformed body (not an object, awards not
+        # a list of objects) is a 400, never a 500.
+        if not isinstance(body, dict):
+            return jsonify({"ok": False, "error": "Send {awards: [{team_id, points}], team_rule}"}), 400
+        awards = body.get("awards")
+        if not isinstance(awards, list) or not all(isinstance(row, dict) for row in awards):
+            return jsonify({"ok": False, "error": "awards must be a list of {team_id, points}"}), 400
+        rule = body.get("team_rule")
+        if rule is not None and not isinstance(rule, str):
+            return jsonify({"ok": False, "error": "team_rule must be text"}), 400
+        try:
+            result = school.assign_rank_team_points(
+                session_id,
+                live_item_id,
+                awards=awards,
+                team_rule=(rule or None),
             )
         except (KeyError, TypeError, ValueError) as exc:
             return _json_error(exc)

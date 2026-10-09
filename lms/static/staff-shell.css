@@ -7272,3 +7272,225 @@ body.staff-shell .race-confetti i {
     outline-offset: 2px;
   }
 }
+
+/* MCK-185 "Score teams" (teacher only). A <dialog> on the Responses
+   dialog chrome, about 560px. Rows in Class list team order. */
+body.staff-shell .race-score-open {
+  flex: none;
+  margin-left: auto;
+  font-weight: 700;
+}
+body.staff-shell .race-view-head .race-view-count + .race-score-open {
+  margin-left: 0;
+}
+body.staff-shell .race-score-again {
+  margin: 8px 0;
+}
+body.staff-shell .rank-score-dialog {
+  width: min(36rem, calc(100vw - 2rem));
+}
+body.staff-shell .rank-score-card {
+  padding: 1rem 1.1rem;
+}
+body.staff-shell .rank-score-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  min-width: 0;
+  margin: 0;
+  font-size: 1.2rem;
+  white-space: nowrap;
+}
+body.staff-shell .rank-score-stem {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.95rem;
+  font-weight: 400;
+  color: #475569;
+}
+body.staff-shell .rank-score-help {
+  margin: 0.35rem 0 0.75rem;
+  color: #5b6779;
+}
+body.staff-shell .rank-score-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+body.staff-shell .rank-score-row {
+  display: grid;
+  /* Fixed action column: "Assigned · 12 each" never shifts the stepper. */
+  grid-template-columns: 1.3rem minmax(3.5rem, 1fr) auto auto 9.6rem;
+  align-items: center;
+  gap: 6px;
+  min-height: 2.75rem;
+  padding: 4px 6px;
+  border-left: 4px solid var(--team);
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #12202e;
+}
+body.staff-shell .rank-score-row.is-none {
+  grid-template-columns: 1.3rem minmax(0, 1fr) auto;
+  opacity: 0.6;
+}
+body.staff-shell .rank-score-chip {
+  width: auto;
+  height: auto;
+  color: var(--team);
+  background: none;
+  font-size: 20px;
+}
+body.staff-shell .rank-score-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+body.staff-shell .rank-score-spots,
+body.staff-shell .rank-score-auto {
+  color: #5b6779;
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+body.staff-shell .rank-score-stepper {
+  display: inline-grid;
+  grid-template-columns: auto auto auto;
+  align-items: center;
+  justify-items: center;
+  gap: 0 4px;
+}
+/* "(auto n)" under the number, so the row keeps its width. */
+body.staff-shell .rank-score-stepper .rank-score-auto {
+  grid-column: 1 / -1;
+  font-size: 0.75rem;
+  line-height: 1.1;
+}
+body.staff-shell .rank-score-step {
+  min-width: 2.1rem;
+  min-height: 2.1rem;
+  padding: 0;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+body.staff-shell .rank-score-value {
+  width: 3.2rem;
+  min-height: 2.1rem;
+  padding: 0 4px;
+  text-align: center;
+  font-size: 1rem;
+  font-weight: 700;
+}
+body.staff-shell .rank-score-assign {
+  width: 100%;
+  min-height: 2.1rem;
+  padding: 0 0.6rem;
+  white-space: nowrap;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+body.staff-shell .rank-score-assign.is-done:disabled {
+  opacity: 1;
+  color: #0f766e;
+  border-color: #99d5cc;
+  background: #f0fdfa;
+}
+body.staff-shell .rank-score-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 0.9rem;
+}
+body.staff-shell .rank-score-rule {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+}
+body.staff-shell .rank-score-rule select {
+  width: auto;
+}
+body.staff-shell .rank-score-foot-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+/* Gate LOW-3: never cut off. The dialog scrolls down if it is tall, and on
+   a narrow teacher window (about 390px) each row wraps onto two lines:
+   chip, name and spots, then the stepper and the (still fixed-width)
+   action button. The footer wraps too, so Assign all and Close stay in. */
+body.staff-shell .rank-score-dialog {
+  max-height: calc(100dvh - 1rem);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+@media (max-width: 34rem) {
+  body.staff-shell .rank-score-dialog {
+    width: calc(100vw - 1rem);
+    max-width: none;
+  }
+  body.staff-shell .rank-score-card {
+    padding: 0.8rem 0.7rem;
+  }
+  body.staff-shell .rank-score-title {
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+  body.staff-shell .rank-score-row {
+    grid-template-columns: 1.3rem minmax(0, 1fr) 9.6rem;
+    grid-template-areas:
+      "chip name spots"
+      "stepper stepper action";
+    row-gap: 4px;
+    padding: 6px;
+  }
+  body.staff-shell .rank-score-row > .rank-score-chip { grid-area: chip; }
+  body.staff-shell .rank-score-row > .rank-score-name { grid-area: name; }
+  body.staff-shell .rank-score-row > .rank-score-spots { grid-area: spots; justify-self: end; }
+  body.staff-shell .rank-score-row > .rank-score-stepper { grid-area: stepper; justify-self: start; }
+  body.staff-shell .rank-score-row > .rank-score-assign { grid-area: action; }
+  body.staff-shell .rank-score-row.is-none {
+    grid-template-columns: 1.3rem minmax(0, 1fr) auto;
+    grid-template-areas: "chip name spots";
+  }
+  body.staff-shell .rank-score-foot {
+    flex-wrap: wrap;
+  }
+  body.staff-shell .rank-score-foot-actions {
+    margin-left: auto;
+  }
+}
+
+/* MCK-185 full-order line: one calm soft pill under the lanes / stack. */
+body.staff-shell .full-order-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 10px 0 4px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #12202e;
+  font-size: 0.95rem;
+}
+body.staff-shell .race-results .full-order-line {
+  margin: 0 24px 12px;
+  font-size: 18px;
+}
+body.staff-shell .full-order-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+body.staff-shell .full-order-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--team);
+}

@@ -31,14 +31,124 @@ RACE_CLOSED_BY = "group_rank_race_closed_by"
 #: ``item_json``, so a deck refresh can never rewrite it from a stale copy.
 
 
-def points_step(spots: int) -> int:
-    """Reveal step that shows points (after every spot row)."""
-    return int(spots) + 1
+#: MCK-185: the coloured results run on every group answer-order rank (Team
+#: challenge, Rank together, Take turns). Rows, then a podium by right spots;
+#: no Points step and no automatic points. The teacher scores teams in the
+#: "Score teams" pop-up (default ``BASE_PER_SPOT`` per right spot).
+#: An answer order needs this many spots (same rule as the Team challenge
+#: toggle in ``group_setup.js`` ``rankRaceSettings``).
+MIN_KEY_SPOTS = 3
+#: MCK-185 (Shawn, option B): nothing is awarded automatically on any group
+#: answer-order rank. ``SchoolDB._rank_race_pays`` reads this and every
+#: MCK-171 payout path (points step, End Game, End Live Class) checks that
+#: one method, so turning the automatic payout back on is this one switch.
+CHALLENGE_AUTO_PAYS = False
+#: MCK-185 full-order notice timing: ``"reveal"`` shows "{team} put every item
+#: in the right order." after Close & reveal; ``"lock"`` shows it as soon as
+#: a team's final order (locked, sent, or last Take turns spot) is all right.
+#: Drafts never count. Shawn chose ``"lock"`` (Oct 4); the flag stays so
+#: ``"reveal"`` is one change away.
+FULL_ORDER_WHEN = "lock"
+FULL_ORDER_TIMINGS = ("reveal", "lock")
 
 
-def podium_step(spots: int) -> int:
-    """Reveal step that shows the podium (last step)."""
-    return int(spots) + 2
+def full_order_visible(status: str, when: str | None = None) -> bool:
+    """True when the full-order notice may show for an item in ``status``.
+
+    Args:
+        status: Lifecycle status (``active``, ``closed``, ...).
+        when: ``"reveal"`` or ``"lock"`` (default: ``FULL_ORDER_WHEN``).
+    """
+    timing = when or FULL_ORDER_WHEN
+    if timing == "lock":
+        return status in {"active", "closed"}
+    return status == "closed"
+
+
+def full_order_timing(
+    *, challenge: bool, rank_mode: str, results_on: bool, when: str | None = None
+) -> str:
+    """The timing that applies to one item (gate MED-1 on f0a15be).
+
+    ``"lock"`` only holds where a final order really is final: a Team
+    challenge lock-in (unlock is refused) or the last Take turns spot (Undo
+    is refused). A plain Rank together send can be changed and resent while
+    the question is open, so under ``"lock"`` it would let a team resend
+    until the line appears (a right/wrong check before Close). That mode
+    shows the line at Close instead. With live results off the line also
+    waits for Close.
+
+    Args:
+        challenge: The item is a Team challenge.
+        rank_mode: ``"together"`` or ``"turns"``.
+        results_on: The item's Show Live Results setting.
+        when: Override (default: ``FULL_ORDER_WHEN``).
+    """
+    timing = when or FULL_ORDER_WHEN
+    if timing != "lock":
+        return timing
+    if not results_on:
+        return "reveal"
+    if challenge or str(rank_mode) == "turns":
+        return "lock"
+    return "reveal"
+
+
+#: Highest "Score teams" award per team on one question.
+MAX_AWARD_POINTS = 999
+
+
+def clamp_award_points(value: Any) -> int | None:
+    """A "Score teams" points value as a whole number in 0..999.
+
+    Numbers (and numeric text, as a form would send) are rounded and
+    clamped; ``True``/``False``, other text, NaN and infinity give ``None``
+    (the route answers 400).
+
+    Args:
+        value: Raw JSON value.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            value = float(value.strip())
+        except ValueError:
+            return None
+    if not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if number != number or number in (float("inf"), float("-inf")):
+        return None
+    return max(0, min(MAX_AWARD_POINTS, int(round(number))))
+
+
+def score_default(right: int) -> int:
+    """The "Score teams" default: ``BASE_PER_SPOT`` per right spot."""
+    return team_points(right)
+
+
+def points_step(spots: int, *, with_points: bool = True) -> int | None:
+    """Reveal step that shows points (after every spot row).
+
+    Args:
+        spots: Spots in the answer order.
+        with_points: False for the spots results, which have no Points step.
+
+    Returns:
+        The step, or ``None`` when there is no Points step.
+    """
+    return int(spots) + 1 if with_points else None
+
+
+def podium_step(spots: int, *, with_points: bool = True) -> int:
+    """Reveal step that shows the podium (last step).
+
+    Args:
+        spots: Spots in the answer order.
+        with_points: False for the spots results (rows, then the podium).
+    """
+    return int(spots) + (2 if with_points else 1)
 
 
 def flag_on(question: Any, key: str, *, default: bool = False) -> bool:
@@ -172,23 +282,34 @@ def team_points(right: int) -> int:
     return BASE_PER_SPOT * max(0, int(right))
 
 
-def podium(teams: Iterable[dict[str, Any]]) -> dict[str, Any]:
+def podium(
+    teams: Iterable[dict[str, Any]], *, by: str = "points", drop_unscored: bool = False
+) -> dict[str, Any]:
     """Top-3 podium by dense ranking; tied teams share a step.
 
     A team is on the podium when it was scored (it placed something) and
-    has points. Everyone else goes to "Also on the board", alphabetical,
-    with no place number. Speed and lock-in time play no part.
+    has points (or, ``by="right"``, at least one right spot). Everyone else
+    goes to "Also on the board", alphabetical, with no place number. Speed
+    and lock-in time play no part.
 
     Args:
-        teams: Dicts with ``team_id``, ``team_name``, ``points``, ``scored``.
+        teams: Dicts with ``team_id``, ``team_name``, ``points``, ``right``,
+            ``scored``.
+        by: ``points`` (Team challenge) or ``right`` (MCK-185 spots results).
+        drop_unscored: Leave teams that sent nothing (absent teams too) off
+            the board entirely instead of listing them under "Also on the
+            board" (MCK-185 spots results).
 
     Returns:
         ``{"steps": [{"step", "points", "team_ids"}], "others": [team_id]}``.
         ``steps`` is ordered 1, 2, 3 (fewer when there are fewer totals).
+        With ``by="right"`` each step also carries ``right``; its
+        ``points`` is the same count (no points are paid).
     """
+    field = "right" if by == "right" else "points"
     rows = list(teams)
     totals = sorted(
-        {int(row["points"]) for row in rows if row.get("scored") and int(row["points"]) > 0},
+        {int(row.get(field) or 0) for row in rows if row.get("scored") and int(row.get(field) or 0) > 0},
         reverse=True,
     )[:PODIUM_STEPS]
     steps = []
@@ -198,17 +319,22 @@ def podium(teams: Iterable[dict[str, Any]]) -> dict[str, Any]:
             (
                 row
                 for row in rows
-                if row.get("scored") and int(row["points"]) == total
+                if row.get("scored") and int(row.get(field) or 0) == total
             ),
             key=lambda row: str(row.get("team_name") or "").casefold(),
         )
-        steps.append(
-            {"step": index + 1, "points": total, "team_ids": [int(row["team_id"]) for row in ids]}
-        )
+        step: dict[str, Any] = {
+            "step": index + 1,
+            "points": total,
+            "team_ids": [int(row["team_id"]) for row in ids],
+        }
+        if field == "right":
+            step["right"] = total
+        steps.append(step)
         on.update(int(row["team_id"]) for row in ids)
     others = [
         int(row["team_id"])
         for row in sorted(rows, key=lambda row: str(row.get("team_name") or "").casefold())
-        if int(row["team_id"]) not in on
+        if int(row["team_id"]) not in on and (row.get("scored") or not drop_unscored)
     ]
     return {"steps": steps, "others": others}

@@ -637,6 +637,7 @@ const ctx = {
   displayName: (s) => s.codename,
   escapeHtml: (v) => String(v),
   paintDivisionMeter: () => {},
+  paintScoreboardPreviewTotals: () => {},
 };
 vm.createContext(ctx);
 vm.runInContext(input.src, ctx);

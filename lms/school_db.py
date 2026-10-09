@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import logging
 import re
@@ -959,6 +960,24 @@ def _reward_quiet_prompt(prompt: dict[str, Any] | None) -> bool:
     return is_minds_on_payload(prompt.get("payload"))
 
 
+def _strict_int(value: Any) -> int | None:
+    """``value`` as an int when it is one (an int, or a whole float or digit
+    string), else ``None``. ``True``/``False`` are not ids.
+
+    Args:
+        value: Raw JSON value.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else None
+    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        return int(value.strip())
+    return None
+
+
 def _now() -> str:
     """Return a local ISO timestamp without microseconds."""
     return datetime.now().replace(microsecond=0).isoformat()
@@ -1244,16 +1263,26 @@ def roster_shown_name(student: dict[str, Any] | None) -> str:
 def first_name_only(raw: str) -> str:
     """Keep the first token of a typed name; never persist a last name.
 
+    A short number after the first name stays (MCK-183): Welcome tells
+    teachers to type a repeated first name as "Sam 2", and dropping the
+    number showed both students as "Sam".
+
     Args:
         raw: Student-entered name or Codename.
 
     Returns:
-        Trimmed first token, or ``""``.
+        Trimmed first token (plus a trailing 1-2 digit number), or ``""``.
     """
     text = (raw or "").strip()
     if not text:
         return ""
-    return text.split()[0]
+    tokens = text.split()
+    if len(tokens) > 1 and _REPEAT_NUMBER.fullmatch(tokens[1]):
+        return f"{tokens[0]} {tokens[1]}"
+    return tokens[0]
+
+
+_REPEAT_NUMBER = re.compile(r"[0-9]{1,2}")
 
 
 def _parse_iso_datetime(raw: Any) -> datetime | None:
@@ -2713,6 +2742,11 @@ class LovesDB:
         key on both, so a member can be owed at most one payout. ``paid_at``
         is claimed (``WHERE paid_at IS NULL``) in the same write transaction
         that writes the game point event, so a second payout is impossible.
+
+        ``live_rank_team_awards`` (MCK-185 "Score teams"): the one current
+        award per (rank question, team): points, rule, and the members it
+        credited. Re-assigning reverses that award and applies the new one,
+        so a team's award for a question never stacks.
         """
 
         self.conn.executescript(
@@ -2732,6 +2766,17 @@ class LovesDB:
                 created_at TEXT NOT NULL,
                 paid_at TEXT,
                 PRIMARY KEY (live_item_id, student_id)
+            );
+            CREATE TABLE IF NOT EXISTS live_rank_team_awards (
+                live_item_id INTEGER NOT NULL
+                    REFERENCES live_session_items(id) ON DELETE CASCADE,
+                team_id INTEGER NOT NULL,
+                points INTEGER NOT NULL,
+                team_rule TEXT NOT NULL,
+                member_ids_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (live_item_id, team_id)
             );
             """
         )
@@ -10792,14 +10837,22 @@ class SchoolDB(LovesDB):
                     normalize_course_warmup,
                 )
 
-            confirmed = self.list_module_bank_links(int(library_id), int(module_number))
-            allowed_banks = {int(link["bank_id"]) for link in confirmed}
+            # MCK-190: Add New may pull from any module's confirmed banks in
+            # this same course library (the query above already scopes the
+            # question to library_id), not just the deck's own module.
+            allowed_banks = {
+                int(link["bank_id"])
+                for link in self.conn.execute(
+                    "SELECT DISTINCT bank_id FROM course_module_bank_links WHERE library_id = ?",
+                    (int(library_id),),
+                ).fetchall()
+            }
             course_warmup_bank = (
                 str(row["bank_import_key"] or "") == COURSE_WIDE_WARMUP_BANK_KEY
             )
             if int(row["bank_id"]) not in allowed_banks and not course_warmup_bank:
                 raise KeyError(
-                    f"question {question_id} is not in confirmed banks for {module_key}"
+                    f"question {question_id} is not in this course's confirmed banks"
                 )
             try:
                 payload = json.loads(row["payload_json"] or "{}")
@@ -16307,6 +16360,35 @@ class SchoolDB(LovesDB):
                     )
                 card["locked"] = bool(card["race"]["locked"])
                 card["can_submit"] = False
+            elif (
+                str(item.get("status") or "") == "closed"
+                and bool(item.get("show_live_results"))
+                and self._rank_results_mode(item) == "spots"
+            ):
+                # MCK-185: own team's results after Close (with results on),
+                # like a Team challenge phone but with no points. Nothing
+                # before Close: no key, no score, no other team's order.
+                card["race"] = {
+                    "mode": card["rank_mode"],
+                    "challenge": False,
+                    "slot": self._rank_race_slot(int(item["live_session_id"]), int(team_id)),
+                    "results": self._rank_race_student_results(
+                        int(item["live_session_id"]), item, int(team_id), int(student_id)
+                    ),
+                }
+            # MCK-185: class-wide "put every item in the right order" line
+            # (team names only; never which spots or what order).
+            full = self._rank_full_order_teams(int(item["live_session_id"]), item)
+            if full:
+                card["full_order"] = {
+                    "you": any(t["team_id"] == int(team_id) for t in full),
+                    "slot": self._rank_race_slot(int(item["live_session_id"]), int(team_id)),
+                    "teams": [
+                        {"name": t["name"], "slot": t["slot"]}
+                        for t in full
+                        if t["team_id"] != int(team_id)
+                    ],
+                }
             # MCK-176: students only ever see option aliases.
             card = self._alias_for_student(item, card)
         return card
@@ -17087,6 +17169,77 @@ class SchoolDB(LovesDB):
             return False
         return bool(self._rank_race_key(item))
 
+    def _rank_results_mode(self, item: dict[str, Any]) -> str:
+        """Which coloured results a group answer-order rank gets at Close.
+
+        ``challenge``: the Team challenge (MCK-171). ``spots`` (MCK-185): any
+        other group rank (Rank together or Take turns) with an answer order of
+        at least ``rank_challenge.MIN_KEY_SPOTS``; same rows and podium, the
+        podium ranks right spots, nothing is paid automatically. ``""``: none
+        (opinion rank, individual rank, a short or stale key).
+
+        Args:
+            item: Lifecycle row.
+        """
+        if self._rank_race_on(item):
+            return "challenge"
+        if self._question_answer_kind(item) != "rank":
+            return ""
+        if str(item.get("response_mode") or "") != "group_submit":
+            return ""
+        if len(self._rank_race_key(item)) < rank_challenge.MIN_KEY_SPOTS:
+            return ""
+        return "spots"
+
+    def _rank_race_pays(self, item: dict[str, Any]) -> bool:
+        """True when the item pays its own points (Team challenge, 2 per spot).
+
+        The one switch every automatic payout checks (points step, End Game,
+        End Live Class). Anything else that shows the coloured results is
+        scored by hand, through ``assign_rank_team_points`` ("Score teams").
+
+        Args:
+            item: Lifecycle row.
+        """
+        return bool(rank_challenge.CHALLENGE_AUTO_PAYS) and self._rank_race_on(item)
+
+    def _rank_sent_order(
+        self, item: dict[str, Any], row: dict[str, Any] | None
+    ) -> list[str]:
+        """The order a group sent (complete, submitted), or ``[]``.
+
+        Same rule as the revealed rank stack (``_rank_group_collate``): only
+        a submitted full order counts. Take turns sends on the last spot.
+
+        Args:
+            item: Lifecycle row.
+            row: Normalized team row.
+        """
+        state = row or {}
+        if int(state.get("submit_count") or 0) <= 0:
+            return []
+        final = state.get("final_answer") if isinstance(state.get("final_answer"), dict) else {}
+        if final.get("kind") != "rank":
+            return []
+        allowed = [opt["id"] for opt in self._rank_option_rows(item)]
+        try:
+            return parse_rank_order(final.get("order") or [], allowed, complete=True)
+        except ValueError:
+            return []
+
+    def _rank_race_slot(self, session_id: int, team_id: int) -> int:
+        """Lane slot (team shape + colour) for one team, as on the projector.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            team_id: Team id.
+        """
+        named = [
+            int(team.get("id") or 0)
+            for team in self._named_teams_for_live_session(int(session_id))
+        ]
+        return named.index(int(team_id)) if int(team_id) in named else 0
+
     @staticmethod
     def _rank_race_locked(row: dict[str, Any] | None) -> bool:
         """True once a team's order is in (agrees, teacher, or last turn).
@@ -17709,28 +17862,48 @@ class SchoolDB(LovesDB):
         """
         key = self._rank_race_key(item)
         labels = {row["id"]: row["label"] for row in self._rank_option_rows(item)}
+        # MCK-185: a non-challenge rank scores the order each group sent
+        # (as the revealed stack does). Nothing pays by itself (option B):
+        # the teacher scores teams in the "Score teams" pop-up.
+        challenge = self._rank_results_mode(item) == "challenge"
+        pays = self._rank_race_pays(item)
+        awards = self._rank_team_awards(int(item["id"]))
         teams: list[dict[str, Any]] = []
         for slot, (team_id, team_name, _state) in enumerate(
             self._iter_group_submit_teams(session_id, item)
         ):
             row = self._group_response_row(int(item["id"]), int(team_id)) or {}
-            order = self._rank_race_draft_order(item, row)
+            order = (
+                self._rank_race_draft_order(item, row)
+                if challenge
+                else self._rank_sent_order(item, row)
+            )
             score = rank_race_score(order, key)
             scored = bool(order)
-            teams.append(
-                {
-                    "team_id": int(team_id),
-                    "team_name": team_name,
-                    "slot": slot,
-                    "order": list(order),
-                    "spots": score["spots"] if scored else [],
-                    "right": int(score["right"]) if scored else 0,
-                    "total": int(score["total"]),
-                    "points": rank_challenge.team_points(score["right"]) if scored else 0,
-                    "scored": scored,
-                    "locked": self._rank_race_locked(row),
-                }
-            )
+            assigned = awards.get(int(team_id))
+            team: dict[str, Any] = {
+                "team_id": int(team_id),
+                "team_name": team_name,
+                "slot": slot,
+                "order": list(order),
+                "spots": score["spots"] if scored else [],
+                "right": int(score["right"]) if scored else 0,
+                "total": int(score["total"]),
+                # MCK-171 automatic points (only when the challenge pays).
+                "points": rank_challenge.team_points(score["right"]) if scored and pays else 0,
+                "scored": scored,
+                "locked": self._rank_race_locked(row),
+                # MCK-185 "Score teams": the default (2 per right spot), the
+                # team's current award, and whether anyone was here.
+                "auto": rank_challenge.score_default(score["right"]) if scored else 0,
+                "assigned": (
+                    {"points": int(assigned["points"]), "team_rule": str(assigned["team_rule"])}
+                    if assigned
+                    else None
+                ),
+                "present": scored or bool(self._rank_race_seen_ids(int(item["id"]), int(team_id))),
+            }
+            teams.append(team)
         spots = [
             {
                 "n": index + 1,
@@ -17746,10 +17919,87 @@ class SchoolDB(LovesDB):
         return {
             "spots": spots,
             "teams": teams,
-            "podium": rank_challenge.podium(teams),
+            "podium": (
+                rank_challenge.podium(teams)
+                if pays
+                else rank_challenge.podium(teams, by="right", drop_unscored=True)
+            ),
             "total": len(key),
             "step": self._rank_race_step(item),
+            # MCK-185: rows -> podium by right spots (no Points step unless
+            # the MCK-171 payout is switched back on); the teacher scores
+            # teams in the "Score teams" pop-up once the podium shows.
+            "challenge": challenge,
+            "pays": pays,
+            "points_step": rank_challenge.points_step(len(key), with_points=pays),
+            "podium_step": rank_challenge.podium_step(len(key), with_points=pays),
         }
+
+    def _rank_team_awards(self, live_item_id: int) -> dict[int, dict[str, Any]]:
+        """MCK-185: each team's current "Score teams" award on one question."""
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT team_id, points, team_rule, member_ids_json FROM live_rank_team_awards "
+                "WHERE live_item_id = ?",
+                (int(live_item_id),),
+            ).fetchall()
+        out: dict[int, dict[str, Any]] = {}
+        for row in rows:
+            try:
+                members = [int(sid) for sid in json.loads(row["member_ids_json"] or "[]")]
+            except (TypeError, ValueError):
+                members = []
+            out[int(row["team_id"])] = {
+                "points": int(row["points"]),
+                "team_rule": str(row["team_rule"]),
+                "member_ids": members,
+            }
+        return out
+
+    def _rank_full_order_teams(
+        self, session_id: int, item: dict[str, Any], *, when: str | None = None
+    ) -> list[dict[str, Any]]:
+        """MCK-185: teams whose FINAL order is all right, for the notice.
+
+        Only a final order counts (locked, sent, or the last Take turns spot
+        placed), never a draft. Empty unless the notice may show now
+        (``rank_challenge.full_order_timing``: after Close & reveal, or with
+        ``"lock"`` as soon as a Team challenge locks in or a Take turns team
+        places its last spot; a Rank together send and results-off wait for
+        Close). ``when="any"`` skips the timing
+        check (teacher results after Close). Names only: never which spots
+        or what order.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item: Lifecycle row.
+            when: Timing override (``"reveal"``, ``"lock"`` or ``"any"``).
+        """
+        if not self._rank_results_mode(item):
+            return []
+        status = str(item.get("status") or "")
+        if when != "any":
+            # Gate MED-1: "lock" only where a final order can't be resent
+            # (Team challenge lock-in, last Take turns spot), and only with
+            # live results on; otherwise the line waits for Close.
+            timing = rank_challenge.full_order_timing(
+                challenge=bool(self._rank_race_on(item)),
+                rank_mode=self._group_rank_mode(item),
+                results_on=bool(item.get("show_live_results")),
+                when=when,
+            )
+            if not rank_challenge.full_order_visible(status, timing):
+                return []
+        key = self._rank_race_key(item)
+        out: list[dict[str, Any]] = []
+        for slot, (team_id, team_name, _state) in enumerate(
+            self._iter_group_submit_teams(session_id, item)
+        ):
+            row = self._group_response_row(int(item["id"]), int(team_id))
+            order = self._rank_sent_order(item, row)
+            if order and int(rank_race_score(order, key)["right"]) == len(key):
+                out.append({"team_id": int(team_id), "name": team_name, "slot": slot})
+        return out
 
     def _rank_race_step(self, item: dict[str, Any]) -> int:
         """Reveal step the projector is on (0 before any Next)."""
@@ -17787,9 +18037,11 @@ class SchoolDB(LovesDB):
         """
         self._require_active_live_session(session_id)
         item = self.get_live_session_item(session_id, placement_or_item)
-        if not self._rank_race_on(item) or str(item.get("status") or "") != "closed":
+        mode = self._rank_results_mode(item)
+        if not mode or str(item.get("status") or "") != "closed":
             raise ValueError("Close the Team challenge before revealing it.")
         spots = len(self._rank_race_key(item))
+        with_points = self._rank_race_pays(item)
         live_item_id = int(item["id"])
         want = int(step)
         now = _now()
@@ -17800,7 +18052,9 @@ class SchoolDB(LovesDB):
                 (live_item_id,),
             ).fetchone()
             have = int(row["step"] or 0) if row is not None else 0
-            if want != have + 1 or want > rank_challenge.podium_step(spots):
+            if want != have + 1 or want > rank_challenge.podium_step(
+                spots, with_points=with_points
+            ):
                 raise RankRaceStepConflict(have)
             if row is None:
                 cur = self.conn.execute(
@@ -17816,14 +18070,14 @@ class SchoolDB(LovesDB):
                 )
             if cur.rowcount != 1:
                 raise RankRaceStepConflict(have)
-        if want >= rank_challenge.points_step(spots):
+        if self._rank_race_pays(item) and want >= rank_challenge.points_step(spots):
             self._award_rank_race_points(session_id, item)
         return {"step": want, "results": self._rank_race_results(session_id, item)}
 
     def rank_race_step_view(self, session_id: int, placement_or_item: str | int) -> dict[str, Any]:
         """``{"step", "results"}`` for a 409 resync (closed challenges only)."""
         item = self.get_live_session_item(session_id, placement_or_item)
-        if not self._rank_race_on(item) or str(item.get("status") or "") != "closed":
+        if not self._rank_results_mode(item) or str(item.get("status") or "") != "closed":
             return {"step": 0, "results": None}
         return {"step": self._rank_race_step(item), "results": self._rank_race_results(session_id, item)}
 
@@ -17843,7 +18097,7 @@ class SchoolDB(LovesDB):
             logger.exception("team challenge end-of-class list failed session=%s", session_id)
             return
         for item in items:
-            if str(item.get("status") or "") != "closed" or not self._rank_race_on(item):
+            if str(item.get("status") or "") != "closed" or not self._rank_race_pays(item):
                 continue
             try:
                 self._award_rank_race_points(session_id, item)
@@ -17925,25 +18179,46 @@ class SchoolDB(LovesDB):
         # Mobbin review: hold points, then the podium, until the projector
         # reaches that step, so no phone spoils the reveal.
         step = int(full.get("step") or 0)
-        show_points = step >= rank_challenge.points_step(int(full["total"]))
-        show_podium = step >= rank_challenge.podium_step(int(full["total"]))
+        pays = bool(full.get("pays"))
+        show_podium = step >= int(full.get("podium_step") or rank_challenge.podium_step(int(full["total"])))
         locked = bool(own.get("locked"))
-        credited = viewer_id is None or int(viewer_id) in self._rank_race_seen_ids(
-            int(item["id"]), int(team_id)
-        )
+        if pays:
+            show_points = step >= rank_challenge.points_step(int(full["total"]))
+            credited = viewer_id is None or int(viewer_id) in self._rank_race_seen_ids(
+                int(item["id"]), int(team_id)
+            )
+            points: float | int | None = int(own.get("points") or 0)
+        else:
+            # MCK-185: "{pts} points each" once the teacher assigned this
+            # team's points (Each member, or the split share). A member not
+            # seen while the question was open was not credited.
+            award = self._rank_team_awards(int(item["id"])).get(int(team_id))
+            rule = str((award or {}).get("team_rule") or "")
+            show_points = bool(award) and rule in {"each_member", "split_members"} and int(award["points"]) > 0
+            members = list((award or {}).get("member_ids") or [])
+            credited = viewer_id is None or int(viewer_id) in members
+            points = None
+            if show_points:
+                amount = int(award["points"])
+                points = amount if rule == "each_member" else (
+                    round(amount / len(members), 1) if members else 0
+                )
+                if isinstance(points, float) and points.is_integer():
+                    points = int(points)
         return {
             "spots": spots,
             "right": int(own.get("right") or 0),
             "total": int(full["total"]),
-            "points": int(own.get("points") or 0) if show_points and credited else None,
+            "points": points if show_points and credited else None,
             "credited": credited,
             "scored": bool(own.get("scored")),
             "locked": locked,
-            "from_draft": bool(own.get("scored")) and not locked,
+            "from_draft": bool(full.get("challenge")) and bool(own.get("scored")) and not locked,
             "podium": steps if show_podium else [],
             "on_podium": (on_step is not None) if show_podium else False,
             "show_points": show_points,
             "show_podium": show_podium,
+            "challenge": bool(full.get("challenge")),
         }
 
     def _award_rank_race_points(self, session_id: int, item: dict[str, Any]) -> dict[str, Any]:
@@ -17976,6 +18251,10 @@ class SchoolDB(LovesDB):
         Returns:
             ``{"teams": [{team_id, points, student_ids}]}`` (members owed points).
         """
+        if not self._rank_race_pays(item):
+            # MCK-185 option B: no automatic payout (the teacher awards by
+            # hand). The ledger below stays for CHALLENGE_AUTO_PAYS = True.
+            return {"teams": []}
         session_row = self.get_live_session(session_id)
         if session_row is None:
             return {"teams": []}
@@ -18723,6 +19002,21 @@ class SchoolDB(LovesDB):
                     view["rank"] = self._rank_collate_without_orders(view["rank"])
                 else:
                     view["race"]["results"] = self._rank_race_results(session_id, item)
+            elif revealed and self._rank_results_mode(item) == "spots":
+                # MCK-185: after Close, the same coloured results as a Team
+                # challenge (rows, then a podium by right spots). Nothing
+                # before Close, so the open card is unchanged.
+                view["race"] = {
+                    "mode": self._group_rank_mode(item),
+                    "challenge": False,
+                    "spots": len(self._rank_race_key(item)),
+                    "results": self._rank_race_results(session_id, item),
+                }
+            # MCK-185: the same full-order line as the phones, under the
+            # lanes or stack (names only).
+            full = self._rank_full_order_teams(session_id, item)
+            if full:
+                view["full_order"] = {"teams": full}
         return view
 
     @staticmethod
@@ -19425,6 +19719,174 @@ class SchoolDB(LovesDB):
             "amount": points,
             "game": game,
         }
+
+    def assign_rank_team_points(
+        self,
+        session_id: int,
+        placement_or_item: str | int,
+        *,
+        awards: list[dict[str, Any]],
+        team_rule: str | None,
+    ) -> dict[str, Any]:
+        """MCK-185 "Score teams": set each listed team's points on this question.
+
+        The teacher's pop-up after Close & reveal on any group answer-order
+        rank (Team challenge, Rank together, Take turns). Nothing is ever
+        called automatically. Each award is a normal team award
+        (``game.award_points`` with ``kind="team"`` and the "Give as" rule:
+        Each member, Split across team, Team bonus only), so it reaches the
+        tally and Celebrations like the Class list chips. Members are those
+        seen present while the question was open (the MCK-171 presence rule);
+        anyone else on the team gets 0.
+
+        One current award per (question, team), in ``live_rank_team_awards``:
+        assigning the same points and rule again is a no-op; different points
+        or rule reverse the earlier award (same members, same rule) and apply
+        the new one, so a team's award never stacks. The read, the claim and
+        the reversal share one ``BEGIN IMMEDIATE`` transaction on the game
+        connection, so two tabs or workers cannot both apply it.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            placement_or_item: Placement key or lifecycle id.
+            awards: ``[{"team_id": int, "points": number}]``. Points are
+                rounded and clamped to a whole 0..999 (gate LOW on f0a15be:
+                5.7 used to be cut to 5); ``true``, text and NaN are refused.
+            team_rule: ``each_member`` (default), ``split_members``,
+                ``team_only``.
+
+        Returns:
+            ``{"teams": [{team_id, points, team_rule, changed}], "results",
+            "game"}``.
+
+        Raises:
+            ValueError: Not a closed group answer-order rank, a paying Team
+                challenge, a bad rule or amount, a group that sent no order,
+                or the game refused (scoring closed).
+        """
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, placement_or_item)
+        if not self._rank_results_mode(item):
+            raise ValueError("Scoring needs a group rank with an answer order.")
+        if self._rank_race_pays(item):
+            raise ValueError("A Team challenge pays its own points.")
+        if str(item.get("status") or "") != "closed":
+            raise ValueError("Reveal the answer before scoring teams.")
+        rule = str(team_rule or "each_member").strip()
+        if rule not in {"each_member", "split_members", "team_only"}:
+            raise ValueError("Give as: each_member, split_members or team_only")
+        if not isinstance(awards, list) or not awards:
+            raise ValueError("Nothing to assign")
+        session_row = self.get_live_session(session_id)
+        assert session_row is not None
+        class_id = int(session_row["class_id"])
+        live_item_id = int(item["id"])
+        results = self._rank_race_results(session_id, item)
+        teams = {int(team["team_id"]): team for team in results["teams"]}
+        wanted: list[tuple[int, int]] = []
+        for award in awards:
+            if not isinstance(award, dict):
+                raise ValueError("Each award needs a team_id and points")
+            team_id = _strict_int(award.get("team_id"))
+            if team_id is None:
+                raise ValueError("Each award needs a team_id and points")
+            points = rank_challenge.clamp_award_points(award.get("points"))
+            if points is None:
+                raise ValueError("Points must be a number")
+            team = teams.get(team_id)
+            if team is None:
+                raise ValueError("That team is not on this question")
+            if not team["scored"]:
+                raise ValueError("No order sent")
+            wanted.append((team_id, points))
+        out = [
+            self._assign_rank_team(class_id, live_item_id, team_id, points, rule)
+            for team_id, points in wanted
+        ]
+        return {
+            "teams": out,
+            "results": self._rank_race_results(session_id, item),
+            "game": self.game.game_state(class_id),
+        }
+
+    def _assign_rank_team(
+        self, class_id: int, live_item_id: int, team_id: int, points: int, rule: str
+    ) -> dict[str, Any]:
+        """Replace one team's "Score teams" award (see ``assign_rank_team_points``)."""
+        seen = self._rank_race_seen_ids(live_item_id, team_id)
+        members = sorted(
+            int(sid) for sid in self._teammate_ids_for_class(class_id, team_id) if int(sid) in seen
+        )
+        game_conn = self.game.conn
+        now = _now()
+        with self._lock:
+            own = not game_conn.in_transaction
+            if own:
+                game_conn.execute("BEGIN IMMEDIATE")
+            try:
+                prev = game_conn.execute(
+                    "SELECT points, team_rule, member_ids_json FROM live_rank_team_awards "
+                    "WHERE live_item_id = ? AND team_id = ?",
+                    (int(live_item_id), int(team_id)),
+                ).fetchone()
+                if prev is not None and int(prev["points"]) == int(points) and str(prev["team_rule"]) == rule:
+                    if own and game_conn.in_transaction:
+                        game_conn.execute("ROLLBACK")
+                    return {"team_id": int(team_id), "points": int(points), "team_rule": rule, "changed": False}
+                game_conn.execute(
+                    """
+                    INSERT INTO live_rank_team_awards
+                        (live_item_id, team_id, points, team_rule, member_ids_json, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (live_item_id, team_id) DO UPDATE SET
+                        points = excluded.points,
+                        team_rule = excluded.team_rule,
+                        member_ids_json = excluded.member_ids_json,
+                        updated_at = excluded.updated_at
+                    """,
+                    (int(live_item_id), int(team_id), int(points), rule, json.dumps(members), now, now),
+                )
+                game_conn.execute(
+                    "UPDATE live_group_responses SET awarded_points = ?, updated_at = ? "
+                    "WHERE live_item_id = ? AND team_id = ?",
+                    (int(points), now, int(live_item_id), int(team_id)),
+                )
+                if prev is not None and int(prev["points"]) > 0:
+                    try:
+                        prev_members = [int(sid) for sid in json.loads(prev["member_ids_json"] or "[]")]
+                    except (TypeError, ValueError):
+                        prev_members = []
+                    # Reverse the earlier award exactly. With our own
+                    # transaction nothing commits until the end: the claim,
+                    # the reversal and the new award land together or not
+                    # at all (gate LOW on f0a15be).
+                    self.game.award_points(
+                        int(class_id),
+                        kind="team",
+                        target_id=int(team_id),
+                        amount=-int(prev["points"]),
+                        team_rule=str(prev["team_rule"]),
+                        member_ids=prev_members,
+                        reverse=True,
+                        commit=False,
+                    )
+                if int(points) > 0:
+                    self.game.award_points(
+                        int(class_id),
+                        kind="team",
+                        target_id=int(team_id),
+                        amount=int(points),
+                        team_rule=rule,
+                        member_ids=members,
+                        commit=False,
+                    )
+                if own and game_conn.in_transaction:
+                    game_conn.execute("COMMIT")
+            except BaseException:
+                if own and game_conn.in_transaction:
+                    game_conn.execute("ROLLBACK")
+                raise
+        return {"team_id": int(team_id), "points": int(points), "team_rule": rule, "changed": True}
 
     def light_group_results(self, session_id: int) -> dict[str, Any]:
         """Thin team status for active group items on a staff light poll.
@@ -21312,6 +21774,43 @@ class SchoolDB(LovesDB):
         offering = self.get_offering(int(offering_id))
         return str((offering or {}).get("ontario_code") or "").strip().upper()
 
+    def _class_deck_media_choice(
+        self, session_id: int
+    ) -> tuple[dict[str, str] | None, set[str]]:
+        """Return this class deck's primary media and every media URL it lists.
+
+        MCK-190. The primary is the deck's ``media`` slot when it differs
+        from the course seed file (a copied working deck); the URL set covers
+        every media item on the deck, so a teacher-mounted deck item stays.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            ``(primary or None, urls)``. Errors fall back to ``(None, set())``.
+        """
+        try:
+            meta = self.live_class_metadata_for_session(session_id)
+        except Exception:  # noqa: BLE001 - seed fallback keeps the old behaviour
+            return None, set()
+        urls: set[str] = set()
+        for item in meta.get("items") or []:
+            if isinstance(item, dict) and str(item.get("item_type") or "").lower() == "media":
+                url = str(item.get("file") or item.get("url") or "").strip()
+                if url:
+                    urls.add(url)
+        media = meta.get("media") if isinstance(meta.get("media"), dict) else {}
+        primary_url = str(media.get("file") or media.get("url") or "").strip()
+        if not primary_url:
+            return None, urls
+        urls.add(primary_url)
+        title = str(media.get("title") or media.get("stem") or "").strip()
+        return {
+            "url": primary_url,
+            "title": title,
+            "stem": str(media.get("stem") or title).strip(),
+        }, urls
+
     def ensure_live_class_media(self, session_id: int) -> dict[str, Any] | None:
         """Seed course-specific Join/Play or playlist media when authored.
 
@@ -21330,10 +21829,19 @@ class SchoolDB(LovesDB):
             self.session_live_module(session_id),
             self.session_live_slot(session_id),
         )
+        # MCK-190: the class's own deck wins over the course seed. A copied
+        # deck (Previous / Course deck) or a deck with extra media (MCR3U
+        # M1C1 Real Slice) must not be swapped back to the seed on every
+        # poll or when Use current opens the class.
+        deck_seed, deck_urls = self._class_deck_media_choice(session_id)
+        if seed is not None and deck_seed is not None and deck_seed["url"] != seed["url"]:
+            seed = deck_seed
         if seed is None:
             return self.live_session_active_media_payload(session_id)
         current = self.live_session_active_media_payload(session_id)
         current_url = str((current or {}).get("url") or "")
+        if current_url and current_url != seed["url"] and current_url in deck_urls:
+            return current
         session_row = self.get_live_session(session_id)
         overlay = (
             self.get_class_live_media_copy(
@@ -24897,7 +25405,11 @@ class SchoolDB(LovesDB):
                 ontario,
                 self.session_live_module(session_id),
                 self.session_live_slot(session_id),
-            ):
+            ) and str(public.get("url") or "").strip() not in self._class_deck_media_choice(
+                session_id
+            )[1]:
+                # MCK-190: a Real Slice the class deck lists (MCR3U M1C1)
+                # is real media there, not a wrong-course leftover.
                 return None
         return public
 
@@ -28782,6 +29294,38 @@ class SchoolDB(LovesDB):
         """Map student id → QH counts (alias used by Save and End Class)."""
         return self.participation_question_credits_for_class(class_id)
 
+    def _live_game_points_fields(self, session_id: int, class_id: int) -> dict[str, Any]:
+        """``game_points`` plus ``game_points_ver`` for the staff ``/state``.
+
+        Both come from one ``game_state`` read. ``game_points_ver`` is
+        ``{"game_id", "seq"}`` (the game's event sequence, bumped by every
+        award), or ``None`` with no open game.
+
+        Args:
+            session_id: ``live_class_sessions.id`` (for poll logs).
+            class_id: Game-show ``classes.id``.
+        """
+
+        def build() -> dict[str, Any]:
+            try:
+                state = self.game.game_state(int(class_id))
+            except Exception:  # noqa: BLE001 — no open game yet
+                return {"game_points": {}, "game_points_ver": None}
+            game = state.get("game") or {}
+            ver = (
+                {"game_id": int(game["id"]), "seq": int(game.get("event_seq") or 0)}
+                if game.get("id") is not None
+                else None
+            )
+            points = {
+                str(sid): int(n) for sid, n in self._awarded_points_from_state(state).items()
+            }
+            return {"game_points": points, "game_points_ver": ver}
+
+        return live_state_field(
+            session_id, "game_points", build, {"game_points": {}, "game_points_ver": None}
+        )
+
     def live_awarded_session_points(self, class_id: int) -> dict[int, int]:
         """Map student id → live game points from teacher awards only.
 
@@ -28792,6 +29336,11 @@ class SchoolDB(LovesDB):
             state = self.game.game_state(int(class_id))
         except Exception:  # noqa: BLE001 — no open game yet
             return {}
+        return self._awarded_points_from_state(state)
+
+    @staticmethod
+    def _awarded_points_from_state(state: dict[str, Any]) -> dict[int, int]:
+        """Student id → session points from one ``game_state`` payload."""
         out: dict[int, int] = {}
         for row in state.get("students") or []:
             sid = row.get("id")
@@ -30197,7 +30746,7 @@ class SchoolDB(LovesDB):
         # phone got "unchanged" forever and its turn never enabled. Only
         # read while such an item is open (one cheap query).
         presence_rev = (
-            self._present_attendee_rev(int(session_id))
+            self._presence_stamp_token(int(session_id))
             if row is not None and row["presence_gated"]
             else ""
         )
@@ -30209,6 +30758,38 @@ class SchoolDB(LovesDB):
             f"{prompt_rev}:{item_rev}:{group_vote_rev}:{status}:{celebrate}:"
             f"{group_response_rev}:{race_step_rev}:{presence_rev}"
         )
+
+    #: Last good presence token per session (MCK-186), so a presence blip
+    #: keeps the stamp steady instead of dropping to "" and back (two full
+    #: rebuilds on every Take turns phone). Bounded; per process.
+    _PRESENCE_TOKEN_CACHE_MAX = 256
+
+    def _presence_stamp_token(self, session_id: int) -> str:
+        """Short keyed hash of the present set, for the student poll stamp.
+
+        The raw token (count, SUM(id), SUM(id²)) told every phone how many
+        students were present and which attendee row ids came and went.
+        The stamp only needs "did it change", so phones get the first 12
+        hex of an HMAC over it, keyed with the app secret (shared by every
+        worker, so all workers agree). During a presence outage the last
+        good token for the session is kept.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        cache = self.__dict__.setdefault("_presence_token_cache", {})
+        raw = self._present_attendee_rev(int(session_id))
+        if not raw:
+            return str(cache.get(int(session_id), ""))
+        from rank_alias import rank_alias_secret
+
+        key = (str(getattr(self, "rank_alias_secret", "") or "") or rank_alias_secret()).encode("utf-8")
+        msg = f"presence\x1f{int(session_id)}\x1f{raw}".encode("utf-8")
+        token = "h" + hmac.new(key, msg, hashlib.sha256).hexdigest()[:12]
+        if int(session_id) not in cache and len(cache) >= self._PRESENCE_TOKEN_CACHE_MAX:
+            cache.pop(next(iter(cache)), None)
+        cache[int(session_id)] = token
+        return token
 
     def _present_attendee_rev(self, session_id: int) -> str:
         """Token that changes whenever the session's present set changes.
@@ -30546,17 +31127,11 @@ class SchoolDB(LovesDB):
                     lambda: self.live_scoreboard_projection(session_id),
                     None,
                 ),
-                "game_points": live_state_field(
-                    session_id,
-                    "game_points",
-                    lambda: {
-                        str(sid): int(n)
-                        for sid, n in self.live_awarded_session_points(
-                            class_id
-                        ).items()
-                    },
-                    {},
-                ),
+                # MCK-185 gate LOW-1: the totals carry the game version
+                # they were read at (read first, from the same game state),
+                # so the staff page drops a slower, older full poll instead
+                # of painting pre-award totals back over an Assign.
+                **self._live_game_points_fields(session_id, class_id),
                 "career_totals": live_state_field(
                     session_id,
                     "career_totals",
@@ -30649,11 +31224,23 @@ class SchoolDB(LovesDB):
                 if str(row.get(col) or "").strip()
             ]
 
+        def numbered(label_key: str, typed_full: str) -> bool:
+            """ "sam 2" for a typed "sam": a repeated name from Welcome (MCK-183)."""
+            head, _, tail = label_key.rpartition(" ")
+            return head == typed_full and bool(_REPEAT_NUMBER.fullmatch(tail))
+
         def tier(fold: Any, typed_full: str, typed_first: str) -> list[dict[str, Any]]:
             exact = [
                 row for row in rows
                 if any(fold(label) == typed_full for label in labels(row))
             ]
+            if exact and " " not in typed_full:
+                # A bare "Sam" also offers "Sam 2", so the picker shows both.
+                exact += [
+                    row for row in rows
+                    if row not in exact
+                    and any(numbered(fold(label), typed_full) for label in labels(row))
+                ]
             if exact:
                 return exact
             return [
@@ -30767,6 +31354,56 @@ class SchoolDB(LovesDB):
         finally:
             end_poll_budget(token)
 
+    def assemble_student_home_shell(
+        self,
+        live_session_id: int,
+        class_id: int,
+        student_id: int | None,
+        *,
+        participant_uuid: str = "",
+        codename: str = "",
+        unmatched: bool = False,
+    ) -> dict[str, Any]:
+        """Light snapshot for the ``/student/home`` page render (MCK-191).
+
+        The page template only reads ``scoring``, ``waiting_room``,
+        ``celebrate`` and ``me``; the browser paints everything else from
+        its first ``/api/student/state`` poll, which runs straight after
+        load. Building the full snapshot here as well doubled the heavy
+        work for every page load (and ran outside the ``/state`` slot
+        cap), so a class joining at once spent the poll budget
+        (Sentry LLOVES-LMS-4). This skips the media, teacher-state, group
+        and deck-metadata slices; the poll still sends them.
+
+        Args:
+            live_session_id: ``live_class_sessions.id``.
+            class_id: Game-show ``classes.id``.
+            student_id: Roster id, or ``None`` for an unmatched guest.
+            participant_uuid: Live-session person key.
+            codename: Display name for a guest payload.
+            unmatched: True when the attendee is not on the roster.
+
+        Returns:
+            Page-shell payload (no ``live_metadata`` / ``active_media``).
+
+        Raises:
+            KeyError: If the live session disappears mid-build.
+            PollBudgetExceeded: The poll budget was spent before a later slice.
+        """
+        token = begin_poll_budget()
+        try:
+            return self._fill_student_live_payload(
+                live_session_id,
+                class_id,
+                student_id,
+                participant_uuid=participant_uuid,
+                codename=codename,
+                unmatched=unmatched,
+                shell_only=True,
+            )
+        finally:
+            end_poll_budget(token)
+
     def _fill_student_live_payload(
         self,
         live_session_id: int,
@@ -30776,6 +31413,7 @@ class SchoolDB(LovesDB):
         participant_uuid: str = "",
         codename: str = "",
         unmatched: bool = False,
+        shell_only: bool = False,
     ) -> dict[str, Any]:
         """Fill one student snapshot, stopping between slices at the budget.
 
@@ -30789,6 +31427,8 @@ class SchoolDB(LovesDB):
             participant_uuid: Live-session person key.
             codename: Display name for a guest payload.
             unmatched: True when the attendee is not on the roster.
+            shell_only: Page-render shell (MCK-191): skip the media,
+                teacher-state, group and deck-metadata slices.
 
         Returns:
             Student live payload without poll stamp or display time.
@@ -30816,6 +31456,16 @@ class SchoolDB(LovesDB):
                 participant_uuid=participant_uuid,
             )
         )
+        if shell_only:
+            ensure_poll_budget()
+            self.apply_student_end_overlay(
+                payload,
+                int(live_session_id),
+                int(class_id),
+                sid,
+                participant_uuid,
+            )
+            return payload
         ensure_poll_budget()
         media = self.live_session_active_media_payload(int(live_session_id))
         if isinstance(media, dict) and is_jigsawable_media(media):
