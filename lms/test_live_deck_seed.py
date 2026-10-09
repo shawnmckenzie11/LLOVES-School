@@ -819,7 +819,7 @@ const helpCases = [
   ],
   [
     { mode: "blank", previousAvailable: false, previousLabel: "M1 C2", previousSlot: "C2", courseDeckCount: 0 },
-    "No other decks in this course yet.",
+    "No decks yet, and that's fine. Class starts with a blank deck.",
   ],
   [
     { phase: "loading", mode: "previous", previousAvailable: true, previousLabel: "M1 C2", courseDeckCount: 4 },

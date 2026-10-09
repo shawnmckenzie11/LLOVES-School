@@ -65,8 +65,10 @@ export function deckSeedHelpText(state = {}) {
   if (mode === "course" && !courseDisabled) {
     return "Starts from a copy of the deck you pick.";
   }
-  // MCK-193: a plain course (no pack, no decks, C1) starts blank, calmly.
-  if (courseDisabled && !previousAvailable && !String(state.previousSlot || "").trim()) {
+  // MCK-193: no deck here, nothing earlier to copy and no other decks
+  // (a plain course on any challenge, C1 or later): Set Class sends blank,
+  // so say that calmly instead of "No deck saved for M1 C1."
+  if (courseDisabled && !previousAvailable && !currentAvailable) {
     return "No decks yet, and that's fine. Class starts with a blank deck.";
   }
   if (courseDisabled) return "No other decks in this course yet.";

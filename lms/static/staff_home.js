@@ -1,4 +1,5 @@
-import { api, hideError, showError } from "/static/common.js";
+import { api, hideError, showError as showErrorBanner } from "/static/common.js";
+import { plainNameWording } from "/static/name_wording.js";
 
 const POPULATE_STEPS_FULL = ["roster", "days", "time"];
 const POPULATE_STEPS_ROSTER = ["roster"];
@@ -21,6 +22,19 @@ const nameIds = [];
 const nameFields = [];
 
 const $ = (id) => document.getElementById(id);
+
+/** True while the wizard is open on a plain course (first-names wording). */
+let plainNames = false;
+
+/**
+ * Show an error banner; on plain courses Codename wording becomes first names.
+ * @param {string} selector
+ * @param {unknown} err
+ */
+function showError(selector, err) {
+  const message = err instanceof Error ? err.message : String(err);
+  showErrorBanner(selector, plainNames ? plainNameWording(message) : message);
+}
 
 /**
  * Drop the in-memory Codename list and its student ids.
@@ -187,6 +201,7 @@ function applyNameWording(plain, root = document) {
     );
   }
   TITLES.roster = plain ? "First names" : "Codenames";
+  plainNames = Boolean(plain);
 }
 
 /**

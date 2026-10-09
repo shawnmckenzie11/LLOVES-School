@@ -286,6 +286,61 @@ def init_flask_sentry() -> bool:
 
 _INVITE_TOKEN_RE = re.compile(r"/invite/[^/?#]+")
 _STUDENT_SEAT_RE = re.compile(r"/student/s/[^/?#]+")
+# Free text (messages, exception values, breadcrumbs): a token ends at
+# whitespace, quotes, brackets or a path/query separator.
+_TEXT_INVITE_RE = re.compile(r"/invite/(?!\[token\])[^\s/?#\"'()<>\[\],;]+")
+_TEXT_SEAT_RE = re.compile(r"/student/s/(?!\[token\])[^\s/?#\"'()<>\[\],;]+")
+
+
+def mask_path_tokens(value: Any) -> Any:
+    """Mask ``/student/s/<seat>`` and ``/invite/<token>`` anywhere in a string.
+
+    MCK-183 Ops LOW-1: the old scrub only masked these paths inside a URL
+    that had a ``?`` or ``#``. A bare seat or invite path in a message, an
+    exception value or a breadcrumb now becomes ``.../[token]`` too.
+    Non-strings are returned unchanged.
+    """
+    if not isinstance(value, str):
+        return value
+    if "/invite/" not in value and "/student/s/" not in value:
+        return value
+    value = _TEXT_INVITE_RE.sub("/invite/[token]", value)
+    return _TEXT_SEAT_RE.sub("/student/s/[token]", value)
+
+
+def _mask_nested(value: Any, depth: int = 0) -> Any:
+    """Apply :func:`mask_path_tokens` through dicts and lists (bounded depth)."""
+    if depth > 6:
+        return value
+    if isinstance(value, str):
+        return mask_path_tokens(value)
+    if isinstance(value, dict):
+        return {k: _mask_nested(v, depth + 1) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_mask_nested(v, depth + 1) for v in value]
+    return value
+
+
+def _mask_event_tokens(event: dict[str, Any]) -> None:
+    """Mask seat and invite tokens in an event's text fields, in place.
+
+    Covers ``message``, ``logentry``, exception and thread values and frame
+    paths, breadcrumbs (message and data), ``transaction``, the request URL
+    and headers, and ``extra``/``contexts`` strings.
+    """
+    for key in ("message", "transaction", "culprit"):
+        if isinstance(event.get(key), str):
+            event[key] = mask_path_tokens(event[key])
+    for key in ("logentry", "extra", "contexts", "request", "tags"):
+        if isinstance(event.get(key), (dict, list)):
+            event[key] = _mask_nested(event[key])
+    for group in ("exception", "threads"):
+        holder = event.get(group)
+        if isinstance(holder, dict) and isinstance(holder.get("values"), list):
+            holder["values"] = _mask_nested(holder["values"])
+    crumbs = event.get("breadcrumbs")
+    if isinstance(crumbs, (dict, list)):
+        event["breadcrumbs"] = _mask_nested(crumbs)
 
 
 def _drop_request_body(event: dict[str, Any]) -> dict[str, Any]:
@@ -313,6 +368,7 @@ def _drop_request_body(event: dict[str, Any]) -> dict[str, Any]:
     transaction = event.get("transaction")
     if isinstance(transaction, str):
         event["transaction"] = _INVITE_TOKEN_RE.sub("/invite/[token]", transaction)
+    _mask_event_tokens(event)
     return event
 
 
