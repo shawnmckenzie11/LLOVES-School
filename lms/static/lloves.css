@@ -309,6 +309,23 @@ body.it-dashboard .badge-pending { background: #2a2e38; color: #9ca3af; }
 body.it-dashboard .badge-archived{ background: #450a0a; color: #fca5a5; }
 body.it-dashboard .badge-ok      { background: #14532d; color: #bbf7d0; }
 body.it-dashboard .badge-warn    { background: #451a03; color: #fcd34d; }
+/* MCK-183 invites */
+body.it-dashboard .badge-test    { background: #2e1065; color: #ddd6fe; }
+body.it-dashboard .it-invite-toast { margin: 0 0 12px; padding: 8px 12px; border-radius: 8px; background: #14532d; color: #bbf7d0; font-weight: 600; }
+body.it-dashboard .it-invite-toast.is-warn { background: #451a03; color: #fcd34d; }
+body.it-dashboard .it-invite-toast.is-error { background: #450a0a; color: #fca5a5; }
+body.it-dashboard .it-invite-form fieldset { border: 0; padding: 0; margin: 12px 0 0; }
+body.it-dashboard .it-invite-kind label { margin-right: 16px; }
+body.it-dashboard .it-invite-tabs { display: flex; gap: 0.4rem; margin: 0 0 12px; }
+body.it-dashboard .it-invite-tab { padding: 0.35rem 0.8rem; border-radius: 8px; background: #1e3348; color: var(--ink); border: 0; font: inherit; cursor: pointer; }
+body.it-dashboard .it-invite-tab.on { background: var(--accent); color: #04221c; font-weight: 650; }
+body.it-dashboard .it-invite-count { opacity: 0.75; font-size: 0.85em; margin-left: 2px; }
+body.it-dashboard .it-invite-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+body.it-dashboard .it-invite-actions form { margin: 0; }
+body.it-dashboard .it-invite-dialog { max-width: 420px; border: 0; border-radius: 12px; padding: 20px; background: #0f1e2c; color: var(--ink); }
+body.it-dashboard .it-invite-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+body.it-dashboard .it-invite-dialog h3 { margin: 0 0 8px; }
+body.it-dashboard .it-invite-dialog .row-actions { justify-content: flex-end; margin-top: 16px; }
 body.it-dashboard .it-tab-bar { gap: 0.4rem; margin-bottom: 1rem; }
 body.it-dashboard .it-tab-btn {
   padding: 0.45rem 0.9rem;

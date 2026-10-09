@@ -207,6 +207,9 @@ def _parse_course_line(
     if not match:
         return None
     name = _clean_course_name(match.group(1))
+    # "Physics, Grade 11" loses its number to the page-number strip; drop the
+    # bare "Grade" so the title is rebuilt as "Physics, Grade 11, ..." (MCK-183).
+    name = re.sub(r",?\s*\bGrade$", "", name).strip(" ,")
     if not name:
         return None
     pathway_label = _normalize_pathway_label(match.group(2))

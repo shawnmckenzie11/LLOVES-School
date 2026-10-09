@@ -155,7 +155,8 @@ class BotsShowcaseTests(unittest.TestCase):
     def test_staff_home_and_course_nav_hide_bots_from_teachers(self) -> None:
         """Teacher home and course chrome do not expose /staff/bots."""
         self._login_staff()
-        home = self.client.get("/staff")
+        # MCK-183: a teacher with no course lands on Welcome; no Bots there either.
+        home = self.client.get("/staff", follow_redirects=True)
         self.assertEqual(home.status_code, 200)
         home_html = home.get_data(as_text=True)
         self.assertNotIn("/staff/bots", home_html)

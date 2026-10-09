@@ -1,0 +1,57 @@
+/* MCK-183 teacher onboarding: centered card on the staff-shell page.
+   Palette matches staff-shell.css (Mobbin mock v0). */
+.staff-onboarding { background: #e8eef4; min-height: 100vh; margin: 0; }
+.ob-wrap { display: flex; justify-content: center; padding: 90px 16px 40px; }
+.ob-card {
+  width: 100%;
+  max-width: 560px;
+  background: #fff;
+  border: 1px solid #c5d0dc;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.1);
+  padding: 28px 32px;
+  color: #12202e;
+}
+.ob-progress { display: flex; gap: 6px; margin-bottom: 18px; }
+.ob-progress i { flex: 1; height: 4px; border-radius: 2px; background: #e2e8f0; }
+.ob-progress i.on { background: #0f766e; }
+.ob-card h1 { margin: 0 0 10px; font-size: 26px; }
+.ob-body { margin: 0 0 20px; font-size: 15.5px; line-height: 1.5; color: #334155; }
+.ob-btns { display: flex; justify-content: space-between; align-items: center; margin-top: 22px; gap: 12px; }
+.ob-card .btn {
+  display: inline-block;
+  padding: 9px 18px;
+  border-radius: 8px;
+  font-weight: 650;
+  font-size: 15px;
+  border: 1px solid #0b5f59;
+  background: #0f766e;
+  color: #fff;
+  text-decoration: none;
+  cursor: pointer;
+}
+.ob-card .btn.sec { background: #fff; color: #0f172a; border-color: #94a3b8; }
+.ob-field { display: block; font-weight: 650; font-size: 14px; margin: 14px 0 5px; }
+.ob-help { font-size: 12.5px; color: #64748b; margin-top: 4px; }
+.ob-err { font-size: 13px; color: #b91c1c; margin-top: 8px; font-weight: 600; }
+.ob-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.ob-class-row { border: 0; margin: 0; padding: 0; }
+.ob-class-row + .ob-class-row { border-top: 1px solid #e2e8f0; margin-top: 18px; padding-top: 4px; }
+.ob-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  font: inherit;
+  font-size: 15px;
+  border: 1px solid #94a3b8;
+  border-radius: 8px;
+  background: #fff;
+  color: #12202e;
+}
+.ob-select.is-missing { border-color: #dc2626; box-shadow: 0 0 0 1px #dc2626; }
+.ob-link { background: none; border: 0; padding: 0; margin: 16px 0 0; font: inherit; font-weight: 650; font-size: 14.5px; color: #0f766e; cursor: pointer; }
+.ob-back { color: #0f172a; font-size: 15px; }
+.ob-card .btn[disabled] { opacity: 0.6; cursor: wait; }
+.ob-names { width: 100%; box-sizing: border-box; padding: 10px; font: inherit; font-size: 15px; line-height: 1.5; border: 1px solid #94a3b8; border-radius: 8px; resize: vertical; color: #12202e; }
+.ob-names.is-missing { border-color: #dc2626; box-shadow: 0 0 0 1px #dc2626; }
+

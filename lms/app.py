@@ -243,6 +243,9 @@ from student_portal import (  # noqa: E402
 )
 import syllabus as syllabus_mod  # noqa: E402
 from schedule import TIME_OPTIONS, format_live_schedule_line, wizard_defaults  # noqa: E402
+import staff_invites  # noqa: E402
+from onboarding_presets import clean_preset as onboarding_clean_preset  # noqa: E402
+from onboarding_presets import preset_lists as onboarding_preset_lists  # noqa: E402
 
 MGS_TEMPLATES = MGS_PATH / "templates"
 MGS_STATIC = MGS_PATH / "static"
@@ -1783,10 +1786,174 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             only_live_class_days=school.only_live_class_days(),
             staff_2fa_mode=school.staff_2fa_mode(),
             staff_2fa_modes=STAFF_2FA_MODE_LABELS,
+            invite_presets=onboarding_preset_lists(school),
+            invite_flash=session.pop("invite_flash", None),
+            invite_tabs=staff_invites.invite_tabs(school, tenant_id),
         )
         resp = make_response(html)
         resp.set_cookie("lloves_seen", "1", max_age=86400 * 400, samesite="Lax")
         return resp
+
+    def _invite_link(token: str) -> str:
+        """Absolute ``/invite/<token>`` URL (``PUBLIC_APP_URL`` on Fly)."""
+        base = (os.getenv("PUBLIC_APP_URL") or "").strip().rstrip("/")
+        if not base:
+            base = request.host_url.rstrip("/")
+        return f"{base}/invite/{token}"
+
+    def _invite_reply_to(actor: dict[str, Any] | None) -> str | None:
+        """Reply-To for invites: ``INVITE_REPLY_TO``, else the inviting Admin."""
+        configured = (os.getenv("INVITE_REPLY_TO") or "").strip()
+        if configured:
+            return configured
+        return str((actor or {}).get("email") or "").strip() or None
+
+    def _send_invite_email(
+        invite: dict[str, Any], token: str, actor: dict[str, Any] | None
+    ) -> bool:
+        """Send one invite email and log it for the rate limit."""
+        link = _invite_link(token)
+        try:
+            delivered = email_service.send_staff_invite(
+                str(invite["email"]),
+                str(invite.get("first_name") or ""),
+                link,
+                reply_to=_invite_reply_to(actor),
+            )
+        except Exception:  # noqa: BLE001 - a failed send still keeps the invite
+            app.logger.exception("invite email failed")
+            delivered = False
+        staff_invites.record_send(
+            school, int(invite["id"]), int(actor["id"]) if actor else None, delivered
+        )
+        return delivered
+
+    @app.route("/it/invites", methods=["POST"])
+    @it_required
+    def it_send_invite():
+        """MCK-183 I2: allowlist a teacher, create her invite, email the link.
+
+        Re-inviting the same email refreshes the open invite (new link, new
+        7-day expiry) and sends it again. A failed email still saves the
+        invite; the Admin page then offers Copy link.
+        """
+        actor = current_user()
+        email = (request.form.get("email") or "").strip().lower()
+        try:
+            preset = onboarding_clean_preset(
+                school,
+                request.form.get("preset_code"),
+                request.form.get("preset_days"),
+                request.form.get("preset_time"),
+                required=False,
+            )
+            existing = school.get_user_by_email(email) if "@" in email else None
+            open_invite = None
+            if existing:
+                open_invite = staff_invites.open_invite_for(
+                    school, int(existing.get("tenant_id") or 1), email
+                )
+            staff_invites.check_send_rate(
+                school, int(actor["id"]) if actor else None, open_invite
+            )
+            invite, token = staff_invites.create_or_refresh_invite(
+                school,
+                email=email,
+                first_name=request.form.get("first_name") or "",
+                kind=request.form.get("kind") or "teacher",
+                preset=preset,
+                created_by_user_id=int(actor["id"]) if actor else None,
+                tenant_id=school.tenant_id_of(actor),
+            )
+        except ValueError as exc:
+            session["invite_flash"] = {"kind": "error", "message": str(exc)}
+            return redirect(url_for("it_dashboard"))
+        delivered = _send_invite_email(invite, token, actor)
+        _audit(
+            "invite.send",
+            "staff",
+            resource_id=invite.get("user_id"),
+            detail={"invite_id": invite.get("id"), "delivered": delivered},
+        )
+        if delivered:
+            session["invite_flash"] = {"kind": "sent", "email": invite["email"]}
+        else:
+            session["invite_flash"] = {
+                "kind": "not_sent",
+                "email": invite["email"],
+                "link": _invite_link(token),
+            }
+        return redirect(url_for("it_dashboard"))
+
+    def _admin_invite(invite_id: int) -> dict[str, Any]:
+        """The invite, only if it is in the signed-in Admin's school."""
+        row = staff_invites.get_invite(school, invite_id)
+        if row is None or int(row.get("tenant_id") or 1) != school.tenant_id_of(current_user()):
+            abort(404)
+        return row
+
+    @app.route("/it/invites/<int:invite_id>/resend", methods=["POST"])
+    @it_required
+    def it_resend_invite(invite_id: int):
+        """MCK-183 I4: new link + new 7-day expiry, emailed again (rate-limited)."""
+        actor = current_user()
+        row = _admin_invite(invite_id)
+        if staff_invites.invite_status(row) not in {"pending", "expired"}:
+            session["invite_flash"] = {"kind": "error", "message": "This invite can't be resent."}
+            return redirect(url_for("it_dashboard", _anchor="invites"))
+        try:
+            staff_invites.check_send_rate(school, int(actor["id"]) if actor else None, row)
+        except ValueError as exc:
+            session["invite_flash"] = {"kind": "error", "message": str(exc)}
+            return redirect(url_for("it_dashboard", _anchor="invites"))
+        invite, token = staff_invites.rotate_token(school, invite_id)
+        delivered = _send_invite_email(invite, token, actor)
+        _audit(
+            "invite.resend",
+            "staff",
+            resource_id=invite.get("user_id"),
+            detail={"invite_id": invite_id, "delivered": delivered},
+        )
+        if delivered:
+            session["invite_flash"] = {"kind": "sent", "email": invite["email"]}
+        else:
+            session["invite_flash"] = {
+                "kind": "not_sent",
+                "email": invite["email"],
+                "link": _invite_link(token),
+            }
+        return redirect(url_for("it_dashboard", _anchor="invites"))
+
+    @app.route("/it/invites/<int:invite_id>/link", methods=["POST"])
+    @it_required
+    def it_invite_link(invite_id: int):
+        """MCK-183 I4: Copy link. New token and expiry, no email.
+
+        Only a hash is stored, so an old link can't be shown again; older
+        links for this invite stop working.
+        """
+        row = _admin_invite(invite_id)
+        if staff_invites.invite_status(row) not in {"pending", "expired"}:
+            return jsonify({"error": "This invite has no link to copy."}), 409
+        invite, token = staff_invites.rotate_token(school, invite_id)
+        _audit("invite.link", "staff", resource_id=invite.get("user_id"),
+               detail={"invite_id": invite_id})
+        return jsonify({"link": _invite_link(token)})
+
+    @app.route("/it/invites/<int:invite_id>/revoke", methods=["POST"])
+    @it_required
+    def it_revoke_invite(invite_id: int):
+        """MCK-183 I4: the link stops working and the allowlist row is archived."""
+        actor = current_user()
+        row = _admin_invite(invite_id)
+        if staff_invites.invite_status(row) not in {"pending", "expired"}:
+            session["invite_flash"] = {"kind": "error", "message": "This invite can't be revoked."}
+            return redirect(url_for("it_dashboard", _anchor="invites"))
+        staff_invites.revoke_invite(school, invite_id, int(actor["id"]))
+        _audit("invite.revoke", "staff", resource_id=row.get("user_id"),
+               detail={"invite_id": invite_id})
+        session["invite_flash"] = {"kind": "revoked", "first": row.get("first_name") or row.get("email")}
+        return redirect(url_for("it_dashboard", _anchor="invites"))
 
     @app.route("/it/audit.csv")
     @it_required
@@ -2530,6 +2697,337 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             school_name=SCHOOL_NAME,
         )
 
+    #: Shawn's accounts when ``SENTRY_OWNER_EMAILS`` is unset (fly.toml sets it).
+    OWNER_EMAILS_DEFAULT = ("shawnmckenzie11.sm@gmail.com", "solutions@mckenzian.com")
+
+    def _owner_emails() -> set[str]:
+        """Shawn's own sign-in emails (the onboarding tour never auto-opens for him)."""
+        raw = (os.getenv("SENTRY_OWNER_EMAILS") or "").strip()
+        values = raw.split(",") if raw else list(OWNER_EMAILS_DEFAULT)
+        return {v.strip().lower() for v in values if v.strip()}
+
+    def _help_contact_email() -> str:
+        """Help → "Ask Shawn for help" mailto target."""
+        for key in ("HELP_CONTACT_EMAIL", "INVITE_REPLY_TO"):
+            value = (os.getenv(key) or "").strip()
+            if value:
+                return value
+        return "solutions@mckenzian.com"
+
+    @app.context_processor
+    def _help_menu_context() -> dict[str, Any]:
+        """MCK-183 slice D: the Help menu's contact address on staff pages."""
+        return {"help_contact_email": _help_contact_email()}
+
+    def _simple_course(ontario_code: Any, library_id: Any) -> bool:
+        """MCK-183 slice E: a course with no module pack that is not math.
+
+        Ontario math codes start with "M" (MCF3M, MHF4U, MPM2D...), so Shawn's
+        courses, with or without a pack, keep every tab and label. A
+        pack-less non-math course (SBI4U, ENG2D...) shows the plain teacher
+        view: Run Live Class and Attendance & Participation.
+        """
+        code = str(ontario_code or "").strip().upper()
+        return bool(code) and not library_id and not code.startswith("M")
+
+    app.jinja_env.globals["simple_course"] = _simple_course
+
+    def _tour_offer(user: dict[str, Any], classes: list[dict[str, Any]]) -> bool:
+        """May the Dashboard tour open by itself for this teacher?
+
+        Staff teachers with a class, never Admin accounts or Shawn. New
+        teachers arrive from the names step; existing teachers get it once
+        (the browser remembers Skip or Done per teacher).
+        """
+        if str(user.get("role") or "") != "staff" or not classes:
+            return False
+        return str(user.get("email") or "").strip().lower() not in _owner_emails()
+
+    def _needs_first_run(
+        user: dict[str, Any],
+        offerings: list[dict[str, Any]],
+        classes: list[dict[str, Any]],
+    ) -> bool:
+        """True for a staff teacher with nothing set up anywhere.
+
+        No course and no class this semester, and none of these: no active
+        semester, an active live session, or any non-archived class or
+        course in any semester (#250 gate MED: never trap a set-up teacher,
+        e.g. right after a semester rollover, on Welcome). Admin (IT)
+        accounts never get it.
+
+        Args:
+            user: Signed-in user row.
+            offerings: Her active-semester offerings.
+            classes: Her active-semester classes.
+
+        Returns:
+            Whether ``/staff`` should send her to ``/staff/welcome``.
+        """
+        if str(user.get("role") or "") != "staff" or offerings or classes:
+            return False
+        active = school.get_active_semester()
+        if not active:
+            return False
+        if school.get_active_live_session_for_teacher(int(user["id"])) is not None:
+            return False
+        elsewhere = school.teacher_setup_elsewhere(int(user["id"]), int(active["id"]))
+        return not (elsewhere["any_class"] or elsewhere["other_offering"])
+
+    def _needs_names_step(
+        user: dict[str, Any],
+        offerings: list[dict[str, Any]],
+        classes: list[dict[str, Any]],
+    ) -> bool:
+        """True for a staff teacher with a course this semester and no class anywhere.
+
+        Same guards as ``_needs_first_run`` (#250 gate MED): never with no
+        active semester, during a live session, or once she has any
+        non-archived class in any semester (she then uses Populate Class).
+
+        Args:
+            user: Signed-in user row.
+            offerings: Her active-semester offerings.
+            classes: Her active-semester classes.
+
+        Returns:
+            Whether ``/staff`` should send her to the names step.
+        """
+        if str(user.get("role") or "") != "staff" or not offerings or classes:
+            return False
+        active = school.get_active_semester()
+        if not active:
+            return False
+        if school.get_active_live_session_for_teacher(int(user["id"])) is not None:
+            return False
+        return not school.teacher_setup_elsewhere(int(user["id"]), int(active["id"]))["any_class"]
+
+    def _teacher_setup(user: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Her active-semester offerings and classes (empty with no semester)."""
+        active = school.get_active_semester()
+        if not active:
+            return [], []
+        offerings = school.list_offerings(
+            teacher_user_id=int(user["id"]),
+            semester_id=int(active["id"]),
+            include_archived=False,
+        )
+        classes = school.list_staff_classes(int(user["id"]), int(active["id"]))
+        return offerings, classes
+
+    @app.route("/invite/<token>")
+    def invite_landing(token: str):
+        """MCK-183 I3: the invite link. Valid, expired, used, revoked, unknown.
+
+        Valid: remember the invite in the session and offer Continue with
+        Google (``login_hint`` = invited email). The invite is only used up
+        when the matching Google account signs in. Already signed in as the
+        invited teacher: accept and go to Welcome. Signed in as someone
+        else: the mismatch page, invite untouched.
+        """
+        state, row = staff_invites.resolve_invite(school, token)
+        if state == "revoked":
+            state = "void"
+        if state == "unknown":
+            state = "void"
+        context: dict[str, Any] = {"state": state, "school_name": SCHOOL_NAME}
+        if state == "used":
+            context["signin_url"] = url_for("auth_google", portal="staff")
+        if state != "valid" or row is None:
+            return render_template("invite.html", **context)
+        invite_email = str(row["email"]).lower()
+        user = current_user()
+        if user is not None:
+            if str(user.get("email") or "").lower() == invite_email:
+                staff_invites.mark_accepted(school, int(row["id"]))
+                _audit("invite.accept", "staff", resource_id=row.get("user_id"),
+                       detail={"invite_id": row.get("id")})
+                return redirect(url_for("staff_welcome"))
+            return render_template(
+                "invite.html",
+                state="mismatch",
+                invite_email=invite_email,
+                google_email=str(user.get("email") or "").lower(),
+                retry_url=url_for("logout_to_invite", token=token),
+                school_name=SCHOOL_NAME,
+            )
+        session["pending_invite_id"] = int(row["id"])
+        context.update(
+            email=invite_email,
+            continue_url=url_for(
+                "auth_google",
+                portal="staff",
+                next=url_for("staff_welcome"),
+                login_hint=invite_email,
+            ),
+        )
+        return render_template("invite.html", **context)
+
+    @app.route("/invite/<token>/switch")
+    def logout_to_invite(token: str):
+        """Sign out the other account, then reopen the same invite link."""
+        session.clear()
+        return redirect(url_for("invite_landing", token=token))
+
+    @app.route("/welcome")
+    def welcome_link():
+        """MCK-183: the link Shawn sends a new teacher.
+
+        Signed in already: straight to the Welcome screen. Otherwise Google
+        sign-in (and the first-login email code) with ``next`` kept, so she
+        lands on Welcome. An unlisted Google account still gets the usual 403.
+        """
+        if current_user() is not None:
+            return redirect(url_for("staff_welcome"))
+        return redirect(url_for("auth_google", portal="staff", next=url_for("staff_welcome")))
+
+    @app.route("/staff/welcome")
+    @staff_required
+    def staff_welcome():
+        """MCK-183 screen 1 (Welcome). Later steps arrive in their own slices.
+
+        A teacher who already has a class goes to the Dashboard.
+        """
+        user = current_user()
+        assert user is not None
+        offerings, classes = _teacher_setup(user)
+        step = (request.args.get("step") or "").strip().lower()
+        if step not in {"class", "names"}:
+            step = "welcome"
+        names_offering = None
+        names_next = url_for("staff_home", tour=1)
+        if step == "names":
+            pending = [o for o in offerings if not o.get("classes")]
+            wanted = request.args.get("offering", type=int)
+            names_offering = next(
+                (o for o in pending if int(o["id"]) == wanted), pending[0] if pending else None
+            )
+            if names_offering is None:
+                return redirect(url_for("staff_home") if classes else url_for("staff_welcome", step="class"))
+            more = [o for o in pending if int(o["id"]) != int(names_offering["id"])]
+            # Last course named: on to the Dashboard tour (slice D).
+            names_next = (
+                url_for("staff_welcome", step="names") if more else url_for("staff_home", tour=1)
+            )
+        elif classes:
+            return redirect(url_for("staff_home"))
+        return render_template(
+            "staff/welcome.html",
+            user=user,
+            step=step,
+            has_course=bool(offerings),
+            presets=onboarding_preset_lists(school),
+            class_rows=_onboarding_class_rows(user, offerings),
+            names_offering=names_offering,
+            names_next=names_next,
+            school_name=SCHOOL_NAME,
+        )
+
+    def _onboarding_class_rows(
+        user: dict[str, Any], offerings: list[dict[str, Any]]
+    ) -> list[dict[str, str]]:
+        """Screen 2 rows: her courses so far, else the invite preset, else one empty row."""
+        rows = [
+            {
+                "code": str(o.get("ontario_code") or "").upper(),
+                "days": str(o.get("live_days") or ""),
+                "time": str(o.get("live_time") or ""),
+            }
+            for o in offerings
+        ]
+        if rows:
+            return rows
+        preset = staff_invites.accepted_preset_for(school, int(user["id"]))
+        if preset:
+            code, days, time_label = preset
+            return [{"code": code, "days": days, "time": time_label}]
+        return [{"code": "", "days": "", "time": ""}]
+
+    #: Most classes one Next press may create (one per row).
+    ONBOARDING_MAX_CLASSES = 6
+
+    @app.route("/api/staff/onboarding/course", methods=["POST"])
+    @staff_required
+    def api_staff_onboarding_course():
+        """MCK-183 slice B: the teacher's own course(s) from screen 2.
+
+        Body ``{"classes": [{"ontario_code", "live_days", "live_time"}, ...]}``.
+        Every row must be a listed course, days preset and start time (Wonder's
+        single error otherwise). Only during setup (no class yet). Each row
+        becomes an offering for the active semester, created by the teacher
+        with no module pack upload; a repeated code becomes a new section.
+        Rows matching a course she already set up here (Back, then Next
+        again) update its days and time instead of adding a section.
+        """
+        user = current_user()
+        assert user is not None
+        error = "Pick a course, days and a start time to continue."
+        active = school.get_active_semester()
+        if not active:
+            return jsonify({"ok": False, "error": "No semester is active yet. Ask Shawn."}), 409
+        offerings, classes = _teacher_setup(user)
+        if classes:
+            return jsonify({"ok": False, "error": "Your classes are already set up."}), 409
+        payload = request.get_json(silent=True) or {}
+        rows = payload.get("classes")
+        if not isinstance(rows, list) or not rows or len(rows) > ONBOARDING_MAX_CLASSES:
+            return jsonify({"ok": False, "error": error}), 400
+        cleaned: list[tuple[str, str, str]] = []
+        try:
+            for row in rows:
+                if not isinstance(row, dict):
+                    raise ValueError(error)
+                choice = onboarding_clean_preset(
+                    school,
+                    row.get("ontario_code"),
+                    row.get("live_days"),
+                    row.get("live_time"),
+                    required=True,
+                )
+                assert choice is not None
+                cleaned.append(choice)
+        except ValueError:
+            return jsonify({"ok": False, "error": error}), 400
+        unclaimed = {}
+        for offering in sorted(offerings, key=lambda o: int(o["id"])):
+            unclaimed.setdefault(str(offering["ontario_code"]).upper(), []).append(offering)
+        saved: list[dict[str, Any]] = []
+        try:
+            for code, days, time_label in cleaned:
+                reuse = unclaimed.get(code) or []
+                if reuse:
+                    offering = reuse.pop(0)
+                else:
+                    held = school.get_offering_for(int(active["id"]), code, int(user["id"]))
+                    offering = school.assign_course(
+                        teacher_user_id=int(user["id"]),
+                        ontario_code=code,
+                        new_section=held is not None,
+                    )
+                    _audit(
+                        "offering.self_assign",
+                        "offering",
+                        resource_id=int(offering["id"]),
+                        detail={"ontario_code": code},
+                    )
+                offering = school.set_offering_schedule(
+                    int(offering["id"]), live_days=days, live_time=time_label
+                )
+                saved.append(
+                    {
+                        "id": int(offering["id"]),
+                        "ontario_code": code,
+                        "live_days": days,
+                        "live_time": time_label,
+                    }
+                )
+        except (KeyError, ValueError) as exc:
+            app.logger.warning("onboarding course failed: %s", exc)
+            return jsonify({"ok": False, "error": error}), 400
+        return jsonify(
+            {"ok": True, "offerings": saved, "next": url_for("staff_welcome", step="names")}
+        )
+
     @app.route("/staff")
     @staff_required
     def staff_home():
@@ -2552,6 +3050,14 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 for section in offering.get("classes") or []:
                     section["roster"] = school.roster_name_entries(int(section["id"]))
             classes = school.list_staff_classes(int(user["id"]), int(active["id"]))
+        # MCK-183 first-run gate: a teacher with no course and no class gets
+        # the Welcome setup instead of the "Ask Admin" dead end. Admin (IT)
+        # accounts keep the Dashboard.
+        if _needs_first_run(user, offerings, classes):
+            return redirect(url_for("staff_welcome"))
+        # Slice C: course chosen but no class list yet → the names step.
+        if _needs_names_step(user, offerings, classes):
+            return redirect(url_for("staff_welcome", step="names"))
         from flask import make_response
 
         active_live_session = school.get_active_live_session_for_teacher(
@@ -2572,6 +3078,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             classes=classes,
             active_live_session=active_live_session,
             whats_new_hold=whats_new_hold,
+            tour_offer=_tour_offer(user, classes),
+            tour_class_href=(
+                url_for("staff_course", class_id=int(classes[0]["id"]), tab="ap", view="attendance", tour="done")
+                if classes
+                else ""
+            ),
             nav_courses=_staff_nav_courses(int(user["id"])),
             time_options=list(TIME_OPTIONS),
             school_name=SCHOOL_NAME,
@@ -3045,7 +3557,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         expectations = []
         if offering:
             expectations = school.list_expectations(str(offering["ontario_code"]))
-        tab = (request.args.get("tab") or "modules").strip().lower()
+        course_simple = _simple_course(
+            (offering or {}).get("ontario_code") or cls.get("ontario_code"),
+            cls.get("library_id") or (offering or {}).get("library_id"),
+        )
+        # Pack-less non-math courses open on Attendance & Participation.
+        default_tab = "ap" if course_simple else "modules"
+        tab = (request.args.get("tab") or default_tab).strip().lower()
         if tab in {"track-live", "track_live"}:
             tab = "live"
         from portfolio.flags import portfolio_tab_enabled
@@ -3099,9 +3617,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             "profiles",
             "portfolio",
         }:
-            tab = "modules"
+            tab = default_tab
         if tab == "portfolio" and not show_portfolio_tab:
-            tab = "modules"
+            tab = default_tab
         pack_error = session.pop("pack_error", None)
         pack_ok = request.args.get("pack") == "ok"
         live_step = (request.args.get("step") or "").strip().lower()
@@ -3159,6 +3677,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             take_attendance=request.args.get("take") == "1",
             log_participation=request.args.get("participate") == "1",
             run_live=request.args.get("run") == "1",
+            tour_done=request.args.get("tour") == "done" and tab == "ap",
+            course_simple=course_simple,
             live_session_id=live_session_id,
             live_session_code=live_session_code,
             live_step=live_step,

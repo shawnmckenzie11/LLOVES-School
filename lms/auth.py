@@ -416,11 +416,39 @@ def _tap_staff_class_list(db: SchoolDB, live_session_id: int, student_id: Any) -
         pass
 
 
+#: ``next`` may only land on the teacher or Admin portals (#250 gate LOW):
+#: never ``/logout``, ``/auth/...`` (Slides consent) or a public page.
+_NEXT_PREFIXES = ("/staff", "/it")
+
+
 def _safe_next_url(next_url: str | None) -> str | None:
-    """Return a same-site relative redirect target when safe."""
+    """Return a same-site relative redirect target when safe.
+
+    Only ``/staff…`` and ``/it…`` paths, printable ASCII only (no control
+    characters, DEL, spaces, or Unicode look-alikes such as fullwidth
+    slashes, U+2028 or U+202E), no ``//host`` and no backslashes.
+    """
     if not next_url or not next_url.startswith("/") or next_url.startswith("//"):
         return None
+    if any(not (0x21 <= ord(ch) <= 0x7E) for ch in next_url) or "\\" in next_url:
+        return None
+    path = next_url.split("?", 1)[0].split("#", 1)[0]
+    if not any(path == p or path.startswith(p + "/") for p in _NEXT_PREFIXES):
+        return None
     return next_url
+
+
+def _clear_session_keeping_next() -> None:
+    """``session.clear()`` but keep the saved post-login destination.
+
+    MCK-183: the email-code step and the final sign-in both clear the
+    session. Without this, ``/welcome`` (or any ``next=``) was lost and the
+    teacher landed on the plain Dashboard.
+    """
+    saved = _safe_next_url(session.get("google_oauth_next"))
+    session.clear()
+    if saved:
+        session["google_oauth_next"] = saved
 
 
 def _with_query(path: str, **params: str) -> str:
@@ -484,7 +512,7 @@ def establish_user_session(user: dict[str, Any], *, portal: str) -> None:
         user: ``users`` row.
         portal: ``staff`` or ``it`` — which shell to land in.
     """
-    session.clear()
+    _clear_session_keeping_next()
     session["logged_in"] = True
     session["user_id"] = int(user["id"])
     session["email"] = user["email"]
@@ -509,8 +537,11 @@ def establish_user_session(user: dict[str, Any], *, portal: str) -> None:
 
 
 def begin_pending_2sv(user: dict[str, Any], *, portal: str) -> None:
-    """Hold a pending first-login session until the email code matches."""
-    session.clear()
+    """Hold a pending first-login session until the email code matches.
+
+    The saved ``next`` survives, so the code step lands where she was going.
+    """
+    _clear_session_keeping_next()
     session["pending_2sv"] = True
     session["pending_user_id"] = int(user["id"])
     session["pending_portal"] = portal
@@ -568,6 +599,12 @@ def staff_required(f: Callable) -> Callable:
         if user is None:
             if request.path.startswith("/api/"):
                 return _api_auth_error()
+            # MCK-183: keep where she was going (e.g. /staff/welcome).
+            next_url = None
+            if request.method == "GET":
+                next_url = _safe_next_url(request.full_path.rstrip("?"))
+            if next_url and next_url != url_for("staff_home"):
+                return redirect(url_for("auth_google", portal="staff", next=next_url))
             return redirect(url_for("auth_google", portal="staff"))
         portal = session.get("portal")
         if portal == "it" and user["role"] == "it":
@@ -732,10 +769,14 @@ def _finish_google_identity(
     Returns:
         Flask redirect or 403 response.
     """
+    invite_page = _check_pending_invite(email)
+    if invite_page is not None:
+        return invite_page
     db = school_db()
     email_key = (email or "").strip().lower()
     user = db.get_user_by_google_sub(google_sub) or db.get_user_by_email(email_key)
     if not user:
+        session.pop("google_oauth_next", None)
         return render_template(
             "forbidden.html",
             message="This Google account is not registered. Ask IT, or request access from the home page.",
@@ -756,11 +797,13 @@ def _finish_google_identity(
         if local_dev_login_enabled():
             portal_key = "staff"
         else:
+            session.pop("google_oauth_next", None)
             return render_template(
                 "forbidden.html",
                 message="Ask Admin to grant access.",
             ), 403
     if portal_key == "staff" and user["role"] not in {"staff", "it"} and not is_it:
+        session.pop("google_oauth_next", None)
         return render_template(
             "forbidden.html",
             message="This Google account is not registered. Ask IT, or request access from the home page.",
@@ -774,6 +817,79 @@ def _finish_google_identity(
 
     establish_user_session(user, portal=portal_key)
     return _post_login_redirect(portal_key)
+
+
+def _check_pending_invite(email: str):
+    """MCK-183 I3: match the Google account against an invite link.
+
+    The invite id is in the session from ``/invite/<token>``. A different
+    Google account gets the mismatch page and is **not** signed in; the
+    invite stays unused. A match marks the invite used (single use) and sets
+    the post-login destination to ``/staff/welcome``. A stale invite (used,
+    expired or revoked meanwhile) is dropped and sign-in carries on.
+
+    Args:
+        email: Google account email.
+
+    Returns:
+        A response to show instead of signing in, or ``None`` to continue.
+    """
+    invite_id = session.get("pending_invite_id")
+    if not invite_id:
+        return None
+    import staff_invites
+
+    db = school_db()
+    row = staff_invites.get_invite(db, int(invite_id))
+    if row is None or staff_invites.invite_status(row) != "pending":
+        session.pop("pending_invite_id", None)
+        return None
+    google_email = (email or "").strip().lower()
+    invite_email = str(row.get("email") or "").strip().lower()
+    if google_email != invite_email:
+        _invite_audit(
+            db,
+            action="invite.mismatch",
+            resource_type="staff",
+            resource_id=row.get("user_id"),
+            detail={"invite_id": row.get("id")},
+            ip=request.remote_addr,
+        )
+        return render_template(
+            "invite.html",
+            state="mismatch",
+            invite_email=invite_email,
+            google_email=google_email,
+            retry_url=url_for(
+                "auth_google",
+                portal="staff",
+                next=url_for("staff_welcome"),
+                login_hint=invite_email,
+            ),
+            school_name=SCHOOL_NAME,
+        )
+    staff_invites.mark_accepted(db, int(row["id"]))
+    _invite_audit(
+        db,
+        action="invite.accept",
+        resource_type="staff",
+        actor_user_id=row.get("user_id"),
+        actor_role="staff",
+        resource_id=row.get("user_id"),
+        detail={"invite_id": row.get("id")},
+        ip=request.remote_addr,
+    )
+    session.pop("pending_invite_id", None)
+    session["google_oauth_next"] = url_for("staff_welcome")
+    return None
+
+
+def _invite_audit(db: Any, **event: Any) -> None:
+    """Audit an invite sign-in step; never block sign-in on the audit log."""
+    try:
+        db.record_access_event(**event)
+    except Exception:  # noqa: BLE001 - audit must not break sign-in
+        current_app.logger.warning("invite audit failed", exc_info=True)
 
 
 def _post_login_redirect(portal: str):
@@ -830,6 +946,9 @@ def register_auth_routes(app: Flask) -> None:
         next_url = _safe_next_url(request.args.get("next"))
         if next_url:
             session["google_oauth_next"] = next_url
+        else:
+            # A fresh sign-in without next drops any abandoned one (#250 LOW).
+            session.pop("google_oauth_next", None)
 
         user = current_user()
         if user and user.get("verified_at"):
@@ -837,10 +956,12 @@ def register_auth_routes(app: Flask) -> None:
             is_it = user["role"] == "it" or email_l in it_emails()
             if portal == "it" and is_it:
                 session["portal"] = "it"
+                session.pop("google_oauth_next", None)
                 return redirect(url_for("it_dashboard"))
             if portal == "staff" and (user["role"] in {"staff", "it"} or is_it):
                 session["portal"] = "staff"
-                return redirect(url_for("staff_home"))
+                session.pop("google_oauth_next", None)
+                return redirect(next_url or url_for("staff_home"))
 
         if not google_oauth_ready():
             if mock_login_enabled():
@@ -874,6 +995,10 @@ def register_auth_routes(app: Flask) -> None:
             "state": state,
             "prompt": "select_account",
         }
+        # MCK-183 I3: pre-select the invited Google account.
+        hint = (request.args.get("login_hint") or "").strip()
+        if hint and "@" in hint and len(hint) <= 200:
+            params["login_hint"] = hint
         google_auth_url = (
             "https://accounts.google.com/o/oauth2/v2/auth?"
             + urllib.parse.urlencode(params)

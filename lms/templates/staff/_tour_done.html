@@ -1,0 +1,10 @@
+{# MCK-183 slice D: Done (Wonder Part 3 screen 4), shown once after the tour's
+   "Go to my class" lands on Attendance & Participation (?tour=done). #}
+<dialog class="onb-done" id="onb-done" aria-labelledby="onb-done-title" open>
+  <form method="dialog" class="onb-done-card">
+    <h2 id="onb-done-title">You're set</h2>
+    <p>Questions or something not working? Open <b>Help</b> any time, top right.</p>
+    <p><a href="{{ url_for('staff_home', tour=1) }}">Take the tour again</a></p>
+    <div class="onb-done-actions"><button type="submit" autofocus>Done</button></div>
+  </form>
+</dialog>

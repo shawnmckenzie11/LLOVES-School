@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import html as html_lib
 import logging
 import os
 import smtplib
 import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formataddr, parseaddr
 from typing import Optional, Tuple
 
 import requests
@@ -62,6 +64,19 @@ def _sender_address() -> str:
     )
 
 
+def _from_header(from_name: str | None = None) -> str:
+    """From header: the configured address, with an optional display name.
+
+    ``EMAIL_FROM`` may already carry a display name (``ALC <noreply@...>``);
+    ``from_name`` replaces it for this message only.
+    """
+    sender = _sender_address()
+    if not from_name:
+        return sender
+    _name, address = parseaddr(sender)
+    return formataddr((from_name, address or sender))
+
+
 def _build_verification_message(username: str, code: str) -> Tuple[str, str, str]:
     """Build subject/text/html bodies for an ALC verification email."""
     from paths import SCHOOL_DISPLAY, SCHOOL_NAME
@@ -90,25 +105,35 @@ def _build_verification_message(username: str, code: str) -> Tuple[str, str, str
     return subject, text, html
 
 
-def _send_via_resend(recipient_email: str, subject: str, text: str, html: str) -> bool:
+def _send_via_resend(
+    recipient_email: str,
+    subject: str,
+    text: str,
+    html: str,
+    *,
+    reply_to: str | None = None,
+    from_name: str | None = None,
+) -> bool:
     """Send mail through the Resend HTTP API."""
     api_key = (os.getenv("RESEND_API_KEY") or "").strip()
     if not api_key:
         return False
-    sender = _sender_address()
+    payload = {
+        "from": _from_header(from_name),
+        "to": [recipient_email],
+        "subject": subject,
+        "text": text,
+        "html": html,
+    }
+    if reply_to:
+        payload["reply_to"] = reply_to
     response = requests.post(
         "https://api.resend.com/emails",
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         },
-        json={
-            "from": sender,
-            "to": [recipient_email],
-            "subject": subject,
-            "text": text,
-            "html": html,
-        },
+        json=payload,
         timeout=20,
     )
     if response.status_code >= 300:
@@ -117,7 +142,15 @@ def _send_via_resend(recipient_email: str, subject: str, text: str, html: str) -
     return True
 
 
-def _send_via_smtp(recipient_email: str, subject: str, text: str, html: str) -> bool:
+def _send_via_smtp(
+    recipient_email: str,
+    subject: str,
+    text: str,
+    html: str,
+    *,
+    reply_to: str | None = None,
+    from_name: str | None = None,
+) -> bool:
     """Send mail through SMTP (STARTTLS on 587 or SSL on 465 by default)."""
     smtp_server = (os.getenv("SMTP_SERVER") or "").strip()
     smtp_username = (os.getenv("SMTP_USERNAME") or "").strip()
@@ -133,8 +166,10 @@ def _send_via_smtp(recipient_email: str, subject: str, text: str, html: str) -> 
     sender = _sender_address()
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = sender
+    msg["From"] = _from_header(from_name)
     msg["To"] = recipient_email
+    if reply_to:
+        msg["Reply-To"] = reply_to
     msg.attach(MIMEText(text, "plain"))
     msg.attach(MIMEText(html, "html"))
 
@@ -155,13 +190,31 @@ def _send_via_smtp(recipient_email: str, subject: str, text: str, html: str) -> 
     return True
 
 
-def send_email(recipient_email: str, subject: str, text: str, html: str) -> bool:
-    """Send an arbitrary email via Resend or SMTP."""
+def send_email(
+    recipient_email: str,
+    subject: str,
+    text: str,
+    html: str,
+    *,
+    reply_to: str | None = None,
+    from_name: str | None = None,
+) -> bool:
+    """Send an arbitrary email via Resend or SMTP.
+
+    Args:
+        recipient_email: To address.
+        subject: Subject line.
+        text: Plain-text body.
+        html: HTML body (callers escape any user text).
+        reply_to: Optional Reply-To address (MCK-183 invites).
+        from_name: Optional display name on the configured From address.
+    """
     errors = []
+    extra = {"reply_to": reply_to, "from_name": from_name}
 
     if (os.getenv("RESEND_API_KEY") or "").strip():
         try:
-            return _send_via_resend(recipient_email, subject, text, html)
+            return _send_via_resend(recipient_email, subject, text, html, **extra)
         except Exception as exc:
             errors.append(f"resend: {exc}")
             logger.exception("Resend email failed")
@@ -172,7 +225,7 @@ def send_email(recipient_email: str, subject: str, text: str, html: str) -> bool
         and (os.getenv("SMTP_PASSWORD") or "").strip()
     ):
         try:
-            return _send_via_smtp(recipient_email, subject, text, html)
+            return _send_via_smtp(recipient_email, subject, text, html, **extra)
         except Exception as exc:
             errors.append(f"smtp: {exc}")
             logger.exception("SMTP email failed")
@@ -204,17 +257,86 @@ def send_access_request_notice(request_row: dict) -> bool:
         f"{context}\n\n"
         "This does not create an account. Allowlist them in Admin if you approve.\n"
     )
+    esc = html_lib.escape
     html = f"""
     <html>
       <body style="font-family: Arial, sans-serif; color: #0f172a;">
-        <p><strong>{name}</strong> ({email}) asked for {SCHOOL_DISPLAY} access.</p>
-        <p>Role: {role}<br>School or family: {organization}</p>
-        <p>{context}</p>
+        <p><strong>{esc(name)}</strong> ({esc(email)}) asked for {esc(SCHOOL_DISPLAY)} access.</p>
+        <p>Role: {esc(role)}<br>School or family: {esc(organization)}</p>
+        <p>{esc(context)}</p>
         <p>This does not create an account. Allowlist them in Admin if you approve.</p>
       </body>
     </html>
     """
     return send_email(DEFAULT_IT_EMAIL, subject, text, html)
+
+
+INVITE_FROM_NAME = "Shawn McKenzie via ALC"
+INVITE_SUBJECT = "Shawn invited you to ALC"
+
+
+def build_staff_invite(first_name: str, email: str, link: str) -> Tuple[str, str, str]:
+    """Subject, plain text and HTML for an invite (Wonder v1.4, word for word).
+
+    Every inserted value is HTML-escaped. No student data.
+
+    Args:
+        first_name: Teacher first name ("there" when blank).
+        email: Invited Google email.
+        link: Absolute ``/invite/<token>`` URL.
+
+    Returns:
+        ``(subject, text, html)``.
+    """
+    first = (first_name or "").strip() or "there"
+    body = (
+        f"Hi {first}, Shawn McKenzie invited you to ALC, a simple way to take "
+        "attendance and track participation in your live classes. "
+        "Setup takes about 3 minutes."
+    )
+    expiry = (
+        f"This link works for 7 days and only for {email}. "
+        "Questions? Just reply to this email."
+    )
+    text = f"{body}\n\nAccept invite:\n{link}\n\n{expiry}\n"
+    esc = html_lib.escape
+    html = f"""
+    <html>
+      <body style="font-family: 'Segoe UI', Arial, sans-serif; background-color: #e8eef4; color: #12202e; padding: 24px;">
+        <div style="max-width: 520px; margin: 0 auto; background: #ffffff; border: 1px solid #c5d0dc; border-radius: 12px; padding: 28px 32px;">
+          <p style="font-size: 15.5px; line-height: 1.55; margin: 0 0 22px;">{esc(body)}</p>
+          <p style="margin: 0 0 22px;"><a href="{esc(link, quote=True)}" style="display: inline-block; background: #0f766e; color: #ffffff; text-decoration: none; font-weight: 600; padding: 10px 20px; border-radius: 8px;">Accept invite</a></p>
+          <p style="font-size: 13px; color: #64748b; margin: 0;">{esc(expiry)}</p>
+        </div>
+      </body>
+    </html>
+    """
+    return INVITE_SUBJECT, text, html
+
+
+def send_staff_invite(
+    recipient_email: str, first_name: str, link: str, *, reply_to: str | None
+) -> bool:
+    """Email a teacher invite from "Shawn McKenzie via ALC", Reply-To Shawn.
+
+    Args:
+        recipient_email: Invited Google email.
+        first_name: Teacher first name.
+        link: Absolute invite URL.
+        reply_to: Address replies go to (Shawn).
+
+    Returns:
+        True when Resend or SMTP accepted the message.
+    """
+    subject, text, html = build_staff_invite(first_name, recipient_email, link)
+    return send_email(
+        recipient_email,
+        subject,
+        text,
+        html,
+        reply_to=reply_to,
+        from_name=INVITE_FROM_NAME,
+    )
 
 
 def send_verification_email(recipient_email: str, username: str, code: str) -> bool:

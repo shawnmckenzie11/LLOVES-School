@@ -1697,6 +1697,7 @@ class LovesDB:
             self._ensure_save_to_card_columns()
             self._ensure_live_class_feature_schema()
             self._ensure_access_request_schema()
+            self._ensure_staff_invite_schema()
             self._seed()
             self._seed_live_class_features()
             self.conn.commit()
@@ -2462,6 +2463,14 @@ class LovesDB:
             );
             """
         )
+
+    def _ensure_staff_invite_schema(self) -> None:
+        """MCK-183: ``staff_invites`` + ``users.is_test`` (see staff_invites.py)."""
+        try:
+            from staff_invites import ensure_schema
+        except ImportError:
+            from lms.staff_invites import ensure_schema
+        ensure_schema(self.conn)
 
     def _ensure_archived_column(self) -> None:
         """Add users.archived_at if the column does not yet exist (live migration).
@@ -11866,6 +11875,44 @@ class SchoolDB(LovesDB):
                 (stored_days, live_time, int(offering_id)),
             )
             self.game.conn.commit()
+
+    def teacher_setup_elsewhere(
+        self, teacher_user_id: int, active_semester_id: int | None
+    ) -> dict[str, bool]:
+        """Does this teacher have classes or courses outside the setup view?
+
+        The MCK-183 first-run gate looks at the active semester only. A teacher
+        with any non-archived class or course in any semester is set up and must keep the Dashboard (gate MED, #250).
+
+        Args:
+            teacher_user_id: ``users.id``.
+            active_semester_id: Active semester, or ``None``.
+
+        Returns:
+            ``{"any_class": bool, "other_offering": bool}``.
+        """
+        uid = int(teacher_user_id)
+        with self.game._lock:
+            # A class counts unless its course is archived.
+            any_class = self.game.conn.execute(
+                """
+                SELECT 1 FROM classes c
+                LEFT JOIN course_offerings o ON o.id = c.offering_id
+                WHERE c.teacher_user_id = ? AND o.archived_at IS NULL
+                LIMIT 1
+                """,
+                (uid,),
+            ).fetchone() is not None
+            other = self.game.conn.execute(
+                """
+                SELECT 1 FROM course_offerings
+                WHERE teacher_user_id = ? AND archived_at IS NULL
+                  AND (? IS NULL OR semester_id != ?)
+                LIMIT 1
+                """,
+                (uid, active_semester_id, active_semester_id),
+            ).fetchone() is not None
+        return {"any_class": any_class, "other_offering": other}
 
     def list_staff_classes(
         self, teacher_user_id: int, semester_id: int | None = None

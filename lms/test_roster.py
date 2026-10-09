@@ -53,6 +53,27 @@ class RosterTests(unittest.TestCase):
         self.school.close()
         self.tmp.cleanup()
 
+    def _past_first_run(self) -> None:
+        """MCK-183: a teacher with no class at all gets Welcome's names step.
+
+        Give her a class in another course so ``/staff`` is the Dashboard and
+        the MCF3M card can still be checked in its empty state.
+        """
+        other = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]), ontario_code="SBI4U"
+        )
+        rv = self.client.post(
+            "/api/staff/classes",
+            json={"offering_id": other["id"], "days": "T/Th/F", "time": "9:15am", "codenames": ["Pine"]},
+        )
+        assert rv.status_code == 200, rv.get_data(as_text=True)
+
+    def _card(self, html: str, code: str = "MCF3M") -> str:
+        """The Dashboard ``<article>`` for one course."""
+        at = html.index(f'data-ontario-code="{code}"')
+        start = html.rindex("<article", 0, at)
+        return html[start:html.index("</article>", at)]
+
     def test_populate_rejects_csv(self) -> None:
         """Canvas CSV is not offered on the LLOVES path."""
         rv = self.client.post(
@@ -486,7 +507,9 @@ class RosterTests(unittest.TestCase):
         idle_home = self.client.get("/staff").get_data(as_text=True)
         self.assertIn("Run Live Class", idle_home)
         self.assertNotIn("Live Class in Progress", idle_home)
-        self.assertNotIn("End Live Class", idle_home)
+        # The End control and dialog are gone (the MCK-183 tour text may name it).
+        self.assertNotIn('aria-label="End Live Class"', idle_home)
+        self.assertNotIn("<h2>End Live Class</h2>", idle_home)
 
     def test_staff_home_end_live_targets_active_session_on_other_cards(self) -> None:
         """In Progress cards always offer End targeting the active class_id.
@@ -552,7 +575,9 @@ class RosterTests(unittest.TestCase):
         idle = self.client.get("/staff").get_data(as_text=True)
         self.assertIn("Run Live Class", idle)
         self.assertNotIn("Live Class in Progress", idle)
-        self.assertNotIn("End Live Class", idle)
+        # The End control and dialog are gone (the MCK-183 tour text may name it).
+        self.assertNotIn('aria-label="End Live Class"', idle)
+        self.assertNotIn("<h2>End Live Class</h2>", idle)
 
     def test_ungamified_live_scoring(self) -> None:
         """No-gamify path starts live scoring with one Class team."""
@@ -707,6 +732,7 @@ class RosterTests(unittest.TestCase):
     def test_assign_without_pack_keeps_populate_enabled(self) -> None:
         """No .imscc yet: teacher still sees a working Populate Class control."""
         self.assertIsNone(self.offering.get("library_id"))
+        self._past_first_run()
         home = self.client.get("/staff")
         self.assertEqual(home.status_code, 200)
         html = home.get_data(as_text=True)
@@ -739,13 +765,15 @@ class RosterTests(unittest.TestCase):
 
     def test_staff_home_populate_vs_edit(self) -> None:
         """Empty offerings say Populate Class; existing sections say Edit Roster."""
+        self._past_first_run()
         home = self.client.get("/staff")
         self.assertEqual(home.status_code, 200)
-        empty = home.get_data(as_text=True)
-        self.assertIn("<span>Populate Class</span>", empty)
+        page = home.get_data(as_text=True)
         self.assertIn(
-            '<script type="module" src="/static/staff_home.js"></script>', empty
+            '<script type="module" src="/static/staff_home.js"></script>', page
         )
+        empty = self._card(page)
+        self.assertIn("<span>Populate Class</span>", empty)
         self.assertNotIn("<span>Edit Roster</span>", empty)
         self.assertNotIn("Edit Class", empty)
         self.assertNotIn("Repopulate Class", empty)
@@ -767,7 +795,7 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(created.status_code, 200)
         class_id = created.get_json()["class"]["id"]
 
-        filled = self.client.get("/staff").get_data(as_text=True)
+        filled = self._card(self.client.get("/staff").get_data(as_text=True))
         self.assertIn("<span>Edit Roster</span>", filled)
         self.assertIn(f'data-class-id="{class_id}"', filled)
         self.assertNotIn("<span>Populate Class</span>", filled)
