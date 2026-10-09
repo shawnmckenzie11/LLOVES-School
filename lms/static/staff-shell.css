@@ -7597,3 +7597,5 @@ body.staff-shell.course-live .onb-done { display: none !important; }
 /* MCK-183 slice E: pack-less non-math courses hide Module / Live class
    (the selects stay in the DOM at M1 / C1 for staff_ap.js). */
 body.staff-shell .live-pack-field[hidden] { display: none !important; }
+/* MCK-183: Process evidence is hidden on pack-less non-math courses. */
+body.staff-shell .ap-evidence-coverage[hidden] { display: none !important; }

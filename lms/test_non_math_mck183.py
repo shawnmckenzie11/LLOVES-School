@@ -79,6 +79,21 @@ class NonMathTests(unittest.TestCase):
         self.assertNotIn("Populate Class", card)
         self.assertNotIn("Ask Admin to attach a module pack", card)
 
+    def test_non_math_names_wording_and_participation(self) -> None:
+        """Class list dialog and Celebrate say first names; A&P shows Total only."""
+        class_id = self._class_for("SBI4U")
+        html = self.client.get("/staff").get_data(as_text=True)
+        self.assertIn('data-simple="1"', html)
+        self.assertIn('data-plain="First names (one per student)"', html)
+        self.assertIn('data-plain-placeholder="Add a first name"', html)
+        self.assertIn('<label class="field" for="celebrate-student">Student</label>', html)
+        self.assertIn("Select a student", html)
+        part = self.client.get(
+            f"/staff/class/{class_id}?tab=ap&view=participation"
+        ).get_data(as_text=True)
+        self.assertNotIn('id="round-view-select"', part)
+        self.assertIn('id="ap-evidence-coverage" hidden', part)
+
     def test_math_course_without_pack_is_unchanged(self) -> None:
         """Shawn's math courses keep every tab, Core Math, the pack strip and hints."""
         class_id = self._class_for("MCF3M")
@@ -96,6 +111,13 @@ class NonMathTests(unittest.TestCase):
         card = card[: card.index("</article>")]
         self.assertIn("<span>Populate Class</span>", card)
         self.assertIn("Ask Admin to attach a module pack", card)
+        self.assertNotIn('data-simple="1"', home)
+        self.assertIn('<label class="field" for="celebrate-student">Codename</label>', home)
+        part = self.client.get(
+            f"/staff/class/{class_id}?tab=ap&view=participation"
+        ).get_data(as_text=True)
+        self.assertIn('id="round-view-select"', part)
+        self.assertIn('id="ap-evidence-coverage">', part)
 
     def test_course_with_a_pack_is_unchanged(self) -> None:
         """A non-math course that has a pack keeps the full view."""

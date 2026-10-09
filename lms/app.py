@@ -3103,6 +3103,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             active_live_session=active_live_session,
             whats_new_hold=whats_new_hold,
             tour_offer=_tour_offer(user, classes),
+            plain_teacher=bool(offerings)
+            and all(_simple_course(o.get("ontario_code"), o.get("library_id")) for o in offerings),
             tour_class_href=(
                 url_for("staff_course", class_id=int(classes[0]["id"]), tab="ap", view="attendance", tour="done")
                 if classes

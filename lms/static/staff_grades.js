@@ -10,6 +10,8 @@ const STACK_LABELS = { r1: "Open", r2: "Challenge", r3: "Formative" };
 
 let sort = localStorage.getItem(sortKey) === "za" ? "za" : "az";
 let roundView = loadRoundView(localStorage.getItem(roundViewKey));
+// MCK-183: no Class Data View picker (pack-less non-math course) means Total.
+if (!document.getElementById("round-view-select")) roundView = "total";
 let latest = null;
 let clearMode = false;
 
