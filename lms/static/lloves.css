@@ -127,11 +127,27 @@ body.landing-page .student-name-picker {
 body.landing-page .student-pick-option {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 0.45rem;
   padding: 0.45rem 0.55rem;
   border: 1px solid var(--line);
   border-radius: 10px;
   cursor: pointer;
+  text-align: left;
+}
+/* The global input width stretched the radio across the row, so "Sam 2"
+   wrapped to "Sam" / "2" at 360–390 px (MCK-183). */
+body.landing-page .student-pick-option input[type="radio"] {
+  width: auto;
+  flex: 0 0 auto;
+  margin: 0;
+}
+body.landing-page .student-pick-option span {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 body.landing-page .student-pick-option:hover {
   border-color: var(--accent-2, #0f766e);

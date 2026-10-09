@@ -527,7 +527,11 @@ class StudentPortalTests(unittest.TestCase):
             self.live_session_id, present_only=True
         )
         self.assertEqual(len(second), 1)
-        self.assertEqual(str(second[0]["visit_token"]), first_token)
+        # MCK-183 (#260 gate): Leave drops the device's token, so a rejoin by
+        # name gets a fresh one (any device could be typing that name). The
+        # seat (row, uuid) is the same.
+        self.assertNotEqual(str(second[0]["visit_token"]), first_token)
+        self.assertIsNone(self.school.resolve_student_visit_token(first_token))
         self.assertEqual(
             str(second[0]["participant_uuid"]),
             str(
