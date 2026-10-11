@@ -104,10 +104,47 @@ class SavedM3C1DeckTests(unittest.TestCase):
         self.school.set_live_session_active_media(sid, url=REAL_SLICE, title="Real Slice", stem="Real Slice")
         self.assertEqual((self.school.ensure_live_class_media(sid) or {}).get("url"), REAL_SLICE)
 
+    def test_media_section_slot_is_real_slice_like_prod(self) -> None:
+        """Reopened: the Media section reads the deck's ``media`` slot.
+
+        Prod: MCR3U (class 9) copied M3 C1 from the other section (empty
+        slot); MCR3U-2 (class 10) copied M1 C1 (square-root slot). Both
+        must show Real Slice in Run Live Class Media.
+        """
+        one, two = self.sections
+        self.school.apply_class_deck_seed(
+            one, "M3", "C1", mode="course", source_module="M3", source_slot="C1",
+            source_class_id=two, teacher_user_id=int(self.teacher["id"]),
+        )
+        self.school.apply_class_deck_seed(two, "M3", "C1", mode="course", source_module="M1", source_slot="C1")
+        self.assertEqual(
+            (self.school.get_class_live_deck_seed(two, "M3", "C1").get("media") or {}).get("file"),
+            "/static/live-media/mcr3u-m1c1-sqrt.html",
+        )
+        for cid in (one, two):
+            meta = self.school.live_class_metadata_for_class_lesson(cid, "M3", "C1", fresh=True)
+            self.assertEqual(meta["media"]["file"], REAL_SLICE, cid)
+        client = self.app.test_client()
+        client.get("/auth/google?portal=staff")
+        client.get("/auth/google/callback?email=t@gmail.com&name=T")
+        code = self.school.get_user_by_email("t@gmail.com").get("verification_code")
+        if code:
+            client.post("/verify-email", data={"code": code})
+        deck = client.get(f"/api/staff/class/{two}/live-lessons/M3/C1/deck?fresh=1")
+        self.assertEqual(deck.status_code, 200)
+        self.assertEqual(deck.get_json()["live_metadata"]["media"]["file"], REAL_SLICE)
+        session = self.school.start_live_class_session(two, int(self.teacher["id"]), live_module="M3", live_slot="C1")
+        self.assertEqual((self.school.ensure_live_class_media(int(session["id"])) or {}).get("url"), REAL_SLICE)
+
     def test_other_courses_and_challenges_are_untouched(self) -> None:
         """MCF3M M3 C1 and MCR3U M3 C2 working copies get nothing added."""
         self.school.apply_class_deck_seed(self.math, "M3", "C1", mode="blank")
         self.assertNotIn(REAL_SLICE, self._media(self.math))
+        math_meta = self.school.live_class_metadata_for_class_lesson(self.math, "M3", "C1", fresh=True)
+        self.assertNotEqual((math_meta.get("media") or {}).get("file"), REAL_SLICE)
+        self.school.apply_class_deck_seed(self.sections[0], "M1", "C1", mode="course", source_module="M1", source_slot="C3")
+        m1 = self.school.live_class_metadata_for_class_lesson(self.sections[0], "M1", "C1", fresh=True)
+        self.assertNotEqual((m1.get("media") or {}).get("file"), REAL_SLICE)
         self.school.apply_class_deck_seed(self.sections[0], "M3", "C2", mode="blank")
         self.assertNotIn(REAL_SLICE, self._media(self.sections[0], "M3", "C2"))
 

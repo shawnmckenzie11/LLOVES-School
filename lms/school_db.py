@@ -23226,7 +23226,8 @@ class SchoolDB(LovesDB):
         """Add pinned seed media items a working copy is missing (MCK-191).
 
         Idempotent: an item already on the deck (same id or same media
-        URL) is never added twice. A teacher who removes it later still
+        URL) is never added twice. The pinned media also becomes the deck's
+        primary ``media`` slot, which the Run Live Class Media section shows. A teacher who removes it later still
         wins, because hide/move overrides are applied after this.
 
         Args:
@@ -23255,10 +23256,13 @@ class SchoolDB(LovesDB):
             if str(row.get("item_type") or "").lower() == "media"
         }
         added = False
+        pinned_media: dict[str, Any] | None = None
         for row in seed.get("items") or []:
             if not isinstance(row, dict) or str(row.get("id") or "") not in ids:
                 continue
             url = str(row.get("file") or row.get("url") or "").strip()
+            if pinned_media is None and url:
+                pinned_media = deepcopy(row)
             if str(row.get("id")) in have_ids or (url and url in have_urls):
                 continue
             items.append(deepcopy(row))
@@ -23266,6 +23270,15 @@ class SchoolDB(LovesDB):
         if added:
             items.sort(key=_placement_sort_key)
             metadata["items"] = items
+        # MCK-191 (reopened): Run Live Class's Media section shows the
+        # deck's primary ``media`` slot, not the item list. A working copy
+        # carries the source deck's slot (empty, or MCR3U M1 C1's square
+        # root on prod), so the pinned media becomes the slot here too.
+        if pinned_media is not None:
+            current = metadata.get("media") if isinstance(metadata.get("media"), dict) else {}
+            pinned_url = str(pinned_media.get("file") or pinned_media.get("url") or "")
+            if str(current.get("file") or current.get("url") or "") != pinned_url:
+                metadata["media"] = pinned_media
         return metadata
 
     def _clean_metadata_question_stems(
