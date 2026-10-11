@@ -1487,9 +1487,10 @@ class GameShowDB:
             self.conn.execute(
                 f"""
                 DELETE FROM student_moods
-                WHERE class_id = ? AND student_id IN ({placeholders})
+                WHERE class_id = ? AND meeting_date = ?
+                  AND student_id IN ({placeholders})
                 """,
-                (int(class_id), *ids),
+                (int(class_id), ontario_today().isoformat(), *ids),
             )
             self.conn.commit()
 
@@ -1508,8 +1509,10 @@ class GameShowDB:
                 (int(class_id),),
             )
             self.conn.execute(
-                "DELETE FROM student_moods WHERE class_id = ?",
-                (int(class_id),),
+                # MCK-52 P0.5: only today's check-ins reset; earlier days
+                # are the class mood history and stay.
+                "DELETE FROM student_moods WHERE class_id = ? AND meeting_date = ?",
+                (int(class_id), ontario_today().isoformat()),
             )
             self.conn.commit()
 

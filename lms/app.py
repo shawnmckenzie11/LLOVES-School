@@ -5589,6 +5589,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             if mood and not skip:
                 try:
                     school.game.set_mood(class_id, student_id, mood)
+                    school.record_engagement_event("checkin.mood", class_id=class_id, student_id=student_id)
                 except ValueError as exc:
                     return render_template(
                         "student/mood.html",
@@ -5711,6 +5712,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 if character in EARNED_CHARACTERS and character not in earned:
                     raise ValueError("Choose an avatar.")
                 school.game.set_character(class_id, student_id, character)
+                school.record_engagement_event("checkin.avatar", class_id=class_id, student_id=student_id)
             except ValueError as exc:
                 return render_template(
                     "student/character.html",
@@ -8395,6 +8397,25 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         payload = school.game.dashboard(class_id, sort)
         payload["class"] = school.enrich_class(payload["class"])
         return payload
+
+    @app.route("/api/classes/<int:class_id>/engagement-events")
+    @login_required
+    def api_class_engagement_events(class_id: int):
+        """MCK-52 P0: teacher-only engagement log (first names, counts only)."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        raw_session = request.args.get("live_session")
+        try:
+            live_session = int(raw_session) if raw_session else None
+            limit = int(request.args.get("limit") or 2000)
+        except ValueError:
+            return jsonify({"ok": False, "error": "Bad query."}), 400
+        run_key = (request.args.get("run_key") or "").strip()[:80] or None
+        events = school.list_engagement_events(
+            class_id, live_session=live_session, run_key=run_key, limit=limit
+        )
+        return jsonify({"ok": True, "events": events})
 
     @app.route("/api/classes/<int:class_id>/dashboard")
     @login_required

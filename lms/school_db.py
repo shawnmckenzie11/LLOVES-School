@@ -32,6 +32,15 @@ LIVE_END_BUSY_POLL_SECONDS = 0.1
 # (the Contest Questions import). Everything else in ``extra_item`` is dropped.
 EXTRA_ITEM_KEYS = frozenset({"live_problem_id", "question_title", "contest_batch"})
 
+from engagement_events import (  # noqa: E402
+    KINDS as ENGAGEMENT_KINDS,
+    MoveThrottle,
+    clean_payload,
+    emits,
+    first_name_only,
+    now_iso,
+)
+from serve_capacity import poll_budget_expired  # noqa: E402
 from serve_capacity import (  # noqa: E402
     begin_poll_budget,
     end_poll_budget,
@@ -682,6 +691,8 @@ CREATE TABLE IF NOT EXISTS live_group_responses (
     submit_count INTEGER NOT NULL DEFAULT 0,
     last_submitter_student_id INTEGER,
     submitter_ids_json TEXT NOT NULL DEFAULT '[]',
+    last_editor_student_id INTEGER,
+    editor_ids_json TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     UNIQUE(live_item_id, team_id)
@@ -880,6 +891,34 @@ CREATE TABLE IF NOT EXISTS observation_processes (
     process_key TEXT NOT NULL,
     PRIMARY KEY (observation_id, process_key)
 );
+
+-- MCK-52 P0.5: notes copied out before a live session is wiped. No FK to
+-- live_class_sessions, so Quit / the next Run cannot cascade them away.
+CREATE TABLE IF NOT EXISTS observation_history (
+    id INTEGER PRIMARY KEY,
+    source_observation_id INTEGER NOT NULL,
+    live_session INTEGER,
+    run_key TEXT NOT NULL DEFAULT '',
+    class_id INTEGER NOT NULL,
+    observer_user_id INTEGER,
+    created_at TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    team_id INTEGER,
+    note TEXT NOT NULL DEFAULT '',
+    evidence_strength TEXT,
+    follow_up_required INTEGER NOT NULL DEFAULT 0,
+    visibility TEXT NOT NULL DEFAULT 'staff',
+    source TEXT NOT NULL DEFAULT 'manual',
+    lookfor_key TEXT,
+    student_ids_json TEXT NOT NULL DEFAULT '[]',
+    process_keys_json TEXT NOT NULL DEFAULT '[]',
+    kept_at TEXT NOT NULL,
+    -- sqlite reuses observation and session ids after a wipe, so the
+    -- source id alone is not unique across runs (gate H1).
+    UNIQUE(source_observation_id, run_key, created_at)
+);
+CREATE INDEX IF NOT EXISTS idx_observation_history_class
+    ON observation_history(class_id, created_at);
 
 CREATE TABLE IF NOT EXISTS portfolio_mark_suggestions (
     id INTEGER PRIMARY KEY,
@@ -1554,6 +1593,114 @@ RANK_IMPORT_GROUP_MODE = "turns"
 RANK_IMPORT_GROUP_PRESET = "rank_turns"
 
 
+# --- MCK-52 P0.2/P0.3: engagement event extractors -------------------------
+# Each takes (school, bound_args, result) and returns event kwargs for
+# ``record_engagement_event``. They only read ids and counts.
+
+
+def _ev_draft(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any]:
+    field = "rank" if (a.get("order") is not None or a.get("tap") not in (None, "") or a.get("clear")) else "choice"
+    return {"session_id": a["session_id"], "student_id": a["student_id"], "item_ref": a["live_item_id"],
+            "payload": {"field": field, "has_why": bool(str(a.get("why") or "").strip())}}
+
+
+def _ev_item(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any]:
+    ref = (r or {}).get("id") if isinstance(r, dict) else None
+    return {"session_id": a["session_id"], "item_ref": ref or a.get("placement_or_item"),
+            "payload": {"mode": str(a.get("publish_mode") or "")[:20]}}
+
+
+def _ev_team_points(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any]:
+    return {"session_id": a["session_id"], "team_id": a.get("team_id"),
+            "item_ref": a.get("placement_or_item"), "payload": {"amount": a.get("amount")}}
+
+
+def _ev_prompt_points(db: Any, a: dict[str, Any], r: Any) -> list[dict[str, Any]]:
+    out = []
+    for sid in list(a.get("student_ids") or [])[:60]:
+        try:
+            stu = int(sid)
+        except (TypeError, ValueError):
+            continue
+        out.append({"session_id": a["session_id"], "student_id": stu, "item_ref": a.get("prompt_id"),
+                    "payload": {"amount": a.get("amount"), "mode": str(a.get("mode") or "")[:20]}})
+    return out
+
+
+def _ev_answer(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any] | None:
+    if a.get("student_id") in (None, ""):
+        return None
+    row = db.conn.execute(
+        "SELECT live_session_id FROM live_session_prompts WHERE id = ?", (int(a["prompt_id"]),)
+    ).fetchone()
+    if row is None:
+        return None
+    run = db.conn.execute(
+        "SELECT run_key FROM live_class_sessions WHERE id = ?", (int(row["live_session_id"]),)
+    ).fetchone()
+    store = getattr(db, "engagement", None)
+    seen = bool(store is not None and run is not None and store.has_event(
+        str(run["run_key"] or ""), int(a["student_id"]), a["prompt_id"],
+        ("answer.submit", "answer.change"),
+    ))
+    return {"kind": "answer.change" if seen else "answer.submit", "session_id": row["live_session_id"],
+            "student_id": a["student_id"], "item_ref": a["prompt_id"]}
+
+
+def _ev_join(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any] | None:
+    if a.get("student_id") in (None, ""):
+        return None
+    rejoin = bool(str(a.get("visit_token") or "").strip())
+    return {"kind": "present.resume" if rejoin else "present.join",
+            "session_id": a["session_id"], "student_id": a["student_id"]}
+
+
+def _ev_stale(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any] | None:
+    if not isinstance(r, int) or r <= 0:
+        return None
+    return {"session_id": a["session_id"], "payload": {"count": r}}
+
+
+def _ev_board(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any] | None:
+    owner = str(a.get("owner") or "")
+    if not owner.isdigit():
+        return None  # teacher board writes are not student engagement
+    counts: dict[str, int] = {}
+    for op in a.get("ops") or []:
+        if isinstance(op, dict):
+            t = str(op.get("type") or op.get("op") or "?")[:20]
+            counts[t] = counts.get(t, 0) + 1
+    kind = "board.text" if counts and set(counts) == {"text_upsert"} else "board.ink_batch"
+    return {"kind": kind, "session_id": a["session_id"], "student_id": int(owner),
+            "item_ref": a.get("board_key"), "payload": {"ops": sum(counts.values()), **counts}}
+
+
+def _ev_artifact_move(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any] | None:
+    stu = a.get("student_id")
+    if stu in (None, ""):
+        return None
+    key = (int(a["session_id"]), int(stu), str(a.get("prompt_id")))
+    if not db._artifact_move_throttle.allow(key):
+        return None
+    return {"session_id": a["session_id"], "student_id": stu, "item_ref": a.get("prompt_id")}
+
+
+def _ev_note(db: Any, a: dict[str, Any], r: Any) -> list[dict[str, Any]]:
+    kind = "lookfor" if a.get("lookfor_key") else "note"
+    ids = list(a.get("student_ids") or [])[:60] or [None]
+    return [{"kind": kind, "session_id": a["live_session_id"], "class_id": a["class_id"], "student_id": sid,
+             "team_id": a.get("team_id"), "payload": {"scope": str(a.get("scope") or "")[:12]}} for sid in ids]
+
+
+def _ev_exit(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any] | None:
+    row = db.get_exit_feedback_by_token(a["token"]) or {}
+    if row.get("class_id") in (None, ""):
+        return None
+    return {"class_id": row["class_id"], "student_id": row.get("student_id"),
+            "payload": {"skipped": bool(a.get("skip")), "mood_given": bool(a.get("mood")),
+                        "has_comment": bool(str(a.get("comment") or "").strip())}}
+
+
 class WhiteboardReopenConflict(ValueError):
     """A reopen that conflicts with the board or session state (409).
 
@@ -1720,6 +1867,7 @@ class LovesDB:
             self._ensure_live_class_feature_schema()
             self._ensure_access_request_schema()
             self._ensure_staff_invite_schema()
+            self._ensure_observation_history_shape()
             self._seed()
             self._seed_live_class_features()
             self.conn.commit()
@@ -1814,6 +1962,34 @@ class LovesDB:
         self._install_postgres_board_ops(store)
         logger.info("live presence store=postgres")
 
+    def _ensure_observation_history_shape(self) -> None:
+        """Rebuild a pre-release ``observation_history`` keyed on source id alone.
+
+        The first cut of MCK-52 (never on main) had ``UNIQUE`` on the source
+        observation id, which sqlite reuses across runs (gate H1). Rows are
+        copied into the per-run shape; nothing is dropped.
+        """
+        row = self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'observation_history'"
+        ).fetchone()
+        if row is None or "run_key" in str(row["sql"] or ""):
+            return
+        start = SCHEMA.index("CREATE TABLE IF NOT EXISTS observation_history")
+        end = SCHEMA.index(";", SCHEMA.index("CREATE INDEX IF NOT EXISTS idx_observation_history_class")) + 1
+        cols = (
+            "source_observation_id, live_session, class_id, observer_user_id, created_at, "
+            "scope, team_id, note, evidence_strength, follow_up_required, visibility, "
+            "source, lookfor_key, student_ids_json, process_keys_json, kept_at"
+        )
+        self.conn.execute("DROP INDEX IF EXISTS idx_observation_history_class")
+        self.conn.execute("ALTER TABLE observation_history RENAME TO observation_history_pre52")
+        self.conn.executescript(SCHEMA[start:end])
+        self.conn.execute(
+            f"INSERT OR IGNORE INTO observation_history ({cols}, run_key) "
+            f"SELECT {cols}, 'legacy' FROM observation_history_pre52"
+        )
+        self.conn.execute("DROP TABLE observation_history_pre52")
+
     def _install_sqlite_board_ops(self) -> None:
         """Create the sqlite board-op tables and use them until Postgres attaches.
 
@@ -1826,6 +2002,11 @@ class LovesDB:
         store = SqliteBoardOps(self.conn, self._lock)
         store.ensure_schema()
         self.boards = store
+        from engagement_events import SqliteEngagementEvents
+
+        events = SqliteEngagementEvents(self.conn, self._lock)
+        events.ensure_schema()
+        self.engagement = events
 
     def _install_postgres_board_ops(self, presence: Any) -> None:
         """Point board ops at Postgres and create the tables under an advisory lock.
@@ -1838,6 +2019,116 @@ class LovesDB:
         store = PostgresBoardOps(presence)
         store.ensure_schema()
         self.boards = store
+        from engagement_events import PostgresEngagementEvents
+
+        events = PostgresEngagementEvents(presence)
+        events.ensure_schema()
+        self.engagement = events
+
+    _artifact_move_throttle = MoveThrottle()
+
+    def record_engagement_event(
+        self,
+        kind: str,
+        *,
+        session_id: Any = None,
+        class_id: Any = None,
+        student_id: Any = None,
+        team_id: Any = None,
+        item_ref: Any = None,
+        payload: dict[str, Any] | None = None,
+    ) -> bool:
+        """Append one teacher-only engagement event (MCK-52 P0.1).
+
+        Best-effort: returns False instead of raising. Skipped when the
+        thread's live poll budget is spent so a poll never waits on it.
+
+        Args:
+            kind: One of ``engagement_events.KINDS``.
+            session_id: ``live_class_sessions.id``; resolves ``class_id``.
+            class_id: Roster class when there is no session.
+            student_id: Roster id, or None for group/class events.
+            team_id: Group at the moment; looked up when omitted.
+            item_ref: Live item / prompt / board key / artifact id.
+            payload: Small counts and flags. Answer-like keys are dropped.
+
+        Returns:
+            True when a row was written.
+        """
+        store = getattr(self, "engagement", None)
+        if store is None or kind not in ENGAGEMENT_KINDS or poll_budget_expired():
+            return False
+        try:
+            sid = int(session_id) if session_id not in (None, "") else None
+            run_key = ""
+            if sid is not None:
+                row = self.conn.execute(
+                    "SELECT class_id, run_key FROM live_class_sessions WHERE id = ?", (sid,)
+                ).fetchone()
+                if row is not None:
+                    run_key = str(row["run_key"] or "")
+                    if class_id in (None, ""):
+                        class_id = row["class_id"]
+            if class_id in (None, ""):
+                return False
+            stu = int(student_id) if student_id not in (None, "") else None
+            first = ""
+            if stu is not None:
+                game = getattr(self, "game", None)
+                if game is not None:
+                    hit = game.conn.execute(
+                        "SELECT first_name FROM students WHERE id = ?", (stu,)
+                    ).fetchone()
+                    first = first_name_only(hit[0] if hit is not None else "")
+                if team_id in (None, "") and hasattr(self, "student_team_id_for_class"):
+                    team_id = self.student_team_id_for_class(int(class_id), stu)
+            store.append(
+                {
+                    "class_id": int(class_id),
+                    "live_session": sid,
+                    "run_key": run_key,
+                    "student_id": stu,
+                    "first_name": first,
+                    "team_id": int(team_id) if team_id not in (None, "") else None,
+                    "item_ref": "" if item_ref is None else str(item_ref),
+                    "kind": kind,
+                    "ts": now_iso(),
+                    "payload": clean_payload(payload),
+                }
+            )
+            return True
+        except Exception:  # noqa: BLE001 - the student action already succeeded
+            logger.exception("engagement event %s not stored", kind)
+            return False
+
+    def list_engagement_events(
+        self,
+        class_id: int,
+        *,
+        live_session: int | None = None,
+        run_key: str | None = None,
+        limit: int = 2000,
+    ) -> list[dict[str, Any]]:
+        """Teacher-only read of the engagement log for one class.
+
+        ``live_session`` means that session's *current* run: it is resolved
+        to its ``run_key`` so a reused sqlite id never mixes runs. A session
+        that no longer exists returns nothing unless ``run_key`` is given.
+        """
+        store = getattr(self, "engagement", None)
+        if store is None:
+            return []
+        if live_session is not None and run_key is None:
+            row = self.conn.execute(
+                "SELECT run_key FROM live_class_sessions WHERE id = ? AND class_id = ?",
+                (int(live_session), int(class_id)),
+            ).fetchone()
+            if row is None or not str(row["run_key"] or ""):
+                return []
+            run_key = str(row["run_key"])
+        return store.list_for_class(
+            int(class_id), live_session=live_session, run_key=run_key, limit=limit
+        )
 
     def live_presence_label(self) -> str:
         """Cheap label for ``/health``. Does not ping or read a live session.
@@ -2888,6 +3179,8 @@ class LovesDB:
                 submit_count INTEGER NOT NULL DEFAULT 0,
                 last_submitter_student_id INTEGER,
                 submitter_ids_json TEXT NOT NULL DEFAULT '[]',
+                last_editor_student_id INTEGER,
+                editor_ids_json TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 UNIQUE(live_item_id, team_id)
@@ -2930,6 +3223,17 @@ class LovesDB:
             self.conn.execute(
                 "ALTER TABLE live_group_responses "
                 "ADD COLUMN submitter_ids_json TEXT NOT NULL DEFAULT '[]'"
+            )
+        # MCK-52 P0.4: who shaped the shared draft (additive).
+        if "last_editor_student_id" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_group_responses "
+                "ADD COLUMN last_editor_student_id INTEGER"
+            )
+        if "editor_ids_json" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_group_responses "
+                "ADD COLUMN editor_ids_json TEXT NOT NULL DEFAULT '[]'"
             )
         self._ensure_group_member_award_column()
 
@@ -5514,6 +5818,7 @@ class LovesDB:
             ).fetchone()
         return self._observation_dict(row) if row else None
 
+    @emits("note", _ev_note)
     def create_observation(
         self,
         *,
@@ -12607,6 +12912,7 @@ class SchoolDB(LovesDB):
             people = [row for row in people if not row.get("left_at")]
         return people
 
+    @emits("present.stale", _ev_stale)
     def sweep_stale_live_attendees(
         self, session_id: int, *, except_token: str = ""
     ) -> int:
@@ -15220,6 +15526,7 @@ class SchoolDB(LovesDB):
             out.append(item)
         return out
 
+    @emits("item.offered", _ev_item)
     def publish_live_session_item(
         self,
         session_id: int,
@@ -16671,6 +16978,8 @@ class SchoolDB(LovesDB):
                 self.conn.commit()
                 if race and cursor.rowcount != 1:
                     race_locked = True  # the lock-in landed first
+        if not race_locked:
+            self._note_group_draft_editor(live_item_id, int(team_id), int(student_id))
         card = self.student_group_submit_state(item, student_id) or {}
         if race_locked:
             raise GroupAnswerLocked(RACE_LOCKED_COPY, card)
@@ -16807,6 +17116,7 @@ class SchoolDB(LovesDB):
             roster.append(name)
         return short_display_names([name], roster)[0]
 
+    @emits("group.vote")
     def submit_group_mc_pick(
         self,
         session_id: int,
@@ -17538,6 +17848,9 @@ class SchoolDB(LovesDB):
             submitter_ids=agreed,
         )
 
+    @emits("group.vote", lambda db, a, r: {
+        "session_id": a["session_id"], "student_id": a["student_id"],
+        "item_ref": a["live_item_id"], "payload": {"agree": bool(a.get("agree", True)), "step": "agree"}})
     def rank_race_agree(
         self,
         session_id: int,
@@ -18556,6 +18869,7 @@ class SchoolDB(LovesDB):
             for lane in block.get("teams") or []
         )
 
+    @emits("group.draft_edit", _ev_draft)
     def save_group_mc_draft(
         self,
         session_id: int,
@@ -18646,6 +18960,8 @@ class SchoolDB(LovesDB):
                 (status, proposed, why_text, now, int(item["id"]), team_id),
             )
             self.conn.commit()
+        if cursor.rowcount == 1:
+            self._note_group_draft_editor(int(item["id"]), int(team_id), int(student_id))
         if (
             lock_guard
             and cursor.rowcount != 1
@@ -18656,6 +18972,51 @@ class SchoolDB(LovesDB):
                 self.student_group_submit_state(item, student_id),
             )
         return self.student_group_submit_state(item, student_id) or {}
+
+    def _note_group_draft_editor(
+        self, live_item_id: int, team_id: int, student_id: int
+    ) -> None:
+        """Record the editor of a shared group draft (MCK-52 P0.4).
+
+        Sets ``last_editor_student_id`` and adds the id to ``editor_ids_json``
+        on the team's draft row. Teacher-only; no student payload reads it.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT editor_ids_json FROM live_group_responses "
+                "WHERE live_item_id = ? AND team_id = ?",
+                (int(live_item_id), int(team_id)),
+            ).fetchone()
+            if row is None:
+                return
+            try:
+                ids = [int(v) for v in json.loads(row["editor_ids_json"] or "[]")]
+            except (TypeError, ValueError):
+                ids = []
+            if int(student_id) not in ids:
+                ids.append(int(student_id))
+            self.conn.execute(
+                "UPDATE live_group_responses SET last_editor_student_id = ?, "
+                "editor_ids_json = ? WHERE live_item_id = ? AND team_id = ?",
+                (int(student_id), json.dumps(ids), int(live_item_id), int(team_id)),
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+
+    def group_draft_editors(self, live_item_id: int, team_id: int) -> dict[str, Any]:
+        """Teacher-only: last editor and every editor of one team's draft."""
+        row = self.conn.execute(
+            "SELECT last_editor_student_id, editor_ids_json FROM live_group_responses "
+            "WHERE live_item_id = ? AND team_id = ?",
+            (int(live_item_id), int(team_id)),
+        ).fetchone()
+        if row is None:
+            return {"last_editor_student_id": None, "editor_ids": []}
+        try:
+            ids = [int(v) for v in json.loads(row["editor_ids_json"] or "[]")]
+        except (TypeError, ValueError):
+            ids = []
+        return {"last_editor_student_id": row["last_editor_student_id"], "editor_ids": ids}
 
     def _require_group_mc_pick_step_done(
         self,
@@ -18798,6 +19159,7 @@ class SchoolDB(LovesDB):
             return self._group_mc_send_lost(item, team_id, student_id, choice_text, why_text)
         return self.student_group_submit_state(item, student_id) or {}
 
+    @emits("group.submit")
     def submit_group_mc_answer(
         self,
         session_id: int,
@@ -19418,6 +19780,7 @@ class SchoolDB(LovesDB):
             )
         return state
 
+    @emits("group.vote")
     def submit_group_consensus_vote(
         self,
         session_id: int,
@@ -19517,6 +19880,7 @@ class SchoolDB(LovesDB):
             session_id, int(item["id"])
         )
 
+    @emits("group.finalize")
     def finalize_group_consensus_answer(
         self,
         session_id: int,
@@ -19820,6 +20184,7 @@ class SchoolDB(LovesDB):
             )
         return {"item": item, "teams": summaries}
 
+    @emits("points.team", _ev_team_points)
     def award_group_consensus_points(
         self,
         session_id: int,
@@ -21659,6 +22024,7 @@ class SchoolDB(LovesDB):
         artifact = media.get("artifact") if isinstance(media, dict) else None
         return bool(isinstance(artifact, dict) and artifact.get("group_q"))
 
+    @emits("artifact.move", _ev_artifact_move)
     def record_artifact_slider_preview(
         self,
         session_id: int,
@@ -22914,6 +23280,7 @@ class SchoolDB(LovesDB):
         payload["response"] = parsed if isinstance(parsed, dict) else {}
         return payload
 
+    @emits("answer.submit", _ev_answer)
     def submit_live_prompt_response(
         self,
         prompt_id: int,
@@ -24314,6 +24681,7 @@ class SchoolDB(LovesDB):
         rows.sort(key=lambda row: str(row["name"]).casefold())
         return rows
 
+    @emits("points.student", _ev_prompt_points)
     def award_live_prompt_points(
         self,
         session_id: int,
@@ -27643,6 +28011,7 @@ class SchoolDB(LovesDB):
             raise BoardSessionClosed("board run is stale", stale_run=True)
         return key
 
+    @emits("board.ink_batch", _ev_board)
     def append_live_board_ops(
         self,
         session_id: int,
@@ -29365,6 +29734,8 @@ class SchoolDB(LovesDB):
                     """,
                     session_ids,
                 )
+                # MCK-52 P0.5: notes outlive the run that wrote them.
+                self._keep_observation_history_unlocked(session_ids)
                 obs_rows = self.conn.execute(
                     f"""
                     SELECT id FROM observations
@@ -29404,10 +29775,15 @@ class SchoolDB(LovesDB):
                     session_ids,
                 )
             self._remember_seq_floors_unlocked(int(class_id))
-            self.conn.execute(
-                "DELETE FROM live_class_sessions WHERE class_id = ?",
-                (int(class_id),),
-            )
+            if session_ids:
+                # MCK-52 P0.5: a subset wipe (celebrating sessions at Run)
+                # no longer drops every session of the class, which used to
+                # cascade away other sessions' notes.
+                self.conn.execute(
+                    f"DELETE FROM live_class_sessions WHERE class_id = ? "
+                    f"AND id IN ({','.join('?' * len(session_ids))})",
+                    (int(class_id), *session_ids),
+                )
             self.conn.execute(
                 """
                 DELETE FROM live_class_feedback
@@ -29422,6 +29798,53 @@ class SchoolDB(LovesDB):
             "wiped_session_ids": session_ids,
             "wiped_count": len(session_ids),
         }
+
+    def _keep_observation_history_unlocked(self, session_ids: list[int]) -> int:
+        """Copy notes of these sessions into ``observation_history`` (MCK-52 P0.5).
+
+        Caller holds ``self._lock``. Rows already copied are skipped, so a
+        second wipe of the same id does not duplicate them. Staff only.
+
+        Returns:
+            Rows copied.
+        """
+        if not session_ids:
+            return 0
+        ph = ",".join("?" * len(session_ids))
+        cur = self.conn.execute(
+            f"""
+            INSERT OR IGNORE INTO observation_history (
+                source_observation_id, live_session, run_key, class_id, observer_user_id,
+                created_at, scope, team_id, note, evidence_strength,
+                follow_up_required, visibility, source, lookfor_key,
+                student_ids_json, process_keys_json, kept_at
+            )
+            SELECT o.id, o.live_session_id,
+                   COALESCE(NULLIF((SELECT ls.run_key FROM live_class_sessions ls
+                                    WHERE ls.id = o.live_session_id), ''),
+                            'session:' || o.live_session_id),
+                   o.class_id, o.observer_user_id,
+                   o.created_at, o.scope, o.team_id, o.note, o.evidence_strength,
+                   o.follow_up_required, o.visibility, o.source, o.lookfor_key,
+                   COALESCE((SELECT json_group_array(s.student_id)
+                             FROM observation_subjects s WHERE s.observation_id = o.id), '[]'),
+                   COALESCE((SELECT json_group_array(p.process_key)
+                             FROM observation_processes p WHERE p.observation_id = o.id), '[]'),
+                   ?
+            FROM observations o
+            WHERE o.live_session_id IN ({ph})
+            """,
+            (_now(), *session_ids),
+        )
+        return int(cur.rowcount or 0)
+
+    def list_observation_history(self, class_id: int) -> list[dict[str, Any]]:
+        """Teacher-only: notes kept from earlier runs, oldest first."""
+        rows = self.conn.execute(
+            "SELECT * FROM observation_history WHERE class_id = ? ORDER BY created_at, id",
+            (int(class_id),),
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     def present_student_ids_for_live_class(self, class_id: int) -> list[int]:
         """Roster ids who joined any live session for this class.
@@ -29813,6 +30236,7 @@ class SchoolDB(LovesDB):
             ).fetchone()
         return dict(row) if row else None
 
+    @emits("exit.feedback", _ev_exit)
     def submit_exit_feedback(
         self,
         token: str,
@@ -31834,6 +32258,7 @@ class SchoolDB(LovesDB):
             "scoreboard": scoreboard,
         }
 
+    @emits("present.join", _ev_join)
     def join_live_class_session(
         self,
         session_id: int,
