@@ -1630,14 +1630,16 @@ def _ev_prompt_points(db: Any, a: dict[str, Any], r: Any) -> list[dict[str, Any]
 def _ev_answer(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any] | None:
     if a.get("student_id") in (None, ""):
         return None
-    row = db.conn.execute(
-        "SELECT live_session_id FROM live_session_prompts WHERE id = ?", (int(a["prompt_id"]),)
-    ).fetchone()
+    with db._lock:
+        row = db.conn.execute(
+            "SELECT live_session_id FROM live_session_prompts WHERE id = ?", (int(a["prompt_id"]),)
+        ).fetchone()
     if row is None:
         return None
-    run = db.conn.execute(
-        "SELECT run_key FROM live_class_sessions WHERE id = ?", (int(row["live_session_id"]),)
-    ).fetchone()
+    with db._lock:
+        run = db.conn.execute(
+            "SELECT run_key FROM live_class_sessions WHERE id = ?", (int(row["live_session_id"]),)
+        ).fetchone()
     store = getattr(db, "engagement", None)
     seen = bool(store is not None and run is not None and store.has_event(
         str(run["run_key"] or ""), int(a["student_id"]), a["prompt_id"],
@@ -2062,9 +2064,13 @@ class LovesDB:
             sid = int(session_id) if session_id not in (None, "") else None
             run_key = ""
             if sid is not None:
-                row = self.conn.execute(
-                    "SELECT class_id, run_key FROM live_class_sessions WHERE id = ?", (sid,)
-                ).fetchone()
+                # The school connection is shared across request threads; an
+                # unlocked read here deadlocked against locked readers under
+                # load (CI hang in test_n28_artifact_open_writes_postgres_not_sqlite).
+                with self._lock:
+                    row = self.conn.execute(
+                        "SELECT class_id, run_key FROM live_class_sessions WHERE id = ?", (sid,)
+                    ).fetchone()
                 if row is not None:
                     run_key = str(row["run_key"] or "")
                     if class_id in (None, ""):
@@ -2076,9 +2082,10 @@ class LovesDB:
             if stu is not None:
                 game = getattr(self, "game", None)
                 if game is not None:
-                    hit = game.conn.execute(
-                        "SELECT first_name FROM students WHERE id = ?", (stu,)
-                    ).fetchone()
+                    with game._lock:
+                        hit = game.conn.execute(
+                            "SELECT first_name FROM students WHERE id = ?", (stu,)
+                        ).fetchone()
                     first = first_name_only(hit[0] if hit is not None else "")
                 if team_id in (None, "") and hasattr(self, "student_team_id_for_class"):
                     team_id = self.student_team_id_for_class(int(class_id), stu)
@@ -2119,10 +2126,11 @@ class LovesDB:
         if store is None:
             return []
         if live_session is not None and run_key is None:
-            row = self.conn.execute(
-                "SELECT run_key FROM live_class_sessions WHERE id = ? AND class_id = ?",
-                (int(live_session), int(class_id)),
-            ).fetchone()
+            with self._lock:
+                row = self.conn.execute(
+                    "SELECT run_key FROM live_class_sessions WHERE id = ? AND class_id = ?",
+                    (int(live_session), int(class_id)),
+                ).fetchone()
             if row is None or not str(row["run_key"] or ""):
                 return []
             run_key = str(row["run_key"])
@@ -19005,11 +19013,12 @@ class SchoolDB(LovesDB):
 
     def group_draft_editors(self, live_item_id: int, team_id: int) -> dict[str, Any]:
         """Teacher-only: last editor and every editor of one team's draft."""
-        row = self.conn.execute(
-            "SELECT last_editor_student_id, editor_ids_json FROM live_group_responses "
-            "WHERE live_item_id = ? AND team_id = ?",
-            (int(live_item_id), int(team_id)),
-        ).fetchone()
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT last_editor_student_id, editor_ids_json FROM live_group_responses "
+                "WHERE live_item_id = ? AND team_id = ?",
+                (int(live_item_id), int(team_id)),
+            ).fetchone()
         if row is None:
             return {"last_editor_student_id": None, "editor_ids": []}
         try:
@@ -29840,10 +29849,11 @@ class SchoolDB(LovesDB):
 
     def list_observation_history(self, class_id: int) -> list[dict[str, Any]]:
         """Teacher-only: notes kept from earlier runs, oldest first."""
-        rows = self.conn.execute(
-            "SELECT * FROM observation_history WHERE class_id = ? ORDER BY created_at, id",
-            (int(class_id),),
-        ).fetchall()
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT * FROM observation_history WHERE class_id = ? ORDER BY created_at, id",
+                (int(class_id),),
+            ).fetchall()
         return [dict(row) for row in rows]
 
     def present_student_ids_for_live_class(self, class_id: int) -> list[int]:
