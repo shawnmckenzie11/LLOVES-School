@@ -1,0 +1,126 @@
+/**
+ * Content-builder design tokens.
+ * Owner: visual-experience-designer.
+ * Shared by student.css and review.css. Do not load webfonts; lessons stay static.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Typography */
+  --font-sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-math: "Cambria Math", "STIX Two Math", "Latin Modern Math", "Times New Roman", ui-serif, serif;
+  --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+  --text-body: 1.0625rem;
+  --text-ui: 1rem;
+  --text-small: 0.875rem;
+  --text-kicker: 0.75rem;
+  --text-h1: 1.5rem;
+  --text-h2: 1.2rem;
+  --text-h3: 1.05rem;
+  --leading-body: 1.6;
+  --leading-tight: 1.25;
+  --measure: 40rem;
+  --lesson-max: 52rem;
+  --review-outline: 15.5rem;
+  --tracking-kicker: 0.06em;
+
+  /* Spacing (4px base) */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-8: 3rem;
+  --tap: 2.75rem;
+
+  /* Colour — warm ink on paper; teal accent related to LLOVES, readable on light */
+  --ink: #1c1917;
+  --muted: #57534e;
+  --accent: #0b5f5c;
+  --accent-soft: #d7ebe9;
+  --link: #1d4e89;
+  --danger: #9a3412;
+
+  /* Surfaces */
+  --bg: #f3efe8;
+  --paper: #ffffff;
+  --surface-muted: #f6f3ee;
+  --line: #d8d0c8;
+  --line-strong: #a8a29e;
+  --shadow: 0 1px 2px rgb(28 25 23 / 0.08);
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+
+  /* Component surfaces */
+  --example-bg: #f7f1e4;
+  --example-line: #e0d3b8;
+  --practice-bg: #eef3f7;
+  --practice-line: #c5d4e0;
+  --task-bg: #f3f8f7;
+  --task-rule: #0b5f5c;
+  --figure-bg: #faf8f5;
+
+  /* Focus */
+  --focus: #1d4e89;
+  --focus-on-accent: #f5c518;
+  --focus-ring: 2px solid var(--focus);
+  --focus-offset: 2px;
+
+  /* Buttons */
+  --btn-primary-bg: #0b5f5c;
+  --btn-primary-fg: #ffffff;
+  --btn-primary-hover: #084846;
+  --btn-secondary-bg: #ffffff;
+  --btn-secondary-fg: #1c1917;
+  --btn-ghost-fg: #1d4e89;
+
+  /* Feedback: ok / try-again / hint (formative, not punitive red) */
+  --ok-bg: #e7f6ec;
+  --ok-fg: #14532d;
+  --ok-line: #2f6f4e;
+  --retry-bg: #fef4e6;
+  --retry-fg: #7c2d12;
+  --retry-line: #c2410c;
+  --hint-bg: #eef4fb;
+  --hint-fg: #1e3a5f;
+  --hint-line: #3d6ea8;
+
+  /* Review status */
+  --lock-bg: #fde8e4;
+  --lock-fg: #9a3412;
+  --approved-bg: #e7f6ec;
+  --approved-fg: #166534;
+  --draft-bg: #fef4e6;
+  --draft-fg: #854d0e;
+
+  /* Board: 380px matches the current JSXGraph init. Engineer should resize the board on layout; CSS only contains overflow. */
+  --board-height: 380px;
+  --motion: 120ms;
+}
+
+@media (min-width: 720px) {
+  :root {
+    --text-h1: 1.85rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion: 0ms;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

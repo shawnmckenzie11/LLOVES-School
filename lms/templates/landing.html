@@ -10,8 +10,8 @@
 </head>
 <body class="landing-page">
   {# MCK-195: root URL is the student join; staff/admin sign-in are quiet top-bar links. #}
-  {% set staff_next = request.args.get('next', '') %}
-  {% if staff_next.startswith('/staff') and not staff_next.startswith('//') and '\\' not in staff_next %}
+  {% set staff_next = safe_next_url(request.args.get('next')) %}
+  {% if staff_next and staff_next.startswith('/staff') %}
     {% set teacher_href = url_for('auth_google', portal='staff', next=staff_next) %}
   {% else %}
     {% set teacher_href = url_for('auth_google', portal='staff') %}
@@ -73,6 +73,25 @@
     </article>
   </section>
   <script>
+    (function () {
+      // MCK-195: keep the "no live class" pre-check before the code error.
+      var form = document.getElementById("student-code-panel");
+      if (!form) return;
+      var checked = false;
+      var msg = "No live class is running right now. Ask your teacher to start class, then try again.";
+      form.addEventListener("submit", function (ev) {
+        if (checked) return;
+        ev.preventDefault();
+        fetch("/api/student/live-available", { credentials: "same-origin" })
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            if (data && data.active) { checked = true; form.submit(); return; }
+            window.alert(msg);
+          })
+          .catch(function () { window.alert(msg); });
+      });
+    })();
+
     (function () {
       var signIn = document.getElementById("sign-in");
       var board = document.getElementById("celebrations");

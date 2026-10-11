@@ -1,0 +1,107 @@
+:root {
+  --ink: #201d1d;
+  --muted: #4a4a4a;
+  --line: #d6dce4;
+  --tab: #3a8dc9;
+  --bg: #f7f8fa;
+  --paper: #fff;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 18px/1.55 system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+.lesson {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 20px 64px;
+}
+h1 { font-size: 1.6rem; margin: 0 0 8px; }
+.meta { color: var(--muted); font-size: 0.95rem; margin-bottom: 20px; }
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid var(--line);
+}
+.tabs button {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  background: #eef1f5;
+  padding: 10px 16px;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 8px 8px 0 0;
+}
+.tabs button[aria-selected="true"] {
+  background: var(--paper);
+  color: var(--tab);
+  font-weight: 650;
+}
+.panel {
+  display: none;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-top: 0;
+  padding: 20px 22px 28px;
+}
+.panel.active { display: block; }
+.prose p { margin: 0 0 14px; }
+.prose pre, .eq {
+  font: 1rem/1.5 ui-monospace, monospace;
+  background: #f0f3f7;
+  padding: 10px 12px;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+.board-wrap {
+  margin: 16px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+}
+#vertex-board { width: 100%; height: 380px; }
+.board-figure { margin: 0; }
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 12px 0;
+}
+.controls label { display: flex; flex-direction: column; font-size: 0.95rem; }
+.controls input[type="range"] { width: 180px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 16px; }
+.toolbar button, .fallback summary {
+  font: inherit;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  background: #edf1f6;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.live-eq { margin: 8px 0; }
+table.data {
+  border-collapse: collapse;
+  margin: 12px 0;
+}
+table.data th, table.data td {
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+  text-align: left;
+}
+.fallback { margin-top: 18px; }
+.attr {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-top: 28px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}

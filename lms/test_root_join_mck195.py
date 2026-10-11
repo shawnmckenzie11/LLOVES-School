@@ -68,6 +68,10 @@ class RootJoinTests(unittest.TestCase):
         self.assertNotEqual(self.client.get(href).status_code, 404)
         evil = self.client.get("/?next=//evil.example/staff").get_data(as_text=True)
         self.assertEqual(_href(evil, "Teacher login"), "/auth/google?portal=staff")
+        for bad in ("/staff/../it", "/staff/%2e%2e/x", "/it/home"):
+            page = self.client.get("/", query_string={"next": bad}).get_data(as_text=True)
+            self.assertEqual(_href(page, "Teacher login"), "/auth/google?portal=staff", bad)
+        self.assertIn("No live class is running right now.", body)
 
     def test_signed_out_staff_route_goes_to_staff_sign_in(self) -> None:
         """Never to ``/``."""
