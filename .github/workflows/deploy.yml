@@ -104,7 +104,10 @@ jobs:
         env:
           ALLOW_DEV_VERIFICATION_CODE: "1"
           LIVE_PRESENCE_TEST_URL: postgresql://lloves:lloves@127.0.0.1:5432/lloves_live
-        run: python -m unittest discover -s lms -p 'test_*.py' -v
+        # MCK-52: a hang aborts with every thread's stack in the log instead of
+        # sitting in_progress for hours.
+        timeout-minutes: 30
+        run: timeout -s ABRT 25m python -X faulthandler -m unittest discover -s lms -p 'test_*.py' -v
 
   approve:
     name: Production approval
