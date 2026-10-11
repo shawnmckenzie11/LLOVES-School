@@ -80,28 +80,19 @@ class AuthTests(unittest.TestCase):
         rv = self.client.post("/verify-email", data={"code": code}, follow_redirects=False)
         self.assertEqual(rv.status_code, 302)
 
-    def test_landing_has_teacher_student_and_admin_lock(self) -> None:
-        """Public landing shows Teacher/Student roles and Admin lock."""
+    def test_landing_is_student_join_with_staff_links(self) -> None:
+        """MCK-195: ``/`` is the student join form plus Teacher/Admin links."""
         rv = self.client.get("/")
         self.assertEqual(rv.status_code, 200)
         body = rv.get_data(as_text=True)
-        self.assertIn("Teacher", body)
-        self.assertIn("Student", body)
-        self.assertIn("Select your role:", body)
+        self.assertIn('id="student-code-panel"', body)
+        self.assertIn("Teacher login", body)
         self.assertIn("Admin login", body)
         self.assertIn("auth/google?portal=it", body)
-        self.assertIn("Attendance", body)
-        self.assertIn("Live Lessons", body)
-        self.assertIn("Take attendance and log participation", body)
-        self.assertNotIn("alc-logo.png", body)
-        self.assertNotIn("Staff Login", body)
-        self.assertNotIn(">ELC<", body)
-        self.assertNotIn("What ALC includes", body)
-        self.assertNotIn("I already have an account", body)
-        self.assertNotIn("Built by McKenzian Solutions", body)
-        self.assertNotIn("LLOVES", body)
-        self.assertNotIn("Stripe", body)
-        self.assertNotIn("checkout", body.lower())
+        self.assertIn("auth/google?portal=staff", body)
+        self.assertIn("alc-logo.png", body)
+        self.assertNotIn("Select your role:", body)
+        self.assertNotIn("student-role-btn", body)
 
     def test_request_access_stores_without_allowlisting(self) -> None:
         """Signup requests persist for IT and never create a user."""
