@@ -23182,6 +23182,10 @@ class SchoolDB(LovesDB):
                 for part in ("context", "question", "speaker_notes")
             ):
                 loaded["team_challenge"] = deepcopy(challenge)
+            # MCK-191: a working copy owns its list, so seed-file media
+            # added later (#268 Real Slice in MCR3U M3 C1) never reached
+            # decks seeded before it. Pinned seed media rides along.
+            loaded = self._with_pinned_seed_media(loaded, key[1], key[2], key[3])
         else:
             loaded = load_live_class_metadata(key[1], key[2], key[3])
         placements = self.list_class_playlist_placements(
@@ -23206,6 +23210,63 @@ class SchoolDB(LovesDB):
         merged = self._clean_metadata_question_stems(merged)
         self._live_metadata_cache[cache_key] = merged
         return deepcopy(merged)
+
+    #: MCK-191: seed-file media items every deck for this course challenge
+    #: keeps, including working copies (Previous / Course deck / Blank /
+    #: cross-section copies) made before the item was added to the seed.
+    #: ``(course, module, slot) -> item ids``. Only these exact keys.
+    PINNED_SEED_MEDIA: dict[tuple[str, str, str], tuple[str, ...]] = {
+        ("MCR3U", "M3", "C1"): ("real-slice",),
+    }
+
+    @classmethod
+    def _with_pinned_seed_media(
+        cls, metadata: dict[str, Any], course: str, module: str, slot: str
+    ) -> dict[str, Any]:
+        """Add pinned seed media items a working copy is missing (MCK-191).
+
+        Idempotent: an item already on the deck (same id or same media
+        URL) is never added twice. A teacher who removes it later still
+        wins, because hide/move overrides are applied after this.
+
+        Args:
+            metadata: Working-copy metadata (``suppress_authored``).
+            course: Ontario course code.
+            module: Module token.
+            slot: Challenge token.
+
+        Returns:
+            The same metadata, with any missing pinned items appended.
+        """
+        ids = cls.PINNED_SEED_MEDIA.get(
+            (str(course or "").upper(), str(module or "").upper(), str(slot or "").upper())
+        )
+        if not ids:
+            return metadata
+        try:
+            seed = load_live_class_metadata(course, module, slot)
+        except Exception:  # noqa: BLE001 - a missing seed file adds nothing
+            return metadata
+        items = [row for row in metadata.get("items") or [] if isinstance(row, dict)]
+        have_ids = {str(row.get("id") or "").strip() for row in items}
+        have_urls = {
+            str(row.get("file") or row.get("url") or "").strip()
+            for row in items
+            if str(row.get("item_type") or "").lower() == "media"
+        }
+        added = False
+        for row in seed.get("items") or []:
+            if not isinstance(row, dict) or str(row.get("id") or "") not in ids:
+                continue
+            url = str(row.get("file") or row.get("url") or "").strip()
+            if str(row.get("id")) in have_ids or (url and url in have_urls):
+                continue
+            items.append(deepcopy(row))
+            added = True
+        if added:
+            items.sort(key=_placement_sort_key)
+            metadata["items"] = items
+        return metadata
 
     def _clean_metadata_question_stems(
         self, metadata: dict[str, Any]
