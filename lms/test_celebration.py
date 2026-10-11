@@ -201,7 +201,7 @@ class CelebrationTests(unittest.TestCase):
         rv = anon.get("/")
         self.assertEqual(rv.status_code, 200)
         body = rv.get_data(as_text=True)
-        self.assertIn("Select your role:", body)
+        self.assertIn('id="student-code-panel"', body)
         self.assertIn('id="celebrations"', body)
         self.assertIn('href="#celebrations"', body)
         self.assertIn("location.hash === \"#celebrations\"", body)
@@ -423,7 +423,7 @@ class CelebrationTests(unittest.TestCase):
 
         alc = anon.get("/", headers={"Host": "calc.mckenzian.com"})
         self.assertEqual(alc.status_code, 200)
-        self.assertIn("Select your role:", alc.get_data(as_text=True))
+        self.assertIn('id="student-code-panel"', alc.get_data(as_text=True))
 
     def test_featured_award_and_most_engaged(self) -> None:
         """Staff can feature a Codename; attendance picks Most Engaged."""

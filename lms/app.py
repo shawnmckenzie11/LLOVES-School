@@ -58,6 +58,7 @@ from flask import (  # noqa: E402
 from werkzeug.middleware.proxy_fix import ProxyFix  # noqa: E402
 
 from auth import (  # noqa: E402
+    _safe_next_url,
     current_user,
     google_oauth_ready,
     it_emails,
@@ -1152,6 +1153,8 @@ def create_app(
     _register_pages(app, school)
     _register_game_api(app, school)
     app.jinja_env.globals["live_schedule"] = format_live_schedule_line
+    # MCK-195: landing Teacher login reuses sign-in's next= check.
+    app.jinja_env.globals["safe_next_url"] = _safe_next_url
 
     @app.context_processor
     def inject_public_brand() -> dict[str, str]:
