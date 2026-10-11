@@ -8408,7 +8408,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             limit = int(request.args.get("limit") or 2000)
         except ValueError:
             return jsonify({"ok": False, "error": "Bad query."}), 400
-        events = school.list_engagement_events(class_id, live_session=live_session, limit=limit)
+        run_key = (request.args.get("run_key") or "").strip()[:80] or None
+        events = school.list_engagement_events(
+            class_id, live_session=live_session, run_key=run_key, limit=limit
+        )
         return jsonify({"ok": True, "events": events})
 
     @app.route("/api/classes/<int:class_id>/dashboard")

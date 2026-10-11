@@ -55,13 +55,14 @@ _DDL_LOCK = 87421352
 _TZ = ZoneInfo("America/Toronto")
 
 _COLUMNS = (
-    "class_id, live_session, student_id, first_name, team_id, item_ref, kind, ts, payload"
+    "class_id, live_session, run_key, student_id, first_name, team_id, item_ref, kind, ts, payload"
 )
 _SQLITE_DDL = """
 CREATE TABLE IF NOT EXISTS engagement_events (
     id INTEGER PRIMARY KEY,
     class_id INTEGER NOT NULL,
     live_session INTEGER,
+    run_key TEXT NOT NULL DEFAULT '',
     student_id INTEGER,
     first_name TEXT NOT NULL DEFAULT '',
     team_id INTEGER,
@@ -75,6 +76,12 @@ CREATE INDEX IF NOT EXISTS engagement_events_class_ts
 CREATE INDEX IF NOT EXISTS engagement_events_session
     ON engagement_events (live_session, kind);
 """
+# Session ids are reused after a wipe; ``run_key`` (live_class_sessions.run_key,
+# a uuid minted per run) is what tells runs apart. Added after the first cut.
+_RUN_KEY_INDEX = (
+    "CREATE INDEX IF NOT EXISTS engagement_events_run "
+    "ON engagement_events (run_key, student_id, item_ref, kind)"
+)
 _POSTGRES_DDL = _SQLITE_DDL.replace("id INTEGER PRIMARY KEY", "id BIGSERIAL PRIMARY KEY")
 
 
@@ -123,10 +130,11 @@ class _Store:
     def append(self, row: dict[str, Any]) -> None:
         """Insert one event row (already validated)."""
         self._write(
-            f"INSERT INTO engagement_events ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            f"INSERT INTO engagement_events ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 int(row["class_id"]),
                 row.get("live_session"),
+                str(row.get("run_key") or "")[:80],
                 row.get("student_id"),
                 row.get("first_name") or "",
                 row.get("team_id"),
@@ -137,12 +145,36 @@ class _Store:
             ),
         )
 
+    def has_event(self, run_key: str, student_id: int, item_ref: Any, kinds: tuple[str, ...]) -> bool:
+        """True when this run already has one of ``kinds`` for the student and item."""
+        if not run_key:
+            return False
+        marks = ",".join("?" * len(kinds))
+        rows = self._fetch(
+            "SELECT 1 FROM engagement_events WHERE run_key = ? AND student_id = ? "
+            f"AND item_ref = ? AND kind IN ({marks}) LIMIT 1",
+            (str(run_key), int(student_id), str(item_ref), *kinds),
+        )
+        return bool(rows)
+
     def list_for_class(
-        self, class_id: int, *, live_session: int | None = None, limit: int = 2000
+        self,
+        class_id: int,
+        *,
+        live_session: int | None = None,
+        run_key: str | None = None,
+        limit: int = 2000,
     ) -> list[dict[str, Any]]:
-        """Events for one class, oldest first. Staff use only."""
+        """Events for one class, oldest first. Staff use only.
+
+        ``run_key`` picks one run. ``live_session`` alone can span several
+        runs because sqlite reuses session ids; callers resolve it to a key.
+        """
         sql = f"SELECT id, {_COLUMNS} FROM engagement_events WHERE class_id = ?"
         params: list[Any] = [int(class_id)]
+        if run_key is not None:
+            sql += " AND run_key = ?"
+            params.append(str(run_key))
         if live_session is not None:
             sql += " AND live_session = ?"
             params.append(int(live_session))
@@ -169,6 +201,12 @@ class SqliteEngagementEvents(_Store):
     def ensure_schema(self) -> None:
         with self.lock:
             self.conn.executescript(_SQLITE_DDL)
+            cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(engagement_events)")}
+            if "run_key" not in cols:
+                self.conn.execute(
+                    "ALTER TABLE engagement_events ADD COLUMN run_key TEXT NOT NULL DEFAULT ''"
+                )
+            self.conn.execute(_RUN_KEY_INDEX)
 
     def _write(self, sql: str, params: tuple[Any, ...]) -> None:
         with self.lock:
@@ -194,7 +232,12 @@ class PostgresEngagementEvents(_Store):
             raw = wrapped.connection
             with raw.transaction():
                 raw.execute("SELECT pg_advisory_xact_lock(%s)", (_DDL_LOCK,))
-                for part in _POSTGRES_DDL.split(";"):
+                ddl = _POSTGRES_DDL.split(";") + [
+                    "ALTER TABLE engagement_events ADD COLUMN IF NOT EXISTS "
+                    "run_key TEXT NOT NULL DEFAULT ''",
+                    _RUN_KEY_INDEX,
+                ]
+                for part in ddl:
                     sql = part.strip()
                     if not sql:
                         continue

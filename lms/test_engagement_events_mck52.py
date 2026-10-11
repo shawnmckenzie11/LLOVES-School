@@ -239,5 +239,119 @@ class KeepAcrossRunsTests(Base):
         self.assertEqual(days, [yesterday])
 
 
+
+class ReusedIdTests(Base):
+    """Gate H1/M1: sqlite reuses session and observation ids across runs."""
+
+    def _note(self, sid: int, text: str) -> None:
+        self.school.create_observation(
+            live_session_id=sid, class_id=self.class_id,
+            observer_user_id=int(self.teacher["id"]), scope="student",
+            note=text, student_ids=[self.students[0]],
+        )
+
+    def _run(self) -> int:
+        return int(self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))["id"])
+
+    def test_h1_run_end_run_quit_keeps_both_notes(self) -> None:
+        self._note(self.session_id, "run one")
+        self.school.finish_live_class(self.class_id, celebrate=True)
+        second = self._run()
+        self._note(second, "run two")
+        self.school.finish_live_class(self.class_id, persist=False, celebrate=False)
+        kept = sorted(k["note"] for k in self.school.list_observation_history(self.class_id))
+        self.assertEqual(kept, ["run one", "run two"])
+
+    def test_h1_same_ids_twice_are_both_kept(self) -> None:
+        self._note(self.session_id, "first")
+        self.school.wipe_live_sessions_for_class(self.class_id)
+        again = self._run()
+        self._note(again, "second")
+        self.school.wipe_live_sessions_for_class(self.class_id)
+        kept = self.school.list_observation_history(self.class_id)
+        self.assertEqual(sorted(k["note"] for k in kept), ["first", "second"])
+        self.assertEqual(len({k["run_key"] for k in kept}), 2)
+
+    def test_m1_live_session_filter_and_answer_change_stay_in_one_run(self) -> None:
+        stu = self.students[0]
+        first_key = self.school.live_board_run_key(self.session_id).split("~")[0]
+        self.school.record_engagement_event("answer.submit", session_id=self.session_id,
+                                            student_id=stu, item_ref=1)
+        self.school.wipe_live_sessions_for_class(self.class_id)
+        second = self._run()
+        self.school.record_engagement_event("group.vote", session_id=second, student_id=stu, item_ref=1)
+        rows = self.school.list_engagement_events(self.class_id, live_session=second)
+        self.assertEqual([r["kind"] for r in rows], ["group.vote"])
+        self.assertNotEqual(rows[0]["run_key"], first_key)
+        old = self.school.list_engagement_events(self.class_id, run_key=first_key)
+        self.assertEqual([r["kind"] for r in old], ["answer.submit"])
+        # The earlier run's submit does not make this run's first answer a change.
+        self.assertFalse(self.school.engagement.has_event(
+            rows[0]["run_key"], stu, 1, ("answer.submit", "answer.change")))
+        self.assertTrue(self.school.engagement.has_event(
+            first_key, stu, 1, ("answer.submit", "answer.change")))
+
+    def test_old_history_shape_is_rebuilt(self) -> None:
+        conn = self.school.conn
+        conn.execute("DROP TABLE observation_history")
+        conn.execute(
+            "CREATE TABLE observation_history (id INTEGER PRIMARY KEY, "
+            "source_observation_id INTEGER NOT NULL UNIQUE, live_session INTEGER, "
+            "class_id INTEGER NOT NULL, observer_user_id INTEGER, created_at TEXT NOT NULL, "
+            "scope TEXT NOT NULL, team_id INTEGER, note TEXT NOT NULL DEFAULT '', "
+            "evidence_strength TEXT, follow_up_required INTEGER NOT NULL DEFAULT 0, "
+            "visibility TEXT NOT NULL DEFAULT 'staff', source TEXT NOT NULL DEFAULT 'manual', "
+            "lookfor_key TEXT, student_ids_json TEXT NOT NULL DEFAULT '[]', "
+            "process_keys_json TEXT NOT NULL DEFAULT '[]', kept_at TEXT NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO observation_history (source_observation_id, class_id, created_at, scope, note, kept_at) "
+            "VALUES (1, ?, 't', 'class', 'old', 't')", (self.class_id,)
+        )
+        self.school._ensure_observation_history_shape()
+        self._check_rebuilt_keeps_both()
+
+    def _check_rebuilt_keeps_both(self) -> None:
+        notes = [k["note"] for k in self.school.list_observation_history(self.class_id)]
+        self.assertEqual(notes, ["old"])
+        self._note(self.session_id, "new")
+        self.school.wipe_live_sessions_for_class(self.class_id)
+        notes = sorted(k["note"] for k in self.school.list_observation_history(self.class_id))
+        self.assertEqual(notes, ["new", "old"])
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+try:
+    from test_rank_challenge_mck171 import KEY_IDS, ChallengeHarness  # noqa: E402
+except Exception:  # pragma: no cover - harness moved
+    ChallengeHarness = None  # type: ignore[assignment]
+
+if ChallengeHarness is not None:
+
+    class SmokeVoteTests(ChallengeHarness):
+        """Gate note: Ops saw only 409 agree votes. A real agree must land (200) and log."""
+
+        def test_agree_vote_succeeds_and_logs_group_vote(self) -> None:
+            item = self._challenge()
+            self.assertEqual(self._order("Ava", item, KEY_IDS).status_code, 200)
+            rv = self._post("Ava", item, "rank-agree", {"agree": True, "order": KEY_IDS})
+            self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+            votes = [
+                e for e in self.school.list_engagement_events(self.class_id)
+                if e["kind"] == "group.vote"
+            ]
+            self.assertEqual(len(votes), 1)
+            self.assertEqual(votes[0]["payload"].get("step"), "agree")
+
+        def test_agree_on_a_stale_order_is_a_409_and_logs_nothing(self) -> None:
+            item = self._challenge()
+            self.assertEqual(self._order("Ava", item, KEY_IDS).status_code, 200)
+            stale = ["o4", "o3", "o2", "o1"]
+            rv = self._post("Ava", item, "rank-agree", {"agree": True, "order": stale})
+            self.assertEqual(rv.status_code, 409, rv.get_data(as_text=True))
+            self.assertFalse(any(
+                e["kind"] == "group.vote" for e in self.school.list_engagement_events(self.class_id)
+            ))

@@ -896,8 +896,9 @@ CREATE TABLE IF NOT EXISTS observation_processes (
 -- live_class_sessions, so Quit / the next Run cannot cascade them away.
 CREATE TABLE IF NOT EXISTS observation_history (
     id INTEGER PRIMARY KEY,
-    source_observation_id INTEGER NOT NULL UNIQUE,
+    source_observation_id INTEGER NOT NULL,
     live_session INTEGER,
+    run_key TEXT NOT NULL DEFAULT '',
     class_id INTEGER NOT NULL,
     observer_user_id INTEGER,
     created_at TEXT NOT NULL,
@@ -911,7 +912,10 @@ CREATE TABLE IF NOT EXISTS observation_history (
     lookfor_key TEXT,
     student_ids_json TEXT NOT NULL DEFAULT '[]',
     process_keys_json TEXT NOT NULL DEFAULT '[]',
-    kept_at TEXT NOT NULL
+    kept_at TEXT NOT NULL,
+    -- sqlite reuses observation and session ids after a wipe, so the
+    -- source id alone is not unique across runs (gate H1).
+    UNIQUE(source_observation_id, run_key, created_at)
 );
 CREATE INDEX IF NOT EXISTS idx_observation_history_class
     ON observation_history(class_id, created_at);
@@ -1631,11 +1635,14 @@ def _ev_answer(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any] | None:
     ).fetchone()
     if row is None:
         return None
-    seen = db.conn.execute(
-        "SELECT 1 FROM engagement_events WHERE live_session = ? AND student_id = ? "
-        "AND item_ref = ? AND kind IN ('answer.submit', 'answer.change') LIMIT 1",
-        (int(row["live_session_id"]), int(a["student_id"]), str(a["prompt_id"])),
-    ).fetchone() if getattr(db.engagement, "conn", None) is db.conn else None
+    run = db.conn.execute(
+        "SELECT run_key FROM live_class_sessions WHERE id = ?", (int(row["live_session_id"]),)
+    ).fetchone()
+    store = getattr(db, "engagement", None)
+    seen = bool(store is not None and run is not None and store.has_event(
+        str(run["run_key"] or ""), int(a["student_id"]), a["prompt_id"],
+        ("answer.submit", "answer.change"),
+    ))
     return {"kind": "answer.change" if seen else "answer.submit", "session_id": row["live_session_id"],
             "student_id": a["student_id"], "item_ref": a["prompt_id"]}
 
@@ -1860,6 +1867,7 @@ class LovesDB:
             self._ensure_live_class_feature_schema()
             self._ensure_access_request_schema()
             self._ensure_staff_invite_schema()
+            self._ensure_observation_history_shape()
             self._seed()
             self._seed_live_class_features()
             self.conn.commit()
@@ -1954,6 +1962,34 @@ class LovesDB:
         self._install_postgres_board_ops(store)
         logger.info("live presence store=postgres")
 
+    def _ensure_observation_history_shape(self) -> None:
+        """Rebuild a pre-release ``observation_history`` keyed on source id alone.
+
+        The first cut of MCK-52 (never on main) had ``UNIQUE`` on the source
+        observation id, which sqlite reuses across runs (gate H1). Rows are
+        copied into the per-run shape; nothing is dropped.
+        """
+        row = self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'observation_history'"
+        ).fetchone()
+        if row is None or "run_key" in str(row["sql"] or ""):
+            return
+        start = SCHEMA.index("CREATE TABLE IF NOT EXISTS observation_history")
+        end = SCHEMA.index(";", SCHEMA.index("CREATE INDEX IF NOT EXISTS idx_observation_history_class")) + 1
+        cols = (
+            "source_observation_id, live_session, class_id, observer_user_id, created_at, "
+            "scope, team_id, note, evidence_strength, follow_up_required, visibility, "
+            "source, lookfor_key, student_ids_json, process_keys_json, kept_at"
+        )
+        self.conn.execute("DROP INDEX IF EXISTS idx_observation_history_class")
+        self.conn.execute("ALTER TABLE observation_history RENAME TO observation_history_pre52")
+        self.conn.executescript(SCHEMA[start:end])
+        self.conn.execute(
+            f"INSERT OR IGNORE INTO observation_history ({cols}, run_key) "
+            f"SELECT {cols}, 'legacy' FROM observation_history_pre52"
+        )
+        self.conn.execute("DROP TABLE observation_history_pre52")
+
     def _install_sqlite_board_ops(self) -> None:
         """Create the sqlite board-op tables and use them until Postgres attaches.
 
@@ -2024,11 +2060,15 @@ class LovesDB:
             return False
         try:
             sid = int(session_id) if session_id not in (None, "") else None
-            if class_id in (None, "") and sid is not None:
+            run_key = ""
+            if sid is not None:
                 row = self.conn.execute(
-                    "SELECT class_id FROM live_class_sessions WHERE id = ?", (sid,)
+                    "SELECT class_id, run_key FROM live_class_sessions WHERE id = ?", (sid,)
                 ).fetchone()
-                class_id = row["class_id"] if row is not None else None
+                if row is not None:
+                    run_key = str(row["run_key"] or "")
+                    if class_id in (None, ""):
+                        class_id = row["class_id"]
             if class_id in (None, ""):
                 return False
             stu = int(student_id) if student_id not in (None, "") else None
@@ -2046,6 +2086,7 @@ class LovesDB:
                 {
                     "class_id": int(class_id),
                     "live_session": sid,
+                    "run_key": run_key,
                     "student_id": stu,
                     "first_name": first,
                     "team_id": int(team_id) if team_id not in (None, "") else None,
@@ -2061,13 +2102,33 @@ class LovesDB:
             return False
 
     def list_engagement_events(
-        self, class_id: int, *, live_session: int | None = None, limit: int = 2000
+        self,
+        class_id: int,
+        *,
+        live_session: int | None = None,
+        run_key: str | None = None,
+        limit: int = 2000,
     ) -> list[dict[str, Any]]:
-        """Teacher-only read of the engagement log for one class."""
+        """Teacher-only read of the engagement log for one class.
+
+        ``live_session`` means that session's *current* run: it is resolved
+        to its ``run_key`` so a reused sqlite id never mixes runs. A session
+        that no longer exists returns nothing unless ``run_key`` is given.
+        """
         store = getattr(self, "engagement", None)
         if store is None:
             return []
-        return store.list_for_class(int(class_id), live_session=live_session, limit=limit)
+        if live_session is not None and run_key is None:
+            row = self.conn.execute(
+                "SELECT run_key FROM live_class_sessions WHERE id = ? AND class_id = ?",
+                (int(live_session), int(class_id)),
+            ).fetchone()
+            if row is None or not str(row["run_key"] or ""):
+                return []
+            run_key = str(row["run_key"])
+        return store.list_for_class(
+            int(class_id), live_session=live_session, run_key=run_key, limit=limit
+        )
 
     def live_presence_label(self) -> str:
         """Cheap label for ``/health``. Does not ping or read a live session.
@@ -17787,6 +17848,9 @@ class SchoolDB(LovesDB):
             submitter_ids=agreed,
         )
 
+    @emits("group.vote", lambda db, a, r: {
+        "session_id": a["session_id"], "student_id": a["student_id"],
+        "item_ref": a["live_item_id"], "payload": {"agree": bool(a.get("agree", True)), "step": "agree"}})
     def rank_race_agree(
         self,
         session_id: int,
@@ -29737,12 +29801,16 @@ class SchoolDB(LovesDB):
         cur = self.conn.execute(
             f"""
             INSERT OR IGNORE INTO observation_history (
-                source_observation_id, live_session, class_id, observer_user_id,
+                source_observation_id, live_session, run_key, class_id, observer_user_id,
                 created_at, scope, team_id, note, evidence_strength,
                 follow_up_required, visibility, source, lookfor_key,
                 student_ids_json, process_keys_json, kept_at
             )
-            SELECT o.id, o.live_session_id, o.class_id, o.observer_user_id,
+            SELECT o.id, o.live_session_id,
+                   COALESCE(NULLIF((SELECT ls.run_key FROM live_class_sessions ls
+                                    WHERE ls.id = o.live_session_id), ''),
+                            'session:' || o.live_session_id),
+                   o.class_id, o.observer_user_id,
                    o.created_at, o.scope, o.team_id, o.note, o.evidence_strength,
                    o.follow_up_required, o.visibility, o.source, o.lookfor_key,
                    COALESCE((SELECT json_group_array(s.student_id)
