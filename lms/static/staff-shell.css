@@ -4889,6 +4889,112 @@ body.staff-shell .lesson-slides-wizard textarea {
   width: 100%;
   min-height: 4.5rem;
 }
+/* Catch-up links: teacher staff shell, desktop width only. */
+body.staff-shell .ls-module-block {
+  margin: 0 0 1.25rem;
+}
+body.staff-shell .ls-module-title {
+  margin: 0.2rem 0 0.35rem;
+  font-size: 1.05rem;
+}
+body.staff-shell .catchup-links-card h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+body.staff-shell .catchup-rows {
+  list-style: none;
+  margin: 0.65rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+body.staff-shell .catchup-slot {
+  border: 1px solid #dbe4ee;
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  background: #fff;
+}
+body.staff-shell .catchup-slot.is-pending {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  align-items: baseline;
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+body.staff-shell .catchup-slot.is-pending .catchup-class,
+body.staff-shell .catchup-pending {
+  color: #94a3b8;
+}
+body.staff-shell .catchup-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.75rem;
+}
+body.staff-shell .catchup-class {
+  font-weight: 700;
+  min-width: 5.5rem;
+  color: #0f172a;
+}
+body.staff-shell .catchup-date {
+  color: #3d4f63;
+  font-size: 0.88rem;
+}
+body.staff-shell .catchup-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+body.staff-shell .catchup-badge.is-open {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+body.staff-shell .catchup-badge.is-muted {
+  background: #e5e7eb;
+  color: #6b7280;
+}
+body.staff-shell .catchup-links-card .catchup-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  font-size: 0.85rem;
+  color: #12202e;
+}
+body.staff-shell .catchup-links-card input.catchup-toggle {
+  width: auto;
+  height: auto;
+  padding: 0;
+  margin: 0;
+  accent-color: #0f766e;
+}
+body.staff-shell .catchup-links-card .catchup-copy,
+body.staff-shell .catchup-links-card .catchup-preview {
+  width: auto;
+  margin: 0;
+  font-family: inherit;
+}
+body.staff-shell .catchup-earlier {
+  margin-top: 0.35rem;
+}
+body.staff-shell .catchup-earlier summary {
+  font-size: 0.8rem;
+  color: #64748b;
+  cursor: pointer;
+}
+body.staff-shell .catchup-row.is-earlier {
+  margin-top: 0.45rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid #e2e8f0;
+}
+@media (max-width: 959px) {
+  body.staff-shell .catchup-links-card {
+    display: none;
+  }
+}
 
 /* Staff Grok bots showcase (/staff/bots). */
 body.staff-shell.staff-bots .bots-grid {

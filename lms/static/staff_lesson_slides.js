@@ -1,6 +1,12 @@
 /**
  * Lesson Slides wizard: preview connected async Lessons, then build a Drive deck.
  */
+import {
+  bindCatchupLinks,
+  CATCHUP_LOAD_ERROR,
+  paintLessonModuleSections,
+} from "./catchup_links_card.js";
+
 const root = document.getElementById("lesson-slides-root");
 const classId = root?.dataset.classId;
 
@@ -34,24 +40,23 @@ function previewQuery() {
   return q.toString();
 }
 
+/** Saved decks and catch-up links painted together under each module. */
+let savedDecks = [];
+let catchupLinks = [];
+let catchupError = "";
+
 /**
- * Return a same-origin or http(s) href, or empty if unsafe.
- * @param {unknown} raw
- * @returns {string}
+ * Paint one deck list per module, with the Catch-up links card underneath.
+ * @returns {void}
  */
-function safeDeckHref(raw) {
-  const url = String(raw || "").trim();
-  if (!url) return "";
-  if (url.startsWith("/") && !url.startsWith("//")) return url;
-  try {
-    const parsed = new URL(url, window.location.origin);
-    if (parsed.protocol === "https:" || parsed.protocol === "http:") {
-      return parsed.href;
-    }
-  } catch {
-    return "";
-  }
-  return "";
+function paintModules() {
+  const mount = document.getElementById("ls-module-sections");
+  if (!mount) return;
+  paintLessonModuleSections(mount, {
+    decks: savedDecks,
+    links: catchupLinks,
+    error: catchupError,
+  });
 }
 
 /**
@@ -59,42 +64,35 @@ function safeDeckHref(raw) {
  * @param {Record<string, unknown>} data
  */
 function paintSavedDecks(data) {
-  const body = document.getElementById("ls-saved-decks-body");
-  if (!body) return;
-  const decks = Array.isArray(data.saved_decks) ? data.saved_decks : [];
-  body.replaceChildren();
-  if (!decks.length) {
-    const tr = document.createElement("tr");
-    const td = document.createElement("td");
-    td.colSpan = 3;
-    td.textContent = "No Google decks saved for this class yet.";
-    tr.appendChild(td);
-    body.appendChild(tr);
-    return;
-  }
-  for (const deck of decks) {
-    const moduleN = Number(deck.module_number || 0);
-    const liveI = Number(deck.live_index || 0);
-    const href = safeDeckHref(deck.presentation_url);
-    const tr = document.createElement("tr");
-    const moduleTd = document.createElement("td");
-    moduleTd.textContent = `Module ${moduleN}`;
-    const classTd = document.createElement("td");
-    classTd.textContent = `Class C${liveI}`;
-    const linkTd = document.createElement("td");
-    if (href) {
-      const a = document.createElement("a");
-      a.href = href;
-      a.target = "_blank";
-      a.rel = "noopener";
-      a.textContent = "Open slides";
-      linkTd.appendChild(a);
+  savedDecks = Array.isArray(data.saved_decks) ? data.saved_decks : [];
+  paintModules();
+}
+
+/**
+ * GET catch-up links for this class and repaint the module cards.
+ * @returns {Promise<void>}
+ */
+async function loadCatchupLinks() {
+  if (!classId) return;
+  try {
+    const res = await fetch(`/api/classes/${classId}/catchup-links`, {
+      credentials: "same-origin",
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      catchupLinks = [];
+      catchupError = res.status === 401 || res.status === 403
+        ? "Catch-up links are available to the class teacher."
+        : CATCHUP_LOAD_ERROR;
     } else {
-      linkTd.textContent = "Open slides";
+      catchupLinks = Array.isArray(data.catchup_links) ? data.catchup_links : [];
+      catchupError = "";
     }
-    tr.append(moduleTd, classTd, linkTd);
-    body.appendChild(tr);
+  } catch {
+    catchupLinks = [];
+    catchupError = CATCHUP_LOAD_ERROR;
   }
+  paintModules();
 }
 
 /**
@@ -325,6 +323,7 @@ if (slidesReturn === "connected" || slidesReturn === "mock") {
 }
 
 if (root && classId) {
+  bindCatchupLinks(document.getElementById("ls-module-sections"), classId);
   const next = encodeURIComponent(
     `/staff/class/${classId}?tab=lesson-slides`
   );
@@ -341,6 +340,7 @@ if (root && classId) {
       paintConnect(status);
     })
     .catch(() => {});
+  loadCatchupLinks().catch(() => {});
   loadPreview().catch(() => {});
   loadLiveLessons().catch(() => {});
 }
