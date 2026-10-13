@@ -30614,7 +30614,7 @@ class SchoolDB(LovesDB):
                     "live_slot": slot_key,
                     "label": slot_key.upper(),
                     "class_label": slot_class_label(slot_key),
-                    "finish_line": finish_these_row_text(slot_key, open_n),
+                    "finish_row_label": finish_these_row_text(slot_key, open_n),
                     "open_count": open_n,
                     "url": self.catchup_canonical_path_for_link(
                         {**link, "class_id": cid}

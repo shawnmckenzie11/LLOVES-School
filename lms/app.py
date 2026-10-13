@@ -5969,12 +5969,30 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         dash = school.student_dashboard_payload(class_id, student_id)
         handover = _student_dashboard_live_handover(school, class_id, student_id)
         focus = pop_dashboard_focus_catchup(session)
-        from student_dashboard import dashboard_copy
+        from student_dashboard import (
+            dashboard_copy,
+            dashboard_header_line,
+            finish_these_row_text,
+            slot_class_label,
+        )
+
+        course_code = school._course_code_for_class(class_id)
+        dashboard_subtitle = dash.get("header_line") or dashboard_header_line(
+            course_code, str(dash.get("current_module") or "M1")
+        )
+        for row in dash.get("finish_these") or []:
+            if not str(row.get("finish_row_label") or "").strip():
+                slot_key = str(row.get("live_slot") or row.get("label") or "")
+                row["class_label"] = slot_class_label(slot_key)
+                row["finish_row_label"] = finish_these_row_text(
+                    slot_key, int(row.get("open_count") or 0)
+                )
 
         return render_template(
             "student/dashboard.html",
             offering=offering,
             dashboard=dash,
+            dashboard_subtitle=dashboard_subtitle,
             school_name=SCHOOL_NAME,
             focus_catchup=focus,
             copy=dashboard_copy(),
