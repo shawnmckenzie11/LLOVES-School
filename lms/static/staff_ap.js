@@ -11282,6 +11282,7 @@ paintEyesUpToggle();
 studentView = mountStudentView({
   button: $("live-student-view"),
   roster: () => lastClassListFull,
+  classId,
 });
 
 $("mc-reveal-btn")?.addEventListener("click", () => {

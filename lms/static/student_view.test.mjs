@@ -88,9 +88,26 @@ storeStudentView(false, store);
 if (studentViewOn(store)) fail("stored off");
 
 const pairs = nameMasks(roster);
-const guests = new GuestBook(store);
+const guests = new GuestBook(store, 5);
 if (maskName("😀 Ava", pairs, guests) !== "😀 Student 1") fail("mood prefix kept");
 if (maskName("+1 Maple", pairs, guests) !== "+1 Student 3") fail("score pop");
+
+// ---- before the roster loads: "—", nothing booked; re-masked after -----
+{
+  const early = h("body", {},
+    h("div", { class: "ap-live-player" }, h("span", { class: "who" }, "Ava")),
+    h("span", { class: "ap-att-name", title: "Ava" }, "Ava"));
+  const book = new GuestBook(store, 99);
+  applyMask(early, new Map(), null);
+  if (early.querySelectorAll(".who")[0].textContent !== MASK) fail("pre-roster name is —");
+  if (Object.keys(book.byName).length || mem.has(`${STUDENT_VIEW_KEY}-guests-99`)) fail("no guest booked pre-roster");
+  applyMask(early, pairs, book);
+  if (early.querySelectorAll(".who")[0].textContent !== "Student 1") fail("re-masked once roster arrives");
+  if (early.querySelectorAll(".ap-att-name")[0].getAttribute("title") !== "Student 1") fail("attr re-masked");
+  if (Object.keys(book.byName).length) fail("rostered name never a guest");
+  restoreMask();
+  if (early.querySelectorAll(".who")[0].textContent !== "Ava") fail("restore after re-mask");
+}
 
 // ---- page: Class List (COURSE/GAME), guest, popup, question text -------
 const page = h("body", {},
@@ -111,6 +128,15 @@ const page = h("body", {},
   h("div", { class: "live-response-row" },
     h("span", { class: "live-response-name" }, "Zephyrine"),
     h("span", { class: "live-response-answer" }, "42")),
+  h("section", { class: "ap-live-team" },
+    h("div", { class: "ap-live-row team-head" },
+      h("span", { class: "who" }, "Red Foxes"), h("span", { class: "now" }, "12")),
+    h("div", { class: "ap-live-player" },
+      h("div", { class: "ap-live-row" },
+        h("span", { class: "who" }, "Ben"), h("span", { class: "now" }, "3")))),
+  h("div", { id: "score-pop-layer" },
+    h("p", { class: "score-pop-chip" }, "+1 Red Foxes"),
+    h("p", { class: "score-pop-chip" }, "+1 Zoe")),
   h("p", { class: "live-question" }, "Why did Ava plant a Maple?"),
   h("p", { class: "hint" }, "3 answers"));
 applyMask(page, pairs, guests);
@@ -132,7 +158,17 @@ if (q(".live-response-answer")[1].textContent !== "42") fail("answer numbers unc
 if (q(".live-question")[0].textContent !== "Why did Ava plant a Maple?") fail("question unchanged");
 if (q(".hint")[0].textContent !== "3 answers") fail("answer counts stay");
 if (q(".ap-att-team-sep-name")[0].textContent !== "Red Foxes") fail("team names stay");
-if (new GuestBook(store).label("zephyrine") !== "Guest 1") fail("guest number persists");
+const who = q(".who");
+if (who[0].textContent !== "Red Foxes") fail(`team head: ${who[0].textContent}`);
+if (who[1].textContent !== "Student 2") fail("player row masked");
+if (q(".now")[0].textContent !== MASK || q(".now")[1].textContent !== MASK) fail("scoreboard numbers masked");
+const chips = q(".score-pop-chip");
+if (chips[0].textContent !== "+1 Red Foxes") fail("team pop kept");
+if (chips[1].textContent !== "+1 Student 3") fail("student pop masked");
+if (Object.keys(guests.byName).join() !== "zephyrine") fail(`team used a guest number: ${Object.keys(guests.byName)}`);
+if (new GuestBook(store, 5).label("zephyrine") !== "Guest 1") fail("guest number persists per class");
+if (new GuestBook(store, 6).label("someone") !== "Guest 1") fail("other class starts at Guest 1");
+if (!mem.has(`${STUDENT_VIEW_KEY}-guests-5`) || mem.has(`${STUDENT_VIEW_KEY}-guests`)) fail("keyed by class id");
 
 restoreMask();
 if (q(".ap-att-course")[0].textContent !== "4" || q(".ap-att-name")[0].textContent !== "Ava") fail("restore");

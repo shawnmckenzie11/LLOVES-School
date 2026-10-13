@@ -48,12 +48,16 @@ export const NAME_SELECTOR = [
   ".live-response-name",
   ".ap-oq-name",
   ".ap-score-who",
-  ".who",
+  ".ap-live-player .who", // scoreboard player rows only; team-head .who is a team name
   ".manual-row > span:first-child",
   ".preview-roster .sv-name",
-  ".score-pop-chip",
   "[data-student-name]",
 ].join(",");
+/**
+ * Name spots that may also hold a team name (the "+1 Red Foxes" pop):
+ * only rostered names are masked there, never booked as guests.
+ */
+export const ROSTER_ONLY_SELECTOR = ".score-pop-chip";
 /** Children of a name element that are not part of the name. */
 const NAME_KEEP = ".ap-guest-flag, .ap-late-tag";
 /** Attributes on name elements (and student +1 buttons) that can carry a name. */
@@ -132,13 +136,17 @@ export function nameMasks(rows) {
  * the browser so a guest has one number on every screen and reload.
  */
 export class GuestBook {
-  /** @param {Storage | null | undefined} store */
-  constructor(store = globalThis.localStorage) {
+  /**
+   * @param {Storage | null | undefined} store
+   * @param {number | string} [classId] guest numbers reset per class
+   */
+  constructor(store = globalThis.localStorage, classId = "") {
     this.store = store;
+    this.key = `${STUDENT_VIEW_KEY}-guests-${classId || 0}`;
     /** @type {Record<string, number>} */
     this.byName = {};
     try {
-      const saved = JSON.parse(store?.getItem(`${STUDENT_VIEW_KEY}-guests`) || "{}");
+      const saved = JSON.parse(store?.getItem(this.key) || "{}");
       if (saved && typeof saved === "object") this.byName = saved;
     } catch (_) {
       this.byName = {};
@@ -154,7 +162,7 @@ export class GuestBook {
     if (this.byName[key] == null) {
       this.byName[key] = Object.keys(this.byName).length + 1;
       try {
-        this.store?.setItem(`${STUDENT_VIEW_KEY}-guests`, JSON.stringify(this.byName));
+        this.store?.setItem(this.key, JSON.stringify(this.byName));
       } catch (_) {
         /* private mode */
       }
@@ -169,7 +177,8 @@ export class GuestBook {
  * unknown name never leaks. Labels already masked stay as they are.
  * @param {string} text
  * @param {Map<string, string>} pairs
- * @param {GuestBook} guests
+ * @param {GuestBook | null} guests ``null`` until the roster has loaded:
+ *   unknown names then show as "—" (never booked as a guest too early).
  * @returns {string}
  */
 export function maskName(text, pairs, guests) {
@@ -179,33 +188,46 @@ export function maskName(text, pairs, guests) {
   const name = rest.trim();
   if (!name || !/\p{L}/u.test(name)) return raw;
   if (/^(Student|Guest) \d+$/.test(name)) return raw;
-  const label = pairs.get(name) || guests.label(name);
+  const label = pairs.get(name) || (guests ? guests.label(name) : MASK);
   const tail = rest.slice(rest.indexOf(name) + name.length);
   return `${prefix}${label}${tail}`;
 }
 
 const SKIP = new Set(["SCRIPT", "STYLE", "TEXTAREA", "INPUT", "SELECT", "OPTION", "NOSCRIPT"]);
-/** @type {WeakMap<object, {orig: string, shown: string}>} masked nodes */
-let originals = new WeakMap();
-/** @type {Set<{node: any, attr?: string}>} */
-let masked = new Set();
+/**
+ * Masked nodes: node → {text, attrs}. Each record is {orig, shown}.
+ * @type {Map<any, {text: {orig: string, shown: string} | null, attrs: Record<string, {orig: string, shown: string}>}>}
+ */
+let records = new Map();
+
+/**
+ * The page's own value for a node/attribute: the stored original while
+ * our mask is still showing, else whatever the page wrote since.
+ * @param {any} node
+ * @param {string | null} attr
+ * @param {string} current
+ * @returns {string}
+ */
+function sourceOf(node, attr, current) {
+  const rec = records.get(node);
+  const item = rec && (attr ? rec.attrs[attr] : rec.text);
+  return item && item.shown === current ? item.orig : current;
+}
 
 /**
  * @param {any} node
- * @param {string | undefined} attr
+ * @param {string | null} attr
  * @param {string} orig
  * @param {string} shown
  */
 function remember(node, attr, orig, shown) {
-  const key = attr ? { node, attr } : node;
-  if (attr) {
-    for (const item of masked) if (item.node === node && item.attr === attr) return;
-    masked.add(key);
-    originals.set(key, { orig, shown });
-    return;
+  let rec = records.get(node);
+  if (!rec) {
+    rec = { text: null, attrs: {} };
+    records.set(node, rec);
   }
-  masked.add({ node });
-  originals.set(node, { orig, shown });
+  if (attr) rec.attrs[attr] = { orig, shown };
+  else rec.text = { orig, shown };
 }
 
 /**
@@ -226,10 +248,12 @@ function nameTextNodes(el) {
 }
 
 /**
- * Mask names and points under ``root`` (idempotent).
+ * Mask names and points under ``root`` (idempotent; re-masks from the
+ * page's own text, so a "—" placeholder becomes a label once the roster
+ * arrives).
  * @param {ParentNode & Node} root
  * @param {Map<string, string>} pairs
- * @param {GuestBook} guests
+ * @param {GuestBook | null} guests ``null`` until the roster has loaded
  */
 export function applyMask(root, pairs, guests) {
   if (!root) return;
@@ -237,33 +261,45 @@ export function applyMask(root, pairs, guests) {
     if (el.closest("[data-student-view-keep]")) continue;
     const text = el.textContent || "";
     if (!/\d/.test(text) || text === MASK) continue;
-    remember(el, undefined, text, MASK);
+    remember(el, null, text, MASK);
     el.textContent = MASK;
+  }
+  const nameEls = [
+    ...Array.from(root.querySelectorAll(NAME_SELECTOR)).map((el) => [el, guests]),
+    ...Array.from(root.querySelectorAll(ROSTER_ONLY_SELECTOR)).map((el) => [el, "roster"]),
+  ];
+  for (const [el, book] of nameEls) {
+    if (el.closest("[data-student-view-keep]")) continue;
+    for (const node of nameTextNodes(el)) {
+      const current = node.nodeValue || "";
+      const source = sourceOf(node, null, current);
+      let next;
+      if (book === "roster") {
+        const prefix = (source.match(PREFIX_RE) || ["", ""])[1];
+        next = pairs.has(source.slice(prefix.length).trim()) ? maskName(source, pairs, null) : source;
+      } else {
+        next = maskName(source, pairs, book);
+      }
+      if (next === current) continue;
+      if (next !== source) remember(node, null, source, next);
+      node.nodeValue = next;
+    }
   }
   const attrHosts = [
     ...root.querySelectorAll(NAME_SELECTOR),
     ...root.querySelectorAll('[data-kind="student"][data-pop-name]'),
   ];
-  for (const el of root.querySelectorAll(NAME_SELECTOR)) {
-    if (el.closest("[data-student-view-keep]")) continue;
-    for (const node of nameTextNodes(el)) {
-      const text = node.nodeValue || "";
-      const next = maskName(text, pairs, guests);
-      if (next === text) continue;
-      remember(node, undefined, text, next);
-      node.nodeValue = next;
-    }
-  }
   for (const el of attrHosts) {
     for (const attr of NAME_ATTRS) {
       if (!el.hasAttribute(attr)) continue;
-      const text = el.getAttribute(attr) || "";
+      const current = el.getAttribute(attr) || "";
+      const source = sourceOf(el, attr, current);
       // Name-only attributes are masked whole; "Add one point" stays.
-      const next = attr === "data-pop-name" || pairs.has(text.trim())
-        ? maskName(text, pairs, guests)
-        : text;
-      if (next === text) continue;
-      remember(el, attr, text, next);
+      const next = attr === "data-pop-name" || pairs.has(source.trim())
+        ? maskName(source, pairs, guests)
+        : source;
+      if (next === current) continue;
+      if (next !== source) remember(el, attr, source, next);
       el.setAttribute(attr, next);
     }
   }
@@ -271,19 +307,18 @@ export function applyMask(root, pairs, guests) {
 
 /** Put back every masked text still on the page. */
 export function restoreMask() {
-  for (const item of masked) {
-    const rec = originals.get(item.attr ? item : item.node);
-    if (!rec) continue;
-    const node = item.node;
+  for (const [node, rec] of records) {
     // A node the page rewrote since masking keeps its new text.
-    if (item.attr) {
-      if (node.getAttribute(item.attr) === rec.shown) node.setAttribute(item.attr, rec.orig);
-    } else if (node.nodeType === 3) {
-      if (node.nodeValue === rec.shown) node.nodeValue = rec.orig;
-    } else if (node.textContent === rec.shown) node.textContent = rec.orig;
+    if (rec.text) {
+      if (node.nodeType === 3) {
+        if (node.nodeValue === rec.text.shown) node.nodeValue = rec.text.orig;
+      } else if (node.textContent === rec.text.shown) node.textContent = rec.text.orig;
+    }
+    for (const [attr, item] of Object.entries(rec.attrs)) {
+      if (node.getAttribute(attr) === item.shown) node.setAttribute(attr, item.orig);
+    }
   }
-  masked = new Set();
-  originals = new WeakMap();
+  records = new Map();
 }
 
 /**
@@ -291,7 +326,7 @@ export function restoreMask() {
  * @param {{doc?: Document, button?: HTMLElement | null, roster: () => any[], onChange?: (on: boolean) => void}} opts
  * @returns {{isOn: () => boolean, set: (on: boolean) => void, refresh: () => void}}
  */
-export function mountStudentView({ doc = document, button = null, roster, onChange }) {
+export function mountStudentView({ doc = document, button = null, roster, classId = "", onChange }) {
   // Test harnesses with a minimal fake DOM get a no-op controller.
   if (
     !doc?.body ||
@@ -302,7 +337,7 @@ export function mountStudentView({ doc = document, button = null, roster, onChan
   }
   let on = studentViewOn();
   let pairs = new Map();
-  const guests = new GuestBook();
+  const guests = new GuestBook(globalThis.localStorage, classId);
   let pending = false;
   let observer = null;
   const banner = doc.createElement("div");
@@ -328,8 +363,10 @@ export function mountStudentView({ doc = document, button = null, roster, onChan
     pending = false;
     if (!on) return;
     observer?.disconnect();
-    pairs = nameMasks(roster());
-    applyMask(doc.body, pairs, guests);
+    const rows = roster() || [];
+    pairs = nameMasks(rows);
+    // No guest numbers until the class roster has loaded (names show "—").
+    applyMask(doc.body, pairs, rows.length ? guests : null);
     observer?.observe(doc.body, {
       childList: true, subtree: true, characterData: true,
       attributes: true, attributeFilter: NAME_ATTRS,
