@@ -335,14 +335,14 @@ class WithExtraNotes:
 
 
 def deployed_runs(gh: Any, workflow: str, exclude_run_id: str = "") -> list[dict[str, Any]]:
-    """Successful main runs of the Deploy workflow, newest first.
+    """Successful production-branch runs of the Deploy workflow, newest first.
 
     A run only succeeds when its Deploy to Fly job did, so each one is a
     real Fly release. Cancelled or rejected runs are left out; their PRs
     roll into the next successful deploy.
     """
     data = gh.get(
-        f"/actions/workflows/{workflow}/runs?branch=main&status=success&per_page={LOOKBACK_RUNS}"
+        f"/actions/workflows/{workflow}/runs?branch=production&status=success&per_page={LOOKBACK_RUNS}"
     )
     runs = []
     for run in data.get("workflow_runs") or []:

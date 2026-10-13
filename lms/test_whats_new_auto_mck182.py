@@ -281,7 +281,7 @@ class WiringTests(unittest.TestCase):
         deploy = text[text.index("  deploy:\n"):]
         order = [
             deploy.index("Require approval in this run attempt"),
-            deploy.index("Refuse a stale main SHA"),
+            deploy.index("Refuse a stale production SHA"),
             deploy.index("Guard against dev login"),
             deploy.index("Write What's new for this deploy"),
             deploy.index("flyctl deploy --remote-only"),

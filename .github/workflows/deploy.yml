@@ -1,12 +1,12 @@
 name: Deploy LLOVES LMS
 
-# Push to main runs the LMS test suite immediately. The Production
+# Push to production runs the LMS test suite immediately. The Production
 # approval job then waits for review on `production`; once approved, the
 # Deploy to Fly job runs flyctl deploy. The required reviewer is a repo
 # setting (shawnmckenzie11), not this file.
 #
 # workflow_dispatch runs the same three jobs (test, approve, deploy).
-# Only refs/heads/main gets past test: approve holds the production
+# Only refs/heads/production gets past test: approve holds the production
 # environment and runs the SHA guard; deploy needs approve from the same
 # run attempt and re-runs the SHA guard before flyctl. Deploy itself has
 # no environment.
@@ -27,7 +27,7 @@ name: Deploy LLOVES LMS
 # The test and gate groups are separate so an older run's approve job
 # can never cancel a newer run's tests.
 # Backstops: the SHA guard refuses flyctl unless GITHUB_SHA is still
-# origin/main, and deploy refuses unless approve ran in this run attempt
+# origin/production, and deploy refuses unless approve ran in this run attempt
 # (a "Re-run failed jobs" of deploy alone does not skip approval).
 # Re-run only the newest run. Re-running an older run re-enters the gate
 # group and cancels whatever newer run is waiting there; the SHA guard
@@ -40,7 +40,7 @@ name: Deploy LLOVES LMS
 # Repository secret FLY_API_TOKEN (Fly deploy token for app lloves-lms).
 on:
   push:
-    branches: [main]
+    branches: [production]
   workflow_dispatch:
 
 permissions:
@@ -112,10 +112,10 @@ jobs:
   approve:
     name: Production approval
     needs: test
-    # workflow_dispatch can target any ref. Only main may request a
+    # workflow_dispatch can target any ref. Only production may request a
     # production review. A red test job skips this job, so approval
     # cannot ship a failed build.
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/production'
     runs-on: ubuntu-latest
     environment:
       name: production
@@ -131,15 +131,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Refuse a stale main SHA
+      - name: Refuse a stale production SHA
         run: |
           set -euo pipefail
-          git fetch --no-tags origin main
-          tip="$(git rev-parse origin/main)"
-          echo "This run:    ${GITHUB_SHA}"
-          echo "origin/main: ${tip}"
+          git fetch --no-tags origin production
+          tip="$(git rev-parse origin/production)"
+          echo "This run:          ${GITHUB_SHA}"
+          echo "origin/production: ${tip}"
           if [ "${GITHUB_SHA}" != "${tip}" ]; then
-            echo "::error title=Stale deploy blocked::This run is ${GITHUB_SHA}, but origin/main is ${tip}. A newer merge landed while this deploy waited for review. Approve the newest green Deploy LLOVES LMS run instead."
+            echo "::error title=Stale deploy blocked::This run is ${GITHUB_SHA}, but origin/production is ${tip}. A newer push landed while this deploy waited for review. Approve the newest green Deploy LLOVES LMS run instead."
             exit 1
           fi
 
@@ -150,7 +150,7 @@ jobs:
   deploy:
     name: Deploy to Fly
     needs: approve
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/production'
     runs-on: ubuntu-latest
     # pull-requests/actions: read so What's new can read merged PRs and
     # past Deploy runs (MCK-182). Nothing here writes to the repo.
@@ -177,15 +177,15 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - name: Refuse a stale main SHA
+      - name: Refuse a stale production SHA
         run: |
           set -euo pipefail
-          git fetch --no-tags origin main
-          tip="$(git rev-parse origin/main)"
-          echo "This run:    ${GITHUB_SHA}"
-          echo "origin/main: ${tip}"
+          git fetch --no-tags origin production
+          tip="$(git rev-parse origin/production)"
+          echo "This run:          ${GITHUB_SHA}"
+          echo "origin/production: ${tip}"
           if [ "${GITHUB_SHA}" != "${tip}" ]; then
-            echo "::error title=Stale deploy blocked::This run is ${GITHUB_SHA}, but origin/main is ${tip}. A newer merge landed while this deploy waited for review. Approve the newest green Deploy LLOVES LMS run instead."
+            echo "::error title=Stale deploy blocked::This run is ${GITHUB_SHA}, but origin/production is ${tip}. A newer push landed while this deploy waited for review. Approve the newest green Deploy LLOVES LMS run instead."
             exit 1
           fi
 
