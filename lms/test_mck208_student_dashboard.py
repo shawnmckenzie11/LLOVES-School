@@ -298,53 +298,66 @@ class Mck208LiveHandoverTest(Base):
         api = client.get("/api/student/dashboard").get_json()
         self.assertTrue(api.get("ok"))
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class Mck208ShootScenarioHtmlTest(unittest.TestCase):
     """Same sqlite + Maple PIN path as ``scripts/shoot.py --scenario mck208``."""
 
     def test_seeded_dashboard_html_finish_and_subtitle(self) -> None:
+        """Uses an isolated sqlite so ``local_dev_seed`` cannot pollute the shared dev DB."""
         import os
         import re
         import sys
+        import tempfile
         from pathlib import Path
 
         repo = Path(__file__).resolve().parents[1]
         sys.path.insert(0, str(repo))
-        os.environ["LOCAL_DEV_LOGIN"] = "1"
-        import local_dev_seed
+        prior_login = os.environ.get("LOCAL_DEV_LOGIN")
+        prior_db = os.environ.get("LLOVES_DB")
+        with tempfile.TemporaryDirectory() as td:
+            db_path = Path(td) / "lloves.sqlite"
+            os.environ["LOCAL_DEV_LOGIN"] = "1"
+            os.environ["LLOVES_DB"] = str(db_path)
+            try:
+                import local_dev_seed
 
-        local_dev_seed.main()
-        from shoot import (
-            DEFAULT_DB,
-            _mck208_end_active_live,
-            _mck208_ensure_finish_open,
-            _mck208_school,
-            prepare_mck207_pin_modal,
-        )
-        from app import create_app
+                local_dev_seed.main()
+                from shoot import (
+                    _mck208_end_active_live,
+                    _mck208_ensure_finish_open,
+                    _mck208_school,
+                    prepare_mck207_pin_modal,
+                )
+                from app import create_app
 
-        class_id, token, student_id = prepare_mck207_pin_modal(DEFAULT_DB)
-        school = _mck208_school(DEFAULT_DB)
-        _mck208_end_active_live(school, class_id)
-        _mck208_ensure_finish_open(school, class_id, student_id)
+                class_id, token, student_id = prepare_mck207_pin_modal(db_path)
+                school = _mck208_school(db_path)
+                _mck208_end_active_live(school, class_id)
+                _mck208_ensure_finish_open(school, class_id, student_id)
 
-        app = create_app(db_path=str(DEFAULT_DB))
-        client = app.test_client()
-        env = {"REMOTE_ADDR": "127.0.0.1"}
-        client.post(
-            f"/catchup/{token}",
-            data={"action": "who", "codename": "Maple"},
-            environ_base=env,
-        )
-        client.post(
-            f"/catchup/{token}",
-            data={"action": "pin", "pin": "5678"},
-            environ_base=env,
-        )
-        html = client.get("/student/dashboard").get_data(as_text=True)
+                app = create_app(db_path=str(db_path))
+                client = app.test_client()
+                env = {"REMOTE_ADDR": "127.0.0.1"}
+                client.post(
+                    f"/catchup/{token}",
+                    data={"action": "who", "codename": "Maple"},
+                    environ_base=env,
+                )
+                client.post(
+                    f"/catchup/{token}",
+                    data={"action": "pin", "pin": "5678"},
+                    environ_base=env,
+                )
+                html = client.get("/student/dashboard").get_data(as_text=True)
+            finally:
+                if prior_db is None:
+                    os.environ.pop("LLOVES_DB", None)
+                else:
+                    os.environ["LLOVES_DB"] = prior_db
+                if prior_login is None:
+                    os.environ.pop("LOCAL_DEV_LOGIN", None)
+                else:
+                    os.environ["LOCAL_DEV_LOGIN"] = prior_login
+
         finish = re.search(r'class="sd-finish-text"[^>]*>([^<]+)<', html)
         self.assertIsNotNone(finish, msg=html[:500])
         self.assertRegex(finish.group(1).strip(), r"^Class 1 · \d+ open$")
@@ -353,3 +366,6 @@ class Mck208ShootScenarioHtmlTest(unittest.TestCase):
         self.assertRegex(subtitle.group(1).strip(), r"^MCF3M · Module \d+$")
         self.assertNotIn('class="sd-course"', html)
 
+
+if __name__ == "__main__":
+    unittest.main()
