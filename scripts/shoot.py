@@ -380,30 +380,35 @@ def main(argv: list[str] | None = None) -> int:
     if args.seed:
         seed_demo()
     path = db_path()
+    owns_state = not args.state
     state = Path(args.state) if args.state else fresh_state_path()
-    if not state.exists() or args.seed:
-        login_state(args.base, state, teacher_email=staff_shawn_email(path))
-    out = Path(args.out)
-    written: list[Path] = []
-    if args.scenario == "catchup":
-        written.extend(shoot_catchup(args.base, state, out, path))
-    if args.url:
-        widths = [int(part) for part in args.widths.split(",") if part.strip()]
-        written.extend(
-            shoot_urls(
-                args.url,
-                widths,
-                state_path=state,
-                out_dir=out,
-                click=args.click,
-                ready=args.ready,
+    try:
+        if not state.exists() or args.seed:
+            login_state(args.base, state, teacher_email=staff_shawn_email(path))
+        out = Path(args.out)
+        written: list[Path] = []
+        if args.scenario == "catchup":
+            written.extend(shoot_catchup(args.base, state, out, path))
+        if args.url:
+            widths = [int(part) for part in args.widths.split(",") if part.strip()]
+            written.extend(
+                shoot_urls(
+                    args.url,
+                    widths,
+                    state_path=state,
+                    out_dir=out,
+                    click=args.click,
+                    ready=args.ready,
+                )
             )
-        )
-    if not written:
-        raise SystemExit("Pass --url and/or --scenario catchup.")
-    for item in written:
-        print(item)
-    return 0
+        if not written:
+            raise SystemExit("Pass --url and/or --scenario catchup.")
+        for item in written:
+            print(item)
+        return 0
+    finally:
+        if owns_state:
+            state.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
