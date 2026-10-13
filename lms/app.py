@@ -1296,6 +1296,9 @@ def create_app(
         return _poll_shed_response()
 
     maybe_arm_worker_warmup(testing=testing)
+    from cli import register_cli
+
+    register_cli(app)
     return app
 
 
@@ -8553,9 +8556,14 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return denied
         data = school.class_participation(class_id)
         names = school.class_codenames(class_id)
+        pin_slips = school.teacher_default_pin_slips(class_id, str(app.secret_key or ""))
         return render_template(
-            "staff/participation.html", class_id=class_id, data=data, names=names,
+            "staff/participation.html",
+            class_id=class_id,
+            data=data,
+            names=names,
             links=_catchup_links_payload(class_id),
+            pin_slips=pin_slips,
         )
 
     @app.route("/catchup/<token>", methods=["GET", "POST"])

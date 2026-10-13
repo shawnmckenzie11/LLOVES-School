@@ -827,6 +827,7 @@ class GameShowDB:
         self._migrate_lloves_roster()
         self._migrate_class_live_access_code()
         self._migrate_student_pin_hash()
+        self._migrate_student_default_pin_ciphertext()
         self._migrate_student_portal()
         self._migrate_session_scores_late()
         self._migrate_team_name_poll()
@@ -948,6 +949,12 @@ class GameShowDB:
         cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(students)").fetchall()}
         if "pin_hash" not in cols:
             self.conn.execute("ALTER TABLE students ADD COLUMN pin_hash TEXT")
+
+    def _migrate_student_default_pin_ciphertext(self) -> None:
+        """MCK-204: Fernet ciphertext so teachers can read one-time default PINs."""
+        cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(students)").fetchall()}
+        if "default_pin_ciphertext" not in cols:
+            self.conn.execute("ALTER TABLE students ADD COLUMN default_pin_ciphertext TEXT")
 
     def _migrate_class_live_access_code(self) -> None:
         """Add a unique 8-character student join code per class section."""

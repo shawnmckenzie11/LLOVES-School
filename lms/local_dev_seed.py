@@ -197,8 +197,10 @@ def _seed_demo_participation(school: Any, class_id: int, teacher_id: int) -> dic
     if not maple:
         return {"skipped": "no Maple"}
     maple_id = int(maple["id"])
-    if not str(maple.get("pin_hash") or ""):
-        school.set_student_pin(class_id, maple_id, LOCAL_DEV_PIN)
+    from celebration import SECRET_KEY_DEV_DEFAULT
+
+    pin_secret = (os.getenv("FLASK_SECRET_KEY") or "").strip() or SECRET_KEY_DEV_DEFAULT
+    school.ensure_default_pins_for_class(class_id, pin_secret)
     stamp = "2026-10-13T09:00:00"
     runs: list[str] = []
     for slot, answered in LOCAL_DEV_M1_RUNS:
@@ -231,7 +233,56 @@ def _seed_demo_participation(school: Any, class_id: int, teacher_id: int) -> dic
         school.cleanup_live_session_response_data(session_id)
         school.end_live_class_session(session_id)
         runs.append(slot)
-    return {"runs": runs, "links": len(school.list_catchup_links(class_id))}
+    m2 = _seed_m2_c1_snapshot_only(school, class_id, maple_id)
+    return {
+        "runs": runs,
+        "links": len(school.list_catchup_links(class_id)),
+        "m2_c1_snapshot": m2,
+    }
+
+
+def _seed_m2_c1_snapshot_only(school: Any, class_id: int, maple_id: int) -> str:
+    """Insert M2 C1 End snapshots without participation rows (MCK-204 backfill demo).
+
+    Returns ``"skipped"`` or the ``run_key`` written.
+    """
+    import json
+
+    conn = school.conn
+    run_key = "local-dev:m2-c1"
+    if conn.execute(
+        "SELECT 1 FROM live_result_snapshots WHERE class_id = ? AND run_key = ? LIMIT 1",
+        (class_id, run_key),
+    ).fetchone():
+        return "skipped"
+    stamp = "2026-10-14T09:00:00"
+    sid = 88001
+    for index, answered in enumerate((True, True, False)):
+        qjson = json.dumps(LOCAL_DEV_M1_QUESTIONS[index % len(LOCAL_DEV_M1_QUESTIONS)])
+        if answered:
+            conn.execute(
+                """
+                INSERT INTO live_result_snapshots (
+                    live_session_id, class_id, session_code, run_key,
+                    live_module, live_slot, source, question_key, question_json,
+                    student_id, participant_uuid, codename, team_id,
+                    answer_json, awarded_points, answered_at, snapshot_at
+                ) VALUES (?, ?, 'DEMO', ?, 'M2', 'C1', 'prompt', ?, ?, ?, NULL, 'Maple', NULL,
+                          '{}', NULL, ?, ?)
+                """,
+                (
+                    sid,
+                    class_id,
+                    run_key,
+                    f"item:demo-M2-q{index}",
+                    qjson,
+                    maple_id,
+                    stamp,
+                    stamp,
+                ),
+            )
+    conn.commit()
+    return run_key
 
 
 def _ensure_local_dev_library(school: Any, offering_id: int) -> int:
