@@ -1598,6 +1598,12 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
   text-align: center;
   color: #9aa6c3;
 }
+.student-chrome-top .me-display-time[data-state="idle"]:empty {
+  display: none;
+  min-height: 0;
+  margin: 0;
+}
+
 
 .student-me,
 .student-scoreboard {

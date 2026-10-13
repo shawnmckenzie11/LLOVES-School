@@ -246,11 +246,14 @@ def _launch(playwright: object):
         playwright: ``sync_playwright()`` handle.
     """
     chromium = playwright.chromium  # type: ignore[attr-defined]
-    return chromium.launch(
-        headless=True,
-        executable_path=CHROME,
-        args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
-    )
+    launch_args = {
+        "headless": True,
+        "args": ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+    }
+    chrome = Path(CHROME)
+    if chrome.is_file():
+        launch_args["executable_path"] = str(chrome)
+    return chromium.launch(**launch_args)
 
 
 def shoot_urls(
@@ -336,8 +339,15 @@ def prepare_mck207_pin_modal(path: Path) -> tuple[int, str, int]:
         from participation import hash_pin
 
         con.execute(
-            "UPDATE students SET pin_hash = ?, pin_set_by = 'default', default_pin_ciphertext = 'demo' WHERE id = ?",
+            """
+            UPDATE students SET pin_hash = ?, pin_set_by = 'teacher', default_pin_ciphertext = NULL
+            WHERE id = ?
+            """,
             (hash_pin("5678"), int(sid)),
+        )
+        con.execute(
+            "UPDATE classes SET require_catchup_pin_change = 0 WHERE id = ?",
+            (class_id,),
         )
         con.commit()
     finally:
@@ -503,7 +513,7 @@ def shoot_mck207(base: str, state_path: Path, out_dir: Path, path: Path, widths:
             context = browser.new_context(viewport={"width": int(width), "height": 900})
             page = context.new_page()
             page.goto(legacy_signin, wait_until="domcontentloaded")
-            page.select_option("#codename", index=1)
+            page.select_option("#codename", label="Maple")
             page.locator('button[type="submit"]').first.click()
             page.locator("#personal_pin").wait_for(state="visible", timeout=30000)
             page.fill("#personal_pin", "5678")
@@ -520,6 +530,233 @@ def shoot_mck207(base: str, state_path: Path, out_dir: Path, path: Path, widths:
         if src.exists():
             src.rename(dest)
             shots.append(dest)
+    return shots
+
+
+def mck208_live_home_url(origin: str, path: Path) -> str:
+    """Start one live class for Maple and return ``/student/s/<visit_token>``."""
+    sys.path.insert(0, str(LMS_DIR))
+    os.environ["LLOVES_DB"] = str(path)
+    os.environ["LOCAL_DEV_LOGIN"] = "1"
+    from app import create_app
+
+    app = create_app(db_path=path, testing=True)
+    school = app.config["SCHOOL_DB"]
+    class_id = shawn_class_id(path)
+    teacher = school.get_user_by_email(SHAWN_EMAIL)
+    live = school.start_live_class_session(class_id, int(teacher["id"]))
+    cls = school.game.get_class(class_id)
+    code = str(live.get("session_code") or cls.get("live_access_code") or "")
+    client = app.test_client()
+    client.post("/auth/student-code", data={"code": code, "name": "Maple"}, follow_redirects=True)
+    client.post("/student/mood", data={"mood": "good"}, follow_redirects=True)
+    client.post("/student/character", data={"character": "fox"}, follow_redirects=True)
+    attendees = school.list_live_session_attendees(int(live["id"]))
+    visit = str(next(row["visit_token"] for row in attendees if row.get("codename") == "Maple"))
+    return f"{origin.rstrip('/')}/student/s/{visit}"
+
+
+def _mck208_school(path: Path):
+    """SchoolDB for the same sqlite the running dev server uses."""
+    sys.path.insert(0, str(LMS_DIR))
+    os.environ["LLOVES_DB"] = str(path)
+    os.environ["LOCAL_DEV_LOGIN"] = "1"
+    from app import create_app
+
+    return create_app(db_path=path, testing=True).config["SCHOOL_DB"]
+
+
+def _mck208_signin_url(origin: str, school, class_id: int, token: str) -> str:
+    """Canonical catch-up sign-in URL for one link token."""
+    link_row = next(
+        row for row in school.list_catchup_links(class_id) if str(row["token"]) == token
+    )
+    return origin + school.catchup_canonical_path_for_link(
+        {**link_row, "class_id": class_id, "token": token}
+    )
+
+
+def _mck208_pin_signin(page, signin_url: str, *, pin: str = "5678") -> None:
+    """Codename Maple + PIN on the catch-up doorway."""
+    page.goto(signin_url, wait_until="domcontentloaded")
+    page.select_option("#codename", label="Maple")
+    page.locator('button[type="submit"]').first.click()
+    page.locator("#personal_pin").wait_for(state="visible", timeout=30000)
+    page.fill("#personal_pin", pin)
+    with page.expect_navigation(timeout=30000):
+        page.locator('button[type="submit"]').first.click()
+    if "/student/dashboard" not in page.url:
+        page.wait_for_url("**/student/dashboard**", timeout=30000)
+
+
+def _mck208_ensure_finish_open(school, class_id: int, student_id: int) -> None:
+    """Ensure the dashboard shows at least one Finish these row (seed may be caught up)."""
+    if school.student_dashboard_payload(int(class_id), int(student_id))["finish_these"]:
+        return
+    cid, sid = int(class_id), int(student_id)
+    for link in school.list_catchup_links(cid):
+        if not int(link.get("is_open") or 0):
+            continue
+        run_key = str(link["run_key"])
+        with school._lock:
+            school.conn.execute(
+                """
+                DELETE FROM participation_answers
+                WHERE class_id = ? AND student_id = ? AND run_key = ?
+                """,
+                (cid, sid, run_key),
+            )
+            school.conn.commit()
+        if school.student_dashboard_payload(cid, sid)["finish_these"]:
+            return
+    raise SystemExit("No open catch-up rows for Maple; cannot shoot finish-open dashboard.")
+
+
+def _mck208_answer_all_catchup(school, class_id: int, student_id: int) -> None:
+    """Clear Finish these by answering every open catch-up question once."""
+    for link in school.list_catchup_links(class_id):
+        if not int(link.get("is_open") or 0):
+            continue
+        tok = str(link["token"])
+        for question in school.catchup_questions(tok, int(student_id)):
+            if question.get("answered"):
+                continue
+            school.submit_catchup_answer(
+                tok, int(student_id), str(question["question_key"]), "A"
+            )
+
+
+
+
+def _mck208_ensure_past_modules(school, class_id: int, student_id: int) -> None:
+    """Ensure Past modules section is visible for screenshots."""
+    cid, sid = int(class_id), int(student_id)
+    if school.student_dashboard_payload(cid, sid)["past_modules"]:
+        return
+    school.set_module_complete(cid, "M1", True)
+    with school._lock:
+        has_m2 = school.conn.execute(
+            "SELECT 1 FROM participation_items WHERE class_id = ? AND live_module = 'M2' LIMIT 1",
+            (cid,),
+        ).fetchone()
+        if not has_m2:
+            sample = school.conn.execute(
+                """
+                SELECT run_key, live_slot, question_key
+                FROM participation_items
+                WHERE class_id = ? AND live_module = 'M1'
+                LIMIT 1
+                """,
+                (cid,),
+            ).fetchone()
+            if sample is None:
+                raise SystemExit("No M1 participation rows; cannot fabricate M2 for past-modules shot.")
+            school.conn.execute(
+                """
+                INSERT OR IGNORE INTO participation_items (
+                    class_id, run_key, live_module, live_slot, question_key,
+                    item_json, prompt_kind, offered_at
+                ) VALUES (?, ?, 'M2', ?, ?, '{}', 'prompt', datetime('now'))
+                """,
+                (
+                    cid,
+                    f"{sample['run_key']}:mck208-past",
+                    str(sample["live_slot"] or "C1"),
+                    str(sample["question_key"]),
+                ),
+            )
+            school.conn.commit()
+    if not school.student_dashboard_payload(cid, sid)["past_modules"]:
+        raise SystemExit("No past modules for Maple; cannot shoot past-modules dashboard.")
+
+def _mck208_end_active_live(school, class_id: int) -> None:
+    """End any active live session for this class (screenshot prep)."""
+    live = school.get_active_live_session_for_class(int(class_id))
+    if live is not None:
+        school.end_live_class_session(int(live["id"]))
+
+
+def shoot_mck208(base: str, out_dir: Path, path: Path, widths: list[int], *, only: str | None = None) -> list[Path]:
+    """MCK-208: student dashboard states at 390px (seeded Maple / PIN portal)."""
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    class_id, token, student_id = prepare_mck207_pin_modal(path)
+    school = _mck208_school(path)
+    _mck208_end_active_live(school, class_id)
+    _mck208_ensure_finish_open(school, class_id, student_id)
+    signin_url = _mck208_signin_url(origin, school, class_id, token)
+    teacher = school.get_user_by_email(SHAWN_EMAIL)
+    dashboard_url = f"{origin}/student/dashboard"
+    shots: list[Path] = []
+    out_dir.mkdir(parents=True, exist_ok=True)
+    use_widths = [w for w in widths if int(w) == 390] or [390]
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        for width in use_widths:
+            context = browser.new_context(viewport={"width": int(width), "height": 900})
+            page = context.new_page()
+
+            _mck208_pin_signin(page, signin_url)
+            page.locator(".sd-header").wait_for(state="visible", timeout=30000)
+            page.locator(".sd-finish-list").wait_for(state="visible", timeout=30000)
+            finish_open = out_dir / f"mck208-dashboard-finish-open-{width}.png"
+            page.screenshot(path=str(finish_open), full_page=True)
+            shots.append(finish_open)
+            if only == "finish-open":
+                context.close()
+                continue
+
+            live = school.start_live_class_session(class_id, int(teacher["id"]))
+            page.goto(dashboard_url, wait_until="domcontentloaded")
+            page.locator("#student-live-rejoin-strip", has_text="Rejoin class").wait_for(
+                state="visible", timeout=30000
+            )
+            live_strip = out_dir / f"mck208-dashboard-live-strip-{width}.png"
+            page.screenshot(path=str(live_strip), full_page=True)
+            shots.append(live_strip)
+
+            page.goto(f"{origin}/student/rejoin-live", wait_until="domcontentloaded")
+            if "/student/mood" in page.url:
+                page.locator('button[name="skip"]').click()
+                page.wait_for_url("**/student/character**", timeout=30000)
+            if "/student/character" in page.url:
+                page.locator('label:has(input[value="fox"])').click()
+                page.locator('button[type="submit"]').click()
+                page.wait_for_url("**/student/home**", timeout=30000)
+            page.locator(".student-home, .student-portal.student-home").first.wait_for(
+                state="visible", timeout=30000
+            )
+            takeover = out_dir / f"mck208-live-takeover-{width}.png"
+            page.screenshot(path=str(takeover), full_page=True)
+            shots.append(takeover)
+
+            school.end_live_class_session(int(live["id"]))
+            page.goto(dashboard_url, wait_until="domcontentloaded")
+            page.locator(".sd-header").wait_for(state="visible", timeout=30000)
+            page.locator("#student-live-rejoin-strip").wait_for(state="hidden", timeout=30000)
+            page.locator(".sd-finish-list").wait_for(state="visible", timeout=30000)
+            after_end = out_dir / f"mck208-dashboard-after-live-end-{width}.png"
+            page.screenshot(path=str(after_end), full_page=True)
+            shots.append(after_end)
+
+            _mck208_answer_all_catchup(school, class_id, student_id)
+            page.goto(dashboard_url, wait_until="domcontentloaded")
+            page.locator(".sd-header").wait_for(state="visible", timeout=30000)
+            page.get_by_text("All caught up.").wait_for(state="visible", timeout=30000)
+            caught_up = out_dir / f"mck208-dashboard-all-caught-up-{width}.png"
+            page.screenshot(path=str(caught_up), full_page=True)
+            shots.append(caught_up)
+
+            _mck208_ensure_past_modules(school, class_id, student_id)
+            page.goto(dashboard_url, wait_until="domcontentloaded")
+            page.locator("#sd-past").wait_for(state="visible", timeout=30000)
+            past_mod = out_dir / f"mck208-dashboard-past-modules-{width}.png"
+            page.screenshot(path=str(past_mod), full_page=True)
+            shots.append(past_mod)
+
+            context.close()
+        browser.close()
     return shots
 
 
@@ -814,6 +1051,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--widths", default="390,1280", help="Comma-separated viewport widths.")
     parser.add_argument("--out", default="/opt/cursor/artifacts", help="PNG directory.")
     parser.add_argument("--state", default="", help="storageState JSON path.")
+    parser.add_argument("--mck208-only", default=None, choices=("finish-open",), help="With --scenario mck208, capture only this shot.")
     parser.add_argument("--seed", action="store_true", help="Run the local-dev seed first.")
     parser.add_argument("--click", default="", help="CSS selector to click before each shot.")
     parser.add_argument("--ready", default="", help="CSS selector that must be visible.")
@@ -825,11 +1063,12 @@ def main(argv: list[str] | None = None) -> int:
             "engagement-override",
             "mck207",
             "mck207-run-toggle",
+            "mck208",
         ),
         default="",
         help=(
             "Built-in catch-up, MCK-62 quiet-dot, engagement override, "
-            "MCK-207 roster/PIN, or run-class toggle shots."
+            "MCK-207 roster/PIN, run-class toggle, or MCK-208 dashboard shots."
         ),
     )
     args = parser.parse_args(argv)
@@ -857,6 +1096,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "mck207-run-toggle":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck207_run_toggle(args.base, state, out, path, widths))
+        if args.scenario == "mck208":
+            widths = [int(part) for part in args.widths.split(",") if part.strip()]
+            written.extend(shoot_mck208(args.base, out, path, widths, only=args.mck208_only))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(
@@ -872,7 +1114,7 @@ def main(argv: list[str] | None = None) -> int:
         if not written:
             raise SystemExit(
                 "Pass --url and/or --scenario "
-                "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle."
+                "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|mck208."
             )
         for item in written:
             print(item)

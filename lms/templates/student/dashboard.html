@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ dashboard.codename }} · {{ offering.ontario_code }} · {{ school_name }}</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+  <link rel="stylesheet" href="/static/student-dashboard.css">
+  {% include "_sentry_browser.html" %}
+</head>
+<body class="student-portal student-dashboard">
+  <p id="student-live-rejoin-strip" class="student-live-now-strip" role="status"{% if not live_handover.show_rejoin_strip %} hidden{% endif %}>
+    <a class="student-live-rejoin-link" href="{{ live_handover.rejoin_url or '#' }}">{{ copy.live_strip }}</a>
+  </p>
+  <header class="sd-header">
+    <p class="sd-codename">{{ dashboard.codename }}</p>
+    <p class="sd-subtitle">{{ dashboard_subtitle }}</p>
+  </header>
+  <main class="sd-main">
+    <section class="sd-card" aria-labelledby="sd-this-module">
+      <h2 id="sd-this-module" class="sd-card-title">{{ copy.card_this_module }}</h2>
+      {% if dashboard.this_module.line %}
+      <p class="sd-calm-line">{{ dashboard.this_module.line }}</p>
+      {% endif %}
+      <div class="sd-level-bar" role="img" aria-label="Level progress">
+        {% for seg in dashboard.this_module.level_bar %}
+        <span class="sd-level-step{% if seg.filled %} is-on{% endif %}"></span>
+        {% endfor %}
+      </div>
+      <p class="sd-dot-legend" aria-hidden="true">
+        <span class="sd-legend-item sd-legend-done">{{ copy.dot_done }}</span>
+        <span class="sd-legend-item sd-legend-missed">{{ copy.dot_missed }}</span>
+        <span class="sd-legend-item sd-legend-upcoming">{{ copy.dot_upcoming }}</span>
+      </p>
+      <div class="sd-slot-dots" aria-label="Classes in this module">
+        {% for slot in dashboard.this_module.slots %}
+        <span class="sd-slot-dot is-{{ slot.state }}" title="{{ slot.state_label }}: {{ slot.slot }}"
+              aria-label="{{ slot.state_label }} · {{ slot.slot }}">
+          <span class="sd-slot-id">{{ slot.slot }}</span>
+          <span class="sd-slot-state">{{ slot.state_label }}</span>
+        </span>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="sd-card" aria-labelledby="sd-finish">
+      <h2 id="sd-finish" class="sd-card-title">{{ copy.card_finish }}</h2>
+      {% if dashboard.finish_these %}
+      <ul class="sd-finish-list">
+        {% for row in dashboard.finish_these %}
+        <li class="sd-finish-row{% if focus_catchup == row.token %} is-focus{% endif %}">
+          <a class="sd-finish-link" href="{{ row.url }}?play=1">
+            <span class="sd-finish-text">{{ row['finish_row_label'] or (row['class_label'] ~ ' · ' ~ row['open_count'] ~ ' ' ~ copy.finish_open) }}</span>
+            <span class="sd-finish-chevron" aria-hidden="true">›</span>
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="sd-calm-line">{{ copy.finish_empty }}</p>
+      {% endif %}
+    </section>
+
+    {% if dashboard.past_modules %}
+    <section class="sd-card" aria-labelledby="sd-past">
+      <h2 id="sd-past" class="sd-card-title">{{ copy.card_past }}</h2>
+      {% for row in dashboard.past_modules %}
+      <details class="sd-past-row">
+        <summary><span>{{ row.summary_line }}</span></summary>
+      </details>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    <section class="sd-card sd-phase-slot" hidden aria-hidden="true" data-phase="2">
+      <p class="sd-calm-line">{{ copy.phase2 }}</p>
+    </section>
+    {% if dashboard.show_phase3 %}
+    <section class="sd-card sd-phase-slot" data-phase="3">
+      <p class="sd-calm-line">{{ copy.phase3 }}</p>
+    </section>
+    {% else %}
+    <section class="sd-card sd-phase-slot" hidden aria-hidden="true" data-phase="3">
+      <p class="sd-calm-line">{{ copy.phase3 }}</p>
+    </section>
+    {% endif %}
+  </main>
+  <script type="module" src="/static/student-dashboard.js"></script>
+</body>
+</html>

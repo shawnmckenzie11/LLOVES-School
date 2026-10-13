@@ -78,6 +78,14 @@ STUDENT_SESSION_KEYS = (
     "student_mood_done",
 )
 
+# Live join keys cleared when class ends; PIN portal keys stay (MCK-208).
+LIVE_STUDENT_SESSION_KEYS = (
+    "student_live_session_id",
+    "student_visit_token",
+    "student_participant_uuid",
+    "student_mood_done",
+)
+
 # httpOnly auto-resume cookie while a live session stays active.
 REJOIN_COOKIE_NAME = "lloves_live_rejoin"
 REJOIN_COOKIE_MAX_AGE = 8 * 60 * 60
@@ -292,6 +300,16 @@ def clear_student_session_keys(session: Any) -> None:
         session.pop("role", None)
 
 
+def clear_live_student_session_keys(session: Any) -> None:
+    """Drop live-class join keys while keeping PIN portal binding (MCK-208).
+
+    Args:
+        session: Flask session mapping.
+    """
+    for key in LIVE_STUDENT_SESSION_KEYS:
+        session.pop(key, None)
+
+
 def bind_student_session(
     session: Any,
     offering: dict[str, Any],
@@ -468,3 +486,77 @@ def character_choices(earned_keys: tuple[str, ...] | list[str] = ()) -> list[dic
 def mood_choices() -> list[dict[str, str]]:
     """Top-row mood faces for the check-in screen (good / okay / not great)."""
     return [{"key": key, "label": MOOD_LABELS[key]} for key in CHECKIN_MOODS]
+
+
+
+
+DASHBOARD_FOCUS_CATCHUP_KEY = "student_dashboard_focus_catchup"
+
+
+def set_dashboard_focus_catchup(session: Any, catchup_token: str) -> None:
+    """Remember which catch-up row to highlight after redirect (token stays server-side)."""
+    cleaned = str(catchup_token or "").strip()[:80]
+    if cleaned:
+        session[DASHBOARD_FOCUS_CATCHUP_KEY] = cleaned
+
+
+def pop_dashboard_focus_catchup(session: Any) -> str:
+    """One-shot catch-up row focus token for the dashboard template."""
+    return str(session.pop(DASHBOARD_FOCUS_CATCHUP_KEY, "") or "").strip()[:80]
+
+
+def bind_pin_portal_session(
+    session: Any,
+    school: Any,
+    class_id: int,
+    student_id: int,
+) -> None:
+    """Sync Flask student keys from a catch-up portal session (MCK-207 / MCK-208).
+
+    Catch-up sign-in stores ``catchup:<link_id>``; ``authorize_student_pin_change``
+    and the dashboard both trust ``SchoolDB.catchup_portal_session_valid``. This
+    helper only mirrors roster ids into the student-code keys ``student_required``
+    expects. Does not clear staff login or store the raw PIN.
+
+    Raises:
+        PermissionError: No valid catch-up portal session for this student.
+    """
+    cid = int(class_id)
+    sid = int(student_id)
+    if not school.catchup_portal_session_valid(session, cid, sid):
+        school.authorize_student_pin_change(cid, sid, None, session)
+    cls = school.game.get_class(cid)
+    offering = school.get_offering(int(cls["offering_id"]))
+    student = school.game.get_student(cid, sid)
+    session["student_offering_id"] = int(offering["id"])
+    session["student_class_id"] = cid
+    session["student_id"] = sid
+    session["student_codename"] = str(student.get("codename") or student.get("first_name") or "")
+    if not session.get("logged_in"):
+        session["role"] = "student"
+    session.permanent = False
+
+
+def resolve_pin_portal_context(school: Any, session: Any) -> dict[str, Any] | None:
+    """Return class and student ids for a valid catch-up portal session (MCK-207)."""
+    import time as _time
+
+    now = _time.time()
+    for key in list(session.keys()):
+        if not str(key).startswith("catchup:") or str(key).endswith(":who"):
+            continue
+        held = session.get(key) or {}
+        if not isinstance(held, dict):
+            continue
+        cid = held.get("cid")
+        sid = held.get("sid")
+        if sid is None or cid is None:
+            continue
+        if float(held.get("exp") or 0) <= now:
+            session.pop(key, None)
+            continue
+        if not school.catchup_portal_session_valid(session, int(cid), int(sid)):
+            session.pop(key, None)
+            continue
+        return {"class_id": int(cid), "student_id": int(sid)}
+    return None

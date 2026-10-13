@@ -30511,6 +30511,152 @@ class SchoolDB(LovesDB):
         out["line"] = level_line(a, o)
         return out
 
+    def _student_slot_participation_counts(
+        self, class_id: int, module: str, student_id: int
+    ) -> tuple[dict[str, int], dict[str, int], set[str]]:
+        """Offered and answered distinct questions per live slot in one module.
+
+        Returns:
+            ``(offered_by_slot, answered_by_slot, slots_that_ran)``.
+        """
+        pair = "p.live_slot || char(31) || p.question_key"
+        discard_clause = (
+            " AND NOT EXISTS (SELECT 1 FROM participation_runs dr "
+            "WHERE dr.class_id = p.class_id AND dr.run_key = p.run_key AND dr.discarded = 1)"
+        )
+        cid = int(class_id)
+        mod = str(module)
+        sid = int(student_id)
+        with self._lock:
+            offered_rows = self.conn.execute(
+                f"""
+                SELECT UPPER(p.live_slot) AS slot, COUNT(DISTINCT {pair}) AS n
+                FROM participation_items p
+                WHERE p.class_id = ? AND p.live_module = ?{discard_clause}
+                GROUP BY UPPER(p.live_slot)
+                """,
+                (cid, mod),
+            ).fetchall()
+            answered_rows = self.conn.execute(
+                f"""
+                SELECT UPPER(p.live_slot) AS slot, COUNT(DISTINCT {pair}) AS n
+                FROM participation_answers a
+                INNER JOIN participation_items p
+                    ON p.class_id = a.class_id AND p.run_key = a.run_key
+                   AND p.question_key = a.question_key
+                WHERE p.class_id = ? AND p.live_module = ? AND a.student_id = ?{discard_clause}
+                GROUP BY UPPER(p.live_slot)
+                """,
+                (cid, mod, sid),
+            ).fetchall()
+        offered = {str(r["slot"]): int(r["n"]) for r in offered_rows}
+        answered = {str(r["slot"]): int(r["n"]) for r in answered_rows}
+        ran = set(offered.keys())
+        return offered, answered, ran
+
+    def student_dashboard_payload(self, class_id: int, student_id: int) -> dict[str, Any]:
+        """MCK-208: one student's dashboard (no roster or leaderboard data)."""
+        from student_dashboard import (
+            SLOTS,
+            build_module_card,
+            module_label,
+            module_number,
+            past_module_summary,
+            pick_current_module,
+            dashboard_header_line,
+            finish_these_row_text,
+            slot_class_label,
+            slot_dot_state,
+            slot_state_label,
+        )
+        from participation import summary
+
+        cid = int(class_id)
+        sid = int(student_id)
+        course = self._course_code_for_class(cid)
+        codename = self.class_codenames(cid).get(sid, "")
+        offered_mod, answered_mod = self._participation_counts(cid, student_id=sid)
+        modules = sorted(offered_mod.keys(), key=module_number)
+        complete = {m: self.module_complete(cid, m) for m in modules}
+        current = pick_current_module(modules, complete) or (modules[-1] if modules else "M1")
+        slot_off, slot_ans, ran = self._student_slot_participation_counts(cid, current, sid)
+        slots = []
+        for slot in SLOTS:
+            o = int(slot_off.get(slot, 0))
+            a = int(slot_ans.get(slot, 0))
+            state = slot_dot_state(o, a, slot in ran)
+            slots.append(
+                {
+                    "slot": slot,
+                    "state": state,
+                    "state_label": slot_state_label(state),
+                }
+            )
+        mod_ans = answered_mod.get((sid, str(current)), {"n": 0})["n"]
+        mod_off = int(offered_mod.get(str(current), 0))
+        finish: list[dict[str, Any]] = []
+        for link in self.list_catchup_links(cid):
+            if not int(link.get("is_open") or 0):
+                continue
+            open_q = [
+                q
+                for q in self.catchup_questions(str(link["token"]), sid)
+                if not q.get("answered")
+            ]
+            if not open_q:
+                continue
+            slot_key = str(link.get("live_slot") or link.get("label") or "")
+            open_n = len(open_q)
+            finish.append(
+                {
+                    "token": str(link["token"]),
+                    "live_module": str(link.get("live_module") or ""),
+                    "live_slot": slot_key,
+                    "label": slot_key.upper(),
+                    "class_label": slot_class_label(slot_key),
+                    "finish_row_label": finish_these_row_text(slot_key, open_n),
+                    "open_count": open_n,
+                    "url": self.catchup_canonical_path_for_link(
+                        {**link, "class_id": cid}
+                    ),
+                }
+            )
+        finish.sort(key=lambda row: (module_number(row["live_module"]), row["live_slot"]))
+        past: list[dict[str, Any]] = []
+
+        for mod in modules:
+            if mod == current:
+                continue
+            if not complete.get(mod):
+                continue
+            a = answered_mod.get((sid, str(mod)), {"n": 0})["n"]
+            o = int(offered_mod.get(str(mod), 0))
+            summ = summary(a, o)
+            past.append(
+                {
+                    "module": str(mod),
+                    "summary_line": past_module_summary(str(mod), summ.get("level")),
+                    "level": summ.get("level"),
+                    "complete": True,
+                }
+            )
+        past.sort(key=lambda row: module_number(row["module"]), reverse=True)
+        live = self.get_active_live_session_for_class(cid)
+        return {
+            "codename": codename,
+            "course_code": course,
+            "header_subtitle": module_label(course, current),
+            "header_line": dashboard_header_line(course, current),
+            "current_module": str(current),
+            "this_module": build_module_card(mod_ans, mod_off, slots=slots),
+            "finish_these": finish,
+            "past_modules": past,
+            "live_active": live is not None,
+            "live_session_id": int(live["id"]) if live else None,
+            "show_phase2": False,
+            "show_phase3": False,
+        }
+
     def list_catchup_links(self, class_id: int) -> list[dict[str, Any]]:
         with self._lock:
             rows = self.conn.execute(
