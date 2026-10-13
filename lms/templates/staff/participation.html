@@ -44,7 +44,6 @@
               <label><input type="checkbox" class="l4g" data-module="{{ m.module }}" {% if m.l4_needs_group %}checked{% endif %} {% if m.complete %}disabled{% endif %}> Level 4 needs group work</label>
             </th>
           {% endfor %}
-          <th>PIN</th>
         </tr>
       </thead>
       <tbody>
@@ -58,22 +57,12 @@
                 {% if c.catchup %}<span class="muted">({{ c.catchup }} after class)</span>{% endif %}
               </td>
             {% endfor %}
-            <td><input size="4" maxlength="4" inputmode="numeric" data-pin="{{ row.student_id }}" aria-label="New PIN"><button type="button" class="btn secondary pin" data-sid="{{ row.student_id }}">Set</button></td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
 
-    {% if pin_slips %}
-    <h2>Default catch-up PINs</h2>
-    <p class="hint no-print">Hand these out once. Students keep this PIN all course; reset clears the slip.</p>
-    <div class="pin-slips" id="pin-slips">
-      {% for slip in pin_slips %}
-        <p class="pin-slip"><strong>{{ slip.name }}</strong> — {{ slip.slip }}</p>
-      {% endfor %}
-    </div>
-    <button type="button" class="btn secondary no-print" onclick="window.print()">Print PIN list</button>
-    {% endif %}
+    <p class="hint no-print">Catch-up PINs and printable slips live on the <a href="{{ url_for('staff_course', class_id=class_id, tab='ap', view='roster') }}">Roster</a> tab in Attendance &amp; Participation.</p>
 
         {% if pin_alerts %}
     <div class="card pin-alerts no-print" role="status">
@@ -118,7 +107,6 @@
       try { await navigator.clipboard.writeText(b.dataset.url); b.textContent = "Copied"; }
       catch (e) { window.prompt("Copy this link", b.dataset.url); }
     });
-    document.querySelectorAll(".pin").forEach((b) => b.onclick = () => post(`${base}/students/${b.dataset.sid}/pin`, {pin: document.querySelector(`[data-pin="${b.dataset.sid}"]`).value}, "PUT"));
     document.querySelectorAll(".discard").forEach((b) => b.onclick = () => {
       const label = b.dataset.label || "this run";
       if (!window.confirm(`Discard ${label}? Its answers will not count toward participation.`)) return;

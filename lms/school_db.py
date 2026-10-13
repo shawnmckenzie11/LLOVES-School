@@ -30486,6 +30486,41 @@ class SchoolDB(LovesDB):
             for r in rows
         ]
 
+
+    def catchup_portal_session_valid(
+        self, flask_session: Any, class_id: int, student_id: int
+    ) -> bool:
+        """True when the browser holds a catch-up portal session for this student."""
+        cid = int(class_id)
+        sid = int(student_id)
+        want_stamp = self.catchup_pin_stamp(cid, sid)
+        if not want_stamp:
+            return False
+        for key, held in dict(flask_session or {}).items():
+            if not str(key).startswith("catchup:") or str(key).endswith(":who"):
+                continue
+            if not isinstance(held, dict):
+                continue
+            if int(held.get("cid") or 0) != cid or int(held.get("sid") or 0) != sid:
+                continue
+            if str(held.get("pin") or "") == want_stamp:
+                return True
+        return False
+
+    def catchup_pin_change_blocks_student(
+        self, class_id: int, student_id: int, flask_session: Any
+    ) -> bool:
+        """True when the student must set a catch-up PIN before answering."""
+        prompt = self.catchup_pin_prompt_for_student(int(class_id), int(student_id))
+        if not prompt:
+            return False
+        if prompt.get("forced"):
+            return True
+        dismiss_key = f"catchup_pin_later:{class_id}:{student_id}"
+        if flask_session.get(dismiss_key):
+            return False
+        return bool(prompt.get("show"))
+
     def catchup_pin_stamp(self, class_id: int, student_id: int) -> str:
         """Fingerprint of the student's current PIN hash, ``""`` when none is set.
 
@@ -30515,19 +30550,40 @@ class SchoolDB(LovesDB):
         One PIN per student for the whole course, reused on every catch-up
         link. A new hash changes ``catchup_pin_stamp``, which ends the
         student's open catch-up sessions. Clears any stored default-PIN
-        ciphertext (MCK-204).
+        ciphertext (MCK-204). Never logs the raw PIN.
         """
-        from participation import check_pin, hash_pin, valid_pin
+        from participation import (
+            PIN_SET_BY_STUDENT,
+            PIN_SET_BY_TEACHER,
+            check_pin,
+            hash_pin,
+            validate_chosen_pin,
+        )
 
-        if not valid_pin(pin):
-            raise ValueError("PIN must be 4 digits.")
+        active = [
+            r[0]
+            for r in self.conn.execute(
+                "SELECT session_code FROM live_class_sessions WHERE status = 'active'"
+            ).fetchall()
+        ]
+        class_row = self.game.conn.execute(
+            "SELECT live_access_code FROM classes WHERE id = ?", (int(class_id),)
+        ).fetchone()
+        if class_row and class_row[0]:
+            active = list(active) + [str(class_row[0])]
+        validate_chosen_pin(pin, active_join_codes=active)
+        setter = (
+            pin_set_by
+            if pin_set_by in (PIN_SET_BY_STUDENT, PIN_SET_BY_TEACHER, "default")
+            else PIN_SET_BY_TEACHER
+        )
         with self.game._lock:
             existing = self.game.conn.execute(
                 "SELECT pin_hash FROM students WHERE id = ? AND class_id = ?",
                 (int(student_id), int(class_id)),
             ).fetchone()
             if (
-                pin_set_by == "student"
+                pin_set_by == PIN_SET_BY_STUDENT
                 and existing
                 and str(existing[0] or "").strip()
                 and check_pin(str(pin), str(existing[0]))
@@ -30535,10 +30591,10 @@ class SchoolDB(LovesDB):
                 raise ValueError("Choose a different PIN than your current one.")
             self.game.conn.execute(
                 """
-                UPDATE students SET pin_hash = ?, default_pin_ciphertext = NULL
+                UPDATE students SET pin_hash = ?, default_pin_ciphertext = NULL, pin_set_by = ?
                 WHERE id = ? AND class_id = ?
                 """,
-                (hash_pin(str(pin)), int(student_id), int(class_id)),
+                (hash_pin(str(pin)), setter, int(student_id), int(class_id)),
             )
             if self.game.conn.in_transaction:
                 self.game.conn.commit()
@@ -30549,6 +30605,65 @@ class SchoolDB(LovesDB):
             )
             if self.conn.in_transaction:
                 self.conn.commit()
+
+    def require_catchup_pin_change(self, class_id: int) -> bool:
+        """True when students must replace a teacher default PIN (MCK-207)."""
+        with self.game._lock:
+            row = self.game.conn.execute(
+                "SELECT require_catchup_pin_change FROM classes WHERE id = ?",
+                (int(class_id),),
+            ).fetchone()
+        return bool(row and int(row[0] or 0))
+
+    def set_require_catchup_pin_change(self, class_id: int, required: bool) -> bool:
+        """Toggle the per-class 'require PIN change' switch for catch-up."""
+        with self.game._lock:
+            cur = self.game.conn.execute(
+                "UPDATE classes SET require_catchup_pin_change = ? WHERE id = ?",
+                (1 if required else 0, int(class_id)),
+            )
+            if self.game.conn.in_transaction:
+                self.game.conn.commit()
+        return int(cur.rowcount or 0) > 0
+
+    def open_catchup_portal_url_for_class(self, class_id: int) -> str | None:
+        """First open catch-up link path for a class (canonical when module/slot known)."""
+        for row in self.list_catchup_links(int(class_id)):
+            if not int(row.get("is_open") or 0):
+                continue
+            return self.catchup_canonical_path_for_link(row)
+        return None
+
+    def catchup_canonical_path_for_link(self, link: dict[str, Any]) -> str:
+        """Canonical ``/catchup/<COURSE>/<mN-cK>/<token>`` path for one link."""
+        from participation import catchup_canonical_path
+
+        cid = int(link["class_id"])
+        return catchup_canonical_path(
+            self._course_code_for_class(cid),
+            str(link.get("live_module") or ""),
+            str(link.get("live_slot") or ""),
+            str(link.get("token") or ""),
+        )
+
+    def catchup_pin_prompt_for_student(self, class_id: int, student_id: int) -> dict[str, Any] | None:
+        """Whether to show the catch-up PIN pop-up for this student (MCK-207)."""
+        from participation import PIN_SET_BY_DEFAULT, PIN_SET_BY_STUDENT
+
+        with self.game._lock:
+            row = self.game.conn.execute(
+                "SELECT pin_set_by FROM students WHERE id = ? AND class_id = ?",
+                (int(student_id), int(class_id)),
+            ).fetchone()
+        if row is None:
+            return None
+        by = str(row[0] or "").strip().lower()
+        if by == PIN_SET_BY_STUDENT:
+            return None
+        forced = self.require_catchup_pin_change(class_id)
+        if by != PIN_SET_BY_DEFAULT and not forced:
+            return None
+        return {"forced": forced, "show": True}
 
     def teacher_default_pin_slips(self, class_id: int, secret: str) -> list[dict[str, Any]]:
         """Teacher-only printable slips for students who still have default PIN ciphertext."""
@@ -30619,7 +30734,7 @@ class SchoolDB(LovesDB):
                 pin_hash, ciphertext = assign_default_pin_fields(pin, secret)
                 cur = self.game.conn.execute(
                     """
-                    UPDATE students SET pin_hash = ?, default_pin_ciphertext = ?
+                    UPDATE students SET pin_hash = ?, default_pin_ciphertext = ?, pin_set_by = 'default'
                     WHERE id = ? AND class_id = ? AND TRIM(COALESCE(pin_hash, '')) = ''
                     """,
                     (pin_hash, ciphertext, int(row["id"]), int(class_id)),

@@ -29,6 +29,10 @@ CATCHUP_PIN_IP_LIMIT = 20
 CATCHUP_PIN_IP_PREFIX = "catchup-pin|"
 CATCHUP_SESSION_S = 30 * 60
 SOURCES = ("live", "catchup")
+FORBIDDEN_PINS = frozenset({"0000", "1234"})
+PIN_SET_BY_DEFAULT = "default"
+PIN_SET_BY_STUDENT = "student"
+PIN_SET_BY_TEACHER = "teacher"
 
 # Wonder copy, verbatim.
 COPY_L4 = "{a}/{o} completed \u00b7 Level 4"
@@ -151,6 +155,52 @@ def summary(answered: int, offered: int) -> dict[str, Any]:
 
 def valid_pin(pin: Any) -> bool:
     return bool(_PIN.match(str(pin or "")))
+
+
+def catchup_lesson_slug(live_module: str, live_slot: str) -> str:
+    """URL slug ``m2-c1`` for a live module and class slot (MCK-207)."""
+    mod = str(live_module or "").strip().upper()
+    slot = str(live_slot or "").strip().upper()
+    mod_n = re.sub(r"^M", "", mod)
+    slot_n = re.sub(r"^C", "", slot)
+    if not mod_n.isdigit() or not slot_n.isdigit():
+        return ""
+    return f"m{int(mod_n)}-c{int(slot_n)}"
+
+
+def catchup_canonical_path(
+    course_code: str, live_module: str, live_slot: str, token: str
+) -> str:
+    """Canonical catch-up path ``/catchup/MCF3M/m2-c1/<token>``."""
+    course = str(course_code or "").strip().upper()
+    slug = catchup_lesson_slug(live_module, live_slot)
+    safe = str(token or "").strip()
+    return f"/catchup/{course}/{slug}/{safe}"
+
+
+def catchup_header_kicker(course_code: str, live_module: str, live_slot: str) -> str:
+    """Small-caps header line, e.g. ``MCF3M · MODULE 2 · CLASS 1``."""
+    course = str(course_code or "").strip().upper()
+    mod = str(live_module or "").strip().upper()
+    slot = str(live_slot or "").strip().upper()
+    mod_n = int(re.sub(r"^M", "", mod)) if re.sub(r"^M", "", mod).isdigit() else 0
+    slot_n = int(re.sub(r"^C", "", slot)) if re.sub(r"^C", "", slot).isdigit() else 0
+    return f"{course} · MODULE {mod_n} · CLASS {slot_n}"
+
+
+def validate_chosen_pin(pin: str, *, active_join_codes: Any = ()) -> None:
+    """Reject weak or join-code PINs when a student or teacher sets a PIN.
+
+    Raises:
+        ValueError: The PIN is not acceptable.
+    """
+    text = str(pin or "").strip()
+    if not valid_pin(text):
+        raise ValueError("PIN must be 4 digits.")
+    if text in FORBIDDEN_PINS:
+        raise ValueError("Choose a PIN that is not 0000 or 1234.")
+    if looks_like_join_code(text, active_join_codes):
+        raise ValueError("That matches a join code. Pick a different PIN.")
 
 
 def hash_pin(pin: str, salt: str | None = None) -> str:

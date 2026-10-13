@@ -12,15 +12,23 @@
     .catchup .line { font-weight: 600; }
     .catchup label.field { display: block; margin: .8rem 0 .3rem; }
     .catchup .catchup-questions { margin-top: .9rem; }
+    .catchup-pin-dialog { max-width: 22rem; border: none; border-radius: .5rem; padding: 1rem 1.1rem; }
+    .catchup-pin-dialog::backdrop { background: rgba(0,0,0,.45); }
+    .catchup-pin-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .75rem; }
+    .catchup-toast { position: fixed; left: 50%; bottom: 1.25rem; transform: translateX(-50%);
+      background: #111; color: #fff; padding: .55rem .85rem; border-radius: .35rem; font-size: .9rem;
+      opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 30; }
+    .catchup-toast.is-on { opacity: 1; }
   </style>
 </head>
 <body class="student-portal">
-  <div class="student-wrap catchup">
+  <div class="student-wrap catchup" id="catchup-root">
+{% if header_kicker is defined and header_kicker %}
+    <p class="kicker">{{ header_kicker }}</p>
+{% endif %}
 {% if closed %}
-    <p class="kicker">Catch-up</p>
     <div class="error">{{ closed }}</div>
 {% elif pin_step %}
-    <p class="kicker">Catch-up</p>
     <h1>Enter your PIN</h1>
     {% if error %}<div class="error" data-key="{{ error.key }}">{{ error.text }}</div>{% endif %}
     <form method="post" autocomplete="off">
@@ -32,7 +40,6 @@
       <p><button class="full" type="submit">Start</button></p>
     </form>
 {% elif signin %}
-    <p class="kicker">Catch-up</p>
     <h1>Who are you?</h1>
     {% if error %}<div class="error" data-key="{{ error.key }}">{{ error.text }}</div>{% endif %}
     <form method="post">
@@ -45,8 +52,7 @@
       <p><button class="full" type="submit">Next</button></p>
     </form>
 {% else %}
-    <p class="kicker">{{ codename }}</p>
-    <h1>Catch-up</h1>
+    <h1>{{ codename or 'Catch-up' }}</h1>
     {% if line %}<p class="sub line">{{ line }}</p>{% endif %}
     {% if questions %}
       <div id="catchup-questions" class="catchup-questions" aria-live="polite"></div>
@@ -63,5 +69,39 @@
     {% endif %}
 {% endif %}
   </div>
+{% if pin_modal and pin_prompt %}
+  <dialog id="catchup-pin-dialog" class="catchup-pin-dialog" open aria-labelledby="catchup-pin-title">
+    <form method="post" id="catchup-pin-form" autocomplete="off">
+      <h2 id="catchup-pin-title">Set your catch-up PIN</h2>
+      <p class="hint">Choose a 4-digit PIN you'll use to open catch-up links. It's not your join code.</p>
+      {% if pin_prompt.forced %}<p class="hint">Set a PIN now to open catch-up links.</p>{% endif %}
+      {% if pin_error %}<div class="error">{{ pin_error }}</div>{% endif %}
+      <label class="field" for="catchup_pin_new">New PIN</label>
+      <input class="full" id="catchup_pin_new" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}"
+             minlength="4" maxlength="4" autocomplete="off" required>
+      <label class="field" for="catchup_pin_confirm">Confirm PIN</label>
+      <input class="full" id="catchup_pin_confirm" name="confirm" type="password" inputmode="numeric" pattern="[0-9]{4}"
+             minlength="4" maxlength="4" autocomplete="off" required>
+      <div class="catchup-pin-actions">
+        <button type="submit" name="action" value="set_catchup_pin">Save my PIN</button>
+        {% if not pin_prompt.forced %}
+        <button type="submit" class="secondary" name="action" value="pin_later" formnovalidate>Later</button>
+        {% endif %}
+      </div>
+    </form>
+  </dialog>
+{% endif %}
+  <div id="catchup-pin-toast" class="catchup-toast" role="status" aria-live="polite"></div>
+  {% if pin_saved_toast %}
+  <script>
+    (function () {
+      const el = document.getElementById("catchup-pin-toast");
+      if (!el) return;
+      el.textContent = {{ pin_saved_toast | tojson }};
+      el.classList.add("is-on");
+      window.setTimeout(() => el.classList.remove("is-on"), 3200);
+    })();
+  </script>
+  {% endif %}
 </body>
 </html>

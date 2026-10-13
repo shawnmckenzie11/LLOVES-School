@@ -243,16 +243,20 @@ class CatchupWithDefaultPinTests(Base):
         data = catchup_data(html)
         self.assertTrue(data["questions"])
 
-    def test_teacher_only_pin_slips_on_participation_page(self) -> None:
+    def test_teacher_only_pin_slips_on_roster_tab(self) -> None:
         client = self.app.test_client()
-        html = client.get(f"/staff/classes/{self.class_id}/participation").get_data(as_text=True)
+        html = client.get(
+            f"/staff/class/{self.class_id}?tab=ap&view=roster"
+        ).get_data(as_text=True)
         self.assertNotIn("Default catch-up PINs", html)
         staff = self.app.test_client()
         staff.get("/auth/google?portal=staff")
         staff.get("/auth/google/callback?email=teacher@gmail.com&name=T")
         code = self.school.get_user_by_email("teacher@gmail.com")["verification_code"]
         staff.post("/verify-email", data={"code": code})
-        page = staff.get(f"/staff/classes/{self.class_id}/participation").get_data(as_text=True)
+        page = staff.get(
+            f"/staff/class/{self.class_id}?tab=ap&view=roster"
+        ).get_data(as_text=True)
         self.assertIn("Default catch-up PINs", page)
         self.assertIn(SLIP_TEMPLATE.format(pin=self.default_pin), page)
 

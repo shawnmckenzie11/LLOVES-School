@@ -3837,7 +3837,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     view="attendance",
                 )
             )
-        if ap_view not in {"attendance", "participation", "feedback", "engagement"}:
+        if ap_view not in {"attendance", "participation", "feedback", "engagement", "roster"}:
             ap_view = "attendance"
         portfolio_view = (request.args.get("view") or "build").strip().lower()
         if portfolio_view not in {"build", "marking"}:
@@ -3896,12 +3896,30 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             if tab == "ap" and ap_view == "feedback"
             else {"columns": [], "students": [], "totals": {}, "grand_total": 0}
         )
+        roster_pin_slips = (
+            school.teacher_default_pin_slips(class_id, str(app.secret_key or ""))
+            if tab == "ap"
+            and ap_view == "roster"
+            and school.teacher_owns_class(int(user["id"]), class_id)
+            else []
+        )
+        roster_pin_alerts = (
+            school.catchup_pin_guess_alerts(class_id)
+            if tab == "ap" and ap_view == "roster"
+            else []
+        )
+        roster_codenames = school.class_codenames(class_id) if tab == "ap" and ap_view == "roster" else {}
+        require_catchup_pin_change = (
+            school.require_catchup_pin_change(class_id) if tab == "ap" and ap_view == "roster" else False
+        )
         live_packs = live_class_registry(
             (offering or {}).get("ontario_code")
             or cls.get("ontario_code")
             or "MCF3M"
         )
-        return render_template(
+        from flask import make_response
+
+        html = render_template(
             "staff/course.html",
             user=user,
             cls=cls,
@@ -3923,6 +3941,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             live_session_code=live_session_code,
             live_step=live_step,
             school_name=SCHOOL_NAME,
+            roster_pin_slips=roster_pin_slips,
+            roster_pin_alerts=roster_pin_alerts,
+            roster_codenames=roster_codenames,
+            require_catchup_pin_change=require_catchup_pin_change,
             show_module_pack_upload=False,
             pack_error=pack_error,
             pack_ok=pack_ok,
@@ -3933,6 +3955,14 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             ),
             roster_students=school.roster_name_entries(class_id),
         )
+        resp = make_response(html)
+        if (
+            tab == "ap"
+            and ap_view == "roster"
+            and school.teacher_owns_class(int(user["id"]), class_id)
+        ):
+            resp.headers["Cache-Control"] = "no-store"
+        return resp
 
     @app.route("/staff/class/<int:class_id>/module-pack", methods=["POST"])
     @staff_required
@@ -6095,6 +6125,20 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         if payload.get("celebrate") and payload.get("exit_feedback", {}).get("token"):
             session[EXIT_FEEDBACK_SESSION_KEY] = payload["exit_feedback"]["token"]
+        active_q = payload.get("active_questions") or []
+        if not active_q:
+            dismiss_key = f"catchup_pin_later:{class_id}:{student_id}"
+            prompt = school.catchup_pin_prompt_for_student(int(class_id), int(student_id))
+            if prompt and prompt.get("forced"):
+                session.pop(dismiss_key, None)
+            elif prompt and session.get(dismiss_key):
+                prompt = None
+            if prompt:
+                portal_url = school.open_catchup_portal_url_for_class(int(class_id))
+                payload["catchup_pin_prompt"] = {
+                    **prompt,
+                    "catchup_url": portal_url,
+                }
         return jsonify(payload)
 
     @app.route("/api/student/live-prompt")
@@ -8457,16 +8501,28 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
     # --- MCK-198: individual participation + catch-up link ---------------
 
-    def _catchup_url(token: str) -> str:
-        return url_for("catchup_page", token=token, _external=True)
+    def _catchup_url(link: dict[str, Any]) -> str:
+        """Canonical shared catch-up URL for one class lesson (MCK-207)."""
+        from participation import catchup_lesson_slug
+
+        course = school._course_code_for_class(int(link["class_id"])).upper()
+        slug = catchup_lesson_slug(str(link.get("live_module") or ""), str(link.get("live_slot") or ""))
+        return url_for(
+            "catchup_page_canonical",
+            course=course,
+            slug=slug,
+            token=str(link["token"]),
+            _external=True,
+        )
 
     def _catchup_links_payload(class_id: int) -> list[dict[str, Any]]:
         return [
             {
                 **link,
+                "class_id": int(class_id),
                 "is_open": bool(link["is_open"]),
                 "discarded": bool(link.get("discarded")),
-                "url": _catchup_url(link["token"]),
+                "url": _catchup_url({**link, "class_id": int(class_id)}),
             }
             for link in school.list_catchup_links(class_id)
         ]
@@ -8572,7 +8628,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         if owned is None:
             return jsonify({"ok": False, "error": "Not found."}), 404
         try:
-            school.set_student_pin(class_id, student_id, str(body.get("pin") or ""))
+            school.set_student_pin(class_id, student_id, str(body.get("pin") or ""), pin_set_by="teacher")
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         return jsonify({"ok": True})
@@ -8598,6 +8654,63 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         school.teacher_unlock_catchup_pin(class_id, student_id)
         return jsonify({"ok": True})
 
+    @app.route("/api/classes/<int:class_id>/catchup-pin-policy", methods=["POST"])
+    @login_required
+    def api_catchup_pin_policy(class_id: int):
+        """Toggle per-class 'require PIN change' for catch-up (MCK-207)."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        body = request.get_json(silent=True) or {}
+        required = bool(body.get("require_pin_change"))
+        if not school.set_require_catchup_pin_change(class_id, required):
+            return jsonify({"ok": False, "error": "Not found."}), 404
+        return jsonify({"ok": True, "require_pin_change": required})
+
+    @app.route("/api/student/catchup-pin", methods=["POST"])
+    @student_required
+    def api_student_catchup_pin():
+        """Live shell cannot change PIN; requires catch-up portal sign-in (MCK-207)."""
+        ctx = resolve_student_live_context(school, session)
+        if ctx is None or ctx.get("student_id") in (None, ""):
+            return jsonify({"ok": False, "error": "Not signed in."}), 403
+        class_id = int(ctx["class_id"])
+        student_id = int(ctx["student_id"])
+        body = request.get_json(silent=True) or {}
+        pin = str(body.get("pin") or "")
+        confirm = str(body.get("confirm") or "")
+        if pin != confirm:
+            return jsonify({"ok": False, "error": "PINs must match."}), 400
+        try:
+            school.authorize_student_pin_change(int(class_id), int(student_id), session)
+        except PermissionError:
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "Open your catch-up link and sign in to set your PIN.",
+                    "needs_catchup_portal": True,
+                }
+            ), 403
+        try:
+            school.set_student_pin(int(class_id), int(student_id), pin, pin_set_by="student")
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, "toast": "PIN saved. You're set for catch-up."})
+
+    @app.route("/api/student/catchup-pin/later", methods=["POST"])
+    @student_required
+    def api_student_catchup_pin_later():
+        """Dismiss the optional catch-up PIN pop-up until the next visit (MCK-207)."""
+        ctx = resolve_student_live_context(school, session)
+        if ctx is None or ctx.get("student_id") in (None, ""):
+            return jsonify({"ok": False, "error": "Not signed in."}), 403
+        class_id = int(ctx["class_id"])
+        student_id = int(ctx["student_id"])
+        if school.require_catchup_pin_change(int(class_id)):
+            return jsonify({"ok": False, "error": "PIN change required."}), 403
+        session[f"catchup_pin_later:{class_id}:{student_id}"] = True
+        return jsonify({"ok": True})
+
     @app.route("/staff/classes/<int:class_id>/participation")
     @login_required
     def staff_participation_page(class_id: int):
@@ -8607,8 +8720,6 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return denied
         data = school.class_participation(class_id)
         names = school.class_codenames(class_id)
-        pin_slips = school.teacher_default_pin_slips(class_id, str(app.secret_key or ""))
-        pin_alerts = school.catchup_pin_guess_alerts(class_id)
         user = current_user()
         return render_template(
             "staff/participation.html",
@@ -8616,23 +8727,17 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             data=data,
             names=names,
             links=_catchup_links_payload(class_id),
-            pin_slips=pin_slips,
-            pin_alerts=pin_alerts,
             user=user,
             school_name=SCHOOL_NAME,
         )
 
-    @app.route("/catchup/<token>", methods=["GET", "POST"])
-    def catchup_page(token: str):
-        """Student catch-up: pick a codename, then the PIN on its own screen.
-
-        The token names the class, so there is no join-code step. Only that
-        student's own unanswered individual questions are shown.
-        """
+    def _serve_catchup_page(token: str, link: dict[str, Any]):
+        """Shared catch-up page: pick a codename, then PIN (MCK-207)."""
         import time as _time
 
         from participation import (
             CATCHUP_PIN_IP_LIMIT,
+            catchup_header_kicker,
             CATCHUP_SESSION_S,
             COPY_CATCHUP_TAG,
             COPY_CLOSED,
@@ -8650,12 +8755,17 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             copy,
         )
 
-        link = school.get_catchup_link(token)
-        if link is None:
-            abort(404)
+        class_id = int(link["class_id"])
+        course_code = school._course_code_for_class(class_id)
+        header_kicker = catchup_header_kicker(
+            course_code, str(link.get("live_module") or ""), str(link.get("live_slot") or "")
+        )
+        page_ctx = {"token": token, "header_kicker": header_kicker}
 
         def closed() -> Any:
-            return render_template("student/catchup.html", closed=COPY_CLOSED, token=token), 403
+            return render_template(
+                "student/catchup.html", closed=COPY_CLOSED, **page_ctx
+            ), 403
 
         if not int(link["is_open"]):
             return closed()
@@ -8667,9 +8777,12 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
         def pin_screen(error_key: str | None = None) -> Any:
             return render_template(
-                "student/catchup.html", pin_step=True, token=token,
-                pin_label=copy(KEY_PIN_LABEL), pin_help=copy(KEY_PIN_HELP),
+                "student/catchup.html",
+                pin_step=True,
+                pin_label=copy(KEY_PIN_LABEL),
+                pin_help=copy(KEY_PIN_HELP),
                 error=copy(error_key) if error_key else None,
+                **page_ctx,
             )
 
         error = None
@@ -8727,7 +8840,68 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     "not_set": KEY_PIN_NOT_SET,
                     "unknown_name": KEY_NAME_UNKNOWN,
                 }.get(result["reason"], KEY_PIN_WRONG))
-        elif request.method == "POST" and student_id is not None:
+        elif action == "pin_later" and student_id is not None:
+            if not school.require_catchup_pin_change(class_id):
+                session[f"catchup_pin_later:{class_id}:{student_id}"] = True
+        elif action == "set_catchup_pin" and student_id is not None:
+            pin = str(request.form.get("pin") or "")
+            confirm = str(request.form.get("confirm") or "")
+            pin_error = None
+            pin_saved_toast = None
+            if pin != confirm:
+                pin_error = "PINs must match."
+            else:
+                try:
+                    school.authorize_student_pin_change(
+                        class_id, int(student_id), session
+                    )
+                    school.set_student_pin(
+                        class_id, int(student_id), pin, pin_set_by="student"
+                    )
+                    school.refresh_catchup_portal_pin_stamp(
+                        session, class_id, int(student_id)
+                    )
+                    session.pop(f"catchup_pin_later:{class_id}:{student_id}", None)
+                    pin_saved_toast = "PIN saved. You're set for catch-up."
+                except PermissionError:
+                    pin_error = "Sign in on the catch-up page to set your PIN."
+                except ValueError as exc:
+                    pin_error = str(exc)
+            pin_prompt = school.catchup_pin_prompt_for_student(class_id, int(student_id))
+            if pin_error or (pin_prompt and pin_prompt.get("forced")):
+                return render_template(
+                    "student/catchup.html",
+                    pin_modal=True,
+                    pin_prompt=pin_prompt or {"forced": False, "show": True},
+                    pin_error=pin_error,
+                    codename=school.class_codenames(class_id).get(int(student_id), ""),
+                    **page_ctx,
+                )
+            progress = school.student_module_participation(
+                class_id, int(student_id), str(link["live_module"])
+            )
+            return render_template(
+                "student/catchup.html",
+                line=progress.get("line"),
+                questions=school.catchup_questions(token, int(student_id)),
+                tag=COPY_CATCHUP_TAG,
+                codename=school.class_codenames(class_id).get(int(student_id), ""),
+                pin_saved_toast=pin_saved_toast,
+                **page_ctx,
+            )
+        elif request.method == "POST" and student_id is not None and action not in {
+            "who", "pin", "set_catchup_pin", "pin_later"
+        }:
+            if school.catchup_pin_change_blocks_student(class_id, int(student_id), session):
+                pin_prompt = school.catchup_pin_prompt_for_student(class_id, int(student_id))
+                return render_template(
+                    "student/catchup.html",
+                    pin_modal=True,
+                    pin_prompt=pin_prompt or {"forced": True, "show": True},
+                    pin_error="Set a PIN before answering catch-up questions.",
+                    codename=school.class_codenames(class_id).get(int(student_id), ""),
+                    **page_ctx,
+                )
             try:
                 school.submit_catchup_answer(
                     token, int(student_id), request.form.get("question_key", ""),
@@ -8737,18 +8911,83 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 return closed()
         if student_id is None:
             return render_template(
-                "student/catchup.html", signin=True, error=error, token=token,
-                codenames=list(school.class_codenames(int(link["class_id"])).values()),
+                "student/catchup.html",
+                signin=True,
+                error=error,
+                codenames=list(school.class_codenames(class_id).values()),
+                **page_ctx,
+            )
+        dismiss_key = f"catchup_pin_later:{class_id}:{student_id}"
+        pin_prompt = school.catchup_pin_prompt_for_student(class_id, int(student_id))
+        if pin_prompt and pin_prompt.get("forced"):
+            session.pop(dismiss_key, None)
+        elif pin_prompt and session.get(dismiss_key):
+            pin_prompt = None
+        if pin_prompt and pin_prompt.get("forced"):
+            return render_template(
+                "student/catchup.html",
+                pin_modal=True,
+                pin_prompt=pin_prompt,
+                codename=school.class_codenames(class_id).get(int(student_id), ""),
+                **page_ctx,
             )
         progress = school.student_module_participation(
-            int(link["class_id"]), int(student_id), str(link["live_module"])
+            class_id, int(student_id), str(link["live_module"])
         )
         return render_template(
-            "student/catchup.html", token=token, line=progress.get("line"),
+            "student/catchup.html",
+            line=progress.get("line"),
             questions=school.catchup_questions(token, int(student_id)),
             tag=COPY_CATCHUP_TAG,
-            codename=school.class_codenames(int(link["class_id"])).get(int(student_id), ""),
+            codename=school.class_codenames(class_id).get(int(student_id), ""),
+            pin_modal=bool(pin_prompt),
+            pin_prompt=pin_prompt,
+            **page_ctx,
         )
+
+    @app.route("/catchup/<course>/<slug>/<token>", methods=["GET", "POST"])
+    def catchup_page_canonical(course: str, slug: str, token: str):
+        """Canonical shared catch-up URL (MCK-207)."""
+        from participation import catchup_lesson_slug
+
+        link = school.get_catchup_link(token)
+        if link is None:
+            abort(404)
+        want_course = school._course_code_for_class(int(link["class_id"])).upper()
+        want_slug = catchup_lesson_slug(
+            str(link.get("live_module") or ""), str(link.get("live_slot") or "")
+        )
+        if course.upper() != want_course or slug.lower() != want_slug:
+            return redirect(
+                url_for(
+                    "catchup_page_canonical",
+                    course=want_course,
+                    slug=want_slug,
+                    token=token,
+                )
+            )
+        return _serve_catchup_page(token, link)
+
+    @app.route("/catchup/<token>", methods=["GET", "POST"])
+    def catchup_page_legacy(token: str):
+        """Legacy token-only URL; GET redirects to the canonical path."""
+        from participation import catchup_lesson_slug
+
+        link = school.get_catchup_link(token)
+        if link is None:
+            abort(404)
+        if request.method == "GET":
+            return redirect(
+                url_for(
+                    "catchup_page_canonical",
+                    course=school._course_code_for_class(int(link["class_id"])).upper(),
+                    slug=catchup_lesson_slug(
+                        str(link.get("live_module") or ""), str(link.get("live_slot") or "")
+                    ),
+                    token=token,
+                )
+            )
+        return _serve_catchup_page(token, link)
 
     @app.route("/api/classes/<int:class_id>/engagement-events")
     @login_required
