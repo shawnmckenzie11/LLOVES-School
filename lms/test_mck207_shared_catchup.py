@@ -43,7 +43,7 @@ class Mck207CatchupFlowTest(Base):
         super().setUp()
         self.run_class("M1", "C1", 2, 0, {self.students[0]: 1})
         self.token = self.school.list_catchup_links(self.class_id)[0]["token"]
-        self.link = {**self.school.list_catchup_links(self.class_id)[0], "class_id": self.class_id}
+        self.link = {**self.school.get_catchup_link(self.token), "class_id": self.class_id}
 
     def test_legacy_get_redirects_to_canonical(self) -> None:
         client = self.app.test_client()
