@@ -1,7 +1,7 @@
 name: Attach live Postgres
 
 # Manual only. Merging this file does not attach Postgres and does not
-# run this job. Push to main still runs Deploy LLOVES LMS (deploy.yml).
+# run this job. Only a push to production runs Deploy LLOVES LMS (deploy.yml).
 #
 # Run after merge, when a rolling restart of lloves-lms is acceptable:
 # Actions → Attach live Postgres → Run workflow.

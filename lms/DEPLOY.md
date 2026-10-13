@@ -88,7 +88,7 @@ fly certs check alc.mckenzian.com --app lloves-lms
 
 ## Deploy workflow: only the newest run waits for approval (MCK-126)
 
-Grok Bot fast-forwards `production` to `main` per feature batch. Create or reset the deploy branch once with `git push origin main:production`.
+Grok Bot fast-forwards `production` to `main` per feature batch. Create or reset the deploy branch once with `git fetch origin && git push origin origin/main:production`.
 
 ### One-time GitHub settings (MCK-52) — done 2026-10-13
 
@@ -108,7 +108,7 @@ Shawn configured these on **2026-10-13**. Kept here for audit:
 git fetch origin
 git merge-base --is-ancestor origin/production origin/main \
   || { echo "origin/production is not an ancestor of origin/main; resolve before FF"; exit 1; }
-git push origin main:production
+git fetch origin && git push origin origin/main:production
 ```
 
 Then approve the **Deploy LLOVES LMS** run on GitHub Actions.
