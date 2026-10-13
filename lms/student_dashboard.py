@@ -75,6 +75,23 @@ def module_label(course_code: str, live_module: str) -> str:
     return f"Module {n}" if n else ""
 
 
+
+def dashboard_header_line(course_code: str, live_module: str) -> str:
+    """One header subtitle line, e.g. ``MCF3M · Module 2`` (course code once)."""
+    code = str(course_code or "").strip()
+    mod = module_label(code, live_module)
+    if code and mod:
+        return f"{code} · {mod}"
+    return code or mod
+
+
+def finish_these_row_text(live_slot: str, open_count: int, *, open_word: str = COPY_FINISH_OPEN) -> str:
+    """Finish-these row without chevron, e.g. ``Class 1 · 4 open``."""
+    label = slot_class_label(live_slot)
+    return f"{label} · {int(open_count)} {open_word}"
+
+
+
 def slot_class_label(live_slot: str) -> str:
     """Finish-these row label, e.g. ``Class 1`` from ``C1``."""
     slot = str(live_slot or "").strip().upper()

@@ -30563,6 +30563,8 @@ class SchoolDB(LovesDB):
             module_number,
             past_module_summary,
             pick_current_module,
+            dashboard_header_line,
+            finish_these_row_text,
             slot_class_label,
             slot_dot_state,
             slot_state_label,
@@ -30603,14 +30605,17 @@ class SchoolDB(LovesDB):
             ]
             if not open_q:
                 continue
+            slot_key = str(link.get("live_slot") or link.get("label") or "")
+            open_n = len(open_q)
             finish.append(
                 {
                     "token": str(link["token"]),
                     "live_module": str(link.get("live_module") or ""),
-                    "live_slot": str(link.get("live_slot") or ""),
-                    "label": str(link.get("live_slot") or "").upper(),
-                    "class_label": slot_class_label(str(link.get("live_slot") or "")),
-                    "open_count": len(open_q),
+                    "live_slot": slot_key,
+                    "label": slot_key.upper(),
+                    "class_label": slot_class_label(slot_key),
+                    "finish_line": finish_these_row_text(slot_key, open_n),
+                    "open_count": open_n,
                     "url": self.catchup_canonical_path_for_link(
                         {**link, "class_id": cid}
                     ),
@@ -30641,6 +30646,7 @@ class SchoolDB(LovesDB):
             "codename": codename,
             "course_code": course,
             "header_subtitle": module_label(course, current),
+            "header_line": dashboard_header_line(course, current),
             "current_module": str(current),
             "this_module": build_module_card(mod_ans, mod_off, slots=slots),
             "finish_these": finish,

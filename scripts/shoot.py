@@ -676,7 +676,7 @@ def _mck208_end_active_live(school, class_id: int) -> None:
         school.end_live_class_session(int(live["id"]))
 
 
-def shoot_mck208(base: str, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
+def shoot_mck208(base: str, out_dir: Path, path: Path, widths: list[int], *, only: str | None = None) -> list[Path]:
     """MCK-208: student dashboard states at 390px (seeded Maple / PIN portal)."""
     from playwright.sync_api import sync_playwright
 
@@ -703,6 +703,9 @@ def shoot_mck208(base: str, out_dir: Path, path: Path, widths: list[int]) -> lis
             finish_open = out_dir / f"mck208-dashboard-finish-open-{width}.png"
             page.screenshot(path=str(finish_open), full_page=True)
             shots.append(finish_open)
+            if only == "finish-open":
+                context.close()
+                continue
 
             live = school.start_live_class_session(class_id, int(teacher["id"]))
             page.goto(dashboard_url, wait_until="domcontentloaded")
@@ -1048,6 +1051,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--widths", default="390,1280", help="Comma-separated viewport widths.")
     parser.add_argument("--out", default="/opt/cursor/artifacts", help="PNG directory.")
     parser.add_argument("--state", default="", help="storageState JSON path.")
+    parser.add_argument("--mck208-only", default=None, choices=("finish-open",), help="With --scenario mck208, capture only this shot.")
     parser.add_argument("--seed", action="store_true", help="Run the local-dev seed first.")
     parser.add_argument("--click", default="", help="CSS selector to click before each shot.")
     parser.add_argument("--ready", default="", help="CSS selector that must be visible.")

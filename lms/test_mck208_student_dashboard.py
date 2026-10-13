@@ -119,6 +119,36 @@ class Mck208DashboardTest(Base):
         self.assertIn("/student/dashboard", loc)
         self.assertNotIn("catchup=", loc)
 
+
+    def test_dashboard_header_no_duplicate_mcf3m_in_html(self) -> None:
+        with self.school._lock:
+            self.school.conn.execute(
+                "UPDATE classes SET course_code = ? WHERE id = ?",
+                ("MCF3M", int(self.class_id)),
+            )
+            self.school.conn.commit()
+        client = self.app.test_client()
+        _pin_sign_in(client, self, play=False)
+        html = client.get("/student/dashboard").get_data(as_text=True)
+        import re
+
+        sub = re.search(r'class="sd-subtitle"[^>]*>([^<]+)', html)
+        self.assertIsNotNone(sub)
+        line = sub.group(1).strip()
+        self.assertNotIn("MCF3M · MCF3M", line)
+        self.assertRegex(line, r"^MCF3M · Module \d+$")
+
+    def test_finish_these_row_full_rendered_text(self) -> None:
+        client = self.app.test_client()
+        _pin_sign_in(client, self, play=False)
+        html = client.get("/student/dashboard").get_data(as_text=True)
+        import re
+
+        m = re.search(r'class="sd-finish-text"[^>]*>([^<]+)<', html)
+        self.assertIsNotNone(m, msg="expected a Finish these row")
+        row_text = m.group(1).strip()
+        self.assertRegex(row_text, r"^Class 1 · \d+ open$")
+
     def test_finish_row_uses_copy_open_label(self) -> None:
         from student_dashboard import COPY_FINISH_OPEN, dashboard_copy
 
@@ -145,6 +175,17 @@ class Mck208DashboardTest(Base):
 
 
 class Mck208StudentDashboardPureTest(unittest.TestCase):
+    def test_dashboard_header_line_single_code(self) -> None:
+        from student_dashboard import dashboard_header_line
+
+        self.assertEqual(dashboard_header_line("MCF3M", "M2"), "MCF3M · Module 2")
+
+    def test_finish_these_row_text_helper(self) -> None:
+        from student_dashboard import finish_these_row_text
+
+        self.assertEqual(finish_these_row_text("C1", 4), "Class 1 · 4 open")
+
+
     def test_slot_dot_states(self) -> None:
         from student_dashboard import slot_dot_state
 

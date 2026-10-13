@@ -14,11 +14,11 @@
   </p>
   <header class="sd-header">
     <p class="sd-codename">{{ dashboard.codename }}</p>
-    {% set course_title = (offering.title or '')|trim %}
+    {% set course_title = (offering.course_title or offering.title or '')|trim %}
     {% if course_title and course_title|upper != (offering.ontario_code or '')|upper %}
     <p class="sd-course">{{ course_title }}</p>
     {% endif %}
-    <p class="sd-subtitle">{{ offering.ontario_code }} · {{ dashboard.header_subtitle }}</p>
+    <p class="sd-subtitle">{{ dashboard.header_line }}</p>
   </header>
   <main class="sd-main">
     <section class="sd-card" aria-labelledby="sd-this-module">
@@ -54,7 +54,7 @@
         {% for row in dashboard.finish_these %}
         <li class="sd-finish-row{% if focus_catchup == row.token %} is-focus{% endif %}">
           <a class="sd-finish-link" href="{{ row.url }}?play=1">
-            <span class="sd-finish-text">{{ row.class_label }} · {{ row.open_count }} {{ copy.finish_open }}</span>
+            <span class="sd-finish-text">{{ row.finish_line }}</span>
             <span class="sd-finish-chevron" aria-hidden="true">›</span>
           </a>
         </li>
