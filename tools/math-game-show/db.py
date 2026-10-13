@@ -828,6 +828,8 @@ class GameShowDB:
         self._migrate_class_live_access_code()
         self._migrate_student_pin_hash()
         self._migrate_student_default_pin_ciphertext()
+        self._migrate_student_pin_set_by()
+        self._migrate_class_require_catchup_pin_change()
         self._migrate_student_portal()
         self._migrate_session_scores_late()
         self._migrate_team_name_poll()
@@ -955,6 +957,20 @@ class GameShowDB:
         cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(students)").fetchall()}
         if "default_pin_ciphertext" not in cols:
             self.conn.execute("ALTER TABLE students ADD COLUMN default_pin_ciphertext TEXT")
+
+    def _migrate_student_pin_set_by(self) -> None:
+        """MCK-207: who last set the catch-up PIN (default, student, teacher)."""
+        cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(students)").fetchall()}
+        if "pin_set_by" not in cols:
+            self.conn.execute("ALTER TABLE students ADD COLUMN pin_set_by TEXT")
+
+    def _migrate_class_require_catchup_pin_change(self) -> None:
+        """MCK-207: force students off teacher default PINs before catch-up."""
+        cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(classes)").fetchall()}
+        if "require_catchup_pin_change" not in cols:
+            self.conn.execute(
+                "ALTER TABLE classes ADD COLUMN require_catchup_pin_change INTEGER NOT NULL DEFAULT 0"
+            )
 
     def _migrate_class_live_access_code(self) -> None:
         """Add a unique 8-character student join code per class section."""

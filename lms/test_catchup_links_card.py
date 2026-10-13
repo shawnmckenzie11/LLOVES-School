@@ -124,7 +124,7 @@ class CatchupCardHttpTests(unittest.TestCase):
         link = body["catchup_links"][0]
         for key in ("token", "url", "live_module", "live_slot", "is_open", "created_at", "run_key"):
             self.assertIn(key, link)
-        self.assertTrue(link["url"].endswith("/catchup/cardTok"))
+        self.assertIn("/catchup/MCF3M/m1-c4/cardTok", link["url"])
         self.assertTrue(link["is_open"])
         closed = self.client.post(
             f"/api/classes/{self.class_id}/catchup-links/cardTok", json={"open": False},

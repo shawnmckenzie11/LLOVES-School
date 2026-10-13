@@ -51,10 +51,10 @@ class MathTests(unittest.TestCase):
         self.assertEqual(P.level_line(1, 3), "1/3 completed \u00b7 1 more")
 
     def test_pin_hash(self) -> None:
-        stored = P.hash_pin("1234")
-        self.assertNotIn("1234", stored)
-        self.assertTrue(P.check_pin("1234", stored))
-        self.assertFalse(P.check_pin("4321", stored))
+        stored = P.hash_pin("4321")
+        self.assertNotIn("4321", stored)
+        self.assertTrue(P.check_pin("4321", stored))
+        self.assertFalse(P.check_pin("9876", stored))
         self.assertFalse(P.valid_pin("12a4"))
 
 
@@ -204,19 +204,26 @@ class CaptureTests(Base):
 
 
 class CatchupTests(Base):
+
+    def catchup_url(self, token: str | None = None) -> str:
+        link = {**self.school.list_catchup_links(self.class_id)[0], "class_id": self.class_id}
+        if token:
+            link = {**link, "token": token}
+        return self.school.catchup_canonical_path_for_link(link)
+
     def setUp(self) -> None:
         super().setUp()
         self.run_class("M1", "C1", individual=4, group=2, answers={self.students[0]: 1})
         self.token = self.school.list_catchup_links(self.class_id)[0]["token"]
-        self.school.set_student_pin(self.class_id, self.students[0], "1234")
+        self.school.set_student_pin(self.class_id, self.students[0], "4321")
 
-    def sign_in(self, client, name: str | None = None, pin: str = "1234",
+    def sign_in(self, client, name: str | None = None, pin: str = "4321",
                 ip: str = "127.0.0.1", token: str | None = None) -> str:
         """Pick a codename, then send a PIN, from one client IP. Returns the page."""
-        url = f"/catchup/{token or self.token}"
+        post_url = f"/catchup/{token or self.token}"
         env = {"REMOTE_ADDR": ip}
-        client.post(url, data={"action": "who", "codename": name or self.first}, environ_base=env)
-        return client.post(url, data={"action": "pin", "pin": pin},
+        client.post(post_url, data={"action": "who", "codename": name or self.first}, environ_base=env)
+        return client.post(post_url, data={"action": "pin", "pin": pin},
                            environ_base=env).get_data(as_text=True)
 
     def test_one_course_pin_works_on_every_link(self) -> None:
@@ -225,7 +232,7 @@ class CatchupTests(Base):
         tokens = [link["token"] for link in self.school.list_catchup_links(self.class_id)]
         self.assertEqual(len(tokens), 2)
         for token in tokens:
-            self.assertTrue(self.school.catchup_sign_in(token, self.first, "1234")["ok"], token)
+            self.assertTrue(self.school.catchup_sign_in(token, self.first, "4321")["ok"], token)
             client = self.app.test_client()
             self.assertIn('id="catchup-data"', self.sign_in(client, token=token))
         stored = self.school.game.conn.execute(
@@ -235,7 +242,7 @@ class CatchupTests(Base):
         t = time.time()
         for _ in range(5):
             self.school.catchup_sign_in(tokens[0], self.first, "0000", now=t)
-        self.assertTrue(self.school.catchup_sign_in(tokens[1], self.first, "1234", now=t)["ok"])
+        self.assertTrue(self.school.catchup_sign_in(tokens[1], self.first, "4321", now=t)["ok"])
 
     def test_ip_lockout_before_not_set_message(self) -> None:
         ben = self.school.class_codenames(self.class_id)[self.students[1]]
@@ -244,14 +251,14 @@ class CatchupTests(Base):
         for _ in range(5):
             client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "0000"})
         client.post(f"/catchup/{self.token}", data={"action": "who", "codename": ben})
-        html = client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "1234"}).get_data(as_text=True)
+        html = client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "4321"}).get_data(as_text=True)
         self.assertIn('data-key="pin.ip_locked"', html)
         self.assertNotIn('data-key="pin.not_set"', html)
 
     def test_pin_not_set_has_its_own_copy_and_is_not_a_failure(self) -> None:
         ben = self.school.class_codenames(self.class_id)[self.students[1]]
         for _ in range(6):
-            self.assertEqual(self.school.catchup_sign_in(self.token, ben, "1234")["reason"], "not_set")
+            self.assertEqual(self.school.catchup_sign_in(self.token, ben, "4321")["reason"], "not_set")
         self.assertEqual(self.school.conn.execute(
             "SELECT COUNT(*) FROM catchup_pin_failures").fetchone()[0], 0)
         html = self.sign_in(self.app.test_client(), name=ben, ip="198.51.100.4")
@@ -292,14 +299,14 @@ class CatchupTests(Base):
     def test_teacher_pin_reset_ends_that_students_catchup_sessions(self) -> None:
         client = self.app.test_client()
         self.assertIn('id="catchup-data"', self.sign_in(client))
-        self.assertIn('id="catchup-data"', client.get(f"/catchup/{self.token}").get_data(as_text=True))
+        self.assertIn('id="catchup-data"', client.get(self.catchup_url()).get_data(as_text=True))
         ben = self.school.class_codenames(self.class_id)[self.students[1]]
         self.school.set_student_pin(self.class_id, self.students[1], "5678")
         ben_client = self.app.test_client()
         self.assertIn('id="catchup-data"', self.sign_in(ben_client, name=ben, pin="5678"))
         # Same digits still end it: a reset always makes a new hash.
-        self.school.set_student_pin(self.class_id, self.students[0], "1234")
-        page = client.get(f"/catchup/{self.token}").get_data(as_text=True)
+        self.school.set_student_pin(self.class_id, self.students[0], "4321")
+        page = client.get(self.catchup_url()).get_data(as_text=True)
         self.assertIn('name="codename"', page)
         self.assertNotIn('id="catchup-data"', page)
         client.post(f"/catchup/{self.token}", data={"question_key": "item:M1-q1", "answer": "A"})
@@ -307,7 +314,7 @@ class CatchupTests(Base):
             "SELECT 1 FROM participation_answers WHERE student_id = ? AND source = 'catchup'",
             (self.students[0],)).fetchone())
         # Ben's session is untouched; Avalanche signs in again with the PIN.
-        self.assertIn('id="catchup-data"', ben_client.get(f"/catchup/{self.token}").get_data(as_text=True))
+        self.assertIn('id="catchup-data"', ben_client.get(self.catchup_url()).get_data(as_text=True))
         self.assertIn('id="catchup-data"', self.sign_in(client))
 
     def test_capture_failure_keeps_the_live_responses(self) -> None:
@@ -330,13 +337,13 @@ class CatchupTests(Base):
             ).get_data(as_text=True)
             self.assertIn('data-key="pin.wrong"', html)
         locked = client.post(
-            f"/catchup/{self.token}", data={"action": "pin", "pin": "1234"}
+            f"/catchup/{self.token}", data={"action": "pin", "pin": "4321"}
         ).get_data(as_text=True)
         self.assertIn('data-key="pin.ip_locked"', locked)
-        self.assertEqual(self.school.catchup_sign_in(self.token, "Nobody", "1234")["reason"], "unknown_name")
+        self.assertEqual(self.school.catchup_sign_in(self.token, "Nobody", "4321")["reason"], "unknown_name")
         stored = self.school.game.conn.execute(
             "SELECT pin_hash FROM students WHERE id = ?", (self.students[0],)).fetchone()[0]
-        self.assertTrue(stored and "1234" not in stored)
+        self.assertTrue(stored and "4321" not in stored)
 
     def test_join_code_typed_as_pin_is_refused_without_a_failure(self) -> None:
         t = time.time()
@@ -353,15 +360,15 @@ class CatchupTests(Base):
         self.assertEqual(
             self.school.catchup_sign_in(self.token, self.first, "ABCD12XY", now=t)["reason"], "wrong"
         )
-        self.assertTrue(self.school.catchup_sign_in(self.token, self.first, "1234", now=t)["ok"])
+        self.assertTrue(self.school.catchup_sign_in(self.token, self.first, "4321", now=t)["ok"])
         self.assertTrue(P.looks_like_join_code("abcd"))
         self.assertTrue(P.looks_like_join_code("2345", ["2345"]))
         self.assertFalse(P.looks_like_join_code("2345"))
-        self.assertFalse(P.looks_like_join_code("1234"))
+        self.assertFalse(P.looks_like_join_code("4321"))
 
     def test_pin_is_its_own_screen_and_never_on_the_live_join_form(self) -> None:
         client = self.app.test_client()
-        first = client.get(f"/catchup/{self.token}").get_data(as_text=True)
+        first = client.get(self.catchup_url()).get_data(as_text=True)
         self.assertNotIn('name="pin"', first)
         step2 = client.post(f"/catchup/{self.token}", data={
             "action": "who", "codename": self.first}).get_data(as_text=True)
@@ -387,7 +394,7 @@ class CatchupTests(Base):
         client.post(f"/catchup/{self.token}", data={"action": "who", "codename": self.first})
         for _ in range(5):
             client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "0000"})
-        locked = client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "1234"}).get_data(as_text=True)
+        locked = client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "4321"}).get_data(as_text=True)
         self.assertIn('data-key="pin.ip_locked"', locked)
         self.assertIn("Too many tries from this device", locked.replace("&#39;", "'"))
 
@@ -414,10 +421,10 @@ class CatchupTests(Base):
 
     def test_closed_link(self) -> None:
         self.school.set_catchup_link_open(self.class_id, self.token, False)
-        self.assertEqual(self.school.catchup_sign_in(self.token, self.first, "1234")["reason"], "closed")
+        self.assertEqual(self.school.catchup_sign_in(self.token, self.first, "4321")["reason"], "closed")
         with self.assertRaises(PermissionError):
             self.school.submit_catchup_answer(self.token, self.students[0], "item:M1-q1", "A")
-        rv = self.app.test_client().get(f"/catchup/{self.token}")
+        rv = self.app.test_client().get(self.catchup_url())
         self.assertEqual(rv.status_code, 403)
         self.assertIn("This catch-up is closed. Ask your teacher if you need it reopened.",
                       rv.get_data(as_text=True))
@@ -436,14 +443,14 @@ class CatchupTests(Base):
 
     def test_student_page_flow_shows_only_own_questions(self) -> None:
         client = self.app.test_client()
-        picker = client.get(f"/catchup/{self.token}").get_data(as_text=True)
+        picker = client.get(self.catchup_url()).get_data(as_text=True)
         self.assertIn(">Avalanche<", picker)
         self.assertNotIn(">Ava<", picker)
         client.post(f"/catchup/{self.token}", data={"action": "who", "codename": self.first})
         rv = client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "9999"})
         self.assertIn("That PIN didn&#39;t match. Try again or ask your teacher to reset it.",
                       rv.get_data(as_text=True))
-        rv = client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "1234"})
+        rv = client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "4321"})
         html = rv.get_data(as_text=True)
         self.assertIn("1/4 completed \u00b7 1 more", html)
         data = catchup_data(html)
@@ -509,10 +516,10 @@ class CatchupTests(Base):
         code = self.school.get_user_by_email("teacher@gmail.com")["verification_code"]
         client.post("/verify-email", data={"code": code})
         body = client.get(f"/api/classes/{self.class_id}/catchup-links").get_json()
-        self.assertTrue(body["catchup_links"][0]["url"].endswith(f"/catchup/{self.token}"))
+        self.assertIn(f"/catchup/MCR3U/m1-c1/{self.token}", body["catchup_links"][0]["url"])
         self.assertEqual(client.get(f"/staff/classes/{self.class_id}/participation").status_code, 200)
         self.assertEqual(client.put(f"/api/classes/{self.class_id}/students/{self.students[1]}/pin",
-                                    json={"pin": "12"}).status_code, 400)
+                                    json={"pin": "12ab"}).status_code, 400)
 
 
 if __name__ == "__main__":

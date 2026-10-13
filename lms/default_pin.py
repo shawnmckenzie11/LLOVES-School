@@ -1,7 +1,7 @@
 """MCK-204: course-wide default catch-up PINs (hashed + Fernet for teacher view).
 
 Raw PINs are never logged. Teachers see decrypted defaults only on the
-Participation page; ciphertext is cleared when the PIN hash is replaced.
+Roster tab; ciphertext is cleared when the PIN hash is replaced.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import hashlib
 import secrets
 from typing import Iterable
 
-from participation import hash_pin, valid_pin
+from participation import FORBIDDEN_PINS, hash_pin, valid_pin
 
 try:
     from cryptography.fernet import Fernet, InvalidToken
@@ -82,6 +82,8 @@ def generate_unique_default_pin(
         if pin in taken:
             continue
         if pin_conflicts_class_code(pin, class_code):
+            continue
+        if pin in FORBIDDEN_PINS:
             continue
         return pin
     raise RuntimeError("could not allocate a unique default PIN for this class")

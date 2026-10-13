@@ -303,6 +303,120 @@ def shoot_urls(
     return written
 
 
+
+
+def prepare_mck207_pin_modal(path: Path) -> tuple[int, str, int]:
+    """Ensure one open catch-up link and a student with default PIN (popup)."""
+    class_id = shawn_class_id(path)
+    con = sqlite3.connect(path)
+    try:
+        row = con.execute(
+            "SELECT token FROM catchup_links WHERE class_id = ? ORDER BY id DESC LIMIT 1",
+            (class_id,),
+        ).fetchone()
+        if row is None:
+            token = "mck207demo"
+            con.execute(
+                """
+                INSERT INTO catchup_links (
+                    token, class_id, run_key, live_module, live_slot, is_open,
+                    created_at, updated_at
+                ) VALUES (?, ?, 'session:mck207:2026-10-13T09:00:00', 'M2', 'C1', 1,
+                    '2026-10-13T09:00:00', '2026-10-13T09:00:00')
+                """,
+                (token, class_id),
+            )
+        else:
+            token = str(row[0])
+        sid = con.execute(
+            "SELECT id FROM students WHERE class_id = ? ORDER BY id LIMIT 1",
+            (class_id,),
+        ).fetchone()[0]
+        sys.path.insert(0, str(LMS_DIR))
+        from participation import hash_pin
+
+        con.execute(
+            "UPDATE students SET pin_hash = ?, pin_set_by = 'default', default_pin_ciphertext = 'demo' WHERE id = ?",
+            (hash_pin("5678"), int(sid)),
+        )
+        con.commit()
+    finally:
+        con.close()
+    return class_id, token, int(sid)
+
+
+def shoot_mck207(base: str, state_path: Path, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
+    """MCK-207: roster tab, catch-up sign-in, header, PIN pop-up."""
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    class_id, token, _sid = prepare_mck207_pin_modal(path)
+    canonical = f"{origin}/catchup/MCF3M/m2-c1/{token}"
+    legacy_signin = f"{origin}/catchup/{token}"
+    roster = f"{origin}/staff/class/{class_id}?tab=ap&view=roster"
+    shots: list[Path] = []
+    shots.extend(
+        shoot_urls([roster], widths, state_path=state_path, out_dir=out_dir, ready="#roster-root")
+    )
+    shots.extend(
+        shoot_urls(
+            [legacy_signin],
+            widths,
+            state_path=state_path,
+            out_dir=out_dir,
+            ready="h1",
+        )
+    )
+    # Rename signin files for clarity
+    for w in widths:
+        src = out_dir / f"{slug_for(legacy_signin)}-{w}.png"
+        dest = out_dir / f"mck207-catchup-signin-{w}.png"
+        if src.exists():
+            src.rename(dest)
+            shots.append(dest)
+    shots.extend(
+        shoot_urls(
+            [canonical],
+            widths,
+            state_path=state_path,
+            out_dir=out_dir,
+            ready=".kicker",
+        )
+    )
+    for w in widths:
+        src = out_dir / f"{slug_for(canonical)}-{w}.png"
+        dest = out_dir / f"mck207-catchup-header-{w}.png"
+        if src.exists():
+            src.rename(dest)
+            shots.append(dest)
+    # PIN modal: sign in as student on catch-up (no auth state — fresh context)
+    from playwright.sync_api import sync_playwright
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        for width in widths:
+            context = browser.new_context(viewport={"width": int(width), "height": 900})
+            page = context.new_page()
+            page.goto(legacy_signin, wait_until="domcontentloaded")
+            page.select_option("#codename", index=1)
+            page.locator('button[type="submit"]').first.click()
+            page.locator("#personal_pin").wait_for(state="visible", timeout=30000)
+            page.fill("#personal_pin", "5678")
+            page.locator('button[type="submit"]').first.click()
+            page.locator("#catchup-pin-dialog").wait_for(state="visible", timeout=30000)
+            dest = out_dir / f"mck207-catchup-pin-popup-{width}.png"
+            page.screenshot(path=str(dest), full_page=True)
+            shots.append(dest)
+            context.close()
+        browser.close()
+    for w in widths:
+        src = out_dir / f"{slug_for(roster)}-{w}.png"
+        dest = out_dir / f"mck207-roster-{w}.png"
+        if src.exists():
+            src.rename(dest)
+            shots.append(dest)
+    return shots
+
+
 def shoot_catchup(base: str, state_path: Path, out_dir: Path, path: Path) -> list[Path]:
     """Save empty, mixed, and expanded catch-up cards at desktop width.
 
@@ -599,9 +713,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ready", default="", help="CSS selector that must be visible.")
     parser.add_argument(
         "--scenario",
-        choices=("catchup", "mck62-quiet-dots", "engagement-override"),
+        choices=("catchup", "mck62-quiet-dots", "engagement-override", "mck207"),
         default="",
-        help="Built-in catch-up, MCK-62 quiet-dot, or engagement override shots.",
+        help="Built-in catch-up, MCK-62 quiet-dot, engagement override, or MCK-207 roster/PIN shots.",
     )
     args = parser.parse_args(argv)
     assert_loopback(args.base if "://" in args.base else f"http://{args.base}")
@@ -622,6 +736,9 @@ def main(argv: list[str] | None = None) -> int:
             written.extend(shoot_mck62_quiet_dots(out))
         if args.scenario == "engagement-override":
             written.extend(shoot_engagement_overrides(args.base, state, out))
+        if args.scenario == "mck207":
+            widths = [int(part) for part in args.widths.split(",") if part.strip()]
+            written.extend(shoot_mck207(args.base, state, out, path, widths))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(
@@ -636,7 +753,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         if not written:
             raise SystemExit(
-                "Pass --url and/or --scenario catchup|mck62-quiet-dots|engagement-override."
+                "Pass --url and/or --scenario catchup|mck62-quiet-dots|engagement-override|mck207."
             )
         for item in written:
             print(item)

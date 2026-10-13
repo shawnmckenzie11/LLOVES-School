@@ -1,3 +1,13 @@
+
+async function paintCatchupPinPromptSafe(payload) {
+  try {
+    const mod = await import("./catchup_pin_prompt.js");
+    mod.paintCatchupPinPrompt(payload);
+  } catch (err) {
+    console.warn("catch-up PIN prompt unavailable", err);
+  }
+}
+
 /**
  * Phone-first student live-class home: Live response shell + chrome boards.
  */
@@ -5042,6 +5052,8 @@ async function tick() {
     paintBoard(data);
     maybeScorePops(data);
     paintCelebrate(data);
+    void paintCatchupPinPromptSafe(data);
+
     paintRoundBanner(data);
     paintMedia(data);
     paintMeetCue(data);
@@ -5465,3 +5477,16 @@ const bootCodename = body && body.dataset ? body.dataset.codename : "";
 if (bootCodename) {
   setTabTitle(bootCodename);
 }
+
+
+window.addEventListener("catchup-pin-saved", (ev) => {
+  const line = String((ev.detail && ev.detail.toast) || "PIN saved. You're set for catch-up.");
+  if (mediaToast) {
+    mediaToast.textContent = line;
+    mediaToast.hidden = false;
+    window.clearTimeout(toastHideTimer);
+    toastHideTimer = window.setTimeout(() => {
+      mediaToast.hidden = true;
+    }, 3200);
+  }
+});
