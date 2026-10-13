@@ -246,11 +246,14 @@ def _launch(playwright: object):
         playwright: ``sync_playwright()`` handle.
     """
     chromium = playwright.chromium  # type: ignore[attr-defined]
-    return chromium.launch(
-        headless=True,
-        executable_path=CHROME,
-        args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
-    )
+    launch_args = {
+        "headless": True,
+        "args": ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+    }
+    chrome = Path(CHROME)
+    if chrome.is_file():
+        launch_args["executable_path"] = str(chrome)
+    return chromium.launch(**launch_args)
 
 
 def shoot_urls(
@@ -336,8 +339,15 @@ def prepare_mck207_pin_modal(path: Path) -> tuple[int, str, int]:
         from participation import hash_pin
 
         con.execute(
-            "UPDATE students SET pin_hash = ?, pin_set_by = 'default', default_pin_ciphertext = 'demo' WHERE id = ?",
+            """
+            UPDATE students SET pin_hash = ?, pin_set_by = 'teacher', default_pin_ciphertext = NULL
+            WHERE id = ?
+            """,
             (hash_pin("5678"), int(sid)),
+        )
+        con.execute(
+            "UPDATE classes SET require_catchup_pin_change = 0 WHERE id = ?",
+            (class_id,),
         )
         con.commit()
     finally:
@@ -503,7 +513,7 @@ def shoot_mck207(base: str, state_path: Path, out_dir: Path, path: Path, widths:
             context = browser.new_context(viewport={"width": int(width), "height": 900})
             page = context.new_page()
             page.goto(legacy_signin, wait_until="domcontentloaded")
-            page.select_option("#codename", index=1)
+            page.select_option("#codename", label="Maple")
             page.locator('button[type="submit"]').first.click()
             page.locator("#personal_pin").wait_for(state="visible", timeout=30000)
             page.fill("#personal_pin", "5678")
@@ -520,6 +530,77 @@ def shoot_mck207(base: str, state_path: Path, out_dir: Path, path: Path, widths:
         if src.exists():
             src.rename(dest)
             shots.append(dest)
+    return shots
+
+
+def mck208_live_home_url(origin: str, path: Path) -> str:
+    """Start one live class for Maple and return ``/student/s/<visit_token>``."""
+    sys.path.insert(0, str(LMS_DIR))
+    os.environ["LLOVES_DB"] = str(path)
+    os.environ["LOCAL_DEV_LOGIN"] = "1"
+    from app import create_app
+
+    app = create_app(db_path=path, testing=True)
+    school = app.config["SCHOOL_DB"]
+    class_id = shawn_class_id(path)
+    teacher = school.get_user_by_email(SHAWN_EMAIL)
+    live = school.start_live_class_session(class_id, int(teacher["id"]))
+    cls = school.game.get_class(class_id)
+    code = str(live.get("session_code") or cls.get("live_access_code") or "")
+    client = app.test_client()
+    client.post("/auth/student-code", data={"code": code, "name": "Maple"}, follow_redirects=True)
+    client.post("/student/mood", data={"mood": "good"}, follow_redirects=True)
+    client.post("/student/character", data={"character": "fox"}, follow_redirects=True)
+    attendees = school.list_live_session_attendees(int(live["id"]))
+    visit = str(next(row["visit_token"] for row in attendees if row.get("codename") == "Maple"))
+    return f"{origin.rstrip('/')}/student/s/{visit}"
+
+
+def shoot_mck208(base: str, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
+    """MCK-208: student dashboard and live home strip at 390px."""
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    class_id, token, _sid = prepare_mck207_pin_modal(path)
+    sys.path.insert(0, str(LMS_DIR))
+    from app import create_app
+
+    school = create_app(db_path=path, testing=True).config["SCHOOL_DB"]
+    link_row = next(
+        row for row in school.list_catchup_links(class_id) if str(row["token"]) == token
+    )
+    signin_url = origin + school.catchup_canonical_path_for_link(
+        {**link_row, "class_id": class_id, "token": token}
+    )
+    live_url = mck208_live_home_url(origin, path)
+    shots: list[Path] = []
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        for width in widths:
+            context = browser.new_context(viewport={"width": int(width), "height": 900})
+            page = context.new_page()
+            page.goto(signin_url, wait_until="domcontentloaded")
+            page.select_option("#codename", label="Maple")
+            page.locator('button[type="submit"]').first.click()
+            page.locator("#personal_pin").wait_for(state="visible", timeout=30000)
+            page.fill("#personal_pin", "5678")
+            with page.expect_navigation(timeout=30000):
+                page.locator('button[type="submit"]').first.click()
+            if "/student/dashboard" not in page.url:
+                page.wait_for_url("**/student/dashboard**", timeout=30000)
+            page.locator(".sd-header").wait_for(state="visible", timeout=30000)
+            dash = out_dir / f"mck208-student-dashboard-{width}.png"
+            page.screenshot(path=str(dash), full_page=True)
+            shots.append(dash)
+            page.goto(live_url, wait_until="domcontentloaded")
+            page.wait_for_url("**/student/home**", timeout=30000)
+            page.locator(".student-live-now-strip").wait_for(state="visible", timeout=30000)
+            live_shot = out_dir / f"mck208-student-live-strip-{width}.png"
+            page.screenshot(path=str(live_shot), full_page=True)
+            shots.append(live_shot)
+            context.close()
+        browser.close()
     return shots
 
 
@@ -825,11 +906,12 @@ def main(argv: list[str] | None = None) -> int:
             "engagement-override",
             "mck207",
             "mck207-run-toggle",
+            "mck208",
         ),
         default="",
         help=(
             "Built-in catch-up, MCK-62 quiet-dot, engagement override, "
-            "MCK-207 roster/PIN, or run-class toggle shots."
+            "MCK-207 roster/PIN, run-class toggle, or MCK-208 dashboard shots."
         ),
     )
     args = parser.parse_args(argv)
@@ -857,6 +939,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "mck207-run-toggle":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck207_run_toggle(args.base, state, out, path, widths))
+        if args.scenario == "mck208":
+            widths = [int(part) for part in args.widths.split(",") if part.strip()]
+            written.extend(shoot_mck208(args.base, out, path, widths, only=args.mck208_only))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(
@@ -872,7 +957,7 @@ def main(argv: list[str] | None = None) -> int:
         if not written:
             raise SystemExit(
                 "Pass --url and/or --scenario "
-                "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle."
+                "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|mck208."
             )
         for item in written:
             print(item)

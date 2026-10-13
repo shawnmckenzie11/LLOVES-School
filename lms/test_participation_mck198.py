@@ -217,9 +217,10 @@ class CaptureTests(Base):
 class CatchupTests(Base):
 
     def catchup_url(self, token: str | None = None) -> str:
-        link = {**self.school.list_catchup_links(self.class_id)[0], "class_id": self.class_id}
-        if token:
-            link = {**link, "token": token}
+        links = self.school.list_catchup_links(self.class_id)
+        tok = token or self.token
+        link = next((row for row in links if row["token"] == tok), links[0])
+        link = {**link, "class_id": self.class_id, "token": tok}
         return self.school.catchup_canonical_path_for_link(link)
 
     def setUp(self) -> None:
@@ -229,13 +230,20 @@ class CatchupTests(Base):
         self.school.set_student_pin(self.class_id, self.students[0], "4321")
 
     def sign_in(self, client, name: str | None = None, pin: str = "4321",
-                ip: str = "127.0.0.1", token: str | None = None) -> str:
+                ip: str = "127.0.0.1", token: str | None = None, *, play: bool = True) -> str:
         """Pick a codename, then send a PIN, from one client IP. Returns the page."""
-        post_url = f"/catchup/{token or self.token}"
+        tok = token or self.token
+        post_url = f"/catchup/{tok}"
         env = {"REMOTE_ADDR": ip}
         client.post(post_url, data={"action": "who", "codename": name or self.first}, environ_base=env)
-        return client.post(post_url, data={"action": "pin", "pin": pin},
-                           environ_base=env).get_data(as_text=True)
+        rv = client.post(post_url, data={"action": "pin", "pin": pin}, environ_base=env)
+        if play and rv.status_code in (301, 302, 303, 307, 308):
+            loc = rv.headers.get("Location") or ""
+            if "/student/dashboard" in loc:
+                return client.get(self.catchup_url(tok) + "?play=1", environ_base=env).get_data(
+                    as_text=True
+                )
+        return rv.get_data(as_text=True)
 
     def test_one_course_pin_works_on_every_link(self) -> None:
         """Shawn: one PIN per student, on the student, reused by every link."""
@@ -310,7 +318,10 @@ class CatchupTests(Base):
     def test_teacher_pin_reset_ends_that_students_catchup_sessions(self) -> None:
         client = self.app.test_client()
         self.assertIn('id="catchup-data"', self.sign_in(client))
-        self.assertIn('id="catchup-data"', client.get(self.catchup_url()).get_data(as_text=True))
+        self.assertIn(
+            'id="catchup-data"',
+            client.get(self.catchup_url() + "?play=1").get_data(as_text=True),
+        )
         ben = self.school.class_codenames(self.class_id)[self.students[1]]
         self.school.set_student_pin(self.class_id, self.students[1], "5678")
         ben_client = self.app.test_client()
@@ -325,7 +336,10 @@ class CatchupTests(Base):
             "SELECT 1 FROM participation_answers WHERE student_id = ? AND source = 'catchup'",
             (self.students[0],)).fetchone())
         # Ben's session is untouched; Avalanche signs in again with the PIN.
-        self.assertIn('id="catchup-data"', ben_client.get(self.catchup_url()).get_data(as_text=True))
+        self.assertIn(
+            'id="catchup-data"',
+            ben_client.get(self.catchup_url() + "?play=1").get_data(as_text=True),
+        )
         self.assertIn('id="catchup-data"', self.sign_in(client))
 
     def test_capture_failure_keeps_the_live_responses(self) -> None:
@@ -462,7 +476,7 @@ class CatchupTests(Base):
         self.assertIn("That PIN didn&#39;t match. Try again or ask your teacher to reset it.",
                       rv.get_data(as_text=True))
         rv = client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "4321"})
-        html = rv.get_data(as_text=True)
+        html = client.get(self.catchup_url() + "?play=1").get_data(as_text=True)
         self.assertIn("1/4 completed \u00b7 1 more", html)
         data = catchup_data(html)
         self.assertEqual([q["question_key"] for q in data["questions"]],
@@ -480,9 +494,11 @@ class CatchupTests(Base):
         self.assertFalse(any(q["answered"] for q in data["questions"]))
         self.assertNotIn("Ben", html)
         self.assertNotIn("team", html.lower())
-        rv = client.post(f"/catchup/{self.token}",
-                         data={"question_key": "item:M1-q1", "answer": "Option A text"})
-        data = catchup_data(rv.get_data(as_text=True))
+        client.post(
+            f"/catchup/{self.token}",
+            data={"question_key": "item:M1-q1", "answer": "Option A text"},
+        )
+        data = catchup_data(client.get(self.catchup_url() + "?play=1").get_data(as_text=True))
         self.assertEqual(data["tag"], "Answered after class")
         self.assertEqual([q["answered"] for q in data["questions"]], [True, False, False])
 

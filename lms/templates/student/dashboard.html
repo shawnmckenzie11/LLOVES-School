@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ dashboard.codename }} · {{ offering.ontario_code }} · {{ school_name }}</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+  <link rel="stylesheet" href="/static/student-dashboard.css">
+  {% include "_sentry_browser.html" %}
+</head>
+<body class="student-portal student-dashboard">
+  <header class="sd-header">
+    <p class="sd-codename">{{ dashboard.codename }}</p>
+    <p class="sd-course">{{ offering.title or offering.ontario_code }}</p>
+    <p class="sd-subtitle">{{ dashboard.header_subtitle }}</p>
+  </header>
+  <main class="sd-main">
+    <section class="sd-card" aria-labelledby="sd-this-module">
+      <h2 id="sd-this-module" class="sd-card-title">This module</h2>
+      {% if dashboard.this_module.line %}
+      <p class="sd-calm-line">{{ dashboard.this_module.line }}</p>
+      {% endif %}
+      <div class="sd-level-bar" role="img" aria-label="Level progress">
+        {% for seg in dashboard.this_module.level_bar %}
+        <span class="sd-level-step{% if seg.filled %} is-on{% endif %}"></span>
+        {% endfor %}
+      </div>
+      <div class="sd-slot-dots" aria-label="Classes in this module">
+        {% for slot in dashboard.this_module.slots %}
+        <span class="sd-slot-dot is-{{ slot.state }}" title="{{ slot.slot }}">{{ slot.slot }}</span>
+        {% endfor %}
+      </div>
+    </section>
+
+    {% if dashboard.finish_these %}
+    <section class="sd-card" aria-labelledby="sd-finish">
+      <h2 id="sd-finish" class="sd-card-title">Finish these</h2>
+      <ul class="sd-finish-list">
+        {% for row in dashboard.finish_these %}
+        <li class="sd-finish-row{% if focus_catchup == row.token %} is-focus{% endif %}">
+          <a class="sd-finish-link" href="{{ row.url }}?play=1">
+            <span class="sd-finish-label">{{ row.label }}</span>
+            <span class="sd-finish-meta">{{ row.open_count }} open</span>
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+
+    {% if dashboard.past_modules %}
+    <section class="sd-card" aria-labelledby="sd-past">
+      <h2 id="sd-past" class="sd-card-title">Past modules</h2>
+      {% for row in dashboard.past_modules %}
+      <details class="sd-past-row">
+        <summary>
+          <span>{{ row.module_label }}</span>
+          <span class="sd-past-badge">Complete</span>
+        </summary>
+        {% if row.line %}<p class="sd-calm-line">{{ row.line }}</p>{% endif %}
+      </details>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    <section class="sd-card sd-phase-slot" hidden aria-hidden="true" data-phase="2"></section>
+    <section class="sd-card sd-phase-slot" hidden aria-hidden="true" data-phase="3"></section>
+  </main>
+</body>
+</html>

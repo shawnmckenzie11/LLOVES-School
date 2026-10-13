@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""MCK-208: student dashboard after PIN sign-in."""
+
+from __future__ import annotations
+
+import json
+import unittest
+
+from test_participation_mck198 import Base
+
+
+def _catchup_url(school, class_id: int, token: str) -> str:
+    """Canonical catch-up path for one token."""
+    links = school.list_catchup_links(class_id)
+    link = next((row for row in links if row["token"] == token), links[0])
+    return school.catchup_canonical_path_for_link({**link, "class_id": class_id, "token": token})
+
+
+def _pin_sign_in(client, test: Base, *, play: bool = False) -> None:
+    """Codename + PIN on the class catch-up link."""
+    env = {"REMOTE_ADDR": "127.0.0.1"}
+    client.post(
+        f"/catchup/{test.token}",
+        data={"action": "who", "codename": test.first},
+        environ_base=env,
+    )
+    rv = client.post(
+        f"/catchup/{test.token}",
+        data={"action": "pin", "pin": "4321"},
+        environ_base=env,
+    )
+    if play and rv.status_code in (301, 302, 303, 307, 308):
+        client.get(_catchup_url(test.school, test.class_id, test.token) + "?play=1", environ_base=env)
+
+
+class Mck208DashboardTest(Base):
+    """Dashboard route, API scoping, and catch-up doorway redirect."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.run_class("M1", "C1", individual=4, group=2, answers={self.students[0]: 1})
+        self.token = self.school.list_catchup_links(self.class_id)[0]["token"]
+        self.school.set_student_pin(self.class_id, self.students[0], "4321")
+
+    def test_pin_sign_in_lands_on_dashboard(self) -> None:
+        client = self.app.test_client()
+        env = {"REMOTE_ADDR": "127.0.0.1"}
+        client.post(
+            f"/catchup/{self.token}",
+            data={"action": "who", "codename": self.first},
+            environ_base=env,
+        )
+        rv = client.post(
+            f"/catchup/{self.token}",
+            data={"action": "pin", "pin": "4321"},
+            environ_base=env,
+        )
+        self.assertEqual(rv.status_code, 302)
+        self.assertIn("/student/dashboard", rv.headers.get("Location") or "")
+        html = client.get("/student/dashboard").get_data(as_text=True)
+        self.assertIn("This module", html)
+        self.assertIn(self.first, html)
+        self.assertIn("MCR3U", html)
+
+    def test_catchup_link_opens_dashboard_without_play(self) -> None:
+        client = self.app.test_client()
+        _pin_sign_in(client, self, play=False)
+        rv = client.get(_catchup_url(self.school, self.class_id, self.token))
+        self.assertEqual(rv.status_code, 302)
+        self.assertIn("/student/dashboard", rv.headers.get("Location") or "")
+
+    def test_student_cannot_read_another_students_dashboard_api(self) -> None:
+        client_a = self.app.test_client()
+        _pin_sign_in(client_a, self, play=False)
+        body_a = client_a.get("/api/student/dashboard").get_json()
+        self.assertTrue(body_a.get("ok"))
+        sid_a = body_a["dashboard"]["codename"]
+
+        client_b = self.app.test_client()
+        ben = self.school.class_codenames(self.class_id)[self.students[1]]
+        self.school.set_student_pin(self.class_id, self.students[1], "5678")
+        client_b.post(f"/catchup/{self.token}", data={"action": "who", "codename": ben})
+        client_b.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "5678"})
+        body_b = client_b.get("/api/student/dashboard").get_json()
+        self.assertTrue(body_b.get("ok"))
+        self.assertNotEqual(body_b["dashboard"]["codename"], sid_a)
+
+        # Tamper session student_id; API must still use PIN portal binding.
+        with client_a.session_transaction() as sess:
+            sess["student_id"] = int(self.students[1])
+        denied = client_a.get("/api/student/dashboard").get_json()
+        self.assertFalse(denied.get("ok"))
+
+    def test_finish_these_links_use_play_mode(self) -> None:
+        client = self.app.test_client()
+        _pin_sign_in(client, self, play=False)
+        html = client.get("/student/dashboard").get_data(as_text=True)
+        self.assertIn("?play=1", html)
+        self.assertIn("Finish these", html)
+
+    def test_dashboard_payload_uses_participation_math(self) -> None:
+        payload = self.school.student_dashboard_payload(self.class_id, self.students[0])
+        card = payload["this_module"]
+        self.assertIn("level_bar", card)
+        self.assertEqual(len(card["level_bar"]), 4)
+        self.assertEqual(len(card["slots"]), 4)
+
+
+class Mck208StudentDashboardPureTest(unittest.TestCase):
+    def test_slot_dot_states(self) -> None:
+        from student_dashboard import slot_dot_state
+
+        self.assertEqual(slot_dot_state(3, 3, True), "done")
+        self.assertEqual(slot_dot_state(3, 1, True), "missed")
+        self.assertEqual(slot_dot_state(0, 0, False), "upcoming")
+
+
+if __name__ == "__main__":
+    unittest.main()

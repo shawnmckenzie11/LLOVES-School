@@ -63,6 +63,9 @@ EARNED_AVATAR_SRC = "/static/avatars/earned/{key}.svg"
 EXIT_FEEDBACK_SESSION_KEY = "student_exit_feedback_token"
 HOW_WAS_CLASS = "How was class?"
 
+# MCK-208: PIN-signed catch-up portal (dashboard), separate from live join keys.
+PIN_PORTAL_SESSION_KEY = "student_pin_portal"
+
 # Flask session keys owned by the student-code join path.
 STUDENT_SESSION_KEYS = (
     "student_offering_id",
@@ -468,3 +471,59 @@ def character_choices(earned_keys: tuple[str, ...] | list[str] = ()) -> list[dic
 def mood_choices() -> list[dict[str, str]]:
     """Top-row mood faces for the check-in screen (good / okay / not great)."""
     return [{"key": key, "label": MOOD_LABELS[key]} for key in CHECKIN_MOODS]
+
+
+def bind_pin_portal_session(
+    session: Any,
+    school: Any,
+    class_id: int,
+    student_id: int,
+) -> None:
+    """Store a PIN-authenticated student portal session (MCK-208).
+
+    Does not clear staff login. Never stores the raw PIN.
+    """
+    import time as _time
+
+    from student_dashboard import PIN_PORTAL_SESSION_S
+
+    cid = int(class_id)
+    sid = int(student_id)
+    cls = school.game.get_class(cid)
+    offering = school.get_offering(int(cls["offering_id"]))
+    student = school.game.get_student(cid, sid)
+    session["student_offering_id"] = int(offering["id"])
+    session["student_class_id"] = cid
+    session["student_id"] = sid
+    session[PIN_PORTAL_SESSION_KEY] = {
+        "cid": cid,
+        "sid": sid,
+        "pin": school.catchup_pin_stamp(cid, sid),
+        "exp": _time.time() + PIN_PORTAL_SESSION_S,
+    }
+    session["student_codename"] = str(student.get("codename") or student.get("first_name") or "")
+    if not session.get("logged_in"):
+        session["role"] = "student"
+    session.permanent = False
+
+
+def resolve_pin_portal_context(school: Any, session: Any) -> dict[str, Any] | None:
+    """Return class and student ids when the PIN portal session is still valid."""
+    import time as _time
+
+    held = session.get(PIN_PORTAL_SESSION_KEY) or {}
+    sid = held.get("sid")
+    cid = held.get("cid")
+    if sid is None or cid is None:
+        return None
+    if float(held.get("exp") or 0) <= _time.time():
+        session.pop(PIN_PORTAL_SESSION_KEY, None)
+        return None
+    if str(held.get("pin") or "") != school.catchup_pin_stamp(int(cid), int(sid)):
+        session.pop(PIN_PORTAL_SESSION_KEY, None)
+        return None
+    if int(session.get("student_class_id") or 0) != int(cid):
+        return None
+    if int(session.get("student_id") or 0) != int(sid):
+        return None
+    return {"class_id": int(cid), "student_id": int(sid)}
