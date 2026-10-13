@@ -81,6 +81,14 @@ STUDENT_SESSION_KEYS = (
     "student_mood_done",
 )
 
+# Live join keys cleared when class ends; PIN portal keys stay (MCK-208).
+LIVE_STUDENT_SESSION_KEYS = (
+    "student_live_session_id",
+    "student_visit_token",
+    "student_participant_uuid",
+    "student_mood_done",
+)
+
 # httpOnly auto-resume cookie while a live session stays active.
 REJOIN_COOKIE_NAME = "lloves_live_rejoin"
 REJOIN_COOKIE_MAX_AGE = 8 * 60 * 60
@@ -293,6 +301,16 @@ def clear_student_session_keys(session: Any) -> None:
         session.pop(key, None)
     if session.get("role") == "student":
         session.pop("role", None)
+
+
+def clear_live_student_session_keys(session: Any) -> None:
+    """Drop live-class join keys while keeping PIN portal binding (MCK-208).
+
+    Args:
+        session: Flask session mapping.
+    """
+    for key in LIVE_STUDENT_SESSION_KEYS:
+        session.pop(key, None)
 
 
 def bind_student_session(

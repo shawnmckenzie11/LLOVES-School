@@ -557,7 +557,7 @@ def mck208_live_home_url(origin: str, path: Path) -> str:
 
 
 def shoot_mck208(base: str, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
-    """MCK-208: student dashboard and live home strip at 390px."""
+    """MCK-208: student dashboard and live rejoin strip at 390px."""
     from playwright.sync_api import sync_playwright
 
     origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
@@ -572,7 +572,7 @@ def shoot_mck208(base: str, out_dir: Path, path: Path, widths: list[int]) -> lis
     signin_url = origin + school.catchup_canonical_path_for_link(
         {**link_row, "class_id": class_id, "token": token}
     )
-    live_url = mck208_live_home_url(origin, path)
+    teacher = school.get_user_by_email(SHAWN_EMAIL)
     shots: list[Path] = []
     out_dir.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
@@ -593,9 +593,8 @@ def shoot_mck208(base: str, out_dir: Path, path: Path, widths: list[int]) -> lis
             dash = out_dir / f"mck208-student-dashboard-{width}.png"
             page.screenshot(path=str(dash), full_page=True)
             shots.append(dash)
-            page.goto(live_url, wait_until="domcontentloaded")
-            page.wait_for_url("**/student/home**", timeout=30000)
-            page.locator(".student-live-now-strip", has_text="Rejoin class").wait_for(
+            school.start_live_class_session(class_id, int(teacher["id"]))
+            page.locator("#student-live-rejoin-strip", has_text="Rejoin class").wait_for(
                 state="visible", timeout=30000
             )
             live_shot = out_dir / f"mck208-student-live-strip-{width}.png"

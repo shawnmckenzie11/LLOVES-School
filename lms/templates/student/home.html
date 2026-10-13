@@ -6,16 +6,12 @@
   <title>{% if codename %}{{ codename }} · {% endif %}Class · {{ school_name }}</title>
   <link rel="stylesheet" href="/static/lloves.css">
   <link rel="stylesheet" href="/static/student-portal.css">
-  {% if show_live_now_strip %}<link rel="stylesheet" href="/static/student-dashboard.css">{% endif %}
   {% include "_sentry_browser.html" %}
 </head>
 <body class="student-portal student-home{% if payload.scoring %} is-live{% elif payload.waiting_room != false %} is-waiting-room{% endif %}"
       data-scoring="{{ '1' if payload.scoring else '0' }}"
       data-visit-token="{{ visit_token or '' }}"
       data-codename="{{ codename or '' }}">
-{% if show_live_now_strip %}
-  <p class="student-live-now-strip" role="status">{{ live_strip_copy }}</p>
-{% endif %}
   <header class="student-chrome student-chrome-top" aria-label="Your stats">
     <p class="me-display-time" id="me-display-time" aria-live="polite" data-state="idle">—</p>
     <div id="me-board" class="student-me">

@@ -127,5 +127,89 @@ class Mck208StudentDashboardPureTest(unittest.TestCase):
         self.assertEqual(past_module_summary("M1", 3), "Module 1 \u00b7 Level 3 \u00b7 Complete")
 
 
+
+class Mck208LiveHandoverTest(Base):
+    """NO-GO fixes: dashboard poll, strip placement, PIN survives live end."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.run_class("M1", "C1", individual=4, group=2, answers={self.students[0]: 1})
+        self.token = self.school.list_catchup_links(self.class_id)[0]["token"]
+        self.school.set_student_pin(self.class_id, self.students[0], "4321")
+
+    def _pin_client(self):
+        client = self.app.test_client()
+        env = {"REMOTE_ADDR": "127.0.0.1"}
+        client.post(
+            f"/catchup/{self.token}",
+            data={"action": "who", "codename": self.first},
+            environ_base=env,
+        )
+        client.post(
+            f"/catchup/{self.token}",
+            data={"action": "pin", "pin": "4321"},
+            environ_base=env,
+        )
+        return client
+
+    def test_dashboard_api_live_handover_when_session_starts(self) -> None:
+        client = self._pin_client()
+        before = client.get("/api/student/dashboard").get_json()
+        self.assertFalse(before["live"]["live_active"])
+
+        live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
+        self.school.join_live_class_session(
+            int(live["id"]),
+            int(self.students[0]),
+            codename=self.first,
+        )
+        after = client.get("/api/student/dashboard").get_json()
+        self.assertTrue(after["live"]["in_live"])
+        self.assertIn("/student/", after["live"]["redirect_url"] or "")
+
+    def test_rejoin_strip_on_dashboard_not_live_home(self) -> None:
+        live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
+        dash_client = self._pin_client()
+        dash_html = dash_client.get("/student/dashboard").get_data(as_text=True)
+        self.assertIn("Live now", dash_html)
+        self.assertIn("/student/rejoin-live", dash_html)
+
+        joined = self.school.join_live_class_session(
+            int(live["id"]),
+            int(self.students[0]),
+            codename=self.first,
+        )
+        token = str(joined["attendee"]["visit_token"])
+        live_client = self.app.test_client()
+        live_client.get(f"/student/s/{token}", follow_redirects=True)
+        live_client.post("/student/mood", data={"skip": "1"}, follow_redirects=True)
+        live_client.post("/student/character", data={"character": "panda"}, follow_redirects=True)
+        home_html = live_client.get("/student/home").get_data(as_text=True)
+        self.assertNotIn("student-live-now-strip", home_html)
+
+    def test_end_live_returns_pin_student_to_dashboard(self) -> None:
+        client = self._pin_client()
+        live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
+        joined = self.school.join_live_class_session(
+            int(live["id"]),
+            int(self.students[0]),
+            codename=self.first,
+        )
+        token = str(joined["attendee"]["visit_token"])
+        client.get(f"/student/s/{token}", follow_redirects=True)
+        client.post("/student/mood", data={"skip": "1"}, follow_redirects=True)
+        client.post("/student/character", data={"character": "panda"}, follow_redirects=True)
+        self.assertEqual(client.get("/student/home").status_code, 200)
+
+        self.school.end_live_class_session(int(live["id"]))
+        after_end = client.get("/api/student/state").get_json()
+        self.assertEqual(after_end.get("status"), "ended")
+        self.assertIn("/student/dashboard", after_end.get("redirect") or "")
+
+        dash = client.get("/student/dashboard")
+        self.assertEqual(dash.status_code, 200)
+        api = client.get("/api/student/dashboard").get_json()
+        self.assertTrue(api.get("ok"))
+
 if __name__ == "__main__":
     unittest.main()

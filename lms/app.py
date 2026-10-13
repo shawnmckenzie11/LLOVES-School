@@ -239,6 +239,7 @@ from student_portal import (  # noqa: E402
     bind_pin_portal_session,
     bind_student_session,
     character_choices,
+    clear_live_student_session_keys,
     clear_rejoin_cookie,
     clear_student_session_keys,
     earned_avatar_keys,
@@ -1123,12 +1124,71 @@ def _pin_portal_identity(school: SchoolDB) -> tuple[int, int] | None:
     return int(ctx["class_id"]), int(ctx["student_id"])
 
 
+def _student_post_live_end_destination(school: SchoolDB) -> str:
+    """Where students land when live ends; PIN portal returns to the dashboard."""
+    if resolve_pin_portal_context(school, session) is not None:
+        return url_for("student_dashboard")
+    return url_for("landing")
+
+
+def _student_dashboard_live_handover(
+    school: SchoolDB, class_id: int, student_id: int
+) -> dict[str, Any]:
+    """Live handover for the PIN dashboard (poll + first paint)."""
+    live = school.get_active_live_session_for_class(int(class_id))
+    if live is None:
+        return {
+            "live_active": False,
+            "in_live": False,
+            "redirect_url": None,
+            "show_rejoin_strip": False,
+            "rejoin_url": None,
+        }
+    live_id = int(live["id"])
+    token = visit_token_from_request() or str(session.get("student_visit_token") or "")
+    if not token:
+        attendee = school.get_live_session_attendee(live_id, int(student_id))
+        if attendee is not None:
+            token = str(attendee.get("visit_token") or "")
+    if token and school.student_is_active_live_attendee(
+        live_id,
+        int(student_id),
+        visit_token=token,
+    ):
+        endpoint = next_student_endpoint(
+            school,
+            int(class_id),
+            int(student_id),
+            visit_token=token,
+            unmatched=False,
+        )
+        return {
+            "live_active": True,
+            "in_live": True,
+            "redirect_url": student_url_with_token(endpoint, token),
+            "show_rejoin_strip": False,
+            "rejoin_url": None,
+        }
+    return {
+        "live_active": True,
+        "in_live": False,
+        "redirect_url": None,
+        "show_rejoin_strip": True,
+        "rejoin_url": url_for("student_rejoin_live"),
+    }
+
+
 def _student_dashboard_redirect_if_live(school: SchoolDB, class_id: int, student_id: int) -> Any | None:
     """Send live attendees to Run Live Class home with the visit token."""
     live = school.get_active_live_session_for_class(int(class_id))
     if live is None:
         return None
+    live_id = int(live["id"])
     token = visit_token_from_request() or str(session.get("student_visit_token") or "")
+    if not token:
+        attendee = school.get_live_session_attendee(live_id, int(student_id))
+        if attendee is not None:
+            token = str(attendee.get("visit_token") or "")
     if token:
         try:
             resolved = school.resolve_student_visit_token(token, allow_left=True)
@@ -1139,12 +1199,19 @@ def _student_dashboard_redirect_if_live(school: SchoolDB, class_id: int, student
             and int(resolved.get("class_id") or 0) == int(class_id)
             and int(resolved.get("student_id") or 0) == int(student_id)
             and school.student_is_active_live_attendee(
-                int(live["id"]),
+                live_id,
                 int(student_id),
                 visit_token=token,
             )
         ):
-            return redirect(student_url_with_token("student_home", token))
+            endpoint = next_student_endpoint(
+                school,
+                int(class_id),
+                int(student_id),
+                visit_token=token,
+                unmatched=False,
+            )
+            return redirect(student_url_with_token(endpoint, token))
     ctx = resolve_student_live_context(school, session)
     if (
         ctx is not None
@@ -5415,10 +5482,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         )
 
     def _ended_student_response(*, as_json: bool = False):
-        """Clear student keys + rejoin cookie and return to the landing page."""
-        dest = url_for("landing")
+        """Clear live keys; PIN portal students return to the dashboard."""
+        dest = _student_post_live_end_destination(school)
         session.pop(EXIT_FEEDBACK_SESSION_KEY, None)
-        clear_student_session_keys(session)
+        if resolve_pin_portal_context(school, session) is not None:
+            clear_live_student_session_keys(session)
+        else:
+            clear_student_session_keys(session)
         if as_json:
             resp = jsonify(
                 {
@@ -5452,7 +5522,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 "phase": "ended",
                 "celebrate": False,
                 "feedback": False,
-                "redirect": url_for("landing"),
+                "redirect": _student_post_live_end_destination(school),
                 "fault": (
                     "Live class state is gone. This Meet is no longer running."
                 ),
@@ -5902,6 +5972,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             int(school.game.get_class(class_id)["offering_id"])
         )
         dash = school.student_dashboard_payload(class_id, student_id)
+        handover = _student_dashboard_live_handover(school, class_id, student_id)
         focus = (request.args.get("catchup") or "").strip()[:80]
         from student_dashboard import dashboard_copy
 
@@ -5912,6 +5983,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             school_name=SCHOOL_NAME,
             focus_catchup=focus,
             copy=dashboard_copy(),
+            live_handover=handover,
         )
 
     @app.route("/api/student/dashboard")
@@ -5922,12 +5994,71 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if ids is None:
             return jsonify({"ok": False, "error": "Sign in with your PIN."}), 403
         class_id, student_id = ids
+        handover = _student_dashboard_live_handover(school, class_id, student_id)
         return jsonify(
             {
                 "ok": True,
                 "dashboard": school.student_dashboard_payload(class_id, student_id),
+                "live": handover,
             }
         )
+
+
+    @app.route("/student/rejoin-live")
+    @student_required
+    def student_rejoin_live():
+        """Resume or join live class from the PIN dashboard (MCK-208)."""
+        ids = _pin_portal_identity(school)
+        if ids is None:
+            return redirect(url_for("landing"))
+        class_id, student_id = ids
+        live = school.get_active_live_session_for_class(class_id)
+        if live is None:
+            return redirect(url_for("student_dashboard"))
+        live_id = int(live["id"])
+        try:
+            cls = school.game.get_class(class_id)
+            offering = school.get_offering(int(cls["offering_id"]))
+            student = school.game.get_student(class_id, int(student_id))
+        except KeyError:
+            return redirect(url_for("student_dashboard"))
+        codename = str(student.get("codename") or student.get("first_name") or "")
+        prior_token = str(session.get("student_visit_token") or "")
+        attendee = school.get_live_session_attendee(live_id, int(student_id))
+        if attendee is not None:
+            prior_token = str(attendee.get("visit_token") or prior_token)
+        try:
+            joined = school.join_live_class_session(
+                live_id,
+                int(student_id),
+                codename=codename,
+                visit_token=prior_token,
+            )
+        except (KeyError, ValueError):
+            return redirect(url_for("student_dashboard"))
+        attendee = joined["attendee"]
+        visit_token = str(attendee.get("visit_token") or "")
+        bind_student_session(
+            session,
+            offering,
+            cls,
+            student,
+            live_session_id=live_id,
+            session_code=str(joined["session"].get("session_code") or ""),
+            visit_token=visit_token,
+            participant_uuid=str(attendee.get("participant_uuid") or ""),
+            unmatched=False,
+        )
+        endpoint = next_student_endpoint(
+            school,
+            class_id,
+            int(student_id),
+            visit_token=visit_token,
+            unmatched=False,
+        )
+        resp = redirect(student_url_with_token(endpoint, visit_token))
+        set_rejoin_cookie(resp, visit_token)
+        return resp
 
     @app.route("/student/home")
     @student_required
@@ -6001,9 +6132,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         reward = None
         if not unmatched and not payload.get("scoring") and not payload.get("celebrate"):
             reward = _avatar_reward_view(ctx, class_id, int(student_id))
-        from student_dashboard import COPY_LIVE_STRIP
-
-        show_live_strip = school.get_active_live_session_for_class(class_id) is not None
         return render_template(
             "student/home.html",
             offering=offering,
@@ -6013,8 +6141,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             codename=str(ctx.get("codename") or payload.get("me", {}).get("codename") or ""),
             reward=reward,
             reward_next_url="",
-            show_live_now_strip=show_live_strip,
-            live_strip_copy=COPY_LIVE_STRIP,
         )
 
     @app.route("/api/student/avatar-reward/claim", methods=["POST"])

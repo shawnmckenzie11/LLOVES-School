@@ -9,6 +9,9 @@
   {% include "_sentry_browser.html" %}
 </head>
 <body class="student-portal student-dashboard">
+  <p id="student-live-rejoin-strip" class="student-live-now-strip" role="status"{% if not live_handover.show_rejoin_strip %} hidden{% endif %}>
+    <a class="student-live-rejoin-link" href="{{ live_handover.rejoin_url or '#' }}">{{ copy.live_strip }}</a>
+  </p>
   <header class="sd-header">
     <p class="sd-codename">{{ dashboard.codename }}</p>
     <p class="sd-course">{{ offering.title or offering.ontario_code }}</p>
@@ -80,5 +83,6 @@
     </section>
     {% endif %}
   </main>
+  <script type="module" src="/static/student-dashboard.js"></script>
 </body>
 </html>
