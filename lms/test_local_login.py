@@ -108,16 +108,60 @@ class ProductionGuardTests(unittest.TestCase):
             tmp.cleanup()
 
     def test_production_without_dev_login_starts(self) -> None:
-        """Production boots normally when the flag is absent."""
+        """Production boots normally when the flag is absent and a key is set."""
         tmp = tempfile.TemporaryDirectory()
         root = Path(tmp.name)
         try:
             with mock.patch.dict(
                 os.environ,
-                {"FLASK_ENV": "production", "LOCAL_DEV_LOGIN": ""},
+                {"FLASK_ENV": "production", "LOCAL_DEV_LOGIN": "",
+                 "FLASK_SECRET_KEY": "prod-test-secret"},
                 clear=False,
             ):
                 app = create_app(db_path=root / "l.sqlite", data_dir=root)
+            self.assertEqual(app.secret_key, "prod-test-secret")
+            app.config["SCHOOL_DB"].close()
+        finally:
+            tmp.cleanup()
+
+    def test_production_without_secret_key_refuses_to_start(self) -> None:
+        """MCK-198: production never falls back to the public dev key."""
+        for value in ("", "   ", "lloves-dev-secret-change-me"):
+            tmp = tempfile.TemporaryDirectory()
+            root = Path(tmp.name)
+            try:
+                with mock.patch.dict(
+                    os.environ,
+                    {"FLASK_ENV": "production", "LOCAL_DEV_LOGIN": "",
+                     "FLASK_SECRET_KEY": value},
+                    clear=False,
+                ):
+                    with self.assertRaises(RuntimeError) as ctx:
+                        create_app(db_path=root / "l.sqlite", data_dir=root)
+                self.assertIn("FLASK_SECRET_KEY", str(ctx.exception), repr(value))
+            finally:
+                tmp.cleanup()
+        tmp = tempfile.TemporaryDirectory()
+        root = Path(tmp.name)
+        try:
+            env = {k: v for k, v in os.environ.items() if k != "FLASK_SECRET_KEY"}
+            env.update({"FLASK_ENV": "production", "LOCAL_DEV_LOGIN": ""})
+            with mock.patch.dict(os.environ, env, clear=True):
+                with self.assertRaises(RuntimeError):
+                    create_app(db_path=root / "l.sqlite", data_dir=root)
+        finally:
+            tmp.cleanup()
+
+    def test_dev_and_tests_keep_the_dev_key(self) -> None:
+        """Outside production an unset key still boots on the dev default."""
+        tmp = tempfile.TemporaryDirectory()
+        root = Path(tmp.name)
+        try:
+            env = {k: v for k, v in os.environ.items()
+                   if k not in {"FLASK_SECRET_KEY", "FLASK_ENV"}}
+            with mock.patch.dict(os.environ, env, clear=True):
+                app = create_app(db_path=root / "l.sqlite", data_dir=root, testing=True)
+            self.assertEqual(app.secret_key, "lloves-dev-secret-change-me")
             app.config["SCHOOL_DB"].close()
         finally:
             tmp.cleanup()

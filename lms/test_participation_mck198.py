@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -19,6 +20,12 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
 import participation as P  # noqa: E402
+
+
+def catchup_data(html: str) -> dict:
+    """The ``#catchup-data`` JSON the catch-up page hands to the live renderer."""
+    start = html.index('id="catchup-data">') + len('id="catchup-data">')
+    return json.loads(html[start:html.index("</script>", start)])
 
 
 class MathTests(unittest.TestCase):
@@ -80,7 +87,8 @@ class Base(unittest.TestCase):
         logging.disable(logging.NOTSET)
         self.tmp.cleanup()
 
-    def run_class(self, module: str, slot: str, individual: int, group: int, answers: dict[int, int]) -> str:
+    def run_class(self, module: str, slot: str, individual: int, group: int, answers: dict[int, int],
+                  *, wipe: bool = True) -> str:
         """Start a run, publish items, answer some, End. Returns the run key."""
         live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
         sid = int(live["id"])
@@ -100,7 +108,10 @@ class Base(unittest.TestCase):
             c.execute("INSERT INTO live_session_items (live_session_id, placement_key, item_id, stage, kind, "
                       "item_json, prompt_id, status, publish_mode, response_mode, published_at, created_at, updated_at) "
                       "VALUES (?, ?, ?, 'round', 'poll', ?, ?, 'closed', ?, ?, ?, ?, ?)",
-                      (sid, f"{module}-q{n}", f"q{n}", '{"title": "c1 Q%d", "question_title": "c1 Q%d", "text": "Real question %d", "options": [{"text": "A"}]}' % (n, n, n),
+                      (sid, f"{module}-q{n}", f"q{n}",
+                       '{"question_title": "c1 Q%d", "text": "Real question %d with x^2", "type": "mc", '
+                       '"options": [{"text": "Option A text"}, {"text": "Option B text"}], '
+                       '"correct_answer": "B", "key": "B"}' % (n, n),
                        pid, mode, mode, now, now, now))
             prompts.append(pid)
         for stu, count in answers.items():
@@ -109,7 +120,8 @@ class Base(unittest.TestCase):
                           "created_at, updated_at) VALUES (?, ?, '{}', ?, ?)", (pid, stu, now, now))
         run_key = str(c.execute("SELECT run_key FROM live_class_sessions WHERE id = ?", (sid,)).fetchone()[0] or "")
         self.school.cleanup_live_session_response_data(sid)
-        self.school.wipe_live_sessions_for_class(self.class_id)
+        if wipe:
+            self.school.wipe_live_sessions_for_class(self.class_id)
         return run_key
 
 
@@ -158,6 +170,31 @@ class CaptureTests(Base):
         with self.assertRaises(PermissionError):
             self.school.set_module_l4_needs_group(self.class_id, "M5", True)
 
+    def test_percent_counts_distinct_slot_and_question_pairs(self) -> None:
+        """The same placement key in C1 and C2 is two questions; a re-run is not."""
+        s0, s1 = self.students
+        self.run_class("M1", "C1", 3, 0, {s0: 2})
+        self.run_class("M1", "C2", 3, 0, {s0: 1, s1: 3})
+        data = self.school.class_participation(self.class_id)
+        self.assertEqual(data["modules"][0]["offered"], 6)
+        cells = {row["student_id"]: row["modules"]["M1"] for row in data["students"]}
+        self.assertEqual((cells[s0]["answered"], cells[s0]["percent"]), (3, 50))
+        self.assertEqual((cells[s1]["answered"], cells[s1]["percent"]), (3, 50))
+        # Re-running C1 re-offers the same keys: still 6 offered, answers union.
+        self.run_class("M1", "C1", 3, 0, {s0: 3})
+        data = self.school.class_participation(self.class_id)
+        self.assertEqual(data["modules"][0]["offered"], 6)
+        s0_cell = next(r for r in data["students"] if r["student_id"] == s0)["modules"]["M1"]
+        self.assertEqual(s0_cell["answered"], 4)
+        own = self.school.student_module_participation(self.class_id, s0, "M1")
+        self.assertEqual((own["answered"], own["offered"]), (4, 6))
+        # A catch-up answer on the C2 link counts its own (C2, key) pair.
+        c2 = next(l for l in self.school.list_catchup_links(self.class_id) if l["live_slot"] == "C2")
+        self.assertTrue(self.school.submit_catchup_answer(c2["token"], s0, "item:M1-q1", "x"))
+        s0_cell = next(r for r in self.school.class_participation(self.class_id)["students"]
+                       if r["student_id"] == s0)["modules"]["M1"]
+        self.assertEqual((s0_cell["answered"], s0_cell["catchup"]), (5, 1))
+
     def test_end_creates_one_link_open_by_default(self) -> None:
         self.run_class("M1", "C2", 3, 0, {})
         links = self.school.list_catchup_links(self.class_id)
@@ -172,6 +209,106 @@ class CatchupTests(Base):
         self.run_class("M1", "C1", individual=4, group=2, answers={self.students[0]: 1})
         self.token = self.school.list_catchup_links(self.class_id)[0]["token"]
         self.school.set_student_pin(self.class_id, self.students[0], "1234")
+
+    def sign_in(self, client, name: str | None = None, pin: str = "1234",
+                ip: str = "127.0.0.1", token: str | None = None) -> str:
+        """Pick a codename, then send a PIN, from one client IP. Returns the page."""
+        url = f"/catchup/{token or self.token}"
+        env = {"REMOTE_ADDR": ip}
+        client.post(url, data={"action": "who", "codename": name or self.first}, environ_base=env)
+        return client.post(url, data={"action": "pin", "pin": pin},
+                           environ_base=env).get_data(as_text=True)
+
+    def test_one_course_pin_works_on_every_link(self) -> None:
+        """Shawn: one PIN per student, on the student, reused by every link."""
+        self.run_class("M2", "C1", 2, 0, {})
+        tokens = [link["token"] for link in self.school.list_catchup_links(self.class_id)]
+        self.assertEqual(len(tokens), 2)
+        for token in tokens:
+            self.assertTrue(self.school.catchup_sign_in(token, self.first, "1234")["ok"], token)
+            client = self.app.test_client()
+            self.assertIn('id="catchup-data"', self.sign_in(client, token=token))
+        stored = self.school.game.conn.execute(
+            "SELECT pin_hash FROM students WHERE id = ?", (self.students[0],)).fetchone()[0]
+        self.assertTrue(stored)
+        # Failures count against the student, not a link: 5 on one locks both.
+        t = time.time()
+        for _ in range(5):
+            self.school.catchup_sign_in(tokens[0], self.first, "0000", now=t)
+        self.assertEqual(self.school.catchup_sign_in(tokens[1], self.first, "1234", now=t)["reason"],
+                         "locked")
+
+    def test_pin_not_set_has_its_own_copy_and_is_not_a_failure(self) -> None:
+        ben = self.school.class_codenames(self.class_id)[self.students[1]]
+        for _ in range(6):
+            self.assertEqual(self.school.catchup_sign_in(self.token, ben, "1234")["reason"], "not_set")
+        self.assertEqual(self.school.conn.execute(
+            "SELECT COUNT(*) FROM catchup_pin_failures").fetchone()[0], 0)
+        html = self.sign_in(self.app.test_client(), name=ben, ip="198.51.100.4")
+        self.assertIn('data-key="pin.not_set"', html)
+        self.assertIn("Your teacher hasn&#39;t set your PIN yet. Ask your teacher.", html)
+        self.assertNotIn('id="catchup-data"', html)
+        self.assertEqual(self.school.count_join_failures(
+            P.catchup_ip_limit_key("ip:198.51.100.4"), seconds=P.PIN_WINDOW_S), 0)
+        # Once the teacher sets it, the same student signs in.
+        self.school.set_student_pin(self.class_id, self.students[1], "5678")
+        self.assertTrue(self.school.catchup_sign_in(self.token, ben, "5678")["ok"])
+
+    def test_wrong_pins_are_rate_limited_per_ip_across_students(self) -> None:
+        from unittest import mock
+
+        ben = self.school.class_codenames(self.class_id)[self.students[1]]
+        self.school.set_student_pin(self.class_id, self.students[1], "5678")
+        attacker, other = "203.0.113.7", "203.0.113.99"
+        with mock.patch.object(P, "CATCHUP_PIN_IP_LIMIT", 3):
+            client = self.app.test_client()
+            for _ in range(3):
+                html = self.sign_in(client, pin="0000", ip=attacker)
+                self.assertIn('data-key="pin.wrong"', html)
+            # Under the 5-try student lockout, yet this IP is now blocked for
+            # everyone, even with Ben's correct PIN.
+            blocked = self.sign_in(client, name=ben, pin="5678", ip=attacker)
+            self.assertIn('data-key="pin.ip_locked"', blocked)
+            self.assertNotIn('id="catchup-data"', blocked)
+            self.assertIn('id="catchup-data"',
+                          self.sign_in(self.app.test_client(), name=ben, pin="5678", ip=other))
+        # MCK-120 key, its own namespace: the live-join budget is untouched.
+        self.assertEqual(self.school.count_join_failures(
+            P.catchup_ip_limit_key("ip:" + attacker), seconds=P.PIN_WINDOW_S), 3)
+        self.assertEqual(self.school.count_join_failures("ip:" + attacker), 0)
+        self.assertEqual(self.school.count_join_failures(prefix="ip:"), 0)
+
+    def test_teacher_pin_reset_ends_that_students_catchup_sessions(self) -> None:
+        client = self.app.test_client()
+        self.assertIn('id="catchup-data"', self.sign_in(client))
+        self.assertIn('id="catchup-data"', client.get(f"/catchup/{self.token}").get_data(as_text=True))
+        ben = self.school.class_codenames(self.class_id)[self.students[1]]
+        self.school.set_student_pin(self.class_id, self.students[1], "5678")
+        ben_client = self.app.test_client()
+        self.assertIn('id="catchup-data"', self.sign_in(ben_client, name=ben, pin="5678"))
+        # Same digits still end it: a reset always makes a new hash.
+        self.school.set_student_pin(self.class_id, self.students[0], "1234")
+        page = client.get(f"/catchup/{self.token}").get_data(as_text=True)
+        self.assertIn('name="codename"', page)
+        self.assertNotIn('id="catchup-data"', page)
+        client.post(f"/catchup/{self.token}", data={"question_key": "item:M1-q1", "answer": "A"})
+        self.assertIsNone(self.school.conn.execute(
+            "SELECT 1 FROM participation_answers WHERE student_id = ? AND source = 'catchup'",
+            (self.students[0],)).fetchone())
+        # Ben's session is untouched; Avalanche signs in again with the PIN.
+        self.assertIn('id="catchup-data"', ben_client.get(f"/catchup/{self.token}").get_data(as_text=True))
+        self.assertIn('id="catchup-data"', self.sign_in(client))
+
+    def test_capture_failure_keeps_the_live_responses(self) -> None:
+        from unittest import mock
+
+        with mock.patch.object(type(self.school), "_capture_participation_unlocked",
+                               side_effect=RuntimeError("boom")):
+            self.run_class("M9", "C1", 2, 0, {self.students[0]: 2}, wipe=False)
+        kept = self.school.conn.execute(
+            "SELECT COUNT(*) FROM live_session_responses WHERE student_id = ?",
+            (self.students[0],)).fetchone()[0]
+        self.assertEqual(kept, 2)
 
     def test_pin_lockout_after_five_failures_in_15_min(self) -> None:
         t = time.time()
@@ -291,23 +428,47 @@ class CatchupTests(Base):
         rv = client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "1234"})
         html = rv.get_data(as_text=True)
         self.assertIn("1/4 completed \u00b7 1 more", html)
-        self.assertIn("Real question 1", html)
-        self.assertNotIn("c1 Q", html)  # slot label never shown
-        self.assertNotIn("Real question 0", html)  # already answered live
-        self.assertNotIn("Real question 4", html)  # group item
+        data = catchup_data(html)
+        self.assertEqual([q["question_key"] for q in data["questions"]],
+                         ["item:M1-q1", "item:M1-q2", "item:M1-q3"])  # not q0 (live), not group
+        first = data["questions"][0]["content"]
+        # The live card paints ``title || text``: the real question, never a slot label.
+        self.assertNotIn("title", first)
+        self.assertEqual(first["text"], "Real question 1 with x^2")
+        self.assertEqual([o["text"] for o in first["options"]], ["Option A text", "Option B text"])
+        self.assertNotIn("correct_answer", first)  # teacher keys stripped, as live
+        self.assertNotIn("key", first)
         self.assertIn(">Avalanche<", html)  # codename at the top
         self.assertIn("/static/student-portal.css", html)
-        self.assertNotIn("Answered after class", html)  # nothing answered after class yet
+        self.assertIn('src="/static/catchup.js"', html)
+        self.assertFalse(any(q["answered"] for q in data["questions"]))
         self.assertNotIn("Ben", html)
         self.assertNotIn("team", html.lower())
-        rv = client.post(f"/catchup/{self.token}", data={"question_key": "item:M1-q1", "answer": "A"})
-        html = rv.get_data(as_text=True)
-        self.assertEqual(html.count("Answered after class"), 1)
-        card = html[html.index("Real question 1"):html.index("Real question 2")]
-        self.assertIn("Answered after class", card)
-        self.assertNotIn("Send", card)
-        later = html[html.index("Real question 2"):]
-        self.assertNotIn("Answered after class", later)
+        rv = client.post(f"/catchup/{self.token}",
+                         data={"question_key": "item:M1-q1", "answer": "Option A text"})
+        data = catchup_data(rv.get_data(as_text=True))
+        self.assertEqual(data["tag"], "Answered after class")
+        self.assertEqual([q["answered"] for q in data["questions"]], [True, False, False])
+
+    def test_catchup_reuses_the_live_question_card(self) -> None:
+        """Shawn: catch-up cards come from the live renderer, not their own look."""
+        card_js = (LMS_DIR / "static" / "catchup.js").read_text(encoding="utf-8")
+        self.assertIn('from "/static/live_question_card.js"', card_js)
+        self.assertIn("liveQuestionHeadHtml(", card_js)
+        self.assertIn("liveAnswerControlsHtml(", card_js)
+        self.assertIn("renderLiveQuestionMath(", card_js)
+        self.assertIn('class="student-live-card', card_js)
+        portal = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertIn('from "/static/live_question_card.js"', portal)
+        self.assertIn("liveQuestionHeadHtml(content, item.prompt?.kind, formatQuestionHtml)", portal)
+        self.assertIn("return liveAnswerControlsHtml(kind, content, action, current, prefix);", portal)
+
+    def test_catchup_student_can_load_class_images(self) -> None:
+        client = self.app.test_client()
+        path = f"/api/classes/{self.class_id}/module-files/web_resources/graph.png"
+        self.assertEqual(client.get(path).status_code, 403)
+        self.sign_in(client)
+        self.assertNotEqual(client.get(path).status_code, 403)
 
     def test_staff_page_has_badge_toggle_and_copy_button(self) -> None:
         client = self.app.test_client()

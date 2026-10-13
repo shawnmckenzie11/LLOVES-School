@@ -63,6 +63,7 @@ from auth import (  # noqa: E402
     google_oauth_ready,
     it_emails,
     it_required,
+    join_limit_ip_key,
     landing_kwargs,
     login_required,
     register_auth_routes,
@@ -73,6 +74,7 @@ from auth import (  # noqa: E402
 )
 from bots import list_bots  # noqa: E402
 from celebration import (  # noqa: E402
+    SECRET_KEY_DEV_DEFAULT as DEV_SECRET_KEY,
     WONDER_COPY as CELEBRATION_COPY,
     bind_celebration_secret,
     build_celebration_board,
@@ -1074,6 +1076,42 @@ def board_write_closed(exc: BoardSessionClosed):
     return jsonify({"ok": False, "error": "Session has ended.", "ended": True}), 409
 
 
+def _catchup_session_student(school: SchoolDB, key: str, class_id: int) -> int | None:
+    """Student held in one catch-up session, or None (and the key dropped).
+
+    The session ends when it expires, belongs to another class, or the
+    student's PIN changed since sign-in (a teacher reset).
+    """
+    import time as _time
+
+    held = session.get(key) or {}
+    sid = held.get("sid")
+    if sid is None:
+        return None
+    valid = (
+        float(held.get("exp") or 0) > _time.time()
+        and int(held.get("cid") or 0) == int(class_id)
+        and str(held.get("pin") or "") != ""
+        and str(held.get("pin")) == school.catchup_pin_stamp(int(class_id), int(sid))
+    )
+    if not valid:
+        session.pop(key, None)
+        return None
+    return int(sid)
+
+
+def _catchup_student_for_class(school: SchoolDB, class_id: int) -> int | None:
+    """A student signed in on any catch-up link of this class, else None."""
+    for key in [k for k in session.keys() if k.startswith("catchup:") and not k.endswith(":who")]:
+        held = session.get(key) or {}
+        if int(held.get("cid") or 0) != int(class_id):
+            continue
+        sid = _catchup_session_student(school, key, int(class_id))
+        if sid is not None:
+            return sid
+    return None
+
+
 def create_app(
     *,
     db_path: Path | None = None,
@@ -1099,8 +1137,8 @@ def create_app(
         template_folder=str(LMS_DIR / "templates"),
         static_folder=None,
     )
-    secret = os.getenv("FLASK_SECRET_KEY", "lloves-dev-secret-change-me")
-    app.secret_key = secret
+    secret = (os.getenv("FLASK_SECRET_KEY") or "").strip()
+    app.secret_key = secret or DEV_SECRET_KEY
     app.config["TESTING"] = testing
     app.config["MAX_CONTENT_LENGTH"] = IMSCC_MAX_BYTES
     app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=31)
@@ -1119,6 +1157,11 @@ def create_app(
             raise RuntimeError(
                 "LOCAL_DEV_LOGIN is set with FLASK_ENV=production; refusing to "
                 "start with the offline login picker exposed publicly."
+            )
+        if not secret or secret == DEV_SECRET_KEY:
+            raise RuntimeError(
+                "FLASK_SECRET_KEY is not set with FLASK_ENV=production; refusing "
+                "to start with the public dev key signing sessions."
             )
 
     db_file = Path(db_path or os.getenv("LLOVES_DB") or DEFAULT_DB_PATH)
@@ -5215,7 +5258,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         return ctx["offering"], ctx["class_id"], ctx.get("student_id")
 
     def _can_access_class_live_asset(class_id: int) -> bool:
-        """Return True when class staff or a bound live student may fetch assets.
+        """Return True when class staff, a bound live student, or a student
+        signed in on one of the class's catch-up links may fetch assets.
 
         ``@login_required`` is staff-only, so image ``<img>`` tags from the
         student portal must use this check instead. Visit-token cookies and
@@ -5230,7 +5274,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         ):
             return True
         ctx = _student_live_context()
-        return bool(ctx and int(ctx.get("class_id") or 0) == int(class_id))
+        if ctx and int(ctx.get("class_id") or 0) == int(class_id):
+            return True
+        return _catchup_student_for_class(school, int(class_id)) is not None
 
     @app.route(
         "/api/classes/<int:class_id>/live-question-images/<path:filename>"
@@ -8522,15 +8568,20 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         import time as _time
 
         from participation import (
+            CATCHUP_PIN_IP_LIMIT,
             CATCHUP_SESSION_S,
             COPY_CATCHUP_TAG,
             COPY_CLOSED,
             KEY_NAME_UNKNOWN,
             KEY_PIN_HELP,
+            KEY_PIN_IP_LOCKED,
             KEY_PIN_LABEL,
             KEY_PIN_LOCKED,
             KEY_PIN_LOOKS_LIKE_JOIN_CODE,
+            KEY_PIN_NOT_SET,
             KEY_PIN_WRONG,
+            PIN_WINDOW_S,
+            catchup_ip_limit_key,
             copy,
         )
 
@@ -8544,8 +8595,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         if not int(link["is_open"]):
             return closed()
         key = f"catchup:{link['id']}"
-        held = session.get(key) or {}
-        student_id = held.get("sid") if float(held.get("exp") or 0) > _time.time() else None
+        student_id = _catchup_session_student(school, key, int(link["class_id"]))
         pending_key = f"{key}:who"
         pending = session.get(pending_key) or {}
         action = request.form.get("action") if request.method == "POST" else None
@@ -8568,17 +8618,27 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 return pin_screen()
             error = copy(KEY_NAME_UNKNOWN)
         elif action == "pin" and float(pending.get("exp") or 0) > _time.time():
+            # MCK-120 client key: caps wrong PINs from one client across every
+            # student and link, on top of the per-student lockout.
+            ip_key = catchup_ip_limit_key(join_limit_ip_key(request_client_ip()))
+            if school.count_join_failures(ip_key, seconds=PIN_WINDOW_S) >= CATCHUP_PIN_IP_LIMIT:
+                return pin_screen(KEY_PIN_IP_LOCKED)
             result = school.catchup_sign_in(token, pending.get("name", ""), request.form.get("pin", ""))
             if result["ok"]:
                 student_id = int(result["student_id"])
                 session.pop(pending_key, None)
-                session[key] = {"sid": student_id, "exp": _time.time() + CATCHUP_SESSION_S}
+                session[key] = {"sid": student_id, "cid": int(link["class_id"]),
+                                "pin": str(result.get("pin_stamp") or ""),
+                                "exp": _time.time() + CATCHUP_SESSION_S}
             elif result["reason"] == "closed":
                 return closed()
             else:
+                if result["reason"] == "wrong":
+                    school.record_join_failures([ip_key])
                 return pin_screen({
                     "looks_like_join_code": KEY_PIN_LOOKS_LIKE_JOIN_CODE,
                     "locked": KEY_PIN_LOCKED,
+                    "not_set": KEY_PIN_NOT_SET,
                     "unknown_name": KEY_NAME_UNKNOWN,
                 }.get(result["reason"], KEY_PIN_WRONG))
         elif request.method == "POST" and student_id is not None:

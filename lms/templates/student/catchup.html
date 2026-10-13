@@ -8,14 +8,10 @@
   <link rel="stylesheet" href="/static/student-portal.css">
   <style>
     .catchup .full { display: block; width: 100%; box-sizing: border-box; }
-    .catchup .card { margin: .9rem 0; }
-    .catchup .card p.stem { white-space: pre-line; margin-top: 0; }
-    .catchup .choice-row { display: flex; gap: .6rem; align-items: center; justify-content: flex-start; margin: .35rem 0; text-align: left; }
-    .catchup .choice-row input { width: auto; flex: 0 0 auto; margin: 0; }
     .catchup .help { opacity: .8; font-size: .9rem; margin: .35rem 0 0; }
-    .catchup .tag-after { display: inline-block; font-size: .85rem; padding: .15rem .55rem; border-radius: 999px; background: #1e3348; }
     .catchup .line { font-weight: 600; }
     .catchup label.field { display: block; margin: .8rem 0 .3rem; }
+    .catchup .catchup-questions { margin-top: .9rem; }
   </style>
 </head>
 <body class="student-portal">
@@ -52,28 +48,17 @@
     <p class="kicker">{{ codename }}</p>
     <h1>Catch-up</h1>
     {% if line %}<p class="sub line">{{ line }}</p>{% endif %}
-    {% for q in questions %}
-      <div class="card">
-        <p class="stem">{{ q.stem }}</p>
-        {% if q.answered %}
-          <span class="tag-after">{{ tag }}</span>
-        {% else %}
-          <form method="post">
-            <input type="hidden" name="question_key" value="{{ q.question_key }}">
-            {% if q.options %}
-              {% for opt in q.options %}
-                <label class="choice-row"><input type="radio" name="answer" value="{{ opt }}" required> {{ opt }}</label>
-              {% endfor %}
-            {% else %}
-              <input class="full" name="answer" aria-label="Your answer" required>
-            {% endif %}
-            <p><button class="full" type="submit">Send</button></p>
-          </form>
-        {% endif %}
-      </div>
+    {% if questions %}
+      <div id="catchup-questions" class="catchup-questions" aria-live="polite"></div>
+      <form id="catchup-answer" method="post" hidden>
+        <input type="hidden" name="question_key">
+        <input type="hidden" name="answer">
+      </form>
+      <script type="application/json" id="catchup-data">{{ {"tag": tag, "questions": questions} | tojson }}</script>
+      <script type="module" src="/static/catchup.js"></script>
     {% else %}
       <p class="sub">You're all caught up for this class.</p>
-    {% endfor %}
+    {% endif %}
 {% endif %}
   </div>
 </body>

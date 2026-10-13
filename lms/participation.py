@@ -22,6 +22,9 @@ BANDS: tuple[tuple[int, int], ...] = ((4, 80), (3, 70), (2, 60), (1, 50))
 MIN_OFFERED_FOR_LINE = 3
 PIN_MAX_ATTEMPTS = 5
 PIN_WINDOW_S = 15 * 60
+# Wrong PINs from one client (MCK-120 ``ip:`` key) across every student and link.
+CATCHUP_PIN_IP_LIMIT = 20
+CATCHUP_PIN_IP_PREFIX = "catchup-pin|"
 CATCHUP_SESSION_S = 30 * 60
 SOURCES = ("live", "catchup")
 
@@ -42,7 +45,11 @@ KEY_PIN_LOCKED = "pin.locked"
 KEY_NAME_UNKNOWN = "name.unknown"
 KEY_PIN_WRONG = "pin.wrong"
 KEY_PIN_HELP = "pin.help"
+KEY_PIN_NOT_SET = "pin.not_set"
+KEY_PIN_IP_LOCKED = "pin.ip_locked"
 COPY_FALLBACKS = {
+    KEY_PIN_NOT_SET: "Your teacher hasn't set your PIN yet. Ask your teacher.",
+    KEY_PIN_IP_LOCKED: "Too many tries from this device. Wait 15 minutes and try again.",
     KEY_PIN_LABEL: "Your 4-digit PIN",
     KEY_PIN_LOOKS_LIKE_JOIN_CODE: "That's your class code. Enter your 4-digit PIN instead.",
     KEY_PIN_HELP: "Not the class code. Ask your teacher if you forgot it.",
@@ -150,6 +157,26 @@ def check_pin(pin: str, stored: str) -> bool:
         return False
     salt = stored.split("$", 1)[0]
     return hmac.compare_digest(hash_pin(str(pin), salt), stored)
+
+
+def pin_stamp(stored: str) -> str:
+    """Short fingerprint of a stored PIN hash, kept in the catch-up session.
+
+    A reset makes a new salt, so the stamp changes and every catch-up
+    session signed in with the old PIN ends. Empty when no PIN is set.
+    """
+    if not stored:
+        return ""
+    return hashlib.sha256(stored.encode()).hexdigest()[:16]
+
+
+def catchup_ip_limit_key(ip_key: str) -> str:
+    """Limiter row key for catch-up PIN failures from one MCK-120 ``ip:`` key.
+
+    Kept apart from the bare ``ip:`` rows so catch-up tries never spend the
+    live-join budget or trip the site-wide ``ip:`` count.
+    """
+    return f"{CATCHUP_PIN_IP_PREFIX}{ip_key}"
 
 
 def new_token() -> str:

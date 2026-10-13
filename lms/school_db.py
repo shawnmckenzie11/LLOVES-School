@@ -713,6 +713,7 @@ CREATE TABLE IF NOT EXISTS participation_items (
     live_slot TEXT NOT NULL DEFAULT '',
     question_key TEXT NOT NULL,
     item_json TEXT NOT NULL DEFAULT '{}',
+    prompt_kind TEXT NOT NULL DEFAULT '',
     offered_at TEXT NOT NULL,
     UNIQUE(class_id, run_key, question_key)
 );
@@ -3577,6 +3578,15 @@ class LovesDB:
         if "live_slot" not in feedback_cols:
             self.conn.execute(
                 "ALTER TABLE live_class_feedback ADD COLUMN live_slot TEXT"
+            )
+        participation_cols = {
+            str(row[1])
+            for row in self.conn.execute("PRAGMA table_info(participation_items)")
+        }
+        if participation_cols and "prompt_kind" not in participation_cols:
+            self.conn.execute(
+                "ALTER TABLE participation_items"
+                " ADD COLUMN prompt_kind TEXT NOT NULL DEFAULT ''"
             )
         self.conn.execute(
             """
@@ -29415,6 +29425,10 @@ class SchoolDB(LovesDB):
     def _capture_participation_unlocked(self, session_id: int) -> None:
         """At End: keep offered individual items, live answers, one catch-up link.
 
+        Each item keeps the payload students saw (the prompt's, else the
+        playlist item's) and the prompt kind, so the catch-up page can paint
+        the same live question card.
+
         Caller holds ``self._lock`` inside the End transaction. Group items
         (``publish_mode``/``response_mode`` not individual) are skipped, so
         group questions never enter the participation math.
@@ -29442,11 +29456,15 @@ class SchoolDB(LovesDB):
         self.conn.execute(
             """
             INSERT OR IGNORE INTO participation_items (
-                class_id, run_key, live_module, live_slot, question_key, item_json, offered_at
+                class_id, run_key, live_module, live_slot, question_key, item_json,
+                prompt_kind, offered_at
             )
-            SELECT ?, ?, ?, ?, 'item:' || i.placement_key, i.item_json,
-                   COALESCE(i.published_at, ?)
+            SELECT ?, ?, ?, ?, 'item:' || i.placement_key,
+                   CASE WHEN TRIM(COALESCE(pr.payload, '')) NOT IN ('', '{}')
+                        THEN pr.payload ELSE i.item_json END,
+                   COALESCE(pr.kind, ''), COALESCE(i.published_at, ?)
             FROM live_session_items i
+            LEFT JOIN live_session_prompts pr ON pr.id = i.prompt_id
             WHERE i.live_session_id = ? AND i.published_at IS NOT NULL
               AND i.publish_mode = 'individual' AND i.response_mode = 'individual'
             """,
@@ -29564,36 +29582,40 @@ class SchoolDB(LovesDB):
     def _participation_counts(
         self, class_id: int, module: str | None = None, student_id: int | None = None
     ) -> tuple[dict[str, int], dict[tuple[int, str], dict[str, int]]]:
-        """Distinct offered question keys per module and answered per (student, module).
+        """Distinct offered questions per module and answered per (student, module).
 
-        A question re-offered in a re-run counts once; an answer counts once
-        whether it came live or on the catch-up link.
+        A question is one distinct ``(live_slot, question_key)`` pair: the
+        same placement key in C1 and C2 is two questions, and a slot re-run
+        that re-offers a key counts once. An answer takes its slot from the
+        item offered in the same run and counts once whether it came live
+        or on the catch-up link.
         """
-        where, params = "class_id = ?", [int(class_id)]
+        where, params = "p.class_id = ?", [int(class_id)]
         if module is not None:
-            where += " AND live_module = ?"
+            where += " AND p.live_module = ?"
             params.append(str(module))
+        pair = "p.live_slot || char(31) || p.question_key"
         with self._lock:
             offered_rows = self.conn.execute(
-                f"SELECT live_module, COUNT(DISTINCT question_key) AS n FROM participation_items "
-                f"WHERE {where} GROUP BY live_module",
+                f"SELECT p.live_module, COUNT(DISTINCT {pair}) AS n FROM participation_items p "
+                f"WHERE {where} GROUP BY p.live_module",
                 params,
             ).fetchall()
             ans_where, ans_params = where, list(params)
             if student_id is not None:
-                ans_where += " AND student_id = ?"
+                ans_where += " AND a.student_id = ?"
                 ans_params.append(int(student_id))
             answer_rows = self.conn.execute(
                 f"""
-                SELECT a.student_id, a.live_module,
-                       COUNT(DISTINCT a.question_key) AS n,
-                       COUNT(DISTINCT CASE WHEN a.source = 'catchup' THEN a.question_key END) AS c
+                SELECT a.student_id, p.live_module,
+                       COUNT(DISTINCT {pair}) AS n,
+                       COUNT(DISTINCT CASE WHEN a.source = 'catchup' THEN {pair} END) AS c
                 FROM participation_answers a
-                WHERE {ans_where.replace('class_id', 'a.class_id').replace('live_module', 'a.live_module').replace('student_id', 'a.student_id')}
-                  AND a.question_key IN (
-                    SELECT p.question_key FROM participation_items p
-                    WHERE p.class_id = a.class_id AND p.live_module = a.live_module)
-                GROUP BY a.student_id, a.live_module
+                INNER JOIN participation_items p
+                    ON p.class_id = a.class_id AND p.run_key = a.run_key
+                   AND p.question_key = a.question_key
+                WHERE {ans_where}
+                GROUP BY a.student_id, p.live_module
                 """,
                 ans_params,
             ).fetchall()
@@ -29611,7 +29633,7 @@ class SchoolDB(LovesDB):
         offered, answered = self._participation_counts(class_id)
         modules = sorted(offered)
         students = self.game.conn.execute(
-            "SELECT id, first_name FROM students WHERE class_id = ? ORDER BY id", (int(class_id),)
+            "SELECT id FROM students WHERE class_id = ? ORDER BY id", (int(class_id),)
         ).fetchall() if getattr(self, "game", None) is not None else []
         rows = []
         for stu in students:
@@ -29667,8 +29689,29 @@ class SchoolDB(LovesDB):
                 self.conn.commit()
         return cur.rowcount == 1
 
+    def catchup_pin_stamp(self, class_id: int, student_id: int) -> str:
+        """Fingerprint of the student's current PIN hash, ``""`` when none is set.
+
+        A catch-up session is valid only while its stored stamp still
+        matches, so a teacher reset ends that student's sessions on every
+        link and device.
+        """
+        from participation import pin_stamp
+
+        with self.game._lock:
+            row = self.game.conn.execute(
+                "SELECT pin_hash FROM students WHERE id = ? AND class_id = ?",
+                (int(student_id), int(class_id)),
+            ).fetchone()
+        return pin_stamp(str(row[0] or "")) if row is not None else ""
+
     def set_student_pin(self, class_id: int, student_id: int, pin: str) -> None:
-        """Set or reset one student's catch-up PIN (hashed on ``students.pin_hash``)."""
+        """Set or reset one student's course-wide catch-up PIN (``students.pin_hash``).
+
+        One PIN per student for the whole course, reused on every catch-up
+        link. A new hash changes ``catchup_pin_stamp``, which ends the
+        student's open catch-up sessions.
+        """
         from participation import hash_pin, valid_pin
 
         if not valid_pin(pin):
@@ -29706,14 +29749,24 @@ class SchoolDB(LovesDB):
         The token already names the class, so there is no join-code step.
         Returns ``{ok, student_id}`` or ``{ok: False, reason}`` with reason
         ``missing``, ``closed``, ``unknown_name``, ``need_pin`` (screen 1 passed),
+        ``not_set`` (teacher has not set a PIN; not counted),
         ``looks_like_join_code`` (not counted), ``locked`` or ``wrong``.
+        A success also carries ``pin_stamp`` for the session (see
+        ``catchup_pin_stamp``). The PIN is the student's one course PIN on
+        ``students.pin_hash``, the same for every link.
         Five failures in 15 minutes lock that student. The count and the
         insert share one ``BEGIN IMMEDIATE`` transaction, so workers cannot
         race past the limit.
         """
         import time as _time
 
-        from participation import PIN_MAX_ATTEMPTS, PIN_WINDOW_S, check_pin, looks_like_join_code
+        from participation import (
+            PIN_MAX_ATTEMPTS,
+            PIN_WINDOW_S,
+            check_pin,
+            looks_like_join_code,
+            pin_stamp,
+        )
 
         link = self.get_catchup_link(token)
         if link is None:
@@ -29740,13 +29793,15 @@ class SchoolDB(LovesDB):
             active = [r[0] for r in self.conn.execute(
                 "SELECT session_code FROM live_class_sessions WHERE status = 'active'"
             ).fetchall()]
+        stored = str(pin_row[0] or "") if pin_row is not None else ""
+        if not stored:
+            return {"ok": False, "reason": "not_set", "student_id": stu}
         if looks_like_join_code(pin, [cls[0] if cls is not None else "", *active]):
             return {"ok": False, "reason": "looks_like_join_code", "student_id": stu}
-        stored = str(pin_row[0] or "") if pin_row is not None else ""
         t = _time.time() if now is None else now
+        # PBKDF2 is slow; never run it while holding the sqlite write lock.
+        matched = check_pin(str(pin or ""), stored)
         with self._lock:
-            if self.conn.in_transaction:
-                self.conn.execute("COMMIT")
             self.conn.execute("BEGIN IMMEDIATE")
             try:
                 fails = int(self.conn.execute(
@@ -29756,8 +29811,9 @@ class SchoolDB(LovesDB):
                 ).fetchone()[0])
                 if fails >= PIN_MAX_ATTEMPTS:
                     result = {"ok": False, "reason": "locked"}
-                elif check_pin(str(pin or ""), stored):
-                    result = {"ok": True, "student_id": stu, "class_id": class_id}
+                elif matched:
+                    result = {"ok": True, "student_id": stu, "class_id": class_id,
+                              "pin_stamp": pin_stamp(stored)}
                 else:
                     self.conn.execute(
                         "INSERT INTO catchup_pin_failures (class_id, student_id, failed_at) "
@@ -29771,41 +29827,30 @@ class SchoolDB(LovesDB):
                 raise
         return result
 
-    @staticmethod
-    def _catchup_question_text(item: dict[str, Any]) -> str:
-        """The real question text a student saw, not a slot label like 'c1 Q2'."""
-        for key in ("text", "question_text", "stem", "prompt", "question"):
-            value = item.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        try:
-            from live_class_slides import _plain_from_html
-        except ImportError:  # pragma: no cover
-            _plain_from_html = None  # type: ignore[assignment]
-        if _plain_from_html is not None:
-            parts = [_plain_from_html(str(item.get(k) or "")) for k in ("stem_html", "task_html")]
-            joined = "\n\n".join(p.strip() for p in parts if p and p.strip())
-            if joined:
-                return joined
-        return str(item.get("question_title") or item.get("title") or "Question").strip()
-
     def catchup_questions(self, token: str, student_id: int) -> list[dict[str, Any]]:
         """This class's individual questions for one student, for the catch-up page.
 
         Unanswered ones carry ``answered=False``. Ones this student answered
         after class on this link carry ``answered=True`` (tagged "Answered
-        after class"). Questions answered live are left out.
+        after class"). Questions answered live are left out. ``content`` is
+        the same student-safe payload the live card gets (teacher keys
+        stripped, images rewritten), so the page reuses the live renderer.
         """
         link = self.get_catchup_link(token)
         if link is None:
             return []
+        class_id = int(link["class_id"])
         with self._lock:
             rows = self.conn.execute(
                 """
-                SELECT p.question_key, p.item_json,
+                SELECT p.question_key, p.item_json, p.prompt_kind,
                        (SELECT a.source FROM participation_answers a
+                        INNER JOIN participation_items ap
+                            ON ap.class_id = a.class_id AND ap.run_key = a.run_key
+                           AND ap.question_key = a.question_key
                         WHERE a.class_id = p.class_id AND a.live_module = p.live_module
                           AND a.student_id = ? AND a.question_key = p.question_key
+                          AND ap.live_slot = p.live_slot
                         ORDER BY a.source = 'live' DESC LIMIT 1) AS source
                 FROM participation_items p
                 WHERE p.class_id = ? AND p.run_key = ?
@@ -29822,15 +29867,10 @@ class SchoolDB(LovesDB):
             except (TypeError, ValueError):
                 item = {}
             item = item if isinstance(item, dict) else {}
-            options = []
-            for opt in item.get("options") or item.get("choices") or []:
-                label = str(opt.get("text") or opt.get("label") or "") if isinstance(opt, dict) else str(opt)
-                if label.strip():
-                    options.append(label.strip()[:300])
             out.append({
                 "question_key": r["question_key"],
-                "stem": self._catchup_question_text(item)[:2000],
-                "options": options,
+                "content": self._student_public_item_payload(item, class_id=class_id),
+                "prompt_kind": str(r["prompt_kind"] or ""),
                 "answered": r["source"] == "catchup",
             })
         return out
@@ -29888,15 +29928,22 @@ class SchoolDB(LovesDB):
                     )
                 self.conn.execute("RELEASE live_result_snapshot")
                 # MCK-198: own savepoint, so a capture error never undoes the
-                # MCK-45 snapshot above.
+                # MCK-45 snapshot above. A failed capture keeps the response
+                # rows: deleting them would lose the only copy of who answered.
                 self.conn.execute("SAVEPOINT participation_capture")
+                captured = True
                 try:
                     self._capture_participation_unlocked(int(session_id))
                 except Exception:  # noqa: BLE001
+                    captured = False
                     self.conn.execute("ROLLBACK TO participation_capture")
-                    logger.exception("participation capture failed session=%s", session_id)
+                    logger.exception(
+                        "participation capture failed session=%s; keeping response rows",
+                        session_id,
+                    )
                 self.conn.execute("RELEASE participation_capture")
-                self._delete_live_session_response_rows_unlocked(int(session_id))
+                if captured:
+                    self._delete_live_session_response_rows_unlocked(int(session_id))
             except BaseException:
                 self.conn.execute("ROLLBACK")
                 raise
