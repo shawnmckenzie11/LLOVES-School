@@ -40,6 +40,7 @@ from engagement_events import (  # noqa: E402
     first_name_only,
     now_iso,
 )
+from engagement_rollup import compute_rollup, rollup_row_to_store  # noqa: E402
 from serve_capacity import poll_budget_expired  # noqa: E402
 from serve_capacity import (  # noqa: E402
     begin_poll_budget,
@@ -2137,6 +2138,80 @@ class LovesDB:
         return store.list_for_class(
             int(class_id), live_session=live_session, run_key=run_key, limit=limit
         )
+
+    def list_engagement_rollup(
+        self,
+        class_id: int,
+        *,
+        run_key: str | None = None,
+        limit: int = 5000,
+    ) -> list[dict[str, Any]]:
+        """Teacher-only rollup rows for one class (MCK-58)."""
+        store = getattr(self, "engagement", None)
+        if store is None:
+            return []
+        return store.list_rollup(int(class_id), run_key=run_key, limit=limit)
+
+    def _rollup_engagement_for_session(self, session_id: int) -> int:
+        """Aggregate engagement events for one ended run into ``engagement_rollup``.
+
+        Idempotent per ``run_key``: a second call while rows already exist is
+        a no-op. Failures are logged by the caller and never block End.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            Number of rollup rows written.
+        """
+        store = getattr(self, "engagement", None)
+        if store is None:
+            return 0
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT id, class_id, run_key FROM live_class_sessions WHERE id = ?",
+                (int(session_id),),
+            ).fetchone()
+        if row is None:
+            return 0
+        class_id = int(row["class_id"])
+        run_key = str(row["run_key"] or "")
+        if not run_key or store.has_rollup(run_key):
+            return 0
+        events = store.list_for_class(class_id, run_key=run_key, limit=10000)
+        game = getattr(self, "game", None)
+        student_ids: list[int] = []
+        if game is not None:
+            with game._lock:
+                studs = game.conn.execute(
+                    "SELECT id FROM students WHERE class_id = ? ORDER BY id",
+                    (class_id,),
+                ).fetchall()
+            student_ids = [int(r[0]) for r in studs]
+        team_for = {
+            sid: self.student_team_id_for_class(class_id, sid) for sid in student_ids
+        }
+        computed = compute_rollup(
+            events,
+            class_id=class_id,
+            live_session=int(session_id),
+            run_key=run_key,
+            team_for_student=team_for,
+            student_ids=student_ids,
+        )
+        rolled_at = now_iso()
+        payload = [
+            rollup_row_to_store(
+                r,
+                class_id=class_id,
+                live_session=int(session_id),
+                run_key=run_key,
+                rolled_at=rolled_at,
+            )
+            for r in computed
+        ]
+        store.append_rollup(payload)
+        return len(payload)
 
     def live_presence_label(self) -> str:
         """Cheap label for ``/health``. Does not ping or read a live session.
@@ -29373,6 +29448,10 @@ class SchoolDB(LovesDB):
                 self.conn.execute("ROLLBACK")
                 raise
             self.conn.execute("COMMIT")
+        try:
+            self._rollup_engagement_for_session(int(session_id))
+        except Exception:  # noqa: BLE001 - rollup must never block End
+            logger.exception("engagement rollup failed session=%s", session_id)
         try:
             self.prune_live_result_snapshots()
         except Exception:  # noqa: BLE001 - retention must never fail End

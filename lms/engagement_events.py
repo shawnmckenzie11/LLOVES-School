@@ -27,8 +27,10 @@ import logging
 import threading
 import time
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 from zoneinfo import ZoneInfo
+
+from engagement_rollup import rollup_ddl_postgres_parts, rollup_ddl_sqlite
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +159,73 @@ class _Store:
         )
         return bool(rows)
 
+    def has_rollup(self, run_key: str) -> bool:
+        """True when this run already has rollup rows."""
+        if not run_key:
+            return False
+        rows = self._fetch(
+            "SELECT 1 FROM engagement_rollup WHERE run_key = ? LIMIT 1",
+            (str(run_key),),
+        )
+        return bool(rows)
+
+    def append_rollup(self, rows: Sequence[dict[str, Any]]) -> None:
+        """Insert rollup rows (append-only)."""
+        if not rows:
+            return
+        cols = (
+            "class_id, live_session, run_key, rolled_at, scope, student_id, team_id, "
+            "signal, count, offered, share_of_group, share_vs_even, payload"
+        )
+        for row in rows:
+            self._write(
+                f"INSERT INTO engagement_rollup ({cols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    int(row["class_id"]),
+                    row.get("live_session"),
+                    str(row["run_key"]),
+                    row.get("rolled_at"),
+                    str(row["scope"]),
+                    row.get("student_id"),
+                    row.get("team_id"),
+                    str(row["signal"]),
+                    int(row.get("count") or 0),
+                    row.get("offered"),
+                    row.get("share_of_group"),
+                    row.get("share_vs_even"),
+                    row.get("payload") or "{}",
+                ),
+            )
+
+    def list_rollup(
+        self,
+        class_id: int,
+        *,
+        run_key: str | None = None,
+        limit: int = 5000,
+    ) -> list[dict[str, Any]]:
+        """Rollup rows for one class, oldest insert first."""
+        sql = (
+            "SELECT id, class_id, live_session, run_key, rolled_at, scope, student_id, team_id, "
+            "signal, count, offered, share_of_group, share_vs_even, payload "
+            "FROM engagement_rollup WHERE class_id = ?"
+        )
+        params: list[Any] = [int(class_id)]
+        if run_key is not None:
+            sql += " AND run_key = ?"
+            params.append(str(run_key))
+        sql += " ORDER BY id LIMIT ?"
+        params.append(max(1, min(int(limit), 20000)))
+        out = []
+        for raw in self._fetch(sql, tuple(params)):
+            row = dict(raw) if not isinstance(raw, dict) else raw
+            try:
+                row["payload"] = json.loads(row.get("payload") or "{}")
+            except (TypeError, ValueError):
+                row["payload"] = {}
+            out.append(row)
+        return out
+
     def list_for_class(
         self,
         class_id: int,
@@ -201,6 +270,7 @@ class SqliteEngagementEvents(_Store):
     def ensure_schema(self) -> None:
         with self.lock:
             self.conn.executescript(_SQLITE_DDL)
+            self.conn.executescript(rollup_ddl_sqlite())
             cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(engagement_events)")}
             if "run_key" not in cols:
                 self.conn.execute(
@@ -237,7 +307,7 @@ class PostgresEngagementEvents(_Store):
                     "run_key TEXT NOT NULL DEFAULT ''",
                     _RUN_KEY_INDEX,
                 ]
-                for part in ddl:
+                for part in ddl + rollup_ddl_postgres_parts():
                     sql = part.strip()
                     if not sql:
                         continue
