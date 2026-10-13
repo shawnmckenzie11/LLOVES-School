@@ -709,7 +709,7 @@ class ContentQuestionsApiTests(unittest.TestCase):
         staff = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertIn('|| plainPromptHtml(item.title || item.text || item.prompt || card.text || "")', staff)
         self.assertIn('live-question-html is-paragraphs', staff)
-        student = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        student = (LMS_DIR / "static" / "live_question_card.js").read_text(encoding="utf-8")
         self.assertIn('const paragraphs = /\\n\\s*\\n/.test(raw) ? " is-paragraphs" : "";', student)
         for css_name in ("staff-shell.css", "student-portal.css"):
             css = (LMS_DIR / "static" / css_name).read_text(encoding="utf-8")
