@@ -13,6 +13,15 @@ export const CATCHUP_SLOTS = Object.freeze(["C1", "C2", "C3", "C4"]);
 /** Grey-row copy when End Live Class has not created a link yet. */
 export const PENDING_COPY = "Link appears after End Live Class.";
 
+/** Shown on the card when GET catch-up links fails (network or server). */
+export const CATCHUP_LOAD_ERROR = "Could not load catch-up links.";
+
+/** Copy button label before and after the brief "Copied" state. */
+const COPY_LINK_LABEL = "Copy link";
+
+/** How long the copy button shows "Copied" before reverting. */
+const COPY_CONFIRM_MS = 2000;
+
 const MONTHS = Object.freeze([
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -26,8 +35,11 @@ const MONTHS = Object.freeze([
 export function moduleKeyOf(raw) {
   const text = String(raw || "").trim().toUpperCase();
   if (!text) return "";
+  if (/^M\d+$/.test(text)) return text;
   const match = text.match(/^M?(\d+)$/);
-  return match ? `M${Number(match[1])}` : text;
+  if (!match) return "";
+  const key = `M${Number(match[1])}`;
+  return /^M\d+$/.test(key) ? key : "";
 }
 
 /**
@@ -332,7 +344,20 @@ export async function copyPlainLink(url, button) {
     } else {
       throw new Error("clipboard unavailable");
     }
-    if (button) button.textContent = "Copied";
+    if (button) {
+      const resetId = button.getAttribute("data-copy-reset-id");
+      if (resetId) clearTimeout(Number(resetId));
+      button.textContent = "Copied";
+      const id = setTimeout(() => {
+        button.textContent = COPY_LINK_LABEL;
+        if (typeof button.removeAttribute === "function") {
+          button.removeAttribute("data-copy-reset-id");
+        } else {
+          button.setAttribute("data-copy-reset-id", "");
+        }
+      }, COPY_CONFIRM_MS);
+      button.setAttribute("data-copy-reset-id", String(id));
+    }
     return true;
   } catch {
     if (typeof window !== "undefined" && typeof window.prompt === "function") {
@@ -388,7 +413,7 @@ function linkControls(doc, slot, link, earlier) {
   const copy = el(doc, "button");
   copy.type = "button";
   copy.className = "secondary catchup-copy";
-  copy.textContent = "Copy link";
+  copy.textContent = COPY_LINK_LABEL;
   copy.setAttribute("data-url", plainCatchupUrl(link));
 
   row.append(name, date, badge, label, copy);
@@ -575,14 +600,20 @@ export function bindCatchupLinks(root, classId) {
     if (!input || !hasClass(input, "catchup-toggle")) return undefined;
     const token = input.getAttribute("data-token") || "";
     const open = Boolean(input.checked);
-    return postCatchupOpen(classId, token, open).then((ok) => {
-      const row = ancestorWithClass(input, "catchup-row");
-      if (!ok) {
-        input.checked = !open;
-        return;
+    const prior = !open;
+    void (async () => {
+      try {
+        const ok = await postCatchupOpen(classId, token, open);
+        const row = ancestorWithClass(input, "catchup-row");
+        if (!ok) {
+          input.checked = prior;
+          return;
+        }
+        if (row) paintOpenState(row, open);
+      } catch {
+        input.checked = prior;
       }
-      if (row) paintOpenState(row, open);
-    });
+    })();
   });
   root.addEventListener("click", (event) => {
     const button = ancestorWithClass(event.target, "catchup-copy");

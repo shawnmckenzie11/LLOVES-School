@@ -42,10 +42,13 @@ class CatchupCardStaticTests(unittest.TestCase):
         self.assertIn("max-width: 959px", css)
         self.assertIn(".catchup-badge.is-muted", css)
         self.assertIn(".catchup-slot.is-pending", css)
+        self.assertIn("font-family: inherit", css)
         script = (LMS_DIR / "static" / "staff_lesson_slides.js").read_text(encoding="utf-8")
         self.assertIn('from "./catchup_links_card.js"', script)
+        self.assertIn("CATCHUP_LOAD_ERROR", script)
         self.assertIn("/catchup-links", script)
         card = (LMS_DIR / "static" / "catchup_links_card.js").read_text(encoding="utf-8")
+        self.assertIn("CATCHUP_LOAD_ERROR", card)
         self.assertNotIn('createElement("iframe")', card)
         self.assertNotIn("createElement(\"embed\")", card)
 

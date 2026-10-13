@@ -1,7 +1,11 @@
 /**
  * Lesson Slides wizard: preview connected async Lessons, then build a Drive deck.
  */
-import { bindCatchupLinks, paintLessonModuleSections } from "./catchup_links_card.js";
+import {
+  bindCatchupLinks,
+  CATCHUP_LOAD_ERROR,
+  paintLessonModuleSections,
+} from "./catchup_links_card.js";
 
 const root = document.getElementById("lesson-slides-root");
 const classId = root?.dataset.classId;
@@ -70,18 +74,23 @@ function paintSavedDecks(data) {
  */
 async function loadCatchupLinks() {
   if (!classId) return;
-  const res = await fetch(`/api/classes/${classId}/catchup-links`, {
-    credentials: "same-origin",
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
+  try {
+    const res = await fetch(`/api/classes/${classId}/catchup-links`, {
+      credentials: "same-origin",
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      catchupLinks = [];
+      catchupError = res.status === 401 || res.status === 403
+        ? "Catch-up links are available to the class teacher."
+        : CATCHUP_LOAD_ERROR;
+    } else {
+      catchupLinks = Array.isArray(data.catchup_links) ? data.catchup_links : [];
+      catchupError = "";
+    }
+  } catch {
     catchupLinks = [];
-    catchupError = res.status === 401 || res.status === 403
-      ? "Catch-up links are available to the class teacher."
-      : "Could not load catch-up links.";
-  } else {
-    catchupLinks = Array.isArray(data.catchup_links) ? data.catchup_links : [];
-    catchupError = "";
+    catchupError = CATCHUP_LOAD_ERROR;
   }
   paintModules();
 }

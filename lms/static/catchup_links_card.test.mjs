@@ -3,9 +3,11 @@
  * closed copy, plain preview path.
  */
 import {
+  CATCHUP_LOAD_ERROR,
   PENDING_COPY,
   buildLessonSlideCatchup,
   copyPlainLink,
+  moduleKeyOf,
   paintLessonModuleSections,
   bindCatchupLinks,
   postCatchupOpen,
@@ -228,7 +230,30 @@ assert(posted.body.open === false, "body is {open:false}");
 assert(toggleMount.querySelector(".catchup-badge").textContent === "Closed", "badge follows the toggle");
 assert(toggleMount.querySelector(".catchup-badge").className.includes("is-muted"), "toggled closed is muted");
 
+const abortMount = mountDoc();
+paintLessonModuleSections(abortMount, { decks: [], links: [links[3]] });
+bindCatchupLinks(abortMount, 99);
+const abortToggle = abortMount.querySelector(".catchup-toggle");
+abortToggle.checked = true;
+globalThis.fetch = async () => {
+  const err = new Error("The user aborted a request.");
+  err.name = "AbortError";
+  throw err;
+};
+await abortMount.listeners.change({ target: abortToggle });
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert(abortToggle.checked === false, "aborted toggle reverts checkbox");
+
+assert(moduleKeyOf("M1") === "M1" && moduleKeyOf("m2") === "M2", "live_module M#");
+assert(moduleKeyOf("bogus") === "" && moduleKeyOf("M1-extra") === "", "reject bad live_module");
+
+const errMount = mountDoc();
+paintLessonModuleSections(errMount, { decks: [], links: [], error: CATCHUP_LOAD_ERROR });
+assert(texts(errMount).includes(CATCHUP_LOAD_ERROR), "load error on card");
+assert(!texts(errMount).includes(PENDING_COPY), "no grey rows when load failed");
+
 const copied = [];
+globalThis.navigator ??= {};
 Object.defineProperty(globalThis.navigator, "clipboard", {
   configurable: true,
   value: { writeText: async (value) => { copied.push(value); } },

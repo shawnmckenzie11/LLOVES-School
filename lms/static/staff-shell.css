@@ -4975,6 +4975,7 @@ body.staff-shell .catchup-links-card .catchup-copy,
 body.staff-shell .catchup-links-card .catchup-preview {
   width: auto;
   margin: 0;
+  font-family: inherit;
 }
 body.staff-shell .catchup-earlier {
   margin-top: 0.35rem;

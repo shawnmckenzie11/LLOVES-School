@@ -33,6 +33,15 @@ class ShootGuardTests(unittest.TestCase):
         self.assertIn("lesson-slides", slug)
         self.assertNotIn("/", slug)
 
+    def test_fresh_state_path_is_not_fixed_tmp(self) -> None:
+        """Default session file is a unique tempfile, not a shared /tmp name."""
+        first = shoot.fresh_state_path()
+        second = shoot.fresh_state_path()
+        self.assertNotEqual(first, second)
+        self.assertNotEqual(first.name, "lloves-shawn-state.json")
+        first.unlink(missing_ok=True)
+        second.unlink(missing_ok=True)
+
 
 if __name__ == "__main__":
     unittest.main()

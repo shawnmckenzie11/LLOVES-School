@@ -22,6 +22,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import urllib.parse
 from pathlib import Path
 
@@ -188,6 +189,13 @@ def prepare_catchup(path: Path, mode: str) -> int:
     finally:
         con.close()
     return class_id
+
+
+def fresh_state_path() -> Path:
+    """Per-run Playwright storageState file (not a fixed shared /tmp path)."""
+    fd, name = tempfile.mkstemp(prefix="lloves-shawn-state-", suffix=".json")
+    os.close(fd)
+    return Path(name)
 
 
 def slug_for(url: str) -> str:
@@ -372,7 +380,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.seed:
         seed_demo()
     path = db_path()
-    state = Path(args.state) if args.state else Path("/tmp/lloves-shawn-state.json")
+    state = Path(args.state) if args.state else fresh_state_path()
     if not state.exists() or args.seed:
         login_state(args.base, state, teacher_email=staff_shawn_email(path))
     out = Path(args.out)
