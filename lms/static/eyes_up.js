@@ -11,7 +11,6 @@
  * positions back on the re-rendered nodes after that repaint.
  */
 
-/** Placeholder copy for Wonder. */
 export const EYES_UP_COPY = Object.freeze({
   title: "Access Paused", // copy: MCK-197 (only text on the student overlay)
 });
