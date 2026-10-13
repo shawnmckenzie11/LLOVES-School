@@ -282,7 +282,12 @@ class CatchupTests(Base):
                           self.sign_in(self.app.test_client(), name=ben, pin="5678", ip=other))
         limit_key = P.catchup_link_ip_limit_key(self.token, "ip:" + attacker)
         self.assertEqual(self.school.count_join_failures(limit_key, seconds=P.PIN_WINDOW_S), 3)
-        self.assertEqual(self.school.count_join_failures("ip:" + attacker), 0)
+        self.assertEqual(
+            self.school.count_join_failures(
+                P.catchup_ip_limit_key("ip:" + attacker), seconds=P.PIN_WINDOW_S
+            ),
+            3,
+        )
 
     def test_teacher_pin_reset_ends_that_students_catchup_sessions(self) -> None:
         client = self.app.test_client()

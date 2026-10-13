@@ -2225,7 +2225,20 @@ class LovesDB:
         store = getattr(self, "engagement", None)
         if store is None:
             return []
-        return store.list_rollup(int(class_id), run_key=run_key, limit=limit)
+        rows = store.list_rollup(int(class_id), run_key=run_key, limit=limit)
+        if run_key is not None:
+            return rows
+        with self._lock:
+            discarded = {
+                str(r[0])
+                for r in self.conn.execute(
+                    "SELECT run_key FROM participation_runs WHERE class_id = ? AND discarded = 1",
+                    (int(class_id),),
+                ).fetchall()
+            }
+        if not discarded:
+            return rows
+        return [r for r in rows if str(r.get("run_key") or "") not in discarded]
 
     def _rollup_engagement_for_session(self, session_id: int) -> int:
         """Aggregate engagement events for one ended run into ``engagement_rollup``.
@@ -29810,6 +29823,14 @@ class SchoolDB(LovesDB):
                 """,
                 (cid, key, 1 if discarded else 0, now if discarded else None, user_id if discarded else None),
             )
+            if discarded:
+                self.conn.execute(
+                    """
+                    UPDATE catchup_links SET is_open = 0, updated_at = ?
+                    WHERE class_id = ? AND run_key = ?
+                    """,
+                    (now, cid, key),
+                )
             if self.conn.in_transaction:
                 self.conn.commit()
         return True
@@ -29830,6 +29851,62 @@ class SchoolDB(LovesDB):
             if self.conn.in_transaction:
                 self.conn.commit()
         return cur.rowcount == 1
+
+
+    def record_catchup_pin_failure(self, class_id: int, student_id: int) -> int:
+        """Count one wrong catch-up PIN for a roster student (does not lock them out)."""
+        from participation import PIN_WINDOW_S
+
+        cutoff = (
+            datetime.now() - timedelta(seconds=int(PIN_WINDOW_S))
+        ).replace(microsecond=0).isoformat()
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO catchup_pin_failures (class_id, student_id, failed_at)
+                VALUES (?, ?, ?)
+                """,
+                (int(class_id), int(student_id), _now()),
+            )
+            row = self.conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM catchup_pin_failures
+                WHERE class_id = ? AND student_id = ? AND failed_at >= ?
+                """,
+                (int(class_id), int(student_id), cutoff),
+            ).fetchone()
+            if self.conn.in_transaction:
+                self.conn.commit()
+        return int(row["n"] if row is not None else 0)
+
+    def catchup_pin_guess_alerts(self, class_id: int) -> list[dict[str, Any]]:
+        """Students with many wrong catch-up PIN tries (teacher alert, not student lockout)."""
+        from participation import CATCHUP_PIN_STUDENT_ALERT, PIN_WINDOW_S
+
+        cutoff = (
+            datetime.now() - timedelta(seconds=int(PIN_WINDOW_S))
+        ).replace(microsecond=0).isoformat()
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT student_id, COUNT(*) AS n
+                FROM catchup_pin_failures
+                WHERE class_id = ? AND failed_at >= ?
+                GROUP BY student_id
+                HAVING n >= ?
+                ORDER BY n DESC, student_id
+                """,
+                (int(class_id), cutoff, int(CATCHUP_PIN_STUDENT_ALERT)),
+            ).fetchall()
+        names = self.class_codenames(int(class_id))
+        return [
+            {
+                "student_id": int(r["student_id"]),
+                "name": names.get(int(r["student_id"]), ""),
+                "failures": int(r["n"]),
+            }
+            for r in rows
+        ]
 
     def catchup_pin_stamp(self, class_id: int, student_id: int) -> str:
         """Fingerprint of the student's current PIN hash, ``""`` when none is set.

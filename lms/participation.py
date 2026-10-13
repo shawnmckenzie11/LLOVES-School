@@ -21,6 +21,7 @@ from typing import Any
 BANDS: tuple[tuple[int, int], ...] = ((4, 80), (3, 70), (2, 60), (1, 50))
 MIN_OFFERED_FOR_LINE = 3
 PIN_MAX_ATTEMPTS = 5
+CATCHUP_PIN_STUDENT_ALERT = 5
 PIN_WINDOW_S = 15 * 60
 # Wrong PINs from one client (MCK-120 ``ip:`` key) across every student and link.
 CATCHUP_PIN_IP_LIMIT = 20

@@ -34,6 +34,14 @@ class CliBackfillTests(unittest.TestCase):
         self.assertNotEqual(result.exit_code, 0)
         self.assertIn("--pins requires --apply", result.output)
 
+    def test_fly_app_name_counts_as_production(self) -> None:
+        with mock.patch.dict(
+            os.environ, {"FLASK_ENV": "", "FLY_APP_NAME": "lloves-lms"}, clear=False
+        ):
+            result = self.runner.invoke(args=["backfill-catchup", "--apply"])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("--i-know-this-is-prod", result.output)
+
     def test_prod_apply_requires_override_flag(self) -> None:
         with mock.patch.dict(os.environ, {"FLASK_ENV": "production"}, clear=False):
             result = self.runner.invoke(args=["backfill-catchup", "--apply"])
@@ -64,6 +72,12 @@ class DiscardRunTests(Base):
         after = self.school.class_participation(self.class_id)
         self.assertEqual(after["modules"], [])
         self.assertTrue(self.school.participation_run_discarded(self.class_id, self.run_key))
+
+    def test_discard_closes_catchup_link(self) -> None:
+        self.assertTrue(int(self.link["is_open"]))
+        self.school.set_participation_run_discarded(self.class_id, self.run_key, True, user_id=1)
+        again = self.school.get_catchup_link(str(self.link["token"]))
+        self.assertFalse(int(again["is_open"]))
 
     def test_teacher_discard_api(self) -> None:
         staff = self.app.test_client()

@@ -75,6 +75,18 @@
     <button type="button" class="btn secondary no-print" onclick="window.print()">Print PIN list</button>
     {% endif %}
 
+        {% if pin_alerts %}
+    <div class="card pin-alerts no-print" role="status">
+      <h2>Catch-up PIN alerts</h2>
+      <p class="hint">Many wrong PIN tries for these students. They are not locked out; check in with them.</p>
+      <ul>
+        {% for alert in pin_alerts %}
+        <li><strong>{{ alert.name }}</strong> — {{ alert.failures }} wrong tries (15 min)</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
     <h2>Catch-up links</h2>
     <ul class="catchup-runs">
       {% for l in links %}

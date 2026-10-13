@@ -14,7 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 def _is_production_env() -> bool:
-    """True when Flask is configured for production (explicit override required)."""
+    """True on Fly or when ``FLASK_ENV=production`` (empty env alone is not prod)."""
+    if str(os.getenv("FLY_APP_NAME") or "").strip():
+        return True
     return (os.getenv("FLASK_ENV") or "").lower() == "production"
 
 
@@ -117,17 +119,21 @@ def register_cli(app: Flask) -> None:
             )
         if apply and prod_override:
             wrote = [r for r in report.runs if r.action == "wrote"]
-            logger.info(
+            audit_line = (
                 "catchup_backfill_audit course=%s module=%s slot=%s runs=%s items=%s "
-                "answers=%s pins_assigned=%s",
-                str(course or "").upper(),
-                str(live_module or "").upper(),
-                str(live_slot or "").upper(),
-                len(wrote),
-                sum(int(r.items) for r in wrote),
-                sum(int(r.answers) for r in wrote),
-                pins_assigned,
+                "answers=%s pins_assigned=%s"
+                % (
+                    str(course or "").upper(),
+                    str(live_module or "").upper(),
+                    str(live_slot or "").upper(),
+                    len(wrote),
+                    sum(int(r.items) for r in wrote),
+                    sum(int(r.answers) for r in wrote),
+                    pins_assigned,
+                )
             )
+            click.echo(audit_line)
+            logger.warning(audit_line)
 
 
 def main() -> None:
