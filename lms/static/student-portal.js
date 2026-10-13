@@ -2,6 +2,14 @@
  * Phone-first student live-class home: Live response shell + chrome boards.
  */
 import { formatQuestionHtml, renderLiveQuestionMath } from "/static/common.js";
+import {
+  escapeText,
+  lifecycleAnswerKind,
+  lifecyclePromptHtml,
+  liveAnswerControlsHtml,
+  liveChoiceLabels,
+  liveQuestionHeadHtml,
+} from "/static/live_question_card.js";
 import { paintEyesUp } from "/static/eyes_up.js";
 import {
   RECONNECT_PENDING_MS,
@@ -637,55 +645,6 @@ function paintRoundBanner(payload) {
   const label = payload.scoring ? String(payload.round_label || "").trim() : "";
   roundBannerEl.textContent = label;
   roundBannerEl.hidden = !label;
-}
-
-/**
- * Escape text for HTML.
- * @param {unknown} value
- * @returns {string}
- */
-function escapeText(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
-/** Render a graph image at full card width for lifecycle questions. */
-function questionImageHtmlStudent(imageUrl) {
-  const url = String(imageUrl || "").trim();
-  if (!url) return "";
-  return `<img class="live-question-image is-full" src="${escapeText(url)}" alt="Question graph" loading="lazy">`;
-}
-
-/**
- * Prefer server-rendered question HTML when available. Plain text with a
- * blank line (a Contest Question's stem / task break, MCK-161 INFO-2)
- * keeps its paragraphs via ``.is-paragraphs`` (``white-space: pre-line``).
- */
-function lifecyclePromptHtml(content) {
-  const rendered = String(content?.text_html || "").trim();
-  if (rendered) return `<span class="live-question-html">${rendered}</span>`;
-  const raw = String(
-    content?.text || content?.prompt || content?.question || "Live question"
-  ).trim();
-  const paragraphs = /\n\s*\n/.test(raw) ? " is-paragraphs" : "";
-  return `<span class="live-question-html${paragraphs}">${formatQuestionHtml(raw)}</span>`;
-}
-
-/**
- * Render optional LaTeX under the student stem, never concatenated into text.
- * @param {any} content
- * @returns {string}
- */
-function lifecycleEquationHtml(content) {
-  const latex = String(content?.equation_latex || content?.equation || "").trim();
-  if (!latex) return "";
-  const raw = latex.replace(/^\$+|\$+$/g, "").trim();
-  return `<p class="student-live-equation"><span class="math-latex" data-latex="${escapeText(
-    raw
-  )}"></span></p>`;
 }
 
 /** Wonder waiting-room line (pre–Generate teams / pre–Team Challenge). */
@@ -2572,29 +2531,6 @@ function rankChallengeCardHtml(item) {
 }
 
 /**
- * Flatten catalogue options or prompt choices into student-facing labels.
- * @param {any} content
- * @returns {string[]}
- */
-function liveChoiceLabels(content) {
-  const body = content && typeof content === "object" ? content : {};
-  const raw =
-    Array.isArray(body.choices) && body.choices.length
-      ? body.choices
-      : Array.isArray(body.options)
-        ? body.options
-        : [];
-  return raw
-    .map((choice) => {
-      if (choice && typeof choice === "object") {
-        return String(choice.label || choice.text || choice.choice || "").trim();
-      }
-      return String(choice || "").trim();
-    })
-    .filter(Boolean);
-}
-
-/**
  * Render governed answer distribution bars.
  * @param {any} results
  * @returns {string}
@@ -2652,37 +2588,6 @@ function lifecycleClassConsensusHtml(results) {
 }
 
 /**
- * Return the student answer kind for one lifecycle card.
- * Catalogue ``type`` / ``integer_only`` win over a stale MC compatibility prompt.
- * @param {any} item
- * @returns {string}
- */
-function lifecycleAnswerKind(item) {
-  const prompt = item?.prompt || {};
-  const content = item?.content || prompt.payload || {};
-  if (
-    content.integer_only ||
-    String(content.type || "").toLowerCase() === "numeric" ||
-    String(prompt.kind || "").toLowerCase() === "numeric"
-  ) {
-    return "numeric";
-  }
-  if (
-    String(content.kind || "").toLowerCase() === "artifact" ||
-    String(content.type || "").toLowerCase() === "artifact" ||
-    String(prompt.kind || "").toLowerCase() === "artifact" ||
-    String(content.artifact_id || "").trim()
-  ) {
-    return "artifact";
-  }
-  const type = String(content.type || prompt.kind || "mc").toLowerCase();
-  if (type === "poll" && !liveChoiceLabels(content).length) {
-    return "text";
-  }
-  return type;
-}
-
-/**
  * Compact parent-function radios for the MCR3U C3 Artifact card.
  * @param {any} content
  * @param {string} groupId
@@ -2732,39 +2637,6 @@ function lifecycleAnswerControls(item, action, initial = null) {
     const stored = Array.isArray(initial?.order) ? initial.order.map((id) => String(id)) : [];
     return rankInputHtml(options, stored, action);
   }
-  if (kind === "mc" || kind === "poll") {
-    const choices = liveChoiceLabels(content);
-    const optionsHtml = Array.isArray(content.options_html) ? content.options_html : [];
-    return `<div class="student-live-answer-controls" data-live-action="${action}">
-      ${choices
-        .map(
-          (choice, index) => {
-            const optionBody = String(optionsHtml[index] || "").trim()
-              ? `<span class="live-question-html">${optionsHtml[index]}</span>`
-              : escapeText(choice);
-            return `<button type="button" class="prompt-choice${
-              String(choice) === current ? " is-selected" : ""
-            }" data-live-choice="${escapeText(choice)}">${optionBody}</button>`;
-          }
-        )
-        .join("")}
-      <button type="button" class="prompt-submit" data-live-submit="${action}">${prefix}</button>
-    </div>`;
-  }
-  if (kind === "numeric") {
-    const value = current === "—" ? "" : current;
-    const integerOnly = Boolean(content.integer_only);
-    return `<div class="student-live-answer-controls" data-live-action="${action}">
-      <label class="prompt-numeric"><span>${integerOnly ? "Enter an integer…" : "Your answer"}</span>
-        <input type="number" inputmode="${integerOnly ? "numeric" : "decimal"}" step="${
-          integerOnly ? "1" : "any"
-        }" data-live-value placeholder="${escapeText(
-          content.placeholder || (integerOnly ? "Enter an integer…" : "Enter a number")
-        )}" value="${escapeText(value)}">
-      </label>
-      <button type="button" class="prompt-submit" data-live-submit="${action}">${prefix}</button>
-    </div>`;
-  }
   if (kind === "artifact") {
     const mode = String(content.target_mode || "graph");
     const equation = String(content.equation || "").trim();
@@ -2797,13 +2669,7 @@ function lifecycleAnswerControls(item, action, initial = null) {
       }>${prefix}</button>
     </div>`;
   }
-  const value = current === "—" ? "" : current;
-  return `<div class="student-live-answer-controls" data-live-action="${action}">
-    <label class="prompt-share"><span>Your answer</span>
-      <textarea rows="3" maxlength="2000" data-live-text>${escapeText(value)}</textarea>
-    </label>
-    <button type="button" class="prompt-submit" data-live-submit="${action}">${prefix}</button>
-  </div>`;
+  return liveAnswerControlsHtml(kind, content, action, current, prefix);
 }
 
 /**
@@ -3644,28 +3510,7 @@ function paintLifecycleQuestionStack(payload) {
           <button type="button" class="student-live-dismiss" data-dismiss-live-card="${escapeText(dockKey)}" aria-label="Dismiss question">×</button>
         </div>
         <button type="button" class="student-pane-resize" data-pane-resize="${escapeText(dockKey)}" aria-label="Resize question"></button>
-        <div class="student-live-card-head">
-          <span class="student-live-card-kicker">${escapeText(
-            String(content.type || item.prompt?.kind || "Question").toUpperCase()
-          )}</span>
-        </div>
-        ${questionImageHtmlStudent(content.image_url)}
-        <h2>${lifecyclePromptHtml({
-          ...content,
-          text: content.title || content.text,
-          prompt: content.title || content.text || content.prompt,
-        })}</h2>
-        ${
-          String(content.title || "").trim() &&
-          String(content.stem || content.prompt || "").trim() &&
-          String(content.stem || content.prompt || "").trim() !==
-            String(content.title || "").trim()
-            ? `<p class="student-live-stem">${formatQuestionHtml(
-                content.stem || content.prompt
-              )}</p>`
-            : ""
-        }
-        ${lifecycleEquationHtml(content)}
+        ${liveQuestionHeadHtml(content, item.prompt?.kind, formatQuestionHtml)}
         ${answerControls}
         ${ownAnswer}
         ${unsentDraftNoteHtml(item)}
@@ -4031,7 +3876,7 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
   const mintedTitle = String(data.title || "").trim();
   const title = mintedTitle
     ? formatQuestionHtml(mintedTitle)
-    : lifecyclePromptHtml(data);
+    : lifecyclePromptHtml(data, formatQuestionHtml);
   const mintedStem =
     mintedTitle &&
     String(data.stem || data.prompt || "").trim() &&

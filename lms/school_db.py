@@ -704,6 +704,73 @@ CREATE INDEX IF NOT EXISTS idx_live_group_responses_item
 -- MCK-45: answers copied out right before End/cleanup deletes them, so a
 -- teacher can review a class after it ends. No FK to the session row: the
 -- id is reused for the next class, and these rows must outlive it.
+-- MCK-198: individual participation (MCK-52 Phase 1). Kept past End.
+CREATE TABLE IF NOT EXISTS participation_items (
+    id INTEGER PRIMARY KEY,
+    class_id INTEGER NOT NULL,
+    run_key TEXT NOT NULL,
+    live_module TEXT NOT NULL DEFAULT '',
+    live_slot TEXT NOT NULL DEFAULT '',
+    question_key TEXT NOT NULL,
+    item_json TEXT NOT NULL DEFAULT '{}',
+    prompt_kind TEXT NOT NULL DEFAULT '',
+    offered_at TEXT NOT NULL,
+    UNIQUE(class_id, run_key, question_key)
+);
+CREATE INDEX IF NOT EXISTS idx_participation_items_module
+    ON participation_items(class_id, live_module);
+CREATE TABLE IF NOT EXISTS participation_answers (
+    id INTEGER PRIMARY KEY,
+    class_id INTEGER NOT NULL,
+    run_key TEXT NOT NULL,
+    live_module TEXT NOT NULL DEFAULT '',
+    question_key TEXT NOT NULL,
+    student_id INTEGER NOT NULL,
+    source TEXT NOT NULL DEFAULT 'live',
+    answer_json TEXT NOT NULL DEFAULT '{}',
+    answered_at TEXT NOT NULL,
+    UNIQUE(class_id, run_key, question_key, student_id)
+);
+CREATE INDEX IF NOT EXISTS idx_participation_answers_module
+    ON participation_answers(class_id, live_module, student_id);
+CREATE TABLE IF NOT EXISTS participation_module_marks (
+    class_id INTEGER NOT NULL,
+    live_module TEXT NOT NULL,
+    complete INTEGER NOT NULL,
+    marked_by INTEGER,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (class_id, live_module)
+);
+-- Phase 1 saves this only; Phase 2 (MCK-201) scores with it.
+CREATE TABLE IF NOT EXISTS participation_module_settings (
+    class_id INTEGER NOT NULL,
+    live_module TEXT NOT NULL,
+    l4_needs_group INTEGER NOT NULL DEFAULT 0,
+    updated_by INTEGER,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (class_id, live_module)
+);
+CREATE TABLE IF NOT EXISTS catchup_links (
+    id INTEGER PRIMARY KEY,
+    token TEXT NOT NULL UNIQUE,
+    class_id INTEGER NOT NULL,
+    run_key TEXT NOT NULL UNIQUE,
+    live_module TEXT NOT NULL DEFAULT '',
+    live_slot TEXT NOT NULL DEFAULT '',
+    is_open INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_catchup_links_class ON catchup_links(class_id);
+CREATE TABLE IF NOT EXISTS catchup_pin_failures (
+    id INTEGER PRIMARY KEY,
+    class_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
+    failed_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_catchup_pin_failures
+    ON catchup_pin_failures(class_id, student_id, failed_at);
+
 CREATE TABLE IF NOT EXISTS live_result_snapshots (
     id INTEGER PRIMARY KEY,
     live_session_id INTEGER NOT NULL,
@@ -3511,6 +3578,15 @@ class LovesDB:
         if "live_slot" not in feedback_cols:
             self.conn.execute(
                 "ALTER TABLE live_class_feedback ADD COLUMN live_slot TEXT"
+            )
+        participation_cols = {
+            str(row[1])
+            for row in self.conn.execute("PRAGMA table_info(participation_items)")
+        }
+        if participation_cols and "prompt_kind" not in participation_cols:
+            self.conn.execute(
+                "ALTER TABLE participation_items"
+                " ADD COLUMN prompt_kind TEXT NOT NULL DEFAULT ''"
             )
         self.conn.execute(
             """
@@ -29344,6 +29420,489 @@ class SchoolDB(LovesDB):
             self.conn.commit()
         return int(cur.rowcount or 0)
 
+    # --- MCK-198: individual participation + catch-up --------------------
+
+    def _capture_participation_unlocked(self, session_id: int) -> None:
+        """At End: keep offered individual items, live answers, one catch-up link.
+
+        Each item keeps the payload students saw (the prompt's, else the
+        playlist item's) and the prompt kind, so the catch-up page can paint
+        the same live question card.
+
+        Caller holds ``self._lock`` inside the End transaction. Group items
+        (``publish_mode``/``response_mode`` not individual) are skipped, so
+        group questions never enter the participation math.
+        """
+        sid = int(session_id)
+        session = self.conn.execute(
+            "SELECT * FROM live_class_sessions WHERE id = ?", (sid,)
+        ).fetchone()
+        if session is None:
+            return
+        keys = session.keys()
+        run_key = str(session["run_key"] or "") if "run_key" in keys else ""
+        if not run_key:
+            run_key = f"session:{sid}:{session['started_at']}"
+        try:
+            teacher = json.loads(session["teacher_state_json"] or "{}") if (
+                "teacher_state_json" in keys) else {}
+        except (TypeError, ValueError):
+            teacher = {}
+        teacher = teacher if isinstance(teacher, dict) else {}
+        module = str(teacher.get("live_module") or "")
+        slot = str(teacher.get("live_slot") or "")
+        class_id = int(session["class_id"])
+        now = _now()
+        self.conn.execute(
+            """
+            INSERT OR IGNORE INTO participation_items (
+                class_id, run_key, live_module, live_slot, question_key, item_json,
+                prompt_kind, offered_at
+            )
+            SELECT ?, ?, ?, ?, 'item:' || i.placement_key,
+                   CASE WHEN TRIM(COALESCE(pr.payload, '')) NOT IN ('', '{}')
+                        THEN pr.payload ELSE i.item_json END,
+                   COALESCE(pr.kind, ''), COALESCE(i.published_at, ?)
+            FROM live_session_items i
+            LEFT JOIN live_session_prompts pr ON pr.id = i.prompt_id
+            WHERE i.live_session_id = ? AND i.published_at IS NOT NULL
+              AND i.publish_mode = 'individual' AND i.response_mode = 'individual'
+            """,
+            (class_id, run_key, module, slot, now, sid),
+        )
+        self.conn.execute(
+            """
+            INSERT OR IGNORE INTO participation_answers (
+                class_id, run_key, live_module, question_key, student_id, source,
+                answer_json, answered_at
+            )
+            SELECT ?, ?, ?, 'item:' || i.placement_key, r.student_id, 'live',
+                   '{}', r.updated_at
+            FROM live_session_responses r
+            INNER JOIN live_session_items i ON i.prompt_id = r.prompt_id
+            WHERE i.live_session_id = ? AND r.student_id IS NOT NULL
+              AND i.publish_mode = 'individual' AND i.response_mode = 'individual'
+            """,
+            (class_id, run_key, module, sid),
+        )
+        offered = self.conn.execute(
+            "SELECT 1 FROM participation_items WHERE class_id = ? AND run_key = ? LIMIT 1",
+            (class_id, run_key),
+        ).fetchone()
+        if offered is not None:
+            from participation import new_token
+
+            self.conn.execute(
+                """
+                INSERT OR IGNORE INTO catchup_links (
+                    token, class_id, run_key, live_module, live_slot, is_open,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                """,
+                (new_token(), class_id, run_key, module, slot, now, now),
+            )
+
+    def module_complete(self, class_id: int, module: str) -> bool:
+        """A teacher mark wins (reversible); otherwise complete once C4 has run."""
+        with self._lock:
+            mark = self.conn.execute(
+                "SELECT complete FROM participation_module_marks WHERE class_id = ? AND live_module = ?",
+                (int(class_id), str(module)),
+            ).fetchone()
+            if mark is not None:
+                return bool(mark["complete"])
+            ran = self.conn.execute(
+                "SELECT 1 FROM participation_items WHERE class_id = ? AND live_module = ? "
+                "AND UPPER(live_slot) = 'C4' LIMIT 1",
+                (int(class_id), str(module)),
+            ).fetchone()
+        return ran is not None
+
+    def set_module_complete(
+        self, class_id: int, module: str, complete: bool, *, user_id: int | None = None
+    ) -> bool:
+        """Teacher 'Mark Module N Complete', or undo (deletes the mark). Returns the new state."""
+        with self._lock:
+            if not complete:
+                self.conn.execute(
+                    "DELETE FROM participation_module_marks WHERE class_id = ? AND live_module = ?",
+                    (int(class_id), str(module)),
+                )
+                if self.conn.in_transaction:
+                    self.conn.commit()
+                return self.module_complete(class_id, module)
+            self.conn.execute(
+                """
+                INSERT INTO participation_module_marks (class_id, live_module, complete, marked_by, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(class_id, live_module) DO UPDATE SET
+                    complete = excluded.complete, marked_by = excluded.marked_by,
+                    updated_at = excluded.updated_at
+                """,
+                (int(class_id), str(module), 1 if complete else 0, user_id, _now()),
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+        return self.module_complete(class_id, module)
+
+    def module_l4_needs_group(self, class_id: int, module: str) -> bool:
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT l4_needs_group FROM participation_module_settings "
+                "WHERE class_id = ? AND live_module = ?",
+                (int(class_id), str(module)),
+            ).fetchone()
+        return bool(row["l4_needs_group"]) if row is not None else False
+
+    def set_module_l4_needs_group(
+        self, class_id: int, module: str, value: bool, *, user_id: int | None = None
+    ) -> bool:
+        """Save 'Level 4 needs group work' (default off). Locked once the module is complete.
+
+        Raises:
+            PermissionError: The module is complete.
+        """
+        if self.module_complete(class_id, module):
+            raise PermissionError("Module is complete; this setting is locked.")
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO participation_module_settings (class_id, live_module, l4_needs_group, updated_by, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(class_id, live_module) DO UPDATE SET
+                    l4_needs_group = excluded.l4_needs_group, updated_by = excluded.updated_by,
+                    updated_at = excluded.updated_at
+                """,
+                (int(class_id), str(module), 1 if value else 0, user_id, _now()),
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+        return self.module_l4_needs_group(class_id, module)
+
+    def _participation_counts(
+        self, class_id: int, module: str | None = None, student_id: int | None = None
+    ) -> tuple[dict[str, int], dict[tuple[int, str], dict[str, int]]]:
+        """Distinct offered questions per module and answered per (student, module).
+
+        A question is one distinct ``(live_slot, question_key)`` pair: the
+        same placement key in C1 and C2 is two questions, and a slot re-run
+        that re-offers a key counts once. An answer takes its slot from the
+        item offered in the same run and counts once whether it came live
+        or on the catch-up link.
+        """
+        where, params = "p.class_id = ?", [int(class_id)]
+        if module is not None:
+            where += " AND p.live_module = ?"
+            params.append(str(module))
+        pair = "p.live_slot || char(31) || p.question_key"
+        with self._lock:
+            offered_rows = self.conn.execute(
+                f"SELECT p.live_module, COUNT(DISTINCT {pair}) AS n FROM participation_items p "
+                f"WHERE {where} GROUP BY p.live_module",
+                params,
+            ).fetchall()
+            ans_where, ans_params = where, list(params)
+            if student_id is not None:
+                ans_where += " AND a.student_id = ?"
+                ans_params.append(int(student_id))
+            answer_rows = self.conn.execute(
+                f"""
+                SELECT a.student_id, p.live_module,
+                       COUNT(DISTINCT {pair}) AS n,
+                       COUNT(DISTINCT CASE WHEN a.source = 'catchup' THEN {pair} END) AS c
+                FROM participation_answers a
+                INNER JOIN participation_items p
+                    ON p.class_id = a.class_id AND p.run_key = a.run_key
+                   AND p.question_key = a.question_key
+                WHERE {ans_where}
+                GROUP BY a.student_id, p.live_module
+                """,
+                ans_params,
+            ).fetchall()
+        offered = {str(r["live_module"]): int(r["n"]) for r in offered_rows}
+        answered = {
+            (int(r["student_id"]), str(r["live_module"])): {"n": int(r["n"]), "catchup": int(r["c"])}
+            for r in answer_rows
+        }
+        return offered, answered
+
+    def class_participation(self, class_id: int) -> dict[str, Any]:
+        """Teacher-only per-module participation column for the roster/gradebook."""
+        from participation import summary
+
+        offered, answered = self._participation_counts(class_id)
+        modules = sorted(offered)
+        students = self.game.conn.execute(
+            "SELECT id FROM students WHERE class_id = ? ORDER BY id", (int(class_id),)
+        ).fetchall() if getattr(self, "game", None) is not None else []
+        rows = []
+        for stu in students:
+            cells = {}
+            for mod in modules:
+                got = answered.get((int(stu["id"]), mod), {"n": 0, "catchup": 0})
+                cell = summary(got["n"], offered[mod])
+                cell["catchup"] = got["catchup"]
+                cells[mod] = cell
+            rows.append({"student_id": int(stu["id"]), "modules": cells})
+        return {
+            "modules": [
+                {"module": m, "offered": offered[m], "complete": self.module_complete(class_id, m),
+                 "l4_needs_group": self.module_l4_needs_group(class_id, m)}
+                for m in modules
+            ],
+            "students": rows,
+        }
+
+    def student_module_participation(self, class_id: int, student_id: int, module: str) -> dict[str, Any]:
+        from participation import level_line, summary
+
+        offered, answered = self._participation_counts(class_id, module, student_id)
+        o = offered.get(str(module), 0)
+        a = answered.get((int(student_id), str(module)), {"n": 0})["n"]
+        out = summary(a, o)
+        out["line"] = level_line(a, o)
+        return out
+
+    def list_catchup_links(self, class_id: int) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT token, run_key, live_module, live_slot, is_open, created_at "
+                "FROM catchup_links WHERE class_id = ? ORDER BY id",
+                (int(class_id),),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_catchup_link(self, token: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM catchup_links WHERE token = ?", (str(token or "")[:80],)
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def set_catchup_link_open(self, class_id: int, token: str, is_open: bool) -> bool:
+        with self._lock:
+            cur = self.conn.execute(
+                "UPDATE catchup_links SET is_open = ?, updated_at = ? WHERE class_id = ? AND token = ?",
+                (1 if is_open else 0, _now(), int(class_id), str(token)),
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+        return cur.rowcount == 1
+
+    def catchup_pin_stamp(self, class_id: int, student_id: int) -> str:
+        """Fingerprint of the student's current PIN hash, ``""`` when none is set.
+
+        A catch-up session is valid only while its stored stamp still
+        matches, so a teacher reset ends that student's sessions on every
+        link and device.
+        """
+        from participation import pin_stamp
+
+        with self.game._lock:
+            row = self.game.conn.execute(
+                "SELECT pin_hash FROM students WHERE id = ? AND class_id = ?",
+                (int(student_id), int(class_id)),
+            ).fetchone()
+        return pin_stamp(str(row[0] or "")) if row is not None else ""
+
+    def set_student_pin(self, class_id: int, student_id: int, pin: str) -> None:
+        """Set or reset one student's course-wide catch-up PIN (``students.pin_hash``).
+
+        One PIN per student for the whole course, reused on every catch-up
+        link. A new hash changes ``catchup_pin_stamp``, which ends the
+        student's open catch-up sessions.
+        """
+        from participation import hash_pin, valid_pin
+
+        if not valid_pin(pin):
+            raise ValueError("PIN must be 4 digits.")
+        with self.game._lock:
+            self.game.conn.execute(
+                "UPDATE students SET pin_hash = ? WHERE id = ? AND class_id = ?",
+                (hash_pin(str(pin)), int(student_id), int(class_id)),
+            )
+            if self.game.conn.in_transaction:
+                self.game.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "DELETE FROM catchup_pin_failures WHERE class_id = ? AND student_id = ?",
+                (int(class_id), int(student_id)),
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+
+    def class_codenames(self, class_id: int) -> dict[int, str]:
+        """Roster codenames (unique per class), the names the picker shows."""
+        with self.game._lock:
+            rows = self.game.conn.execute(
+                "SELECT id, codename FROM students WHERE class_id = ? "
+                "AND TRIM(COALESCE(codename, '')) <> '' ORDER BY codename COLLATE NOCASE",
+                (int(class_id),),
+            ).fetchall()
+        return {int(r[0]): str(r[1]).strip() for r in rows}
+
+    def catchup_sign_in(
+        self, token: str, codename: str, pin: str | None, *, now: float | None = None
+    ) -> dict[str, Any]:
+        """Codename (picked from the link's class roster), then PIN, for an open link.
+
+        The token already names the class, so there is no join-code step.
+        Returns ``{ok, student_id}`` or ``{ok: False, reason}`` with reason
+        ``missing``, ``closed``, ``unknown_name``, ``need_pin`` (screen 1 passed),
+        ``not_set`` (teacher has not set a PIN; not counted),
+        ``looks_like_join_code`` (not counted), ``locked`` or ``wrong``.
+        A success also carries ``pin_stamp`` for the session (see
+        ``catchup_pin_stamp``). The PIN is the student's one course PIN on
+        ``students.pin_hash``, the same for every link.
+        Five failures in 15 minutes lock that student. The count and the
+        insert share one ``BEGIN IMMEDIATE`` transaction, so workers cannot
+        race past the limit.
+        """
+        import time as _time
+
+        from participation import (
+            PIN_MAX_ATTEMPTS,
+            PIN_WINDOW_S,
+            check_pin,
+            looks_like_join_code,
+            pin_stamp,
+        )
+
+        link = self.get_catchup_link(token)
+        if link is None:
+            return {"ok": False, "reason": "missing"}
+        if not int(link["is_open"]):
+            return {"ok": False, "reason": "closed"}
+        class_id = int(link["class_id"])
+        wanted = str(codename or "").strip().casefold()
+        ids = [sid for sid, name in self.class_codenames(class_id).items()
+               if wanted and name.casefold() == wanted]
+        if len(ids) != 1:
+            return {"ok": False, "reason": "unknown_name"}
+        stu = ids[0]
+        if pin is None:
+            return {"ok": False, "reason": "need_pin", "student_id": stu}
+        with self.game._lock:
+            cls = self.game.conn.execute(
+                "SELECT live_access_code FROM classes WHERE id = ?", (class_id,)
+            ).fetchone()
+            pin_row = self.game.conn.execute(
+                "SELECT pin_hash FROM students WHERE id = ? AND class_id = ?", (stu, class_id)
+            ).fetchone()
+        with self._lock:
+            active = [r[0] for r in self.conn.execute(
+                "SELECT session_code FROM live_class_sessions WHERE status = 'active'"
+            ).fetchall()]
+        stored = str(pin_row[0] or "") if pin_row is not None else ""
+        if not stored:
+            return {"ok": False, "reason": "not_set", "student_id": stu}
+        if looks_like_join_code(pin, [cls[0] if cls is not None else "", *active]):
+            return {"ok": False, "reason": "looks_like_join_code", "student_id": stu}
+        t = _time.time() if now is None else now
+        # PBKDF2 is slow; never run it while holding the sqlite write lock.
+        matched = check_pin(str(pin or ""), stored)
+        with self._lock:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                fails = int(self.conn.execute(
+                    "SELECT COUNT(*) FROM catchup_pin_failures WHERE class_id = ? "
+                    "AND student_id = ? AND failed_at > ?",
+                    (class_id, stu, t - PIN_WINDOW_S),
+                ).fetchone()[0])
+                if fails >= PIN_MAX_ATTEMPTS:
+                    result = {"ok": False, "reason": "locked"}
+                elif matched:
+                    result = {"ok": True, "student_id": stu, "class_id": class_id,
+                              "pin_stamp": pin_stamp(stored)}
+                else:
+                    self.conn.execute(
+                        "INSERT INTO catchup_pin_failures (class_id, student_id, failed_at) "
+                        "VALUES (?, ?, ?)",
+                        (class_id, stu, t),
+                    )
+                    result = {"ok": False, "reason": "wrong"}
+                self.conn.execute("COMMIT")
+            except BaseException:
+                self.conn.execute("ROLLBACK")
+                raise
+        return result
+
+    def catchup_questions(self, token: str, student_id: int) -> list[dict[str, Any]]:
+        """This class's individual questions for one student, for the catch-up page.
+
+        Unanswered ones carry ``answered=False``. Ones this student answered
+        after class on this link carry ``answered=True`` (tagged "Answered
+        after class"). Questions answered live are left out. ``content`` is
+        the same student-safe payload the live card gets (teacher keys
+        stripped, images rewritten), so the page reuses the live renderer.
+        """
+        link = self.get_catchup_link(token)
+        if link is None:
+            return []
+        class_id = int(link["class_id"])
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT p.question_key, p.item_json, p.prompt_kind,
+                       (SELECT a.source FROM participation_answers a
+                        INNER JOIN participation_items ap
+                            ON ap.class_id = a.class_id AND ap.run_key = a.run_key
+                           AND ap.question_key = a.question_key
+                        WHERE a.class_id = p.class_id AND a.live_module = p.live_module
+                          AND a.student_id = ? AND a.question_key = p.question_key
+                          AND ap.live_slot = p.live_slot
+                        ORDER BY a.source = 'live' DESC LIMIT 1) AS source
+                FROM participation_items p
+                WHERE p.class_id = ? AND p.run_key = ?
+                ORDER BY p.offered_at, p.id
+                """,
+                (int(student_id), int(link["class_id"]), str(link["run_key"])),
+            ).fetchall()
+        out = []
+        for r in rows:
+            if r["source"] == "live":
+                continue
+            try:
+                item = json.loads(r["item_json"] or "{}")
+            except (TypeError, ValueError):
+                item = {}
+            item = item if isinstance(item, dict) else {}
+            out.append({
+                "question_key": r["question_key"],
+                "content": self._student_public_item_payload(item, class_id=class_id),
+                "prompt_kind": str(r["prompt_kind"] or ""),
+                "answered": r["source"] == "catchup",
+            })
+        return out
+
+    def submit_catchup_answer(
+        self, token: str, student_id: int, question_key: str, answer: Any
+    ) -> bool:
+        """Store one catch-up answer with ``source='catchup'``. Team points untouched."""
+        link = self.get_catchup_link(token)
+        if link is None or not int(link["is_open"]):
+            raise PermissionError("closed")
+        allowed = {
+            q["question_key"] for q in self.catchup_questions(token, student_id) if not q["answered"]
+        }
+        if question_key not in allowed:
+            return False
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT OR IGNORE INTO participation_answers (
+                    class_id, run_key, live_module, question_key, student_id, source,
+                    answer_json, answered_at
+                ) VALUES (?, ?, ?, ?, ?, 'catchup', ?, ?)
+                """,
+                (int(link["class_id"]), str(link["run_key"]), str(link["live_module"]),
+                 str(question_key), int(student_id),
+                 json.dumps({"value": str(answer or "")[:500]}), _now()),
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+        return True
+
     def cleanup_live_session_response_data(self, session_id: int) -> None:
         """Delete ephemeral individual votes, group responses, and board ops.
 
@@ -29368,7 +29927,23 @@ class SchoolDB(LovesDB):
                         "live result snapshot failed session=%s", session_id
                     )
                 self.conn.execute("RELEASE live_result_snapshot")
-                self._delete_live_session_response_rows_unlocked(int(session_id))
+                # MCK-198: own savepoint, so a capture error never undoes the
+                # MCK-45 snapshot above. A failed capture keeps the response
+                # rows: deleting them would lose the only copy of who answered.
+                self.conn.execute("SAVEPOINT participation_capture")
+                captured = True
+                try:
+                    self._capture_participation_unlocked(int(session_id))
+                except Exception:  # noqa: BLE001
+                    captured = False
+                    self.conn.execute("ROLLBACK TO participation_capture")
+                    logger.exception(
+                        "participation capture failed session=%s; keeping response rows",
+                        session_id,
+                    )
+                self.conn.execute("RELEASE participation_capture")
+                if captured:
+                    self._delete_live_session_response_rows_unlocked(int(session_id))
             except BaseException:
                 self.conn.execute("ROLLBACK")
                 raise

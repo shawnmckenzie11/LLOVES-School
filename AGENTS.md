@@ -51,7 +51,7 @@ Slash-cloud / Cloud Agents boot a **fresh sqlite**, not the laptop DB and not Fl
 
 - **Ports:** Cursor Desktop Agents Window → **plug** (top right) → **8787** / LMS dev server → globe. That `http://127.0.0.1:8787/` is the tunnel. Flask binds **`0.0.0.0:8787`** when `LOCAL_DEV_LOGIN=1` (or `HOST=0.0.0.0`) so the plug can connect. Laptop Chrome that is not using the plug will refuse.
 - **Logins:** `LOCAL_DEV_LOGIN=1` offline picker. Padlock = Admin, Teacher card = staff. Seeded one-click accounts: `solutions@mckenzian.com` (IT), `shawnmckenzie11.sm@gmail.com` (staff), `rspercival10@gmail.com` (staff). Clicking skips 2SV. Do not type a random Google email — that is a login, not register, and 403s.
-- **Demo class:** seed creates 2026–2027 S1 + one Shawn-owned MCF3M class (roster **Maple**) so Run Live Class exists without an `.imscc`.
+- **Demo class:** seed creates 2026–2027 S1 + one Shawn-owned MCF3M class (roster **Maple**) so Run Live Class exists without an `.imscc`. It also ends one M1 C1 + C2 run, so Attendance & Participation → **Module participation & catch-up links** shows the M1 % column and two catch-up links (Maple's course PIN: `1234`).
 - **Boot:** `.cursor/environment.json` `start` runs `lms/local_dev_seed.py`; the LMS terminal repeats the seed inside `create_app`. Idempotent. `install` is snapshot-baked and is not enough by itself.
 
 ## Production

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Catch-up</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+  <link rel="stylesheet" href="/static/student-portal.css">
+  <style>
+    .catchup .full { display: block; width: 100%; box-sizing: border-box; }
+    .catchup .help { opacity: .8; font-size: .9rem; margin: .35rem 0 0; }
+    .catchup .line { font-weight: 600; }
+    .catchup label.field { display: block; margin: .8rem 0 .3rem; }
+    .catchup .catchup-questions { margin-top: .9rem; }
+  </style>
+</head>
+<body class="student-portal">
+  <div class="student-wrap catchup">
+{% if closed %}
+    <p class="kicker">Catch-up</p>
+    <div class="error">{{ closed }}</div>
+{% elif pin_step %}
+    <p class="kicker">Catch-up</p>
+    <h1>Enter your PIN</h1>
+    {% if error %}<div class="error" data-key="{{ error.key }}">{{ error.text }}</div>{% endif %}
+    <form method="post" autocomplete="off">
+      <input type="hidden" name="action" value="pin">
+      <label class="field" for="personal_pin" data-key="{{ pin_label.key }}">{{ pin_label.text }}</label>
+      <input class="full" id="personal_pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}"
+             minlength="4" maxlength="4" autocomplete="off" aria-describedby="pin_help" required>
+      <p id="pin_help" class="help" data-key="{{ pin_help.key }}">{{ pin_help.text }}</p>
+      <p><button class="full" type="submit">Start</button></p>
+    </form>
+{% elif signin %}
+    <p class="kicker">Catch-up</p>
+    <h1>Who are you?</h1>
+    {% if error %}<div class="error" data-key="{{ error.key }}">{{ error.text }}</div>{% endif %}
+    <form method="post">
+      <input type="hidden" name="action" value="who">
+      <label class="field" for="codename">Your name</label>
+      <select class="full" id="codename" name="codename" required>
+        <option value="">Choose your name</option>
+        {% for name in codenames %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+      </select>
+      <p><button class="full" type="submit">Next</button></p>
+    </form>
+{% else %}
+    <p class="kicker">{{ codename }}</p>
+    <h1>Catch-up</h1>
+    {% if line %}<p class="sub line">{{ line }}</p>{% endif %}
+    {% if questions %}
+      <div id="catchup-questions" class="catchup-questions" aria-live="polite"></div>
+      <form id="catchup-answer" method="post" hidden>
+        <input type="hidden" name="question_key">
+        <input type="hidden" name="answer">
+      </form>
+      <script type="application/json" id="catchup-data">{{ {"tag": tag, "questions": questions} | tojson }}</script>
+      <script type="module" src="/static/catchup.js"></script>
+    {% else %}
+      <p class="sub">You're all caught up for this class.</p>
+    {% endif %}
+{% endif %}
+  </div>
+</body>
+</html>

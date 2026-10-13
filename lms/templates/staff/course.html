@@ -1097,6 +1097,7 @@
             <button type="button" class="secondary" id="part-clear">Clear</button>
             <button type="button" class="secondary" id="sort-toggle">Sort: A–Z</button>
             <a class="btn secondary" id="export-results-csv" href="{{ url_for('staff_class_results_csv', class_id=cls.id) }}" download>Export results (CSV)</a>
+            <a class="btn secondary" id="participation-catchup-link" href="{{ url_for('staff_participation_page', class_id=cls.id) }}">Module participation &amp; catch-up links</a>
             {# MCK-183: pack-less non-math courses show Total only (no math round slices). #}
             {% if not course_simple %}
             <label class="field ap-view-field" for="round-view-select">

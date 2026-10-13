@@ -1426,8 +1426,11 @@ class StudentPortalTests(unittest.TestCase):
         html = (LMS_DIR / "templates" / "student" / "home.html").read_text(
             encoding="utf-8"
         )
-        js = (LMS_DIR / "static" / "student-portal.js").read_text(
-            encoding="utf-8"
+        # MCK-198: the card head and MC/numeric/text controls are shared
+        # with the catch-up page in live_question_card.js.
+        js = "\n".join(
+            (LMS_DIR / "static" / name).read_text(encoding="utf-8")
+            for name in ("student-portal.js", "live_question_card.js")
         )
         css = (LMS_DIR / "static" / "student-portal.css").read_text(
             encoding="utf-8"

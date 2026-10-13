@@ -125,6 +125,38 @@ class LocalDevSeedTests(unittest.TestCase):
         maple = self.school.game.find_student_by_codename(int(row["id"]), "Maple")
         self.assertIsNotNone(maple)
 
+    def test_teacher_participation_page_renders_m1_column_and_catchup_rows(self) -> None:
+        """MCK-198: stock seed alone shows the M1 % column and C1/C2 link rows."""
+        # create_app already seeded at boot, as on a laptop or Cloud Agent.
+        first = seed_local_dev_school(self.school)
+        self.assertEqual(first["participation_seed"], {"skipped": "already seeded"})
+        class_id = int(first["class_id"])
+        self.assertEqual(len(self.school.list_catchup_links(class_id)), 2)
+        self.assertIsNone(self.school.get_active_live_session_for_class(class_id))
+        staff = self.app.test_client()
+        staff.get(
+            f"/auth/google/callback?portal=staff&email={LOCAL_DEV_SHAWN_EMAIL}&name=Shawn",
+            follow_redirects=False,
+        )
+        course = staff.get(f"/staff/class/{class_id}?tab=ap&view=participation")
+        self.assertEqual(course.status_code, 200)
+        self.assertIn(f'href="/staff/classes/{class_id}/participation"',
+                      course.get_data(as_text=True))
+        rv = staff.get(f"/staff/classes/{class_id}/participation")
+        self.assertEqual(rv.status_code, 200)
+        html = rv.get_data(as_text=True)
+        self.assertIn("M1 (8)", html)  # 4 questions x C1 + C2
+        self.assertIn('data-module="M1"', html)
+        self.assertIn("<td>Maple</td>", html)
+        self.assertIn("5/8 · 62% · L2", " ".join(html.split()))  # Maple: 2 in C1 + 3 in C2
+        self.assertEqual(html.count('class="toggle"'), 2)
+        self.assertEqual(html.count('class="copy"'), 2)
+        self.assertIn("M1 C1:", html)
+        self.assertIn("M1 C2:", html)
+        self.assertNotIn("A link appears after End Live Class.", html)
+        token = self.school.list_catchup_links(class_id)[0]["token"]
+        self.assertTrue(self.school.catchup_sign_in(token, "Maple", "1234")["ok"])
+
     def test_demo_library_lists_course_wide_warmups(self) -> None:
         """Import Course Wide has the icebreakers; Module 1 math import does not."""
         shawn = self.school.get_user_by_email(LOCAL_DEV_SHAWN_EMAIL)
