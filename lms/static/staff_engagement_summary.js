@@ -123,7 +123,16 @@ function renderSummary(summary) {
   } else {
     ungroupedEl.innerHTML = "";
   }
-  groupsEl.querySelectorAll("form.ap-engagement-override").forEach((form) => {
+  bindEngagementOverrideForms();
+}
+
+/**
+ * Wire Save override on every form under the summary card (grouped and ungrouped).
+ */
+function bindEngagementOverrideForms() {
+  const scope = document.getElementById("engagement-summary-card");
+  if (!scope) return;
+  scope.querySelectorAll("form.ap-engagement-override").forEach((form) => {
     form.addEventListener("submit", onOverrideSubmit);
   });
 }

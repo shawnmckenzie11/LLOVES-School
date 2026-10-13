@@ -148,7 +148,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(summary["run_key"], self.run_key)
         self.assertIn("blind_spots", summary)
         self.assertEqual(summary["rubric"]["level_label"], "draft level")
-        student = (summary.get("ungrouped") or summary["groups"][0]["students"])[0]
+        self.assertTrue(summary.get("ungrouped"), "demo class has no teams; students are ungrouped")
+        student = summary["ungrouped"][0]
         sid = int(student["student_id"])
         put = self.client.put(
             f"/api/classes/{self.class_id}/engagement-summary/{self.run_key}/students/{sid}",
@@ -156,13 +157,37 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(put.status_code, 200)
         updated = put.get_json()["summary"]
-        again = next(
-            s
-            for s in (updated.get("ungrouped") or updated["groups"][0]["students"])
-            if int(s["student_id"]) == sid
-        )
+        again = next(s for s in updated["ungrouped"] if int(s["student_id"]) == sid)
         self.assertEqual(again["override"]["level"], 4)
         self.assertIn("Engagement L4", again["effective_label"])
+
+    def test_ungrouped_student_override(self) -> None:
+        """MCK-61: PUT override for a student listed only under ungrouped."""
+        self._login("a@gmail.com")
+        summary = self.client.get(
+            f"/api/classes/{self.class_id}/engagement-summary?run_key={self.run_key}"
+        ).get_json()["summary"]
+        ungrouped = summary.get("ungrouped") or []
+        self.assertGreaterEqual(len(ungrouped), 2)
+        ben = next(s for s in ungrouped if s.get("codename") == "Ben")
+        sid = int(ben["student_id"])
+        put = self.client.put(
+            f"/api/classes/{self.class_id}/engagement-summary/{self.run_key}/students/{sid}",
+            json={"level": 2, "note": "Checked in verbally"},
+        )
+        self.assertEqual(put.status_code, 200)
+        saved = next(
+            s for s in put.get_json()["summary"]["ungrouped"] if int(s["student_id"]) == sid
+        )
+        self.assertEqual(saved["override"]["note"], "Checked in verbally")
+        self.assertEqual(saved["override"]["level"], 2)
+
+    def test_engagement_js_binds_all_override_forms(self) -> None:
+        """Override submit must bind grouped and ungrouped forms (Ops #290)."""
+        js = (LMS_DIR / "static" / "staff_engagement_summary.js").read_text(encoding="utf-8")
+        self.assertIn("function bindEngagementOverrideForms(", js)
+        self.assertIn('getElementById("engagement-summary-card")', js)
+        self.assertNotIn("groupsEl.querySelectorAll", js)
 
     def test_other_teacher_denied(self) -> None:
         self._login("b@gmail.com")
