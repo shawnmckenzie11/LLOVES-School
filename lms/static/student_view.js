@@ -20,6 +20,8 @@ export const STUDENT_VIEW_COPY = Object.freeze({
 export const MASK = "—";
 /** Elements whose whole text is a points number or total. */
 export const POINTS_SELECTOR = [
+  ".ap-att-course", // Class List COURSE
+  ".ap-att-game", // Class List GAME
   ".live-response-points",
   ".ap-oq-pts",
   ".ap-oq-col-pts",
@@ -27,9 +29,37 @@ export const POINTS_SELECTOR = [
   ".now",
   ".prior",
   ".total",
+  ".total-cell",
   ".live-sub",
+  ".race-points",
+  ".race-points-total",
+  ".race-step-pts",
+  ".feedback-score",
+  ".sb-preview-score",
   "[data-points]",
 ].join(",");
+/**
+ * Elements that hold one student or guest name. Only text inside these
+ * (and their title / aria-label) is ever rewritten, so question and
+ * answer text that happens to contain a name stays as written.
+ */
+export const NAME_SELECTOR = [
+  ".ap-att-name",
+  ".live-response-name",
+  ".ap-oq-name",
+  ".ap-score-who",
+  ".who",
+  ".manual-row > span:first-child",
+  ".preview-roster .sv-name",
+  ".score-pop-chip",
+  "[data-student-name]",
+].join(",");
+/** Children of a name element that are not part of the name. */
+const NAME_KEEP = ".ap-guest-flag, .ap-late-tag";
+/** Attributes on name elements (and student +1 buttons) that can carry a name. */
+const NAME_ATTRS = ["title", "aria-label", "data-pop-name"];
+/** Leading glyphs kept as-is: a mood face or a "+1 " score-pop prefix. */
+const PREFIX_RE = /^([^\p{L}\p{N}]*(?:[+\u2212-]?\d+\s+)?)/u;
 
 /**
  * @param {Storage | null | undefined} store
@@ -70,10 +100,9 @@ export function studentNumbers(rows) {
 }
 
 /**
- * Every way a student's name is shown, mapped to "Student N", longest
- * first so "Ava Li" is replaced before "Ava".
+ * Every way a student's name is shown, mapped to "Student N".
  * @param {any[]} rows
- * @returns {[string, string][]}
+ * @returns {Map<string, string>}
  */
 export function nameMasks(rows) {
   const numbers = studentNumbers(rows);
@@ -92,80 +121,164 @@ export function nameMasks(rows) {
     ];
     for (const raw of names) {
       const text = String(raw || "").trim();
-      if (text.length >= 2 && !pairs.has(text)) pairs.set(text, label);
+      if (text && !pairs.has(text)) pairs.set(text, label);
     }
   }
-  return [...pairs.entries()].sort((a, b) => b[0].length - a[0].length);
+  return pairs;
 }
 
 /**
- * @param {string} text
- * @returns {string}
+ * Guest labels: "Guest N" in the order guests are first seen, kept for
+ * the browser so a guest has one number on every screen and reload.
  */
-function escapeRe(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export class GuestBook {
+  /** @param {Storage | null | undefined} store */
+  constructor(store = globalThis.localStorage) {
+    this.store = store;
+    /** @type {Record<string, number>} */
+    this.byName = {};
+    try {
+      const saved = JSON.parse(store?.getItem(`${STUDENT_VIEW_KEY}-guests`) || "{}");
+      if (saved && typeof saved === "object") this.byName = saved;
+    } catch (_) {
+      this.byName = {};
+    }
+  }
+
+  /**
+   * @param {string} name
+   * @returns {string}
+   */
+  label(name) {
+    const key = String(name || "").trim().toLowerCase();
+    if (this.byName[key] == null) {
+      this.byName[key] = Object.keys(this.byName).length + 1;
+      try {
+        this.store?.setItem(`${STUDENT_VIEW_KEY}-guests`, JSON.stringify(this.byName));
+      } catch (_) {
+        /* private mode */
+      }
+    }
+    return `Guest ${this.byName[key]}`;
+  }
 }
 
 /**
- * Replace whole-word names in ``text``.
+ * Masked form of one name string. Rostered names → "Student N"; any other
+ * name (guests, late joiners not yet in the roster) → "Guest N", so an
+ * unknown name never leaks. Labels already masked stay as they are.
  * @param {string} text
- * @param {[string, string][]} pairs from {@link nameMasks}
+ * @param {Map<string, string>} pairs
+ * @param {GuestBook} guests
  * @returns {string}
  */
-export function maskNames(text, pairs) {
-  if (!text || !pairs.length) return text;
-  const lookup = new Map(pairs);
-  const re = new RegExp(
-    `(?<![\\p{L}\\p{N}])(${pairs.map(([name]) => escapeRe(name)).join("|")})(?![\\p{L}\\p{N}])`,
-    "gu"
-  );
-  return text.replace(re, (match) => lookup.get(match) || match);
+export function maskName(text, pairs, guests) {
+  const raw = String(text || "");
+  const prefix = (raw.match(PREFIX_RE) || ["", ""])[1];
+  const rest = raw.slice(prefix.length);
+  const name = rest.trim();
+  if (!name || !/\p{L}/u.test(name)) return raw;
+  if (/^(Student|Guest) \d+$/.test(name)) return raw;
+  const label = pairs.get(name) || guests.label(name);
+  const tail = rest.slice(rest.indexOf(name) + name.length);
+  return `${prefix}${label}${tail}`;
 }
 
 const SKIP = new Set(["SCRIPT", "STYLE", "TEXTAREA", "INPUT", "SELECT", "OPTION", "NOSCRIPT"]);
-/** @type {WeakMap<Node, {orig: string, shown: string}>} masked nodes */
+/** @type {WeakMap<object, {orig: string, shown: string}>} masked nodes */
 let originals = new WeakMap();
-/** @type {Set<Node>} */
+/** @type {Set<{node: any, attr?: string}>} */
 let masked = new Set();
+
+/**
+ * @param {any} node
+ * @param {string | undefined} attr
+ * @param {string} orig
+ * @param {string} shown
+ */
+function remember(node, attr, orig, shown) {
+  const key = attr ? { node, attr } : node;
+  if (attr) {
+    for (const item of masked) if (item.node === node && item.attr === attr) return;
+    masked.add(key);
+    originals.set(key, { orig, shown });
+    return;
+  }
+  masked.add({ node });
+  originals.set(node, { orig, shown });
+}
+
+/**
+ * Text nodes of a name element that belong to the name.
+ * @param {Element} el
+ * @returns {Text[]}
+ */
+function nameTextNodes(el) {
+  const out = [];
+  const walk = (node) => {
+    for (const child of Array.from(node.childNodes || [])) {
+      if (child.nodeType === 3) out.push(child);
+      else if (child.nodeType === 1 && !SKIP.has(child.tagName) && !child.matches?.(NAME_KEEP)) walk(child);
+    }
+  };
+  walk(el);
+  return out;
+}
 
 /**
  * Mask names and points under ``root`` (idempotent).
  * @param {ParentNode & Node} root
- * @param {[string, string][]} pairs
+ * @param {Map<string, string>} pairs
+ * @param {GuestBook} guests
  */
-export function applyMask(root, pairs) {
+export function applyMask(root, pairs, guests) {
   if (!root) return;
-  const doc = root.ownerDocument || root;
   for (const el of root.querySelectorAll(POINTS_SELECTOR)) {
     if (el.closest("[data-student-view-keep]")) continue;
     const text = el.textContent || "";
-    if (!/\d/.test(text)) continue;
-    if (text === MASK) continue;
-    originals.set(el, { orig: text, shown: MASK });
-    masked.add(el);
+    if (!/\d/.test(text) || text === MASK) continue;
+    remember(el, undefined, text, MASK);
     el.textContent = MASK;
   }
-  if (!pairs.length) return;
-  const walker = doc.createTreeWalker(root, 4 /* SHOW_TEXT */);
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    const parent = node.parentElement;
-    if (!parent || SKIP.has(parent.tagName) || parent.closest("[data-student-view-keep]")) continue;
-    const text = node.nodeValue || "";
-    const next = maskNames(text, pairs);
-    if (next === text) continue;
-    originals.set(node, { orig: text, shown: next });
-    masked.add(node);
-    node.nodeValue = next;
+  const attrHosts = [
+    ...root.querySelectorAll(NAME_SELECTOR),
+    ...root.querySelectorAll('[data-kind="student"][data-pop-name]'),
+  ];
+  for (const el of root.querySelectorAll(NAME_SELECTOR)) {
+    if (el.closest("[data-student-view-keep]")) continue;
+    for (const node of nameTextNodes(el)) {
+      const text = node.nodeValue || "";
+      const next = maskName(text, pairs, guests);
+      if (next === text) continue;
+      remember(node, undefined, text, next);
+      node.nodeValue = next;
+    }
+  }
+  for (const el of attrHosts) {
+    for (const attr of NAME_ATTRS) {
+      if (!el.hasAttribute(attr)) continue;
+      const text = el.getAttribute(attr) || "";
+      // Name-only attributes are masked whole; "Add one point" stays.
+      const next = attr === "data-pop-name" || pairs.has(text.trim())
+        ? maskName(text, pairs, guests)
+        : text;
+      if (next === text) continue;
+      remember(el, attr, text, next);
+      el.setAttribute(attr, next);
+    }
   }
 }
 
 /** Put back every masked text still on the page. */
 export function restoreMask() {
-  for (const node of masked) {
-    const rec = originals.get(node);
+  for (const item of masked) {
+    const rec = originals.get(item.attr ? item : item.node);
     if (!rec) continue;
+    const node = item.node;
     // A node the page rewrote since masking keeps its new text.
-    if (node.nodeType === 3) {
+    if (item.attr) {
+      if (node.getAttribute(item.attr) === rec.shown) node.setAttribute(item.attr, rec.orig);
+    } else if (node.nodeType === 3) {
       if (node.nodeValue === rec.shown) node.nodeValue = rec.orig;
     } else if (node.textContent === rec.shown) node.textContent = rec.orig;
   }
@@ -188,7 +301,8 @@ export function mountStudentView({ doc = document, button = null, roster, onChan
     return { isOn: () => false, set: () => {}, refresh: () => {} };
   }
   let on = studentViewOn();
-  let pairs = [];
+  let pairs = new Map();
+  const guests = new GuestBook();
   let pending = false;
   let observer = null;
   const banner = doc.createElement("div");
@@ -215,8 +329,11 @@ export function mountStudentView({ doc = document, button = null, roster, onChan
     if (!on) return;
     observer?.disconnect();
     pairs = nameMasks(roster());
-    applyMask(doc.body, pairs);
-    observer?.observe(doc.body, { childList: true, subtree: true, characterData: true });
+    applyMask(doc.body, pairs, guests);
+    observer?.observe(doc.body, {
+      childList: true, subtree: true, characterData: true,
+      attributes: true, attributeFilter: NAME_ATTRS,
+    });
   };
   const schedule = () => {
     if (pending || !on) return;

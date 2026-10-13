@@ -7688,4 +7688,15 @@ body.staff-shell .live-header-student-view[aria-pressed="true"] {
   text-align: center;
 }
 .student-view-banner[hidden] { display: none; }
-.student-view-banner a { color: #fff; text-decoration: underline; margin-left: 0.5rem; }
+/* Gate MED: beat `body.staff-shell a` (was teal on blue, 1.12:1). */
+body.staff-shell .student-view-banner a#student-view-exit,
+body.staff-shell .student-view-banner a#student-view-exit:visited,
+body.staff-shell .student-view-banner a#student-view-exit:hover {
+  color: #fff !important;
+  text-decoration: underline;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 0.35rem;
+  margin-left: 0.5rem;
+}

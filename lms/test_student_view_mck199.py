@@ -51,6 +51,22 @@ class StudentViewTests(unittest.TestCase):
         self.assertNotIn("student_view.js", portal)
         self.assertIn('STUDENT_VIEW_KEY = "lloves-student-view"', js)
 
+    def test_exit_link_contrast_and_size(self) -> None:
+        """Gate MED: Exit is forced white over the page link colour, 24px tall."""
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        rule = css[css.index("body.staff-shell .student-view-banner a#student-view-exit,"):]
+        rule = rule[: rule.index("}")]
+        self.assertIn("color: #fff !important", rule)
+        self.assertIn("min-height: 24px", rule)
+
+    def test_points_and_name_selectors(self) -> None:
+        """Gate HIGH/LOW: COURSE/GAME are masked; names only in name elements."""
+        js = (LMS_DIR / "static" / "student_view.js").read_text(encoding="utf-8")
+        for sel in ('".ap-att-course"', '".ap-att-game"', '".live-response-points"'):
+            self.assertIn(sel, js)
+        self.assertIn("export const NAME_SELECTOR", js)
+        self.assertNotIn("createTreeWalker(root", js)
+
 
 if __name__ == "__main__":
     unittest.main()

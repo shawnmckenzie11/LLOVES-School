@@ -10071,7 +10071,7 @@ function renderNamesPanel() {
       <ul class="preview-roster">${members
         .map(
           (row) =>
-            `<li><span class="prior">${escapeHtml(formatPoints(row.career_total))}</span> ${escapeHtml(displayName(row))}</li>`
+            `<li><span class="prior">${escapeHtml(formatPoints(row.career_total))}</span> <span class="sv-name">${escapeHtml(displayName(row))}</span></li>`
         )
         .join("")}</ul>`;
     box.appendChild(wrap);
