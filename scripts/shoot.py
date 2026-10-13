@@ -556,50 +556,150 @@ def mck208_live_home_url(origin: str, path: Path) -> str:
     return f"{origin.rstrip('/')}/student/s/{visit}"
 
 
-def shoot_mck208(base: str, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
-    """MCK-208: student dashboard and live rejoin strip at 390px."""
-    from playwright.sync_api import sync_playwright
-
-    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
-    class_id, token, _sid = prepare_mck207_pin_modal(path)
+def _mck208_school(path: Path):
+    """SchoolDB for the same sqlite the running dev server uses."""
     sys.path.insert(0, str(LMS_DIR))
+    os.environ["LLOVES_DB"] = str(path)
+    os.environ["LOCAL_DEV_LOGIN"] = "1"
     from app import create_app
 
-    school = create_app(db_path=path, testing=True).config["SCHOOL_DB"]
+    return create_app(db_path=path, testing=True).config["SCHOOL_DB"]
+
+
+def _mck208_signin_url(origin: str, school, class_id: int, token: str) -> str:
+    """Canonical catch-up sign-in URL for one link token."""
     link_row = next(
         row for row in school.list_catchup_links(class_id) if str(row["token"]) == token
     )
-    signin_url = origin + school.catchup_canonical_path_for_link(
+    return origin + school.catchup_canonical_path_for_link(
         {**link_row, "class_id": class_id, "token": token}
     )
+
+
+def _mck208_pin_signin(page, signin_url: str, *, pin: str = "5678") -> None:
+    """Codename Maple + PIN on the catch-up doorway."""
+    page.goto(signin_url, wait_until="domcontentloaded")
+    page.select_option("#codename", label="Maple")
+    page.locator('button[type="submit"]').first.click()
+    page.locator("#personal_pin").wait_for(state="visible", timeout=30000)
+    page.fill("#personal_pin", pin)
+    with page.expect_navigation(timeout=30000):
+        page.locator('button[type="submit"]').first.click()
+    if "/student/dashboard" not in page.url:
+        page.wait_for_url("**/student/dashboard**", timeout=30000)
+
+
+def _mck208_ensure_finish_open(school, class_id: int, student_id: int) -> None:
+    """Ensure the dashboard shows at least one Finish these row (seed may be caught up)."""
+    if school.student_dashboard_payload(int(class_id), int(student_id))["finish_these"]:
+        return
+    cid, sid = int(class_id), int(student_id)
+    for link in school.list_catchup_links(cid):
+        if not int(link.get("is_open") or 0):
+            continue
+        run_key = str(link["run_key"])
+        with school._lock:
+            school.conn.execute(
+                """
+                DELETE FROM participation_answers
+                WHERE class_id = ? AND student_id = ? AND run_key = ?
+                """,
+                (cid, sid, run_key),
+            )
+            school.conn.commit()
+        if school.student_dashboard_payload(cid, sid)["finish_these"]:
+            return
+    raise SystemExit("No open catch-up rows for Maple; cannot shoot finish-open dashboard.")
+
+
+def _mck208_answer_all_catchup(school, class_id: int, student_id: int) -> None:
+    """Clear Finish these by answering every open catch-up question once."""
+    for link in school.list_catchup_links(class_id):
+        if not int(link.get("is_open") or 0):
+            continue
+        tok = str(link["token"])
+        for question in school.catchup_questions(tok, int(student_id)):
+            if question.get("answered"):
+                continue
+            school.submit_catchup_answer(
+                tok, int(student_id), str(question["question_key"]), "A"
+            )
+
+
+def _mck208_end_active_live(school, class_id: int) -> None:
+    """End any active live session for this class (screenshot prep)."""
+    live = school.get_active_live_session_for_class(int(class_id))
+    if live is not None:
+        school.end_live_class_session(int(live["id"]))
+
+
+def shoot_mck208(base: str, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
+    """MCK-208: student dashboard states at 390px (seeded Maple / PIN portal)."""
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    class_id, token, student_id = prepare_mck207_pin_modal(path)
+    school = _mck208_school(path)
+    _mck208_end_active_live(school, class_id)
+    _mck208_ensure_finish_open(school, class_id, student_id)
+    signin_url = _mck208_signin_url(origin, school, class_id, token)
     teacher = school.get_user_by_email(SHAWN_EMAIL)
+    dashboard_url = f"{origin}/student/dashboard"
     shots: list[Path] = []
     out_dir.mkdir(parents=True, exist_ok=True)
+    use_widths = [w for w in widths if int(w) == 390] or [390]
     with sync_playwright() as playwright:
         browser = _launch(playwright)
-        for width in widths:
+        for width in use_widths:
             context = browser.new_context(viewport={"width": int(width), "height": 900})
             page = context.new_page()
-            page.goto(signin_url, wait_until="domcontentloaded")
-            page.select_option("#codename", label="Maple")
-            page.locator('button[type="submit"]').first.click()
-            page.locator("#personal_pin").wait_for(state="visible", timeout=30000)
-            page.fill("#personal_pin", "5678")
-            with page.expect_navigation(timeout=30000):
-                page.locator('button[type="submit"]').first.click()
-            if "/student/dashboard" not in page.url:
-                page.wait_for_url("**/student/dashboard**", timeout=30000)
+
+            _mck208_pin_signin(page, signin_url)
             page.locator(".sd-header").wait_for(state="visible", timeout=30000)
-            dash = out_dir / f"mck208-student-dashboard-{width}.png"
-            page.screenshot(path=str(dash), full_page=True)
-            shots.append(dash)
-            school.start_live_class_session(class_id, int(teacher["id"]))
+            page.locator(".sd-finish-list").wait_for(state="visible", timeout=30000)
+            finish_open = out_dir / f"mck208-dashboard-finish-open-{width}.png"
+            page.screenshot(path=str(finish_open), full_page=True)
+            shots.append(finish_open)
+
+            _mck208_answer_all_catchup(school, class_id, student_id)
+            page.goto(dashboard_url, wait_until="domcontentloaded")
+            page.locator(".sd-header").wait_for(state="visible", timeout=30000)
+            page.get_by_text("All caught up.").wait_for(state="visible", timeout=30000)
+            caught_up = out_dir / f"mck208-dashboard-all-caught-up-{width}.png"
+            page.screenshot(path=str(caught_up), full_page=True)
+            shots.append(caught_up)
+
+            live = school.start_live_class_session(class_id, int(teacher["id"]))
+            page.goto(dashboard_url, wait_until="domcontentloaded")
             page.locator("#student-live-rejoin-strip", has_text="Rejoin class").wait_for(
                 state="visible", timeout=30000
             )
-            live_shot = out_dir / f"mck208-student-live-strip-{width}.png"
-            page.screenshot(path=str(live_shot), full_page=True)
-            shots.append(live_shot)
+            live_strip = out_dir / f"mck208-dashboard-live-strip-{width}.png"
+            page.screenshot(path=str(live_strip), full_page=True)
+            shots.append(live_strip)
+
+            page.goto(f"{origin}/student/rejoin-live", wait_until="domcontentloaded")
+            if "/student/mood" in page.url:
+                page.locator('button[name="skip"]').click()
+                page.wait_for_url("**/student/character**", timeout=30000)
+            if "/student/character" in page.url:
+                page.locator('label:has(input[value="fox"])').click()
+                page.locator('button[type="submit"]').click()
+                page.wait_for_url("**/student/home**", timeout=30000)
+            page.locator(".student-home, .student-portal.student-home").first.wait_for(
+                state="visible", timeout=30000
+            )
+            takeover = out_dir / f"mck208-live-takeover-{width}.png"
+            page.screenshot(path=str(takeover), full_page=True)
+            shots.append(takeover)
+
+            school.end_live_class_session(int(live["id"]))
+            page.goto(dashboard_url, wait_until="domcontentloaded")
+            page.locator(".sd-header").wait_for(state="visible", timeout=30000)
+            after_end = out_dir / f"mck208-dashboard-after-live-end-{width}.png"
+            page.screenshot(path=str(after_end), full_page=True)
+            shots.append(after_end)
+
             context.close()
         browser.close()
     return shots
