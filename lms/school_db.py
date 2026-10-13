@@ -29503,8 +29503,16 @@ class SchoolDB(LovesDB):
     def set_module_complete(
         self, class_id: int, module: str, complete: bool, *, user_id: int | None = None
     ) -> bool:
-        """Teacher 'Mark Module N Complete' (or undo). Returns the new state."""
+        """Teacher 'Mark Module N Complete', or undo (deletes the mark). Returns the new state."""
         with self._lock:
+            if not complete:
+                self.conn.execute(
+                    "DELETE FROM participation_module_marks WHERE class_id = ? AND live_module = ?",
+                    (int(class_id), str(module)),
+                )
+                if self.conn.in_transaction:
+                    self.conn.commit()
+                return self.module_complete(class_id, module)
             self.conn.execute(
                 """
                 INSERT INTO participation_module_marks (class_id, live_module, complete, marked_by, updated_at)
@@ -29659,26 +29667,12 @@ class SchoolDB(LovesDB):
                 self.conn.commit()
         return cur.rowcount == 1
 
-    def _ensure_student_pin_column(self) -> None:
-        """Additive ``students.pin_hash`` on the roster DB (MCK-198)."""
-        game = getattr(self, "game", None)
-        if game is None or getattr(self, "_pin_column_ready", False):
-            return
-        with game._lock:
-            cols = {str(r[1]) for r in game.conn.execute("PRAGMA table_info(students)")}
-            if "pin_hash" not in cols:
-                game.conn.execute("ALTER TABLE students ADD COLUMN pin_hash TEXT")
-                if game.conn.in_transaction:
-                    game.conn.commit()
-        self._pin_column_ready = True
-
     def set_student_pin(self, class_id: int, student_id: int, pin: str) -> None:
         """Set or reset one student's catch-up PIN (hashed on ``students.pin_hash``)."""
         from participation import hash_pin, valid_pin
 
         if not valid_pin(pin):
             raise ValueError("PIN must be 4 digits.")
-        self._ensure_student_pin_column()
         with self.game._lock:
             self.game.conn.execute(
                 "UPDATE students SET pin_hash = ? WHERE id = ? AND class_id = ?",
@@ -29698,23 +29692,28 @@ class SchoolDB(LovesDB):
         """Roster codenames (unique per class), the names the picker shows."""
         with self.game._lock:
             rows = self.game.conn.execute(
-                "SELECT id, COALESCE(NULLIF(codename, ''), first_name) FROM students "
-                "WHERE class_id = ? ORDER BY 2 COLLATE NOCASE", (int(class_id),)
+                "SELECT id, codename FROM students WHERE class_id = ? "
+                "AND TRIM(COALESCE(codename, '')) <> '' ORDER BY codename COLLATE NOCASE",
+                (int(class_id),),
             ).fetchall()
-        return {int(r[0]): str(r[1] or "") for r in rows}
+        return {int(r[0]): str(r[1]).strip() for r in rows}
 
     def catchup_sign_in(
-        self, token: str, join_code: str, codename: str, pin: str | None, *, now: float | None = None
+        self, token: str, codename: str, pin: str | None, *, now: float | None = None
     ) -> dict[str, Any]:
-        """Check join code + roster codename (picker) + PIN for an open link.
+        """Codename (picked from the link's class roster), then PIN, for an open link.
 
+        The token already names the class, so there is no join-code step.
         Returns ``{ok, student_id}`` or ``{ok: False, reason}`` with reason
-        ``closed``, ``missing``, ``locked`` or ``wrong``. Five failures in 15
-        minutes lock that student out until the window passes.
+        ``missing``, ``closed``, ``unknown_name``, ``need_pin`` (screen 1 passed),
+        ``looks_like_join_code`` (not counted), ``locked`` or ``wrong``.
+        Five failures in 15 minutes lock that student. The count and the
+        insert share one ``BEGIN IMMEDIATE`` transaction, so workers cannot
+        race past the limit.
         """
         import time as _time
 
-        from participation import PIN_MAX_ATTEMPTS, PIN_WINDOW_S, check_pin
+        from participation import PIN_MAX_ATTEMPTS, PIN_WINDOW_S, check_pin, looks_like_join_code
 
         link = self.get_catchup_link(token)
         if link is None:
@@ -29722,57 +29721,55 @@ class SchoolDB(LovesDB):
         if not int(link["is_open"]):
             return {"ok": False, "reason": "closed"}
         class_id = int(link["class_id"])
-        t = _time.time() if now is None else now
+        wanted = str(codename or "").strip().casefold()
+        ids = [sid for sid, name in self.class_codenames(class_id).items()
+               if wanted and name.casefold() == wanted]
+        if len(ids) != 1:
+            return {"ok": False, "reason": "unknown_name"}
+        stu = ids[0]
+        if pin is None:
+            return {"ok": False, "reason": "need_pin", "student_id": stu}
         with self.game._lock:
             cls = self.game.conn.execute(
                 "SELECT live_access_code FROM classes WHERE id = ?", (class_id,)
             ).fetchone()
-            matches = self.game.conn.execute(
-                "SELECT id, codename FROM students WHERE class_id = ?", (class_id,)
-            ).fetchall()
-        code_ok = cls is not None and str(cls[0] or "").strip().upper() == str(join_code or "").strip().upper() and bool(cls[0])
-        wanted = str(codename or "").strip().casefold()
-        ids = [int(r[0]) for r in matches if str(r[1] or "").strip().casefold() == wanted and wanted]
-        if not code_ok or len(ids) != 1:
-            return {"ok": False, "reason": "wrong"}
-        stu = ids[0]
-        if pin is None:
-            # Screen 1 only checks join code + codename; never a PIN attempt.
-            return {"ok": False, "reason": "need_pin", "student_id": stu}
-        from participation import looks_like_join_code
-
-        with self._lock:
-            active = [
-                r[0] for r in self.conn.execute(
-                    "SELECT session_code FROM live_class_sessions WHERE status = 'active'"
-                ).fetchall()
-            ]
-        if looks_like_join_code(pin, [cls[0], *active]):
-            # Not a failed attempt: the student typed a join code, not a PIN.
-            return {"ok": False, "reason": "looks_like_join_code", "student_id": stu}
-        self._ensure_student_pin_column()
-        with self.game._lock:
             pin_row = self.game.conn.execute(
-                "SELECT pin_hash FROM students WHERE id = ?", (stu,)
+                "SELECT pin_hash FROM students WHERE id = ? AND class_id = ?", (stu, class_id)
             ).fetchone()
-        stored = str(pin_row[0] or "") if pin_row is not None else ""
         with self._lock:
-            fails = self.conn.execute(
-                "SELECT COUNT(*) FROM catchup_pin_failures WHERE class_id = ? AND student_id = ? "
-                "AND failed_at > ?",
-                (class_id, stu, t - PIN_WINDOW_S),
-            ).fetchone()[0]
-            if int(fails) >= PIN_MAX_ATTEMPTS:
-                return {"ok": False, "reason": "locked"}
-            if not check_pin(str(pin or ""), stored):
-                self.conn.execute(
-                    "INSERT INTO catchup_pin_failures (class_id, student_id, failed_at) VALUES (?, ?, ?)",
-                    (class_id, stu, t),
-                )
-                if self.conn.in_transaction:
-                    self.conn.commit()
-                return {"ok": False, "reason": "wrong"}
-        return {"ok": True, "student_id": stu, "class_id": class_id}
+            active = [r[0] for r in self.conn.execute(
+                "SELECT session_code FROM live_class_sessions WHERE status = 'active'"
+            ).fetchall()]
+        if looks_like_join_code(pin, [cls[0] if cls is not None else "", *active]):
+            return {"ok": False, "reason": "looks_like_join_code", "student_id": stu}
+        stored = str(pin_row[0] or "") if pin_row is not None else ""
+        t = _time.time() if now is None else now
+        with self._lock:
+            if self.conn.in_transaction:
+                self.conn.execute("COMMIT")
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                fails = int(self.conn.execute(
+                    "SELECT COUNT(*) FROM catchup_pin_failures WHERE class_id = ? "
+                    "AND student_id = ? AND failed_at > ?",
+                    (class_id, stu, t - PIN_WINDOW_S),
+                ).fetchone()[0])
+                if fails >= PIN_MAX_ATTEMPTS:
+                    result = {"ok": False, "reason": "locked"}
+                elif check_pin(str(pin or ""), stored):
+                    result = {"ok": True, "student_id": stu, "class_id": class_id}
+                else:
+                    self.conn.execute(
+                        "INSERT INTO catchup_pin_failures (class_id, student_id, failed_at) "
+                        "VALUES (?, ?, ?)",
+                        (class_id, stu, t),
+                    )
+                    result = {"ok": False, "reason": "wrong"}
+                self.conn.execute("COMMIT")
+            except BaseException:
+                self.conn.execute("ROLLBACK")
+                raise
+        return result
 
     def catchup_questions(self, token: str, student_id: int) -> list[dict[str, Any]]:
         """This student's unanswered individual questions from the link's class."""
@@ -29853,13 +29850,21 @@ class SchoolDB(LovesDB):
                 self.conn.execute("SAVEPOINT live_result_snapshot")
                 try:
                     self._snapshot_live_results_unlocked(int(session_id))
-                    self._capture_participation_unlocked(int(session_id))
                 except Exception:  # noqa: BLE001
                     self.conn.execute("ROLLBACK TO live_result_snapshot")
                     logger.exception(
                         "live result snapshot failed session=%s", session_id
                     )
                 self.conn.execute("RELEASE live_result_snapshot")
+                # MCK-198: own savepoint, so a capture error never undoes the
+                # MCK-45 snapshot above.
+                self.conn.execute("SAVEPOINT participation_capture")
+                try:
+                    self._capture_participation_unlocked(int(session_id))
+                except Exception:  # noqa: BLE001
+                    self.conn.execute("ROLLBACK TO participation_capture")
+                    logger.exception("participation capture failed session=%s", session_id)
+                self.conn.execute("RELEASE participation_capture")
                 self._delete_live_session_response_rows_unlocked(int(session_id))
             except BaseException:
                 self.conn.execute("ROLLBACK")

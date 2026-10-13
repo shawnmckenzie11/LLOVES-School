@@ -35,9 +35,24 @@ COPY_WRONG_PIN = "That PIN didn't match. Try again or ask your teacher to reset 
 
 _PIN = re.compile(r"^[0-9]{4}$")
 
-# Copy keys until Wonder's final copy lands. Templates render the key itself.
+# Copy keys with fallbacks until Wonder's final copy lands.
 KEY_PIN_LABEL = "pin.label"
 KEY_PIN_LOOKS_LIKE_JOIN_CODE = "pin.looks_like_join_code"
+KEY_PIN_LOCKED = "pin.locked"
+KEY_NAME_UNKNOWN = "name.unknown"
+KEY_PIN_WRONG = "pin.wrong"
+COPY_FALLBACKS = {
+    KEY_PIN_LABEL: "Your 4-digit PIN",
+    KEY_PIN_LOOKS_LIKE_JOIN_CODE: "That looks like a class code. Enter your 4-digit PIN instead.",
+    KEY_PIN_LOCKED: "Too many tries. Wait 15 minutes or ask your teacher to reset your PIN.",
+    KEY_NAME_UNKNOWN: "We couldn't find that name. Pick your name from the list.",
+    KEY_PIN_WRONG: COPY_WRONG_PIN,
+}
+
+
+def copy(key: str) -> dict[str, str]:
+    """``{key, text}`` for a template: the key for later swaps, the fallback to show."""
+    return {"key": key, "text": COPY_FALLBACKS.get(key, key)}
 
 
 def looks_like_join_code(raw: Any, active_codes: Any = ()) -> bool:
