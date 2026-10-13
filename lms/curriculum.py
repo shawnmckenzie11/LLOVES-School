@@ -413,4 +413,6 @@ def seed_curriculum(school: SchoolDB) -> dict[str, Any]:
             "MCF3M", mcf_rows, status="verified"
         )
     summary["courses"] = len(school.list_ontario_courses())
+    school._seed_live_class_schedules()
+    school.conn.commit()
     return summary

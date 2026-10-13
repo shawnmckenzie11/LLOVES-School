@@ -194,3 +194,60 @@ def parse_ended_at(value: str | None, *, fallback: datetime | None = None) -> da
     if ref.tzinfo is None:
         return ref.replace(tzinfo=TORONTO)
     return ref.astimezone(TORONTO)
+
+
+def scheduled_class_end_datetime(
+    schedule: LiveClassSchedule,
+    *,
+    which: int = 0,
+    reference: date | None = None,
+    window: RealClassWindow | None = None,
+) -> datetime:
+    """Return a Toronto ``ended_at`` on a real scheduled class day at bell end.
+
+    Walks backward from ``reference`` (default today in Toronto) through
+    weekdays that match ``schedule.days_key``. ``which=0`` is the most recent
+    matching day; ``which=1`` is the one before that, and so on.
+
+    Args:
+        schedule: Live days and scheduled end time from the course/offering.
+        which: How many matching days to step back (0 = latest).
+        reference: Calendar day to start from (Toronto).
+        window: Slack around end; defaults from config.
+
+    Returns:
+        Aware datetime at scheduled end on the chosen day.
+
+    Raises:
+        ValueError: No matching day within a year of ``reference``.
+    """
+    slack = window or load_real_class_window()
+    if not str(schedule.days_key or "").strip() or not str(
+        schedule.end_time_label or ""
+    ).strip():
+        raise ValueError("schedule days and end time are required")
+    weekdays = _weekdays_for_days_key(schedule.days_key)
+    if not weekdays:
+        raise ValueError(f"unknown live days preset: {schedule.days_key!r}")
+    end_clock = _parse_time_label(schedule.end_time_label)
+    ref_day = reference or datetime.now(TORONTO).date()
+    hits = 0
+    day = ref_day
+    for _ in range(370):
+        if day.weekday() in weekdays:
+            candidate = datetime(
+                day.year,
+                day.month,
+                day.day,
+                end_clock.hour,
+                end_clock.minute,
+                tzinfo=TORONTO,
+            )
+            if classify_run_end(candidate, schedule, window=slack):
+                if hits == int(which):
+                    return candidate
+                hits += 1
+        day -= timedelta(days=1)
+    raise ValueError(
+        f"no scheduled class end within 370 days before {ref_day} for {schedule!r}"
+    )

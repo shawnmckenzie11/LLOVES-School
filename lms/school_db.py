@@ -31659,6 +31659,8 @@ class SchoolDB(LovesDB):
                 )
             return self.get_live_session(session_id)
         now = _now()
+        preset = str(session_row.get("ended_at") or "").strip()
+        ended_value = preset or now
         with self._lock:
             self.conn.execute(
                 """
@@ -31666,7 +31668,7 @@ class SchoolDB(LovesDB):
                 SET status = 'ended', ended_at = ?
                 WHERE id = ? AND status = 'active'
                 """,
-                (now, int(session_id)),
+                (ended_value, int(session_id)),
             )
             self.conn.execute(
                 """
@@ -31674,12 +31676,12 @@ class SchoolDB(LovesDB):
                 SET left_at = COALESCE(left_at, ?)
                 WHERE live_session_id = ? AND left_at IS NULL
                 """,
-                (now, int(session_id)),
+                (ended_value, int(session_id)),
             )
             self.conn.commit()
         self.cleanup_live_session_response_data(session_id)
         if self.presence is not None:
-            self.presence.mark_session_ended(int(session_id), now)
+            self.presence.mark_session_ended(int(session_id), ended_value)
         return self.get_live_session(session_id)
 
     def end_live_class_session(

@@ -1388,9 +1388,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         live_days = (request.form.get("live_days") or "").strip()
         live_time = (request.form.get("live_time") or "").strip()
         live_end_time = (request.form.get("live_end_time") or "").strip()
-        if not live_days or not live_time or not live_end_time:
-            raise ValueError("Choose live-class days, start time, and end time.")
-        # Validation happens in set_offering_schedule.
+        if not live_days or not live_time:
+            raise ValueError("Choose live-class days and start time.")
+        # Empty end time is filled from the Ontario course in set_offering_schedule.
         return live_days, live_time, live_end_time
 
     def _assign_slides_theme_from_form() -> tuple[str | None, str | None]:
