@@ -175,6 +175,11 @@ class ComputeTests(unittest.TestCase):
 
 
 class EndRollupTests(Base):
+    def test_finish_live_class_writes_rollup(self) -> None:
+        self._append("answer.submit", student_id=self.students[0], item_ref="1", ts="2026-10-01T10:00:00")
+        self.school.finish_live_class(self.class_id, celebrate=True)
+        self.assertGreater(len(self._rollup()), 0)
+
     def test_cleanup_writes_rollup_rows(self) -> None:
         ava, ben = self.students[0], self.students[1]
         self._append("present.join", student_id=ava, ts="2026-10-01T10:00:00")
