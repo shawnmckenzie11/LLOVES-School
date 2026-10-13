@@ -109,7 +109,7 @@ class Mck207CatchupFlowTest(Base):
             }
         res = client.post(
             "/api/student/catchup-pin",
-            json={"pin": "2468", "confirm": "2468"},
+            json={"pin": "2468", "confirm": "2468", "current_pin": "5678"},
         )
         self.assertEqual(res.status_code, 200)
         row = self.school.game.conn.execute(
