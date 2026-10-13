@@ -3288,6 +3288,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             school.get_active_live_session_for_class(int(row["id"])) is not None
             for row in classes
         )
+        catchup_pin_alerts = school.catchup_pin_alerts_for_teacher(int(user["id"]))
         html = render_template(
             "staff/home.html",
             user=user,
@@ -3295,6 +3296,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             offerings=offerings,
             classes=classes,
             active_live_session=active_live_session,
+            catchup_pin_alerts=catchup_pin_alerts,
             whats_new_hold=whats_new_hold,
             tour_offer=_tour_offer(user, classes),
             plain_teacher=bool(offerings)
@@ -8575,6 +8577,27 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": str(exc)}), 400
         return jsonify({"ok": True})
 
+    @app.route(
+        "/api/classes/<int:class_id>/students/<int:student_id>/catchup-pin-unlock",
+        methods=["POST"],
+    )
+    @login_required
+    def api_catchup_pin_unlock(class_id: int, student_id: int):
+        """Clear per-student catch-up PIN try limits after teacher review."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        user = current_user()
+        if user is None or not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden."}), 403
+        owned = school.game.conn.execute(
+            "SELECT 1 FROM students WHERE id = ? AND class_id = ?", (student_id, class_id)
+        ).fetchone()
+        if owned is None:
+            return jsonify({"ok": False, "error": "Not found."}), 404
+        school.teacher_unlock_catchup_pin(class_id, student_id)
+        return jsonify({"ok": True})
+
     @app.route("/staff/classes/<int:class_id>/participation")
     @login_required
     def staff_participation_page(class_id: int):
@@ -8663,15 +8686,27 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             client_ip_key = join_limit_ip_key(request_client_ip())
             global_ip_key = catchup_ip_limit_key(client_ip_key)
             link_ip_key = catchup_link_ip_limit_key(token, client_ip_key)
-            if (
-                school.count_join_failures(global_ip_key, seconds=PIN_WINDOW_S)
-                >= CATCHUP_PIN_IP_LIMIT
-                or school.count_join_failures(link_ip_key, seconds=PIN_WINDOW_S)
-                >= PIN_MAX_ATTEMPTS
-            ):
+            limits = {
+                global_ip_key: CATCHUP_PIN_IP_LIMIT,
+                link_ip_key: PIN_MAX_ATTEMPTS,
+            }
+            pre = school.catchup_sign_in(token, pending.get("name", ""), None)
+            if pre.get("reason") == "need_pin":
+                gate = school.catchup_pin_student_gate(
+                    int(link["class_id"]), int(pre["student_id"])
+                )
+                if gate:
+                    return pin_screen(gate)
+            reserved = school.reserve_catchup_pin_attempts(
+                [global_ip_key, link_ip_key], limits, window_s=PIN_WINDOW_S
+            )
+            if reserved is None:
                 return pin_screen(KEY_PIN_IP_LOCKED)
-            result = school.catchup_sign_in(token, pending.get("name", ""), request.form.get("pin", ""))
+            result = school.catchup_sign_in(
+                token, pending.get("name", ""), request.form.get("pin", "")
+            )
             if result["ok"]:
+                school.release_catchup_pin_attempts(reserved)
                 student_id = int(result["student_id"])
                 session.pop(pending_key, None)
                 session[key] = {"sid": student_id, "cid": int(link["class_id"]),
@@ -8681,7 +8716,6 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 return closed()
             else:
                 if result["reason"] == "wrong":
-                    school.record_join_failures([link_ip_key, global_ip_key])
                     sid = result.get("student_id")
                     if sid is not None:
                         school.record_catchup_pin_failure(int(link["class_id"]), int(sid))

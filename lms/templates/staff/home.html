@@ -17,6 +17,17 @@
     <a class="staff-corner-link" href="{{ url_for('logout') }}">Log out</a>
   </div>
   <div class="wrap staff-home-wrap">
+        {% if catchup_pin_alerts %}
+    <section class="catchup-pin-alerts" role="status" aria-live="polite">
+      <h2 class="hint">Catch-up PIN alerts</h2>
+      <ul>
+      {% for alert in catchup_pin_alerts %}
+        <li>{{ alert.course_code }} — {{ alert.name }}: {{ alert.failures }} wrong PIN tries (last 15 min)</li>
+      {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+
     <div id="error" class="error" hidden role="alert" aria-live="assertive"></div>
 
     {% if not offerings %}

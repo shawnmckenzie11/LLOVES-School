@@ -142,8 +142,10 @@ def main() -> None:
 
     application = create_app()
     register_cli(application)
-    if _is_production_env() and "backfill-catchup" not in sys.argv:
-        raise SystemExit("Refusing CLI with FLASK_ENV=production")
+    if _is_production_env():
+        allowed = len(sys.argv) > 1 and sys.argv[1] == "backfill-catchup"
+        if not allowed:
+            raise SystemExit("Refusing CLI on production except: flask backfill-catchup …")
     application.cli.main(prog_name="flask")
 
 

@@ -22,6 +22,7 @@ BANDS: tuple[tuple[int, int], ...] = ((4, 80), (3, 70), (2, 60), (1, 50))
 MIN_OFFERED_FOR_LINE = 3
 PIN_MAX_ATTEMPTS = 5
 CATCHUP_PIN_STUDENT_ALERT = 5
+CATCHUP_PIN_STUDENT_SOFT_CAP = 15
 PIN_WINDOW_S = 15 * 60
 # Wrong PINs from one client (MCK-120 ``ip:`` key) across every student and link.
 CATCHUP_PIN_IP_LIMIT = 20
@@ -48,9 +49,13 @@ KEY_PIN_WRONG = "pin.wrong"
 KEY_PIN_HELP = "pin.help"
 KEY_PIN_NOT_SET = "pin.not_set"
 KEY_PIN_IP_LOCKED = "pin.ip_locked"
+KEY_PIN_TRY_LATER = "pin.try_later"
+KEY_PIN_STUDENT_SOFT = "pin.student_soft"
 COPY_FALLBACKS = {
     KEY_PIN_NOT_SET: "Your teacher hasn't set your PIN yet. Ask your teacher.",
     KEY_PIN_IP_LOCKED: "Too many tries from this device. Wait 15 minutes and try again.",
+    KEY_PIN_TRY_LATER: "Wait a moment and try your PIN again.",
+    KEY_PIN_STUDENT_SOFT: "Too many PIN tries. Ask your teacher to unlock catch-up sign-in.",
     KEY_PIN_LABEL: "Your 4-digit PIN",
     KEY_PIN_LOOKS_LIKE_JOIN_CODE: "That's your join code. Enter your 4-digit PIN instead.",
     KEY_PIN_HELP: "Not the join code. Ask your teacher if you forgot it.",
@@ -178,6 +183,19 @@ def catchup_ip_limit_key(ip_key: str) -> str:
     live-join budget or trip the site-wide ``ip:`` count.
     """
     return f"{CATCHUP_PIN_IP_PREFIX}{ip_key}"
+
+
+def catchup_pin_student_limit_key(class_id: int, student_id: int) -> str:
+    """Limiter key for wrong PIN tries attributed to one roster student."""
+    return f"{CATCHUP_PIN_IP_PREFIX}student:{int(class_id)}:{int(student_id)}"
+
+
+def catchup_pin_progressive_delay_s(failure_count: int) -> int:
+    """Seconds to wait before another PIN try after repeated failures."""
+    n = max(0, int(failure_count) - 3)
+    if n <= 0:
+        return 0
+    return min(30, 2 ** min(n, 4))
 
 
 def catchup_link_ip_limit_key(token: str, ip_key: str) -> str:
