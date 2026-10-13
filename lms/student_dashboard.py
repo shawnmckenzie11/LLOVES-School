@@ -12,8 +12,6 @@ from typing import Any
 from participation import level_for, level_line, more_to_next, percent, summary
 
 SLOTS = ("C1", "C2", "C3", "C4")
-PIN_PORTAL_SESSION_S = 30 * 60
-
 # Wonder copy, verbatim (MCK-208 student dashboard).
 COPY_LIVE_STRIP = "Live now \u00b7 Rejoin class"
 COPY_CARD_THIS_MODULE = "This module"

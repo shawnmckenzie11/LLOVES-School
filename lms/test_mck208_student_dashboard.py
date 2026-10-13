@@ -84,11 +84,12 @@ class Mck208DashboardTest(Base):
         self.assertTrue(body_b.get("ok"))
         self.assertNotEqual(body_b["dashboard"]["codename"], sid_a)
 
-        # Tamper session student_id; API must still use PIN portal binding.
+        # Tamper session student_id; API must still scope to catch-up portal student.
         with client_a.session_transaction() as sess:
             sess["student_id"] = int(self.students[1])
-        denied = client_a.get("/api/student/dashboard").get_json()
-        self.assertFalse(denied.get("ok"))
+        still_a = client_a.get("/api/student/dashboard").get_json()
+        self.assertTrue(still_a.get("ok"))
+        self.assertEqual(still_a["dashboard"]["codename"], sid_a)
 
     def test_finish_these_links_use_play_mode(self) -> None:
         client = self.app.test_client()

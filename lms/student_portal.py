@@ -63,9 +63,6 @@ EARNED_AVATAR_SRC = "/static/avatars/earned/{key}.svg"
 EXIT_FEEDBACK_SESSION_KEY = "student_exit_feedback_token"
 HOW_WAS_CLASS = "How was class?"
 
-# MCK-208: PIN-signed catch-up portal (dashboard), separate from live join keys.
-PIN_PORTAL_SESSION_KEY = "student_pin_portal"
-
 # Flask session keys owned by the student-code join path.
 STUDENT_SESSION_KEYS = (
     "student_offering_id",
@@ -497,28 +494,26 @@ def bind_pin_portal_session(
     class_id: int,
     student_id: int,
 ) -> None:
-    """Store a PIN-authenticated student portal session (MCK-208).
+    """Sync Flask student keys from a catch-up portal session (MCK-207 / MCK-208).
 
-    Does not clear staff login. Never stores the raw PIN.
+    Catch-up sign-in stores ``catchup:<link_id>``; ``authorize_student_pin_change``
+    and the dashboard both trust ``SchoolDB.catchup_portal_session_valid``. This
+    helper only mirrors roster ids into the student-code keys ``student_required``
+    expects. Does not clear staff login or store the raw PIN.
+
+    Raises:
+        PermissionError: No valid catch-up portal session for this student.
     """
-    import time as _time
-
-    from student_dashboard import PIN_PORTAL_SESSION_S
-
     cid = int(class_id)
     sid = int(student_id)
+    if not school.catchup_portal_session_valid(session, cid, sid):
+        school.authorize_student_pin_change(cid, sid, None, session)
     cls = school.game.get_class(cid)
     offering = school.get_offering(int(cls["offering_id"]))
     student = school.game.get_student(cid, sid)
     session["student_offering_id"] = int(offering["id"])
     session["student_class_id"] = cid
     session["student_id"] = sid
-    session[PIN_PORTAL_SESSION_KEY] = {
-        "cid": cid,
-        "sid": sid,
-        "pin": school.catchup_pin_stamp(cid, sid),
-        "exp": _time.time() + PIN_PORTAL_SESSION_S,
-    }
     session["student_codename"] = str(student.get("codename") or student.get("first_name") or "")
     if not session.get("logged_in"):
         session["role"] = "student"
@@ -526,22 +521,25 @@ def bind_pin_portal_session(
 
 
 def resolve_pin_portal_context(school: Any, session: Any) -> dict[str, Any] | None:
-    """Return class and student ids when the PIN portal session is still valid."""
+    """Return class and student ids for a valid catch-up portal session (MCK-207)."""
     import time as _time
 
-    held = session.get(PIN_PORTAL_SESSION_KEY) or {}
-    sid = held.get("sid")
-    cid = held.get("cid")
-    if sid is None or cid is None:
-        return None
-    if float(held.get("exp") or 0) <= _time.time():
-        session.pop(PIN_PORTAL_SESSION_KEY, None)
-        return None
-    if str(held.get("pin") or "") != school.catchup_pin_stamp(int(cid), int(sid)):
-        session.pop(PIN_PORTAL_SESSION_KEY, None)
-        return None
-    if int(session.get("student_class_id") or 0) != int(cid):
-        return None
-    if int(session.get("student_id") or 0) != int(sid):
-        return None
-    return {"class_id": int(cid), "student_id": int(sid)}
+    now = _time.time()
+    for key in list(session.keys()):
+        if not str(key).startswith("catchup:") or str(key).endswith(":who"):
+            continue
+        held = session.get(key) or {}
+        if not isinstance(held, dict):
+            continue
+        cid = held.get("cid")
+        sid = held.get("sid")
+        if sid is None or cid is None:
+            continue
+        if float(held.get("exp") or 0) <= now:
+            session.pop(key, None)
+            continue
+        if not school.catchup_portal_session_valid(session, int(cid), int(sid)):
+            session.pop(key, None)
+            continue
+        return {"class_id": int(cid), "student_id": int(sid)}
+    return None
