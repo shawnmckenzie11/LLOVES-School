@@ -29710,7 +29710,8 @@ class SchoolDB(LovesDB):
 
         One PIN per student for the whole course, reused on every catch-up
         link. A new hash changes ``catchup_pin_stamp``, which ends the
-        student's open catch-up sessions.
+        student's open catch-up sessions. Clears any stored default-PIN
+        ciphertext (MCK-204).
         """
         from participation import hash_pin, valid_pin
 
@@ -29718,7 +29719,10 @@ class SchoolDB(LovesDB):
             raise ValueError("PIN must be 4 digits.")
         with self.game._lock:
             self.game.conn.execute(
-                "UPDATE students SET pin_hash = ? WHERE id = ? AND class_id = ?",
+                """
+                UPDATE students SET pin_hash = ?, default_pin_ciphertext = NULL
+                WHERE id = ? AND class_id = ?
+                """,
                 (hash_pin(str(pin)), int(student_id), int(class_id)),
             )
             if self.game.conn.in_transaction:
@@ -29730,6 +29734,280 @@ class SchoolDB(LovesDB):
             )
             if self.conn.in_transaction:
                 self.conn.commit()
+
+    def teacher_default_pin_slips(self, class_id: int, secret: str) -> list[dict[str, Any]]:
+        """Teacher-only printable slips for students who still have default PIN ciphertext."""
+        from default_pin import SLIP_TEMPLATE, decrypt_pin
+
+        out: list[dict[str, Any]] = []
+        with self.game._lock:
+            rows = self.game.conn.execute(
+                """
+                SELECT id, codename, first_name, default_pin_ciphertext
+                FROM students
+                WHERE class_id = ? AND TRIM(COALESCE(default_pin_ciphertext, '')) <> ''
+                ORDER BY codename COLLATE NOCASE, first_name COLLATE NOCASE, id
+                """,
+                (int(class_id),),
+            ).fetchall()
+        for row in rows:
+            try:
+                pin = decrypt_pin(str(row["default_pin_ciphertext"]), secret)
+            except ValueError:
+                continue
+            name = str(row["codename"] or row["first_name"] or "").strip()
+            slip = SLIP_TEMPLATE.format(pin=pin)
+            out.append({"student_id": int(row["id"]), "name": name, "slip": slip})
+        return out
+
+    def ensure_default_pins_for_class(self, class_id: int, secret: str) -> dict[str, int]:
+        """Assign default PINs only where ``pin_hash`` is still empty (MCK-204)."""
+        from default_pin import assign_default_pin_fields, generate_unique_default_pin
+
+        assigned = 0
+        skipped = 0
+        with self.game._lock:
+            class_row = self.game.conn.execute(
+                "SELECT live_access_code FROM classes WHERE id = ?", (int(class_id),)
+            ).fetchone()
+            class_code = str(class_row[0] or "") if class_row is not None else ""
+            rows = self.game.conn.execute(
+                """
+                SELECT id, pin_hash, default_pin_ciphertext FROM students
+                WHERE class_id = ? ORDER BY id
+                """,
+                (int(class_id),),
+            ).fetchall()
+            used: list[str] = []
+            for row in rows:
+                if str(row["pin_hash"] or "").strip():
+                    skipped += 1
+                    if str(row["default_pin_ciphertext"] or "").strip():
+                        try:
+                            from default_pin import decrypt_pin
+
+                            used.append(decrypt_pin(str(row["default_pin_ciphertext"]), secret))
+                        except ValueError:
+                            pass
+                    continue
+                pin = generate_unique_default_pin(class_code=class_code, used=used)
+                pin_hash, ciphertext = assign_default_pin_fields(pin, secret)
+                self.game.conn.execute(
+                    """
+                    UPDATE students SET pin_hash = ?, default_pin_ciphertext = ?
+                    WHERE id = ? AND class_id = ? AND TRIM(COALESCE(pin_hash, '')) = ''
+                    """,
+                    (pin_hash, ciphertext, int(row["id"]), int(class_id)),
+                )
+                if self.game.conn.total_changes:
+                    assigned += 1
+                    used.append(pin)
+            if self.game.conn.in_transaction:
+                self.game.conn.commit()
+        return {"assigned": assigned, "skipped_existing": skipped}
+
+    def ensure_default_pins_for_classes(
+        self, class_ids: set[int], secret: str
+    ) -> dict[str, int]:
+        """Ensure default PINs across several classes (additive counts)."""
+        totals = {"assigned": 0, "skipped_existing": 0}
+        for cid in sorted({int(x) for x in class_ids if x}):
+            row = self.ensure_default_pins_for_class(cid, secret)
+            totals["assigned"] += int(row["assigned"])
+            totals["skipped_existing"] += int(row["skipped_existing"])
+        return totals
+
+    def list_catchup_backfill_candidates(
+        self,
+        *,
+        course_code: str | None = None,
+        live_module: str | None = None,
+        live_slot: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Runs that may be backfilled from ``live_result_snapshots`` (MCK-204)."""
+        from catchup_backfill import MCK45_SNAPSHOT_CUTOFF
+
+        snap_filters = ["s.run_key != ''"]
+        legacy_filters = [
+            "sess.status = 'ended'",
+            "COALESCE(sess.started_at, '') < ?",
+            """NOT EXISTS (
+                SELECT 1 FROM live_result_snapshots snap
+                WHERE snap.class_id = sess.class_id
+                  AND snap.run_key = COALESCE(sess.run_key, '')
+            )""",
+        ]
+        snap_params: list[Any] = []
+        legacy_params: list[Any] = [MCK45_SNAPSHOT_CUTOFF]
+        if course_code:
+            snap_filters.append("UPPER(c.course_code) = UPPER(?)")
+            legacy_filters.append("UPPER(c.course_code) = UPPER(?)")
+            snap_params.append(str(course_code).strip())
+            legacy_params.append(str(course_code).strip())
+        if live_module:
+            snap_filters.append("UPPER(s.live_module) = UPPER(?)")
+            legacy_filters.append(
+                "UPPER(json_extract(sess.teacher_state_json, '$.live_module')) = UPPER(?)"
+            )
+            snap_params.append(str(live_module).strip())
+            legacy_params.append(str(live_module).strip())
+        if live_slot:
+            snap_filters.append("UPPER(s.live_slot) = UPPER(?)")
+            legacy_filters.append(
+                "UPPER(json_extract(sess.teacher_state_json, '$.live_slot')) = UPPER(?)"
+            )
+            snap_params.append(str(live_slot).strip())
+            legacy_params.append(str(live_slot).strip())
+
+        with self._lock:
+            snapshot_runs = self.conn.execute(
+                f"""
+                SELECT s.class_id, c.course_code, s.run_key,
+                       MIN(s.live_module) AS live_module,
+                       MIN(s.live_slot) AS live_slot,
+                       COUNT(*) AS snapshot_rows,
+                       COUNT(DISTINCT CASE WHEN s.source = 'prompt' AND s.student_id IS NOT NULL
+                                           THEN s.question_key END) AS offered_count,
+                       COUNT(CASE WHEN s.source = 'prompt' AND s.student_id IS NOT NULL
+                                  THEN 1 END) AS answer_rows,
+                       MAX(s.snapshot_at) AS snapshot_at
+                FROM live_result_snapshots s
+                INNER JOIN classes c ON c.id = s.class_id
+                WHERE {" AND ".join(snap_filters)}
+                GROUP BY s.class_id, s.run_key
+                """,
+                snap_params,
+            ).fetchall()
+            legacy = self.conn.execute(
+                f"""
+                SELECT sess.class_id, c.course_code,
+                       COALESCE(sess.run_key, '') AS run_key,
+                       json_extract(sess.teacher_state_json, '$.live_module') AS live_module,
+                       json_extract(sess.teacher_state_json, '$.live_slot') AS live_slot,
+                       sess.started_at
+                FROM live_class_sessions sess
+                INNER JOIN classes c ON c.id = sess.class_id
+                WHERE {" AND ".join(legacy_filters)}
+                """,
+                legacy_params,
+            ).fetchall()
+
+            out: list[dict[str, Any]] = []
+            seen: set[tuple[int, str]] = set()
+            for row in snapshot_runs:
+                key = (int(row["class_id"]), str(row["run_key"]))
+                seen.add(key)
+                link = self.conn.execute(
+                    "SELECT 1 FROM catchup_links WHERE class_id = ? AND run_key = ? LIMIT 1",
+                    key,
+                ).fetchone()
+                out.append(
+                    {
+                        "class_id": int(row["class_id"]),
+                        "course_code": str(row["course_code"] or ""),
+                        "run_key": str(row["run_key"]),
+                        "live_module": str(row["live_module"] or ""),
+                        "live_slot": str(row["live_slot"] or ""),
+                        "has_snapshots": True,
+                        "already_backfilled": link is not None,
+                        "offered_count": int(row["offered_count"] or 0),
+                        "answer_rows": int(row["answer_rows"] or 0),
+                    }
+                )
+            for row in legacy:
+                run_key = str(row["run_key"] or "")
+                key = (int(row["class_id"]), run_key)
+                if key in seen:
+                    continue
+                out.append(
+                    {
+                        "class_id": int(row["class_id"]),
+                        "course_code": str(row["course_code"] or ""),
+                        "run_key": run_key,
+                        "live_module": str(row["live_module"] or ""),
+                        "live_slot": str(row["live_slot"] or ""),
+                        "has_snapshots": False,
+                        "skip_reason": "pre-MCK-45 (no snapshot rows)",
+                    }
+                )
+        return out
+
+    def apply_catchup_backfill_run(self, class_id: int, run_key: str) -> dict[str, int]:
+        """Write participation rows + a closed catch-up link for one snapshot run."""
+        from participation import new_token
+
+        cid = int(class_id)
+        key = str(run_key or "").strip()
+        if not key:
+            raise ValueError("run_key is required")
+        now = _now()
+        with self._lock:
+            meta = self.conn.execute(
+                """
+                SELECT MIN(live_module) AS live_module, MIN(live_slot) AS live_slot,
+                       COUNT(*) AS rows
+                FROM live_result_snapshots
+                WHERE class_id = ? AND run_key = ?
+                """,
+                (cid, key),
+            ).fetchone()
+            if meta is None or int(meta["rows"] or 0) <= 0:
+                return {"items": 0, "answers": 0}
+            module = str(meta["live_module"] or "")
+            slot = str(meta["live_slot"] or "")
+            self.conn.execute(
+                """
+                INSERT OR IGNORE INTO participation_items (
+                    class_id, run_key, live_module, live_slot, question_key, item_json,
+                    prompt_kind, offered_at
+                )
+                SELECT ?, ?, ?, ?, s.question_key,
+                       MIN(s.question_json), '', MIN(COALESCE(s.answered_at, s.snapshot_at))
+                FROM live_result_snapshots s
+                WHERE s.class_id = ? AND s.run_key = ? AND s.source = 'prompt'
+                  AND s.student_id IS NOT NULL
+                GROUP BY s.question_key
+                """,
+                (cid, key, module, slot, cid, key),
+            )
+            items = int(
+                self.conn.execute(
+                    "SELECT COUNT(*) FROM participation_items WHERE class_id = ? AND run_key = ?",
+                    (cid, key),
+                ).fetchone()[0]
+            )
+            self.conn.execute(
+                """
+                INSERT OR IGNORE INTO participation_answers (
+                    class_id, run_key, live_module, question_key, student_id, source,
+                    answer_json, answered_at
+                )
+                SELECT ?, ?, ?, s.question_key, s.student_id, 'live',
+                       s.answer_json, COALESCE(s.answered_at, s.snapshot_at)
+                FROM live_result_snapshots s
+                WHERE s.class_id = ? AND s.run_key = ? AND s.source = 'prompt'
+                  AND s.student_id IS NOT NULL
+                """,
+                (cid, key, module, cid, key),
+            )
+            answers = int(
+                self.conn.execute(
+                    "SELECT COUNT(*) FROM participation_answers WHERE class_id = ? AND run_key = ?",
+                    (cid, key),
+                ).fetchone()[0]
+            )
+            self.conn.execute(
+                """
+                INSERT OR IGNORE INTO catchup_links (
+                    token, class_id, run_key, live_module, live_slot, is_open,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+                """,
+                (new_token(), cid, key, module, slot, now, now),
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+        return {"items": items, "answers": answers}
 
     def class_codenames(self, class_id: int) -> dict[int, str]:
         """Roster codenames (unique per class), the names the picker shows."""

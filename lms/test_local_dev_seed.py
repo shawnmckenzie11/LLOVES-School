@@ -155,7 +155,15 @@ class LocalDevSeedTests(unittest.TestCase):
         self.assertIn("M1 C2:", html)
         self.assertNotIn("A link appears after End Live Class.", html)
         token = self.school.list_catchup_links(class_id)[0]["token"]
-        self.assertTrue(self.school.catchup_sign_in(token, "Maple", "1234")["ok"])
+        maple = self.school.game.find_student_by_codename(class_id, "Maple")
+        assert maple is not None
+        from default_pin import decrypt_pin
+
+        row = self.school.game.conn.execute(
+            "SELECT default_pin_ciphertext FROM students WHERE id = ?", (int(maple["id"]),)
+        ).fetchone()
+        pin = decrypt_pin(str(row["default_pin_ciphertext"]), str(self.app.secret_key or ""))
+        self.assertTrue(self.school.catchup_sign_in(token, "Maple", pin)["ok"])
 
     def test_demo_library_lists_course_wide_warmups(self) -> None:
         """Import Course Wide has the icebreakers; Module 1 math import does not."""

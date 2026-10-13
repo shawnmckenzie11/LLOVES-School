@@ -9,6 +9,9 @@
     .muted { color: #666; font-size: .85rem; }
     .badge { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .8rem; font-weight: 600; }
     .badge.open { background: #dcfce7; color: #166534; } .badge.closed { background: #e5e7eb; color: #374151; }
+    .pin-slips { margin: 1rem 0; padding: .75rem; border: 1px dashed #ccc; }
+    .pin-slip { margin: .35rem 0; font-family: ui-monospace, monospace; }
+    @media print { .no-print { display: none; } }
   </style>
 </head>
 <body>
@@ -45,6 +48,16 @@
       {% endfor %}
     </tbody>
   </table>
+  {% if pin_slips %}
+  <h2>Default catch-up PINs</h2>
+  <p class="muted no-print">Hand these out once. Students keep this PIN all course; reset clears the slip.</p>
+  <div class="pin-slips" id="pin-slips">
+    {% for slip in pin_slips %}
+      <p class="pin-slip"><strong>{{ slip.name }}</strong> — {{ slip.slip }}</p>
+    {% endfor %}
+  </div>
+  <button type="button" class="no-print" onclick="window.print()">Print PIN list</button>
+  {% endif %}
   <h2>Catch-up links</h2>
   <ul>
     {% for l in links %}
