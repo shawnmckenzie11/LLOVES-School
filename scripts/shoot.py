@@ -383,7 +383,8 @@ def main(argv: list[str] | None = None) -> int:
     owns_state = not args.state
     state = Path(args.state) if args.state else fresh_state_path()
     try:
-        if not state.exists() or args.seed:
+        needs_login = args.seed or not state.exists() or state.stat().st_size == 0
+        if needs_login:
             login_state(args.base, state, teacher_email=staff_shawn_email(path))
         out = Path(args.out)
         written: list[Path] = []

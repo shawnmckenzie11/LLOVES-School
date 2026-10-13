@@ -8460,7 +8460,12 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
     def _catchup_links_payload(class_id: int) -> list[dict[str, Any]]:
         return [
-            {**link, "is_open": bool(link["is_open"]), "url": _catchup_url(link["token"])}
+            {
+                **link,
+                "is_open": bool(link["is_open"]),
+                "discarded": bool(link.get("discarded")),
+                "url": _catchup_url(link["token"]),
+            }
             for link in school.list_catchup_links(class_id)
         ]
 
@@ -8528,6 +8533,29 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": "Not found."}), 404
         return jsonify({"ok": True, "open": bool(body.get("open"))})
 
+    @app.route(
+        "/api/classes/<int:class_id>/participation/runs/<path:run_key>/discard",
+        methods=["POST"],
+    )
+    @login_required
+    def api_discard_participation_run(class_id: int, run_key: str):
+        """Soft-discard a live run so its answers do not count toward participation."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        body = request.get_json(silent=True) or {}
+        if not body.get("confirm"):
+            return jsonify({"ok": False, "error": "Confirmation required."}), 400
+        user = current_user()
+        if not school.set_participation_run_discarded(
+            class_id,
+            run_key,
+            True,
+            user_id=int(user["id"]) if user else None,
+        ):
+            return jsonify({"ok": False, "error": "Not found."}), 404
+        return jsonify({"ok": True, "discarded": True})
+
     @app.route("/api/classes/<int:class_id>/students/<int:student_id>/pin", methods=["PUT"])
     @login_required
     def api_set_student_pin(class_id: int, student_id: int):
@@ -8557,6 +8585,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         data = school.class_participation(class_id)
         names = school.class_codenames(class_id)
         pin_slips = school.teacher_default_pin_slips(class_id, str(app.secret_key or ""))
+        user = current_user()
         return render_template(
             "staff/participation.html",
             class_id=class_id,
@@ -8564,6 +8593,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             names=names,
             links=_catchup_links_payload(class_id),
             pin_slips=pin_slips,
+            user=user,
+            school_name=SCHOOL_NAME,
         )
 
     @app.route("/catchup/<token>", methods=["GET", "POST"])
@@ -8576,7 +8607,6 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         import time as _time
 
         from participation import (
-            CATCHUP_PIN_IP_LIMIT,
             CATCHUP_SESSION_S,
             COPY_CATCHUP_TAG,
             COPY_CLOSED,
@@ -8584,12 +8614,12 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             KEY_PIN_HELP,
             KEY_PIN_IP_LOCKED,
             KEY_PIN_LABEL,
-            KEY_PIN_LOCKED,
             KEY_PIN_LOOKS_LIKE_JOIN_CODE,
             KEY_PIN_NOT_SET,
             KEY_PIN_WRONG,
+            PIN_MAX_ATTEMPTS,
             PIN_WINDOW_S,
-            catchup_ip_limit_key,
+            catchup_link_ip_limit_key,
             copy,
         )
 
@@ -8626,10 +8656,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 return pin_screen()
             error = copy(KEY_NAME_UNKNOWN)
         elif action == "pin" and float(pending.get("exp") or 0) > _time.time():
-            # MCK-120 client key: caps wrong PINs from one client across every
-            # student and link, on top of the per-student lockout.
-            ip_key = catchup_ip_limit_key(join_limit_ip_key(request_client_ip()))
-            if school.count_join_failures(ip_key, seconds=PIN_WINDOW_S) >= CATCHUP_PIN_IP_LIMIT:
+            link_ip_key = catchup_link_ip_limit_key(
+                token, join_limit_ip_key(request_client_ip())
+            )
+            if school.count_join_failures(link_ip_key, seconds=PIN_WINDOW_S) >= PIN_MAX_ATTEMPTS:
                 return pin_screen(KEY_PIN_IP_LOCKED)
             result = school.catchup_sign_in(token, pending.get("name", ""), request.form.get("pin", ""))
             if result["ok"]:
@@ -8642,10 +8672,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 return closed()
             else:
                 if result["reason"] == "wrong":
-                    school.record_join_failures([ip_key])
+                    school.record_join_failures([link_ip_key])
                 return pin_screen({
                     "looks_like_join_code": KEY_PIN_LOOKS_LIKE_JOIN_CODE,
-                    "locked": KEY_PIN_LOCKED,
                     "not_set": KEY_PIN_NOT_SET,
                     "unknown_name": KEY_NAME_UNKNOWN,
                 }.get(result["reason"], KEY_PIN_WRONG))

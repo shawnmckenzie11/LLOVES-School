@@ -1,14 +1,26 @@
-"""Flask CLI commands for one-off school maintenance (MCK-204)."""
+"""Flask CLI commands for one-off school maintenance (MCK-204 / MCK-206)."""
 
 from __future__ import annotations
 
+import logging
 import os
-from pathlib import Path
-
+import sys
 import click
 from flask import Flask
 
 from catchup_backfill import backfill_catchup_from_snapshots
+
+logger = logging.getLogger(__name__)
+
+
+def _is_production_env() -> bool:
+    """True when Flask is configured for production (explicit override required)."""
+    return (os.getenv("FLASK_ENV") or "").lower() == "production"
+
+
+def _confirmation_phrase(course: str, live_module: str, live_slot: str) -> str:
+    """Typed confirmation string for a scoped prod backfill."""
+    return f"{str(course).strip().upper()}/{str(live_module).strip().upper()}/{str(live_slot).strip().upper()}"
 
 
 def register_cli(app: Flask) -> None:
@@ -30,19 +42,58 @@ def register_cli(app: Flask) -> None:
         default=False,
         help="When used with --apply, also assign default PINs for students missing one.",
     )
+    @click.option(
+        "--i-know-this-is-prod",
+        "prod_override",
+        is_flag=True,
+        default=False,
+        help="One-shot override to run --apply on production after confirmation.",
+    )
     def backfill_catchup(
         course: str | None,
         live_module: str | None,
         live_slot: str | None,
         apply: bool,
         pins: bool,
+        prod_override: bool,
     ) -> None:
         """Backfill catch-up links from live_result_snapshots (dry-run by default)."""
-        if (os.getenv("FLASK_ENV") or "").lower() == "production" and apply:
+        if pins and not apply:
+            raise click.ClickException("--pins requires --apply.")
+        if apply and _is_production_env() and not prod_override:
             raise click.ClickException(
-                "Refusing --apply against production. Run on a local copy of the database."
+                "Refusing --apply on production without --i-know-this-is-prod."
             )
+        if apply and prod_override:
+            missing = [
+                name
+                for name, value in (
+                    ("--course", course),
+                    ("--module", live_module),
+                    ("--slot", live_slot),
+                )
+                if not str(value or "").strip()
+            ]
+            if missing:
+                raise click.ClickException(
+                    "Production apply requires --course, --module, and --slot "
+                    f"(missing {', '.join(missing)})."
+                )
         school = app.config["SCHOOL_DB"]
+        if apply and prod_override:
+            preview = backfill_catchup_from_snapshots(
+                school,
+                course=course,
+                module=live_module,
+                slot=live_slot,
+                apply=False,
+            )
+            for line in preview.summary_lines():
+                click.echo(line)
+            phrase = _confirmation_phrase(course or "", live_module or "", live_slot or "")
+            typed = click.prompt("Type course/module/slot to confirm", type=str).strip()
+            if typed != phrase:
+                raise click.ClickException("Confirmation did not match; aborting.")
         report = backfill_catchup_from_snapshots(
             school,
             course=course,
@@ -52,15 +103,30 @@ def register_cli(app: Flask) -> None:
         )
         for line in report.summary_lines():
             click.echo(line)
+        pins_assigned = 0
         if apply and pins:
             secret = str(app.secret_key or "")
             summary = school.ensure_default_pins_for_classes(
                 class_ids={r.class_id for r in report.runs if r.action == "wrote"},
                 secret=secret,
             )
+            pins_assigned = int(summary["assigned"])
             click.echo(
-                f"default PINs: assigned={summary['assigned']} "
+                f"default PINs: assigned={pins_assigned} "
                 f"skipped_existing={summary['skipped_existing']}"
+            )
+        if apply and prod_override:
+            wrote = [r for r in report.runs if r.action == "wrote"]
+            logger.info(
+                "catchup_backfill_audit course=%s module=%s slot=%s runs=%s items=%s "
+                "answers=%s pins_assigned=%s",
+                str(course or "").upper(),
+                str(live_module or "").upper(),
+                str(live_slot or "").upper(),
+                len(wrote),
+                sum(int(r.items) for r in wrote),
+                sum(int(r.answers) for r in wrote),
+                pins_assigned,
             )
 
 
@@ -70,8 +136,7 @@ def main() -> None:
 
     application = create_app()
     register_cli(application)
-    db = Path(os.getenv("LLOVES_DB") or application.config["SCHOOL_DB"].db_path)
-    if (os.getenv("FLASK_ENV") or "").lower() == "production":
+    if _is_production_env() and "backfill-catchup" not in sys.argv:
         raise SystemExit("Refusing CLI with FLASK_ENV=production")
     application.cli.main(prog_name="flask")
 

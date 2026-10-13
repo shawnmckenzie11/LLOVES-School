@@ -150,7 +150,7 @@ class LocalDevSeedTests(unittest.TestCase):
         self.assertIn("<td>Maple</td>", html)
         self.assertIn("5/8 · 62% · L2", " ".join(html.split()))  # Maple: 2 in C1 + 3 in C2
         self.assertEqual(html.count('class="toggle"'), 2)
-        self.assertEqual(html.count('class="copy"'), 2)
+        self.assertEqual(html.count('class="btn secondary copy"'), 2)
         self.assertIn("M1 C1:", html)
         self.assertIn("M1 C2:", html)
         self.assertNotIn("A link appears after End Live Class.", html)

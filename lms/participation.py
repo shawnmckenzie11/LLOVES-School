@@ -179,6 +179,16 @@ def catchup_ip_limit_key(ip_key: str) -> str:
     return f"{CATCHUP_PIN_IP_PREFIX}{ip_key}"
 
 
+def catchup_link_ip_limit_key(token: str, ip_key: str) -> str:
+    """Limiter key for wrong PINs on one catch-up link from one client (MCK-206).
+
+    Wrong tries are counted per link and IP so someone with the URL cannot
+    lock out a student on another device.
+    """
+    safe_token = str(token or "").strip()[:80]
+    return f"{CATCHUP_PIN_IP_PREFIX}link:{safe_token}|{ip_key}"
+
+
 def new_token() -> str:
     """Unguessable catch-up link token."""
     return secrets.token_urlsafe(24)
