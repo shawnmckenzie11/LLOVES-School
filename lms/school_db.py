@@ -29951,16 +29951,6 @@ class SchoolDB(LovesDB):
         failures = int(row["n"] if row else 0)
         if failures >= int(CATCHUP_PIN_STUDENT_SOFT_CAP):
             return KEY_PIN_STUDENT_SOFT
-        delay = catchup_pin_progressive_delay_s(failures)
-        if delay > 0 and row and row["last_at"]:
-            try:
-                last = datetime.fromisoformat(str(row["last_at"]))
-            except ValueError:
-                last = None
-            if last is not None:
-                elapsed = (datetime.now() - last).total_seconds()
-                if elapsed < delay:
-                    return KEY_PIN_TRY_LATER
         return None
 
     def teacher_unlock_catchup_pin(self, class_id: int, student_id: int) -> None:
