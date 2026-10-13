@@ -55,10 +55,14 @@ class RootJoinTests(unittest.TestCase):
         self.assertEqual(_href(body, "Admin login"), "/auth/google?portal=it")
         self.assertIn('id="celebrations"', body)
         self.assertIn('href="#celebrations"', body)
-        # MCK-197: no logo in the top bar; the links stay right-aligned.
+        # MCK-197: no logo in the top bar; the links stay right-aligned
+        # and at least 24px tall.
         self.assertNotIn("alc-logo.png", body)
         self.assertNotIn('aria-label="ALC home"', body)
         self.assertIn("justify-content:flex-end", body)
+        link_rule = body.split("body.landing-page .join-topbar nav a {", 1)[1].split("}", 1)[0]
+        self.assertIn("display:inline-flex", link_rule)
+        self.assertIn("min-height:24px", link_rule)
 
     def test_root_next_staff_reaches_staff_sign_in(self) -> None:
         """``/?next=/staff/...`` → Teacher login carries next → staff sign-in."""
