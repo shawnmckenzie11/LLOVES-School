@@ -59,6 +59,19 @@ class StudentViewTests(unittest.TestCase):
         self.assertIn("color: #fff !important", rule)
         self.assertIn("min-height: 24px", rule)
 
+    def test_class_list_plus_chips_fade_while_on(self) -> None:
+        """MCK-199 follow-up: Class List +1 chips fade and stay clickable."""
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        rule = css[css.index("body.staff-shell.is-student-view #class-list-pane .ap-att-plus,"):]
+        rule = rule[: rule.index("}")]
+        self.assertIn(".ap-att-plus.is-student-view-muted", rule)
+        self.assertIn("opacity: 0.35", rule)
+        self.assertNotIn("pointer-events", rule)
+        js = (LMS_DIR / "static" / "student_view.js").read_text(encoding="utf-8")
+        self.assertIn("export function mutePlusChips", js)
+        self.assertIn("mutePlusChips(root, true)", js)
+        self.assertIn("mutePlusChips(null, false)", js)
+
     def test_points_and_name_selectors(self) -> None:
         """Gate HIGH/LOW: COURSE/GAME are masked; names only in name elements."""
         js = (LMS_DIR / "static" / "student_view.js").read_text(encoding="utf-8")
