@@ -39,7 +39,10 @@ class StudentViewTests(unittest.TestCase):
         self.assertNotIn("<span>Hide names</span>", html)
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertIn("let hideResponseNames = false;", js)
-        self.assertIn('import { mountStudentView } from "/static/student_view.js";', js)
+        self.assertIn(
+            'import { mountStudentView, studentViewOn } from "/static/student_view.js";',
+            js,
+        )
         self.assertIn("roster: () => lastClassListFull", js)
 
     def test_client_side_only(self) -> None:
