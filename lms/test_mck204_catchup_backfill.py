@@ -215,7 +215,7 @@ class DefaultPinDbTests(Base):
         slips = self.school.teacher_default_pin_slips(self.class_id, secret)
         self.assertTrue(slips)
         for slip in slips:
-            self.assertRegex(slip["slip"], r"^Your catch-up PIN: \d{4} \(not the class code\)$")
+            self.assertRegex(slip["slip"], r"^Your catch-up PIN: \d{4} \(not the join code\)$")
 
 
 class CatchupWithDefaultPinTests(Base):

@@ -19,7 +19,7 @@ except ImportError:  # pragma: no cover - installed via lms/requirements.txt
     Fernet = None  # type: ignore[misc, assignment]
     InvalidToken = Exception  # type: ignore[misc, assignment]
 
-SLIP_TEMPLATE = "Your catch-up PIN: {pin} (not the class code)"
+SLIP_TEMPLATE = "Your catch-up PIN: {pin} (not the join code)"
 
 
 def fernet_from_secret(secret: str) -> Fernet:
@@ -48,7 +48,10 @@ def decrypt_pin(ciphertext: str, secret: str) -> str:
 
 
 def pin_conflicts_class_code(pin: str, class_code: str) -> bool:
-    """True when a default PIN must not be issued (equals the class join code)."""
+    """True when a default PIN must not be issued (equals the class join code).
+
+    Product copy says "join code" (Wonder MCK-204).
+    """
     code = str(class_code or "").strip().upper()
     if not code:
         return False
@@ -60,7 +63,7 @@ def generate_unique_default_pin(
     class_code: str,
     used: Iterable[str],
 ) -> str:
-    """Return a random 4-digit PIN unique in ``used`` and not the class code."""
+    """Return a random 4-digit PIN unique in ``used`` and not the join code."""
     taken = {str(p) for p in used if valid_pin(p)}
     for _ in range(500):
         pin = f"{secrets.randbelow(10000):04d}"

@@ -51,8 +51,8 @@ COPY_FALLBACKS = {
     KEY_PIN_NOT_SET: "Your teacher hasn't set your PIN yet. Ask your teacher.",
     KEY_PIN_IP_LOCKED: "Too many tries from this device. Wait 15 minutes and try again.",
     KEY_PIN_LABEL: "Your 4-digit PIN",
-    KEY_PIN_LOOKS_LIKE_JOIN_CODE: "That's your class code. Enter your 4-digit PIN instead.",
-    KEY_PIN_HELP: "Not the class code. Ask your teacher if you forgot it.",
+    KEY_PIN_LOOKS_LIKE_JOIN_CODE: "That's your join code. Enter your 4-digit PIN instead.",
+    KEY_PIN_HELP: "Not the join code. Ask your teacher if you forgot it.",
     KEY_PIN_LOCKED: "Too many tries. Wait 15 minutes or ask your teacher to reset your PIN.",
     KEY_NAME_UNKNOWN: "We couldn't find that name. Pick your name from the list.",
     KEY_PIN_WRONG: COPY_WRONG_PIN,
@@ -68,7 +68,7 @@ def looks_like_join_code(raw: Any, active_codes: Any = ()) -> bool:
     """True when a PIN entry is really a join code.
 
     Join codes are uppercase from ``codes.SESSION_CODE_ALPHABET`` (no 0, 1,
-    I, L, O), 4-6 characters for a live session or 8 for a class code. A
+    I, L, O), 4-6 characters for a live session or 8 for a durable join code. A
     typed code with a letter in it, or any exact current code, is refused
     as a PIN without counting as a failed attempt.
     """
