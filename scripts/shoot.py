@@ -374,10 +374,14 @@ def _pin_mck62_teacher_stage(school, session_id: int) -> None:
         page_id="round:1",
         live_module="M1",
         live_slot="C1",
+        scoreboard_visible=False,
     )
+    school.set_live_session_active_media(session_id, clear=True)
 
 
-def _wait_quiet_member_dots(page, budget: float = 30.0) -> bool:
+def _wait_quiet_member_dots(
+    page, budget: float = 30.0, *, school=None, session_id: int | None = None
+) -> bool:
     """Find the published group card and wait for grey quiet-member dots.
 
     Args:
@@ -390,6 +394,8 @@ def _wait_quiet_member_dots(page, budget: float = 30.0) -> bool:
     end = time.time() + budget
     prev_clicks = 0
     while time.time() < end:
+        if school is not None and session_id:
+            school.set_live_session_active_media(int(session_id), clear=True)
         questions = page.locator('.live-content-tab[data-tab="questions"]')
         if questions.count():
             questions.first.click(timeout=2000)
@@ -481,7 +487,9 @@ def shoot_mck62_quiet_dots(out_dir: Path) -> list[Path]:
 
             ready_for_dots()
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            if not _wait_quiet_member_dots(page):
+            if not _wait_quiet_member_dots(
+                page, school=harness.school, session_id=harness.session_id
+            ):
                 raise SystemExit("quiet dots missing on first load")
             page.screenshot(path=str(shots["first-load"]), full_page=True)
             ready_for_dots()
@@ -493,7 +501,9 @@ def shoot_mck62_quiet_dots(out_dir: Path) -> list[Path]:
                 )
             except Exception:
                 pass
-            if not _wait_quiet_member_dots(page):
+            if not _wait_quiet_member_dots(
+                page, school=harness.school, session_id=harness.session_id
+            ):
                 raise SystemExit("quiet dots missing after reload")
             page.screenshot(path=str(shots["reload"]), full_page=True)
             ready_for_dots()
@@ -503,7 +513,16 @@ def shoot_mck62_quiet_dots(out_dir: Path) -> list[Path]:
             page.locator("body.is-student-view").wait_for(state="detached", timeout=30000)
             ready_for_dots()
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            if not _wait_quiet_member_dots(page):
+            try:
+                page.wait_for_response(
+                    lambda r: "/items/" in r.url and "/results" in r.url and r.status == 200,
+                    timeout=30000,
+                )
+            except Exception:
+                pass
+            if not _wait_quiet_member_dots(
+                page, school=harness.school, session_id=harness.session_id
+            ):
                 raise SystemExit("quiet dots missing after Student view exit")
             page.screenshot(path=str(shots["student-view-exit"]), full_page=True)
             context.close()

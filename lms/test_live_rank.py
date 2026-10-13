@@ -352,8 +352,12 @@ class RankLiveSessionTests(unittest.TestCase):
             self.session_id, int(published["id"])
         )
         self.assertNotIn("reveal", open_view)
+        # MCK-62: full group_submit /results merges quiet_dots onto status_board
+        # (same as light poll) so staff group cards paint the member strip.
         for row in open_view["status_board"]:
-            self.assertEqual(set(row), {"team_id", "team_name", "submitted"})
+            self.assertEqual(
+                set(row), {"team_id", "team_name", "submitted", "quiet_dots"}
+            )
         log = next(
             row for row in open_view["submitter_log"] if row["last_submitter"] == "Aspen"
         )

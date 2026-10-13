@@ -7018,6 +7018,7 @@ async function pollLiveSessionAttendees(opts = {}) {
       present
     );
     paintSlidesMetadata();
+    if (wantFull) paintLiveQuestionCards();
     if (payload?.active_media || payload?.session?.active_media) {
       const media = payload?.active_media || payload?.session?.active_media;
       paintActiveMediaStatus(media);
