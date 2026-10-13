@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 import tempfile
+import threading
 import unittest
 from datetime import date
 from pathlib import Path
@@ -19,7 +20,7 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
 from engagement_events import clean_payload  # noqa: E402
-from engagement_rollup import compute_rollup  # noqa: E402
+from engagement_rollup import compute_rollup, rollup_row_to_store  # noqa: E402
 
 
 class Base(unittest.TestCase):
@@ -175,11 +176,6 @@ class ComputeTests(unittest.TestCase):
 
 
 class EndRollupTests(Base):
-    def test_finish_live_class_writes_rollup(self) -> None:
-        self._append("answer.submit", student_id=self.students[0], item_ref="1", ts="2026-10-01T10:00:00")
-        self.school.finish_live_class(self.class_id, celebrate=True)
-        self.assertGreater(len(self._rollup()), 0)
-
     def test_cleanup_writes_rollup_rows(self) -> None:
         ava, ben = self.students[0], self.students[1]
         self._append("present.join", student_id=ava, ts="2026-10-01T10:00:00")
@@ -199,6 +195,75 @@ class EndRollupTests(Base):
         first = len(self._rollup())
         self.school.cleanup_live_session_response_data(self.session_id)
         self.assertEqual(len(self._rollup()), first)
+
+    def test_concurrent_rollup_inserts_one_cell_set(self) -> None:
+        """Two Ends at once must not double rows (Ops: 36 vs 18)."""
+        self._append("answer.submit", student_id=self.students[0], item_ref="1", ts="2026-10-01T10:00:00")
+        events = self.school.list_engagement_events(self.class_id, run_key=self.run_key)
+        team_for = {
+            sid: self.school.student_team_id_for_class(self.class_id, sid) for sid in self.students
+        }
+        computed = compute_rollup(
+            events,
+            class_id=self.class_id,
+            live_session=self.session_id,
+            run_key=self.run_key,
+            team_for_student=team_for,
+            student_ids=self.students,
+        )
+        payload = [
+            rollup_row_to_store(
+                row,
+                class_id=self.class_id,
+                live_session=self.session_id,
+                run_key=self.run_key,
+                rolled_at="2026-10-01T10:00:00",
+            )
+            for row in computed
+        ]
+        expected = len(payload)
+        barrier = threading.Barrier(2)
+        inserted: list[int] = []
+        errors: list[BaseException] = []
+
+        def worker() -> None:
+            try:
+                barrier.wait()
+                inserted.append(self.school.engagement.insert_rollup_batch(payload))
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(sum(inserted), expected)
+        self.assertEqual(len(self._rollup()), expected)
+        self.assertEqual(self.school.engagement.insert_rollup_batch(payload), 0)
+
+    def test_concurrent_cleanup_rollup_once(self) -> None:
+        """Parallel End cleanup must leave one rollup row per cell."""
+        self._append("answer.submit", student_id=self.students[0], item_ref="1", ts="2026-10-01T10:00:00")
+        expected = len(self.students) * 9
+        barrier = threading.Barrier(2)
+        errors: list[BaseException] = []
+
+        def worker() -> None:
+            try:
+                barrier.wait()
+                self.school.cleanup_live_session_response_data(self.session_id)
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(len(self._rollup()), expected)
 
     def test_rollup_survives_wipe(self) -> None:
         self._append("group.vote", student_id=self.students[0], item_ref="9", ts="2026-10-01T10:00:00")

@@ -98,17 +98,31 @@ CREATE INDEX IF NOT EXISTS engagement_rollup_run_scope
     ON engagement_rollup (run_key, scope, signal);
 """
 
+# One cell per run (student × signal or group × signal). COALESCE so NULL ids
+# do not bypass uniqueness on sqlite or Postgres.
+ROLLUP_UNIQUE_INDEX = """
+CREATE UNIQUE INDEX IF NOT EXISTS engagement_rollup_run_scope_cell
+    ON engagement_rollup (
+        run_key,
+        scope,
+        signal,
+        COALESCE(student_id, 0),
+        COALESCE(team_id, 0)
+    );
+"""
+
 _POSTGRES_DDL = _SQLITE_DDL.replace("id INTEGER PRIMARY KEY", "id BIGSERIAL PRIMARY KEY")
 
 
 def rollup_ddl_sqlite() -> str:
     """DDL for sqlite engagement rollup tables."""
-    return _SQLITE_DDL
+    return _SQLITE_DDL + ROLLUP_UNIQUE_INDEX
 
 
 def rollup_ddl_postgres_parts() -> list[str]:
     """DDL statements for Postgres (split for advisory-lock installer)."""
-    return [p.strip() for p in _POSTGRES_DDL.split(";") if p.strip()]
+    script = _POSTGRES_DDL + ROLLUP_UNIQUE_INDEX
+    return [p.strip() for p in script.split(";") if p.strip()]
 
 
 def _parse_ts(value: str) -> datetime:

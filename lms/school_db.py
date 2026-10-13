@@ -2176,7 +2176,7 @@ class LovesDB:
             return 0
         class_id = int(row["class_id"])
         run_key = str(row["run_key"] or "")
-        if not run_key or store.has_rollup(run_key):
+        if not run_key:
             return 0
         events = store.list_for_class(class_id, run_key=run_key, limit=10000)
         game = getattr(self, "game", None)
@@ -2210,8 +2210,7 @@ class LovesDB:
             )
             for r in computed
         ]
-        store.append_rollup(payload)
-        return len(payload)
+        return store.insert_rollup_batch(payload)
 
     def live_presence_label(self) -> str:
         """Cheap label for ``/health``. Does not ping or read a live session.
