@@ -1,0 +1,6 @@
+{
+  "real_class_window": {
+    "minutes_before_scheduled_end": 20,
+    "minutes_after_scheduled_end": 45
+  }
+}

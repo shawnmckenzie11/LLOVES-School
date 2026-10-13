@@ -291,7 +291,7 @@ def shoot_urls(
                 page = context.new_page()
                 page.goto(url, wait_until="domcontentloaded")
                 if ready:
-                    page.locator(ready).first.wait_for(state="visible", timeout=15000)
+                    page.locator(ready).first.wait_for(state="visible", timeout=30000)
                 if click:
                     page.locator(click).first.click()
                 name = f"{slug_for(url)}-{width}.png"
@@ -343,6 +343,112 @@ def prepare_mck207_pin_modal(path: Path) -> tuple[int, str, int]:
     finally:
         con.close()
     return class_id, token, int(sid)
+
+
+def prepare_mck207_run_toggle(path: Path) -> tuple[int, str, int]:
+    """Seed one ended live session with a classified real run for the toggle shot."""
+    import json
+
+    class_id = shawn_class_id(path)
+    con = sqlite3.connect(path)
+    try:
+        row = con.execute(
+            "SELECT offering_id FROM classes WHERE id = ?", (class_id,)
+        ).fetchone()
+        offering_id = int(row[0]) if row and row[0] is not None else 0
+        teacher_id = con.execute(
+            "SELECT id FROM users WHERE lower(email) = lower(?) LIMIT 1",
+            (SHAWN_EMAIL,),
+        ).fetchone()[0]
+        now = "2026-10-14T15:10:00"
+        run_key = f"session:shoot-mck207:{now}"
+        old_keys = [
+            str(r[0])
+            for r in con.execute(
+                "SELECT run_key FROM live_class_sessions WHERE run_key LIKE 'session:shoot-mck207:%'"
+            ).fetchall()
+        ]
+        for key in old_keys:
+            con.execute(
+                "DELETE FROM participation_items WHERE class_id = ? AND run_key = ?",
+                (class_id, key),
+            )
+            con.execute(
+                "DELETE FROM participation_runs WHERE class_id = ? AND run_key = ?",
+                (class_id, key),
+            )
+        con.execute(
+            "DELETE FROM live_class_sessions WHERE run_key LIKE 'session:shoot-mck207:%'"
+        )
+        cur = con.execute(
+            """
+            INSERT INTO live_class_sessions (
+                class_id, offering_id, teacher_user_id, session_code, status, started_at, ended_at,
+                run_key, teacher_state_json
+            ) VALUES (?, ?, ?, 'SHOOT', 'ended', ?, ?, ?, ?)
+            """,
+            (
+                class_id,
+                offering_id,
+                int(teacher_id),
+                now,
+                now,
+                run_key,
+                json.dumps({"live_module": "M1", "live_slot": "C1"}),
+            ),
+        )
+        sid = int(cur.lastrowid)
+        con.execute(
+            """
+            INSERT INTO participation_items (
+                class_id, run_key, live_module, live_slot, question_key, item_json,
+                prompt_kind, offered_at
+            ) VALUES (?, ?, 'M1', 'C1', 'item:q0', '{}', 'poll', ?)
+            ON CONFLICT(class_id, run_key, question_key) DO NOTHING
+            """,
+            (class_id, run_key, now),
+        )
+        con.execute(
+            """
+            INSERT INTO participation_runs (
+                class_id, run_key, is_real, auto_is_real, discarded
+            ) VALUES (?, ?, 1, 1, 0)
+            ON CONFLICT(class_id, run_key) DO UPDATE SET
+                is_real = 1, auto_is_real = 1, discarded = 0
+            """,
+            (class_id, run_key),
+        )
+        con.commit()
+        con.execute("PRAGMA wal_checkpoint(FULL)")
+    finally:
+        con.close()
+    return class_id, run_key, sid
+
+
+def shoot_mck207_run_toggle(
+    base: str, state_path: Path, out_dir: Path, path: Path, widths: list[int]
+) -> list[Path]:
+    """MCK-207: Real class / Test toggle on the ended live teacher header."""
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    class_id, _run_key, session_id = prepare_mck207_run_toggle(path)
+    url = f"{origin}/staff/class/{class_id}?tab=live&live_session_id={session_id}"
+    shots: list[Path] = []
+    for width in widths:
+        dest = out_dir / f"mck207-run-class-toggle-{width}.png"
+        shots.extend(
+            shoot_urls(
+                [url],
+                [width],
+                state_path=state_path,
+                out_dir=out_dir,
+                ready="#run-class-kind:not([hidden])",
+            )
+        )
+        src = out_dir / f"{slug_for(url)}-{width}.png"
+        if src.exists() and src != dest:
+            src.rename(dest)
+            shots.append(dest)
+    return shots
 
 
 def shoot_mck207(base: str, state_path: Path, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
@@ -713,9 +819,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ready", default="", help="CSS selector that must be visible.")
     parser.add_argument(
         "--scenario",
-        choices=("catchup", "mck62-quiet-dots", "engagement-override", "mck207"),
+        choices=(
+            "catchup",
+            "mck62-quiet-dots",
+            "engagement-override",
+            "mck207",
+            "mck207-run-toggle",
+        ),
         default="",
-        help="Built-in catch-up, MCK-62 quiet-dot, engagement override, or MCK-207 roster/PIN shots.",
+        help=(
+            "Built-in catch-up, MCK-62 quiet-dot, engagement override, "
+            "MCK-207 roster/PIN, or run-class toggle shots."
+        ),
     )
     args = parser.parse_args(argv)
     assert_loopback(args.base if "://" in args.base else f"http://{args.base}")
@@ -739,6 +854,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "mck207":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck207(args.base, state, out, path, widths))
+        if args.scenario == "mck207-run-toggle":
+            widths = [int(part) for part in args.widths.split(",") if part.strip()]
+            written.extend(shoot_mck207_run_toggle(args.base, state, out, path, widths))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(
@@ -753,7 +871,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         if not written:
             raise SystemExit(
-                "Pass --url and/or --scenario catchup|mck62-quiet-dots|engagement-override|mck207."
+                "Pass --url and/or --scenario "
+                "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle."
             )
         for item in written:
             print(item)

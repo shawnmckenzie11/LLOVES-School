@@ -1936,6 +1936,32 @@ body.staff-shell .live-quit-class-form {
   margin: 0;
   flex-shrink: 0;
 }
+/* MCK-207: Real class vs test after End Live Class */
+body.staff-shell .run-class-kind {
+  flex: 0 0 auto;
+  margin-left: 0.35rem;
+}
+body.staff-shell .run-class-kind-toggle {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0.2rem 0.35rem;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: 8px;
+  font-size: 0.78rem;
+  background: #fff;
+}
+body.staff-shell .run-class-kind-option {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+body.staff-shell .run-class-kind-option input {
+  margin: 0;
+}
 body.staff-shell .live-header-quit {
   appearance: none;
   min-height: 2.25rem;

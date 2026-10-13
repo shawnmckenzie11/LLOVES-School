@@ -9,6 +9,11 @@
       "day": "2026-10-04",
       "items": [
         {
+          "text": "After End Live Class, the Real class / Test switch lets you fix a mis-tagged run: practice runs stay out of catch-up, and only scheduled class ends count automatically.",
+          "audience": "Teacher",
+          "refs": "MCK-207"
+        },
+        {
           "text": "On a rank question in Run Live Class, turn on Team challenge. Groups lock in their order together and get 2 points for each item in the right spot. Then you reveal the right order and the top teams.",
           "audience": "Both",
           "refs": "#235 #241 #242 #243 · MCK-171"

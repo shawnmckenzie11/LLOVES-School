@@ -250,6 +250,7 @@ from student_portal import (  # noqa: E402
     visit_token_from_request,
 )
 import syllabus as syllabus_mod  # noqa: E402
+from live_class_run import end_time_options  # noqa: E402
 from schedule import TIME_OPTIONS, format_live_schedule_line, wizard_defaults  # noqa: E402
 import staff_invites  # noqa: E402
 from onboarding_presets import clean_preset as onboarding_clean_preset  # noqa: E402
@@ -1375,21 +1376,22 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         return items
 
-    def _assign_schedule_from_form() -> tuple[str, str]:
+    def _assign_schedule_from_form() -> tuple[str, str, str]:
         """Read and validate live days/time from an Admin assign form.
 
         Returns:
-            ``(live_days, live_time)`` wizard presets.
+            ``(live_days, live_time, live_end_time)`` wizard presets.
 
         Raises:
             ValueError: Missing or invalid schedule fields.
         """
         live_days = (request.form.get("live_days") or "").strip()
         live_time = (request.form.get("live_time") or "").strip()
-        if not live_days or not live_time:
-            raise ValueError("Choose live-class days and start time.")
+        live_end_time = (request.form.get("live_end_time") or "").strip()
+        if not live_days or not live_time or not live_end_time:
+            raise ValueError("Choose live-class days, start time, and end time.")
         # Validation happens in set_offering_schedule.
-        return live_days, live_time
+        return live_days, live_time, live_end_time
 
     def _assign_slides_theme_from_form() -> tuple[str | None, str | None]:
         """Parse optional template / style-guide URL or file id from Assign Course.
@@ -2560,11 +2562,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 resource_id=int(offering["id"]),
                 detail={"ontario_code": code, "teacher_user_id": teacher_id},
             )
-            live_days, live_time = _assign_schedule_from_form()
+            live_days, live_time, live_end_time = _assign_schedule_from_form()
             offering = school.set_offering_schedule(
                 int(offering["id"]),
                 live_days=live_days,
                 live_time=live_time,
+                live_end_time=live_end_time,
             )
             if roster_names:
                 _populate_offering_class(
@@ -2807,6 +2810,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 instances=[],
                 day_options=wizard_defaults()["day_options"],
                 time_options=list(TIME_OPTIONS),
+                end_time_options=end_time_options(),
                 school_name=SCHOOL_NAME,
             )
 
@@ -2838,11 +2842,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 slides_template_id=theme_template,
                 style_guide_file_id=theme_style,
             )
-            live_days, live_time = _assign_schedule_from_form()
+            live_days, live_time, live_end_time = _assign_schedule_from_form()
             offering = school.set_offering_schedule(
                 int(offering["id"]),
                 live_days=live_days,
                 live_time=live_time,
+                live_end_time=live_end_time,
             )
             if roster_names:
                 _populate_offering_class(
@@ -3879,6 +3884,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         live_session_id = request.args.get("live_session_id") or ""
         if not live_session_id and active_live is not None:
             live_session_id = str(active_live["id"])
+        elif not live_session_id and tab == "live":
+            latest = school.get_latest_live_session_for_class(class_id)
+            if latest is not None:
+                live_session_id = str(latest["id"])
         live_session_code = (
             str(active_live.get("session_code") or "") if active_live is not None else ""
         )
@@ -8614,6 +8623,30 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": "Not found."}), 404
         return jsonify({"ok": True, "discarded": True})
 
+    @app.route(
+        "/api/classes/<int:class_id>/participation/runs/<path:run_key>/class-kind",
+        methods=["POST"],
+    )
+    @login_required
+    def api_set_participation_run_class_kind(class_id: int, run_key: str):
+        """Teacher toggle: mark the ended run real class or test (MCK-207)."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        body = request.get_json(silent=True) or {}
+        if "real" not in body:
+            return jsonify({"ok": False, "error": "Missing real."}), 400
+        user = current_user()
+        if not school.set_participation_run_real(
+            class_id,
+            run_key,
+            bool(body.get("real")),
+            user_id=int(user["id"]) if user else None,
+        ):
+            return jsonify({"ok": False, "error": "Not found."}), 404
+        kind = school.participation_run_kind(class_id, run_key) or {}
+        return jsonify({"ok": True, "real": bool(body.get("real")), **kind})
+
     @app.route("/api/classes/<int:class_id>/students/<int:student_id>/pin", methods=["PUT"])
     @login_required
     def api_set_student_pin(class_id: int, student_id: int):
@@ -8997,20 +9030,26 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         link = school.get_catchup_link(token)
         if link is None:
             abort(404)
-        want_course = school._course_code_for_class(int(link["class_id"])).upper()
+        resolved = school.resolve_catchup_link(token) or link
+        want_course = school._course_code_for_class(int(resolved["class_id"])).upper()
         want_slug = catchup_lesson_slug(
-            str(link.get("live_module") or ""), str(link.get("live_slot") or "")
+            str(resolved.get("live_module") or ""), str(resolved.get("live_slot") or "")
         )
-        if course.upper() != want_course or slug.lower() != want_slug:
+        want_token = str(resolved["token"])
+        if request.method == "GET" and (
+            course.upper() != want_course
+            or slug.lower() != want_slug
+            or want_token != token
+        ):
             return redirect(
                 url_for(
                     "catchup_page_canonical",
                     course=want_course,
                     slug=want_slug,
-                    token=token,
+                    token=want_token,
                 )
             )
-        return _serve_catchup_page(token, link)
+        return _serve_catchup_page(want_token, resolved)
 
     @app.route("/catchup/<token>", methods=["GET", "POST"])
     def catchup_page_legacy(token: str):
@@ -9020,18 +9059,20 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         link = school.get_catchup_link(token)
         if link is None:
             abort(404)
+        resolved = school.resolve_catchup_link(token) or link
         if request.method == "GET":
             return redirect(
                 url_for(
                     "catchup_page_canonical",
-                    course=school._course_code_for_class(int(link["class_id"])).upper(),
+                    course=school._course_code_for_class(int(resolved["class_id"])).upper(),
                     slug=catchup_lesson_slug(
-                        str(link.get("live_module") or ""), str(link.get("live_slot") or "")
+                        str(resolved.get("live_module") or ""),
+                        str(resolved.get("live_slot") or ""),
                     ),
-                    token=token,
+                    token=str(resolved["token"]),
                 )
             )
-        return _serve_catchup_page(token, link)
+        return _serve_catchup_page(str(resolved["token"]), resolved)
 
     @app.route("/api/classes/<int:class_id>/engagement-events")
     @login_required
