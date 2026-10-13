@@ -7676,6 +7676,19 @@ body.staff-shell .live-header-student-view[aria-pressed="true"] {
   border: 1px solid #1e3a8a;
   color: #fff;
 }
+/* Class List +1 chips fade while sharing. They stay buttons. */
+body.staff-shell.is-student-view #class-list-pane .ap-att-plus,
+body.staff-shell #class-list-pane .ap-att-plus.is-student-view-muted {
+  opacity: 0.35;
+  background: #94a3b8;
+  border-color: #94a3b8;
+  color: #f8fafc;
+  filter: grayscale(1);
+}
+body.staff-shell.is-student-view #class-list-pane .ap-att-plus:hover,
+body.staff-shell #class-list-pane .ap-att-plus.is-student-view-muted:hover {
+  opacity: 0.7;
+}
 .student-view-banner {
   position: sticky;
   top: 0;

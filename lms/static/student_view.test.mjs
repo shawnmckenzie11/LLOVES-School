@@ -1,7 +1,7 @@
 // MCK-199: node harness for the Student view mask (tiny fake DOM).
 import {
-  GuestBook, MASK, STUDENT_VIEW_COPY, STUDENT_VIEW_KEY, applyMask, maskName,
-  nameMasks, restoreMask, storeStudentView, studentNumbers, studentViewOn,
+  GuestBook, MASK, PLUS_MUTED_CLASS, STUDENT_VIEW_COPY, STUDENT_VIEW_KEY, applyMask, maskName,
+  mutePlusChips, nameMasks, restoreMask, storeStudentView, studentNumbers, studentViewOn,
 } from "./student_view.js";
 
 const fail = (msg) => { console.error(`FAIL: ${msg}`); process.exit(1); };
@@ -150,6 +150,10 @@ const plus = q(".ap-att-plus");
 if (plus[0].getAttribute("data-pop-name") !== "Student 1") fail("student pop name masked");
 if (plus[0].getAttribute("aria-label") !== "Add one point") fail("generic aria-label kept");
 if (plus[1].getAttribute("data-pop-name") !== "Red Foxes") fail("team pop name kept");
+if (!plus[0].classes.includes(PLUS_MUTED_CLASS)) fail("student +1 muted");
+if (!plus[1].classes.includes(PLUS_MUTED_CLASS)) fail("team +1 muted");
+if (plus[0].hasAttribute("disabled")) fail("student +1 still clickable");
+if ((plus[0].getAttribute("class") || "").split(PLUS_MUTED_CLASS).length !== 2) fail("muted class once");
 if (q(".ap-att-name")[1].textContent !== "Guest 1 guest") fail(`guest list: ${q(".ap-att-name")[1].textContent}`);
 if (q(".live-response-name")[1].textContent !== "Guest 1") fail("guest in popup, same number");
 if (q(".live-response-name")[0].textContent !== "Student 2") fail("popup name");
@@ -173,6 +177,22 @@ if (!mem.has(`${STUDENT_VIEW_KEY}-guests-5`) || mem.has(`${STUDENT_VIEW_KEY}-gue
 restoreMask();
 if (q(".ap-att-course")[0].textContent !== "4" || q(".ap-att-name")[0].textContent !== "Ava") fail("restore");
 if (q(".ap-att-name")[0].getAttribute("title") !== "Ava") fail("restore attr");
+if (plus[0].classes.includes(PLUS_MUTED_CLASS) || plus[1].classes.includes(PLUS_MUTED_CLASS)) fail("+1 chips restored");
+if (plus[0].getAttribute("class") !== "ap-att-plus") fail(`student +1 class: ${plus[0].getAttribute("class")}`);
+
+// Absent +1 stays disabled; a second mute does not stack the class.
+{
+  const row = h("div", {},
+    h("button", { class: "ap-att-plus", disabled: "disabled" }, "+1"));
+  const btn = row.querySelectorAll(".ap-att-plus")[0];
+  mutePlusChips(row, true);
+  mutePlusChips(row, true);
+  if (btn.getAttribute("class") !== `ap-att-plus ${PLUS_MUTED_CLASS}`) fail(`muted once: ${btn.getAttribute("class")}`);
+  if (!btn.hasAttribute("disabled")) fail("absent +1 stays disabled");
+  mutePlusChips(row, false);
+  if (btn.getAttribute("class") !== "ap-att-plus") fail("absent +1 unmuted");
+  if (!btn.hasAttribute("disabled")) fail("disabled kept after restore");
+}
 
 if (STUDENT_VIEW_COPY.banner !== "Student view · names and points hidden") fail("banner copy");
 if (STUDENT_VIEW_COPY.title !== "Hide names and points so you can share your screen") fail("tooltip copy");

@@ -7,7 +7,8 @@
  *
  * It never writes to the server and never touches what students see:
  * only the teacher's own DOM text is swapped, and the originals come
- * back when it is turned off.
+ * back when it is turned off. Class List +1 chips fade while it is on
+ * and stay clickable; they return to full strength when it is turned off.
  */
 
 export const STUDENT_VIEW_KEY = "lloves-student-view";
@@ -193,6 +194,65 @@ export function maskName(text, pairs, guests) {
   return `${prefix}${label}${tail}`;
 }
 
+/** Class List +1 chips (student and team). Muted while Student view is on. */
+export const PLUS_CHIP_SELECTOR = ".ap-att-plus";
+/** Class token that fades a +1 chip without disabling it. */
+export const PLUS_MUTED_CLASS = "is-student-view-muted";
+/** Chips we faded, so turning Student view off can put them back. */
+const mutedPlus = new Set();
+
+/**
+ * Class tokens on ``el``, split on whitespace.
+ * @param {Element} el
+ * @returns {string[]}
+ */
+function classNames(el) {
+  return String(el.getAttribute("class") || "").split(/\s+/).filter(Boolean);
+}
+
+/**
+ * Add one class token if it is not already present.
+ * @param {Element} el
+ * @param {string} name
+ */
+function addClassName(el, name) {
+  const cur = classNames(el);
+  if (cur.includes(name)) return;
+  cur.push(name);
+  el.setAttribute("class", cur.join(" "));
+}
+
+/**
+ * Remove one class token and keep the rest.
+ * @param {Element} el
+ * @param {string} name
+ */
+function removeClassName(el, name) {
+  const cur = classNames(el);
+  const next = cur.filter((token) => token !== name);
+  if (next.length === cur.length) return;
+  el.setAttribute("class", next.join(" "));
+}
+
+/**
+ * Fade Class List +1 chips while Student view is on.
+ * The buttons stay enabled and clickable; only the muted class changes.
+ * @param {ParentNode | null | undefined} root
+ * @param {boolean} on
+ */
+export function mutePlusChips(root, on) {
+  if (!on) {
+    for (const el of mutedPlus) removeClassName(el, PLUS_MUTED_CLASS);
+    mutedPlus.clear();
+    return;
+  }
+  if (!root?.querySelectorAll) return;
+  for (const el of root.querySelectorAll(PLUS_CHIP_SELECTOR)) {
+    addClassName(el, PLUS_MUTED_CLASS);
+    mutedPlus.add(el);
+  }
+}
+
 const SKIP = new Set(["SCRIPT", "STYLE", "TEXTAREA", "INPUT", "SELECT", "OPTION", "NOSCRIPT"]);
 /**
  * Masked nodes: node → {text, attrs}. Each record is {orig, shown}.
@@ -303,6 +363,7 @@ export function applyMask(root, pairs, guests) {
       el.setAttribute(attr, next);
     }
   }
+  mutePlusChips(root, true);
 }
 
 /** Put back every masked text still on the page. */
@@ -319,6 +380,7 @@ export function restoreMask() {
     }
   }
   records = new Map();
+  mutePlusChips(null, false);
 }
 
 /**
@@ -382,6 +444,7 @@ export function mountStudentView({ doc = document, button = null, roster, classI
   const paint = () => {
     banner.hidden = !on;
     doc.body.classList.toggle("is-student-view", on);
+    mutePlusChips(doc.body, on);
     if (button) {
       button.setAttribute("aria-pressed", on ? "true" : "false");
       button.classList.toggle("is-on", on);
