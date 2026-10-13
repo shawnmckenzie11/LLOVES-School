@@ -147,7 +147,91 @@ def seed_local_dev_school(school: Any) -> dict[str, Any]:
         from lms.curriculum_bank_seed import seed_local_question_banks
 
     summary["import_banks"] = seed_local_question_banks(school)
+    summary["participation_seed"] = _seed_demo_participation(
+        school, int(class_row["id"]), int(shawn["id"])
+    )
     return summary
+
+
+LOCAL_DEV_PIN = "1234"
+LOCAL_DEV_M1_QUESTIONS: tuple[dict[str, Any], ...] = (
+    {"text": "Which expression is the expanded form of $(x + 3)^2$?", "type": "mc",
+     "options": [{"text": "$x^2 + 9$"}, {"text": "$x^2 + 6x + 9$"}, {"text": "$x^2 + 3x + 9$"}]},
+    {"text": "The parabola $y = -2(x - 1)^2 + 5$ opens…", "type": "mc",
+     "options": [{"text": "up, with vertex $(1, 5)$"}, {"text": "down, with vertex $(1, 5)$"}]},
+    {"text": "Factor fully: $x^2 - 5x + 6$", "type": "mc",
+     "options": [{"text": "$(x - 2)(x - 3)$"}, {"text": "$(x + 2)(x + 3)$"}]},
+    {"text": "Evaluate $f(x) = 3x^2 - 4$ at $x = 2$.", "type": "numeric"},
+)
+# (live slot, how many of the questions Maple answered live)
+LOCAL_DEV_M1_RUNS: tuple[tuple[str, int], ...] = (("C1", 2), ("C2", 3))
+
+
+def _seed_demo_participation(school: Any, class_id: int, teacher_id: int) -> dict[str, Any]:
+    """Run and End M1 C1 + C2 once so the teacher Participation page has data.
+
+    Each run publishes individual questions, records some of Maple's answers,
+    then goes through the real End path, which captures participation and
+    creates that run's catch-up link. Maple's course PIN is set when empty.
+    Skipped when the class already has participation data or a live class
+    is in progress.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        class_id: Demo class id.
+        teacher_id: Shawn's ``users.id``.
+
+    Returns:
+        ``{"skipped": reason}`` or ``{"runs": [...], "links": n}``.
+    """
+    import json
+
+    conn = school.conn
+    if conn.execute(
+        "SELECT 1 FROM participation_items WHERE class_id = ? LIMIT 1", (class_id,)
+    ).fetchone():
+        return {"skipped": "already seeded"}
+    if school.get_active_live_session_for_class(class_id):
+        return {"skipped": "live class in progress"}
+    maple = school.game.find_student_by_codename(class_id, "Maple")
+    if not maple:
+        return {"skipped": "no Maple"}
+    maple_id = int(maple["id"])
+    if not str(maple.get("pin_hash") or ""):
+        school.set_student_pin(class_id, maple_id, LOCAL_DEV_PIN)
+    stamp = "2026-10-13T09:00:00"
+    runs: list[str] = []
+    for slot, answered in LOCAL_DEV_M1_RUNS:
+        session_id = int(school.start_live_class_session(class_id, teacher_id)["id"])
+        conn.execute(
+            "UPDATE live_class_sessions SET teacher_state_json = ? WHERE id = ?",
+            (json.dumps({"live_module": "M1", "live_slot": slot}), session_id),
+        )
+        for index, question in enumerate(LOCAL_DEV_M1_QUESTIONS):
+            prompt_id = conn.execute(
+                "INSERT INTO live_session_prompts (live_session_id, slide_index, kind, payload, "
+                "created_at, updated_at) VALUES (?, ?, 'poll', '{}', ?, ?)",
+                (session_id, index, stamp, stamp),
+            ).lastrowid
+            conn.execute(
+                "INSERT INTO live_session_items (live_session_id, placement_key, item_id, stage, "
+                "kind, item_json, prompt_id, status, publish_mode, response_mode, published_at, "
+                "created_at, updated_at) VALUES (?, ?, ?, 'round', 'poll', ?, ?, 'closed', "
+                "'individual', 'individual', ?, ?, ?)",
+                (session_id, f"demo-M1-q{index}", f"demo-q{index}", json.dumps(question),
+                 prompt_id, stamp, stamp, stamp),
+            )
+            if index < answered:
+                conn.execute(
+                    "INSERT INTO live_session_responses (prompt_id, student_id, response_json, "
+                    "created_at, updated_at) VALUES (?, ?, '{}', ?, ?)",
+                    (prompt_id, maple_id, stamp, stamp),
+                )
+        conn.commit()
+        school.cleanup_live_session_response_data(session_id)
+        school.end_live_class_session(session_id)
+        runs.append(slot)
+    return {"runs": runs, "links": len(school.list_catchup_links(class_id))}
 
 
 def _ensure_local_dev_library(school: Any, offering_id: int) -> int:
