@@ -246,7 +246,9 @@ from student_portal import (  # noqa: E402
     mood_choices,
     next_student_endpoint,
     rejoin_token_from_cookie,
+    pop_dashboard_focus_catchup,
     resolve_pin_portal_context,
+    set_dashboard_focus_catchup,
     resolve_student_live_context,
     set_rejoin_cookie,
     student_url_with_token,
@@ -1155,17 +1157,10 @@ def _student_dashboard_live_handover(
         int(student_id),
         visit_token=token,
     ):
-        endpoint = next_student_endpoint(
-            school,
-            int(class_id),
-            int(student_id),
-            visit_token=token,
-            unmatched=False,
-        )
         return {
             "live_active": True,
             "in_live": True,
-            "redirect_url": student_url_with_token(endpoint, token),
+            "redirect_url": url_for("student_rejoin_live"),
             "show_rejoin_strip": False,
             "rejoin_url": None,
         }
@@ -5973,7 +5968,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         )
         dash = school.student_dashboard_payload(class_id, student_id)
         handover = _student_dashboard_live_handover(school, class_id, student_id)
-        focus = (request.args.get("catchup") or "").strip()[:80]
+        focus = pop_dashboard_focus_catchup(session)
         from student_dashboard import dashboard_copy
 
         return render_template(
@@ -9102,7 +9097,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 return live_resp
             if catchup_play_mode():
                 return render_catchup_questions(int(sid))
-            return redirect(url_for("student_dashboard", catchup=token))
+            set_dashboard_focus_catchup(session, token)
+            return redirect(url_for("student_dashboard"))
 
         def closed() -> Any:
             return render_template(

@@ -488,6 +488,23 @@ def mood_choices() -> list[dict[str, str]]:
     return [{"key": key, "label": MOOD_LABELS[key]} for key in CHECKIN_MOODS]
 
 
+
+
+DASHBOARD_FOCUS_CATCHUP_KEY = "student_dashboard_focus_catchup"
+
+
+def set_dashboard_focus_catchup(session: Any, catchup_token: str) -> None:
+    """Remember which catch-up row to highlight after redirect (token stays server-side)."""
+    cleaned = str(catchup_token or "").strip()[:80]
+    if cleaned:
+        session[DASHBOARD_FOCUS_CATCHUP_KEY] = cleaned
+
+
+def pop_dashboard_focus_catchup(session: Any) -> str:
+    """One-shot catch-up row focus token for the dashboard template."""
+    return str(session.pop(DASHBOARD_FOCUS_CATCHUP_KEY, "") or "").strip()[:80]
+
+
 def bind_pin_portal_session(
     session: Any,
     school: Any,

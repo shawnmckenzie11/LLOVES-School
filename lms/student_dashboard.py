@@ -21,6 +21,7 @@ COPY_DOT_DONE = "Done"
 COPY_DOT_MISSED = "Missed"
 COPY_DOT_UPCOMING = "Coming up"
 COPY_FINISH_EMPTY = "All caught up."
+COPY_FINISH_OPEN = "open"
 COPY_PAST_ROW = "Module {n} \u00b7 Level {level} \u00b7 Complete"
 COPY_PHASE2 = "+1 level from group work"
 COPY_PHASE3 = "Accuracy coming soon"
@@ -43,6 +44,7 @@ def dashboard_copy() -> dict[str, str]:
         "dot_missed": COPY_DOT_MISSED,
         "dot_upcoming": COPY_DOT_UPCOMING,
         "finish_empty": COPY_FINISH_EMPTY,
+        "finish_open": COPY_FINISH_OPEN,
         "phase2": COPY_PHASE2,
         "phase3": COPY_PHASE3,
     }

@@ -54,7 +54,7 @@
         {% for row in dashboard.finish_these %}
         <li class="sd-finish-row{% if focus_catchup == row.token %} is-focus{% endif %}">
           <a class="sd-finish-link" href="{{ row.url }}?play=1">
-            <span class="sd-finish-text">{{ row.class_label }} · {{ row.open_count }} open</span>
+            <span class="sd-finish-text">{{ row.class_label }} · {{ row.open_count }} {{ copy.finish_open }}</span>
             <span class="sd-finish-chevron" aria-hidden="true">›</span>
           </a>
         </li>

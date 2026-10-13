@@ -99,6 +99,35 @@ class Mck208DashboardTest(Base):
         self.assertIn("Finish these", html)
 
 
+
+    def test_pin_redirect_has_no_catchup_token_in_url(self) -> None:
+        client = self.app.test_client()
+        env = {"REMOTE_ADDR": "127.0.0.1"}
+        client.post(
+            f"/catchup/{self.token}",
+            data={"action": "who", "codename": self.first},
+            environ_base=env,
+        )
+        resp = client.post(
+            f"/catchup/{self.token}",
+            data={"action": "pin", "pin": "4321"},
+            environ_base=env,
+            follow_redirects=False,
+        )
+        self.assertIn(resp.status_code, (302, 303))
+        loc = resp.headers.get("Location") or ""
+        self.assertIn("/student/dashboard", loc)
+        self.assertNotIn("catchup=", loc)
+
+    def test_finish_row_uses_copy_open_label(self) -> None:
+        from student_dashboard import COPY_FINISH_OPEN, dashboard_copy
+
+        self.assertEqual(dashboard_copy()["finish_open"], COPY_FINISH_OPEN)
+        client = self.app.test_client()
+        _pin_sign_in(client, self, play=False)
+        html = client.get("/student/dashboard").get_data(as_text=True)
+        self.assertIn(f" {COPY_FINISH_OPEN}", html)
+
     def test_finish_these_row_copy(self) -> None:
         client = self.app.test_client()
         _pin_sign_in(client, self, play=False)
@@ -182,7 +211,7 @@ class Mck208LiveHandoverTest(Base):
         )
         after = client.get("/api/student/dashboard").get_json()
         self.assertTrue(after["live"]["in_live"])
-        self.assertIn("/student/", after["live"]["redirect_url"] or "")
+        self.assertEqual(after["live"]["redirect_url"], "/student/rejoin-live")
 
     def test_rejoin_strip_on_dashboard_not_live_home(self) -> None:
         live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
