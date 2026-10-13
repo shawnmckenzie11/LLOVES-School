@@ -23,8 +23,11 @@
     <input type="hidden" name="action" value="signin">
     <label for="join_code">Join code</label>
     <input id="join_code" name="join_code" autocomplete="off" required>
-    <label for="first_name">First name</label>
-    <input id="first_name" name="first_name" autocomplete="given-name" required>
+    <label for="codename">Your name</label>
+    <select id="codename" name="codename" required>
+      <option value="">Choose your name</option>
+      {% for name in codenames %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+    </select>
     <label for="pin">PIN</label>
     <input id="pin" name="pin" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required>
     <p><button type="submit">Start</button></p>

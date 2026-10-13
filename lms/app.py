@@ -8488,12 +8488,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         if denied:
             return denied
         data = school.class_participation(class_id)
-        names = {
-            int(r[0]): str(r[1] or "").split(" ")[0]
-            for r in school.game.conn.execute(
-                "SELECT id, first_name FROM students WHERE class_id = ?", (class_id,)
-            ).fetchall()
-        }
+        names = school.class_codenames(class_id)
         return render_template(
             "staff/participation.html", class_id=class_id, data=data, names=names,
             links=_catchup_links_payload(class_id),
@@ -8517,7 +8512,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         error = None
         if request.method == "POST" and request.form.get("action") == "signin":
             result = school.catchup_sign_in(
-                token, request.form.get("join_code", ""), request.form.get("first_name", ""),
+                token, request.form.get("join_code", ""), request.form.get("codename", ""),
                 request.form.get("pin", ""),
             )
             if result["ok"]:
@@ -8536,7 +8531,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             except PermissionError:
                 return render_template("student/catchup.html", closed=COPY_CLOSED, token=token), 403
         if student_id is None:
-            return render_template("student/catchup.html", signin=True, error=error, token=token)
+            return render_template(
+                "student/catchup.html", signin=True, error=error, token=token,
+                codenames=list(school.class_codenames(int(link["class_id"])).values()),
+            )
         progress = school.student_module_participation(
             int(link["class_id"]), int(student_id), str(link["live_module"])
         )

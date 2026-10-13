@@ -74,8 +74,10 @@ class Base(unittest.TestCase):
         if not self.code:
             self.code = "JOIN1234"
             g.execute("UPDATE classes SET live_access_code = ? WHERE id = ?", (self.code, self.class_id))
-        self.first = str(g.execute("SELECT first_name FROM students WHERE id = ?",
-                                   (self.students[0],)).fetchone()[0])
+        # Sep 30 renames: codename differs from the stored first name.
+        g.execute("UPDATE students SET codename = 'Avalanche', first_name = 'Ava' WHERE id = ?",
+                  (self.students[0],))
+        self.first = "Avalanche"
 
     def tearDown(self) -> None:
         logging.disable(logging.NOTSET)
@@ -117,6 +119,11 @@ class Base(unittest.TestCase):
 class CaptureTests(Base):
     def test_group_questions_are_excluded(self) -> None:
         self.run_class("M1", "C1", individual=4, group=3, answers={self.students[0]: 3})
+        # MCK-45: individual answers survive End in live_result_snapshots too.
+        kept = self.school.conn.execute(
+            "SELECT COUNT(*) FROM live_result_snapshots WHERE class_id = ? AND source = 'prompt' "
+            "AND student_id = ?", (self.class_id, self.students[0])).fetchone()[0]
+        self.assertGreaterEqual(kept, 3)
         data = self.school.class_participation(self.class_id)
         self.assertEqual(data["modules"][0]["offered"], 4)
         cell = data["students"][0]["modules"]["M1"]
@@ -155,6 +162,11 @@ class CatchupTests(Base):
         later = t + P.PIN_WINDOW_S + 1
         self.assertTrue(self.school.catchup_sign_in(self.token, self.code, self.first, "1234", now=later)["ok"])
         self.assertEqual(self.school.catchup_sign_in(self.token, "WRONG", self.first, "1234")["reason"], "wrong")
+        # The old first name is not a sign-in name; the codename is.
+        self.assertEqual(self.school.catchup_sign_in(self.token, self.code, "Ava", "1234", now=later)["reason"], "wrong")
+        stored = self.school.game.conn.execute(
+            "SELECT pin_hash FROM students WHERE id = ?", (self.students[0],)).fetchone()[0]
+        self.assertTrue(stored and "1234" not in stored)
 
     def test_closed_link(self) -> None:
         self.school.set_catchup_link_open(self.class_id, self.token, False)
@@ -180,12 +192,15 @@ class CatchupTests(Base):
 
     def test_student_page_flow_shows_only_own_questions(self) -> None:
         client = self.app.test_client()
+        picker = client.get(f"/catchup/{self.token}").get_data(as_text=True)
+        self.assertIn(">Avalanche<", picker)
+        self.assertNotIn(">Ava<", picker)
         rv = client.post(f"/catchup/{self.token}", data={"action": "signin", "join_code": self.code,
-                                                         "first_name": self.first, "pin": "9999"})
+                                                         "codename": self.first, "pin": "9999"})
         self.assertIn("That PIN didn&#39;t match. Try again or ask your teacher to reset it.",
                       rv.get_data(as_text=True))
         rv = client.post(f"/catchup/{self.token}", data={"action": "signin", "join_code": self.code,
-                                                         "first_name": self.first, "pin": "1234"})
+                                                         "codename": self.first, "pin": "1234"})
         html = rv.get_data(as_text=True)
         self.assertIn("1/4 completed \u00b7 1 more", html)
         self.assertIn("Q1", html)

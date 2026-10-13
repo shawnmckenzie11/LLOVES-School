@@ -752,13 +752,6 @@ CREATE TABLE IF NOT EXISTS catchup_links (
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_catchup_links_class ON catchup_links(class_id);
-CREATE TABLE IF NOT EXISTS student_pins (
-    class_id INTEGER NOT NULL,
-    student_id INTEGER NOT NULL,
-    pin_hash TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY (class_id, student_id)
-);
 CREATE TABLE IF NOT EXISTS catchup_pin_failures (
     id INTEGER PRIMARY KEY,
     class_id INTEGER NOT NULL,
@@ -29622,22 +29615,34 @@ class SchoolDB(LovesDB):
                 self.conn.commit()
         return cur.rowcount == 1
 
+    def _ensure_student_pin_column(self) -> None:
+        """Additive ``students.pin_hash`` on the roster DB (MCK-198)."""
+        game = getattr(self, "game", None)
+        if game is None or getattr(self, "_pin_column_ready", False):
+            return
+        with game._lock:
+            cols = {str(r[1]) for r in game.conn.execute("PRAGMA table_info(students)")}
+            if "pin_hash" not in cols:
+                game.conn.execute("ALTER TABLE students ADD COLUMN pin_hash TEXT")
+                if game.conn.in_transaction:
+                    game.conn.commit()
+        self._pin_column_ready = True
+
     def set_student_pin(self, class_id: int, student_id: int, pin: str) -> None:
-        """Set or reset one student's catch-up PIN (stored hashed)."""
+        """Set or reset one student's catch-up PIN (hashed on ``students.pin_hash``)."""
         from participation import hash_pin, valid_pin
 
         if not valid_pin(pin):
             raise ValueError("PIN must be 4 digits.")
-        with self._lock:
-            self.conn.execute(
-                """
-                INSERT INTO student_pins (class_id, student_id, pin_hash, updated_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(class_id, student_id) DO UPDATE SET
-                    pin_hash = excluded.pin_hash, updated_at = excluded.updated_at
-                """,
-                (int(class_id), int(student_id), hash_pin(str(pin)), _now()),
+        self._ensure_student_pin_column()
+        with self.game._lock:
+            self.game.conn.execute(
+                "UPDATE students SET pin_hash = ? WHERE id = ? AND class_id = ?",
+                (hash_pin(str(pin)), int(student_id), int(class_id)),
             )
+            if self.game.conn.in_transaction:
+                self.game.conn.commit()
+        with self._lock:
             self.conn.execute(
                 "DELETE FROM catchup_pin_failures WHERE class_id = ? AND student_id = ?",
                 (int(class_id), int(student_id)),
@@ -29645,10 +29650,19 @@ class SchoolDB(LovesDB):
             if self.conn.in_transaction:
                 self.conn.commit()
 
+    def class_codenames(self, class_id: int) -> dict[int, str]:
+        """Roster codenames (unique per class), the names the picker shows."""
+        with self.game._lock:
+            rows = self.game.conn.execute(
+                "SELECT id, COALESCE(NULLIF(codename, ''), first_name) FROM students "
+                "WHERE class_id = ? ORDER BY 2 COLLATE NOCASE", (int(class_id),)
+            ).fetchall()
+        return {int(r[0]): str(r[1] or "") for r in rows}
+
     def catchup_sign_in(
-        self, token: str, join_code: str, first_name: str, pin: str, *, now: float | None = None
+        self, token: str, join_code: str, codename: str, pin: str, *, now: float | None = None
     ) -> dict[str, Any]:
-        """Check join code + first name + PIN for an open link.
+        """Check join code + roster codename (picker) + PIN for an open link.
 
         Returns ``{ok, student_id}`` or ``{ok: False, reason}`` with reason
         ``closed``, ``missing``, ``locked`` or ``wrong``. Five failures in 15
@@ -29670,14 +29684,20 @@ class SchoolDB(LovesDB):
                 "SELECT live_access_code FROM classes WHERE id = ?", (class_id,)
             ).fetchone()
             matches = self.game.conn.execute(
-                "SELECT id, first_name FROM students WHERE class_id = ?", (class_id,)
+                "SELECT id, codename FROM students WHERE class_id = ?", (class_id,)
             ).fetchall()
         code_ok = cls is not None and str(cls[0] or "").strip().upper() == str(join_code or "").strip().upper() and bool(cls[0])
-        wanted = str(first_name or "").strip().casefold()
+        wanted = str(codename or "").strip().casefold()
         ids = [int(r[0]) for r in matches if str(r[1] or "").strip().casefold() == wanted and wanted]
         if not code_ok or len(ids) != 1:
             return {"ok": False, "reason": "wrong"}
         stu = ids[0]
+        self._ensure_student_pin_column()
+        with self.game._lock:
+            pin_row = self.game.conn.execute(
+                "SELECT pin_hash FROM students WHERE id = ?", (stu,)
+            ).fetchone()
+        stored = str(pin_row[0] or "") if pin_row is not None else ""
         with self._lock:
             fails = self.conn.execute(
                 "SELECT COUNT(*) FROM catchup_pin_failures WHERE class_id = ? AND student_id = ? "
@@ -29686,11 +29706,7 @@ class SchoolDB(LovesDB):
             ).fetchone()[0]
             if int(fails) >= PIN_MAX_ATTEMPTS:
                 return {"ok": False, "reason": "locked"}
-            row = self.conn.execute(
-                "SELECT pin_hash FROM student_pins WHERE class_id = ? AND student_id = ?",
-                (class_id, stu),
-            ).fetchone()
-            if row is None or not check_pin(str(pin or ""), str(row["pin_hash"])):
+            if not check_pin(str(pin or ""), stored):
                 self.conn.execute(
                     "INSERT INTO catchup_pin_failures (class_id, student_id, failed_at) VALUES (?, ?, ?)",
                     (class_id, stu, t),
