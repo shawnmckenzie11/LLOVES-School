@@ -6935,9 +6935,11 @@ async function pollLiveSessionAttendees(opts = {}) {
       sessionPollQueued = null;
       setLiveReconnectBanner(Boolean(fault), fault);
       paintJoinBillboard("", { ended: true });
+      paintRunClassKind(payload?.ended_run);
       stopLiveSessionPolling();
       return;
     }
+    paintRunClassKind(null);
     if (
       payload?.error === "state unavailable" ||
       isLiveStateBusy(payload) ||
@@ -12660,6 +12662,56 @@ function spawnScorePop(name) {
   window.setTimeout(() => chip.remove(), 5000);
 }
 
+/** Last run-key posted so a double toggle does not stack requests. */
+let runClassKindBusy = "";
+
+/**
+ * Show the Real class / Test toggle after End (MCK-207).
+ * @param {{run_key?: string, is_real?: boolean} | null | undefined} endedRun
+ */
+function paintRunClassKind(endedRun) {
+  const root = document.getElementById("run-class-kind");
+  if (!(root instanceof HTMLElement)) return;
+  const key = String(endedRun?.run_key || "").trim();
+  if (!key || !classId) {
+    root.hidden = true;
+    return;
+  }
+  root.hidden = false;
+  root.dataset.runKey = key;
+  const pick = endedRun?.is_real ? "real" : "test";
+  root.querySelectorAll('input[name="run-class-kind"]').forEach((input) => {
+    if (input instanceof HTMLInputElement) input.checked = input.value === pick;
+  });
+}
+
+/**
+ * Teacher-only toggle: flip real vs test for the ended run.
+ */
+function wireRunClassKindToggle() {
+  const root = document.getElementById("run-class-kind");
+  if (!(root instanceof HTMLElement) || !classId) return;
+  root.addEventListener("change", async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || target.name !== "run-class-kind") return;
+    const runKey = root.dataset.runKey || "";
+    if (!runKey || runClassKindBusy === runKey) return;
+    runClassKindBusy = runKey;
+    const real = target.value === "real";
+    try {
+      await api(`/api/classes/${classId}/participation/runs/${encodeURIComponent(runKey)}/class-kind`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ real }),
+      });
+    } catch {
+      paintRunClassKind({ run_key: runKey, is_real: !real });
+    } finally {
+      runClassKindBusy = "";
+    }
+  });
+}
+
 /**
  * Open / close the End Live Class save-options dialog.
  */
@@ -12675,6 +12727,13 @@ function wireEndLiveDialog() {
 }
 
 wireEndLiveDialog();
+wireRunClassKindToggle();
+if (
+  liveSessionId
+  && new URLSearchParams(window.location.search).get("tab") === "live"
+) {
+  startLiveSessionPolling();
+}
 
 /**
  * Show one inline error inside the relocate dialog.

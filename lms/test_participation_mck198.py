@@ -68,6 +68,12 @@ class Base(unittest.TestCase):
         self.school.activate_from_semester_json()
         self.teacher = self.school.register_staff("teacher@gmail.com")
         offering = self.school.assign_course(teacher_user_id=int(self.teacher["id"]), ontario_code="MCR3U")
+        self.school.set_offering_schedule(
+            int(offering["id"]),
+            live_days="M/W/F",
+            live_time="9:15am",
+            live_end_time="10:30am",
+        )
         self.class_id = int(self.school.game.create_class(
             year="2026/27", semester="Semester 1", course_code="MCR3U", days_preset="M/W/F",
             time_label="2:00pm", codenames=["Ava", "Ben"], offering_id=int(offering["id"]),
@@ -119,6 +125,11 @@ class Base(unittest.TestCase):
                 c.execute("INSERT OR IGNORE INTO live_session_responses (prompt_id, student_id, response_json, "
                           "created_at, updated_at) VALUES (?, ?, '{}', ?, ?)", (pid, stu, now, now))
         run_key = str(c.execute("SELECT run_key FROM live_class_sessions WHERE id = ?", (sid,)).fetchone()[0] or "")
+        c.execute(
+            "UPDATE live_class_sessions SET ended_at = ?, status = 'ended' WHERE id = ?",
+            ("2026-10-14T10:30:00", sid),
+        )
+        c.commit()
         self.school.cleanup_live_session_response_data(sid)
         if wipe:
             self.school.wipe_live_sessions_for_class(self.class_id)

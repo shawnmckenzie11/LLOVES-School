@@ -780,6 +780,8 @@ CREATE TABLE IF NOT EXISTS catchup_pin_unlocks (
 CREATE TABLE IF NOT EXISTS participation_runs (
     class_id INTEGER NOT NULL,
     run_key TEXT NOT NULL,
+    is_real INTEGER NOT NULL DEFAULT 0,
+    auto_is_real INTEGER NOT NULL DEFAULT 0,
     discarded INTEGER NOT NULL DEFAULT 0,
     discarded_at TEXT,
     discarded_by INTEGER,
@@ -1952,6 +1954,9 @@ class LovesDB:
             self._ensure_tenant_and_audit_schema()
             self._ensure_offering_archived_column()
             self._ensure_offering_schedule_columns()
+            self._ensure_live_class_schedule_columns()
+            self._ensure_participation_run_kind_columns()
+            self._ensure_catchup_slot_unique()
             self._ensure_library_schema()
             self._ensure_module_bank_schema()
             self._ensure_archived_column()
@@ -1967,6 +1972,7 @@ class LovesDB:
             self._ensure_observation_history_shape()
             self._seed()
             self._seed_live_class_features()
+            self._seed_live_class_schedules()
             self.conn.commit()
             # MCK-182 slice 2: keep every shipped What's new entry.
             self.sync_whats_new()
@@ -3294,6 +3300,70 @@ class LovesDB:
             self.conn.execute(
                 "ALTER TABLE course_offerings ADD COLUMN live_time TEXT"
             )
+        if "live_end_time" not in cols:
+            self.conn.execute(
+                "ALTER TABLE course_offerings ADD COLUMN live_end_time TEXT"
+            )
+
+    def _ensure_live_class_schedule_columns(self) -> None:
+        """Course-level default live-class schedule (MCK-207)."""
+        cols = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(ontario_courses)")
+        }
+        if "live_class_days" not in cols:
+            self.conn.execute(
+                "ALTER TABLE ontario_courses ADD COLUMN live_class_days TEXT"
+            )
+        if "live_class_end_time" not in cols:
+            self.conn.execute(
+                "ALTER TABLE ontario_courses ADD COLUMN live_class_end_time TEXT"
+            )
+
+    def _ensure_participation_run_kind_columns(self) -> None:
+        """``is_real`` / ``auto_is_real`` on ``participation_runs`` (MCK-207)."""
+        cols = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(participation_runs)")
+        }
+        if "is_real" not in cols:
+            self.conn.execute(
+                "ALTER TABLE participation_runs ADD COLUMN is_real INTEGER NOT NULL DEFAULT 0"
+            )
+        if "auto_is_real" not in cols:
+            self.conn.execute(
+                "ALTER TABLE participation_runs ADD COLUMN auto_is_real INTEGER NOT NULL DEFAULT 0"
+            )
+
+    def _ensure_catchup_slot_unique(self) -> None:
+        """One shared catch-up link row per class lesson slot (MCK-207)."""
+        rows = self.conn.execute(
+            """
+            SELECT class_id, live_module, live_slot, MAX(id) AS keep_id
+            FROM catchup_links
+            GROUP BY class_id, live_module, live_slot
+            HAVING COUNT(*) > 1
+            """
+        ).fetchall()
+        for row in rows:
+            self.conn.execute(
+                """
+                DELETE FROM catchup_links
+                WHERE class_id = ? AND live_module = ? AND live_slot = ? AND id != ?
+                """,
+                (
+                    int(row["class_id"]),
+                    str(row["live_module"]),
+                    str(row["live_slot"]),
+                    int(row["keep_id"]),
+                ),
+            )
+        self.conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_catchup_links_class_lesson
+            ON catchup_links(class_id, live_module, live_slot)
+            """
+        )
 
     def _ensure_live_session_schema(self) -> None:
         """Create live-class session + attendee + prompt tables on existing DBs.
@@ -3964,6 +4034,57 @@ class LovesDB:
         self.seed_quick_phrases()
         self.seed_live_problems()
         self._seed_slides_drive_defaults()
+
+    def _seed_live_class_schedules(self) -> None:
+        """Apply ``seeds/live_class_schedules.json`` to catalog + offerings (MCK-207)."""
+        path = Path(__file__).resolve().parent / "seeds" / "live_class_schedules.json"
+        if not path.is_file():
+            return
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError):
+            return
+        courses = data.get("courses") if isinstance(data, dict) else None
+        if isinstance(courses, dict):
+            for code, row in courses.items():
+                if not isinstance(row, dict):
+                    continue
+                days = str(row.get("live_days") or "").strip()
+                end = str(row.get("live_end_time") or "").strip()
+                if not days and not end:
+                    continue
+                with self._lock:
+                    self.conn.execute(
+                        """
+                        UPDATE ontario_courses
+                        SET live_class_days = COALESCE(?, live_class_days),
+                            live_class_end_time = COALESCE(?, live_class_end_time)
+                        WHERE UPPER(code) = UPPER(?)
+                        """,
+                        (days or None, end or None, str(code)),
+                    )
+        sections = data.get("offering_sections") if isinstance(data, dict) else None
+        if isinstance(sections, list):
+            for row in sections:
+                if not isinstance(row, dict):
+                    continue
+                code = str(row.get("ontario_code") or "").strip().upper()
+                try:
+                    index = int(row.get("section_index") or 1)
+                except (TypeError, ValueError):
+                    index = 1
+                days = str(row.get("live_days") or "").strip()
+                end = str(row.get("live_end_time") or "").strip()
+                with self._lock:
+                    self.conn.execute(
+                        """
+                        UPDATE course_offerings
+                        SET live_days = COALESCE(?, live_days),
+                            live_end_time = COALESCE(?, live_end_time)
+                        WHERE UPPER(ontario_code) = ? AND COALESCE(section_index, 1) = ?
+                        """,
+                        (days or None, end or None, code, index),
+                    )
 
     def _seed_slides_drive_defaults(self) -> None:
         """Store ALC folder and Lesson Theme Template #1 when unset.
@@ -5128,6 +5249,7 @@ class LovesDB:
         *,
         live_days: str,
         live_time: str,
+        live_end_time: str | None = None,
     ) -> dict[str, Any]:
         """Persist Admin-chosen live class days/time on an offering.
 
@@ -5139,6 +5261,7 @@ class LovesDB:
             offering_id: ``course_offerings.id``.
             live_days: ``M/W/F`` or ``T/Th/F`` (or already-stored Mon/Wed form).
             live_time: One of the wizard ``TIME_OPTIONS`` labels.
+            live_end_time: Scheduled end time such as ``10:30am`` (MCK-207).
 
         Returns:
             Updated offering dict.
@@ -5156,11 +5279,12 @@ class LovesDB:
 
         if str(MGS_DIR) not in sys.path:
             sys.path.insert(0, str(MGS_DIR))
-        from schedule import DAY_PRESETS, TIME_OPTIONS, store_days
+        from schedule import DAY_PRESETS, TIME_OPTIONS, parse_time_label, store_days
 
-        self.get_offering(offering_id)
+        offering = self.get_offering(offering_id)
         days_key = (live_days or "").strip()
         time_key = (live_time or "").strip()
+        end_key = (live_end_time or offering.get("live_end_time") or "").strip()
         if days_key in {"Mon/Wed/Fri", "Tue/Thu/Fri"}:
             reverse = {stored: preset for preset, stored in DAY_PRESETS.items()}
             days_key = reverse[days_key]
@@ -5168,15 +5292,20 @@ class LovesDB:
             raise ValueError("Live-class days must be M/W/F or T/Th/F")
         if time_key not in TIME_OPTIONS:
             raise ValueError(f"Start time must be one of: {', '.join(TIME_OPTIONS)}")
+        if live_end_time is not None and end_key:
+            parse_time_label(end_key)
+        elif not end_key:
+            course = self.get_ontario_course(str(offering.get("ontario_code") or ""))
+            end_key = str((course or {}).get("live_class_end_time") or "").strip()
         stored_days = store_days(days_key)
         with self._lock:
             self.conn.execute(
                 """
                 UPDATE course_offerings
-                SET live_days = ?, live_time = ?
+                SET live_days = ?, live_time = ?, live_end_time = ?
                 WHERE id = ?
                 """,
-                (days_key, time_key, int(offering_id)),
+                (days_key, time_key, end_key or None, int(offering_id)),
             )
             self.conn.commit()
         updater = getattr(self, "sync_offering_class_schedule", None)
@@ -29943,18 +30072,279 @@ class SchoolDB(LovesDB):
             "SELECT 1 FROM participation_items WHERE class_id = ? AND run_key = ? LIMIT 1",
             (class_id, run_key),
         ).fetchone()
-        if offered is not None:
-            from participation import new_token
+        ended_at = str(session["ended_at"] if "ended_at" in keys and session["ended_at"] else now)
+        is_real = self._classify_and_record_participation_run(
+            class_id,
+            run_key,
+            ended_at=ended_at,
+        )
+        if offered is not None and is_real:
+            self._upsert_real_catchup_link_unlocked(
+                class_id, run_key, module, slot, now=now
+            )
 
+    def live_class_schedule_for_class(self, class_id: int) -> dict[str, str] | None:
+        """Live-class days and scheduled end time for one game-show class."""
+        from live_class_run import schedule_from_row
+
+        if getattr(self, "game", None) is None:
+            return None
+        row = self.game.conn.execute(
+            "SELECT offering_id, days, time FROM classes WHERE id = ?",
+            (int(class_id),),
+        ).fetchone()
+        if row is None:
+            return None
+        offering = None
+        course_defaults: dict[str, Any] = {}
+        oid = row["offering_id"]
+        if oid not in (None, ""):
+            try:
+                offering = self.get_offering(int(oid))
+            except KeyError:
+                offering = None
+        if offering:
+            course_defaults = self.get_ontario_course(str(offering.get("ontario_code") or "")) or {}
+        sched = schedule_from_row(
+            live_days=str((offering or {}).get("live_days") or row["days"] or ""),
+            live_end_time=str((offering or {}).get("live_end_time") or ""),
+            fallback_days=str(course_defaults.get("live_class_days") or ""),
+            fallback_end=str(course_defaults.get("live_class_end_time") or ""),
+        )
+        if sched is None:
+            return None
+        return {"live_days": sched.days_key, "live_end_time": sched.end_time_label}
+
+    def _classify_and_record_participation_run(
+        self,
+        class_id: int,
+        run_key: str,
+        *,
+        ended_at: str,
+    ) -> bool:
+        """Classify one ended run and return whether it counts as a real class."""
+        from live_class_run import classify_run_end, parse_ended_at, schedule_from_row
+
+        sched_row = self.live_class_schedule_for_class(int(class_id))
+        if not sched_row:
+            auto_real = False
+        else:
+            sched = schedule_from_row(
+                live_days=sched_row["live_days"],
+                live_end_time=sched_row["live_end_time"],
+            )
+            auto_real = bool(
+                sched
+                and classify_run_end(parse_ended_at(ended_at), sched)
+            )
+        return self._upsert_participation_run_kind_unlocked(
+            int(class_id), str(run_key), is_real=auto_real, auto_is_real=auto_real
+        )
+
+    def _upsert_participation_run_kind_unlocked(
+        self,
+        class_id: int,
+        run_key: str,
+        *,
+        is_real: bool,
+        auto_is_real: bool | None = None,
+    ) -> bool:
+        """Write ``participation_runs`` kind flags (caller holds lock)."""
+        key = str(run_key or "").strip()
+        if not key:
+            return False
+        auto = auto_is_real if auto_is_real is not None else is_real
+        discarded = 0 if is_real else 1
+        now = _now()
+        self.conn.execute(
+            """
+            INSERT INTO participation_runs (
+                class_id, run_key, is_real, auto_is_real, discarded, discarded_at, discarded_by
+            ) VALUES (?, ?, ?, ?, ?, ?, NULL)
+            ON CONFLICT(class_id, run_key) DO UPDATE SET
+                auto_is_real = excluded.auto_is_real,
+                is_real = CASE
+                    WHEN participation_runs.is_real != participation_runs.auto_is_real
+                    THEN participation_runs.is_real
+                    ELSE excluded.is_real
+                END,
+                discarded = CASE
+                    WHEN participation_runs.is_real != participation_runs.auto_is_real
+                    THEN participation_runs.discarded
+                    ELSE excluded.discarded
+                END,
+                discarded_at = CASE
+                    WHEN participation_runs.is_real != participation_runs.auto_is_real
+                    THEN participation_runs.discarded_at
+                    WHEN excluded.discarded = 1
+                    THEN COALESCE(participation_runs.discarded_at, excluded.discarded_at)
+                    ELSE NULL
+                END,
+                discarded_by = CASE
+                    WHEN participation_runs.is_real != participation_runs.auto_is_real
+                    THEN participation_runs.discarded_by
+                    WHEN excluded.discarded = 1
+                    THEN participation_runs.discarded_by
+                    ELSE NULL
+                END
+            """,
+            (
+                int(class_id),
+                key,
+                1 if is_real else 0,
+                1 if auto else 0,
+                discarded,
+                now if discarded else None,
+            ),
+        )
+        return bool(is_real)
+
+    def set_participation_run_real(
+        self,
+        class_id: int,
+        run_key: str,
+        is_real: bool,
+        *,
+        user_id: int | None = None,
+    ) -> bool:
+        """Teacher toggle: mark a run real or test and sync catch-up link (MCK-207)."""
+        key = str(run_key or "").strip()
+        if not key:
+            return False
+        cid = int(class_id)
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT live_module, live_slot FROM participation_items
+                WHERE class_id = ? AND run_key = ? LIMIT 1
+                """,
+                (cid, key),
+            ).fetchone()
+            if row is None:
+                return False
+            module = str(row["live_module"] or "")
+            slot = str(row["live_slot"] or "")
+            auto_row = self.conn.execute(
+                "SELECT auto_is_real FROM participation_runs WHERE class_id = ? AND run_key = ?",
+                (cid, key),
+            ).fetchone()
+            auto_real = bool(auto_row and int(auto_row["auto_is_real"] or 0))
+            now = _now()
+            discarded = 0 if is_real else 1
             self.conn.execute(
                 """
-                INSERT OR IGNORE INTO catchup_links (
-                    token, class_id, run_key, live_module, live_slot, is_open,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                INSERT INTO participation_runs (
+                    class_id, run_key, is_real, auto_is_real, discarded, discarded_at, discarded_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(class_id, run_key) DO UPDATE SET
+                    is_real = excluded.is_real,
+                    discarded = excluded.discarded,
+                    discarded_at = excluded.discarded_at,
+                    discarded_by = excluded.discarded_by
                 """,
-                (new_token(), class_id, run_key, module, slot, now, now),
+                (
+                    cid,
+                    key,
+                    1 if is_real else 0,
+                    1 if auto_real else 0,
+                    discarded,
+                    now if discarded else None,
+                    user_id if discarded else None,
+                ),
             )
+            if is_real:
+                self._upsert_real_catchup_link_unlocked(cid, key, module, slot, now=now)
+            else:
+                self.conn.execute(
+                    "DELETE FROM catchup_links WHERE class_id = ? AND run_key = ?",
+                    (cid, key),
+                )
+            if self.conn.in_transaction:
+                self.conn.commit()
+        return True
+
+    def participation_run_kind(self, class_id: int, run_key: str) -> dict[str, Any] | None:
+        """Return ``is_real`` and ``auto_is_real`` for one run, if captured."""
+        key = str(run_key or "").strip()
+        if not key:
+            return None
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT is_real, auto_is_real, discarded FROM participation_runs
+                WHERE class_id = ? AND run_key = ?
+                """,
+                (int(class_id), key),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "is_real": bool(int(row["is_real"] or 0)),
+            "auto_is_real": bool(int(row["auto_is_real"] or 0)),
+            "discarded": bool(int(row["discarded"] or 0)),
+        }
+
+    def _upsert_real_catchup_link_unlocked(
+        self,
+        class_id: int,
+        run_key: str,
+        module: str,
+        slot: str,
+        *,
+        now: str,
+    ) -> None:
+        """One shared catch-up row per lesson slot, always the latest real run."""
+        from participation import new_token
+
+        cid = int(class_id)
+        key = str(run_key or "").strip()
+        mod = str(module or "")
+        sl = str(slot or "")
+        existing = self.conn.execute(
+            """
+            SELECT token FROM catchup_links
+            WHERE class_id = ? AND live_module = ? AND live_slot = ?
+            """,
+            (cid, mod, sl),
+        ).fetchone()
+        token = str(existing["token"]) if existing else new_token()
+        self.conn.execute(
+            """
+            INSERT INTO catchup_links (
+                token, class_id, run_key, live_module, live_slot, is_open, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+            ON CONFLICT(class_id, live_module, live_slot) DO UPDATE SET
+                run_key = excluded.run_key,
+                is_open = 1,
+                updated_at = excluded.updated_at
+            """,
+            (token, cid, key, mod, sl, now, now),
+        )
+
+    def resolve_catchup_link(self, token: str) -> dict[str, Any] | None:
+        """Resolve a catch-up token to the latest real run for that lesson slot."""
+        link = self.get_catchup_link(token)
+        if link is None:
+            return None
+        cid = int(link["class_id"])
+        mod = str(link.get("live_module") or "")
+        slot = str(link.get("live_slot") or "")
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT c.* FROM catchup_links c
+                INNER JOIN participation_runs r
+                    ON r.class_id = c.class_id AND r.run_key = c.run_key
+                WHERE c.class_id = ? AND c.live_module = ? AND c.live_slot = ?
+                  AND r.is_real = 1 AND r.discarded = 0
+                ORDER BY c.updated_at DESC, c.id DESC
+                LIMIT 1
+                """,
+                (cid, mod, slot),
+            ).fetchone()
+        if row is None:
+            return link
+        return dict(row)
 
     def module_complete(self, class_id: int, module: str) -> bool:
         """A teacher mark wins (reversible); otherwise complete once C4 has run."""
@@ -30126,11 +30516,15 @@ class SchoolDB(LovesDB):
             rows = self.conn.execute(
                 """
                 SELECT c.token, c.run_key, c.live_module, c.live_slot, c.is_open, c.created_at,
-                       COALESCE(r.discarded, 0) AS discarded
+                       COALESCE(r.discarded, 0) AS discarded,
+                       COALESCE(r.is_real, 0) AS is_real
                 FROM catchup_links c
                 LEFT JOIN participation_runs r
                     ON r.class_id = c.class_id AND r.run_key = c.run_key
-                WHERE c.class_id = ? ORDER BY c.id
+                WHERE c.class_id = ?
+                  AND COALESCE(r.is_real, 1) = 1
+                  AND COALESCE(r.discarded, 0) = 0
+                ORDER BY c.id
                 """,
                 (int(class_id),),
             ).fetchall()
@@ -30138,6 +30532,7 @@ class SchoolDB(LovesDB):
         for row in rows:
             item = dict(row)
             item["discarded"] = bool(int(item.get("discarded") or 0))
+            item["is_real"] = bool(int(item.get("is_real") or 0))
             out.append(item)
         return out
 
@@ -31263,8 +31658,9 @@ class SchoolDB(LovesDB):
                     str(session_row.get("ended_at") or _now()),
                 )
             return self.get_live_session(session_id)
-        self.cleanup_live_session_response_data(session_id)
         now = _now()
+        preset = str(session_row.get("ended_at") or "").strip()
+        ended_value = preset or now
         with self._lock:
             self.conn.execute(
                 """
@@ -31272,7 +31668,7 @@ class SchoolDB(LovesDB):
                 SET status = 'ended', ended_at = ?
                 WHERE id = ? AND status = 'active'
                 """,
-                (now, int(session_id)),
+                (ended_value, int(session_id)),
             )
             self.conn.execute(
                 """
@@ -31280,11 +31676,12 @@ class SchoolDB(LovesDB):
                 SET left_at = COALESCE(left_at, ?)
                 WHERE live_session_id = ? AND left_at IS NULL
                 """,
-                (now, int(session_id)),
+                (ended_value, int(session_id)),
             )
             self.conn.commit()
+        self.cleanup_live_session_response_data(session_id)
         if self.presence is not None:
-            self.presence.mark_session_ended(int(session_id), now)
+            self.presence.mark_session_ended(int(session_id), ended_value)
         return self.get_live_session(session_id)
 
     def end_live_class_session(
@@ -33501,6 +33898,12 @@ class SchoolDB(LovesDB):
                 [],
             ),
         }
+        if phase == "ended":
+            run_key = str(session_row.get("run_key") or "").strip()
+            if run_key:
+                kind = self.participation_run_kind(int(session_row["class_id"]), run_key)
+                if kind is not None:
+                    payload["ended_run"] = {"run_key": run_key, **kind}
         answer_signals = live_state_field(
             session_id,
             "lifecycle_response_counts",

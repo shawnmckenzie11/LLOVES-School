@@ -107,7 +107,14 @@
           <option value="{{ t }}" {% if t == '2:00pm' %}selected{% endif %}>{{ t }}</option>
           {% endfor %}
         </select>
-        <p class="hint">Teachers inherit this schedule. Optional CSV below populates the class now; otherwise they add Codenames later.</p>
+
+        <label class="field" for="live_end_time">Scheduled end time</label>
+        <select id="live_end_time" name="live_end_time" required>
+          {% for t in end_time_options %}
+          <option value="{{ t }}" {% if t == '3:15pm' %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+        <p class="hint">Teachers inherit this schedule. End time decides whether an ended run counts as a real class (MCK-207). Optional CSV below populates the class now; otherwise they add Codenames later.</p>
 
         <label class="field" for="roster_csv">Student roster CSV (optional)</label>
         <input id="roster_csv" name="roster_csv" type="file" accept=".csv,text/csv">

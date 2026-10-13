@@ -278,6 +278,7 @@ class ItTests(unittest.TestCase):
                 "ontario_code": "MCF3M",
                 "live_days": "T/Th/F",
                 "live_time": "10:40am",
+                "live_end_time": "3:15pm",
             },
             follow_redirects=False,
         )
@@ -290,6 +291,7 @@ class ItTests(unittest.TestCase):
         assert offering is not None
         self.assertEqual(offering["live_days"], "T/Th/F")
         self.assertEqual(offering["live_time"], "10:40am")
+        self.assertEqual(offering["live_end_time"], "3:15pm")
 
     def test_populate_uses_admin_schedule_over_body(self) -> None:
         """Staff populate ignores client days/time when Admin locked the schedule."""

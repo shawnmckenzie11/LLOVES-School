@@ -260,10 +260,21 @@ def _seed_demo_participation(school: Any, class_id: int, teacher_id: int) -> dic
 
     pin_secret = (os.getenv("FLASK_SECRET_KEY") or "").strip() or SECRET_KEY_DEV_DEFAULT
     school.ensure_default_pins_for_class(class_id, pin_secret)
-    stamp = "2026-10-13T09:00:00"
+    from live_class_run import LiveClassSchedule, scheduled_class_end_datetime
+
+    sched_row = school.live_class_schedule_for_class(class_id)
+    if not sched_row:
+        return {"skipped": "no live class schedule"}
+    schedule = LiveClassSchedule(
+        days_key=str(sched_row["live_days"]),
+        end_time_label=str(sched_row["live_end_time"]),
+    )
     runs: list[str] = []
-    for slot, answered in LOCAL_DEV_M1_RUNS:
+    for run_index, (slot, answered) in enumerate(LOCAL_DEV_M1_RUNS):
         session_id = int(school.start_live_class_session(class_id, teacher_id)["id"])
+        ended_dt = scheduled_class_end_datetime(schedule, which=run_index)
+        ended_iso = ended_dt.replace(microsecond=0).isoformat()
+        stamp = ended_iso
         conn.execute(
             "UPDATE live_class_sessions SET teacher_state_json = ? WHERE id = ?",
             (json.dumps({"live_module": "M1", "live_slot": slot}), session_id),
@@ -305,7 +316,11 @@ def _seed_demo_participation(school: Any, class_id: int, teacher_id: int) -> dic
                     (prompt_id, maple_id, stamp, stamp),
                 )
         conn.commit()
-        school.cleanup_live_session_response_data(session_id)
+        conn.execute(
+            "UPDATE live_class_sessions SET ended_at = ? WHERE id = ?",
+            (ended_iso, session_id),
+        )
+        conn.commit()
         school.end_live_class_session(session_id)
         runs.append(slot)
     m2 = _seed_m2_c1_snapshot_only(school, class_id, maple_id)
