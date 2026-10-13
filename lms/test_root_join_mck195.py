@@ -55,6 +55,10 @@ class RootJoinTests(unittest.TestCase):
         self.assertEqual(_href(body, "Admin login"), "/auth/google?portal=it")
         self.assertIn('id="celebrations"', body)
         self.assertIn('href="#celebrations"', body)
+        # MCK-197: no logo in the top bar; the links stay right-aligned.
+        self.assertNotIn("alc-logo.png", body)
+        self.assertNotIn('aria-label="ALC home"', body)
+        self.assertIn("justify-content:flex-end", body)
 
     def test_root_next_staff_reaches_staff_sign_in(self) -> None:
         """``/?next=/staff/...`` → Teacher login carries next → staff sign-in."""

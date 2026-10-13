@@ -387,10 +387,10 @@ class EyesUpClientTests(unittest.TestCase):
         # No new request: the overlay module never fetches or polls.
         for token in ("fetch(", "XMLHttpRequest", "setInterval(", "EventSource", "WebSocket"):
             self.assertNotIn(token, overlay)
-        self.assertIn("// copy: Wonder", overlay)
-        # Wonder copy pass: three overlay lines.
-        self.assertIn('line: "Look at the board.", // copy: Wonder', overlay)
-        self.assertIn('saved: "Your answers are still here.", // copy: Wonder', overlay)
+        # MCK-197: "Access Paused" is the only overlay text.
+        self.assertIn('title: "Access Paused"', overlay)
+        for gone in ('title: "Eyes up"', "Look at the board.", "Your answers are still here.", "👀"):
+            self.assertNotIn(gone, overlay)
 
     def test_teacher_toggle_markup_and_patch(self) -> None:
         html = (LMS_DIR / "templates" / "staff" / "course.html").read_text(encoding="utf-8")
