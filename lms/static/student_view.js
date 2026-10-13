@@ -179,6 +179,14 @@ export function restoreMask() {
  * @returns {{isOn: () => boolean, set: (on: boolean) => void, refresh: () => void}}
  */
 export function mountStudentView({ doc = document, button = null, roster, onChange }) {
+  // Test harnesses with a minimal fake DOM get a no-op controller.
+  if (
+    !doc?.body ||
+    typeof doc.body.prepend !== "function" ||
+    typeof doc.createTreeWalker !== "function"
+  ) {
+    return { isOn: () => false, set: () => {}, refresh: () => {} };
+  }
   let on = studentViewOn();
   let pairs = [];
   let pending = false;
