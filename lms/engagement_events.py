@@ -27,8 +27,10 @@ import logging
 import threading
 import time
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 from zoneinfo import ZoneInfo
+
+from engagement_rollup import rollup_ddl_postgres_parts, rollup_ddl_sqlite
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +159,74 @@ class _Store:
         )
         return bool(rows)
 
+    _ROLLUP_COLS = (
+        "class_id, live_session, run_key, rolled_at, scope, student_id, team_id, "
+        "signal, count, offered, share_of_group, share_vs_even, payload"
+    )
+
+    def _rollup_insert_params(self, row: dict[str, Any]) -> tuple[Any, ...]:
+        """Bind values for one ``engagement_rollup`` insert."""
+        return (
+            int(row["class_id"]),
+            row.get("live_session"),
+            str(row["run_key"]),
+            row.get("rolled_at"),
+            str(row["scope"]),
+            row.get("student_id"),
+            row.get("team_id"),
+            str(row["signal"]),
+            int(row.get("count") or 0),
+            row.get("offered"),
+            row.get("share_of_group"),
+            row.get("share_vs_even"),
+            row.get("payload") or "{}",
+        )
+
+    def _rollup_insert_sql(self) -> str:
+        """``INSERT`` with ``ON CONFLICT DO NOTHING`` for rollup idempotency."""
+        return (
+            f"INSERT INTO engagement_rollup ({self._ROLLUP_COLS}) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT DO NOTHING"
+        )
+
+    def insert_rollup_batch(self, rows: Sequence[dict[str, Any]]) -> int:
+        """Insert a full rollup in one transaction; ignore duplicate cells.
+
+        Returns:
+            Number of rows actually inserted (0 when this run was already rolled up).
+        """
+        raise NotImplementedError
+
+    def list_rollup(
+        self,
+        class_id: int,
+        *,
+        run_key: str | None = None,
+        limit: int = 5000,
+    ) -> list[dict[str, Any]]:
+        """Rollup rows for one class, oldest insert first."""
+        sql = (
+            "SELECT id, class_id, live_session, run_key, rolled_at, scope, student_id, team_id, "
+            "signal, count, offered, share_of_group, share_vs_even, payload "
+            "FROM engagement_rollup WHERE class_id = ?"
+        )
+        params: list[Any] = [int(class_id)]
+        if run_key is not None:
+            sql += " AND run_key = ?"
+            params.append(str(run_key))
+        sql += " ORDER BY id LIMIT ?"
+        params.append(max(1, min(int(limit), 20000)))
+        out = []
+        for raw in self._fetch(sql, tuple(params)):
+            row = dict(raw) if not isinstance(raw, dict) else raw
+            try:
+                row["payload"] = json.loads(row.get("payload") or "{}")
+            except (TypeError, ValueError):
+                row["payload"] = {}
+            out.append(row)
+        return out
+
     def list_for_class(
         self,
         class_id: int,
@@ -201,6 +271,7 @@ class SqliteEngagementEvents(_Store):
     def ensure_schema(self) -> None:
         with self.lock:
             self.conn.executescript(_SQLITE_DDL)
+            self.conn.executescript(rollup_ddl_sqlite())
             cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(engagement_events)")}
             if "run_key" not in cols:
                 self.conn.execute(
@@ -217,6 +288,25 @@ class SqliteEngagementEvents(_Store):
     def _fetch(self, sql: str, params: tuple[Any, ...]) -> list[Any]:
         with self.lock:
             return self.conn.execute(sql, params).fetchall()
+
+    def insert_rollup_batch(self, rows: Sequence[dict[str, Any]]) -> int:
+        """Insert rollup cells on sqlite (autocommit per statement).
+
+        The school connection uses ``isolation_level = None`` so an explicit
+        ``BEGIN`` would hold the file write lock across the whole batch and
+        starve the game-show connection on the same file. Each
+        ``INSERT … ON CONFLICT DO NOTHING`` is still atomic; the unique
+        index makes a concurrent End safe.
+        """
+        if not rows:
+            return 0
+        sql = self._rollup_insert_sql()
+        with self.lock:
+            inserted = 0
+            for row in rows:
+                cur = self.conn.execute(sql, self._rollup_insert_params(row))
+                inserted += int(cur.rowcount or 0)
+        return inserted
 
 
 class PostgresEngagementEvents(_Store):
@@ -237,7 +327,7 @@ class PostgresEngagementEvents(_Store):
                     "run_key TEXT NOT NULL DEFAULT ''",
                     _RUN_KEY_INDEX,
                 ]
-                for part in ddl:
+                for part in ddl + rollup_ddl_postgres_parts():
                     sql = part.strip()
                     if not sql:
                         continue
@@ -258,6 +348,19 @@ class PostgresEngagementEvents(_Store):
     def _fetch(self, sql: str, params: tuple[Any, ...]) -> list[Any]:
         with self.presence._conn() as wrapped:
             return wrapped.connection.execute(sql.replace("?", "%s"), params).fetchall()
+
+    def insert_rollup_batch(self, rows: Sequence[dict[str, Any]]) -> int:
+        """Insert every rollup cell atomically on Postgres."""
+        if not rows:
+            return 0
+        sql = self._rollup_insert_sql().replace("?", "%s")
+        inserted = 0
+        with self.presence._conn() as wrapped:
+            with wrapped.connection.transaction():
+                for row in rows:
+                    cur = wrapped.connection.execute(sql, self._rollup_insert_params(row))
+                    inserted += int(cur.rowcount or 0)
+        return inserted
 
 
 class MoveThrottle:
