@@ -73,7 +73,7 @@
   <dialog id="catchup-pin-dialog" class="catchup-pin-dialog" open aria-labelledby="catchup-pin-title">
     <form method="post" id="catchup-pin-form" autocomplete="off">
       <h2 id="catchup-pin-title">Set your catch-up PIN</h2>
-      <p class="hint">Choose a 4-digit PIN you'll use to open catch-up links. It's not your join code.</p>
+      <p class="hint">Choose a new 4-digit catch-up PIN. Your default PIN is on your teacher's slip—not the live class join code.</p>
       {% if pin_prompt.forced %}<p class="hint">Set a PIN now to open catch-up links.</p>{% endif %}
       {% if pin_error %}<div class="error">{{ pin_error }}</div>{% endif %}
       <label class="field" for="catchup_pin_new">New PIN</label>

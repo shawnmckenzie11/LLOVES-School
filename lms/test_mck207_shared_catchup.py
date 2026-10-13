@@ -147,7 +147,7 @@ class Mck207CatchupFlowTest(Base):
 
 
     def test_live_pin_api_rejects_sixty_change_attempts(self) -> None:
-        """Live route must not allow PIN takeover via repeated API calls."""
+        """Live route must throttle repeated current_pin guesses."""
         victim = self.students[0]
         self.school.set_student_pin(self.class_id, victim, "2468", pin_set_by="student")
         live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
@@ -155,22 +155,67 @@ class Mck207CatchupFlowTest(Base):
         with client.session_transaction() as sess:
             sess["student_live_session_id"] = int(live["id"])
             sess["student_class_id"] = self.class_id
-            sess["student_codename"] = self.first
+            sess["student_id"] = victim
             sess["student_offering_id"] = self.school.conn.execute(
                 "SELECT offering_id FROM classes WHERE id = ?", (self.class_id,)
             ).fetchone()[0]
+        blocked = 0
         for i in range(60):
             res = client.post(
                 "/api/student/catchup-pin",
-                json={"pin": f"{(1000 + i) % 10000:04d}", "confirm": f"{(1000 + i) % 10000:04d}"},
+                json={
+                    "pin": "1357",
+                    "confirm": "1357",
+                    "current_pin": f"{i:04d}",
+                },
             )
-            self.assertEqual(res.status_code, 403)
+            self.assertIn(res.status_code, (403, 429))
+            blocked += 1
+        self.assertEqual(blocked, 60)
         from participation import check_pin
 
         stored = self.school.game.conn.execute(
             "SELECT pin_hash FROM students WHERE id = ?", (victim,)
         ).fetchone()[0]
         self.assertTrue(check_pin("2468", stored))
+        self.assertFalse(check_pin("1357", stored))
+
+    def test_live_popup_saves_pin_with_current_pin(self) -> None:
+        """Live catch-up PIN dialog can save when current_pin is sent."""
+        sid = self.students[0]
+        self.school.set_student_pin(self.class_id, sid, "5678", pin_set_by="default")
+        live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
+        client = self.app.test_client()
+        with client.session_transaction() as sess:
+            sess["student_live_session_id"] = int(live["id"])
+            sess["student_class_id"] = self.class_id
+            sess["student_id"] = sid
+            sess["student_offering_id"] = self.school.conn.execute(
+                "SELECT offering_id FROM classes WHERE id = ?", (self.class_id,)
+            ).fetchone()[0]
+        res = client.post(
+            "/api/student/catchup-pin",
+            json={"pin": "2468", "confirm": "2468", "current_pin": "5678"},
+        )
+        self.assertEqual(res.status_code, 200)
+        from participation import check_pin
+
+        stored = self.school.game.conn.execute(
+            "SELECT pin_hash, pin_set_by FROM students WHERE id = ?", (sid,)
+        ).fetchone()
+        self.assertEqual(stored[1], "student")
+        self.assertTrue(check_pin("2468", stored[0]))
+
+    def test_live_prompt_js_sends_current_pin(self) -> None:
+        """Live pop-up must POST current_pin with the new PIN."""
+        from pathlib import Path
+
+        js = (Path(__file__).resolve().parent / "static" / "catchup_pin_prompt.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("current_pin: current", js)
+        self.assertIn('id="live-catchup-pin-current"', js)
+
 
 if __name__ == "__main__":
     unittest.main()

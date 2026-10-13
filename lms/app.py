@@ -8670,7 +8670,20 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/student/catchup-pin", methods=["POST"])
     @student_required
     def api_student_catchup_pin():
-        """Live shell cannot change PIN; requires catch-up portal sign-in (MCK-207)."""
+        """Set catch-up PIN from portal session or live class with verified current PIN."""
+        from participation import (
+            CATCHUP_PIN_IP_LIMIT,
+            CATCHUP_PIN_STUDENT_SOFT_CAP,
+            KEY_PIN_CURRENT_REQUIRED,
+            KEY_PIN_IP_LOCKED,
+            KEY_PIN_STUDENT_SOFT,
+            KEY_PIN_WRONG,
+            PIN_WINDOW_S,
+            catchup_ip_limit_key,
+            catchup_pin_student_limit_key,
+            copy,
+        )
+
         ctx = resolve_student_live_context(school, session)
         if ctx is None or ctx.get("student_id") in (None, ""):
             return jsonify({"ok": False, "error": "Not signed in."}), 403
@@ -8679,11 +8692,13 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         body = request.get_json(silent=True) or {}
         pin = str(body.get("pin") or "")
         confirm = str(body.get("confirm") or "")
+        current_pin = str(body.get("current_pin") or "")
         if pin != confirm:
             return jsonify({"ok": False, "error": "PINs must match."}), 400
-        try:
-            school.authorize_student_pin_change(int(class_id), int(student_id), session)
-        except PermissionError:
+        reserved: list[int] | None = None
+        if school.catchup_portal_session_valid(session, class_id, student_id):
+            pass
+        elif ctx.get("unmatched"):
             return jsonify(
                 {
                     "ok": False,
@@ -8691,10 +8706,39 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     "needs_catchup_portal": True,
                 }
             ), 403
+        else:
+            gate = school.catchup_pin_student_gate(class_id, student_id)
+            if gate:
+                return jsonify({"ok": False, "error": copy(gate)["text"]}), 429
+            client_ip_key = join_limit_ip_key(request_client_ip())
+            global_ip_key = catchup_ip_limit_key(client_ip_key)
+            student_key = catchup_pin_student_limit_key(class_id, student_id)
+            limits = {
+                global_ip_key: CATCHUP_PIN_IP_LIMIT,
+                student_key: CATCHUP_PIN_STUDENT_SOFT_CAP,
+            }
+            reserved = school.reserve_catchup_pin_attempts(
+                [global_ip_key, student_key], limits, window_s=PIN_WINDOW_S
+            )
+            if reserved is None:
+                return jsonify({"ok": False, "error": copy(KEY_PIN_IP_LOCKED)["text"]}), 429
+            if school.student_catchup_pin_hash_set(class_id, student_id) and not current_pin:
+                school.release_catchup_pin_attempts(reserved)
+                return jsonify(
+                    {"ok": False, "error": copy(KEY_PIN_CURRENT_REQUIRED)["text"]}
+                ), 400
+            if not school.verify_student_current_pin(class_id, student_id, current_pin):
+                school.record_catchup_pin_failure(class_id, student_id)
+                return jsonify({"ok": False, "error": copy(KEY_PIN_WRONG)["text"]}), 403
+            school.release_catchup_pin_attempts(reserved)
+            reserved = None
         try:
             school.set_student_pin(int(class_id), int(student_id), pin, pin_set_by="student")
         except ValueError as exc:
+            if reserved:
+                school.release_catchup_pin_attempts(reserved)
             return jsonify({"ok": False, "error": str(exc)}), 400
+        school.refresh_catchup_portal_pin_stamp(session, class_id, student_id)
         return jsonify({"ok": True, "toast": "PIN saved. You're set for catch-up."})
 
     @app.route("/api/student/catchup-pin/later", methods=["POST"])

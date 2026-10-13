@@ -3,6 +3,8 @@
  */
 
 const TOAST_TEXT = "PIN saved. You're set for catch-up.";
+const PIN_HINT =
+  "Choose a new 4-digit catch-up PIN. Use the default PIN on your teacher's slip to unlock this form—not the live class join code.";
 let dialogEl = null;
 let openForForced = false;
 let lastCatchupPinPayload = null;
@@ -40,9 +42,12 @@ export function paintCatchupPinPrompt(payload) {
   dialogEl.innerHTML = `
     <form method="dialog" class="catchup-pin-form" id="live-catchup-pin-form">
       <h2 id="live-catchup-pin-title">Set your catch-up PIN</h2>
-      <p class="hint">Choose a 4-digit PIN you'll use to open catch-up links. It's not your join code.</p>
+      <p class="hint">${PIN_HINT}</p>
       ${forced ? "<p class=\"hint\">Set a PIN now to open catch-up links.</p>" : ""}
       <p class="error" id="live-catchup-pin-error" hidden></p>
+      <label class="field" for="live-catchup-pin-current">Current catch-up PIN</label>
+      <input class="full" id="live-catchup-pin-current" type="password" inputmode="numeric" pattern="[0-9]{4}"
+             minlength="4" maxlength="4" autocomplete="off" required>
       <label class="field" for="live-catchup-pin-new">New PIN</label>
       <input class="full" id="live-catchup-pin-new" type="password" inputmode="numeric" pattern="[0-9]{4}"
              minlength="4" maxlength="4" autocomplete="off" required>
@@ -74,6 +79,7 @@ export function paintCatchupPinPrompt(payload) {
   });
 
   saveBtn?.addEventListener("click", async () => {
+    const current = String(dialogEl.querySelector("#live-catchup-pin-current")?.value || "");
     const pin = String(dialogEl.querySelector("#live-catchup-pin-new")?.value || "");
     const confirm = String(dialogEl.querySelector("#live-catchup-pin-confirm")?.value || "");
     if (pin !== confirm) {
@@ -86,12 +92,17 @@ export function paintCatchupPinPrompt(payload) {
     const res = await fetch("/api/student/catchup-pin", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pin, confirm }),
+      body: JSON.stringify({ pin, confirm, current_pin: current }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       if (data.needs_catchup_portal) {
-        const url = String((lastCatchupPinPayload && lastCatchupPinPayload.catchup_pin_prompt && lastCatchupPinPayload.catchup_pin_prompt.catchup_url) || "");
+        const url = String(
+          (lastCatchupPinPayload &&
+            lastCatchupPinPayload.catchup_pin_prompt &&
+            lastCatchupPinPayload.catchup_pin_prompt.catchup_url) ||
+            ""
+        );
         if (url) {
           window.location.assign(url);
           return;
