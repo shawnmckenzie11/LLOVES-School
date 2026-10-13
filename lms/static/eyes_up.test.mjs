@@ -95,8 +95,7 @@ const afterEnd = { status: "waiting", waiting_room: true, celebrate: true, teach
 if (eyesUpOn(afterEnd)) fail("End celebration payload must never pause");
 if (eyesUpOn({ status: "waiting", teacher_state: { eyes_up: true, celebrate: true } })) fail("teacher_state.celebrate is off");
 if (eyesUpOn({ phase: "ended", teacher_state: { eyes_up: true } })) fail("ended phase is off");
-if (EYES_UP_COPY.title !== "Eyes up" || EYES_UP_COPY.line !== "Look at the board.") fail("overlay copy");
-if (EYES_UP_COPY.saved !== "Your answers are still here.") fail("overlay saved line copy");
+if (EYES_UP_COPY.title !== "Access Paused" || Object.keys(EYES_UP_COPY).length !== 1) fail("overlay copy");
 
 const doc = makeDoc();
 const main = doc.createElement("main");
@@ -120,8 +119,10 @@ const overlay = doc.getElementById("eyes-up-overlay");
   const texts = [];
   const walk = (n) => { for (const c of n.children || []) { if (c.tagName === "P") texts.push(c.textContent); walk(c); } };
   walk(overlay);
-  if (texts.join("|") !== "Eyes up|Look at the board.|Your answers are still here.") fail(`overlay lines: ${texts.join("|")}`);
-  if (overlay.getAttribute("aria-describedby") !== "eyes-up-line eyes-up-saved") fail("saved line is described");
+  // MCK-197: "Access Paused" is the only text on the overlay.
+  if (texts.join("|") !== "Access Paused") fail(`overlay lines: ${texts.join("|")}`);
+  if (overlay.children.length !== 1 || overlay.children[0].children.length !== 1) fail("overlay holds only the title");
+  if (overlay.hasAttribute("aria-describedby")) fail("no described-by lines");
 }
 if (!overlay || overlay.hidden) fail("overlay visible");
 if (overlay.getAttribute("role") !== "alertdialog") fail("overlay role");

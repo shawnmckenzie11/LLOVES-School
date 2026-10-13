@@ -90,7 +90,7 @@ class AuthTests(unittest.TestCase):
         self.assertIn("Admin login", body)
         self.assertIn("auth/google?portal=it", body)
         self.assertIn("auth/google?portal=staff", body)
-        self.assertIn("alc-logo.png", body)
+        self.assertNotIn("alc-logo.png", body)  # MCK-197
         self.assertNotIn("Select your role:", body)
         self.assertNotIn("student-role-btn", body)
 
