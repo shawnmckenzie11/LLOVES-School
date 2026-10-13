@@ -211,6 +211,19 @@ const GROUP_POLL_PENDING_MS = 800;
 /** Fail + Retry when a staff /state poll is still out after this. */
 const GROUP_POLL_FAIL_MS = 4000;
 let staffStateNeedsFull = true;
+
+/**
+ * After a hard refresh or bfcache restore, refetch full /state and /results
+ * so group cards repaint quiet-member strips (MCK-62).
+ */
+function refetchLiveClassSnapshotAfterNavigation() {
+  if (root?.dataset.apView !== "live") return;
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId) return;
+  staffStateNeedsFull = true;
+  void pollLiveSessionAttendees({ full: true, force: true });
+}
+
 /** @type {any} */
 let lastMcTally = null;
 let lastMcBindKey = "";
@@ -2031,7 +2044,7 @@ function adoptLightGroupResults(bag) {
 /**
  * Patch consensus cards and SubmitterLog without remounting the question list.
  */
-function paintGroupResultsInPlace() {
+function paintGroupResultsInPlace(force = false) {
   const host = $("live-question-list");
   if (!host) return;
   host.querySelectorAll(".live-question-card[data-live-item-id]").forEach((card) => {
@@ -2043,7 +2056,23 @@ function paintGroupResultsInPlace() {
     if (mode !== "group_submit" && mode !== "group_consensus") return;
     const seq = String(result.group_response_seq || "");
     const current = card.querySelector(`[data-group-results="${liveItemId}"]`);
-    if (current && seq && current.getAttribute("data-group-seq") === seq) return;
+    const stripMissing =
+      !studentViewOn() &&
+      (mode === "group_submit"
+        ? (Array.isArray(result.status_board) &&
+            result.status_board.some((row) => Array.isArray(row.quiet_dots)))
+        : (Array.isArray(result.teams) &&
+            result.teams.some((team) => Array.isArray(team.quiet_dots)))) &&
+      !card.querySelector(".quiet-member-strip");
+    if (
+      !force &&
+      !stripMissing &&
+      current &&
+      seq &&
+      current.getAttribute("data-group-seq") === seq
+    ) {
+      return;
+    }
     const revealed = card.classList.contains("is-closed");
     const html =
       mode === "group_consensus"
@@ -5080,6 +5109,7 @@ function paintLiveQuestionCards() {
       </article>`;
     })
     .join(""));
+  paintGroupResultsInPlace();
   void renderLiveQuestionMath(host);
 }
 
@@ -5739,6 +5769,7 @@ async function refreshLifecycleResults() {
     })
   );
   paintLiveQuestionCards();
+  paintGroupResultsInPlace(true);
 }
 
 /**
@@ -6948,7 +6979,6 @@ async function pollLiveSessionAttendees(opts = {}) {
       present
     );
     paintSlidesMetadata();
-    if (wantFull) paintLiveQuestionCards();
     if (payload?.active_media || payload?.session?.active_media) {
       const media = payload?.active_media || payload?.session?.active_media;
       paintActiveMediaStatus(media);
@@ -6967,7 +6997,7 @@ async function pollLiveSessionAttendees(opts = {}) {
     applyMcTally(payload?.mc_tally);
     if (!wantFull) adoptLightGroupResults(payload?.group_results);
     if (wantFull) {
-      refreshLifecycleResults();
+      await refreshLifecycleResults();
       ensureC1MediaSeeded();
     }
     const nextSeq = Number(
@@ -8228,6 +8258,8 @@ export async function openRunLiveClass() {
       if (liveSessionId) {
         ensureLiveSessionOverlay(null);
         startLiveSessionPolling();
+        staffStateNeedsFull = true;
+        void pollLiveSessionAttendees({ full: true, force: true });
       }
       return;
     }
@@ -11304,6 +11336,9 @@ studentView = mountStudentView({
   button: $("live-student-view"),
   roster: () => lastClassListFull,
   classId,
+  onChange: (on) => {
+    if (!on) paintGroupResultsInPlace(true);
+  },
 });
 
 $("mc-reveal-btn")?.addEventListener("click", () => {
@@ -12535,6 +12570,13 @@ function bindEphemeralCanvas() {
 
 selectTrackMode("individual");
 setSessionTimerMinutes(3);
+
+window.addEventListener("pageshow", (event) => {
+  window.setTimeout(() => {
+    if (event.persisted) paintGroupResultsInPlace(true);
+    refetchLiveClassSnapshotAfterNavigation();
+  }, 0);
+});
 
 if (root?.dataset.apView === "live") {
   mountTeamsRenameDialog();

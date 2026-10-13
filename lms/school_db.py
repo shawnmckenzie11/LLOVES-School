@@ -19688,7 +19688,54 @@ class SchoolDB(LovesDB):
             full = self._rank_full_order_teams(session_id, item)
             if full:
                 view["full_order"] = {"teams": full}
+        seq = self._merge_teacher_quiet_dots_from_light(
+            session_id, int(item["id"]), status_board=status_board
+        )
+        if seq:
+            view["group_response_seq"] = seq
         return view
+
+    def _merge_teacher_quiet_dots_from_light(
+        self,
+        session_id: int,
+        live_item_id: int,
+        *,
+        status_board: list[dict[str, Any]] | None = None,
+        teams: list[dict[str, Any]] | None = None,
+    ) -> str:
+        """Copy MCK-62 ``quiet_dots`` and the light ``response_seq`` onto a full view.
+
+        The staff light poll already stamps dots on thin team rows. Full
+        ``/items/.../results`` must carry the same fields so the first paint
+        after reload is not overwritten without dots while ``response_seq``
+        stays unchanged.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            live_item_id: Active ``live_session_items.id``.
+            status_board: Optional ``group_submit`` board rows to update.
+            teams: Optional ``group_consensus`` team summaries to update.
+
+        Returns:
+            The light ``response_seq`` for this item, or ``""`` when absent.
+        """
+        entry = self.light_group_results(session_id).get(str(int(live_item_id)))
+        if not entry:
+            return ""
+        by_team = {
+            int(row["team_id"]): row
+            for row in entry.get("teams") or []
+            if int(row.get("team_id") or 0)
+        }
+        for board_row in status_board or []:
+            thin = by_team.get(int(board_row.get("team_id") or 0))
+            if thin and "quiet_dots" in thin:
+                board_row["quiet_dots"] = list(thin["quiet_dots"])
+        for team_row in teams or []:
+            thin = by_team.get(int(team_row.get("team_id") or 0))
+            if thin and "quiet_dots" in thin:
+                team_row["quiet_dots"] = list(thin["quiet_dots"])
+        return str(entry.get("response_seq") or "")
 
     @staticmethod
     def _rank_collate_without_orders(rank: dict[str, Any]) -> dict[str, Any]:
@@ -21167,7 +21214,10 @@ class SchoolDB(LovesDB):
                 session_id, int(item["id"])
             )
             teams = summary["teams"]
-            return {
+            seq = self._merge_teacher_quiet_dots_from_light(
+                session_id, int(item["id"]), teams=teams
+            )
+            view: dict[str, Any] = {
                 "item": item,
                 "response_mode": "group_consensus",
                 "teams": teams,
@@ -21178,6 +21228,9 @@ class SchoolDB(LovesDB):
                     int(team.get("eligible_count") or 0) for team in teams
                 ),
             }
+            if seq:
+                view["group_response_seq"] = seq
+            return view
         prompt = self._prompt_for_live_item(item)
         responses = (
             self.list_live_prompt_responses(int(prompt["id"])) if prompt else []
