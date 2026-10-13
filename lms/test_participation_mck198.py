@@ -179,6 +179,38 @@ class CatchupTests(Base):
             "SELECT pin_hash FROM students WHERE id = ?", (self.students[0],)).fetchone()[0]
         self.assertTrue(stored and "1234" not in stored)
 
+    def test_join_code_typed_as_pin_is_refused_without_a_failure(self) -> None:
+        t = time.time()
+        for _ in range(6):
+            r = self.school.catchup_sign_in(self.token, self.code, self.first, self.code, now=t)
+            self.assertEqual(r["reason"], "looks_like_join_code")
+        live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
+        r = self.school.catchup_sign_in(self.token, self.code, self.first, live["session_code"], now=t)
+        self.assertEqual(r["reason"], "looks_like_join_code")
+        self.assertEqual(self.school.conn.execute(
+            "SELECT COUNT(*) FROM catchup_pin_failures").fetchone()[0], 0)
+        self.assertTrue(self.school.catchup_sign_in(self.token, self.code, self.first, "1234", now=t)["ok"])
+        self.assertTrue(P.looks_like_join_code("abcd"))
+        self.assertTrue(P.looks_like_join_code("2345", ["2345"]))
+        self.assertFalse(P.looks_like_join_code("2345"))
+        self.assertFalse(P.looks_like_join_code("1234"))
+
+    def test_pin_is_its_own_screen_and_never_on_the_live_join_form(self) -> None:
+        client = self.app.test_client()
+        first = client.get(f"/catchup/{self.token}").get_data(as_text=True)
+        self.assertNotIn('name="pin"', first)
+        step2 = client.post(f"/catchup/{self.token}", data={
+            "action": "who", "join_code": self.code, "codename": self.first}).get_data(as_text=True)
+        self.assertIn('name="pin"', step2)
+        self.assertIn('inputmode="numeric"', step2)
+        self.assertIn("pin.label", step2)
+        self.assertNotIn('name="join_code"', step2)
+        hint = client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": self.code})
+        self.assertIn("pin.looks_like_join_code", hint.get_data(as_text=True))
+        for path in ("/", "/join"):
+            rv = client.get(path, follow_redirects=True)
+            self.assertNotIn('name="pin"', rv.get_data(as_text=True), path)
+
     def test_closed_link(self) -> None:
         self.school.set_catchup_link_open(self.class_id, self.token, False)
         self.assertEqual(self.school.catchup_sign_in(self.token, self.code, self.first, "1234")["reason"], "closed")
@@ -206,12 +238,12 @@ class CatchupTests(Base):
         picker = client.get(f"/catchup/{self.token}").get_data(as_text=True)
         self.assertIn(">Avalanche<", picker)
         self.assertNotIn(">Ava<", picker)
-        rv = client.post(f"/catchup/{self.token}", data={"action": "signin", "join_code": self.code,
-                                                         "codename": self.first, "pin": "9999"})
+        client.post(f"/catchup/{self.token}", data={"action": "who", "join_code": self.code,
+                                                    "codename": self.first})
+        rv = client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "9999"})
         self.assertIn("That PIN didn&#39;t match. Try again or ask your teacher to reset it.",
                       rv.get_data(as_text=True))
-        rv = client.post(f"/catchup/{self.token}", data={"action": "signin", "join_code": self.code,
-                                                         "codename": self.first, "pin": "1234"})
+        rv = client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "1234"})
         html = rv.get_data(as_text=True)
         self.assertIn("1/4 completed \u00b7 1 more", html)
         self.assertIn("Q1", html)

@@ -8517,7 +8517,14 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         """Student catch-up: join code + first name + PIN, then own unanswered questions."""
         import time as _time
 
-        from participation import CATCHUP_SESSION_S, COPY_CATCHUP_TAG, COPY_CLOSED, COPY_WRONG_PIN
+        from participation import (
+            CATCHUP_SESSION_S,
+            COPY_CATCHUP_TAG,
+            COPY_CLOSED,
+            COPY_WRONG_PIN,
+            KEY_PIN_LABEL,
+            KEY_PIN_LOOKS_LIKE_JOIN_CODE,
+        )
 
         link = school.get_catchup_link(token)
         if link is None:
@@ -8528,18 +8535,38 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         held = session.get(key) or {}
         student_id = held.get("sid") if float(held.get("exp") or 0) > _time.time() else None
         error = None
-        if request.method == "POST" and request.form.get("action") == "signin":
+        pending_key = f"{key}:who"
+        pending = session.get(pending_key) or {}
+        action = request.form.get("action") if request.method == "POST" else None
+        if action == "who":
+            # Screen 1: join code + codename. The PIN is asked on its own screen.
+            check = school.catchup_sign_in(
+                token, request.form.get("join_code", ""), request.form.get("codename", ""), None,
+            )
+            if check["reason"] == "closed":
+                return render_template("student/catchup.html", closed=COPY_CLOSED, token=token), 403
+            if "student_id" in check or check["reason"] == "locked":
+                pending = {"code": request.form.get("join_code", ""),
+                           "name": request.form.get("codename", ""),
+                           "exp": _time.time() + CATCHUP_SESSION_S}
+                session[pending_key] = pending
+                return render_template("student/catchup.html", pin_step=True, token=token,
+                                       pin_label=KEY_PIN_LABEL)
+            error = COPY_WRONG_PIN
+        elif action == "pin" and float(pending.get("exp") or 0) > _time.time():
             result = school.catchup_sign_in(
-                token, request.form.get("join_code", ""), request.form.get("codename", ""),
-                request.form.get("pin", ""),
+                token, pending.get("code", ""), pending.get("name", ""), request.form.get("pin", ""),
             )
             if result["ok"]:
                 student_id = int(result["student_id"])
+                session.pop(pending_key, None)
                 session[key] = {"sid": student_id, "exp": _time.time() + CATCHUP_SESSION_S}
             elif result["reason"] == "closed":
                 return render_template("student/catchup.html", closed=COPY_CLOSED, token=token), 403
             else:
-                error = COPY_WRONG_PIN
+                hint = KEY_PIN_LOOKS_LIKE_JOIN_CODE if result["reason"] == "looks_like_join_code" else COPY_WRONG_PIN
+                return render_template("student/catchup.html", pin_step=True, token=token,
+                                       pin_label=KEY_PIN_LABEL, error=hint)
         elif request.method == "POST" and student_id is not None:
             try:
                 school.submit_catchup_answer(

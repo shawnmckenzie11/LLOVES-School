@@ -35,6 +35,32 @@ COPY_WRONG_PIN = "That PIN didn't match. Try again or ask your teacher to reset 
 
 _PIN = re.compile(r"^[0-9]{4}$")
 
+# Copy keys until Wonder's final copy lands. Templates render the key itself.
+KEY_PIN_LABEL = "pin.label"
+KEY_PIN_LOOKS_LIKE_JOIN_CODE = "pin.looks_like_join_code"
+
+
+def looks_like_join_code(raw: Any, active_codes: Any = ()) -> bool:
+    """True when a PIN entry is really a join code.
+
+    Join codes are uppercase from ``codes.SESSION_CODE_ALPHABET`` (no 0, 1,
+    I, L, O), 4-6 characters for a live session or 8 for a class code. A
+    typed code with a letter in it, or any exact current code, is refused
+    as a PIN without counting as a failed attempt.
+    """
+    from codes import LIVE_ACCESS_CODE_LENGTHS, SESSION_CODE_ALPHABET
+
+    text = str(raw or "").strip().upper()
+    if not text:
+        return False
+    if text in {str(c or "").strip().upper() for c in active_codes if c}:
+        return True
+    return (
+        len(text) in LIVE_ACCESS_CODE_LENGTHS
+        and all(ch in SESSION_CODE_ALPHABET for ch in text)
+        and any(ch.isalpha() for ch in text)
+    )
+
 
 def percent(answered: int, offered: int) -> float | None:
     """Participation percent, or None when nothing was offered."""

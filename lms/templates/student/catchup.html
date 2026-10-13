@@ -16,11 +16,21 @@
 <body>
 {% if closed %}
   <p class="closed">{{ closed }}</p>
+{% elif pin_step %}
+  <h1>Catch-up</h1>
+  {% if error %}<p class="err" data-key="{{ error }}">{{ error }}</p>{% endif %}
+  <form method="post" autocomplete="off">
+    <input type="hidden" name="action" value="pin">
+    <label for="personal_pin" data-key="{{ pin_label }}">{{ pin_label }}</label>
+    <input id="personal_pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}"
+           minlength="4" maxlength="4" autocomplete="off" required>
+    <p><button type="submit">Start</button></p>
+  </form>
 {% elif signin %}
   <h1>Catch-up</h1>
   {% if error %}<p class="err">{{ error }}</p>{% endif %}
   <form method="post">
-    <input type="hidden" name="action" value="signin">
+    <input type="hidden" name="action" value="who">
     <label for="join_code">Join code</label>
     <input id="join_code" name="join_code" autocomplete="off" required>
     <label for="codename">Your name</label>
@@ -28,9 +38,7 @@
       <option value="">Choose your name</option>
       {% for name in codenames %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
     </select>
-    <label for="pin">PIN</label>
-    <input id="pin" name="pin" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required>
-    <p><button type="submit">Start</button></p>
+    <p><button type="submit">Next</button></p>
   </form>
 {% else %}
   <h1>Catch-up</h1>

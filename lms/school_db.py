@@ -29704,7 +29704,7 @@ class SchoolDB(LovesDB):
         return {int(r[0]): str(r[1] or "") for r in rows}
 
     def catchup_sign_in(
-        self, token: str, join_code: str, codename: str, pin: str, *, now: float | None = None
+        self, token: str, join_code: str, codename: str, pin: str | None, *, now: float | None = None
     ) -> dict[str, Any]:
         """Check join code + roster codename (picker) + PIN for an open link.
 
@@ -29736,6 +29736,20 @@ class SchoolDB(LovesDB):
         if not code_ok or len(ids) != 1:
             return {"ok": False, "reason": "wrong"}
         stu = ids[0]
+        if pin is None:
+            # Screen 1 only checks join code + codename; never a PIN attempt.
+            return {"ok": False, "reason": "need_pin", "student_id": stu}
+        from participation import looks_like_join_code
+
+        with self._lock:
+            active = [
+                r[0] for r in self.conn.execute(
+                    "SELECT session_code FROM live_class_sessions WHERE status = 'active'"
+                ).fetchall()
+            ]
+        if looks_like_join_code(pin, [cls[0], *active]):
+            # Not a failed attempt: the student typed a join code, not a PIN.
+            return {"ok": False, "reason": "looks_like_join_code", "student_id": stu}
         self._ensure_student_pin_column()
         with self.game._lock:
             pin_row = self.game.conn.execute(
