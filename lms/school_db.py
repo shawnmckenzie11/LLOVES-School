@@ -1000,6 +1000,19 @@ CREATE TABLE IF NOT EXISTS portfolio_mark_suggestions (
     UNIQUE(class_id, module_number, student_id)
 );
 
+-- MCK-61: teacher engagement level overrides (not gradebook).
+CREATE TABLE IF NOT EXISTS engagement_level_overrides (
+    id INTEGER PRIMARY KEY,
+    class_id INTEGER NOT NULL,
+    run_key TEXT NOT NULL,
+    student_id INTEGER NOT NULL,
+    level INTEGER NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    teacher_user_id INTEGER NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(class_id, run_key, student_id)
+);
+
 -- MCK-133: Celebrations award periods. Append-only: Start fresh adds one
 -- row per class; the newest row in a semester is the class's current
 -- period. No row = first period (semester day 1). ``starts_at`` is school
@@ -2218,6 +2231,195 @@ class LovesDB:
         if store is None:
             return []
         return store.list_rollup(int(class_id), run_key=run_key, limit=limit)
+
+    def list_engagement_summary_runs(self, class_id: int) -> list[dict[str, Any]]:
+        """Ended runs that have engagement rollup rows (teacher-only picker)."""
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT run_key, MAX(rolled_at) AS rolled_at, MAX(live_session) AS live_session
+                FROM engagement_rollup
+                WHERE class_id = ?
+                GROUP BY run_key
+                ORDER BY rolled_at DESC, run_key DESC
+                """,
+                (int(class_id),),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            run_key = str(row["run_key"] or "")
+            if not run_key:
+                continue
+            label = self._live_label_for_run_key(int(class_id), run_key)
+            out.append(
+                {
+                    "run_key": run_key,
+                    "rolled_at": row["rolled_at"],
+                    "live_session": row["live_session"],
+                    "live_label": label,
+                }
+            )
+        return out
+
+    def _live_label_for_run_key(self, class_id: int, run_key: str) -> str:
+        """Resolve M1C1-style label for a run from participation or session state."""
+        with self._lock:
+            part = self.conn.execute(
+                """
+                SELECT live_module, live_slot FROM participation_items
+                WHERE class_id = ? AND run_key = ?
+                LIMIT 1
+                """,
+                (int(class_id), str(run_key)),
+            ).fetchone()
+            if part is not None:
+                module = str(part["live_module"] or "M1").upper()
+                slot = str(part["live_slot"] or "C1").upper()
+                return f"{module}{slot}"
+            snap = self.conn.execute(
+                """
+                SELECT live_module, live_slot FROM live_result_snapshots
+                WHERE class_id = ? AND run_key = ?
+                LIMIT 1
+                """,
+                (int(class_id), str(run_key)),
+            ).fetchone()
+            if snap is not None:
+                module = str(snap["live_module"] or "M1").upper()
+                slot = str(snap["live_slot"] or "C1").upper()
+                return f"{module}{slot}"
+            sess = self.conn.execute(
+                """
+                SELECT teacher_state_json FROM live_class_sessions
+                WHERE class_id = ? AND run_key = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (int(class_id), str(run_key)),
+            ).fetchone()
+        if sess is not None:
+            try:
+                state = json.loads(sess["teacher_state_json"] or "{}")
+            except (TypeError, ValueError):
+                state = {}
+            module = str(state.get("live_module") or "M1").upper()
+            slot = str(state.get("live_slot") or "C1").upper()
+            return f"{module}{slot}"
+        return run_key[:12] or "Live class"
+
+    def list_engagement_level_overrides(
+        self, class_id: int, run_key: str
+    ) -> dict[int, dict[str, Any]]:
+        """Teacher overrides for one run, keyed by student id."""
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT o.*, u.display_name AS teacher_name
+                FROM engagement_level_overrides o
+                LEFT JOIN users u ON u.id = o.teacher_user_id
+                WHERE o.class_id = ? AND o.run_key = ?
+                """,
+                (int(class_id), str(run_key)),
+            ).fetchall()
+        out: dict[int, dict[str, Any]] = {}
+        for row in rows:
+            sid = int(row["student_id"])
+            out[sid] = {
+                "level": int(row["level"]),
+                "note": str(row["note"] or ""),
+                "teacher_user_id": int(row["teacher_user_id"]),
+                "teacher_name": str(row["teacher_name"] or "Teacher"),
+                "updated_at": str(row["updated_at"] or ""),
+            }
+        return out
+
+    def set_engagement_level_override(
+        self,
+        class_id: int,
+        run_key: str,
+        student_id: int,
+        *,
+        level: int,
+        note: str,
+        teacher_user_id: int,
+    ) -> dict[str, Any]:
+        """Store a teacher engagement level override (never writes gradebook)."""
+        lvl = int(level)
+        if lvl not in {1, 2, 3, 4}:
+            raise ValueError("level must be 1–4")
+        text = str(note or "").strip()[:500]
+        now = _now()
+        with self._lock:
+            owned = self.game.conn.execute(
+                "SELECT 1 FROM students WHERE id = ? AND class_id = ?",
+                (int(student_id), int(class_id)),
+            ).fetchone()
+            if owned is None:
+                raise KeyError("student")
+            self.conn.execute(
+                """
+                INSERT INTO engagement_level_overrides (
+                    class_id, run_key, student_id, level, note, teacher_user_id, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(class_id, run_key, student_id) DO UPDATE SET
+                    level = excluded.level,
+                    note = excluded.note,
+                    teacher_user_id = excluded.teacher_user_id,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    int(class_id),
+                    str(run_key),
+                    int(student_id),
+                    lvl,
+                    text,
+                    int(teacher_user_id),
+                    now,
+                ),
+            )
+            self.conn.commit()
+        return self.list_engagement_level_overrides(int(class_id), str(run_key)).get(
+            int(student_id), {}
+        )
+
+    def engagement_summary_for_run(
+        self, class_id: int, run_key: str
+    ) -> dict[str, Any] | None:
+        """End-of-class engagement summary for one run (MCK-59)."""
+        from engagement_summary import build_summary
+
+        rows = self.list_engagement_rollup(int(class_id), run_key=str(run_key))
+        if not rows:
+            return None
+        try:
+            roster = list(self.game.dashboard(int(class_id), sort="az").get("students") or [])
+        except Exception:  # noqa: BLE001
+            roster = []
+        team_for = {
+            int(person["id"]): self.student_team_id_for_class(int(class_id), int(person["id"]))
+            for person in roster
+        }
+        team_names: dict[int, str] = {}
+        try:
+            board = self.game.scoreboard(int(class_id)) or {}
+            for team in board.get("teams") or []:
+                tid = team.get("id")
+                if tid in (None, ""):
+                    continue
+                team_names[int(tid)] = str(team.get("name") or f"Group {tid}")
+        except Exception:  # noqa: BLE001
+            team_names = {}
+        overrides = self.list_engagement_level_overrides(int(class_id), str(run_key))
+        label = self._live_label_for_run_key(int(class_id), str(run_key))
+        return build_summary(
+            rows=rows,
+            roster=roster,
+            team_for_student=team_for,
+            team_names=team_names,
+            run_key=str(run_key),
+            live_label=label,
+            overrides=overrides,
+        )
 
     def _rollup_engagement_for_session(self, session_id: int) -> int:
         """Aggregate engagement events for one ended run into ``engagement_rollup``.
@@ -3703,6 +3905,21 @@ class LovesDB:
                 override_json TEXT,
                 updated_at TEXT NOT NULL,
                 UNIQUE(class_id, module_number, student_id)
+            )
+            """
+        )
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS engagement_level_overrides (
+                id INTEGER PRIMARY KEY,
+                class_id INTEGER NOT NULL,
+                run_key TEXT NOT NULL,
+                student_id INTEGER NOT NULL,
+                level INTEGER NOT NULL,
+                note TEXT NOT NULL DEFAULT '',
+                teacher_user_id INTEGER NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(class_id, run_key, student_id)
             )
             """
         )

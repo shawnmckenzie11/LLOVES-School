@@ -209,6 +209,9 @@ def _seed_demo_participation(school: Any, class_id: int, teacher_id: int) -> dic
             "UPDATE live_class_sessions SET teacher_state_json = ? WHERE id = ?",
             (json.dumps({"live_module": "M1", "live_slot": slot}), session_id),
         )
+        school.record_engagement_event(
+            "present.join", session_id=session_id, student_id=maple_id
+        )
         for index, question in enumerate(LOCAL_DEV_M1_QUESTIONS):
             prompt_id = conn.execute(
                 "INSERT INTO live_session_prompts (live_session_id, slide_index, kind, payload, "
@@ -223,6 +226,19 @@ def _seed_demo_participation(school: Any, class_id: int, teacher_id: int) -> dic
                 (session_id, f"demo-M1-q{index}", f"demo-q{index}", json.dumps(question),
                  prompt_id, stamp, stamp, stamp),
             )
+            school.record_engagement_event(
+                "item.offered",
+                session_id=session_id,
+                item_ref=f"demo-q{index}",
+                payload={"mode": "individual"},
+            )
+            if index < answered:
+                school.record_engagement_event(
+                    "answer.submit",
+                    session_id=session_id,
+                    student_id=maple_id,
+                    item_ref=f"demo-q{index}",
+                )
             if index < answered:
                 conn.execute(
                     "INSERT INTO live_session_responses (prompt_id, student_id, response_json, "

@@ -7799,6 +7799,81 @@ body.staff-shell .live-pack-field[hidden] { display: none !important; }
 /* MCK-183: Process evidence is hidden on pack-less non-math courses. */
 body.staff-shell .ap-evidence-coverage[hidden] { display: none !important; }
 
+/* MCK-59: end-of-class engagement summary (Attendance & Participation). */
+body.staff-shell .ap-engagement-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+body.staff-shell .ap-engagement-run select {
+  min-width: 10rem;
+}
+body.staff-shell .ap-engagement-blindspots {
+  margin: 0.35rem 0 0.75rem;
+  padding-left: 1.1rem;
+}
+body.staff-shell .ap-engagement-group {
+  margin-bottom: 0.75rem;
+}
+body.staff-shell .ap-engagement-group h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+body.staff-shell .ap-engagement-students {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+body.staff-shell .ap-engagement-student {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 0.55rem;
+}
+body.staff-shell .ap-engagement-student-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+}
+body.staff-shell .ap-engagement-level-badge {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #1e3a8a;
+  background: #e0e7ff;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+}
+body.staff-shell .ap-engagement-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.25rem 0 0.35rem;
+}
+body.staff-shell .ap-engagement-evidence-chip {
+  font-size: 0.78rem;
+  background: #f1f5f9;
+  border-radius: 0.35rem;
+  padding: 0.1rem 0.4rem;
+}
+body.staff-shell .ap-engagement-override {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.35rem;
+}
+body.staff-shell .ap-engagement-override .field.compact {
+  margin: 0;
+}
+body.staff-shell .ap-engagement-override-meta {
+  flex: 1 1 8rem;
+}
+
 /* MCK-199 Student view: teacher-only mask for screen sharing. */
 body.staff-shell .live-header-student-view {
   display: inline-flex;

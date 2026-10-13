@@ -3835,7 +3835,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     view="attendance",
                 )
             )
-        if ap_view not in {"attendance", "participation", "feedback"}:
+        if ap_view not in {"attendance", "participation", "feedback", "engagement"}:
             ap_view = "attendance"
         portfolio_view = (request.args.get("view") or "build").strip().lower()
         if portfolio_view not in {"build", "marking"}:
@@ -8690,6 +8690,72 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             class_id, live_session=live_session, run_key=run_key, limit=limit
         )
         return jsonify({"ok": True, "events": events})
+
+    @app.route("/api/classes/<int:class_id>/engagement-summary/runs")
+    @login_required
+    def api_engagement_summary_runs(class_id: int):
+        """MCK-59: ended runs with rollup rows (teacher-only)."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        return jsonify({"ok": True, "runs": school.list_engagement_summary_runs(class_id)})
+
+    @app.route("/api/classes/<int:class_id>/engagement-summary")
+    @login_required
+    def api_engagement_summary(class_id: int):
+        """MCK-59: end-of-class engagement summary for one run."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        run_key = (request.args.get("run_key") or "").strip()
+        if not run_key:
+            runs = school.list_engagement_summary_runs(class_id)
+            if not runs:
+                return jsonify({"ok": True, "summary": None, "runs": []})
+            run_key = str(runs[0]["run_key"])
+        summary = school.engagement_summary_for_run(class_id, run_key)
+        if summary is None:
+            return jsonify({"ok": False, "error": "No rollup for this run."}), 404
+        return jsonify(
+            {
+                "ok": True,
+                "summary": summary,
+                "runs": school.list_engagement_summary_runs(class_id),
+            }
+        )
+
+    @app.route(
+        "/api/classes/<int:class_id>/engagement-summary/<run_key>/students/<int:student_id>",
+        methods=["PUT"],
+    )
+    @login_required
+    def api_engagement_level_override(class_id: int, run_key: str, student_id: int):
+        """MCK-61: teacher override + note (never gradebook)."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        body = request.get_json(silent=True) or {}
+        user = current_user()
+        try:
+            level = int(body.get("level"))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "level required (1–4)."}), 400
+        note = str(body.get("note") or "")
+        try:
+            row = school.set_engagement_level_override(
+                class_id,
+                str(run_key),
+                int(student_id),
+                level=level,
+                note=note,
+                teacher_user_id=int(user["id"]) if user else 0,
+            )
+        except KeyError:
+            return jsonify({"ok": False, "error": "Student not found."}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        summary = school.engagement_summary_for_run(class_id, str(run_key))
+        return jsonify({"ok": True, "override": row, "summary": summary})
 
     @app.route("/api/classes/<int:class_id>/dashboard")
     @login_required

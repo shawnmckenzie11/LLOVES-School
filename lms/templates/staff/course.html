@@ -932,6 +932,8 @@
            class="{{ 'on' if ap_view == 'participation' else '' }}">Participation</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='feedback') }}"
            class="{{ 'on' if ap_view == 'feedback' else '' }}">Feedback</a>
+        <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='engagement') }}"
+           class="{{ 'on' if ap_view == 'engagement' else '' }}">Engagement</a>
       </nav>
 
       {% if ap_view == 'attendance' %}
@@ -1079,6 +1081,26 @@
         </dialog>
       </div>
       <script type="module" src="/static/staff_feedback.js"></script>
+      {% elif ap_view == 'engagement' %}
+      <div id="engagement-summary-root" data-class-id="{{ cls.id }}">
+        <div class="topbar ap-engagement-bar">
+          <label class="field ap-engagement-run">
+            <span class="ap-view-label">Live class</span>
+            <select id="engagement-run-select" aria-label="Live class run"></select>
+          </label>
+          <p class="hint compact" id="engagement-run-status" hidden></p>
+        </div>
+        <div id="engagement-summary-error" class="error" hidden></div>
+        <section class="card ap-engagement-summary" id="engagement-summary-card" hidden>
+          <h2 class="track-step-title">End-of-class engagement</h2>
+          <p class="hint compact" id="engagement-rubric-rules"></p>
+          <ul class="ap-engagement-blindspots hint compact" id="engagement-blind-spots"></ul>
+          <div id="engagement-summary-groups"></div>
+          <div id="engagement-summary-ungrouped"></div>
+        </section>
+        <p class="hint" id="engagement-summary-empty">No engagement rollup yet. End a live class to see suggested engagement levels here.</p>
+      </div>
+      <script type="module" src="/static/staff_engagement_summary.js"></script>
       {% else %}
       <div id="grades-root" data-class-id="{{ cls.id }}">
         <div class="topbar ap-participation-bar">
