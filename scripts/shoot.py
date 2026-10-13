@@ -626,6 +626,49 @@ def _mck208_answer_all_catchup(school, class_id: int, student_id: int) -> None:
             )
 
 
+
+
+def _mck208_ensure_past_modules(school, class_id: int, student_id: int) -> None:
+    """Ensure Past modules section is visible for screenshots."""
+    cid, sid = int(class_id), int(student_id)
+    if school.student_dashboard_payload(cid, sid)["past_modules"]:
+        return
+    school.set_module_complete(cid, "M1", True)
+    with school._lock:
+        has_m2 = school.conn.execute(
+            "SELECT 1 FROM participation_items WHERE class_id = ? AND live_module = 'M2' LIMIT 1",
+            (cid,),
+        ).fetchone()
+        if not has_m2:
+            sample = school.conn.execute(
+                """
+                SELECT run_key, live_slot, question_key
+                FROM participation_items
+                WHERE class_id = ? AND live_module = 'M1'
+                LIMIT 1
+                """,
+                (cid,),
+            ).fetchone()
+            if sample is None:
+                raise SystemExit("No M1 participation rows; cannot fabricate M2 for past-modules shot.")
+            school.conn.execute(
+                """
+                INSERT OR IGNORE INTO participation_items (
+                    class_id, run_key, live_module, live_slot, question_key,
+                    item_json, prompt_kind, offered_at
+                ) VALUES (?, ?, 'M2', ?, ?, '{}', 'prompt', datetime('now'))
+                """,
+                (
+                    cid,
+                    f"{sample['run_key']}:mck208-past",
+                    str(sample["live_slot"] or "C1"),
+                    str(sample["question_key"]),
+                ),
+            )
+            school.conn.commit()
+    if not school.student_dashboard_payload(cid, sid)["past_modules"]:
+        raise SystemExit("No past modules for Maple; cannot shoot past-modules dashboard.")
+
 def _mck208_end_active_live(school, class_id: int) -> None:
     """End any active live session for this class (screenshot prep)."""
     live = school.get_active_live_session_for_class(int(class_id))
@@ -661,14 +704,6 @@ def shoot_mck208(base: str, out_dir: Path, path: Path, widths: list[int]) -> lis
             page.screenshot(path=str(finish_open), full_page=True)
             shots.append(finish_open)
 
-            _mck208_answer_all_catchup(school, class_id, student_id)
-            page.goto(dashboard_url, wait_until="domcontentloaded")
-            page.locator(".sd-header").wait_for(state="visible", timeout=30000)
-            page.get_by_text("All caught up.").wait_for(state="visible", timeout=30000)
-            caught_up = out_dir / f"mck208-dashboard-all-caught-up-{width}.png"
-            page.screenshot(path=str(caught_up), full_page=True)
-            shots.append(caught_up)
-
             live = school.start_live_class_session(class_id, int(teacher["id"]))
             page.goto(dashboard_url, wait_until="domcontentloaded")
             page.locator("#student-live-rejoin-strip", has_text="Rejoin class").wait_for(
@@ -696,9 +731,26 @@ def shoot_mck208(base: str, out_dir: Path, path: Path, widths: list[int]) -> lis
             school.end_live_class_session(int(live["id"]))
             page.goto(dashboard_url, wait_until="domcontentloaded")
             page.locator(".sd-header").wait_for(state="visible", timeout=30000)
+            page.locator("#student-live-rejoin-strip").wait_for(state="hidden", timeout=30000)
+            page.locator(".sd-finish-list").wait_for(state="visible", timeout=30000)
             after_end = out_dir / f"mck208-dashboard-after-live-end-{width}.png"
             page.screenshot(path=str(after_end), full_page=True)
             shots.append(after_end)
+
+            _mck208_answer_all_catchup(school, class_id, student_id)
+            page.goto(dashboard_url, wait_until="domcontentloaded")
+            page.locator(".sd-header").wait_for(state="visible", timeout=30000)
+            page.get_by_text("All caught up.").wait_for(state="visible", timeout=30000)
+            caught_up = out_dir / f"mck208-dashboard-all-caught-up-{width}.png"
+            page.screenshot(path=str(caught_up), full_page=True)
+            shots.append(caught_up)
+
+            _mck208_ensure_past_modules(school, class_id, student_id)
+            page.goto(dashboard_url, wait_until="domcontentloaded")
+            page.locator("#sd-past").wait_for(state="visible", timeout=30000)
+            past_mod = out_dir / f"mck208-dashboard-past-modules-{width}.png"
+            page.screenshot(path=str(past_mod), full_page=True)
+            shots.append(past_mod)
 
             context.close()
         browser.close()

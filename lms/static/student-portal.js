@@ -315,7 +315,8 @@ function paintDisplayTime(payload) {
     displayTimeEl.dataset.state = "paused";
     return;
   }
-  displayTimeEl.textContent = dt.label || "—";
+  const idleLabel = dt.label ? String(dt.label) : "";
+  displayTimeEl.textContent = idleLabel === "—" ? "" : idleLabel;
   displayTimeEl.dataset.state = "idle";
 }
 

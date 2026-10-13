@@ -14,8 +14,11 @@
   </p>
   <header class="sd-header">
     <p class="sd-codename">{{ dashboard.codename }}</p>
-    <p class="sd-course">{{ offering.title or offering.ontario_code }}</p>
-    <p class="sd-subtitle">{{ dashboard.header_subtitle }}</p>
+    {% set course_title = (offering.title or '')|trim %}
+    {% if course_title and course_title|upper != (offering.ontario_code or '')|upper %}
+    <p class="sd-course">{{ course_title }}</p>
+    {% endif %}
+    <p class="sd-subtitle">{{ offering.ontario_code }} · {{ dashboard.header_subtitle }}</p>
   </header>
   <main class="sd-main">
     <section class="sd-card" aria-labelledby="sd-this-module">
@@ -29,14 +32,17 @@
         {% endfor %}
       </div>
       <p class="sd-dot-legend" aria-hidden="true">
-        <span>{{ copy.dot_done }}</span>
-        <span>{{ copy.dot_missed }}</span>
-        <span>{{ copy.dot_upcoming }}</span>
+        <span class="sd-legend-item sd-legend-done">{{ copy.dot_done }}</span>
+        <span class="sd-legend-item sd-legend-missed">{{ copy.dot_missed }}</span>
+        <span class="sd-legend-item sd-legend-upcoming">{{ copy.dot_upcoming }}</span>
       </p>
       <div class="sd-slot-dots" aria-label="Classes in this module">
         {% for slot in dashboard.this_module.slots %}
         <span class="sd-slot-dot is-{{ slot.state }}" title="{{ slot.state_label }}: {{ slot.slot }}"
-              aria-label="{{ slot.state_label }} · {{ slot.slot }}">{{ slot.slot }}</span>
+              aria-label="{{ slot.state_label }} · {{ slot.slot }}">
+          <span class="sd-slot-id">{{ slot.slot }}</span>
+          <span class="sd-slot-state">{{ slot.state_label }}</span>
+        </span>
         {% endfor %}
       </div>
     </section>
@@ -48,8 +54,8 @@
         {% for row in dashboard.finish_these %}
         <li class="sd-finish-row{% if focus_catchup == row.token %} is-focus{% endif %}">
           <a class="sd-finish-link" href="{{ row.url }}?play=1">
-            <span class="sd-finish-label">{{ row.label }}</span>
-            <span class="sd-finish-meta">{{ row.open_count }} open</span>
+            <span class="sd-finish-text">{{ row.class_label }} · {{ row.open_count }} open</span>
+            <span class="sd-finish-chevron" aria-hidden="true">›</span>
           </a>
         </li>
         {% endfor %}

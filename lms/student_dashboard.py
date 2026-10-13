@@ -68,10 +68,17 @@ def module_number(live_module: str) -> int:
 
 
 def module_label(course_code: str, live_module: str) -> str:
-    """Header subtitle, e.g. ``MCF3M · Module 2``."""
-    course = str(course_code or "").strip().upper()
+    """Header subtitle under the course line (module only, no duplicate code)."""
     n = module_number(live_module)
-    return f"{course} · Module {n}" if n else course
+    return f"Module {n}" if n else ""
+
+
+def slot_class_label(live_slot: str) -> str:
+    """Finish-these row label, e.g. ``Class 1`` from ``C1``."""
+    slot = str(live_slot or "").strip().upper()
+    if slot.startswith("C") and slot[1:].isdigit():
+        return f"Class {slot[1:]}"
+    return slot or "Class"
 
 
 def level_bar_segments(level: int | None) -> list[dict[str, Any]]:

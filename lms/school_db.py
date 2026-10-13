@@ -30563,6 +30563,7 @@ class SchoolDB(LovesDB):
             module_number,
             past_module_summary,
             pick_current_module,
+            slot_class_label,
             slot_dot_state,
             slot_state_label,
         )
@@ -30608,6 +30609,7 @@ class SchoolDB(LovesDB):
                     "live_module": str(link.get("live_module") or ""),
                     "live_slot": str(link.get("live_slot") or ""),
                     "label": str(link.get("live_slot") or "").upper(),
+                    "class_label": slot_class_label(str(link.get("live_slot") or "")),
                     "open_count": len(open_q),
                     "url": self.catchup_canonical_path_for_link(
                         {**link, "class_id": cid}

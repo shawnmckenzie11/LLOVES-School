@@ -98,6 +98,15 @@ class Mck208DashboardTest(Base):
         self.assertIn("?play=1", html)
         self.assertIn("Finish these", html)
 
+
+    def test_finish_these_row_copy(self) -> None:
+        client = self.app.test_client()
+        _pin_sign_in(client, self, play=False)
+        html = client.get("/student/dashboard").get_data(as_text=True)
+        self.assertIn("open", html)
+        self.assertIn("sd-finish-chevron", html)
+        self.assertRegex(html, r"Class \d+ · \d+ open")
+
     def test_dashboard_payload_uses_participation_math(self) -> None:
         payload = self.school.student_dashboard_payload(self.class_id, self.students[0])
         card = payload["this_module"]
@@ -113,6 +122,13 @@ class Mck208StudentDashboardPureTest(unittest.TestCase):
         self.assertEqual(slot_dot_state(3, 3, True), "done")
         self.assertEqual(slot_dot_state(3, 1, True), "missed")
         self.assertEqual(slot_dot_state(0, 0, False), "upcoming")
+
+
+    def test_module_label_no_duplicate_code(self) -> None:
+        from student_dashboard import module_label, slot_class_label
+
+        self.assertEqual(module_label("MCF3M", "M2"), "Module 2")
+        self.assertEqual(slot_class_label("C1"), "Class 1")
 
     def test_wonder_copy_strings(self) -> None:
         from student_dashboard import (
