@@ -11,6 +11,7 @@
     .q { border: 1px solid #ddd; border-radius: .5rem; padding: .8rem; margin: .8rem 0; }
     .line { font-weight: 600; }
     .err { color: #a00; }
+    .help { color: #555; font-size: .9rem; margin: .3rem 0 0; }
   </style>
 </head>
 <body>
@@ -23,7 +24,8 @@
     <input type="hidden" name="action" value="pin">
     <label for="personal_pin" data-key="{{ pin_label.key }}">{{ pin_label.text }}</label>
     <input id="personal_pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}"
-           minlength="4" maxlength="4" autocomplete="off" required>
+           minlength="4" maxlength="4" autocomplete="off" aria-describedby="pin_help" required>
+    <p id="pin_help" class="help" data-key="{{ pin_help.key }}">{{ pin_help.text }}</p>
     <p><button type="submit">Start</button></p>
   </form>
 {% elif signin %}

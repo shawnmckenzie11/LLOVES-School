@@ -215,9 +215,11 @@ class CatchupTests(Base):
         self.assertIn("pin.label", step2)
         self.assertNotIn('name="join_code"', step2)
         self.assertIn("Your 4-digit PIN", step2)
+        self.assertIn("Not the class code. Ask your teacher if you forgot it.", step2)
+        self.assertIn('aria-describedby="pin_help"', step2)
         hint = client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "ABCD"}).get_data(as_text=True)
         self.assertIn('data-key="pin.looks_like_join_code"', hint)
-        self.assertIn("That looks like a class code. Enter your 4-digit PIN instead.", hint)
+        self.assertIn("That&#39;s your class code. Enter your 4-digit PIN instead.", hint)
         self.assertNotIn(">pin.", hint)
         for path in ("/", "/join"):
             rv = client.get(path, follow_redirects=True)

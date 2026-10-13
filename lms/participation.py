@@ -41,9 +41,11 @@ KEY_PIN_LOOKS_LIKE_JOIN_CODE = "pin.looks_like_join_code"
 KEY_PIN_LOCKED = "pin.locked"
 KEY_NAME_UNKNOWN = "name.unknown"
 KEY_PIN_WRONG = "pin.wrong"
+KEY_PIN_HELP = "pin.help"
 COPY_FALLBACKS = {
     KEY_PIN_LABEL: "Your 4-digit PIN",
-    KEY_PIN_LOOKS_LIKE_JOIN_CODE: "That looks like a class code. Enter your 4-digit PIN instead.",
+    KEY_PIN_LOOKS_LIKE_JOIN_CODE: "That's your class code. Enter your 4-digit PIN instead.",
+    KEY_PIN_HELP: "Not the class code. Ask your teacher if you forgot it.",
     KEY_PIN_LOCKED: "Too many tries. Wait 15 minutes or ask your teacher to reset your PIN.",
     KEY_NAME_UNKNOWN: "We couldn't find that name. Pick your name from the list.",
     KEY_PIN_WRONG: COPY_WRONG_PIN,

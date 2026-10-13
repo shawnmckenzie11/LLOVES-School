@@ -8526,6 +8526,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             COPY_CATCHUP_TAG,
             COPY_CLOSED,
             KEY_NAME_UNKNOWN,
+            KEY_PIN_HELP,
             KEY_PIN_LABEL,
             KEY_PIN_LOCKED,
             KEY_PIN_LOOKS_LIKE_JOIN_CODE,
@@ -8552,7 +8553,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         def pin_screen(error_key: str | None = None) -> Any:
             return render_template(
                 "student/catchup.html", pin_step=True, token=token,
-                pin_label=copy(KEY_PIN_LABEL), error=copy(error_key) if error_key else None,
+                pin_label=copy(KEY_PIN_LABEL), pin_help=copy(KEY_PIN_HELP),
+                error=copy(error_key) if error_key else None,
             )
 
         error = None
