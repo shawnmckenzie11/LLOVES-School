@@ -153,17 +153,16 @@ class HideNamesTests(unittest.TestCase):
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
         self.assertIn("#live-responses-dialog.is-key-hidden input.is-key-tick", css)
 
-    def test_switch_is_in_the_dialog_and_remembered(self) -> None:
-        """The dialog has the switch; the JS stores the choice."""
+    def test_switch_removed_for_student_view(self) -> None:
+        """MCK-199: the dialog switch is gone; Student view hides names instead."""
         html = COURSE_HTML.read_text(encoding="utf-8")
         dialog = html[html.index('id="live-responses-dialog"') :]
         dialog = dialog[: dialog.index("</dialog>")]
-        self.assertIn('id="live-hide-names"', dialog)
-        self.assertIn("Hide names", dialog)
+        self.assertNotIn('id="live-hide-names"', dialog)
+        self.assertNotIn("Hide names", dialog)
         js = STAFF_JS.read_text(encoding="utf-8")
-        self.assertIn('localStorage.getItem(HIDE_NAMES_KEY) === "1"', js)
-        self.assertIn("localStorage.setItem(HIDE_NAMES_KEY", js)
-        self.assertIn("setHideResponseNames(toggle.checked, { store: true })", js)
+        self.assertIn("let hideResponseNames = false;", js)
+        self.assertNotIn("setHideResponseNames(toggle.checked, { store: true })", js)
 
 
 if __name__ == "__main__":

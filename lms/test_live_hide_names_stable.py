@@ -210,7 +210,9 @@ console.log(JSON.stringify({ share: adjacent / pairs, longest }));
         self.assertIn("#live-responses-dialog::backdrop", css)
         self.assertIn("min-height: 2.25rem", css)
         js = STAFF_JS.read_text(encoding="utf-8")
-        self.assertIn('window.addEventListener("storage"', js)
+        # MCK-199: cross-tab sync now lives in Student view.
+        sv = (STAFF_JS.parent / "student_view.js").read_text(encoding="utf-8")
+        self.assertIn('addEventListener?.("storage"', sv)
         self.assertIn("syncHiddenNamesBackdrop()", js)
         self.assertIn("hide_names: hideResponseNames", js)
         self.assertIn("paintQuestionResponses(result.responses, true)", js)
