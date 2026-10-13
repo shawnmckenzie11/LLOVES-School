@@ -1242,13 +1242,50 @@ function groupSubmitterLine(row) {
 }
 
 /**
+ * True when the teacher is showing something students could see on a projector
+ * (MCK-64). The quiet strip is teacher-only and must not appear then.
+ * @returns {boolean}
+ */
+function liveProjectingForQuietStrip() {
+  if (Boolean(teacherState.scoreboard_visible)) return true;
+  for (const surface of ["media", "canvas", "slides"]) {
+    if (surfaceStatus(surface) === "active") return true;
+  }
+  const responses = $("live-responses-dialog");
+  if (responses instanceof HTMLDialogElement && responses.open) return true;
+  const rank = $("rank-score-dialog");
+  if (rank instanceof HTMLDialogElement && rank.open) return true;
+  return false;
+}
+
+/** Sync body class so CSS can hide quiet strips without a full group repaint. */
+let lastQuietStripSuppressed = null;
+function syncQuietStripSuppressed() {
+  const on =
+    studentViewOn() || hideResponseNames || liveProjectingForQuietStrip();
+  document.body?.classList.toggle("is-quiet-strip-suppressed", on);
+  if (lastQuietStripSuppressed !== on) {
+    lastQuietStripSuppressed = on;
+  }
+}
+
+/**
  * MCK-62: calm grey member dots under a group card (open = quiet).
- * Hidden while Student view is on (MCK-199 / MCK-64).
+ * Hidden while Student view, Hide names, or projecting is on (MCK-64 / MCK-199).
  * @param {boolean[]|null|undefined} dots
  * @returns {string}
  */
 function quietMemberStripHtml(dots) {
-  if (studentViewOn() || !Array.isArray(dots) || !dots.length) return "";
+  syncQuietStripSuppressed();
+  if (
+    studentViewOn() ||
+    hideResponseNames ||
+    liveProjectingForQuietStrip() ||
+    !Array.isArray(dots) ||
+    !dots.length
+  ) {
+    return "";
+  }
   const marks = dots
     .map((open) => `<span class="quiet-member-dot${open ? " is-open" : ""}"></span>`)
     .join("");
@@ -2569,6 +2606,7 @@ function lifecycleItemForSurface(surface) {
  * Paint Active/Inactive/Closed language for Media, Whiteboard, and Slides.
  */
 function paintSurfacePublishing() {
+  syncQuietStripSuppressed();
   const view = currentStudentView();
   for (const surface of ["media", "canvas", "slides"]) {
     const item = lifecycleItemForSurface(surface);
@@ -6067,6 +6105,7 @@ async function setHideResponseNames(on, options = {}) {
   if (options.store) {
     localStorage.setItem(HIDE_NAMES_KEY, hideResponseNames ? "1" : "0");
   }
+  syncQuietStripSuppressed();
   syncHiddenNamesBackdrop();
   const dialog = $("live-responses-dialog");
   const sessionId = liveSessionId || readLiveSessionId();
@@ -9570,6 +9609,7 @@ function renderTeamsPanel() {
 function syncScoreboardPreview() {
   const wrap = $("ap-scoreboard-preview-wrap");
   if (wrap) wrap.hidden = !Boolean(teacherState.scoreboard_visible);
+  syncQuietStripSuppressed();
 }
 
 /**

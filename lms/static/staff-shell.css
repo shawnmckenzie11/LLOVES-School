@@ -3374,7 +3374,8 @@ body.staff-shell .quiet-member-dot.is-open {
   background: transparent;
   border: 1px solid #94a3b8;
 }
-body.staff-shell.is-student-view .quiet-member-strip {
+body.staff-shell.is-student-view .quiet-member-strip,
+body.staff-shell.is-quiet-strip-suppressed .quiet-member-strip {
   display: none !important;
 }
 body.staff-shell .live-consensus-team .quiet-member-strip {
