@@ -90,15 +90,28 @@ fly certs check alc.mckenzian.com --app lloves-lms
 
 Grok Bot fast-forwards `production` to `main` per feature batch. Create or reset the deploy branch once with `git push origin main:production`.
 
-### One-time GitHub settings (MCK-52)
+### One-time GitHub settings (MCK-52) — done 2026-10-13
 
-1. **Settings → Environments → production → Deployment branches:** add `production` to the allowed list. Keep `main` allowed so **Attach live Postgres** (`.github/workflows/attach-live-postgres.yml`) can still use the `production` environment from `main`.
-2. **Settings → Branches → branch protection for `production`:** restrict who can push (Shawn / Grok Bot only), block branch deletion, and allow force-push (rollback only — see below).
+Shawn configured these on **2026-10-13**. Kept here for audit:
+
+1. **Settings → Environments → production → Deployment branches:** `production` and `main` are on the allowed list (`main` so **Attach live Postgres** can still request the `production` environment from `main`).
+2. **Settings → Branches → branch protection for `production`:** restrict who can push (Shawn / Grok Bot only), block branch deletion, and **block force-push** (only fast-forward updates; non-FF pushes are rejected).
 
 ### Rollback and hotfix
 
-- **Rollback (revert live to an older release):** force-push `production` to a known-good SHA, then approve the resulting Deploy run. Example: `git push origin <good-sha>:production --force`.
-- **Hotfix:** merge the fix to `main` (CI on the PR), then fast-forward `production` to `main` (`git push origin main:production`) and approve Deploy.
+- **Rollback (revert live to an older release):** revert the bad commit on `main` (PR or direct merge), then **promote** `production` to `main` (fast-forward only — see below). Do not force-push `production`; branch protection blocks non-fast-forward updates.
+- **Hotfix:** merge the fix to `main` (CI on the PR), then promote and approve Deploy.
+
+### Promote `main` → `production` (Grok Bot batch deploy)
+
+```bash
+git fetch origin
+git merge-base --is-ancestor origin/production origin/main \
+  || { echo "origin/production is not an ancestor of origin/main; resolve before FF"; exit 1; }
+git push origin main:production
+```
+
+Then approve the **Deploy LLOVES LMS** run on GitHub Actions.
 
 A push to `production` runs **Deploy LLOVES LMS** (`.github/workflows/deploy.yml`) through three jobs:
 
@@ -130,7 +143,7 @@ Sqlite on `lloves_data` stays the catalogue (users, rosters, packs, prompts, gra
 
 **alc:** `fly.toml` does not set either secret. Until one is on the machine, the running image keeps the sqlite hot path (WAL + autocommit).
 
-Attach with Actions → **Attach live Postgres** (`.github/workflows/attach-live-postgres.yml`). Merge does not run that job. The job waits for Shawn's approval on the `production` environment and only runs from `main`. The job creates `lloves-live` (Basic, `yyz`) when missing, `fly mpg attach` sets `DATABASE_URL`, then a restart-only secret deploy if `/health` is still not `postgres`. Basic is paid. If the token cannot authorize the charge, the job prints this and stops:
+**Attach live Postgres** (manual `workflow_dispatch` only — `.github/workflows/attach-live-postgres.yml`). Merging this repo does not run that job; **push to `main` does not run Deploy** (only `production` does). From Actions → **Attach live Postgres** → Run workflow, choose branch **`main`** when a rolling restart is acceptable. The job waits for Shawn's approval on the `production` environment. The job creates `lloves-live` (Basic, `yyz`) when missing, `fly mpg attach` sets `DATABASE_URL`, then a restart-only secret deploy if `/health` is still not `postgres`. Basic is paid. If the token cannot authorize the charge, the job prints this and stops:
 
 ```bash
 fly mpg create --name lloves-live --org <org> --region yyz --plan basic --pg-major-version 16 --volume-size 10
