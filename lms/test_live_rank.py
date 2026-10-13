@@ -353,7 +353,9 @@ class RankLiveSessionTests(unittest.TestCase):
         )
         self.assertNotIn("reveal", open_view)
         for row in open_view["status_board"]:
-            self.assertEqual(set(row), {"team_id", "team_name", "submitted"})
+            self.assertEqual(
+                set(row), {"team_id", "team_name", "submitted", "quiet_dots"}
+            )
         log = next(
             row for row in open_view["submitter_log"] if row["last_submitter"] == "Aspen"
         )
