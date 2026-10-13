@@ -1,0 +1,39 @@
+{
+  "level_kind": "engagement",
+  "level_label": "draft level",
+  "evidence_floor": 2,
+  "rules": [
+    "Levels are relative to what was offered in this class, not a fixed question count.",
+    "Group signals use each member's share of the team total.",
+    "Offered counts include only items published while the student was present.",
+    "Suggested levels stay at L1 until the evidence floor is met."
+  ],
+  "levels": [
+    {"level": 4, "min_score": 0.82},
+    {"level": 3, "min_score": 0.68},
+    {"level": 2, "min_score": 0.52},
+    {"level": 1, "min_score": 0.0}
+  ],
+  "signal_weights": {
+    "individual_answer": 0.35,
+    "group_vote": 0.12,
+    "group_draft": 0.12,
+    "group_submit": 0.12,
+    "board": 0.08,
+    "artifact": 0.08,
+    "checkin": 0.05,
+    "teacher_mark": 0.04,
+    "points": 0.04
+  },
+  "signal_caps": {
+    "checkin": 2,
+    "teacher_mark": 3,
+    "points": 5,
+    "board": 8
+  },
+  "blind_spots": [
+    "Talk and verbal contributions are not logged.",
+    "Paper work off-screen is invisible.",
+    "Shared devices can hide who did the work."
+  ]
+}

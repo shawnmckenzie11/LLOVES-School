@@ -150,6 +150,9 @@ def seed_local_dev_school(school: Any) -> dict[str, Any]:
     summary["participation_seed"] = _seed_demo_participation(
         school, int(class_row["id"]), int(shawn["id"])
     )
+    summary["engagement_roster"] = _seed_engagement_ap_roster(
+        school, int(class_row["id"])
+    )
     return summary
 
 
@@ -165,6 +168,62 @@ LOCAL_DEV_M1_QUESTIONS: tuple[dict[str, Any], ...] = (
 )
 # (live slot, how many of the questions Maple answered live)
 LOCAL_DEV_M1_RUNS: tuple[tuple[str, int], ...] = (("C1", 2), ("C2", 3))
+
+
+def _seed_engagement_ap_roster(school: Any, class_id: int) -> dict[str, Any]:
+    """Ensure Cedar exists on a team and Maple stays ungrouped for engagement UI demos.
+
+    Idempotent: safe on every local-dev boot.
+    """
+    from datetime import date
+
+    maple = school.game.find_student_by_codename(class_id, "Maple")
+    if maple is None:
+        return {"skipped": "no Maple"}
+    cedar = school.game.find_student_by_codename(class_id, "Cedar")
+    if cedar is None:
+        school.game.add_student(class_id, codename="Cedar")
+        cedar = school.game.find_student_by_codename(class_id, "Cedar")
+    if cedar is None:
+        return {"skipped": "no Cedar"}
+    maple_id = int(maple["id"])
+    cedar_id = int(cedar["id"])
+    game = school.game
+    game.begin_game(class_id, today=date(2026, 10, 12))
+    for sid in (maple_id, cedar_id):
+        game.mark_student_present_on_open_session(class_id, sid)
+    game.assign_teams(class_id, 2, "random")
+    with game._lock:
+        game.conn.execute("DELETE FROM game_memberships WHERE student_id = ?", (maple_id,))
+        game.conn.commit()
+    cedar_team_id = school.student_team_id_for_class(class_id, cedar_id)
+    if cedar_team_id is None:
+        board = game.scoreboard(int(class_id)) or {}
+        teams = list(board.get("teams") or [])
+        if not teams:
+            return {"skipped": "no teams"}
+        cedar_team_id = int(teams[0]["id"])
+        game_row = game.conn.execute(
+            "SELECT id FROM games WHERE class_id = ? ORDER BY id DESC LIMIT 1",
+            (int(class_id),),
+        ).fetchone()
+        if game_row is None:
+            return {"skipped": "no game"}
+        with game._lock:
+            game.conn.execute(
+                """
+                INSERT INTO game_memberships (game_id, team_id, student_id)
+                VALUES (?, ?, ?)
+                ON CONFLICT(game_id, student_id) DO UPDATE SET team_id = excluded.team_id
+                """,
+                (int(game_row[0]), int(cedar_team_id), cedar_id),
+            )
+            game.conn.commit()
+    return {
+        "maple_id": maple_id,
+        "cedar_id": cedar_id,
+        "cedar_team_id": int(cedar_team_id) if cedar_team_id is not None else None,
+    }
 
 
 def _seed_demo_participation(school: Any, class_id: int, teacher_id: int) -> dict[str, Any]:
@@ -209,6 +268,9 @@ def _seed_demo_participation(school: Any, class_id: int, teacher_id: int) -> dic
             "UPDATE live_class_sessions SET teacher_state_json = ? WHERE id = ?",
             (json.dumps({"live_module": "M1", "live_slot": slot}), session_id),
         )
+        school.record_engagement_event(
+            "present.join", session_id=session_id, student_id=maple_id
+        )
         for index, question in enumerate(LOCAL_DEV_M1_QUESTIONS):
             prompt_id = conn.execute(
                 "INSERT INTO live_session_prompts (live_session_id, slide_index, kind, payload, "
@@ -223,6 +285,19 @@ def _seed_demo_participation(school: Any, class_id: int, teacher_id: int) -> dic
                 (session_id, f"demo-M1-q{index}", f"demo-q{index}", json.dumps(question),
                  prompt_id, stamp, stamp, stamp),
             )
+            school.record_engagement_event(
+                "item.offered",
+                session_id=session_id,
+                item_ref=f"demo-q{index}",
+                payload={"mode": "individual"},
+            )
+            if index < answered:
+                school.record_engagement_event(
+                    "answer.submit",
+                    session_id=session_id,
+                    student_id=maple_id,
+                    item_ref=f"demo-q{index}",
+                )
             if index < answered:
                 conn.execute(
                     "INSERT INTO live_session_responses (prompt_id, student_id, response_json, "
