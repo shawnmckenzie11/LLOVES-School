@@ -1754,6 +1754,8 @@ class LiveBackendStateTests(unittest.TestCase):
             # MCK-155 option B: staff-only own picks per member.
             "pick_step",
             "picks",
+            # MCK-62: quiet-member strip (bools only).
+            "quiet_dots",
         }
         for team in bag["teams"]:
             self.assertTrue(set(team).issubset(allowed), team)

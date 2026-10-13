@@ -34,6 +34,14 @@ from engagement_rollup import rollup_ddl_postgres_parts, rollup_ddl_sqlite
 
 logger = logging.getLogger(__name__)
 
+# Kinds that count as touching a group item for the quiet-member strip (MCK-62).
+GROUP_ITEM_TOUCH_KINDS = (
+    "group.vote",
+    "group.draft_edit",
+    "board.ink_batch",
+    "board.text",
+)
+
 KINDS = frozenset(
     {
         "present.join", "present.leave", "present.stale", "present.resume",
@@ -225,6 +233,53 @@ class _Store:
             except (TypeError, ValueError):
                 row["payload"] = {}
             out.append(row)
+        return out
+
+    def touched_students_for_group_item(
+        self,
+        run_key: str,
+        item_ref: str,
+        team_board_keys: tuple[str, ...],
+        *,
+        kinds: tuple[str, ...] = GROUP_ITEM_TOUCH_KINDS,
+    ) -> set[int]:
+        """Roster ids with a vote, draft edit, or team-board ink on one item.
+
+        ``item_ref`` is the live item id as a string. Team-board ink is
+        matched by ``item_ref`` in ``team_board_keys`` (for example
+        ``team:3``). Staff-only; used on the teacher light poll.
+
+        Args:
+            run_key: ``live_class_sessions.run_key`` for the current run.
+            item_ref: ``live_session_items.id`` as a string.
+            team_board_keys: ``team:<id>`` keys for teams on the item.
+            kinds: Engagement kinds that clear quiet for a member.
+
+        Returns:
+            Student ids that have at least one matching event.
+        """
+        if not run_key or not kinds:
+            return set()
+        refs = [str(item_ref)]
+        for key in team_board_keys:
+            token = str(key or "").strip()
+            if token and token not in refs:
+                refs.append(token)
+        kind_marks = ",".join("?" * len(kinds))
+        ref_marks = ",".join("?" * len(refs))
+        rows = self._fetch(
+            f"SELECT DISTINCT student_id FROM engagement_events "
+            f"WHERE run_key = ? AND student_id IS NOT NULL "
+            f"AND kind IN ({kind_marks}) AND item_ref IN ({ref_marks})",
+            (str(run_key), *kinds, *refs),
+        )
+        out: set[int] = set()
+        for raw in rows:
+            row = dict(raw) if not isinstance(raw, dict) else raw
+            try:
+                out.add(int(row["student_id"]))
+            except (KeyError, TypeError, ValueError):
+                continue
         return out
 
     def list_for_class(

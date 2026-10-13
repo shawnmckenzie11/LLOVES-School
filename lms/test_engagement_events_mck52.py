@@ -104,6 +104,36 @@ class StoreTests(Base):
         self.assertFalse(throttle.allow(("a",), now=5))
         self.assertTrue(throttle.allow(("a",), now=11))
 
+    def test_touched_students_for_group_item(self) -> None:
+        """MCK-62: votes, draft edits, and team-board ink clear quiet."""
+        run_key = self.school.get_live_session(self.session_id)["run_key"]
+        item_ref = "42"
+        store = self.school.engagement
+        self.assertEqual(
+            store.touched_students_for_group_item(run_key, item_ref, ("team:1",)),
+            set(),
+        )
+        self.school.record_engagement_event(
+            "group.vote",
+            session_id=self.session_id,
+            student_id=self.students[0],
+            item_ref=item_ref,
+        )
+        self.school.record_engagement_event(
+            "group.draft_edit",
+            session_id=self.session_id,
+            student_id=self.students[1],
+            item_ref=item_ref,
+        )
+        self.school.record_engagement_event(
+            "board.ink_batch",
+            session_id=self.session_id,
+            student_id=self.students[0],
+            item_ref="team:1",
+        )
+        touched = store.touched_students_for_group_item(run_key, item_ref, ("team:1",))
+        self.assertEqual(touched, {self.students[0], self.students[1]})
+
 
 class EmitTests(Base):
     """P0.2/P0.3: routes emit after their own write succeeds."""

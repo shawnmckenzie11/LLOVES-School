@@ -115,7 +115,7 @@ import {
   spotsResults,
 } from "/static/rank_challenge_view.js";
 import { fullOrderHtml } from "/static/rank_full_order.js";
-import { mountStudentView } from "/static/student_view.js";
+import { mountStudentView, studentViewOn } from "/static/student_view.js";
 
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -1242,6 +1242,20 @@ function groupSubmitterLine(row) {
 }
 
 /**
+ * MCK-62: calm grey member dots under a group card (open = quiet).
+ * Hidden while Student view is on (MCK-199 / MCK-64).
+ * @param {boolean[]|null|undefined} dots
+ * @returns {string}
+ */
+function quietMemberStripHtml(dots) {
+  if (studentViewOn() || !Array.isArray(dots) || !dots.length) return "";
+  const marks = dots
+    .map((open) => `<span class="quiet-member-dot${open ? " is-open" : ""}"></span>`)
+    .join("");
+  return `<div class="quiet-member-strip" aria-hidden="true">${marks}</div>`;
+}
+
+/**
  * Match a status-board row to its submitter log row.
  * @param {any[]} log
  * @param {any} row
@@ -1909,12 +1923,14 @@ function groupStatusBoardHtml(result) {
       const line = groupSubmitterLine(source);
       // MCK-155 S3: keyed group MC gets a right/wrong mark once sent.
       const keyMark = submitted ? answerMarkHtml(row.correct) : "";
+      const quietStrip = quietMemberStripHtml(row.quiet_dots);
       return `<li>
         <span>${escapeHtml(row.team_name || source.team_name || "Group")}</span>
         <span class="group-status-mark">${mark}</span>
         ${keyMark}
         ${line ? `<span class="group-submitter-log">${escapeHtml(line)}</span>` : ""}
         ${groupPicksHtml(row)}
+        ${quietStrip}
       </li>`;
     })
     .join("")}</ul>`;
@@ -1962,6 +1978,7 @@ function adoptLightGroupResults(bag) {
             vote_count: Number(team.vote_count) || 0,
             eligible_count: Number(team.eligible_count) || 0,
             last_submitter: team.last_submitter || null,
+            ...(Array.isArray(team.quiet_dots) ? { quiet_dots: team.quiet_dots } : {}),
             final_answer: keepAnswers ? old.final_answer || null : null,
             member_answers: keepAnswers ? old.member_answers : undefined,
             vote_summary: keepAnswers ? old.vote_summary : undefined,
@@ -1986,6 +2003,8 @@ function adoptLightGroupResults(bag) {
           ...(Array.isArray(team.picks)
             ? { picks: team.picks, pick_step: Boolean(team.pick_step), member_count: Number(team.eligible_count) || 0 }
             : {}),
+          // MCK-62: quiet-member strip (bools only; no names).
+          ...(Array.isArray(team.quiet_dots) ? { quiet_dots: team.quiet_dots } : {}),
         })),
         ...(teams.some((team) => Array.isArray(team.picks))
           ? { any_picking: teams.some((team) => team.pick_step) }
@@ -5268,6 +5287,7 @@ function groupConsensusResultsHtml(result, revealed, liveItemId) {
               result?.item?.id || hostId
             )}" data-team-id="${Number(team.team_id)}">+1 team</button>`
           : "";
+      const quietStrip = quietMemberStripHtml(team.quiet_dots);
       return `<article class="live-consensus-team is-${escapeHtml(status)}">
         <p class="live-consensus-team-name">${escapeHtml(team.team_name || "Team")}</p>
         <p class="live-consensus-team-count"><span class="group-status-mark">${mark}</span> ${responded}/${eligible}</p>
@@ -5276,6 +5296,7 @@ function groupConsensusResultsHtml(result, revealed, liveItemId) {
             ? `<p class="group-submitter-log">${escapeHtml(line)}</p>`
             : ""
         }
+        ${quietStrip}
         ${answer}
         ${award}
         ${inspect}

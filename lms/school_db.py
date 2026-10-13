@@ -20653,16 +20653,21 @@ class SchoolDB(LovesDB):
             if row.get("student_id") not in (None, "")
         }
         member_counts: dict[int, int] = {}
+        roster_by_team: dict[int, list[int]] = {}
+        run_key = str(session_row.get("run_key") or "")
         for team in named:
             team_id = int(team["id"])
+            roster_ids: list[int] = []
             count = 0
             for member in team.get("members") or []:
                 try:
                     student_id = int(member["id"])
                 except (KeyError, TypeError, ValueError):
                     continue
+                roster_ids.append(student_id)
                 if student_id in present:
                     count += 1
+            roster_by_team[team_id] = roster_ids
             member_counts[team_id] = count
         out: dict[str, Any] = {}
         for item in items:
@@ -20704,6 +20709,9 @@ class SchoolDB(LovesDB):
                 teams = self._light_group_consensus_teams(
                     item_id, class_id, order, member_counts, present_ids=present
                 )
+            self._attach_quiet_member_dots(
+                item_id, teams, run_key=run_key, roster_by_team=roster_by_team
+            )
             entry: dict[str, Any] = {
                 "response_mode": mode,
                 "response_seq": self._group_results_seq(teams),
@@ -20728,6 +20736,59 @@ class SchoolDB(LovesDB):
                 entry["response_seq"] += self._rank_race_seq(race)
             out[str(item_id)] = entry
         return out
+
+    def _team_roster_member_ids(self, session_id: int, team_id: int) -> list[int]:
+        """Ordered roster ids for one named team (all members, not only present)."""
+        members: list[int] = []
+        for team in self._named_teams_for_live_session(session_id):
+            if int(team.get("id") or 0) != int(team_id):
+                continue
+            for member in team.get("members") or []:
+                try:
+                    members.append(int(member["id"]))
+                except (KeyError, TypeError, ValueError):
+                    continue
+            break
+        return members
+
+    def _attach_quiet_member_dots(
+        self,
+        live_item_id: int,
+        teams: list[dict[str, Any]],
+        *,
+        run_key: str,
+        roster_by_team: dict[int, list[int]],
+    ) -> None:
+        """Stamp ``quiet_dots`` on thin team rows for the teacher strip (MCK-62).
+
+        Each bool is True when the member has no vote, draft edit, or team-board
+        ink on this item in the current run. Names are never sent on the poll.
+
+        Args:
+            live_item_id: Active ``live_session_items.id``.
+            teams: Thin team rows for one active group item.
+            run_key: Current ``live_class_sessions.run_key`` (from the poll).
+            roster_by_team: Member ids per team, built once per light poll.
+        """
+        store = getattr(self, "engagement", None)
+        if store is None or not teams:
+            return
+        if not run_key:
+            for team in teams:
+                team.pop("quiet_dots", None)
+            return
+        team_ids = [int(team.get("team_id") or 0) for team in teams if int(team.get("team_id") or 0)]
+        board_keys = tuple(f"team:{tid}" for tid in team_ids)
+        touched = store.touched_students_for_group_item(
+            run_key, str(int(live_item_id)), board_keys
+        )
+        for team in teams:
+            team_id = int(team.get("team_id") or 0)
+            roster = roster_by_team.get(team_id) or []
+            if not roster:
+                team.pop("quiet_dots", None)
+                continue
+            team["quiet_dots"] = [int(sid) not in touched for sid in roster]
 
     @staticmethod
     def _group_results_seq(teams: list[dict[str, Any]]) -> str:
@@ -20761,6 +20822,13 @@ class SchoolDB(LovesDB):
         # MCK-155 gate LOW-2: a presence change moves the denominator, so
         # it must repaint the teacher row too.
         seq += ":" + ",".join(str(int(team.get("eligible_count") or 0)) for team in teams)
+        # MCK-62: quiet-member dots repaint when engagement touches move.
+        quiet = "".join(
+            "".join("o" if open_dot else "c" for open_dot in (team.get("quiet_dots") or []))
+            for team in teams
+        )
+        if quiet:
+            seq += f":q{quiet}"
         return seq
 
     def _light_group_submit_teams(
