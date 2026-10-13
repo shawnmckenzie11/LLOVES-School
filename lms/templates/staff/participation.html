@@ -1,74 +1,113 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Participation</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Participation · {{ school_name }}</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+  <link rel="stylesheet" href="/static/staff-shell.css">
+  {% include "_sentry_browser.html" %}
   <style>
-    body { font-family: system-ui, sans-serif; margin: 1.5rem; }
-    table { border-collapse: collapse; } td, th { border: 1px solid #ddd; padding: .35rem .6rem; text-align: left; }
-    .muted { color: #666; font-size: .85rem; }
-    .badge { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .8rem; font-weight: 600; }
-    .badge.open { background: #dcfce7; color: #166534; } .badge.closed { background: #e5e7eb; color: #374151; }
-    .pin-slips { margin: 1rem 0; padding: .75rem; border: 1px dashed #ccc; }
-    .pin-slip { margin: .35rem 0; font-family: ui-monospace, monospace; }
+    body.staff-shell .participation-table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    body.staff-shell .participation-table td,
+    body.staff-shell .participation-table th { border: 1px solid var(--border, #ddd); padding: .35rem .6rem; text-align: left; }
+    body.staff-shell .pin-slips { margin: 1rem 0; padding: .75rem; border: 1px dashed var(--border, #ccc); }
+    body.staff-shell .pin-slip { margin: .35rem 0; font-family: ui-monospace, monospace; }
+    body.staff-shell .catchup-run { margin: .5rem 0; }
+    body.staff-shell .badge.discarded { background: #fee2e2; color: #991b1b; }
     @media print { .no-print { display: none; } }
   </style>
 </head>
-<body>
-  <h1>Participation</h1>
-  <p class="muted">Individual live questions answered / offered per module. Group questions and team points are not included. Answers after class count the same and are marked.</p>
-  <table>
-    <thead>
-      <tr>
-        <th>Student</th>
-        {% for m in data.modules %}
-          <th>{{ m.module }} ({{ m.offered }})<br>
-            <button type="button" data-module="{{ m.module }}" data-complete="{{ 0 if m.complete else 1 }}" class="mark">
-              {% if m.complete %}Module {{ m.module }} complete · Undo{% else %}Mark Module {{ m.module }} Complete{% endif %}
-            </button>
-            <label><input type="checkbox" class="l4g" data-module="{{ m.module }}" {% if m.l4_needs_group %}checked{% endif %} {% if m.complete %}disabled{% endif %}> Level 4 needs group work</label>
-          </th>
-        {% endfor %}
-        <th>PIN</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in data.students %}
+<body class="staff-shell staff-participation">
+  <div class="wrap">
+    <nav class="staff-top-menu" aria-label="Staff navigation">
+      <a class="staff-top-btn" href="{{ url_for('staff_home') }}">Dashboard</a>
+      <a class="staff-top-btn" href="{{ url_for('staff_course', class_id=class_id, tab='ap', view='participation') }}">Class</a>
+      <span class="staff-top-spacer"></span>
+      {% if user and user.role == 'it' %}<a class="staff-top-link" href="{{ url_for('it_dashboard') }}">Admin</a>{% endif %}
+      <a class="staff-top-link" href="{{ url_for('logout') }}">Log out</a>
+    </nav>
+
+    <p class="kicker">Attendance &amp; Participation</p>
+    <h1>Module participation &amp; catch-up links</h1>
+    <p class="sub">Individual live questions answered / offered per module. Group questions and team points are not included. Answers after class count the same and are marked.</p>
+
+    <table class="participation-table card">
+      <thead>
         <tr>
-          <td>{{ names.get(row.student_id, "") }}</td>
+          <th>Student</th>
           {% for m in data.modules %}
-            {% set c = row.modules[m.module] %}
-            <td>{{ c.answered }}/{{ c.offered }}
-              {% if c.percent is not none %} · {{ c.percent }}% · {% if c.level %}L{{ c.level }}{% else %}below L1{% endif %}{% endif %}
-              {% if c.catchup %}<span class="muted">({{ c.catchup }} after class)</span>{% endif %}
-            </td>
+            <th>{{ m.module }} ({{ m.offered }})<br>
+              <button type="button" data-module="{{ m.module }}" data-complete="{{ 0 if m.complete else 1 }}" class="btn secondary mark">
+                {% if m.complete %}Module {{ m.module }} complete · Undo{% else %}Mark Module {{ m.module }} Complete{% endif %}
+              </button>
+              <label><input type="checkbox" class="l4g" data-module="{{ m.module }}" {% if m.l4_needs_group %}checked{% endif %} {% if m.complete %}disabled{% endif %}> Level 4 needs group work</label>
+            </th>
           {% endfor %}
-          <td><input size="4" maxlength="4" inputmode="numeric" data-pin="{{ row.student_id }}" aria-label="New PIN"><button type="button" class="pin" data-sid="{{ row.student_id }}">Set</button></td>
+          <th>PIN</th>
         </tr>
+      </thead>
+      <tbody>
+        {% for row in data.students %}
+          <tr>
+            <td>{{ names.get(row.student_id, "") }}</td>
+            {% for m in data.modules %}
+              {% set c = row.modules[m.module] %}
+              <td>{{ c.answered }}/{{ c.offered }}
+                {% if c.percent is not none %} · {{ c.percent }}% · {% if c.level %}L{{ c.level }}{% else %}below L1{% endif %}{% endif %}
+                {% if c.catchup %}<span class="muted">({{ c.catchup }} after class)</span>{% endif %}
+              </td>
+            {% endfor %}
+            <td><input size="4" maxlength="4" inputmode="numeric" data-pin="{{ row.student_id }}" aria-label="New PIN"><button type="button" class="btn secondary pin" data-sid="{{ row.student_id }}">Set</button></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if pin_slips %}
+    <h2>Default catch-up PINs</h2>
+    <p class="hint no-print">Hand these out once. Students keep this PIN all course; reset clears the slip.</p>
+    <div class="pin-slips" id="pin-slips">
+      {% for slip in pin_slips %}
+        <p class="pin-slip"><strong>{{ slip.name }}</strong> — {{ slip.slip }}</p>
       {% endfor %}
-    </tbody>
-  </table>
-  {% if pin_slips %}
-  <h2>Default catch-up PINs</h2>
-  <p class="muted no-print">Hand these out once. Students keep this PIN all course; reset clears the slip.</p>
-  <div class="pin-slips" id="pin-slips">
-    {% for slip in pin_slips %}
-      <p class="pin-slip"><strong>{{ slip.name }}</strong> — {{ slip.slip }}</p>
-    {% endfor %}
+    </div>
+    <button type="button" class="btn secondary no-print" onclick="window.print()">Print PIN list</button>
+    {% endif %}
+
+        {% if pin_alerts %}
+    <div class="card pin-alerts no-print" role="status">
+      <h2>Catch-up PIN alerts</h2>
+      <p class="hint">Many wrong PIN tries for these students. They are not locked out; check in with them.</p>
+      <ul>
+        {% for alert in pin_alerts %}
+        <li><strong>{{ alert.name }}</strong> — {{ alert.failures }} wrong tries (15 min)</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <h2>Catch-up links</h2>
+    <ul class="catchup-runs">
+      {% for l in links %}
+        <li class="catchup-run">
+          {{ l.live_module }} {{ l.live_slot }}:
+          <span class="badge {{ 'open' if l.is_open else 'closed' }}{% if l.discarded %} discarded{% endif %}">
+            {% if l.discarded %}Discarded{% elif l.is_open %}Open{% else %}Closed{% endif %}
+          </span>
+          {% if not l.discarded %}
+          <label class="switch"><input type="checkbox" class="toggle" data-token="{{ l.token }}" {% if l.is_open %}checked{% endif %} aria-label="Link open"> Open</label>
+          {% endif %}
+          <button type="button" class="btn secondary copy" data-url="{{ l.url }}">Copy link</button>
+          {% if not l.discarded %}
+          <button type="button" class="btn secondary discard no-print" data-run="{{ l.run_key }}" data-label="{{ l.live_module }} {{ l.live_slot }}">Discard run</button>
+          {% endif %}
+        </li>
+      {% else %}
+        <li class="muted">A link appears after End Live Class.</li>
+      {% endfor %}
+    </ul>
   </div>
-  <button type="button" class="no-print" onclick="window.print()">Print PIN list</button>
-  {% endif %}
-  <h2>Catch-up links</h2>
-  <ul>
-    {% for l in links %}
-      <li>{{ l.live_module }} {{ l.live_slot }}:
-        <span class="badge {{ 'open' if l.is_open else 'closed' }}">{{ "Open" if l.is_open else "Closed" }}</span>
-        <label class="switch"><input type="checkbox" class="toggle" data-token="{{ l.token }}" {% if l.is_open %}checked{% endif %} aria-label="Link open"> Open</label>
-        <button type="button" class="copy" data-url="{{ l.url }}">Copy link</button></li>
-    {% else %}
-      <li class="muted">A link appears after End Live Class.</li>
-    {% endfor %}
-  </ul>
   <script>
     const base = "/api/classes/{{ class_id }}";
     const post = (url, body, method = "POST") => fetch(url, {method, headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)}).then((r) => r.ok ? location.reload() : r.json().then((j) => alert(j.error || "Error")));
@@ -80,6 +119,11 @@
       catch (e) { window.prompt("Copy this link", b.dataset.url); }
     });
     document.querySelectorAll(".pin").forEach((b) => b.onclick = () => post(`${base}/students/${b.dataset.sid}/pin`, {pin: document.querySelector(`[data-pin="${b.dataset.sid}"]`).value}, "PUT"));
+    document.querySelectorAll(".discard").forEach((b) => b.onclick = () => {
+      const label = b.dataset.label || "this run";
+      if (!window.confirm(`Discard ${label}? Its answers will not count toward participation.`)) return;
+      post(`${base}/participation/runs/${encodeURIComponent(b.dataset.run)}/discard`, {confirm: true});
+    });
   </script>
 </body>
 </html>

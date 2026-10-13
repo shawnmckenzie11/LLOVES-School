@@ -23,10 +23,22 @@ SLIP_TEMPLATE = "Your catch-up PIN: {pin} (not the join code)"
 
 
 def fernet_from_secret(secret: str) -> Fernet:
-    """Build a Fernet instance keyed from ``FLASK_SECRET_KEY``."""
+    """Build Fernet for default-PIN ciphertext (HKDF from app secret or env key)."""
     if Fernet is None:
         raise RuntimeError("cryptography package is required for default PIN encryption")
-    key = base64.urlsafe_b64encode(hashlib.sha256(str(secret or "").encode()).digest())
+    import os
+
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+    raw = os.getenv("DEFAULT_PIN_KEY") or str(secret or "")
+    derived = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=b"default-pin",
+    ).derive(raw.encode())
+    key = base64.urlsafe_b64encode(derived)
     return Fernet(key)
 
 

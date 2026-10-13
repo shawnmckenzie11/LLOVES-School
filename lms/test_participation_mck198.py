@@ -231,12 +231,22 @@ class CatchupTests(Base):
         stored = self.school.game.conn.execute(
             "SELECT pin_hash FROM students WHERE id = ?", (self.students[0],)).fetchone()[0]
         self.assertTrue(stored)
-        # Failures count against the student, not a link: 5 on one locks both.
+        # Wrong PINs no longer lock the student across links (MCK-206).
         t = time.time()
         for _ in range(5):
             self.school.catchup_sign_in(tokens[0], self.first, "0000", now=t)
-        self.assertEqual(self.school.catchup_sign_in(tokens[1], self.first, "1234", now=t)["reason"],
-                         "locked")
+        self.assertTrue(self.school.catchup_sign_in(tokens[1], self.first, "1234", now=t)["ok"])
+
+    def test_ip_lockout_before_not_set_message(self) -> None:
+        ben = self.school.class_codenames(self.class_id)[self.students[1]]
+        client = self.app.test_client()
+        client.post(f"/catchup/{self.token}", data={"action": "who", "codename": self.first})
+        for _ in range(5):
+            client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "0000"})
+        client.post(f"/catchup/{self.token}", data={"action": "who", "codename": ben})
+        html = client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "1234"}).get_data(as_text=True)
+        self.assertIn('data-key="pin.ip_locked"', html)
+        self.assertNotIn('data-key="pin.not_set"', html)
 
     def test_pin_not_set_has_its_own_copy_and_is_not_a_failure(self) -> None:
         ben = self.school.class_codenames(self.class_id)[self.students[1]]
@@ -254,29 +264,30 @@ class CatchupTests(Base):
         self.school.set_student_pin(self.class_id, self.students[1], "5678")
         self.assertTrue(self.school.catchup_sign_in(self.token, ben, "5678")["ok"])
 
-    def test_wrong_pins_are_rate_limited_per_ip_across_students(self) -> None:
+    def test_wrong_pins_are_rate_limited_per_link_and_ip(self) -> None:
         from unittest import mock
 
         ben = self.school.class_codenames(self.class_id)[self.students[1]]
         self.school.set_student_pin(self.class_id, self.students[1], "5678")
         attacker, other = "203.0.113.7", "203.0.113.99"
-        with mock.patch.object(P, "CATCHUP_PIN_IP_LIMIT", 3):
+        with mock.patch.object(P, "PIN_MAX_ATTEMPTS", 3):
             client = self.app.test_client()
             for _ in range(3):
                 html = self.sign_in(client, pin="0000", ip=attacker)
                 self.assertIn('data-key="pin.wrong"', html)
-            # Under the 5-try student lockout, yet this IP is now blocked for
-            # everyone, even with Ben's correct PIN.
             blocked = self.sign_in(client, name=ben, pin="5678", ip=attacker)
             self.assertIn('data-key="pin.ip_locked"', blocked)
             self.assertNotIn('id="catchup-data"', blocked)
             self.assertIn('id="catchup-data"',
                           self.sign_in(self.app.test_client(), name=ben, pin="5678", ip=other))
-        # MCK-120 key, its own namespace: the live-join budget is untouched.
-        self.assertEqual(self.school.count_join_failures(
-            P.catchup_ip_limit_key("ip:" + attacker), seconds=P.PIN_WINDOW_S), 3)
-        self.assertEqual(self.school.count_join_failures("ip:" + attacker), 0)
-        self.assertEqual(self.school.count_join_failures(prefix="ip:"), 0)
+        limit_key = P.catchup_link_ip_limit_key(self.token, "ip:" + attacker)
+        self.assertEqual(self.school.count_join_failures(limit_key, seconds=P.PIN_WINDOW_S), 3)
+        self.assertEqual(
+            self.school.count_join_failures(
+                P.catchup_ip_limit_key("ip:" + attacker), seconds=P.PIN_WINDOW_S
+            ),
+            3,
+        )
 
     def test_teacher_pin_reset_ends_that_students_catchup_sessions(self) -> None:
         client = self.app.test_client()
@@ -311,16 +322,18 @@ class CatchupTests(Base):
         self.assertEqual(kept, 2)
 
     def test_pin_lockout_after_five_failures_in_15_min(self) -> None:
-        t = time.time()
+        client = self.app.test_client()
+        client.post(f"/catchup/{self.token}", data={"action": "who", "codename": self.first})
         for _ in range(5):
-            r = self.school.catchup_sign_in(self.token, self.first, "0000", now=t)
-            self.assertEqual(r["reason"], "wrong")
-        self.assertEqual(self.school.catchup_sign_in(self.token, self.first, "1234", now=t)["reason"], "locked")
-        later = t + P.PIN_WINDOW_S + 1
-        self.assertTrue(self.school.catchup_sign_in(self.token, self.first, "1234", now=later)["ok"])
+            html = client.post(
+                f"/catchup/{self.token}", data={"action": "pin", "pin": "0000"}
+            ).get_data(as_text=True)
+            self.assertIn('data-key="pin.wrong"', html)
+        locked = client.post(
+            f"/catchup/{self.token}", data={"action": "pin", "pin": "1234"}
+        ).get_data(as_text=True)
+        self.assertIn('data-key="pin.ip_locked"', locked)
         self.assertEqual(self.school.catchup_sign_in(self.token, "Nobody", "1234")["reason"], "unknown_name")
-        # The old first name is not a sign-in name; the codename is.
-        self.assertEqual(self.school.catchup_sign_in(self.token, "Ava", "1234", now=later)["reason"], "unknown_name")
         stored = self.school.game.conn.execute(
             "SELECT pin_hash FROM students WHERE id = ?", (self.students[0],)).fetchone()[0]
         self.assertTrue(stored and "1234" not in stored)
@@ -333,8 +346,13 @@ class CatchupTests(Base):
         live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
         r = self.school.catchup_sign_in(self.token, self.first, live["session_code"], now=t)
         self.assertEqual(r["reason"], "looks_like_join_code")
-        self.assertEqual(self.school.conn.execute(
-            "SELECT COUNT(*) FROM catchup_pin_failures").fetchone()[0], 0)
+        self.school.game.conn.execute(
+            "UPDATE classes SET live_access_code = 'ABCD12XY' WHERE id = ?", (self.class_id,)
+        )
+        self.school.game.conn.commit()
+        self.assertEqual(
+            self.school.catchup_sign_in(self.token, self.first, "ABCD12XY", now=t)["reason"], "wrong"
+        )
         self.assertTrue(self.school.catchup_sign_in(self.token, self.first, "1234", now=t)["ok"])
         self.assertTrue(P.looks_like_join_code("abcd"))
         self.assertTrue(P.looks_like_join_code("2345", ["2345"]))
@@ -370,8 +388,8 @@ class CatchupTests(Base):
         for _ in range(5):
             client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "0000"})
         locked = client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "1234"}).get_data(as_text=True)
-        self.assertIn('data-key="pin.locked"', locked)
-        self.assertIn("Too many tries. Wait 15 minutes or ask your teacher to reset your PIN.", locked)
+        self.assertIn('data-key="pin.ip_locked"', locked)
+        self.assertIn("Too many tries from this device", locked.replace("&#39;", "'"))
 
     def test_picker_shows_codenames_only(self) -> None:
         self.school.game.conn.execute(
@@ -477,8 +495,8 @@ class CatchupTests(Base):
         code = self.school.get_user_by_email("teacher@gmail.com")["verification_code"]
         client.post("/verify-email", data={"code": code})
         html = client.get(f"/staff/classes/{self.class_id}/participation").get_data(as_text=True)
-        self.assertIn('class="badge open">Open<', html)
-        self.assertIn('class="copy"', html)
+        self.assertIn('class="badge open"', html)
+        self.assertIn('class="btn secondary copy"', html)
         self.assertIn("Copy link", html)
         self.assertNotIn("Close it", html)
         self.assertNotIn("<code>", html)

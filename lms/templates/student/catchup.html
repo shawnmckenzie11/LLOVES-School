@@ -56,8 +56,10 @@
       </form>
       <script type="application/json" id="catchup-data">{{ {"tag": tag, "questions": questions} | tojson }}</script>
       <script type="module" src="/static/catchup.js"></script>
+    {% elif pin_modal and pin_prompt %}
+      <p class="sub">No catch-up questions on this link right now. Set your personal PIN below so you can open catch-up later.</p>
     {% else %}
-      <p class="sub">You're all caught up for this class.</p>
+      <p class="sub">You're all caught up on catch-up questions for this link.</p>
     {% endif %}
 {% endif %}
   </div>

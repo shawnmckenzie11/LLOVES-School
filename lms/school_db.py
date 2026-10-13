@@ -771,6 +771,20 @@ CREATE TABLE IF NOT EXISTS catchup_pin_failures (
 );
 CREATE INDEX IF NOT EXISTS idx_catchup_pin_failures
     ON catchup_pin_failures(class_id, student_id, failed_at);
+CREATE TABLE IF NOT EXISTS catchup_pin_unlocks (
+    class_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
+    unlocked_at TEXT NOT NULL,
+    PRIMARY KEY (class_id, student_id)
+);
+CREATE TABLE IF NOT EXISTS participation_runs (
+    class_id INTEGER NOT NULL,
+    run_key TEXT NOT NULL,
+    discarded INTEGER NOT NULL DEFAULT 0,
+    discarded_at TEXT,
+    discarded_by INTEGER,
+    PRIMARY KEY (class_id, run_key)
+);
 
 CREATE TABLE IF NOT EXISTS live_result_snapshots (
     id INTEGER PRIMARY KEY,
@@ -2230,7 +2244,20 @@ class LovesDB:
         store = getattr(self, "engagement", None)
         if store is None:
             return []
-        return store.list_rollup(int(class_id), run_key=run_key, limit=limit)
+        rows = store.list_rollup(int(class_id), run_key=run_key, limit=limit)
+        if run_key is not None:
+            return rows
+        with self._lock:
+            discarded = {
+                str(r[0])
+                for r in self.conn.execute(
+                    "SELECT run_key FROM participation_runs WHERE class_id = ? AND discarded = 1",
+                    (int(class_id),),
+                ).fetchall()
+            }
+        if not discarded:
+            return rows
+        return [r for r in rows if str(r.get("run_key") or "") not in discarded]
 
     def list_engagement_summary_runs(self, class_id: int) -> list[dict[str, Any]]:
         """Ended runs that have engagement rollup rows (teacher-only picker)."""
@@ -30022,10 +30049,14 @@ class SchoolDB(LovesDB):
             where += " AND p.live_module = ?"
             params.append(str(module))
         pair = "p.live_slot || char(31) || p.question_key"
+        discard_clause = (
+            " AND NOT EXISTS (SELECT 1 FROM participation_runs dr "
+            "WHERE dr.class_id = p.class_id AND dr.run_key = p.run_key AND dr.discarded = 1)"
+        )
         with self._lock:
             offered_rows = self.conn.execute(
                 f"SELECT p.live_module, COUNT(DISTINCT {pair}) AS n FROM participation_items p "
-                f"WHERE {where} GROUP BY p.live_module",
+                f"WHERE {where}{discard_clause} GROUP BY p.live_module",
                 params,
             ).fetchall()
             ans_where, ans_params = where, list(params)
@@ -30041,7 +30072,7 @@ class SchoolDB(LovesDB):
                 INNER JOIN participation_items p
                     ON p.class_id = a.class_id AND p.run_key = a.run_key
                    AND p.question_key = a.question_key
-                WHERE {ans_where}
+                WHERE {ans_where}{discard_clause}
                 GROUP BY a.student_id, p.live_module
                 """,
                 ans_params,
@@ -30093,11 +30124,75 @@ class SchoolDB(LovesDB):
     def list_catchup_links(self, class_id: int) -> list[dict[str, Any]]:
         with self._lock:
             rows = self.conn.execute(
-                "SELECT token, run_key, live_module, live_slot, is_open, created_at "
-                "FROM catchup_links WHERE class_id = ? ORDER BY id",
+                """
+                SELECT c.token, c.run_key, c.live_module, c.live_slot, c.is_open, c.created_at,
+                       COALESCE(r.discarded, 0) AS discarded
+                FROM catchup_links c
+                LEFT JOIN participation_runs r
+                    ON r.class_id = c.class_id AND r.run_key = c.run_key
+                WHERE c.class_id = ? ORDER BY c.id
+                """,
                 (int(class_id),),
             ).fetchall()
-        return [dict(r) for r in rows]
+        out = []
+        for row in rows:
+            item = dict(row)
+            item["discarded"] = bool(int(item.get("discarded") or 0))
+            out.append(item)
+        return out
+
+    def participation_run_discarded(self, class_id: int, run_key: str) -> bool:
+        """True when a teacher marked this run as discarded (MCK-206)."""
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT discarded FROM participation_runs WHERE class_id = ? AND run_key = ?",
+                (int(class_id), str(run_key or "").strip()),
+            ).fetchone()
+        return bool(row and int(row["discarded"] or 0))
+
+    def set_participation_run_discarded(
+        self,
+        class_id: int,
+        run_key: str,
+        discarded: bool,
+        *,
+        user_id: int | None = None,
+    ) -> bool:
+        """Soft-discard a live run so its answers do not count toward participation."""
+        key = str(run_key or "").strip()
+        if not key:
+            return False
+        cid = int(class_id)
+        with self._lock:
+            exists = self.conn.execute(
+                "SELECT 1 FROM participation_items WHERE class_id = ? AND run_key = ? LIMIT 1",
+                (cid, key),
+            ).fetchone()
+            if exists is None:
+                return False
+            now = _now()
+            self.conn.execute(
+                """
+                INSERT INTO participation_runs (class_id, run_key, discarded, discarded_at, discarded_by)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(class_id, run_key) DO UPDATE SET
+                    discarded = excluded.discarded,
+                    discarded_at = excluded.discarded_at,
+                    discarded_by = excluded.discarded_by
+                """,
+                (cid, key, 1 if discarded else 0, now if discarded else None, user_id if discarded else None),
+            )
+            if discarded:
+                self.conn.execute(
+                    """
+                    UPDATE catchup_links SET is_open = 0, updated_at = ?
+                    WHERE class_id = ? AND run_key = ?
+                    """,
+                    (now, cid, key),
+                )
+            if self.conn.in_transaction:
+                self.conn.commit()
+        return True
 
     def get_catchup_link(self, token: str) -> dict[str, Any] | None:
         with self._lock:
@@ -30116,6 +30211,281 @@ class SchoolDB(LovesDB):
                 self.conn.commit()
         return cur.rowcount == 1
 
+
+
+    def reserve_catchup_pin_attempts(
+        self,
+        keys: list[str],
+        limits: dict[str, int],
+        *,
+        window_s: int,
+    ) -> list[int] | None:
+        """Reserve rate-limit rows atomically; return row ids or None when over cap."""
+        from participation import PIN_WINDOW_S
+
+        window = int(window_s or PIN_WINDOW_S)
+        cutoff = (
+            datetime.now() - timedelta(seconds=window)
+        ).replace(microsecond=0).isoformat()
+        stamp = _now()
+        with self._lock:
+            for key in keys:
+                if not key:
+                    continue
+                cap = int(limits.get(key, 0))
+                if cap <= 0:
+                    continue
+                row = self.conn.execute(
+                    """
+                    SELECT COUNT(*) AS n FROM student_code_attempts
+                    WHERE ip = ? AND ts >= ?
+                    """,
+                    (str(key), cutoff),
+                ).fetchone()
+                if int(row["n"] if row else 0) >= cap:
+                    return None
+            ids: list[int] = []
+            for key in keys:
+                if not key:
+                    continue
+                cur = self.conn.execute(
+                    "INSERT INTO student_code_attempts (ip, ts) VALUES (?, ?)",
+                    (str(key), stamp),
+                )
+                ids.append(int(cur.lastrowid))
+            self.conn.commit()
+            return ids
+
+    def release_catchup_pin_attempts(self, row_ids: list[int]) -> None:
+        """Drop reserved attempt rows after a successful PIN check."""
+        if not row_ids:
+            return
+        placeholders = ",".join("?" for _ in row_ids)
+        with self._lock:
+            self.conn.execute(
+                f"DELETE FROM student_code_attempts WHERE id IN ({placeholders})",
+                [int(x) for x in row_ids],
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+
+    def catchup_pin_student_gate(self, class_id: int, student_id: int) -> str | None:
+        """Return a participation copy key when this student must wait or is soft-locked."""
+        from participation import (
+            CATCHUP_PIN_STUDENT_SOFT_CAP,
+            KEY_PIN_STUDENT_SOFT,
+            KEY_PIN_TRY_LATER,
+            PIN_WINDOW_S,
+            catchup_pin_progressive_delay_s,
+        )
+
+        cid, sid = int(class_id), int(student_id)
+        cutoff = (
+            datetime.now() - timedelta(seconds=int(PIN_WINDOW_S))
+        ).replace(microsecond=0).isoformat()
+        with self._lock:
+            unlock = self.conn.execute(
+                """
+                SELECT unlocked_at FROM catchup_pin_unlocks
+                WHERE class_id = ? AND student_id = ?
+                """,
+                (cid, sid),
+            ).fetchone()
+            if unlock is not None:
+                return None
+            row = self.conn.execute(
+                """
+                SELECT COUNT(*) AS n, MAX(failed_at) AS last_at
+                FROM catchup_pin_failures
+                WHERE class_id = ? AND student_id = ? AND failed_at >= ?
+                """,
+                (cid, sid, cutoff),
+            ).fetchone()
+        failures = int(row["n"] if row else 0)
+        if failures >= int(CATCHUP_PIN_STUDENT_SOFT_CAP):
+            return KEY_PIN_STUDENT_SOFT
+        return None
+
+    def teacher_unlock_catchup_pin(self, class_id: int, student_id: int) -> None:
+        """Clear per-student catch-up PIN failures after teacher unlock."""
+        cid, sid = int(class_id), int(student_id)
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO catchup_pin_unlocks (class_id, student_id, unlocked_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(class_id, student_id) DO UPDATE SET unlocked_at = excluded.unlocked_at
+                """,
+                (cid, sid, _now()),
+            )
+            self.conn.execute(
+                "DELETE FROM catchup_pin_failures WHERE class_id = ? AND student_id = ?",
+                (cid, sid),
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+
+    def catchup_pin_alerts_for_teacher(self, teacher_user_id: int) -> list[dict[str, Any]]:
+        """PIN guess alerts across classes this teacher owns (staff dashboard)."""
+        active = self.get_active_semester()
+        if not active:
+            return []
+        classes = self.list_staff_classes(int(teacher_user_id), int(active["id"]))
+        out: list[dict[str, Any]] = []
+        for row in classes:
+            cid = int(row["id"])
+            if not self.teacher_owns_class(int(teacher_user_id), cid):
+                continue
+            for alert in self.catchup_pin_guess_alerts(cid):
+                alert = dict(alert)
+                alert["class_id"] = cid
+                alert["course_code"] = str(row.get("course_code") or row.get("ontario_code") or "")
+                out.append(alert)
+        return out
+
+    def catchup_portal_session_valid(
+        self, flask_session: Any, class_id: int, student_id: int
+    ) -> bool:
+        """True when the browser holds a non-expired catch-up portal session."""
+        import time as _time
+
+        cid = int(class_id)
+        sid = int(student_id)
+        want_stamp = self.catchup_pin_stamp(cid, sid)
+        if not want_stamp:
+            return False
+        now = _time.time()
+        for key, held in dict(flask_session or {}).items():
+            if not str(key).startswith("catchup:") or str(key).endswith(":who"):
+                continue
+            if not isinstance(held, dict):
+                continue
+            if float(held.get("exp") or 0) <= now:
+                continue
+            if int(held.get("cid") or 0) != cid or int(held.get("sid") or 0) != sid:
+                continue
+            if str(held.get("pin") or "") == want_stamp:
+                return True
+        return False
+
+    def authorize_student_pin_change(
+        self,
+        class_id: int,
+        student_id: int,
+        flask_session: Any,
+    ) -> None:
+        """Require a signed-in catch-up portal session (no live-class PIN guessing).
+
+        Raises:
+            PermissionError: The caller may not change this student's PIN.
+        """
+        if self.catchup_portal_session_valid(flask_session, int(class_id), int(student_id)):
+            return
+        raise PermissionError("catch-up portal sign-in required")
+
+    def student_catchup_pin_hash_set(self, class_id: int, student_id: int) -> bool:
+        """True when this student already has a catch-up PIN hash on file."""
+        with self.game._lock:
+            row = self.game.conn.execute(
+                "SELECT pin_hash FROM students WHERE id = ? AND class_id = ?",
+                (int(student_id), int(class_id)),
+            ).fetchone()
+        return bool(row and str(row[0] or "").strip())
+
+    def verify_student_current_pin(
+        self, class_id: int, student_id: int, current_pin: str
+    ) -> bool:
+        """Check the student's current catch-up PIN (empty only when none is set)."""
+        from participation import check_pin
+
+        with self.game._lock:
+            row = self.game.conn.execute(
+                "SELECT pin_hash FROM students WHERE id = ? AND class_id = ?",
+                (int(student_id), int(class_id)),
+            ).fetchone()
+        digest = str(row[0] or "").strip() if row else ""
+        if not digest:
+            return not str(current_pin or "").strip()
+        return check_pin(str(current_pin), digest)
+
+    def refresh_catchup_portal_pin_stamp(
+        self, flask_session: Any, class_id: int, student_id: int
+    ) -> None:
+        """Update catch-up session stamps after the student sets a new PIN."""
+        import time as _time
+
+        from participation import CATCHUP_SESSION_S
+
+        cid, sid = int(class_id), int(student_id)
+        stamp = self.catchup_pin_stamp(cid, sid)
+        now = _time.time()
+        for key, held in list(dict(flask_session or {}).items()):
+            if not str(key).startswith("catchup:") or str(key).endswith(":who"):
+                continue
+            if not isinstance(held, dict):
+                continue
+            if int(held.get("cid") or 0) != cid or int(held.get("sid") or 0) != sid:
+                continue
+            held = dict(held)
+            held["pin"] = stamp
+            held["exp"] = max(float(held.get("exp") or 0), now + CATCHUP_SESSION_S)
+            flask_session[key] = held
+
+    def record_catchup_pin_failure(self, class_id: int, student_id: int) -> int:
+        """Count one wrong catch-up PIN for a roster student (does not lock them out)."""
+        from participation import PIN_WINDOW_S
+
+        cutoff = (
+            datetime.now() - timedelta(seconds=int(PIN_WINDOW_S))
+        ).replace(microsecond=0).isoformat()
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO catchup_pin_failures (class_id, student_id, failed_at)
+                VALUES (?, ?, ?)
+                """,
+                (int(class_id), int(student_id), _now()),
+            )
+            row = self.conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM catchup_pin_failures
+                WHERE class_id = ? AND student_id = ? AND failed_at >= ?
+                """,
+                (int(class_id), int(student_id), cutoff),
+            ).fetchone()
+            if self.conn.in_transaction:
+                self.conn.commit()
+        return int(row["n"] if row is not None else 0)
+
+    def catchup_pin_guess_alerts(self, class_id: int) -> list[dict[str, Any]]:
+        """Students with many wrong catch-up PIN tries (teacher alert, not student lockout)."""
+        from participation import CATCHUP_PIN_STUDENT_ALERT, PIN_WINDOW_S
+
+        cutoff = (
+            datetime.now() - timedelta(seconds=int(PIN_WINDOW_S))
+        ).replace(microsecond=0).isoformat()
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT student_id, COUNT(*) AS n
+                FROM catchup_pin_failures
+                WHERE class_id = ? AND failed_at >= ?
+                GROUP BY student_id
+                HAVING n >= ?
+                ORDER BY n DESC, student_id
+                """,
+                (int(class_id), cutoff, int(CATCHUP_PIN_STUDENT_ALERT)),
+            ).fetchall()
+        names = self.class_codenames(int(class_id))
+        return [
+            {
+                "student_id": int(r["student_id"]),
+                "name": names.get(int(r["student_id"]), ""),
+                "failures": int(r["n"]),
+            }
+            for r in rows
+        ]
+
     def catchup_pin_stamp(self, class_id: int, student_id: int) -> str:
         """Fingerprint of the student's current PIN hash, ``""`` when none is set.
 
@@ -30132,7 +30502,14 @@ class SchoolDB(LovesDB):
             ).fetchone()
         return pin_stamp(str(row[0] or "")) if row is not None else ""
 
-    def set_student_pin(self, class_id: int, student_id: int, pin: str) -> None:
+    def set_student_pin(
+        self,
+        class_id: int,
+        student_id: int,
+        pin: str,
+        *,
+        pin_set_by: str = "teacher",
+    ) -> None:
         """Set or reset one student's course-wide catch-up PIN (``students.pin_hash``).
 
         One PIN per student for the whole course, reused on every catch-up
@@ -30140,11 +30517,22 @@ class SchoolDB(LovesDB):
         student's open catch-up sessions. Clears any stored default-PIN
         ciphertext (MCK-204).
         """
-        from participation import hash_pin, valid_pin
+        from participation import check_pin, hash_pin, valid_pin
 
         if not valid_pin(pin):
             raise ValueError("PIN must be 4 digits.")
         with self.game._lock:
+            existing = self.game.conn.execute(
+                "SELECT pin_hash FROM students WHERE id = ? AND class_id = ?",
+                (int(student_id), int(class_id)),
+            ).fetchone()
+            if (
+                pin_set_by == "student"
+                and existing
+                and str(existing[0] or "").strip()
+                and check_pin(str(pin), str(existing[0]))
+            ):
+                raise ValueError("Choose a different PIN than your current one.")
             self.game.conn.execute(
                 """
                 UPDATE students SET pin_hash = ?, default_pin_ciphertext = NULL
@@ -30177,14 +30565,24 @@ class SchoolDB(LovesDB):
                 """,
                 (int(class_id),),
             ).fetchall()
+        decrypt_failures = 0
         for row in rows:
             try:
                 pin = decrypt_pin(str(row["default_pin_ciphertext"]), secret)
             except ValueError:
+                decrypt_failures += 1
                 continue
             name = str(row["codename"] or row["first_name"] or "").strip()
             slip = SLIP_TEMPLATE.format(pin=pin)
             out.append({"student_id": int(row["id"]), "name": name, "slip": slip})
+        if decrypt_failures:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "default_pin_decrypt_failures class_id=%s count=%s",
+                int(class_id),
+                decrypt_failures,
+            )
         return out
 
     def ensure_default_pins_for_class(self, class_id: int, secret: str) -> dict[str, int]:
@@ -30219,14 +30617,14 @@ class SchoolDB(LovesDB):
                     continue
                 pin = generate_unique_default_pin(class_code=class_code, used=used)
                 pin_hash, ciphertext = assign_default_pin_fields(pin, secret)
-                self.game.conn.execute(
+                cur = self.game.conn.execute(
                     """
                     UPDATE students SET pin_hash = ?, default_pin_ciphertext = ?
                     WHERE id = ? AND class_id = ? AND TRIM(COALESCE(pin_hash, '')) = ''
                     """,
                     (pin_hash, ciphertext, int(row["id"]), int(class_id)),
                 )
-                if self.game.conn.total_changes:
+                if int(cur.rowcount or 0) > 0:
                     assigned += 1
                     used.append(pin)
             if self.game.conn.in_transaction:
@@ -30455,23 +30853,14 @@ class SchoolDB(LovesDB):
         Returns ``{ok, student_id}`` or ``{ok: False, reason}`` with reason
         ``missing``, ``closed``, ``unknown_name``, ``need_pin`` (screen 1 passed),
         ``not_set`` (teacher has not set a PIN; not counted),
-        ``looks_like_join_code`` (not counted), ``locked`` or ``wrong``.
+        ``looks_like_join_code`` (not counted), or ``wrong``.
         A success also carries ``pin_stamp`` for the session (see
         ``catchup_pin_stamp``). The PIN is the student's one course PIN on
         ``students.pin_hash``, the same for every link.
-        Five failures in 15 minutes lock that student. The count and the
-        insert share one ``BEGIN IMMEDIATE`` transaction, so workers cannot
-        race past the limit.
+        Per-link client throttling (``link_ip_key``) is enforced in the HTTP
+        layer; this method does not lock students after repeated wrong PINs.
         """
-        import time as _time
-
-        from participation import (
-            PIN_MAX_ATTEMPTS,
-            PIN_WINDOW_S,
-            check_pin,
-            looks_like_join_code,
-            pin_stamp,
-        )
+        from participation import check_pin, looks_like_join_code, pin_stamp
 
         link = self.get_catchup_link(token)
         if link is None:
@@ -30488,49 +30877,30 @@ class SchoolDB(LovesDB):
         if pin is None:
             return {"ok": False, "reason": "need_pin", "student_id": stu}
         with self.game._lock:
-            cls = self.game.conn.execute(
-                "SELECT live_access_code FROM classes WHERE id = ?", (class_id,)
-            ).fetchone()
             pin_row = self.game.conn.execute(
                 "SELECT pin_hash FROM students WHERE id = ? AND class_id = ?", (stu, class_id)
             ).fetchone()
         with self._lock:
-            active = [r[0] for r in self.conn.execute(
-                "SELECT session_code FROM live_class_sessions WHERE status = 'active'"
-            ).fetchall()]
+            active = [
+                r[0]
+                for r in self.conn.execute(
+                    "SELECT session_code FROM live_class_sessions WHERE status = 'active'"
+                ).fetchall()
+            ]
         stored = str(pin_row[0] or "") if pin_row is not None else ""
+        if looks_like_join_code(pin, active):
+            return {"ok": False, "reason": "looks_like_join_code", "student_id": stu}
         if not stored:
             return {"ok": False, "reason": "not_set", "student_id": stu}
-        if looks_like_join_code(pin, [cls[0] if cls is not None else "", *active]):
-            return {"ok": False, "reason": "looks_like_join_code", "student_id": stu}
-        t = _time.time() if now is None else now
-        # PBKDF2 is slow; never run it while holding the sqlite write lock.
         matched = check_pin(str(pin or ""), stored)
-        with self._lock:
-            self.conn.execute("BEGIN IMMEDIATE")
-            try:
-                fails = int(self.conn.execute(
-                    "SELECT COUNT(*) FROM catchup_pin_failures WHERE class_id = ? "
-                    "AND student_id = ? AND failed_at > ?",
-                    (class_id, stu, t - PIN_WINDOW_S),
-                ).fetchone()[0])
-                if fails >= PIN_MAX_ATTEMPTS:
-                    result = {"ok": False, "reason": "locked"}
-                elif matched:
-                    result = {"ok": True, "student_id": stu, "class_id": class_id,
-                              "pin_stamp": pin_stamp(stored)}
-                else:
-                    self.conn.execute(
-                        "INSERT INTO catchup_pin_failures (class_id, student_id, failed_at) "
-                        "VALUES (?, ?, ?)",
-                        (class_id, stu, t),
-                    )
-                    result = {"ok": False, "reason": "wrong"}
-                self.conn.execute("COMMIT")
-            except BaseException:
-                self.conn.execute("ROLLBACK")
-                raise
-        return result
+        if matched:
+            return {
+                "ok": True,
+                "student_id": stu,
+                "class_id": class_id,
+                "pin_stamp": pin_stamp(stored),
+            }
+        return {"ok": False, "reason": "wrong", "student_id": stu}
 
     def catchup_questions(self, token: str, student_id: int) -> list[dict[str, Any]]:
         """This class's individual questions for one student, for the catch-up page.

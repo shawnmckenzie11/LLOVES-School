@@ -3288,6 +3288,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             school.get_active_live_session_for_class(int(row["id"])) is not None
             for row in classes
         )
+        catchup_pin_alerts = school.catchup_pin_alerts_for_teacher(int(user["id"]))
         html = render_template(
             "staff/home.html",
             user=user,
@@ -3295,6 +3296,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             offerings=offerings,
             classes=classes,
             active_live_session=active_live_session,
+            catchup_pin_alerts=catchup_pin_alerts,
             whats_new_hold=whats_new_hold,
             tour_offer=_tour_offer(user, classes),
             plain_teacher=bool(offerings)
@@ -8460,7 +8462,12 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
     def _catchup_links_payload(class_id: int) -> list[dict[str, Any]]:
         return [
-            {**link, "is_open": bool(link["is_open"]), "url": _catchup_url(link["token"])}
+            {
+                **link,
+                "is_open": bool(link["is_open"]),
+                "discarded": bool(link.get("discarded")),
+                "url": _catchup_url(link["token"]),
+            }
             for link in school.list_catchup_links(class_id)
         ]
 
@@ -8528,6 +8535,29 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": "Not found."}), 404
         return jsonify({"ok": True, "open": bool(body.get("open"))})
 
+    @app.route(
+        "/api/classes/<int:class_id>/participation/runs/<path:run_key>/discard",
+        methods=["POST"],
+    )
+    @login_required
+    def api_discard_participation_run(class_id: int, run_key: str):
+        """Soft-discard a live run so its answers do not count toward participation."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        body = request.get_json(silent=True) or {}
+        if not body.get("confirm"):
+            return jsonify({"ok": False, "error": "Confirmation required."}), 400
+        user = current_user()
+        if not school.set_participation_run_discarded(
+            class_id,
+            run_key,
+            True,
+            user_id=int(user["id"]) if user else None,
+        ):
+            return jsonify({"ok": False, "error": "Not found."}), 404
+        return jsonify({"ok": True, "discarded": True})
+
     @app.route("/api/classes/<int:class_id>/students/<int:student_id>/pin", methods=["PUT"])
     @login_required
     def api_set_student_pin(class_id: int, student_id: int):
@@ -8547,6 +8577,27 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": str(exc)}), 400
         return jsonify({"ok": True})
 
+    @app.route(
+        "/api/classes/<int:class_id>/students/<int:student_id>/catchup-pin-unlock",
+        methods=["POST"],
+    )
+    @login_required
+    def api_catchup_pin_unlock(class_id: int, student_id: int):
+        """Clear per-student catch-up PIN try limits after teacher review."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        user = current_user()
+        if user is None or not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden."}), 403
+        owned = school.game.conn.execute(
+            "SELECT 1 FROM students WHERE id = ? AND class_id = ?", (student_id, class_id)
+        ).fetchone()
+        if owned is None:
+            return jsonify({"ok": False, "error": "Not found."}), 404
+        school.teacher_unlock_catchup_pin(class_id, student_id)
+        return jsonify({"ok": True})
+
     @app.route("/staff/classes/<int:class_id>/participation")
     @login_required
     def staff_participation_page(class_id: int):
@@ -8557,6 +8608,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         data = school.class_participation(class_id)
         names = school.class_codenames(class_id)
         pin_slips = school.teacher_default_pin_slips(class_id, str(app.secret_key or ""))
+        pin_alerts = school.catchup_pin_guess_alerts(class_id)
+        user = current_user()
         return render_template(
             "staff/participation.html",
             class_id=class_id,
@@ -8564,6 +8617,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             names=names,
             links=_catchup_links_payload(class_id),
             pin_slips=pin_slips,
+            pin_alerts=pin_alerts,
+            user=user,
+            school_name=SCHOOL_NAME,
         )
 
     @app.route("/catchup/<token>", methods=["GET", "POST"])
@@ -8584,12 +8640,13 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             KEY_PIN_HELP,
             KEY_PIN_IP_LOCKED,
             KEY_PIN_LABEL,
-            KEY_PIN_LOCKED,
             KEY_PIN_LOOKS_LIKE_JOIN_CODE,
             KEY_PIN_NOT_SET,
             KEY_PIN_WRONG,
+            PIN_MAX_ATTEMPTS,
             PIN_WINDOW_S,
             catchup_ip_limit_key,
+            catchup_link_ip_limit_key,
             copy,
         )
 
@@ -8626,13 +8683,31 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 return pin_screen()
             error = copy(KEY_NAME_UNKNOWN)
         elif action == "pin" and float(pending.get("exp") or 0) > _time.time():
-            # MCK-120 client key: caps wrong PINs from one client across every
-            # student and link, on top of the per-student lockout.
-            ip_key = catchup_ip_limit_key(join_limit_ip_key(request_client_ip()))
-            if school.count_join_failures(ip_key, seconds=PIN_WINDOW_S) >= CATCHUP_PIN_IP_LIMIT:
+            client_ip_key = join_limit_ip_key(request_client_ip())
+            global_ip_key = catchup_ip_limit_key(client_ip_key)
+            link_ip_key = catchup_link_ip_limit_key(token, client_ip_key)
+            limits = {
+                global_ip_key: CATCHUP_PIN_IP_LIMIT,
+                link_ip_key: PIN_MAX_ATTEMPTS,
+            }
+            reserved = school.reserve_catchup_pin_attempts(
+                [global_ip_key, link_ip_key], limits, window_s=PIN_WINDOW_S
+            )
+            if reserved is None:
                 return pin_screen(KEY_PIN_IP_LOCKED)
-            result = school.catchup_sign_in(token, pending.get("name", ""), request.form.get("pin", ""))
+            pre = school.catchup_sign_in(token, pending.get("name", ""), None)
+            if pre.get("reason") == "need_pin":
+                gate = school.catchup_pin_student_gate(
+                    int(link["class_id"]), int(pre["student_id"])
+                )
+                if gate:
+                    school.release_catchup_pin_attempts(reserved)
+                    return pin_screen(gate)
+            result = school.catchup_sign_in(
+                token, pending.get("name", ""), request.form.get("pin", "")
+            )
             if result["ok"]:
+                school.release_catchup_pin_attempts(reserved)
                 student_id = int(result["student_id"])
                 session.pop(pending_key, None)
                 session[key] = {"sid": student_id, "cid": int(link["class_id"]),
@@ -8642,10 +8717,13 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 return closed()
             else:
                 if result["reason"] == "wrong":
-                    school.record_join_failures([ip_key])
+                    sid = result.get("student_id")
+                    if sid is not None:
+                        school.record_catchup_pin_failure(int(link["class_id"]), int(sid))
+                else:
+                    school.release_catchup_pin_attempts(reserved)
                 return pin_screen({
                     "looks_like_join_code": KEY_PIN_LOOKS_LIKE_JOIN_CODE,
-                    "locked": KEY_PIN_LOCKED,
                     "not_set": KEY_PIN_NOT_SET,
                     "unknown_name": KEY_NAME_UNKNOWN,
                 }.get(result["reason"], KEY_PIN_WRONG))
