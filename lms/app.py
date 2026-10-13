@@ -8601,6 +8601,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "student/catchup.html", token=token, line=progress.get("line"),
             questions=school.catchup_questions(token, int(student_id)),
             tag=COPY_CATCHUP_TAG,
+            codename=school.class_codenames(int(link["class_id"])).get(int(student_id), ""),
         )
 
     @app.route("/api/classes/<int:class_id>/engagement-events")

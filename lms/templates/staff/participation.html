@@ -7,6 +7,8 @@
     body { font-family: system-ui, sans-serif; margin: 1.5rem; }
     table { border-collapse: collapse; } td, th { border: 1px solid #ddd; padding: .35rem .6rem; text-align: left; }
     .muted { color: #666; font-size: .85rem; }
+    .badge { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .8rem; font-weight: 600; }
+    .badge.open { background: #dcfce7; color: #166534; } .badge.closed { background: #e5e7eb; color: #374151; }
   </style>
 </head>
 <body>
@@ -46,8 +48,10 @@
   <h2>Catch-up links</h2>
   <ul>
     {% for l in links %}
-      <li>{{ l.live_module }} {{ l.live_slot }}: <code>{{ l.url }}</code>
-        <button type="button" class="toggle" data-token="{{ l.token }}" data-open="{{ 0 if l.is_open else 1 }}">{{ "Open · Close it" if l.is_open else "Closed · Open it" }}</button></li>
+      <li>{{ l.live_module }} {{ l.live_slot }}:
+        <span class="badge {{ 'open' if l.is_open else 'closed' }}">{{ "Open" if l.is_open else "Closed" }}</span>
+        <label class="switch"><input type="checkbox" class="toggle" data-token="{{ l.token }}" {% if l.is_open %}checked{% endif %} aria-label="Link open"> Open</label>
+        <button type="button" class="copy" data-url="{{ l.url }}">Copy link</button></li>
     {% else %}
       <li class="muted">A link appears after End Live Class.</li>
     {% endfor %}
@@ -57,7 +61,11 @@
     const post = (url, body, method = "POST") => fetch(url, {method, headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)}).then((r) => r.ok ? location.reload() : r.json().then((j) => alert(j.error || "Error")));
     document.querySelectorAll(".mark").forEach((b) => b.onclick = () => post(`${base}/participation/modules/${encodeURIComponent(b.dataset.module)}/complete`, {complete: b.dataset.complete === "1"}));
     document.querySelectorAll(".l4g").forEach((c) => c.onchange = () => post(`${base}/participation/modules/${encodeURIComponent(c.dataset.module)}/settings`, {l4_needs_group: c.checked}));
-    document.querySelectorAll(".toggle").forEach((b) => b.onclick = () => post(`${base}/catchup-links/${b.dataset.token}`, {open: b.dataset.open === "1"}));
+    document.querySelectorAll(".toggle").forEach((c) => c.onchange = () => post(`${base}/catchup-links/${c.dataset.token}`, {open: c.checked}));
+    document.querySelectorAll(".copy").forEach((b) => b.onclick = async () => {
+      try { await navigator.clipboard.writeText(b.dataset.url); b.textContent = "Copied"; }
+      catch (e) { window.prompt("Copy this link", b.dataset.url); }
+    });
     document.querySelectorAll(".pin").forEach((b) => b.onclick = () => post(`${base}/students/${b.dataset.sid}/pin`, {pin: document.querySelector(`[data-pin="${b.dataset.sid}"]`).value}, "PUT"));
   </script>
 </body>

@@ -100,7 +100,7 @@ class Base(unittest.TestCase):
             c.execute("INSERT INTO live_session_items (live_session_id, placement_key, item_id, stage, kind, "
                       "item_json, prompt_id, status, publish_mode, response_mode, published_at, created_at, updated_at) "
                       "VALUES (?, ?, ?, 'round', 'poll', ?, ?, 'closed', ?, ?, ?, ?, ?)",
-                      (sid, f"{module}-q{n}", f"q{n}", '{"stem": "Q%d", "options": [{"text": "A"}]}' % n,
+                      (sid, f"{module}-q{n}", f"q{n}", '{"title": "c1 Q%d", "question_title": "c1 Q%d", "text": "Real question %d", "options": [{"text": "A"}]}' % (n, n, n),
                        pid, mode, mode, now, now, now))
             prompts.append(pid)
         for stu, count in answers.items():
@@ -291,11 +291,36 @@ class CatchupTests(Base):
         rv = client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "1234"})
         html = rv.get_data(as_text=True)
         self.assertIn("1/4 completed \u00b7 1 more", html)
-        self.assertIn("Q1", html)
-        self.assertNotIn("Q0", html)  # already answered live
-        self.assertNotIn("Q4", html)  # group item
+        self.assertIn("Real question 1", html)
+        self.assertNotIn("c1 Q", html)  # slot label never shown
+        self.assertNotIn("Real question 0", html)  # already answered live
+        self.assertNotIn("Real question 4", html)  # group item
+        self.assertIn(">Avalanche<", html)  # codename at the top
+        self.assertIn("/static/student-portal.css", html)
+        self.assertNotIn("Answered after class", html)  # nothing answered after class yet
         self.assertNotIn("Ben", html)
         self.assertNotIn("team", html.lower())
+        rv = client.post(f"/catchup/{self.token}", data={"question_key": "item:M1-q1", "answer": "A"})
+        html = rv.get_data(as_text=True)
+        self.assertEqual(html.count("Answered after class"), 1)
+        card = html[html.index("Real question 1"):html.index("Real question 2")]
+        self.assertIn("Answered after class", card)
+        self.assertNotIn("Send", card)
+        later = html[html.index("Real question 2"):]
+        self.assertNotIn("Answered after class", later)
+
+    def test_staff_page_has_badge_toggle_and_copy_button(self) -> None:
+        client = self.app.test_client()
+        client.get("/auth/google?portal=staff")
+        client.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+        code = self.school.get_user_by_email("teacher@gmail.com")["verification_code"]
+        client.post("/verify-email", data={"code": code})
+        html = client.get(f"/staff/classes/{self.class_id}/participation").get_data(as_text=True)
+        self.assertIn('class="badge open">Open<', html)
+        self.assertIn('class="copy"', html)
+        self.assertIn("Copy link", html)
+        self.assertNotIn("Close it", html)
+        self.assertNotIn("<code>", html)
 
     def test_staff_api_is_teacher_only(self) -> None:
         client = self.app.test_client()

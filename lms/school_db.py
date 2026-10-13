@@ -29771,39 +29771,68 @@ class SchoolDB(LovesDB):
                 raise
         return result
 
+    @staticmethod
+    def _catchup_question_text(item: dict[str, Any]) -> str:
+        """The real question text a student saw, not a slot label like 'c1 Q2'."""
+        for key in ("text", "question_text", "stem", "prompt", "question"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        try:
+            from live_class_slides import _plain_from_html
+        except ImportError:  # pragma: no cover
+            _plain_from_html = None  # type: ignore[assignment]
+        if _plain_from_html is not None:
+            parts = [_plain_from_html(str(item.get(k) or "")) for k in ("stem_html", "task_html")]
+            joined = "\n\n".join(p.strip() for p in parts if p and p.strip())
+            if joined:
+                return joined
+        return str(item.get("question_title") or item.get("title") or "Question").strip()
+
     def catchup_questions(self, token: str, student_id: int) -> list[dict[str, Any]]:
-        """This student's unanswered individual questions from the link's class."""
+        """This class's individual questions for one student, for the catch-up page.
+
+        Unanswered ones carry ``answered=False``. Ones this student answered
+        after class on this link carry ``answered=True`` (tagged "Answered
+        after class"). Questions answered live are left out.
+        """
         link = self.get_catchup_link(token)
         if link is None:
             return []
         with self._lock:
             rows = self.conn.execute(
                 """
-                SELECT p.question_key, p.item_json FROM participation_items p
+                SELECT p.question_key, p.item_json,
+                       (SELECT a.source FROM participation_answers a
+                        WHERE a.class_id = p.class_id AND a.live_module = p.live_module
+                          AND a.student_id = ? AND a.question_key = p.question_key
+                        ORDER BY a.source = 'live' DESC LIMIT 1) AS source
+                FROM participation_items p
                 WHERE p.class_id = ? AND p.run_key = ?
-                  AND p.question_key NOT IN (
-                    SELECT a.question_key FROM participation_answers a
-                    WHERE a.class_id = p.class_id AND a.live_module = p.live_module
-                      AND a.student_id = ?)
                 ORDER BY p.offered_at, p.id
                 """,
-                (int(link["class_id"]), str(link["run_key"]), int(student_id)),
+                (int(student_id), int(link["class_id"]), str(link["run_key"])),
             ).fetchall()
         out = []
         for r in rows:
+            if r["source"] == "live":
+                continue
             try:
                 item = json.loads(r["item_json"] or "{}")
             except (TypeError, ValueError):
                 item = {}
             item = item if isinstance(item, dict) else {}
-            stem = next((str(item.get(k)) for k in ("stem", "question", "prompt", "text", "title")
-                         if isinstance(item.get(k), str) and item.get(k).strip()), "Question")
             options = []
-            for opt in item.get("options") or []:
+            for opt in item.get("options") or item.get("choices") or []:
                 label = str(opt.get("text") or opt.get("label") or "") if isinstance(opt, dict) else str(opt)
                 if label.strip():
                     options.append(label.strip()[:300])
-            out.append({"question_key": r["question_key"], "stem": stem[:1000], "options": options})
+            out.append({
+                "question_key": r["question_key"],
+                "stem": self._catchup_question_text(item)[:2000],
+                "options": options,
+                "answered": r["source"] == "catchup",
+            })
         return out
 
     def submit_catchup_answer(
@@ -29813,7 +29842,9 @@ class SchoolDB(LovesDB):
         link = self.get_catchup_link(token)
         if link is None or not int(link["is_open"]):
             raise PermissionError("closed")
-        allowed = {q["question_key"] for q in self.catchup_questions(token, student_id)}
+        allowed = {
+            q["question_key"] for q in self.catchup_questions(token, student_id) if not q["answered"]
+        }
         if question_key not in allowed:
             return False
         with self._lock:
