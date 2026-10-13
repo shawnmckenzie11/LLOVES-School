@@ -8440,6 +8440,24 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         )
         return jsonify({"ok": True, "module": module, "complete": state})
 
+    @app.route("/api/classes/<int:class_id>/participation/modules/<module>/settings", methods=["POST"])
+    @login_required
+    def api_module_settings(class_id: int, module: str):
+        """Save 'Level 4 needs group work' (Phase 1 stores only; 409 once complete)."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        body = request.get_json(silent=True) or {}
+        user = current_user()
+        try:
+            value = school.set_module_l4_needs_group(
+                class_id, str(module)[:20], bool(body.get("l4_needs_group")),
+                user_id=int(user["id"]) if user else None,
+            )
+        except PermissionError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 409
+        return jsonify({"ok": True, "module": module, "l4_needs_group": value})
+
     @app.route("/api/classes/<int:class_id>/catchup-links")
     @login_required
     def api_catchup_links(class_id: int):

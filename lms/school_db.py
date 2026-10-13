@@ -740,6 +740,15 @@ CREATE TABLE IF NOT EXISTS participation_module_marks (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (class_id, live_module)
 );
+-- Phase 1 saves this only; Phase 2 (MCK-201) scores with it.
+CREATE TABLE IF NOT EXISTS participation_module_settings (
+    class_id INTEGER NOT NULL,
+    live_module TEXT NOT NULL,
+    l4_needs_group INTEGER NOT NULL DEFAULT 0,
+    updated_by INTEGER,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (class_id, live_module)
+);
 CREATE TABLE IF NOT EXISTS catchup_links (
     id INTEGER PRIMARY KEY,
     token TEXT NOT NULL UNIQUE,
@@ -29510,6 +29519,40 @@ class SchoolDB(LovesDB):
                 self.conn.commit()
         return self.module_complete(class_id, module)
 
+    def module_l4_needs_group(self, class_id: int, module: str) -> bool:
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT l4_needs_group FROM participation_module_settings "
+                "WHERE class_id = ? AND live_module = ?",
+                (int(class_id), str(module)),
+            ).fetchone()
+        return bool(row["l4_needs_group"]) if row is not None else False
+
+    def set_module_l4_needs_group(
+        self, class_id: int, module: str, value: bool, *, user_id: int | None = None
+    ) -> bool:
+        """Save 'Level 4 needs group work' (default off). Locked once the module is complete.
+
+        Raises:
+            PermissionError: The module is complete.
+        """
+        if self.module_complete(class_id, module):
+            raise PermissionError("Module is complete; this setting is locked.")
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO participation_module_settings (class_id, live_module, l4_needs_group, updated_by, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(class_id, live_module) DO UPDATE SET
+                    l4_needs_group = excluded.l4_needs_group, updated_by = excluded.updated_by,
+                    updated_at = excluded.updated_at
+                """,
+                (int(class_id), str(module), 1 if value else 0, user_id, _now()),
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+        return self.module_l4_needs_group(class_id, module)
+
     def _participation_counts(
         self, class_id: int, module: str | None = None, student_id: int | None = None
     ) -> tuple[dict[str, int], dict[tuple[int, str], dict[str, int]]]:
@@ -29573,7 +29616,8 @@ class SchoolDB(LovesDB):
             rows.append({"student_id": int(stu["id"]), "modules": cells})
         return {
             "modules": [
-                {"module": m, "offered": offered[m], "complete": self.module_complete(class_id, m)}
+                {"module": m, "offered": offered[m], "complete": self.module_complete(class_id, m),
+                 "l4_needs_group": self.module_l4_needs_group(class_id, m)}
                 for m in modules
             ],
             "students": rows,

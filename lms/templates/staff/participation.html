@@ -21,6 +21,7 @@
             <button type="button" data-module="{{ m.module }}" data-complete="{{ 0 if m.complete else 1 }}" class="mark">
               {% if m.complete %}Module {{ m.module }} complete · Undo{% else %}Mark Module {{ m.module }} Complete{% endif %}
             </button>
+            <label><input type="checkbox" class="l4g" data-module="{{ m.module }}" {% if m.l4_needs_group %}checked{% endif %} {% if m.complete %}disabled{% endif %}> Level 4 needs group work</label>
           </th>
         {% endfor %}
         <th>PIN</th>
@@ -55,6 +56,7 @@
     const base = "/api/classes/{{ class_id }}";
     const post = (url, body, method = "POST") => fetch(url, {method, headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)}).then((r) => r.ok ? location.reload() : r.json().then((j) => alert(j.error || "Error")));
     document.querySelectorAll(".mark").forEach((b) => b.onclick = () => post(`${base}/participation/modules/${encodeURIComponent(b.dataset.module)}/complete`, {complete: b.dataset.complete === "1"}));
+    document.querySelectorAll(".l4g").forEach((c) => c.onchange = () => post(`${base}/participation/modules/${encodeURIComponent(c.dataset.module)}/settings`, {l4_needs_group: c.checked}));
     document.querySelectorAll(".toggle").forEach((b) => b.onclick = () => post(`${base}/catchup-links/${b.dataset.token}`, {open: b.dataset.open === "1"}));
     document.querySelectorAll(".pin").forEach((b) => b.onclick = () => post(`${base}/students/${b.dataset.sid}/pin`, {pin: document.querySelector(`[data-pin="${b.dataset.sid}"]`).value}, "PUT"));
   </script>

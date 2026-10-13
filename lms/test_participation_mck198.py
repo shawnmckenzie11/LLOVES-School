@@ -138,6 +138,17 @@ class CaptureTests(Base):
         self.run_class("M3", "C4", 1, 0, {})
         self.assertTrue(self.school.module_complete(self.class_id, "M3"))
 
+    def test_l4_needs_group_setting_saves_and_locks_when_complete(self) -> None:
+        self.run_class("M4", "C1", 3, 0, {self.students[0]: 3})
+        self.assertFalse(self.school.module_l4_needs_group(self.class_id, "M4"))
+        self.assertTrue(self.school.set_module_l4_needs_group(self.class_id, "M4", True))
+        before = self.school.class_participation(self.class_id)
+        self.assertTrue(before["modules"][0]["l4_needs_group"])
+        self.assertEqual(before["students"][0]["modules"]["M4"]["level"], 4)  # saved only, no scoring
+        self.school.set_module_complete(self.class_id, "M4", True)
+        with self.assertRaises(PermissionError):
+            self.school.set_module_l4_needs_group(self.class_id, "M4", False)
+
     def test_end_creates_one_link_open_by_default(self) -> None:
         self.run_class("M1", "C2", 3, 0, {})
         links = self.school.list_catchup_links(self.class_id)
