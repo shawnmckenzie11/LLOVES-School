@@ -2,9 +2,10 @@ name: CI
 
 # Tests only. Runs on feature branches and pull requests so work in progress
 # gets feedback without touching the live site. Deploys live in deploy.yml.
+# production is tested by deploy.yml on push; skip it here to avoid doubling.
 on:
   push:
-    branches-ignore: [main]
+    branches-ignore: [main, production]
   pull_request:
 
 jobs:

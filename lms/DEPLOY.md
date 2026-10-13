@@ -90,6 +90,16 @@ fly certs check alc.mckenzian.com --app lloves-lms
 
 Grok Bot fast-forwards `production` to `main` per feature batch. Create or reset the deploy branch once with `git push origin main:production`.
 
+### One-time GitHub settings (MCK-52)
+
+1. **Settings → Environments → production → Deployment branches:** add `production` to the allowed list. Keep `main` allowed so **Attach live Postgres** (`.github/workflows/attach-live-postgres.yml`) can still use the `production` environment from `main`.
+2. **Settings → Branches → branch protection for `production`:** restrict who can push (Shawn / Grok Bot only), block branch deletion, and allow force-push (rollback only — see below).
+
+### Rollback and hotfix
+
+- **Rollback (revert live to an older release):** force-push `production` to a known-good SHA, then approve the resulting Deploy run. Example: `git push origin <good-sha>:production --force`.
+- **Hotfix:** merge the fix to `main` (CI on the PR), then fast-forward `production` to `main` (`git push origin main:production`) and approve Deploy.
+
 A push to `production` runs **Deploy LLOVES LMS** (`.github/workflows/deploy.yml`) through three jobs:
 
 1. **LMS test suite** (group `deploy-lloves-lms-test-<ref>`, cancel-in-progress).
