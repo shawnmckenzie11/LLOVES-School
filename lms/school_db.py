@@ -20826,8 +20826,17 @@ class SchoolDB(LovesDB):
             return
         team_ids = [int(team.get("team_id") or 0) for team in teams if int(team.get("team_id") or 0)]
         board_keys = tuple(f"team:{tid}" for tid in team_ids)
-        touched = store.touched_students_for_group_item(
-            run_key, str(int(live_item_id)), board_keys
+        all_roster: list[int] = []
+        for team in teams:
+            team_id = int(team.get("team_id") or 0)
+            roster = roster_by_team.get(team_id) or []
+            if roster:
+                all_roster.extend(int(sid) for sid in roster)
+        touch_times = store.member_last_touch_for_group_item(
+            run_key,
+            str(int(live_item_id)),
+            all_roster,
+            board_keys,
         )
         for team in teams:
             team_id = int(team.get("team_id") or 0)
@@ -20835,7 +20844,7 @@ class SchoolDB(LovesDB):
             if not roster:
                 team.pop("quiet_dots", None)
                 continue
-            team["quiet_dots"] = [int(sid) not in touched for sid in roster]
+            team["quiet_dots"] = store.quiet_dots_for_roster(roster, touch_times)
 
     @staticmethod
     def _group_results_seq(teams: list[dict[str, Any]]) -> str:

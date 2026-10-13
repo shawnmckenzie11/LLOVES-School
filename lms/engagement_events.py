@@ -26,7 +26,7 @@ import json
 import logging
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable, Sequence
 from zoneinfo import ZoneInfo
 
@@ -41,6 +41,8 @@ GROUP_ITEM_TOUCH_KINDS = (
     "board.ink_batch",
     "board.text",
 )
+# MCK-63: placeholder until Live-Class Designer sets the quiet window.
+QUIET_MEMBER_WINDOW_MINUTES = 5
 
 KINDS = frozenset(
     {
@@ -234,6 +236,88 @@ class _Store:
                 row["payload"] = {}
             out.append(row)
         return out
+
+    def member_last_touch_for_group_item(
+        self,
+        run_key: str,
+        item_ref: str,
+        student_ids: Sequence[int],
+        team_board_keys: tuple[str, ...],
+        *,
+        kinds: tuple[str, ...] = GROUP_ITEM_TOUCH_KINDS,
+    ) -> dict[int, datetime]:
+        """Latest engagement time per student on one group item (MCK-63).
+
+        Args:
+            run_key: ``live_class_sessions.run_key`` for the current run.
+            item_ref: ``live_session_items.id`` as a string.
+            student_ids: Roster ids to include (other rows are ignored).
+            team_board_keys: ``team:<id>`` keys for team-board ink.
+            kinds: Engagement kinds that count as activity.
+
+        Returns:
+            Map of student id to newest event timestamp (Toronto ISO).
+        """
+        ids = [int(sid) for sid in student_ids if sid is not None]
+        if not run_key or not kinds or not ids:
+            return {}
+        refs = [str(item_ref)]
+        for key in team_board_keys:
+            token = str(key or "").strip()
+            if token and token not in refs:
+                refs.append(token)
+        kind_marks = ",".join("?" * len(kinds))
+        ref_marks = ",".join("?" * len(refs))
+        sid_marks = ",".join("?" * len(ids))
+        rows = self._fetch(
+            f"SELECT student_id, MAX(ts) AS latest FROM engagement_events "
+            f"WHERE run_key = ? AND student_id IN ({sid_marks}) "
+            f"AND kind IN ({kind_marks}) AND item_ref IN ({ref_marks}) "
+            f"GROUP BY student_id",
+            (str(run_key), *ids, *kinds, *refs),
+        )
+        out: dict[int, datetime] = {}
+        for raw in rows:
+            row = dict(raw) if not isinstance(raw, dict) else raw
+            try:
+                sid = int(row["student_id"])
+                stamp = datetime.fromisoformat(str(row["latest"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            out[sid] = stamp
+        return out
+
+    @staticmethod
+    def quiet_dots_for_roster(
+        roster: Sequence[int],
+        touch_times: dict[int, datetime],
+        *,
+        window_minutes: int = QUIET_MEMBER_WINDOW_MINUTES,
+    ) -> list[bool]:
+        """Per-member quiet flags for the teacher strip (MCK-63).
+
+        Quiet means no activity in the last ``window_minutes`` before the
+        group's own latest touch on this item. Each bool is True when the
+        member is quiet (open dot).
+
+        Args:
+            roster: Member ids in display order.
+            touch_times: Newest touch per student on this item.
+            window_minutes: LCD-set window placeholder.
+
+        Returns:
+            One bool per roster member.
+        """
+        window = max(1, int(window_minutes))
+        roster_ids = [int(sid) for sid in roster]
+        if not roster_ids:
+            return []
+        stamps = [touch_times[sid] for sid in roster_ids if sid in touch_times]
+        if not stamps:
+            return [True] * len(roster_ids)
+        anchor = max(stamps)
+        cutoff = anchor - timedelta(minutes=window)
+        return [touch_times.get(sid) is None or touch_times.get(sid) < cutoff for sid in roster_ids]
 
     def touched_students_for_group_item(
         self,
