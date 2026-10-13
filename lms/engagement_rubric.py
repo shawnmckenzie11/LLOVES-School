@@ -42,13 +42,21 @@ def level_for_score(score: float | None, rubric: dict[str, Any] | None = None) -
     return 1
 
 
-def format_engagement_level(level: int | None, rubric: dict[str, Any] | None = None) -> str:
-    """Teacher-facing label: engagement level + draft marker."""
+def format_engagement_level(
+    level: int | None,
+    rubric: dict[str, Any] | None = None,
+    *,
+    set_by_teacher: bool = False,
+) -> str:
+    """Teacher-facing label: engagement level + draft or teacher-set marker."""
     if level is None:
         return "Engagement —"
     cfg = rubric or load_rubric()
-    draft = str(cfg.get("level_label") or "draft level").strip()
-    return f"Engagement L{int(level)} ({draft})"
+    if set_by_teacher:
+        suffix = "Set by teacher"
+    else:
+        suffix = str(cfg.get("level_label") or "draft level").strip()
+    return f"Engagement L{int(level)} ({suffix})"
 
 
 def component_score(signal: str, row: dict[str, Any], rubric: dict[str, Any]) -> float | None:

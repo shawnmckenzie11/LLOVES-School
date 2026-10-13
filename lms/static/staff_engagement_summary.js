@@ -9,8 +9,52 @@ const groupsEl = document.getElementById("engagement-summary-groups");
 const ungroupedEl = document.getElementById("engagement-summary-ungrouped");
 const rulesEl = document.getElementById("engagement-rubric-rules");
 const blindEl = document.getElementById("engagement-blind-spots");
+const titleEl = card?.querySelector("h2.track-step-title");
 
 let currentRunKey = "";
+
+/**
+ * Format an ISO timestamp as HH:MM ET for the run picker.
+ * @param {string|undefined} iso
+ * @returns {string}
+ */
+function formatEtTime(iso) {
+  const text = String(iso || "").trim();
+  if (!text) {
+    return "";
+  }
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+  const clock = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Toronto",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(parsed);
+  return `${clock} ET`;
+}
+
+/**
+ * Disambiguate run picker labels when several runs share the same M1C1 key.
+ * @param {any} row
+ * @param {any[]} runs
+ * @returns {string}
+ */
+function runOptionLabel(row, runs) {
+  const base = String(row.live_label || row.run_key || "Run");
+  const matches = runs.filter((r) => String(r.live_label || r.run_key) === base);
+  if (matches.length <= 1) {
+    return base;
+  }
+  const time = formatEtTime(row.started_at || row.rolled_at);
+  if (time) {
+    return `${base} · ${time}`;
+  }
+  const key = String(row.run_key || "").slice(0, 8);
+  return key ? `${base} · ${key}` : base;
+}
 
 /**
  * Format one evidence chip for the summary row.
@@ -95,6 +139,9 @@ function renderSummary(summary) {
   }
   empty.hidden = true;
   card.hidden = false;
+  if (titleEl) {
+    titleEl.textContent = "End-of-class engagement";
+  }
   const rules = (summary.rubric?.rules || []).join(" · ");
   rulesEl.textContent = rules;
   blindEl.innerHTML = (summary.blind_spots || [])
@@ -150,7 +197,7 @@ async function loadSummary(runKey) {
     runSelect.innerHTML = runs
       .map(
         (row) =>
-          `<option value="${escapeHtml(row.run_key)}">${escapeHtml(row.live_label || row.run_key)}</option>`
+          `<option value="${escapeHtml(row.run_key)}">${escapeHtml(runOptionLabel(row, runs))}</option>`
       )
       .join("");
     currentRunKey = runKey || runs[0].run_key;
@@ -184,7 +231,7 @@ async function onOverrideSubmit(event) {
   try {
     const data = await api(
       `/api/classes/${classId}/engagement-summary/${encodeURIComponent(currentRunKey)}/students/${studentId}`,
-      { method: "PUT", body: { level, note } }
+      { method: "PUT", body: JSON.stringify({ level, note }) }
     );
     renderSummary(data.summary);
   } catch (err) {

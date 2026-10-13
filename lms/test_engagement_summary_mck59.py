@@ -9,6 +9,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 LMS_DIR = Path(__file__).resolve().parent
@@ -160,6 +161,49 @@ class ApiTests(unittest.TestCase):
         again = next(s for s in updated["ungrouped"] if int(s["student_id"]) == sid)
         self.assertEqual(again["override"]["level"], 4)
         self.assertIn("Engagement L4", again["effective_label"])
+        self.assertIn("Set by teacher", again["effective_label"])
+        self.assertNotIn("draft level", again["effective_label"])
+
+    def test_put_override_json_body_grouped_and_ungrouped(self) -> None:
+        """PUT must accept JSON bodies (browser fetch), for grouped and ungrouped rows."""
+        self._login("a@gmail.com")
+        game = self.school.game
+        game.begin_game(self.class_id, today=date(2026, 10, 1))
+        for sid in self.students:
+            game.mark_student_present_on_open_session(self.class_id, sid)
+        game.assign_teams(self.class_id, 2, "random")
+        ava, ben = self.students[0], self.students[1]
+        with game._lock:
+            game.conn.execute("DELETE FROM game_memberships WHERE student_id = ?", (ben,))
+            game.conn.commit()
+        self.assertIsNotNone(self.school.student_team_id_for_class(self.class_id, ava))
+        self.assertIsNone(self.school.student_team_id_for_class(self.class_id, ben))
+        payload = json.dumps({"level": 3, "note": "Grouped JSON body"})
+        put_grouped = self.client.put(
+            f"/api/classes/{self.class_id}/engagement-summary/{self.run_key}/students/{ava}",
+            data=payload,
+            content_type="application/json",
+        )
+        self.assertEqual(put_grouped.status_code, 200)
+        grouped_override = put_grouped.get_json()["override"]
+        self.assertEqual(grouped_override["level"], json.loads(payload)["level"])
+        self.assertEqual(grouped_override["note"], json.loads(payload)["note"])
+        grouped_summary = put_grouped.get_json()["summary"]
+        grouped_student = grouped_summary["groups"][0]["students"]
+        self.assertTrue(any(int(s["student_id"]) == ava for s in grouped_student))
+        ungrouped_payload = json.dumps({"level": 2, "note": "Ungrouped JSON body"})
+        put_ungrouped = self.client.put(
+            f"/api/classes/{self.class_id}/engagement-summary/{self.run_key}/students/{ben}",
+            data=ungrouped_payload,
+            content_type="application/json",
+        )
+        self.assertEqual(put_ungrouped.status_code, 200)
+        self.assertEqual(json.loads(ungrouped_payload)["level"], 2)
+        saved = next(
+            s for s in put_ungrouped.get_json()["summary"]["ungrouped"] if int(s["student_id"]) == ben
+        )
+        self.assertEqual(saved["override"]["note"], "Ungrouped JSON body")
+        self.assertIn("Set by teacher", saved["effective_label"])
 
     def test_ungrouped_student_override(self) -> None:
         """MCK-61: PUT override for a student listed only under ungrouped."""
@@ -188,6 +232,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn("function bindEngagementOverrideForms(", js)
         self.assertIn('getElementById("engagement-summary-card")', js)
         self.assertNotIn("groupsEl.querySelectorAll", js)
+        self.assertIn("JSON.stringify({ level, note })", js)
 
     def test_other_teacher_denied(self) -> None:
         self._login("b@gmail.com")

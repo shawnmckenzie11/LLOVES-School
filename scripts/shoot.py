@@ -514,6 +514,59 @@ def shoot_mck62_quiet_dots(out_dir: Path) -> list[Path]:
         harness.tearDown()
 
 
+def shoot_engagement_overrides(
+    base: str, state_path: Path, out_dir: Path, *, class_id: int = 1
+) -> list[Path]:
+    """Save engagement override success for Maple (ungrouped) and Cedar (grouped).
+
+    Args:
+        base: Loopback origin.
+        state_path: Shawn's storageState.
+        out_dir: Artifact directory.
+        class_id: Demo class id.
+
+    Returns:
+        PNG paths.
+    """
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    url = assert_loopback(f"{origin}/staff/class/{class_id}?tab=ap&view=engagement")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    shots = {
+        "maple": out_dir / "engagement-override-maple-1280.png",
+        "cedar": out_dir / "engagement-override-cedar-1280.png",
+    }
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        context = browser.new_context(
+            storage_state=str(state_path),
+            viewport={"width": 1280, "height": 900},
+        )
+        page = context.new_page()
+
+        def save_override(codename: str, level: str, dest: Path) -> None:
+            """Open engagement summary, save one override, screenshot the row."""
+            page.goto(url, wait_until="domcontentloaded")
+            page.locator("#engagement-summary-card").wait_for(state="visible", timeout=15000)
+            row = page.locator(".ap-engagement-student").filter(
+                has=page.locator(".ap-engagement-name", has_text=codename)
+            ).first
+            row.wait_for(state="visible", timeout=15000)
+            row.locator('select[name="level"]').select_option(level)
+            row.locator('button[type="submit"]').click()
+            row.locator(".ap-engagement-level-badge", has_text="Set by teacher").wait_for(
+                state="visible", timeout=15000
+            )
+            row.screenshot(path=str(dest))
+
+        save_override("Maple", "3", shots["maple"])
+        save_override("Cedar", "2", shots["cedar"])
+        context.close()
+        browser.close()
+    return list(shots.values())
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry: seed, log in once, then shoot URLs or the catch-up scenario."""
     parser = argparse.ArgumentParser(description="Headless local LMS screenshots.")
@@ -527,9 +580,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ready", default="", help="CSS selector that must be visible.")
     parser.add_argument(
         "--scenario",
-        choices=("catchup", "mck62-quiet-dots"),
+        choices=("catchup", "mck62-quiet-dots", "engagement-override"),
         default="",
-        help="Built-in catch-up or MCK-62 quiet-dot shots.",
+        help="Built-in catch-up, MCK-62 quiet-dot, or engagement override shots.",
     )
     args = parser.parse_args(argv)
     assert_loopback(args.base if "://" in args.base else f"http://{args.base}")
@@ -547,6 +600,8 @@ def main(argv: list[str] | None = None) -> int:
             written.extend(shoot_catchup(args.base, state, out, path))
         if args.scenario == "mck62-quiet-dots":
             written.extend(shoot_mck62_quiet_dots(out))
+        if args.scenario == "engagement-override":
+            written.extend(shoot_engagement_overrides(args.base, state, out))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(
@@ -560,7 +615,9 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
         if not written:
-            raise SystemExit("Pass --url and/or --scenario catchup.")
+            raise SystemExit(
+                "Pass --url and/or --scenario catchup|mck62-quiet-dots|engagement-override."
+            )
         for item in written:
             print(item)
         return 0

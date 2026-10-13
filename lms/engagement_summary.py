@@ -117,7 +117,9 @@ def suggest_student(
         payload["override"] = dict(override)
         eff = override.get("level")
         if eff is not None:
-            payload["effective_label"] = format_engagement_level(int(eff), cfg)
+            payload["effective_label"] = format_engagement_level(
+                int(eff), cfg, set_by_teacher=True
+            )
     return payload
 
 

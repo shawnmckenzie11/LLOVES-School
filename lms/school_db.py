@@ -2237,11 +2237,16 @@ class LovesDB:
         with self._lock:
             rows = self.conn.execute(
                 """
-                SELECT run_key, MAX(rolled_at) AS rolled_at, MAX(live_session) AS live_session
-                FROM engagement_rollup
-                WHERE class_id = ?
-                GROUP BY run_key
-                ORDER BY rolled_at DESC, run_key DESC
+                SELECT er.run_key,
+                       MAX(er.rolled_at) AS rolled_at,
+                       MAX(er.live_session) AS live_session,
+                       MAX(sess.started_at) AS started_at
+                FROM engagement_rollup er
+                LEFT JOIN live_class_sessions sess
+                    ON sess.class_id = er.class_id AND sess.run_key = er.run_key
+                WHERE er.class_id = ?
+                GROUP BY er.run_key
+                ORDER BY rolled_at DESC, er.run_key DESC
                 """,
                 (int(class_id),),
             ).fetchall()
@@ -2256,6 +2261,7 @@ class LovesDB:
                     "run_key": run_key,
                     "rolled_at": row["rolled_at"],
                     "live_session": row["live_session"],
+                    "started_at": row["started_at"],
                     "live_label": label,
                 }
             )
