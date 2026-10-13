@@ -29876,43 +29876,32 @@ class SchoolDB(LovesDB):
         ).replace(microsecond=0).isoformat()
         stamp = _now()
         with self._lock:
-            owned_tx = not self.conn.in_transaction
-            if owned_tx:
-                self.conn.execute("BEGIN IMMEDIATE")
-            try:
-                for key in keys:
-                    if not key:
-                        continue
-                    cap = int(limits.get(key, 0))
-                    if cap <= 0:
-                        continue
-                    row = self.conn.execute(
-                        """
-                        SELECT COUNT(*) AS n FROM student_code_attempts
-                        WHERE ip = ? AND ts >= ?
-                        """,
-                        (str(key), cutoff),
-                    ).fetchone()
-                    if int(row["n"] if row else 0) >= cap:
-                        if owned_tx:
-                            self.conn.execute("ROLLBACK")
-                        return None
-                ids: list[int] = []
-                for key in keys:
-                    if not key:
-                        continue
-                    cur = self.conn.execute(
-                        "INSERT INTO student_code_attempts (ip, ts) VALUES (?, ?)",
-                        (str(key), stamp),
-                    )
-                    ids.append(int(cur.lastrowid))
-                if owned_tx:
-                    self.conn.commit()
-                return ids
-            except Exception:
-                if owned_tx:
-                    self.conn.execute("ROLLBACK")
-                raise
+            for key in keys:
+                if not key:
+                    continue
+                cap = int(limits.get(key, 0))
+                if cap <= 0:
+                    continue
+                row = self.conn.execute(
+                    """
+                    SELECT COUNT(*) AS n FROM student_code_attempts
+                    WHERE ip = ? AND ts >= ?
+                    """,
+                    (str(key), cutoff),
+                ).fetchone()
+                if int(row["n"] if row else 0) >= cap:
+                    return None
+            ids: list[int] = []
+            for key in keys:
+                if not key:
+                    continue
+                cur = self.conn.execute(
+                    "INSERT INTO student_code_attempts (ip, ts) VALUES (?, ?)",
+                    (str(key), stamp),
+                )
+                ids.append(int(cur.lastrowid))
+            self.conn.commit()
+            return ids
 
     def release_catchup_pin_attempts(self, row_ids: list[int]) -> None:
         """Drop reserved attempt rows after a successful PIN check."""
@@ -30145,7 +30134,14 @@ class SchoolDB(LovesDB):
             ).fetchone()
         return pin_stamp(str(row[0] or "")) if row is not None else ""
 
-    def set_student_pin(self, class_id: int, student_id: int, pin: str) -> None:
+    def set_student_pin(
+        self,
+        class_id: int,
+        student_id: int,
+        pin: str,
+        *,
+        pin_set_by: str = "teacher",
+    ) -> None:
         """Set or reset one student's course-wide catch-up PIN (``students.pin_hash``).
 
         One PIN per student for the whole course, reused on every catch-up
@@ -30153,21 +30149,22 @@ class SchoolDB(LovesDB):
         student's open catch-up sessions. Clears any stored default-PIN
         ciphertext (MCK-204).
         """
-        from participation import hash_pin, valid_pin
+        from participation import check_pin, hash_pin, valid_pin
 
         if not valid_pin(pin):
             raise ValueError("PIN must be 4 digits.")
-        from participation import check_pin
-
         with self.game._lock:
             existing = self.game.conn.execute(
                 "SELECT pin_hash FROM students WHERE id = ? AND class_id = ?",
                 (int(student_id), int(class_id)),
             ).fetchone()
-        if existing and str(existing[0] or "").strip():
-            if check_pin(str(pin), str(existing[0])):
+            if (
+                pin_set_by == "student"
+                and existing
+                and str(existing[0] or "").strip()
+                and check_pin(str(pin), str(existing[0]))
+            ):
                 raise ValueError("Choose a different PIN than your current one.")
-        with self.game._lock:
             self.game.conn.execute(
                 """
                 UPDATE students SET pin_hash = ?, default_pin_ciphertext = NULL

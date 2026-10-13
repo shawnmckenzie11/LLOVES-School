@@ -8690,18 +8690,19 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 global_ip_key: CATCHUP_PIN_IP_LIMIT,
                 link_ip_key: PIN_MAX_ATTEMPTS,
             }
+            reserved = school.reserve_catchup_pin_attempts(
+                [global_ip_key, link_ip_key], limits, window_s=PIN_WINDOW_S
+            )
+            if reserved is None:
+                return pin_screen(KEY_PIN_IP_LOCKED)
             pre = school.catchup_sign_in(token, pending.get("name", ""), None)
             if pre.get("reason") == "need_pin":
                 gate = school.catchup_pin_student_gate(
                     int(link["class_id"]), int(pre["student_id"])
                 )
                 if gate:
+                    school.release_catchup_pin_attempts(reserved)
                     return pin_screen(gate)
-            reserved = school.reserve_catchup_pin_attempts(
-                [global_ip_key, link_ip_key], limits, window_s=PIN_WINDOW_S
-            )
-            if reserved is None:
-                return pin_screen(KEY_PIN_IP_LOCKED)
             result = school.catchup_sign_in(
                 token, pending.get("name", ""), request.form.get("pin", "")
             )
@@ -8719,6 +8720,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     sid = result.get("student_id")
                     if sid is not None:
                         school.record_catchup_pin_failure(int(link["class_id"]), int(sid))
+                else:
+                    school.release_catchup_pin_attempts(reserved)
                 return pin_screen({
                     "looks_like_join_code": KEY_PIN_LOOKS_LIKE_JOIN_CODE,
                     "not_set": KEY_PIN_NOT_SET,

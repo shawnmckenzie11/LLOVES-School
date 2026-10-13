@@ -69,9 +69,9 @@ class CatchupPinLimitTests(Base):
         )
 
     def test_set_student_pin_rejects_same_pin(self) -> None:
-        self.school.set_student_pin(self.class_id, self.students[0], "4321")
+        self.school.set_student_pin(self.class_id, self.students[0], "4321", pin_set_by="student")
         with self.assertRaises(ValueError):
-            self.school.set_student_pin(self.class_id, self.students[0], "4321")
+            self.school.set_student_pin(self.class_id, self.students[0], "4321", pin_set_by="student")
 
     def test_teacher_unlock_clears_soft_cap(self) -> None:
         sid = self.students[0]
