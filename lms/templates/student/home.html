@@ -14,7 +14,7 @@
       data-visit-token="{{ visit_token or '' }}"
       data-codename="{{ codename or '' }}">
 {% if show_live_now_strip %}
-  <p class="student-live-now-strip" role="status">Live now</p>
+  <p class="student-live-now-strip" role="status">{{ live_strip_copy }}</p>
 {% endif %}
   <header class="student-chrome student-chrome-top" aria-label="Your stats">
     <p class="me-display-time" id="me-display-time" aria-live="polite" data-state="idle">—</p>

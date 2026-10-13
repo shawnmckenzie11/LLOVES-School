@@ -5903,12 +5903,15 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         )
         dash = school.student_dashboard_payload(class_id, student_id)
         focus = (request.args.get("catchup") or "").strip()[:80]
+        from student_dashboard import dashboard_copy
+
         return render_template(
             "student/dashboard.html",
             offering=offering,
             dashboard=dash,
             school_name=SCHOOL_NAME,
             focus_catchup=focus,
+            copy=dashboard_copy(),
         )
 
     @app.route("/api/student/dashboard")
@@ -5998,6 +6001,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         reward = None
         if not unmatched and not payload.get("scoring") and not payload.get("celebrate"):
             reward = _avatar_reward_view(ctx, class_id, int(student_id))
+        from student_dashboard import COPY_LIVE_STRIP
+
         show_live_strip = school.get_active_live_session_for_class(class_id) is not None
         return render_template(
             "student/home.html",
@@ -6009,6 +6014,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             reward=reward,
             reward_next_url="",
             show_live_now_strip=show_live_strip,
+            live_strip_copy=COPY_LIVE_STRIP,
         )
 
     @app.route("/api/student/avatar-reward/claim", methods=["POST"])

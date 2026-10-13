@@ -78,6 +78,15 @@
   background: #2d6cdf;
 }
 
+.sd-dot-legend {
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  margin: 0 0 0.45rem;
+  font-size: 0.72rem;
+  color: #666;
+}
+
 .sd-slot-dots {
   display: flex;
   gap: 0.45rem;

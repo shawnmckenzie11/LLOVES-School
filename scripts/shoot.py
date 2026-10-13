@@ -595,7 +595,9 @@ def shoot_mck208(base: str, out_dir: Path, path: Path, widths: list[int]) -> lis
             shots.append(dash)
             page.goto(live_url, wait_until="domcontentloaded")
             page.wait_for_url("**/student/home**", timeout=30000)
-            page.locator(".student-live-now-strip").wait_for(state="visible", timeout=30000)
+            page.locator(".student-live-now-strip", has_text="Rejoin class").wait_for(
+                state="visible", timeout=30000
+            )
             live_shot = out_dir / f"mck208-student-live-strip-{width}.png"
             page.screenshot(path=str(live_shot), full_page=True)
             shots.append(live_shot)

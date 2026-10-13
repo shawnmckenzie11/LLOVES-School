@@ -16,7 +16,7 @@
   </header>
   <main class="sd-main">
     <section class="sd-card" aria-labelledby="sd-this-module">
-      <h2 id="sd-this-module" class="sd-card-title">This module</h2>
+      <h2 id="sd-this-module" class="sd-card-title">{{ copy.card_this_module }}</h2>
       {% if dashboard.this_module.line %}
       <p class="sd-calm-line">{{ dashboard.this_module.line }}</p>
       {% endif %}
@@ -25,16 +25,22 @@
         <span class="sd-level-step{% if seg.filled %} is-on{% endif %}"></span>
         {% endfor %}
       </div>
+      <p class="sd-dot-legend" aria-hidden="true">
+        <span>{{ copy.dot_done }}</span>
+        <span>{{ copy.dot_missed }}</span>
+        <span>{{ copy.dot_upcoming }}</span>
+      </p>
       <div class="sd-slot-dots" aria-label="Classes in this module">
         {% for slot in dashboard.this_module.slots %}
-        <span class="sd-slot-dot is-{{ slot.state }}" title="{{ slot.slot }}">{{ slot.slot }}</span>
+        <span class="sd-slot-dot is-{{ slot.state }}" title="{{ slot.state_label }}: {{ slot.slot }}"
+              aria-label="{{ slot.state_label }} · {{ slot.slot }}">{{ slot.slot }}</span>
         {% endfor %}
       </div>
     </section>
 
-    {% if dashboard.finish_these %}
     <section class="sd-card" aria-labelledby="sd-finish">
-      <h2 id="sd-finish" class="sd-card-title">Finish these</h2>
+      <h2 id="sd-finish" class="sd-card-title">{{ copy.card_finish }}</h2>
+      {% if dashboard.finish_these %}
       <ul class="sd-finish-list">
         {% for row in dashboard.finish_these %}
         <li class="sd-finish-row{% if focus_catchup == row.token %} is-focus{% endif %}">
@@ -45,26 +51,34 @@
         </li>
         {% endfor %}
       </ul>
+      {% else %}
+      <p class="sd-calm-line">{{ copy.finish_empty }}</p>
+      {% endif %}
     </section>
-    {% endif %}
 
     {% if dashboard.past_modules %}
     <section class="sd-card" aria-labelledby="sd-past">
-      <h2 id="sd-past" class="sd-card-title">Past modules</h2>
+      <h2 id="sd-past" class="sd-card-title">{{ copy.card_past }}</h2>
       {% for row in dashboard.past_modules %}
       <details class="sd-past-row">
-        <summary>
-          <span>{{ row.module_label }}</span>
-          <span class="sd-past-badge">Complete</span>
-        </summary>
-        {% if row.line %}<p class="sd-calm-line">{{ row.line }}</p>{% endif %}
+        <summary><span>{{ row.summary_line }}</span></summary>
       </details>
       {% endfor %}
     </section>
     {% endif %}
 
-    <section class="sd-card sd-phase-slot" hidden aria-hidden="true" data-phase="2"></section>
-    <section class="sd-card sd-phase-slot" hidden aria-hidden="true" data-phase="3"></section>
+    <section class="sd-card sd-phase-slot" hidden aria-hidden="true" data-phase="2">
+      <p class="sd-calm-line">{{ copy.phase2 }}</p>
+    </section>
+    {% if dashboard.show_phase3 %}
+    <section class="sd-card sd-phase-slot" data-phase="3">
+      <p class="sd-calm-line">{{ copy.phase3 }}</p>
+    </section>
+    {% else %}
+    <section class="sd-card sd-phase-slot" hidden aria-hidden="true" data-phase="3">
+      <p class="sd-calm-line">{{ copy.phase3 }}</p>
+    </section>
+    {% endif %}
   </main>
 </body>
 </html>

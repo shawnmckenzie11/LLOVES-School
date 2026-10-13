@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import unittest
 
 from test_participation_mck198 import Base
@@ -113,6 +112,19 @@ class Mck208StudentDashboardPureTest(unittest.TestCase):
         self.assertEqual(slot_dot_state(3, 3, True), "done")
         self.assertEqual(slot_dot_state(3, 1, True), "missed")
         self.assertEqual(slot_dot_state(0, 0, False), "upcoming")
+
+    def test_wonder_copy_strings(self) -> None:
+        from student_dashboard import (
+            COPY_FINISH_EMPTY,
+            COPY_LIVE_STRIP,
+            dashboard_copy,
+            past_module_summary,
+        )
+
+        self.assertEqual(COPY_LIVE_STRIP, "Live now \u00b7 Rejoin class")
+        self.assertEqual(dashboard_copy()["card_finish"], "Finish these")
+        self.assertEqual(COPY_FINISH_EMPTY, "All caught up.")
+        self.assertEqual(past_module_summary("M1", 3), "Module 1 \u00b7 Level 3 \u00b7 Complete")
 
 
 if __name__ == "__main__":

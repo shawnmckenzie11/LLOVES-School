@@ -30561,8 +30561,10 @@ class SchoolDB(LovesDB):
             build_module_card,
             module_label,
             module_number,
+            past_module_summary,
             pick_current_module,
             slot_dot_state,
+            slot_state_label,
         )
         from participation import summary
 
@@ -30579,10 +30581,12 @@ class SchoolDB(LovesDB):
         for slot in SLOTS:
             o = int(slot_off.get(slot, 0))
             a = int(slot_ans.get(slot, 0))
+            state = slot_dot_state(o, a, slot in ran)
             slots.append(
                 {
                     "slot": slot,
-                    "state": slot_dot_state(o, a, slot in ran),
+                    "state": state,
+                    "state_label": slot_state_label(state),
                 }
             )
         mod_ans = answered_mod.get((sid, str(current)), {"n": 0})["n"]
@@ -30612,7 +30616,6 @@ class SchoolDB(LovesDB):
             )
         finish.sort(key=lambda row: (module_number(row["live_module"]), row["live_slot"]))
         past: list[dict[str, Any]] = []
-        from participation import level_line
 
         for mod in modules:
             if mod == current:
@@ -30622,14 +30625,10 @@ class SchoolDB(LovesDB):
             a = answered_mod.get((sid, str(mod)), {"n": 0})["n"]
             o = int(offered_mod.get(str(mod), 0))
             summ = summary(a, o)
-            calm = level_line(a, o)
-            if calm is None and summ.get("level") is not None:
-                calm = f"Level {summ['level']}"
             past.append(
                 {
                     "module": str(mod),
-                    "module_label": module_label(course, str(mod)),
-                    "line": calm,
+                    "summary_line": past_module_summary(str(mod), summ.get("level")),
                     "level": summ.get("level"),
                     "complete": True,
                 }
@@ -30646,8 +30645,8 @@ class SchoolDB(LovesDB):
             "past_modules": past,
             "live_active": live is not None,
             "live_session_id": int(live["id"]) if live else None,
-            "phase2": False,
-            "phase3": False,
+            "show_phase2": False,
+            "show_phase3": False,
         }
 
     def list_catchup_links(self, class_id: int) -> list[dict[str, Any]]:

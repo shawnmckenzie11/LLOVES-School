@@ -14,6 +14,53 @@ from participation import level_for, level_line, more_to_next, percent, summary
 SLOTS = ("C1", "C2", "C3", "C4")
 PIN_PORTAL_SESSION_S = 30 * 60
 
+# Wonder copy, verbatim (MCK-208 student dashboard).
+COPY_LIVE_STRIP = "Live now \u00b7 Rejoin class"
+COPY_CARD_THIS_MODULE = "This module"
+COPY_CARD_FINISH = "Finish these"
+COPY_CARD_PAST = "Past modules"
+COPY_DOT_DONE = "Done"
+COPY_DOT_MISSED = "Missed"
+COPY_DOT_UPCOMING = "Coming up"
+COPY_FINISH_EMPTY = "All caught up."
+COPY_PAST_ROW = "Module {n} \u00b7 Level {level} \u00b7 Complete"
+COPY_PHASE2 = "+1 level from group work"
+COPY_PHASE3 = "Accuracy coming soon"
+
+DOT_LABELS = {
+    "done": COPY_DOT_DONE,
+    "missed": COPY_DOT_MISSED,
+    "upcoming": COPY_DOT_UPCOMING,
+}
+
+
+def dashboard_copy() -> dict[str, str]:
+    """Template-facing Wonder strings for the student dashboard."""
+    return {
+        "live_strip": COPY_LIVE_STRIP,
+        "card_this_module": COPY_CARD_THIS_MODULE,
+        "card_finish": COPY_CARD_FINISH,
+        "card_past": COPY_CARD_PAST,
+        "dot_done": COPY_DOT_DONE,
+        "dot_missed": COPY_DOT_MISSED,
+        "dot_upcoming": COPY_DOT_UPCOMING,
+        "finish_empty": COPY_FINISH_EMPTY,
+        "phase2": COPY_PHASE2,
+        "phase3": COPY_PHASE3,
+    }
+
+
+def slot_state_label(state: str) -> str:
+    """Accessible label for one C-slot dot state."""
+    return DOT_LABELS.get(str(state or "").lower(), COPY_DOT_UPCOMING)
+
+
+def past_module_summary(live_module: str, level: int | None) -> str:
+    """One past-module summary line, e.g. ``Module 1 · Level 3 · Complete``."""
+    n = module_number(live_module)
+    lv = int(level if level is not None else 0)
+    return COPY_PAST_ROW.format(n=n, level=lv)
+
 
 def module_number(live_module: str) -> int:
     """Sort key for ``M1``, ``M2``, …"""
