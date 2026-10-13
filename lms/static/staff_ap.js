@@ -115,13 +115,18 @@ import {
   spotsResults,
 } from "/static/rank_challenge_view.js";
 import { fullOrderHtml } from "/static/rank_full_order.js";
+import { mountStudentView } from "/static/student_view.js";
 
 const root = document.getElementById("ap-root");
 const classId = Number(root?.dataset.classId || 0);
 const nameSort = localStorage.getItem(`lloves-sort-${classId}`) === "za" ? "za" : "az";
 /** Hide names switch for projecting the Responses list (MCK-29). */
 const HIDE_NAMES_KEY = "lloves-hide-names";
-let hideResponseNames = localStorage.getItem(HIDE_NAMES_KEY) === "1";
+// MCK-199: the popup's Hide names switch is gone; Student view masks names
+// and points on every live screen (student_view.js), so this stays off.
+let hideResponseNames = false;
+/** MCK-199 Student view controller (set once the header is wired). */
+let studentView = null;
 /** Last rows painted, so the switch can repaint without a fetch. */
 let lastResponseRows = [];
 /** Stable Hide-names labels for the open run (MCK-111). */
@@ -8621,6 +8626,7 @@ function adoptClassListRows(rows) {
   }
   lastClassListFull = [...byId.values()];
   lastClassList = lastClassListFull;
+  studentView?.refresh();
 }
 
 /**
@@ -10065,7 +10071,7 @@ function renderNamesPanel() {
       <ul class="preview-roster">${members
         .map(
           (row) =>
-            `<li><span class="prior">${escapeHtml(formatPoints(row.career_total))}</span> ${escapeHtml(displayName(row))}</li>`
+            `<li><span class="prior">${escapeHtml(formatPoints(row.career_total))}</span> <span class="sv-name">${escapeHtml(displayName(row))}</span></li>`
         )
         .join("")}</ul>`;
     box.appendChild(wrap);
@@ -11272,6 +11278,12 @@ $("live-eyes-up")?.addEventListener("click", () => {
   void toggleEyesUp();
 });
 paintEyesUpToggle();
+// MCK-199: teacher-only Student view (client-side mask for screen sharing).
+studentView = mountStudentView({
+  button: $("live-student-view"),
+  roster: () => lastClassListFull,
+  classId,
+});
 
 $("mc-reveal-btn")?.addEventListener("click", () => {
   patchMcReveal(true);
@@ -12026,19 +12038,6 @@ $("live-question-list")?.addEventListener("click", async (event) => {
 });
 
 {
-  const toggle = $("live-hide-names");
-  if (toggle instanceof HTMLInputElement) {
-    toggle.checked = hideResponseNames;
-    toggle.addEventListener("change", () => {
-      void setHideResponseNames(toggle.checked, { store: true });
-    });
-  }
-  // Another tab flipped the switch: follow it here too.
-  window.addEventListener("storage", (event) => {
-    if (event.key !== HIDE_NAMES_KEY) return;
-    const on = event.newValue === "1";
-    if (on !== hideResponseNames) void setHideResponseNames(on);
-  });
   $("live-responses-dialog")?.addEventListener("close", () => {
     syncHiddenNamesBackdrop();
   });

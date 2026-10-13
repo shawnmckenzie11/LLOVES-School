@@ -7664,3 +7664,39 @@ body.staff-shell.course-live .onb-done { display: none !important; }
 body.staff-shell .live-pack-field[hidden] { display: none !important; }
 /* MCK-183: Process evidence is hidden on pack-less non-math courses. */
 body.staff-shell .ap-evidence-coverage[hidden] { display: none !important; }
+
+/* MCK-199 Student view: teacher-only mask for screen sharing. */
+body.staff-shell .live-header-student-view {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+body.staff-shell .live-header-student-view[aria-pressed="true"] {
+  background: #1d4ed8;
+  border: 1px solid #1e3a8a;
+  color: #fff;
+}
+.student-view-banner {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  padding: 0.3rem 1rem;
+  background: #1d4ed8;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+}
+.student-view-banner[hidden] { display: none; }
+/* Gate MED: beat `body.staff-shell a` (was teal on blue, 1.12:1). */
+body.staff-shell .student-view-banner a#student-view-exit,
+body.staff-shell .student-view-banner a#student-view-exit:visited,
+body.staff-shell .student-view-banner a#student-view-exit:hover {
+  color: #fff !important;
+  text-decoration: underline;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 0.35rem;
+  margin-left: 0.5rem;
+}
