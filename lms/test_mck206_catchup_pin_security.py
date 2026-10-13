@@ -82,6 +82,15 @@ class CatchupPinLimitTests(Base):
         self.assertIsNone(self.school.catchup_pin_student_gate(self.class_id, sid))
 
 
+    def test_verify_student_current_pin(self) -> None:
+        """Helpers for throttled live current_pin checks (MCK-207 API)."""
+        sid = self.students[0]
+        self.school.set_student_pin(self.class_id, sid, "2468", pin_set_by="student")
+        self.assertTrue(self.school.student_catchup_pin_hash_set(self.class_id, sid))
+        self.assertTrue(self.school.verify_student_current_pin(self.class_id, sid, "2468"))
+        self.assertFalse(self.school.verify_student_current_pin(self.class_id, sid, "0000"))
+
+
 class CliMainGuardTests(unittest.TestCase):
     def test_main_allows_only_backfill_on_fly(self) -> None:
         from cli import main

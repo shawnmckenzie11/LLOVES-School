@@ -30030,6 +30030,31 @@ class SchoolDB(LovesDB):
             return
         raise PermissionError("catch-up portal sign-in required")
 
+    def student_catchup_pin_hash_set(self, class_id: int, student_id: int) -> bool:
+        """True when this student already has a catch-up PIN hash on file."""
+        with self.game._lock:
+            row = self.game.conn.execute(
+                "SELECT pin_hash FROM students WHERE id = ? AND class_id = ?",
+                (int(student_id), int(class_id)),
+            ).fetchone()
+        return bool(row and str(row[0] or "").strip())
+
+    def verify_student_current_pin(
+        self, class_id: int, student_id: int, current_pin: str
+    ) -> bool:
+        """Check the student's current catch-up PIN (empty only when none is set)."""
+        from participation import check_pin
+
+        with self.game._lock:
+            row = self.game.conn.execute(
+                "SELECT pin_hash FROM students WHERE id = ? AND class_id = ?",
+                (int(student_id), int(class_id)),
+            ).fetchone()
+        digest = str(row[0] or "").strip() if row else ""
+        if not digest:
+            return not str(current_pin or "").strip()
+        return check_pin(str(current_pin), digest)
+
     def refresh_catchup_portal_pin_stamp(
         self, flask_session: Any, class_id: int, student_id: int
     ) -> None:

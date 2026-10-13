@@ -51,11 +51,13 @@ KEY_PIN_NOT_SET = "pin.not_set"
 KEY_PIN_IP_LOCKED = "pin.ip_locked"
 KEY_PIN_TRY_LATER = "pin.try_later"
 KEY_PIN_STUDENT_SOFT = "pin.student_soft"
+KEY_PIN_CURRENT_REQUIRED = "pin.current_required"
 COPY_FALLBACKS = {
     KEY_PIN_NOT_SET: "Your teacher hasn't set your PIN yet. Ask your teacher.",
     KEY_PIN_IP_LOCKED: "Too many tries from this device. Wait 15 minutes and try again.",
     KEY_PIN_TRY_LATER: "Wait a moment and try your PIN again.",
     KEY_PIN_STUDENT_SOFT: "Too many PIN tries. Ask your teacher to unlock catch-up sign-in.",
+    KEY_PIN_CURRENT_REQUIRED: "Enter your current catch-up PIN (on your teacher's slip—not the live join code).",
     KEY_PIN_LABEL: "Your 4-digit PIN",
     KEY_PIN_LOOKS_LIKE_JOIN_CODE: "That's your join code. Enter your 4-digit PIN instead.",
     KEY_PIN_HELP: "Not the join code. Ask your teacher if you forgot it.",
