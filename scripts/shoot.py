@@ -23,6 +23,8 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import urllib.parse
 from pathlib import Path
 
@@ -358,6 +360,160 @@ def shoot_catchup(base: str, state_path: Path, out_dir: Path, path: Path) -> lis
     return list(shots.values())
 
 
+def _pin_mck62_teacher_stage(school, session_id: int) -> None:
+    """Put the harness session on the M1 C1 page that shows ``q-one``.
+
+    Args:
+        school: ``SchoolDb`` from the live harness.
+        session_id: Active live session id.
+    """
+    school.set_live_session_teacher_state(
+        session_id,
+        stage="round",
+        class_set=True,
+        page_id="round:1",
+        live_module="M1",
+        live_slot="C1",
+    )
+
+
+def _wait_quiet_member_dots(page, budget: float = 30.0) -> bool:
+    """Find the published group card and wait for grey quiet-member dots.
+
+    Args:
+        page: Playwright page on Run Live Class (Questions tab).
+        budget: Seconds to keep trying page/stage navigation.
+
+    Returns:
+        True when at least one ``.quiet-member-dot`` is visible.
+    """
+    end = time.time() + budget
+    prev_clicks = 0
+    while time.time() < end:
+        questions = page.locator('.live-content-tab[data-tab="questions"]')
+        if questions.count():
+            questions.first.click(timeout=2000)
+        if page.locator(".quiet-member-dot").count():
+            return True
+        prev = page.locator("#live-stage-prev")
+        if prev.count() and prev_clicks < 12 and prev.is_enabled():
+            prev.click(timeout=2000)
+            prev_clicks += 1
+        page.wait_for_timeout(600)
+    return False
+
+
+def shoot_mck62_quiet_dots(out_dir: Path) -> list[Path]:
+    """MCK-62: first load, reload, and Student view exit (isolated harness).
+
+    Spins a throwaway live session with a published group MC, logs in as the
+    harness teacher, and saves three desktop PNGs under ``out_dir``.
+
+    Args:
+        out_dir: Artifact directory.
+
+    Returns:
+        Paths written.
+    """
+    sys.path.insert(0, str(LMS_DIR))
+    sys.path.insert(0, str(ROOT))
+    os.environ.setdefault("LOCAL_DEV_LOGIN", "1")
+    os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
+    from test_live_class_backend_state import (  # noqa: E402
+        LiveBackendStateTests,
+        metadata_fixture,
+    )
+
+    harness = LiveBackendStateTests()
+    harness.setUp()
+    try:
+        harness.school.live_class_metadata_for_session = lambda _sid: metadata_fixture()
+        harness._begin_and_join(4)
+        harness._setup_groups()
+        harness.school.set_live_session_teacher_state(
+            harness.session_id,
+            stage="round",
+            class_set=True,
+            page_id="round:1",
+            live_module="M1",
+            live_slot="C1",
+        )
+        items = harness.school.ensure_live_session_items(harness.session_id)
+        group_item = next(row for row in items if row["item_id"] == "q-one")
+        harness.school.publish_live_session_item(
+            harness.session_id,
+            int(group_item["id"]),
+            publish_mode="group_submit",
+        )
+        port = 8765
+        origin = f"http://127.0.0.1:{port}"
+        assert_loopback(origin)
+        url = (
+            f"{origin}/staff/class/{harness.class_id}"
+            f"?tab=live&live_session_id={harness.session_id}"
+        )
+
+        def run_server() -> None:
+            harness.app.run(host="127.0.0.1", port=port, threaded=True, use_reloader=False)
+
+        threading.Thread(target=run_server, daemon=True).start()
+        time.sleep(1.5)
+        state = fresh_state_path()
+        login_state(origin, state, teacher_email=str(harness.teacher["email"]))
+        out_dir.mkdir(parents=True, exist_ok=True)
+        shots = {
+            "first-load": out_dir / "mck62-quiet-dots-first-load-1280.png",
+            "reload": out_dir / "mck62-quiet-dots-reload-1280.png",
+            "student-view-exit": out_dir / "mck62-quiet-dots-student-view-exit-1280.png",
+        }
+        from playwright.sync_api import sync_playwright  # noqa: E402
+
+        with sync_playwright() as playwright:
+            browser = _launch(playwright)
+            context = browser.new_context(
+                storage_state=str(state),
+                viewport={"width": 1280, "height": 900},
+            )
+            page = context.new_page()
+
+            def ready_for_dots() -> None:
+                _pin_mck62_teacher_stage(harness.school, harness.session_id)
+
+            ready_for_dots()
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            if not _wait_quiet_member_dots(page):
+                raise SystemExit("quiet dots missing on first load")
+            page.screenshot(path=str(shots["first-load"]), full_page=True)
+            ready_for_dots()
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            try:
+                page.wait_for_response(
+                    lambda r: "/items/" in r.url and "/results" in r.url and r.status == 200,
+                    timeout=45000,
+                )
+            except Exception:
+                pass
+            if not _wait_quiet_member_dots(page):
+                raise SystemExit("quiet dots missing after reload")
+            page.screenshot(path=str(shots["reload"]), full_page=True)
+            ready_for_dots()
+            page.locator("#live-student-view").click(timeout=30000)
+            page.locator("body.is-student-view").wait_for(state="attached", timeout=30000)
+            page.locator("#student-view-exit").click(timeout=30000)
+            page.locator("body.is-student-view").wait_for(state="detached", timeout=30000)
+            ready_for_dots()
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            if not _wait_quiet_member_dots(page):
+                raise SystemExit("quiet dots missing after Student view exit")
+            page.screenshot(path=str(shots["student-view-exit"]), full_page=True)
+            context.close()
+            browser.close()
+        state.unlink(missing_ok=True)
+        return list(shots.values())
+    finally:
+        harness.tearDown()
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry: seed, log in once, then shoot URLs or the catch-up scenario."""
     parser = argparse.ArgumentParser(description="Headless local LMS screenshots.")
@@ -371,9 +527,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ready", default="", help="CSS selector that must be visible.")
     parser.add_argument(
         "--scenario",
-        choices=("catchup",),
+        choices=("catchup", "mck62-quiet-dots"),
         default="",
-        help="Built-in Lesson Slides catch-up card shots.",
+        help="Built-in catch-up or MCK-62 quiet-dot shots.",
     )
     args = parser.parse_args(argv)
     assert_loopback(args.base if "://" in args.base else f"http://{args.base}")
@@ -389,6 +545,8 @@ def main(argv: list[str] | None = None) -> int:
         written: list[Path] = []
         if args.scenario == "catchup":
             written.extend(shoot_catchup(args.base, state, out, path))
+        if args.scenario == "mck62-quiet-dots":
+            written.extend(shoot_mck62_quiet_dots(out))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(

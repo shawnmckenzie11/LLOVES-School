@@ -74,9 +74,38 @@ class QuietMemberStripTests(unittest.TestCase):
         self.assertIn("quiet-member-strip", js)
         self.assertIn("studentViewOn()", js)
         self.assertIn("quiet_dots", js)
+        self.assertIn("paintGroupResultsInPlace(true)", js)
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
         self.assertIn(".quiet-member-strip", css)
         self.assertIn("is-student-view .quiet-member-strip", css)
+
+    def test_full_item_results_include_quiet_dots(self) -> None:
+        """Initial /results payload must carry quiet_dots (MCK-62 MED)."""
+        harness = LiveBackendStateTests()
+        harness.setUp()
+        try:
+            harness._begin_and_join(4)
+            harness._setup_groups()
+            harness.school.set_live_session_teacher_state(harness.session_id, stage="round")
+            items = harness.school.ensure_live_session_items(harness.session_id)
+            group_item = next(row for row in items if row["item_id"] == "q-one")
+            published = harness.school.publish_live_session_item(
+                harness.session_id,
+                int(group_item["id"]),
+                publish_mode="group_submit",
+            )
+            live_item_id = int(published["id"])
+            full = harness.school.live_session_item_results(
+                harness.session_id, live_item_id
+            )
+            self.assertEqual(full["response_mode"], "group_submit")
+            board = full.get("status_board") or []
+            self.assertGreaterEqual(len(board), 1)
+            self.assertIn("quiet_dots", board[0])
+            self.assertTrue(all(board[0]["quiet_dots"]))
+            self.assertTrue(str(full.get("group_response_seq") or ""))
+        finally:
+            harness.tearDown()
 
 
 if __name__ == "__main__":
