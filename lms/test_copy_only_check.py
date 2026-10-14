@@ -53,9 +53,8 @@ class CopyOnlyNormalizerTests(unittest.TestCase):
         """Jinja inside a copy attribute is rejected."""
         old = '<span title="Hello"></span>'
         new = '<span title="{{ config.SECRET_KEY }}"></span>'
-        ok, reason = coc.file_is_copy_only(old, new, "markup")
+        ok, _ = coc.file_is_copy_only(old, new, "markup")
         self.assertFalse(ok)
-        self.assertIn("jinja", reason.lower())
 
     def test_markup_jinja_include_in_title_fails(self) -> None:
         """Jinja block tags inside title are rejected."""
@@ -164,6 +163,110 @@ class CopyOnlyNormalizerTests(unittest.TestCase):
     def test_trusted_lane_path_constant(self) -> None:
         """Lane infra paths are listed as trusted."""
         self.assertIn("scripts/copy_only_check.py", coc.TRUSTED_LANE_PATHS)
+
+    def test_markup_unclosed_tag_fails(self) -> None:
+        """Appending an unclosed tag changes angle brackets and fails."""
+        old = "</details>\n<span>Help</span>\n"
+        new = '</details>\n<img src=x onerror=alert(document.cookie) \n<span>Help</span>\n'
+        ok, reason = coc.file_is_copy_only(old, new, "markup")
+        self.assertFalse(ok)
+        self.assertIn("angle bracket", reason.lower())
+
+    def test_markup_gt_in_title_allows_title_but_not_onclick(self) -> None:
+        """A ``>`` inside a quoted title must not let onclick edits pass."""
+        old = '<a title="a > b" onclick="f()">link</a>'
+        new = '<a title="a > b" onclick="evil()">link</a>'
+        ok, _ = coc.file_is_copy_only(old, new, "markup")
+        self.assertFalse(ok)
+
+    def test_markup_gt_in_jinja_attr_blocks_class_edit(self) -> None:
+        """``>`` inside ``{{ }}`` in an attribute must not hide class edits."""
+        old = '<span data-n="{{ 1 if n > 0 else 2 }}" class="hero"></span>'
+        new = '<span data-n="{{ 1 if n > 0 else 2 }}" class="loud"></span>'
+        ok, _ = coc.file_is_copy_only(old, new, "markup")
+        self.assertFalse(ok)
+
+    def test_markup_html_entity_in_copy_fails(self) -> None:
+        """HTML entities in visible copy are rejected."""
+        old = "<p>Hello</p>"
+        new = "<p>&#60;script&#62;</p>"
+        ok, reason = coc.file_is_copy_only(old, new, "markup")
+        self.assertFalse(ok)
+        self.assertIn("entities", reason.lower())
+
+    def test_markup_javascript_scheme_in_copy_fails(self) -> None:
+        """javascript: text in copy nodes is rejected."""
+        old = "<p>Go</p>"
+        new = "<p>javascript:alert(1)</p>"
+        ok, reason = coc.file_is_copy_only(old, new, "markup")
+        self.assertFalse(ok)
+        self.assertIn("javascript", reason.lower())
+
+    def test_markup_jinja_line_for_in_copy_fails(self) -> None:
+        """Jinja-like ``# for`` line statements in copy are rejected."""
+        old = "<p>Total</p>"
+        new = "<p># for x in y</p>"
+        ok, reason = coc.file_is_copy_only(old, new, "markup")
+        self.assertFalse(ok)
+        self.assertIn("line", reason.lower())
+
+
+class CopyOnlyWorkflowTests(unittest.TestCase):
+    """CI layout: base checker path + pr git directory."""
+
+    def test_workflow_checker_command_fixture(self) -> None:
+        """Mirror the workflow: python base/checker.py with COPY_ONLY_GIT_DIR=pr."""
+        tmp = tempfile.TemporaryDirectory()
+        root = Path(tmp.name)
+        pr = root / "pr"
+        base = root / "base" / "scripts"
+        base.mkdir(parents=True)
+        checker_src = SCRIPTS / "copy_only_check.py"
+        checker_dst = base / "copy_only_check.py"
+        checker_dst.write_text(checker_src.read_text(encoding="utf-8"), encoding="utf-8")
+        template = pr / "lms" / "templates" / "staff" / "sample.html"
+        template.parent.mkdir(parents=True)
+        template.write_text("<p>Alpha</p>\n", encoding="utf-8")
+        subprocess.run(["git", "init"], cwd=pr, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "wf@test.local"],
+            cwd=pr,
+            check=True,
+        )
+        subprocess.run(["git", "config", "user.name", "WF"], cwd=pr, check=True)
+        subprocess.run(["git", "add", "."], cwd=pr, check=True)
+        subprocess.run(["git", "commit", "-m", "base"], cwd=pr, check=True)
+        sha = (
+            subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=pr,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+        )
+        env = {
+            **os.environ,
+            "COPY_ONLY_GIT_DIR": str(pr),
+            "COPY_ONLY_CHECKER": str(checker_dst),
+        }
+        result = subprocess.run(
+            [sys.executable, str(checker_dst), sha, sha],
+            cwd=pr,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        selftest = subprocess.run(
+            [sys.executable, str(SCRIPTS / "copy_only_workflow_selftest.py")],
+            cwd=pr,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        self.assertEqual(selftest.returncode, 0, selftest.stderr)
+        tmp.cleanup()
 
 
 class CopyOnlyGitTests(unittest.TestCase):

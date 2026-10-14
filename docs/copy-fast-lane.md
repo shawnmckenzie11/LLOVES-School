@@ -12,9 +12,11 @@ infra changes.
 3. Wait for [`.github/workflows/copy-only.yml`](../.github/workflows/copy-only.yml)
    **and** the normal [`ci.yml`](../.github/workflows/ci.yml) LMS suite before merge.
 
-The copy-only job **always runs** on pull requests. Without the `copy-only`
-label it exits successfully and prints that the lane was not used (so a skipped
-job does not look like a pass on required checks). With the label it runs:
+The copy-only job **always runs** on pull requests (it is never skipped). Without
+the `copy-only` label it exits successfully and prints that the lane was not
+used. **Do not add this job to required branch protection checks** — unlabeled
+PRs would still pass it, but copy-only PRs must also pass the full LMS `ci.yml`
+job. With the label it runs:
 
 | Step | Script | What it proves |
 |------|--------|----------------|
@@ -58,10 +60,10 @@ If you need any of the above, drop the `copy-only` label and use the normal
 
 ## Branch protection
 
-Keep **`ci.yml` / LMS test suite** required for all merges. Add the copy-only
-job to required checks only if every PR that must pass it carries the
-`copy-only` label (the job succeeds without the label but does not run the
-fast-lane guard).
+Keep **`ci.yml` / LMS test suite** required for all merges. **Do not** mark the
+copy-only job as a required check: it is optional fast feedback when the label is
+present. Label detection uses `PR_LABELS_JSON` in the environment (not shell
+interpolation of label names).
 
 ## Linear / release notes
 

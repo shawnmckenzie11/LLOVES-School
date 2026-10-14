@@ -11,21 +11,21 @@ jobs:
   copy-only:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+
       - name: Detect copy-only label
         id: lane
-        run: |
-          labels="${{ join(github.event.pull_request.labels.*.name, ',') }}"
-          if [[ ",${labels}," == *",copy-only,"* ]]; then
-            echo "active=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "active=false" >> "$GITHUB_OUTPUT"
-          fi
+        env:
+          PR_LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: python3 .github/scripts/copy_only_lane_active.py
 
       - name: Copy-only lane not used
         if: steps.lane.outputs.active != 'true'
         run: |
           echo "No copy-only label on this PR; lane checks were not run."
-          echo "Do not add this job to required checks unless every PR carries copy-only."
+          echo "Do not add this job to required branch protection checks."
 
       - uses: actions/checkout@v4
         if: steps.lane.outputs.active == 'true'
@@ -55,11 +55,21 @@ jobs:
 
       - name: Copy-only diff guard (checker from base branch)
         if: steps.lane.outputs.active == 'true'
+        working-directory: pr
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
           COPY_ONLY_GIT_DIR: ${{ github.workspace }}/pr
-        run: python ../base/scripts/copy_only_check.py "$BASE" "$HEAD"
+          COPY_ONLY_CHECKER: ${{ github.workspace }}/base/scripts/copy_only_check.py
+        run: python "$COPY_ONLY_CHECKER" "$BASE" "$HEAD"
+
+      - name: Workflow checker invocation self-test
+        if: steps.lane.outputs.active == 'true'
+        working-directory: pr
+        env:
+          COPY_ONLY_GIT_DIR: ${{ github.workspace }}/pr
+          COPY_ONLY_CHECKER: ${{ github.workspace }}/base/scripts/copy_only_check.py
+        run: python scripts/copy_only_workflow_selftest.py
 
       - name: Template render smoke (Flask test client)
         if: steps.lane.outputs.active == 'true'

@@ -5,7 +5,8 @@ Allowed surfaces: plain text nodes and alt/title/placeholder/aria-label values
 (with no Jinja inside) in HTML/Jinja templates, string values in existing
 copy/i18n JSON, and prose edits in existing docs markdown (no raw HTML).
 Script/style bodies, renames, adds, deletes, mode changes, symlinks, and
-binaries are rejected.
+binaries are rejected. Template markup is compared with html.parser after
+masking Jinja; ``<``/``>`` counts must not change.
 """
 
 from __future__ import annotations
@@ -16,6 +17,8 @@ import os
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
@@ -30,12 +33,6 @@ TRUSTED_LANE_PATHS = frozenset(
 )
 
 COPY_ATTRS = frozenset({"alt", "title", "placeholder", "aria-label"})
-COPY_ATTR_RE = re.compile(
-    r"(?<![\w:-])(?P<name>alt|title|placeholder|aria-label)(?![\w:-])"
-    r"\s*=\s*"
-    r'(?P<quote>["\'])(?P<val>.*?)(?P=quote)',
-    re.IGNORECASE,
-)
 RAW_ELEMENTS = frozenset({"script", "style"})
 FORBIDDEN_SUFFIXES = frozenset(
     {
@@ -64,6 +61,10 @@ FORBIDDEN_UNICODE = re.compile(
 JINJA_IN_COPY = re.compile(r"(\{\{|\{%|\{#)")
 HTML_IN_PROSE = re.compile(r"<\s*[a-zA-Z!/]")
 FULLWIDTH_SCRIPT = re.compile(r"[＜<]\s*script\b", re.IGNORECASE)
+HTML_ENTITY = re.compile(r"&(?:#\d+|#x[0-9a-fA-F]+|\w+);")
+JAVASCRIPT_SCHEME = re.compile(r"javascript\s*:", re.IGNORECASE)
+JINJA_LINE_STMT = re.compile(r"#\s*for\b", re.IGNORECASE)
+PSEUDO_JINJA = re.compile(r"\{\s+\{")
 
 Normalizer = Callable[[str], str]
 
@@ -144,20 +145,6 @@ def git_file_at(rev: str, path: str) -> str | None:
     return result.stdout
 
 
-def git_object_type(rev: str, path: str) -> str | None:
-    """Return the git object type for a path at rev (blob, tree, commit, tag)."""
-    result = subprocess.run(
-        ["git", "cat-file", "-t", f"{rev}:{path}"],
-        cwd=git_cwd(),
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        return None
-    return result.stdout.strip()
-
-
 def is_symlink_at(rev: str, path: str) -> bool:
     """True when the path is a symlink (git mode 120000) at the given revision."""
     line = run_git("ls-tree", rev, path).strip()
@@ -215,9 +202,232 @@ def forbidden_copy_text(text: str) -> str | None:
         return "forbidden bidi or zero-width unicode in copy"
     if JINJA_IN_COPY.search(text):
         return "jinja not allowed inside copy text or attributes"
+    if PSEUDO_JINJA.search(text):
+        return "jinja-like braces not allowed in copy"
+    if JINJA_LINE_STMT.search(text):
+        return "jinja-like line statements not allowed in copy"
     if FULLWIDTH_SCRIPT.search(text):
         return "script-like markup not allowed in copy"
+    if HTML_ENTITY.search(text):
+        return "HTML entities not allowed in copy"
+    if JAVASCRIPT_SCHEME.search(text):
+        return "javascript: URLs not allowed in copy"
     return None
+
+
+def markup_angle_brackets_unchanged(old: str, new: str) -> bool:
+    """True when ``<`` and ``>`` counts are identical (no new markup delimiters)."""
+    return old.count("<") == new.count("<") and old.count(">") == new.count(">")
+
+
+def _iter_markup_segments(text: str):
+    """Yield ``('literal', chunk)`` and ``('jinja', chunk)`` in document order.
+
+    Jinja markers inside quoted attribute values stay in literal segments so
+    ``>`` inside ``{{ }}`` does not confuse the HTML tokenizer.
+    """
+    index = 0
+    length = len(text)
+    quote: str | None = None
+    while index < length:
+        char = text[index]
+        if quote is not None:
+            if char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in "\"'":
+            quote = char
+            index += 1
+            continue
+        if text.startswith("{%", index):
+            end = text.find("%}", index)
+            if end == -1:
+                raise ValueError("unclosed jinja statement")
+            yield ("jinja", text[index : end + 2])
+            index = end + 2
+            continue
+        if text.startswith("{{", index):
+            end = text.find("}}", index)
+            if end == -1:
+                raise ValueError("unclosed jinja expression")
+            yield ("jinja", text[index : end + 2])
+            index = end + 2
+            continue
+        if text.startswith("{#", index):
+            end = text.find("#}", index)
+            if end == -1:
+                raise ValueError("unclosed jinja comment")
+            yield ("jinja", text[index : end + 2])
+            index = end + 2
+            continue
+        next_special = length
+        for marker in ("{%", "{{", "{#"):
+            pos = text.find(marker, index)
+            if pos != -1:
+                next_special = min(next_special, pos)
+        if next_special > index:
+            yield ("literal", text[index:next_special])
+            index = next_special
+            continue
+        yield ("literal", char)
+        index += 1
+
+
+def _parse_literal_html(literal: str, parser: _MarkupStreamParser) -> None:
+    """Feed one literal (non-Jinja) chunk to the HTML parser."""
+    if literal:
+        parser.feed(literal)
+
+
+@dataclass(frozen=True)
+class _RawCapture:
+    """Accumulate script/style element bodies."""
+
+    tag: str
+    attrs: tuple[tuple[str, str | None], ...]
+    chunks: list[str]
+
+
+class _MarkupStreamParser(HTMLParser):
+    """Collect HTML parse events from Jinja-masked template text."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.events: list[tuple] = []
+        self._raw: _RawCapture | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """Record a start tag or begin capturing script/style."""
+        normalized = tuple(sorted(attrs))
+        if tag in RAW_ELEMENTS:
+            self._raw = _RawCapture(tag=tag, attrs=normalized, chunks=[])
+            return
+        self.events.append(("start", tag, normalized))
+
+    def handle_endtag(self, tag: str) -> None:
+        """Record an end tag or finish script/style capture."""
+        if self._raw and self._raw.tag == tag:
+            body = "".join(self._raw.chunks)
+            self.events.append(("raw", self._raw.tag, self._raw.attrs, body))
+            self._raw = None
+            return
+        self.events.append(("end", tag))
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """Record void elements."""
+        self.events.append(("startend", tag, tuple(sorted(attrs))))
+
+    def handle_data(self, data: str) -> None:
+        """Record text nodes or script/style inner text."""
+        if self._raw is not None:
+            self._raw.chunks.append(data)
+            return
+        self.events.append(("data", data))
+
+    def handle_comment(self, data: str) -> None:
+        """Record HTML comments as structural."""
+        self.events.append(("comment", data))
+
+    def handle_entityref(self, name: str) -> None:
+        """Keep entity references literal in text nodes for copy validation."""
+        self.handle_data(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        """Keep numeric character references literal in text nodes."""
+        self.handle_data(f"&#{name};")
+
+
+def _canonical_attr_tuple(attrs: tuple[tuple[str, str | None], ...]) -> tuple[tuple[str, str], ...]:
+    """Normalize attributes for structural comparison."""
+    rows: list[tuple[str, str]] = []
+    for name, value in attrs:
+        key = name.lower()
+        val = value if value is not None else ""
+        if key in COPY_ATTRS:
+            rows.append((key, "__COPY__"))
+        else:
+            rows.append((key, val))
+    return tuple(sorted(rows))
+
+
+def _canonical_markup_events(text: str) -> list[tuple]:
+    """Parse template HTML into a structural event list (Jinja blocks are literal)."""
+    parser = _MarkupStreamParser()
+    canonical: list[tuple] = []
+    for kind, chunk in _iter_markup_segments(text):
+        if kind == "jinja":
+            canonical.append(("jinja", chunk))
+            continue
+        _parse_literal_html(chunk, parser)
+    parser.close()
+    for event in parser.events:
+        kind = event[0]
+        if kind == "data":
+            canonical.append(("data", "__COPY__"))
+        elif kind in {"start", "startend"}:
+            tag = event[1]
+            attrs = _canonical_attr_tuple(event[2])
+            canonical.append((kind, tag, attrs))
+        elif kind == "end":
+            canonical.append(("end", event[1]))
+        elif kind == "comment":
+            canonical.append(("comment", event[1]))
+        elif kind == "raw":
+            tag, attrs, body = event[1], event[2], event[3]
+            canonical.append(("raw", tag, _canonical_attr_tuple(attrs), body))
+        else:
+            canonical.append(event)
+    return canonical
+
+
+def _validate_markup_copy_surfaces(text: str) -> str | None:
+    """Scan new template text for disallowed copy in data nodes and copy attrs."""
+    parser = _MarkupStreamParser()
+    for kind, chunk in _iter_markup_segments(text):
+        if kind == "jinja":
+            continue
+        _parse_literal_html(chunk, parser)
+    parser.close()
+    data_buffer: list[str] = []
+    for event in parser.events:
+        kind = event[0]
+        if kind == "data":
+            data_buffer.append(event[1])
+            continue
+        if data_buffer:
+            reason = forbidden_copy_text("".join(data_buffer))
+            data_buffer.clear()
+            if reason:
+                return reason
+        if kind in {"start", "startend"}:
+            for name, value in event[2]:
+                if name.lower() not in COPY_ATTRS:
+                    continue
+                val = value if value is not None else ""
+                reason = forbidden_copy_text(val)
+                if reason:
+                    return reason
+    if data_buffer:
+        return forbidden_copy_text("".join(data_buffer))
+    return None
+
+
+def markup_is_copy_only(old: str, new: str) -> tuple[bool, str]:
+    """Compare two template bodies using the HTML tokenizer rules."""
+    if not markup_angle_brackets_unchanged(old, new):
+        return False, "angle bracket characters added or removed in template"
+    reason = _validate_markup_copy_surfaces(new)
+    if reason:
+        return False, reason
+    try:
+        old_canon = _canonical_markup_events(old)
+        new_canon = _canonical_markup_events(new)
+    except ValueError as exc:
+        return False, str(exc)
+    if old_canon != new_canon:
+        return False, "change is not limited to visible copy"
+    return True, ""
 
 
 def validate_markdown_prose(text: str) -> str | None:
@@ -236,162 +446,6 @@ def validate_markdown_prose(text: str) -> str | None:
         if reason:
             return reason
     return None
-
-
-def _tag_name(open_tag: str) -> str:
-    """Return the lowercased element name from an opening or closing tag."""
-    match = re.match(r"^\s*/?\s*([\w:-]+)", open_tag, re.IGNORECASE)
-    return match.group(1).lower() if match else ""
-
-
-def _append_literal_element(text: str, index: int, out: list[str]) -> int:
-    """Copy a script/style element and its body verbatim into out."""
-    close_gt = text.find(">", index)
-    if close_gt == -1:
-        out.append(text[index:])
-        return len(text)
-    open_chunk = text[index : close_gt + 1]
-    name = _tag_name(open_chunk[1:])
-    if name not in RAW_ELEMENTS or open_chunk.lstrip().startswith("</"):
-        out.append(open_chunk)
-        return close_gt + 1
-    close_re = re.compile(rf"</\s*{re.escape(name)}\s*>", re.IGNORECASE)
-    close_match = close_re.search(text, close_gt + 1)
-    if not close_match:
-        out.append(text[index:])
-        return len(text)
-    out.append(text[index : close_match.end()])
-    return close_match.end()
-
-
-def validate_markup_surfaces(text: str) -> str | None:
-    """Reject disallowed content inside copy text nodes and copy attributes."""
-    index = 0
-    length = len(text)
-    while index < length:
-        if text.startswith("{%", index):
-            end = text.find("%}", index)
-            if end == -1:
-                break
-            index = end + 2
-            continue
-        if text.startswith("{{", index):
-            end = text.find("}}", index)
-            if end == -1:
-                break
-            index = end + 2
-            continue
-        if text.startswith("{#", index):
-            end = text.find("#}", index)
-            if end == -1:
-                break
-            index = end + 2
-            continue
-        if text[index] == "<":
-            close_gt = text.find(">", index)
-            if close_gt == -1:
-                break
-            name = _tag_name(text[index + 1 : close_gt])
-            if name in RAW_ELEMENTS and not text[index : close_gt + 1].lstrip().startswith(
-                "</"
-            ):
-                close_re = re.compile(rf"</\s*{re.escape(name)}\s*>", re.IGNORECASE)
-                close_match = close_re.search(text, close_gt + 1)
-                index = close_match.end() if close_match else length
-                continue
-            chunk = text[index : close_gt + 1]
-            for match in COPY_ATTR_RE.finditer(chunk):
-                reason = forbidden_copy_text(match.group("val"))
-                if reason:
-                    return reason
-            index = close_gt + 1
-            continue
-        next_special = _next_markup_special(text, index)
-        if next_special > index:
-            reason = forbidden_copy_text(text[index:next_special])
-            if reason:
-                return reason
-            index = next_special
-            continue
-        index += 1
-    return None
-
-
-def normalize_markup(text: str) -> str:
-    """Collapse visible copy; keep tags, script/style bodies, and Jinja literal."""
-    out: list[str] = []
-    index = 0
-    length = len(text)
-    while index < length:
-        if text.startswith("{%", index):
-            end = text.find("%}", index)
-            if end == -1:
-                out.append(text[index:])
-                break
-            out.append(text[index : end + 2])
-            index = end + 2
-            continue
-        if text.startswith("{{", index):
-            end = text.find("}}", index)
-            if end == -1:
-                out.append(text[index:])
-                break
-            out.append(text[index : end + 2])
-            index = end + 2
-            continue
-        if text.startswith("{#", index):
-            end = text.find("#}", index)
-            if end == -1:
-                out.append(text[index:])
-                break
-            out.append(text[index : end + 2])
-            index = end + 2
-            continue
-        if text[index] == "<":
-            close_gt = text.find(">", index)
-            if close_gt == -1:
-                out.append("__COPY__")
-                break
-            name = _tag_name(text[index + 1 : close_gt])
-            if name in RAW_ELEMENTS:
-                index = _append_literal_element(text, index, out)
-                continue
-            out.append(_normalize_tag(text[index : close_gt + 1]))
-            index = close_gt + 1
-            continue
-        next_special = _next_markup_special(text, index)
-        if next_special > index:
-            out.append("__COPY__")
-            index = next_special
-            continue
-        index += 1
-    return "".join(out)
-
-
-def _next_markup_special(text: str, index: int) -> int:
-    """Return the next index of markup structure, or len(text)."""
-    candidates = [len(text)]
-    for marker in ("<", "{%", "{{", "{#"):
-        pos = text.find(marker, index)
-        if pos != -1:
-            candidates.append(pos)
-    return min(candidates)
-
-
-def _normalize_tag(tag: str) -> str:
-    """Normalize one HTML/Jinja tag string."""
-
-    def repl(match: re.Match[str]) -> str:
-        name = match.group("name").lower()
-        value = match.group("val")
-        if name not in COPY_ATTRS:
-            return match.group(0)
-        if forbidden_copy_text(value):
-            return match.group(0)
-        quote = match.group("quote")
-        return f"{match.group('name')}={quote}__COPY__{quote}"
-
-    return COPY_ATTR_RE.sub(repl, tag)
 
 
 def normalize_markdown(text: str) -> str:
@@ -459,39 +513,33 @@ def file_is_copy_only(old: str | None, new: str | None, kind: str) -> tuple[bool
         return False, "deleted files are not allowed"
     if old is None:
         return False, "new files are not allowed"
-    normalizers: dict[str, Normalizer] = {
-        "markup": normalize_markup,
-        "markdown": normalize_markdown,
-        "json_copy": normalize_copy_json,
-    }
-    normalize = normalizers[kind]
-    old_text = old
-    new_text = new
     if kind == "markup":
-        reason = validate_markup_surfaces(new_text)
-        if reason:
-            return False, reason
+        return markup_is_copy_only(old, new)
     if kind == "markdown":
-        reason = validate_markdown_prose(new_text)
+        reason = validate_markdown_prose(new)
         if reason:
             return False, reason
+        if normalize_markdown(old) != normalize_markdown(new):
+            return False, "change is not limited to visible copy"
+        return True, ""
     if kind == "json_copy":
         try:
-            parsed = json.loads(new_text)
+            parsed = json.loads(new)
         except json.JSONDecodeError as exc:
             return False, f"invalid JSON: {exc}"
         reason = _validate_json_strings(parsed)
         if reason:
             return False, reason
-    old_norm = normalize(old_text)
-    new_norm = normalize(new_text)
-    if old_norm == new_norm:
-        return True, ""
-    if kind == "json_copy" and old_norm == "__INVALID_JSON__":
-        return False, "invalid JSON in base revision"
-    if kind == "json_copy" and new_norm == "__INVALID_JSON__":
-        return False, "invalid JSON in head revision"
-    return False, "change is not limited to visible copy"
+        old_norm = normalize_copy_json(old)
+        new_norm = normalize_copy_json(new)
+        if old_norm == new_norm:
+            return True, ""
+        if old_norm == "__INVALID_JSON__":
+            return False, "invalid JSON in base revision"
+        if new_norm == "__INVALID_JSON__":
+            return False, "invalid JSON in head revision"
+        return False, "change is not limited to visible copy"
+    return False, "path is not in the copy-only allowlist"
 
 
 def check_range(base: str, head: str) -> list[str]:
@@ -530,6 +578,14 @@ def check_range(base: str, head: str) -> list[str]:
         if not ok:
             errors.append(f"{path}: {reason}")
     return errors
+
+
+def workflow_checker_path() -> Path:
+    """Resolve the checker script path the same way CI does."""
+    override = (os.environ.get("COPY_ONLY_CHECKER") or "").strip()
+    if override:
+        return Path(override)
+    return Path(__file__).resolve()
 
 
 def main(argv: list[str] | None = None) -> int:
