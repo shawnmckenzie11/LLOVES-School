@@ -5,7 +5,8 @@
 class deck that is a working copy (Previous, Course deck, Blank, or a copy
 from the other section) never reads the seed file's items again, so prod's
 existing MCR3U and MCR3U-2 M3 C1 decks did not show it. Pinned seed media
-now rides along on those decks: once, never duplicated, MCR3U M3 C1 only.
+now rides along on those decks: once, never duplicated, on challenges whose seed flags the item
+``pin_to_working_copies`` (MCR3U and MCF3M M3 C1).
 """
 
 from __future__ import annotations
@@ -136,18 +137,46 @@ class SavedM3C1DeckTests(unittest.TestCase):
         session = self.school.start_live_class_session(two, int(self.teacher["id"]), live_module="M3", live_slot="C1")
         self.assertEqual((self.school.ensure_live_class_media(int(session["id"])) or {}).get("url"), REAL_SLICE)
 
-    def test_other_courses_and_challenges_are_untouched(self) -> None:
-        """MCF3M M3 C1 and MCR3U M3 C2 working copies get nothing added."""
+    def test_mcf3m_m3c1_copied_from_mcr3u_lists_real_slice(self) -> None:
+        """Prod: MCR3U (class 9) M3 C1 deck copied to MCF3M (class 8) M3 C1.
+
+        Pins come from the seed (``pin_to_working_copies``), so MCF3M M3 C1
+        keeps Real Slice on a blank deck and on a cross-course copy, and a
+        live session mounts it as deck media.
+        """
         self.school.apply_class_deck_seed(self.math, "M3", "C1", mode="blank")
-        self.assertNotIn(REAL_SLICE, self._media(self.math))
-        math_meta = self.school.live_class_metadata_for_class_lesson(self.math, "M3", "C1", fresh=True)
-        self.assertNotEqual((math_meta.get("media") or {}).get("file"), REAL_SLICE)
+        self.assertEqual(self._media(self.math).count(REAL_SLICE), 1)
+        try:
+            self.school.apply_class_deck_seed(
+                self.math, "M3", "C1", mode="course", source_module="M3", source_slot="C1",
+                source_class_id=self.sections[0], teacher_user_id=int(self.teacher["id"]),
+            )
+        except ValueError:
+            pass  # cross-course copy refused by policy: the blank deck still pins
+        self.assertEqual(self._media(self.math).count(REAL_SLICE), 1)
+        meta = self.school.live_class_metadata_for_class_lesson(self.math, "M3", "C1", fresh=True)
+        self.assertEqual(meta["media"]["file"], REAL_SLICE)
+        session = self.school.start_live_class_session(
+            self.math, int(self.teacher["id"]), live_module="M3", live_slot="C1"
+        )
+        sid = int(session["id"])
+        self.assertIn(REAL_SLICE, self.school._class_deck_media_choice(sid)[1])
+        self.school.set_live_session_active_media(sid, url=REAL_SLICE, title="Real Slice", stem="Real Slice")
+        self.assertEqual((self.school.ensure_live_class_media(sid) or {}).get("url"), REAL_SLICE)
+
+    def test_pins_are_seed_driven(self) -> None:
+        """Only seed items flagged ``pin_to_working_copies`` are pinned."""
+        pins = type(self.school).pinned_seed_media_ids
+        self.assertEqual(pins("MCR3U", "M3", "C1"), ("real-slice",))
+        self.assertEqual(pins("mcf3m", "m3", "c1"), ("real-slice",))
+        self.assertEqual(pins("MCR3U", "M1", "C1"), ())
+        self.assertEqual(pins("MCR3U", "M3", "C2"), ())
+        self.assertEqual(pins("NOPE", "M9", "C9"), ())
+
+    def test_other_challenges_are_untouched(self) -> None:
+        """MCR3U M1 C1 and M3 C2 working copies get nothing added."""
         self.school.apply_class_deck_seed(self.sections[0], "M1", "C1", mode="course", source_module="M1", source_slot="C3")
         m1 = self.school.live_class_metadata_for_class_lesson(self.sections[0], "M1", "C1", fresh=True)
         self.assertNotEqual((m1.get("media") or {}).get("file"), REAL_SLICE)
         self.school.apply_class_deck_seed(self.sections[0], "M3", "C2", mode="blank")
         self.assertNotIn(REAL_SLICE, self._media(self.sections[0], "M3", "C2"))
-
-
-if __name__ == "__main__":
-    unittest.main()
