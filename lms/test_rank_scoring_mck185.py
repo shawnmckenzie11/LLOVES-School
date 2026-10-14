@@ -774,6 +774,8 @@ class ViewTests(unittest.TestCase):
         self.assertIn("skipTeacherRaceRevealFor", staff)
         self.assertIn("if (teacherSkipsRaceReveal(race.results)) return", staff)
         self.assertIn("if (teacherSkipsRaceReveal(result.race.results)) return", staff)
+        self.assertIn("rankAuthoredOptionLabels", staff)
+        self.assertIn("lifecycleByItemId", staff)
         self.assertNotIn("rankScoringRowsHtml", staff)
         self.assertIn("function teamControls(teamId) {", staff)  # Class list chips untouched
         template = (LMS_DIR / "templates" / "staff" / "course.html").read_text(encoding="utf-8")

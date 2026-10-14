@@ -7,6 +7,8 @@ import {
   raceResultsHtml,
   scoreTeamsDialogHtml,
   scoreTeamsPending,
+  rankAuthoredOptionLabels,
+  rankOptionLabel,
   scoreTeamsRows,
   spotsResults,
   teacherSkipsRaceReveal,
@@ -53,6 +55,13 @@ const paying = { ...spots, challenge: true, pays: true };
 // Steps: rows, then the podium; a Team challenge too (no Points step).
 check(spotsResults(spots) && spotsResults(challenge) && !spotsResults(paying), "hand-scored results");
 check(teacherSkipsRaceReveal(spots) && teacherSkipsRaceReveal(challenge) && !teacherSkipsRaceReveal(paying), "MCK-219 teacher skips reveal");
+check(rankOptionLabel("Two points") === "Two points", "rank string label");
+check(rankOptionLabel("{'id': 'o1', 'label': 'Two points'}") === "Two points", "legacy dict string");
+check(
+  rankAuthoredOptionLabels({ rank_options: [{ id: "o1", label: "A graph" }], options: ["ignored"] }).join() ===
+    "A graph",
+  "rank_options wins"
+);
 check(lastResultsStep(spots) === 5 && lastResultsStep(challenge) === 5, "last step is n+1");
 check(lastResultsStep(paying) === 6, "MCK-171 payout on keeps n+2");
 check(lastResultsStep({ total: 4 }) === 6, "older payload keeps n+2");

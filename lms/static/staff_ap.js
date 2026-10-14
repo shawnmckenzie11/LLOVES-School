@@ -105,6 +105,7 @@ import {
   fill as raceFill,
   lastResultsStep,
   raceLanesHtml,
+  rankAuthoredOptionLabels,
   raceOptionLabels,
   raceResultsHtml,
   raceStem,
@@ -4873,6 +4874,13 @@ function paintLiveQuestionCards() {
   const lifecycleById = new Map(
     lastLiveItems.map((row) => [Number(row.id), row])
   );
+  const lifecycleByItemId = new Map();
+  for (const row of lastLiveItems) {
+    const token = String(row?.item_id || "").trim();
+    if (!token) continue;
+    lifecycleByItemId.set(token, row);
+    lifecycleByItemId.set(liveItemAlias(token), row);
+  }
   const activeByItem = new Map(
     lastActiveQuestions.map((row) => [
       String(row?.payload?.item_id || ""),
@@ -4880,7 +4888,11 @@ function paintLiveQuestionCards() {
     ])
   );
   const cards = currentPageQuestionRows().map((card) => {
-      const lifecycle = lifecycleById.get(Number(card.live_item_id));
+      const questionToken = String(card.item_id || card.id || "");
+      const lifecycle =
+        lifecycleById.get(Number(card.live_item_id)) ||
+        lifecycleByItemId.get(questionToken) ||
+        lifecycleByItemId.get(liveItemAlias(questionToken));
       const prompt = activeByItem.get(String(card.id || card.item_id || ""));
       const pageNumber = card.page_number;
       const stage = card.stage;
@@ -4914,15 +4926,13 @@ function paintLiveQuestionCards() {
   writeQuestionCardsKeepingConfirms(host, cards
     .map((card, index) => {
       const item = card.item || card;
+      const isRankCard = liveQuestionIsRank(item, card);
+      const optionLabels = isRankCard ? rankAuthoredOptionLabels(item) : [];
       const options = Array.isArray(item.options)
         ? item.options
         : Array.isArray(card.options)
           ? card.options
           : [];
-      const isRankCard = liveQuestionIsRank(item, card);
-      const optionLabels = options.map((option) =>
-        option && typeof option === "object" ? option.label || option.text || "" : option
-      );
       const optionHtml = isRankCard
         ? optionLabels.length
           ? `<ol class="rank-authored-list">${optionLabels
