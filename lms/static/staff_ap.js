@@ -12415,7 +12415,7 @@ function ensureTeacherBoardPoll() {
         `/api/live-sessions/${sessionId}/board/teacher?since=${teacherBoardSince}`,
         { credentials: "same-origin", headers: { Accept: "application/json" } }
       ).then(async (res) => {
-        if (res.status === 429 || res.status >= 500) {
+        if (res.status === 429 || res.status === 503 || res.status >= 500) {
           return { status: res.status, busy: true };
         }
         let data = null;

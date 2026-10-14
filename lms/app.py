@@ -496,6 +496,36 @@ def _json_error(exc: BaseException):
     return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+_BOARD_POOL_RETRY_AFTER = "2"
+
+
+def _board_read_pool_busy(exc: BaseException):
+    """Map a saturated presence pool to HTTP 503 for board delta reads.
+
+    Args:
+        exc: Error from ``read_board`` / ``board_delta``.
+
+    Returns:
+        ``(response, status)`` when ``exc`` is pool busy, else ``None``.
+    """
+    from live_presence import LivePresenceUnavailable, note_presence_blip
+
+    if not isinstance(exc, LivePresenceUnavailable):
+        return None
+    if "pool busy" not in str(exc):
+        return None
+    note_presence_blip("board read pool busy")
+    response = jsonify(
+        {
+            "ok": False,
+            "error": "Board is busy — try again.",
+            "retry": True,
+        }
+    )
+    response.headers["Retry-After"] = _BOARD_POOL_RETRY_AFTER
+    return response, 503
+
+
 def _artifact_busy(action: str):
     """JSON retry when an Artifact open path fails under class load.
 
@@ -6896,6 +6926,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 order=body.get("order"),
                 tap=body.get("tap"),
                 clear=bool(body.get("clear")),
+                undo_last=bool(body.get("undo_last")),
             )
         except GroupAnswerLocked as exc:
             return jsonify({"ok": False, "error": str(exc), "locked": True, "group_submit": exc.card}), 409
@@ -7035,11 +7066,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     )
     @student_required
     def api_student_rank_agree(live_item_id: int):
-        """MCK-171 Team challenge: "I agree" / "Not yet" on the team order.
-
-        Every tap emits one group postcard so teammates and the projector
-        lane see "{k} of {m} agree" (and the lock-in) right away.
-        """
+        """MCK-216 Team challenge: explicit "Lock in our order" on the team draft."""
 
         denied = _require_active_live_attendee(as_json=True)
         if denied is not None:
@@ -8577,6 +8604,11 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        except Exception as exc:
+            busy = _board_read_pool_busy(exc)
+            if busy is not None:
+                return busy
+            raise
         return jsonify(reply)
 
     @app.route("/api/student/board/<board_key>/ops", methods=["POST"])
@@ -8660,6 +8692,11 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 )
             except (KeyError, ValueError) as exc:
                 return _json_error(exc)
+            except Exception as exc:
+                busy = _board_read_pool_busy(exc)
+                if busy is not None:
+                    return busy
+                raise
             return jsonify(reply)
         student_id, rejected = _student_for_board(session_id)
         if rejected is not None:
@@ -8679,6 +8716,11 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        except Exception as exc:
+            busy = _board_read_pool_busy(exc)
+            if busy is not None:
+                return busy
+            raise
         return jsonify(reply)
 
     @app.route(
