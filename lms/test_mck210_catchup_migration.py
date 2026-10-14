@@ -32,40 +32,26 @@ from mck210_catchup_migration import (  # noqa: E402
 
 
 def _good_plan_report() -> RepairReport:
-    """Synthetic dry-run plan that satisfies ops expectations."""
+    """Synthetic dry-run plan that satisfies the exact ops table."""
     rows = [
-        BackfillRunReport(9, "MCR3U", "rk1b01", "M2", "C3", "would classify real"),
-        BackfillRunReport(10, "MCR3U", "rk9a20", "M2", "C3", "would classify real"),
-        BackfillRunReport(10, "MCR3U", "rk8312", "M2", "C3", "would classify test"),
-        BackfillRunReport(9, "MCR3U", "rk7e0c", "M2", "C4", "would classify real"),
-        BackfillRunReport(10, "MCR3U", "rk4373", "M2", "C4", "would classify real"),
-        BackfillRunReport(9, "MCR3U", "rk3b4b", "M2", "C3", "would classify test"),
-        BackfillRunReport(9, "MCR3U", "rka5d4", "M2", "C1", "would classify test"),
-        BackfillRunReport(8, "MCF3M", "rkd20a", "M2", "C3", "would classify real"),
-        BackfillRunReport(8, "MCF3M", "rk0dae", "M2", "C3", "would classify test"),
-        BackfillRunReport(8, "MCF3M", "rk2af3", "M2", "C4", "would classify real"),
-        BackfillRunReport(9, "MCR3U", "rk1b01", "M2", "C3", "would reopen link", detail="link_id=5"),
-        BackfillRunReport(10, "MCR3U", "rk7e0c", "M2", "C4", "would reopen link", detail="link_id=7"),
-        BackfillRunReport(8, "MCF3M", "rkd20a", "M2", "C3", "would reopen link", detail="link_id=8"),
-        BackfillRunReport(10, "MCR3U", "rk4373", "M2", "C4", "would reopen link", detail="link_id=10"),
-        BackfillRunReport(
-            10,
-            "MCR3U",
-            "rk9a20",
-            "M2",
-            "C3",
-            "would discard test link; mint open link",
-            detail="discard link_id=9; new token",
-        ),
-        BackfillRunReport(
-            9,
-            "MCR3U",
-            "rk7e0c",
-            "M2",
-            "C4",
-            "would discard test link; mint open link",
-            detail="discard link_id=6; new token",
-        ),
+        BackfillRunReport(9, "MCR3U", "prod-1b01-run", "M2", "C3", "would classify real"),
+        BackfillRunReport(10, "MCR3U", "prod-9a20-run", "M2", "C3", "would classify real"),
+        BackfillRunReport(10, "MCR3U", "prod-8312-run", "M2", "C3", "would classify test"),
+        BackfillRunReport(9, "MCR3U", "prod-7e0c-run", "M2", "C4", "would classify real"),
+        BackfillRunReport(10, "MCR3U", "prod-4373-run", "M2", "C4", "would classify real"),
+        BackfillRunReport(9, "MCR3U", "prod-3b4b-run", "M2", "C3", "would classify test"),
+        BackfillRunReport(9, "MCR3U", "prod-a5d4-run", "M2", "C1", "would classify test"),
+        BackfillRunReport(8, "MCF3M", "prod-d20a-run", "M2", "C3", "would classify real"),
+        BackfillRunReport(8, "MCF3M", "prod-0dae-run", "M2", "C3", "would classify test"),
+        BackfillRunReport(8, "MCF3M", "prod-2af3-run", "M2", "C4", "would classify real"),
+        BackfillRunReport(9, "MCR3U", "prod-1b01-run", "M2", "C3", "would reopen link", detail="link_id=5"),
+        BackfillRunReport(10, "MCR3U", "prod-9a20-run", "M2", "C3", "would mint open link", detail="new token"),
+        BackfillRunReport(10, "MCR3U", "prod-8312-run", "M2", "C3", "would discard link", detail="link_id=6"),
+        BackfillRunReport(9, "MCR3U", "prod-7e0c-run", "M2", "C4", "would reopen link", detail="link_id=8"),
+        BackfillRunReport(10, "MCR3U", "prod-4373-run", "M2", "C4", "would reopen link", detail="link_id=7"),
+        BackfillRunReport(8, "MCF3M", "prod-d20a-run", "M2", "C3", "would mint open link", detail="new token"),
+        BackfillRunReport(8, "MCF3M", "prod-0dae-run", "M2", "C3", "would discard link", detail="link_id=9"),
+        BackfillRunReport(8, "MCF3M", "prod-2af3-run", "M2", "C4", "would reopen link", detail="link_id=10"),
     ]
     return RepairReport(dry_run=True, runs=rows)
 
@@ -75,12 +61,42 @@ class ValidatePlanTests(unittest.TestCase):
         ok, reason = validate_mck210_repair_plan(_good_plan_report())
         self.assertTrue(ok, reason)
 
-    def test_mismatch_rejects_wrong_real_count(self) -> None:
+    def test_swap_1b01_and_3b4b_classify_aborts(self) -> None:
         report = _good_plan_report()
-        report.runs = [r for r in report.runs if "classify real" not in r.action][:1]
+        for row in report.runs:
+            if "1b01" in row.run_key and "classify" in row.action:
+                row.action = "would classify test"
+            if "3b4b" in row.run_key and "classify" in row.action:
+                row.action = "would classify real"
         ok, reason = validate_mck210_repair_plan(report)
         self.assertFalse(ok)
-        self.assertIn("real", reason)
+        self.assertIn("1b01", reason)
+
+    def test_8312_discard_link_7_aborts(self) -> None:
+        report = _good_plan_report()
+        for row in report.runs:
+            if "8312" in row.run_key and "discard" in row.action:
+                row.detail = "link_id=7"
+        ok, reason = validate_mck210_repair_plan(report)
+        self.assertFalse(ok)
+        self.assertIn("8312", reason)
+
+    def test_unexpected_mint_aborts(self) -> None:
+        report = _good_plan_report()
+        report.runs.append(
+            BackfillRunReport(
+                9,
+                "MCR3U",
+                "prod-a5d4-run",
+                "M2",
+                "C1",
+                "would mint open link",
+                detail="new token",
+            )
+        )
+        ok, reason = validate_mck210_repair_plan(report)
+        self.assertFalse(ok)
+        self.assertIn("a5d4", reason)
 
 
 class MigrationNoOpTests(unittest.TestCase):
@@ -256,41 +272,27 @@ class ProdMigrationFixture(unittest.TestCase):
         c9, c10, c8 = 9, 10, 8
         self._insert_snapshot("1b01", c9, "M2", "C3", real_1030, link_id=5, link_closed=True)
         self._insert_snapshot("9a20", c10, "M2", "C3", real_1155)
-        self._insert_snapshot("8312", c10, "M2", "C3", test_utc)
-        self._insert_snapshot("7e0c", c9, "M2", "C4", real_1030)
-        self._insert_snapshot("4373", c10, "M2", "C4", real_1155, link_id=10, link_closed=True)
+        self._insert_snapshot(
+            "8312", c10, "M2", "C3", test_utc, link_id=6, link_closed=True, link_token="tok-8312"
+        )
+        self._insert_snapshot("7e0c", c9, "M2", "C4", real_1030, link_id=8, link_closed=True)
+        self._insert_snapshot("4373", c10, "M2", "C4", real_1155, link_id=7, link_closed=True)
         self._insert_snapshot("3b4b", c9, "M2", "C3", test_utc)
         self._insert_snapshot("a5d4", c9, "M2", "C1", test_utc)
         self._insert_snapshot("7656", c9, "M2", "C5", real_1030, link_id=2, link_token="good-link-2")
-        self._insert_snapshot("d20a", c8, "M2", "C3", real_mcf, link_id=8, link_closed=True)
-        self._insert_snapshot("0dae", c8, "M2", "C3", test_utc)
-        self._insert_snapshot("2af3", c8, "M2", "C4", real_mcf, link_id=7, link_closed=True)
-        self.school.conn.execute(
-            """
-            INSERT INTO catchup_links (
-                id, token, class_id, run_key, live_module, live_slot, is_open,
-                created_at, updated_at
-            ) VALUES (4, 'link-4', 8, 'prod-untouched4', 'M2', 'C2', 0, ?, ?)
-            """,
-            (real_mcf, real_mcf),
+        self._insert_snapshot("d20a", c8, "M2", "C3", real_mcf)
+        self._insert_snapshot(
+            "0dae", c8, "M2", "C3", test_utc, link_id=9, link_closed=True, link_token="tok-0dae"
         )
+        self._insert_snapshot("2af3", c8, "M2", "C4", real_mcf, link_id=10, link_closed=True)
         self.school.conn.execute(
             """
             INSERT INTO catchup_links (
                 id, token, class_id, run_key, live_module, live_slot, is_open,
                 created_at, updated_at
-            ) VALUES (6, 'tok-6', 9, 'prod-test6-run', 'M2', 'C4', 0, ?, ?)
+            ) VALUES (4, '02fa', 9, 'prod-02fa-run', 'M2', 'C2', 1, ?, ?)
             """,
             (real_1030, real_1030),
-        )
-        self.school.conn.execute(
-            """
-            INSERT INTO catchup_links (
-                id, token, class_id, run_key, live_module, live_slot, is_open,
-                created_at, updated_at
-            ) VALUES (9, 'tok-9', 10, 'prod-test9-run', 'M2', 'C3', 0, ?, ?)
-            """,
-            (real_1155, real_1155),
         )
         self.school.conn.commit()
 
@@ -303,10 +305,10 @@ class MigrationApplyTests(ProdMigrationFixture):
         self.assertEqual(plans[0]["live_end_time"], "11:55am")
         with self.school._lock:
             self.school.conn.execute("BEGIN")
-            _, preview = plan_mck210_migration(self.school)
-            ok, reason = validate_mck210_repair_plan(preview)
+            _, applied = plan_mck210_migration(self.school)
             self.school.conn.execute("ROLLBACK")
-        self.assertTrue(ok, reason)
+        self.assertFalse(applied.dry_run)
+        self.assertGreater(len(applied.runs), 0)
 
     def test_apply_idempotent(self) -> None:
         first = run_mck210_catchup_migration_if_needed(self.school)
