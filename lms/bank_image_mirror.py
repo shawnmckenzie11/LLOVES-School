@@ -280,6 +280,12 @@ def mirror_library_bank_images(
             mirrored += 1
         else:
             failed += 1
+    # broken_image depends on bank_image_cache: re-lint (report-only).
+    try:
+        from bank_lint import safe_lint_library
+    except ImportError:
+        from lms.bank_lint import safe_lint_library
+    safe_lint_library(school, int(library_id))
     return {
         "library_id": int(library_id),
         "unique_urls": len(urls),

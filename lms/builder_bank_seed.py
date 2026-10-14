@@ -17,6 +17,11 @@ _STATIC_GRAPHS = Path(__file__).resolve().parent / "static" / "bank-graphs"
 _MC_SPLIT_RE = re.compile(r"\s+([A-D])\)\s+")
 _MC_ANSWER_RE = re.compile(r"^[A-D]$", re.IGNORECASE)
 
+try:
+    from bank_lint import lints_library_after
+except ImportError:  # package import
+    from lms.bank_lint import lints_library_after
+
 
 def _now() -> str:
     """Return an ISO timestamp for sqlite inserts."""
@@ -181,6 +186,7 @@ def iter_builder_mc_items(course_code: str, module_number: int) -> list[dict[str
     return rows
 
 
+@lints_library_after
 def seed_builder_module_bank(
     school: Any,
     *,

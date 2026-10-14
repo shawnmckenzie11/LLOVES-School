@@ -52,6 +52,15 @@ from serve_capacity import (  # noqa: E402
 )
 
 try:
+    from bank_lint import lints_library_after as _lints_library_after
+    from bank_lint import lints_question_after as _lints_question_after
+    from bank_lint import safe_lint_questions as _safe_lint_questions
+except ImportError:  # package import
+    from lms.bank_lint import lints_library_after as _lints_library_after
+    from lms.bank_lint import lints_question_after as _lints_question_after
+    from lms.bank_lint import safe_lint_questions as _safe_lint_questions
+
+try:
     from codes import generate_live_access_code
     from artifact import (
         ARTIFACT_KIND,
@@ -7949,6 +7958,7 @@ class SchoolDB(LovesDB):
             logger.exception("rank bank seed failed for library %s", library_id)
             return None
 
+    @_lints_library_after
     def seed_course_wide_warmups(self, library_id: int) -> dict[str, Any]:
         """Insert or refresh the Course Wide warmup bank for one library.
 
@@ -11471,6 +11481,7 @@ class SchoolDB(LovesDB):
         merged["questions"] = questions
         return merged
 
+    @_lints_question_after
     def upsert_library_question_overlay(
         self,
         library_id: int,
@@ -11677,8 +11688,11 @@ class SchoolDB(LovesDB):
                 ),
             )
             self.conn.commit()
-            return int(cur.lastrowid)
+            new_id = int(cur.lastrowid)
+        _safe_lint_questions(self, [new_id])
+        return new_id
 
+    @_lints_question_after
     def update_library_question_payload(
         self,
         library_id: int,
@@ -12078,6 +12092,7 @@ class SchoolDB(LovesDB):
             self.conn.commit()
             return int(cur.lastrowid)
 
+    @_lints_question_after
     def _insert_staff_bank_question(
         self,
         *,
