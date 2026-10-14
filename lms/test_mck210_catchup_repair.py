@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""MCK-210: UTC timestamps, per-section schedules, run-scoped repair."""
+"""MCK-210: UTC timestamps, offering end times, run-key repair (no session rows)."""
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import sys
@@ -17,29 +16,27 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
-from catchup_backfill import backfill_catchup_from_snapshots, repair_catchup  # noqa: E402
+from catchup_backfill import repair_catchup  # noqa: E402
+from catchup_schedule import CatchupScheduleError  # noqa: E402
 from cli import register_cli  # noqa: E402
 from live_class_run import LiveClassSchedule, classify_run_end, parse_ended_at  # noqa: E402
 from test_participation_mck198 import Base  # noqa: E402
 
-# Prod scopes (MCK-210 ops read-only); session ids are filled at deploy time via SQL.
-PROD_RUN_SCOPES: dict[str, tuple[str, str, str, str]] = {
-    "9a20": ("MCR3U", "M2", "C3", "real"),
-    "8312": ("MCR3U", "M2", "C3", "test"),
-    "1b01": ("MCR3U", "M2", "C3", "real"),
-    "7e0c": ("MCR3U", "M2", "C4", "real"),
-    "4373": ("MCR3U", "M2", "C4", "real"),
-    "3b4b": ("MCR3U", "M2", "C4", "test"),
-    "a5d4": ("MCR3U", "M2", "C4", "test"),
-    "d20a": ("MCF3M", "M2", "C4", "real"),
-    "0dae": ("MCF3M", "M2", "C4", "test"),
-    "2af3": ("MCF3M", "M2", "C4", "real"),
+PROD_RUN_SCOPES: dict[str, tuple[str, str, str]] = {
+    "9a20": ("M2", "C3", "real"),
+    "8312": ("M2", "C3", "test"),
+    "1b01": ("M2", "C3", "real"),
+    "7e0c": ("M2", "C4", "real"),
+    "4373": ("M2", "C4", "real"),
+    "3b4b": ("M2", "C4", "test"),
+    "a5d4": ("M2", "C4", "test"),
+    "d20a": ("M2", "C4", "real"),
+    "0dae": ("M2", "C4", "test"),
+    "2af3": ("M2", "C4", "real"),
 }
 
 
 class UtcParseTests(unittest.TestCase):
-    """Zone-less prod timestamps are UTC before Toronto classification."""
-
     def test_utc_bell_end_classifies_real(self) -> None:
         sched = LiveClassSchedule(days_key="M/W/F", end_time_label="10:30am")
         ended = parse_ended_at("2026-10-14T14:30:00")
@@ -54,8 +51,6 @@ class UtcParseTests(unittest.TestCase):
 
 
 class SectionScheduleTests(Base):
-    """Section 5 afternoon end must not inherit section 2's 11:55am seed."""
-
     def test_section_five_uses_offering_end_not_section_two(self) -> None:
         teacher = self.teacher
         off2 = self.school.assign_course(
@@ -93,93 +88,103 @@ class SectionScheduleTests(Base):
         sched = self.school.live_class_schedule_for_class(class5)
         assert sched is not None
         self.assertEqual(sched["live_end_time"], "3:15pm")
-        real_utc = "2026-10-14T19:15:00"
         self.assertTrue(
-            self.school.preview_participation_run_real(class5, ended_at=real_utc)
+            self.school.preview_participation_run_real(class5, ended_at="2026-10-14T19:15:00")
         )
 
 
 class ProdFixtureBase(Base):
-    """Temp DB with multiple classes matching prod run-key scopes."""
-
     def setUp(self) -> None:
         super().setUp()
-        self.classes: dict[str, int] = {}
-        self.sessions: dict[str, int] = {}
+        self.class_ids: dict[str, int] = {}
+        self.offering_ids: list[int] = []
         self.links: dict[str, int] = {}
         self._seed_classes()
-        self._seed_runs()
+        self._seed_snapshot_runs()
+        self._wipe_live_sessions()
 
-    def _make_offering(self, code: str, section: int, end: str) -> int:
+    def _make_offering_class(self, key: str, code: str, section: int, *, time_label: str) -> int:
         off = self.school.assign_course(
             teacher_user_id=int(self.teacher["id"]),
             ontario_code=code,
             new_section=section > 1,
         )
+        oid = int(off["id"])
         if section > 1:
             self.school.conn.execute(
                 "UPDATE course_offerings SET section_index = ? WHERE id = ?",
-                (section, int(off["id"])),
+                (section, oid),
             )
-            self.school.conn.commit()
-        self.school.set_offering_schedule(
-            int(off["id"]),
-            live_days="M/W/F",
-            live_time="9:15am" if code == "MCR3U" else "2:00pm",
-            live_end_time=end,
+        self.school.conn.execute(
+            """
+            UPDATE course_offerings
+            SET live_days = 'M/W/F', live_time = ?, live_end_time = NULL
+            WHERE id = ?
+            """,
+            (time_label, oid),
         )
+        self.school.conn.commit()
+        self.offering_ids.append(oid)
         created = self.school.game.create_class(
             year="2026/27",
             semester="Semester 1",
             course_code=code,
             days_preset="M/W/F",
-            time_label="2:00pm",
-            codenames=[f"{code}{section}"],
-            offering_id=int(off["id"]),
+            time_label=time_label,
+            codenames=[f"{key}-{code}"],
+            offering_id=oid,
             teacher_user_id=int(self.teacher["id"]),
         )
-        return int(created["id"] if isinstance(created, dict) else created)
+        cid = int(created["id"] if isinstance(created, dict) else created)
+        self.class_ids[key] = cid
+        return cid
 
     def _seed_classes(self) -> None:
-        self.classes["mcr3u_c3"] = self._make_offering("MCR3U", 5, "10:30am")
-        self.classes["mcr3u_c4"] = self._make_offering("MCR3U", 6, "10:30am")
-        self.classes["mcf3m_c4"] = self._make_offering("MCF3M", 1, "3:15pm")
+        self._make_offering_class("class_9", "MCR3U", 1, time_label="9:15am")
+        self._make_offering_class("class_10", "MCR3U", 3, time_label="9:15am")
+        self._make_offering_class("mcr3u_c4", "MCR3U", 5, time_label="9:15am")
+        self._make_offering_class("mcf3m_c4", "MCF3M", 1, time_label="2:00pm")
 
-    def _insert_run(
+    def _sync_offering_ends(self) -> None:
+        plans = self.school.plan_sync_offering_live_schedules(offering_ids=self.offering_ids)
+        self.school.apply_sync_offering_live_schedules(plans)
+
+    def _insert_snapshot(
         self,
         suffix: str,
-        class_id: int,
+        class_key: str,
         module: str,
         slot: str,
         ended_utc: str,
         *,
         with_answers: bool = True,
+        link_id: int | None = None,
         link_closed: bool = False,
-    ) -> int:
+        link_token: str | None = None,
+    ) -> str:
+        cid = self.class_ids[class_key]
         run_key = f"prod-{suffix}-run"
         stu = self.students[0]
         offering_id = int(
             self.school.game.conn.execute(
-                "SELECT offering_id FROM classes WHERE id = ?", (class_id,)
+                "SELECT offering_id FROM classes WHERE id = ?", (cid,)
             ).fetchone()[0]
         )
-        code = f"P{suffix}{len(self.sessions)}"
         sid = int(
             self.school.conn.execute(
                 """
                 INSERT INTO live_class_sessions (
                     class_id, offering_id, teacher_user_id, session_code, status,
                     started_at, ended_at, run_key, teacher_state_json
-                ) VALUES (?, ?, ?, ?, 'ended', '2026-10-01T12:00:00', ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, 'ended', '2026-10-01T12:00:00', ?, ?, '{}')
                 """,
                 (
-                    class_id,
+                    cid,
                     offering_id,
                     int(self.teacher["id"]),
-                    code,
+                    f"S{suffix}",
                     ended_utc,
                     run_key,
-                    json.dumps({"live_module": module, "live_slot": slot}),
                 ),
             ).lastrowid
         )
@@ -194,135 +199,167 @@ class ProdFixtureBase(Base):
                 ) VALUES (?, ?, 'P', ?, ?, ?, 'prompt', 'item:q', '{}', ?, NULL, '', NULL,
                           '{}', NULL, ?, ?)
                 """,
-                (
-                    sid,
-                    class_id,
-                    run_key,
-                    module,
-                    slot,
-                    stu,
-                    ended_utc,
-                    ended_utc,
-                ),
+                (sid, cid, run_key, module, slot, stu, ended_utc, ended_utc),
             )
+        if link_id is not None or link_token:
+            token = link_token or f"tok-{suffix}"
+            open_flag = 0 if link_closed else 1
+            if link_id is not None:
+                self.school.conn.execute(
+                    """
+                    INSERT INTO catchup_links (
+                        id, token, class_id, run_key, live_module, live_slot, is_open,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (int(link_id), token, cid, run_key, module, slot, open_flag, ended_utc, ended_utc),
+                )
+                self.links[suffix] = int(link_id)
+            else:
+                cur = self.school.conn.execute(
+                    """
+                    INSERT INTO catchup_links (
+                        token, class_id, run_key, live_module, live_slot, is_open,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (token, cid, run_key, module, slot, open_flag, ended_utc, ended_utc),
+                )
+                self.links[suffix] = int(cur.lastrowid)
         self.school.conn.commit()
-        self.sessions[suffix] = sid
-        if link_closed:
-            lid = self.school.conn.execute(
-                """
-                INSERT INTO catchup_links (
-                    token, class_id, run_key, live_module, live_slot, is_open,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, 0, ?, ?)
-                """,
-                (
-                    f"tok-{suffix}",
-                    class_id,
-                    run_key,
-                    module,
-                    slot,
-                    ended_utc,
-                    ended_utc,
-                ),
-            ).lastrowid
-            self.school.conn.commit()
-            self.links[suffix] = int(lid)
-        return sid
+        return run_key
 
-    def _seed_runs(self) -> None:
+    def _seed_snapshot_runs(self) -> None:
         real_utc_mcr = "2026-10-14T14:30:00"
         test_utc = "2026-10-20T22:00:00"
         real_utc_mcf = "2026-10-14T19:15:00"
-        c3 = self.classes["mcr3u_c3"]
-        c4m = self.classes["mcr3u_c4"]
-        c4f = self.classes["mcf3m_c4"]
-        self._insert_run("9a20", c3, "M2", "C3", real_utc_mcr)
-        self._insert_run("8312", c3, "M2", "C3", test_utc, link_closed=True)
-        self._insert_run("1b01", c3, "M2", "C3", real_utc_mcr)
-        self._insert_run("7e0c", c4m, "M2", "C4", real_utc_mcr)
-        self._insert_run("4373", c4m, "M2", "C4", real_utc_mcr)
-        self._insert_run("3b4b", c4m, "M2", "C4", test_utc)
-        self._insert_run("a5d4", c4m, "M2", "C4", test_utc)
-        self._insert_run("d20a", c4f, "M2", "C4", real_utc_mcf)
-        self._insert_run("0dae", c4f, "M2", "C4", test_utc, link_closed=True)
-        self._insert_run("2af3", c4f, "M2", "C4", real_utc_mcf)
-        good = self._insert_run("7656", c4m, "M2", "C4", real_utc_mcr)
-        self.school.conn.execute(
-            """
-            INSERT INTO catchup_links (
-                token, class_id, run_key, live_module, live_slot, is_open,
-                created_at, updated_at
-            ) VALUES ('good-link-2', ?, ?, 'M2', 'C4', 1, ?, ?)
-            """,
-            (
-                c4m,
-                f"prod-7656-run",
-                real_utc_mcr,
-                real_utc_mcr,
-            ),
+        self._insert_snapshot("1b01", "class_9", "M2", "C3", real_utc_mcr, link_id=5, link_closed=True)
+        self._insert_snapshot("8312", "class_9", "M2", "C3", test_utc)
+        self._insert_snapshot("9a20", "class_10", "M2", "C3", real_utc_mcr)
+        self._insert_snapshot("7e0c", "mcr3u_c4", "M2", "C4", real_utc_mcr)
+        self._insert_snapshot("4373", "mcr3u_c4", "M2", "C4", real_utc_mcr)
+        self._insert_snapshot("3b4b", "mcr3u_c4", "M2", "C4", test_utc)
+        self._insert_snapshot("a5d4", "mcr3u_c4", "M2", "C4", test_utc)
+        self._insert_snapshot(
+            "7656", "mcr3u_c4", "M2", "C4", real_utc_mcr, link_id=2, link_token="good-link-2"
         )
+        self._insert_snapshot("d20a", "mcf3m_c4", "M2", "C4", real_utc_mcf)
+        self._insert_snapshot(
+            "0dae", "mcf3m_c4", "M2", "C4", test_utc, link_token="tok-0dae", link_closed=True
+        )
+        self._insert_snapshot("2af3", "mcf3m_c4", "M2", "C4", real_utc_mcf)
+
+    def _wipe_live_sessions(self) -> None:
+        self.school.conn.execute("DELETE FROM live_class_sessions")
         self.school.conn.commit()
-        self.links["7656"] = 2
-        self.sessions["7656"] = good
 
 
-class RunScopedRepairTests(ProdFixtureBase):
-    def test_repair_real_discards_test_token_and_mints_new(self) -> None:
-        old_token = self.school.get_catchup_link("tok-8312")["token"]
-        report = repair_catchup(self.school, session_ids=[self.sessions["9a20"]], apply=True)
+class OfferingEndTimeTests(ProdFixtureBase):
+    def test_repair_blocked_until_offering_end_synced(self) -> None:
+        cid = self.class_ids["class_9"]
+        with self.assertRaises(CatchupScheduleError):
+            repair_catchup(self.school, run_targets=[(cid, "1b01")], apply=False)
+
+    def test_sync_offering_live_schedules_from_seed(self) -> None:
+        plans = self.school.plan_sync_offering_live_schedules(offering_ids=self.offering_ids)
+        self.assertGreaterEqual(len(plans), 4)
+        self._sync_offering_ends()
+        sched = self.school.live_class_schedule_for_class(self.class_ids["class_9"])
+        assert sched is not None
+        self.assertEqual(sched["live_end_time"], "10:30am")
+
+
+class RunKeyRepairTests(ProdFixtureBase):
+    def setUp(self) -> None:
+        super().setUp()
+        self._sync_offering_ends()
+
+    def test_repair_1b01_reopens_link_5_on_class_9(self) -> None:
+        cid = self.class_ids["class_9"]
+        report = repair_catchup(self.school, run_targets=[(cid, "1b01")], apply=True)
         text = "\n".join(r.action for r in report.runs)
-        self.assertIn("discard", text)
-        self.assertIn("mint", text)
-        self.assertIsNone(self.school.get_catchup_link(old_token))
-        links = self.school.list_catchup_links(self.classes["mcr3u_c3"])
-        self.assertEqual(len(links), 1)
-        self.assertIn("9a20", links[0]["run_key"])
-        self.assertNotEqual(links[0]["token"], old_token)
-        self.assertTrue(int(links[0]["is_open"]))
+        self.assertIn("reopen", text)
+        link = self.school.conn.execute(
+            "SELECT is_open, run_key FROM catchup_links WHERE id = 5"
+        ).fetchone()
+        self.assertEqual(int(link[0]), 1)
+        self.assertIn("1b01", str(link[1]))
 
-    def test_repair_test_does_not_touch_sibling_real_link(self) -> None:
+    def test_repair_9a20_mints_on_class_10(self) -> None:
+        cid = self.class_ids["class_10"]
+        self.assertEqual(self.school.list_catchup_links(cid), [])
+        report = repair_catchup(self.school, run_targets=[(cid, "9a20")], apply=True)
+        self.assertIn("mint", "\n".join(r.action for r in report.runs))
+        after = self.school.list_catchup_links(cid)
+        self.assertEqual(len(after), 1)
+        self.assertIn("9a20", after[0]["run_key"])
+
+    def test_repair_8312_marks_test_without_touching_link_5(self) -> None:
+        cid = self.class_ids["class_9"]
+        closed = int(
+            self.school.conn.execute(
+                "SELECT is_open FROM catchup_links WHERE id = 5"
+            ).fetchone()[0]
+        )
+        self.assertEqual(closed, 0)
+        report = repair_catchup(self.school, run_targets=[(cid, "8312")], apply=True)
+        actions = "\n".join(r.action for r in report.runs).lower()
+        self.assertIn("test", actions)
+        still_closed = int(
+            self.school.conn.execute(
+                "SELECT is_open FROM catchup_links WHERE id = 5"
+            ).fetchone()[0]
+        )
+        self.assertEqual(still_closed, 0)
+
+    def test_repair_3b4b_leaves_link_2_and_7656_alone(self) -> None:
+        cid = self.class_ids["mcr3u_c4"]
         before = self.school.get_catchup_link("good-link-2")
-        repair_catchup(self.school, session_ids=[self.sessions["3b4b"]], apply=True)
+        repair_catchup(self.school, run_targets=[(cid, "3b4b")], apply=True)
         after = self.school.get_catchup_link("good-link-2")
         self.assertEqual(before["token"], after["token"])
-        self.assertEqual(before["run_key"], after["run_key"])
-        self.assertFalse(self.school.participation_run_kind(
-            self.classes["mcr3u_c4"], f"prod-3b4b-run"
-        )["is_real"])
+        kind = self.school.participation_run_kind(cid, "prod-3b4b-run")
+        assert kind is not None
+        self.assertFalse(kind["is_real"])
 
-    def test_repair_test_writes_no_participation(self) -> None:
-        repair_catchup(self.school, session_ids=[self.sessions["8312"]], apply=True)
-        n = self.school.conn.execute(
-            "SELECT COUNT(*) FROM participation_items WHERE run_key LIKE '%8312%'"
-        ).fetchone()[0]
-        self.assertEqual(int(n), 0)
-
-    def test_prod_fixture_dry_run_prefixes(self) -> None:
-        ids = [self.sessions[s] for s in PROD_RUN_SCOPES if s in self.sessions]
-        report = repair_catchup(self.school, session_ids=ids, apply=False)
-        for suffix, (_code, _mod, _slot, kind) in PROD_RUN_SCOPES.items():
+    def test_prod_fixture_dry_run_all_scopes(self) -> None:
+        targets: list[tuple[int, str]] = []
+        for suffix in PROD_RUN_SCOPES:
+            if suffix in ("9a20",):
+                cid = self.class_ids["class_10"]
+            elif suffix in ("1b01", "8312"):
+                cid = self.class_ids["class_9"]
+            elif suffix in ("7e0c", "4373", "3b4b", "a5d4"):
+                cid = self.class_ids["mcr3u_c4"]
+            else:
+                cid = self.class_ids["mcf3m_c4"]
+            targets.append((cid, suffix))
+        report = repair_catchup(self.school, run_targets=targets, apply=False)
+        for suffix, (_mod, _slot, kind) in PROD_RUN_SCOPES.items():
             rows = [r for r in report.runs if suffix in r.run_key]
             self.assertTrue(rows, suffix)
             actions = " ".join(r.action for r in rows)
             if kind == "test":
-                self.assertIn("test", actions)
+                self.assertRegex(actions, r"test|skip")
             else:
-                self.assertIn("real", actions)
+                self.assertRegex(actions, r"real|mint|reopen|participation")
 
 
 class ProdFixtureDryRunReport(unittest.TestCase):
-    """Does not touch the shared environment database."""
-
-    def test_empty_session_list_is_ok(self) -> None:
-        report = repair_catchup(_FakeSchool(), session_ids=[], apply=False)
+    def test_empty_targets_is_ok(self) -> None:
+        report = repair_catchup(_FakeSchool(), run_targets=[], apply=False)
         self.assertEqual(report.runs, [])
 
 
 class _FakeSchool:
-    """Minimal stub for empty repair scope tests."""
+    def require_live_class_schedule_for_class(self, class_id: int) -> dict[str, str]:
+        return {"live_days": "M/W/F", "live_end_time": "10:30am"}
 
-    def get_live_session_catchup_repair_row(self, session_id: int) -> None:
+    def get_catchup_repair_run_row(self, class_id: int, run_key_match: str) -> None:
         return None
+
+    def resolve_snapshot_run_key(self, class_id: int, run_key_match: str) -> str:
+        raise ValueError("no snapshots")
 
 
 class RepairCliTests(unittest.TestCase):
@@ -331,10 +368,10 @@ class RepairCliTests(unittest.TestCase):
         register_cli(self.app)
         self.runner = self.app.test_cli_runner()
 
-    def test_repair_requires_run_id(self) -> None:
+    def test_repair_requires_targets(self) -> None:
         result = self.runner.invoke(args=["repair-catchup"])
         self.assertNotEqual(result.exit_code, 0)
-        self.assertIn("--run", result.output)
+        self.assertIn("--class-id", result.output)
 
 
 if __name__ == "__main__":

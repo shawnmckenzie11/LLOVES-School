@@ -30083,7 +30083,9 @@ class SchoolDB(LovesDB):
                 class_id, run_key, module, slot, now=now
             )
 
-    def live_class_schedule_for_class(self, class_id: int) -> dict[str, str] | None:
+    def live_class_schedule_for_class(
+        self, class_id: int, *, offering_end_required: bool = False
+    ) -> dict[str, str] | None:
         """Live-class days and scheduled end time for one game-show class."""
         from live_class_run import schedule_from_row
 
@@ -30103,11 +30105,22 @@ class SchoolDB(LovesDB):
             except KeyError:
                 offering = None
         if offering:
+            days = str((offering.get("live_days") or row["days"] or "")).strip()
+            end = str((offering.get("live_end_time") or "")).strip()
+            course_defaults: dict[str, Any] = {}
+            if not days or (not end and not offering_end_required):
+                course_defaults = (
+                    self.get_ontario_course(str(offering.get("ontario_code") or "")) or {}
+                )
+            if not days:
+                days = str(course_defaults.get("live_class_days") or "").strip()
+            if not end and not offering_end_required:
+                end = str(course_defaults.get("live_class_end_time") or "").strip()
             sched = schedule_from_row(
-                live_days=str((offering.get("live_days") or row["days"] or "")).strip(),
-                live_end_time=str((offering.get("live_end_time") or "")).strip(),
-                fallback_days=str(row["days"] or "").strip(),
-                fallback_end=str(row["time"] or "").strip(),
+                live_days=days,
+                live_end_time=end,
+                fallback_days=days,
+                fallback_end="",
             )
         else:
             crow = self.game.conn.execute(
@@ -30124,9 +30137,174 @@ class SchoolDB(LovesDB):
                 fallback_days=str(course_defaults.get("live_class_days") or "").strip(),
                 fallback_end=str(course_defaults.get("live_class_end_time") or "").strip(),
             )
-        if sched is None:
+        if sched is None or not str(sched.end_time_label or "").strip():
             return None
         return {"live_days": sched.days_key, "live_end_time": sched.end_time_label}
+
+    def require_live_class_schedule_for_class(self, class_id: int) -> dict[str, str]:
+        """Return schedule or raise when ``live_end_time`` is missing (MCK-210)."""
+        from catchup_schedule import CatchupScheduleError
+
+        sched = self.live_class_schedule_for_class(
+            int(class_id), offering_end_required=True
+        )
+        if sched is None or not str(sched.get("live_end_time") or "").strip():
+            raise CatchupScheduleError(
+                f"class_id={int(class_id)}: no live_end_time on offering or course catalog "
+                "(classes.time is the start label, not used). Run "
+                "sync-offering-live-schedules from seed data first."
+            )
+        return sched
+
+    def plan_sync_offering_live_schedules(
+        self, *, offering_ids: list[int] | None = None
+    ) -> list[dict[str, Any]]:
+        """List offerings missing ``live_end_time`` that seed data can fill."""
+        from catchup_schedule import load_live_class_schedule_seed, schedule_defaults_for_offering
+
+        seed = load_live_class_schedule_seed()
+        filters = ""
+        params: list[Any] = []
+        if offering_ids:
+            placeholders = ",".join("?" for _ in offering_ids)
+            filters = f" AND o.id IN ({placeholders})"
+            params = [int(x) for x in offering_ids]
+        with self._lock:
+            rows = self.conn.execute(
+                f"""
+                SELECT o.id, o.ontario_code, COALESCE(o.section_index, 1) AS section_index,
+                       o.live_days, o.live_end_time
+                FROM course_offerings o
+                WHERE TRIM(COALESCE(o.live_end_time, '')) = ''
+                {filters}
+                ORDER BY o.id
+                """,
+                params,
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            defaults = schedule_defaults_for_offering(
+                str(row["ontario_code"] or ""),
+                int(row["section_index"] or 1),
+                seed=seed,
+            )
+            if not defaults or not str(defaults.get("live_end_time") or "").strip():
+                continue
+            out.append(
+                {
+                    "offering_id": int(row["id"]),
+                    "ontario_code": str(row["ontario_code"] or ""),
+                    "section_index": int(row["section_index"] or 1),
+                    "live_days": str(defaults.get("live_days") or "").strip(),
+                    "live_end_time": str(defaults.get("live_end_time") or "").strip(),
+                }
+            )
+        return out
+
+    def apply_sync_offering_live_schedules(
+        self, plans: list[dict[str, Any]]
+    ) -> int:
+        """Write planned ``live_days`` / ``live_end_time`` onto offerings."""
+        updated = 0
+        with self._lock:
+            for row in plans:
+                cur = self.conn.execute(
+                    """
+                    UPDATE course_offerings
+                    SET live_days = COALESCE(?, live_days),
+                        live_end_time = COALESCE(?, live_end_time)
+                    WHERE id = ? AND TRIM(COALESCE(live_end_time, '')) = ''
+                    """,
+                    (
+                        row.get("live_days") or None,
+                        row.get("live_end_time") or None,
+                        int(row["offering_id"]),
+                    ),
+                )
+                updated += int(cur.rowcount or 0)
+            if self.conn.in_transaction:
+                self.conn.commit()
+        return updated
+
+    def resolve_snapshot_run_key(self, class_id: int, run_key_match: str) -> str:
+        """Resolve a unique ``run_key`` from a prefix or full key (snapshots only)."""
+        cid = int(class_id)
+        needle = str(run_key_match or "").strip()
+        if not needle:
+            raise ValueError("run_key match is required")
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT DISTINCT run_key FROM live_result_snapshots
+                WHERE class_id = ? AND (run_key = ? OR run_key LIKE '%' || ? || '%')
+                ORDER BY run_key
+                """,
+                (cid, needle, needle),
+            ).fetchall()
+        keys = [str(r[0]) for r in rows if str(r[0] or "").strip()]
+        if not keys:
+            raise ValueError(
+                f"class_id={cid}: no snapshot run_key matching {needle!r}"
+            )
+        if len(keys) > 1:
+            raise ValueError(
+                f"class_id={cid}: run_key {needle!r} is ambiguous: {', '.join(keys)}"
+            )
+        return keys[0]
+
+    def get_catchup_repair_run_row(
+        self, class_id: int, run_key_match: str
+    ) -> dict[str, Any] | None:
+        """Load snapshot-based repair context when live sessions were wiped at End."""
+        cid = int(class_id)
+        try:
+            run_key = self.resolve_snapshot_run_key(cid, run_key_match)
+        except ValueError:
+            return None
+        with self._lock:
+            meta = self.conn.execute(
+                """
+                SELECT MIN(live_module) AS live_module, MIN(live_slot) AS live_slot,
+                       COUNT(DISTINCT CASE WHEN source = 'prompt' AND student_id IS NOT NULL
+                                           THEN question_key END) AS offered_count,
+                       MAX(snapshot_at) AS snapshot_at
+                FROM live_result_snapshots
+                WHERE class_id = ? AND run_key = ?
+                """,
+                (cid, run_key),
+            ).fetchone()
+            if meta is None:
+                return None
+            course_code = str(
+                self.game.conn.execute(
+                    "SELECT course_code FROM classes WHERE id = ?", (cid,)
+                ).fetchone()[0]
+                or ""
+            )
+            slot_link = self.conn.execute(
+                """
+                SELECT * FROM catchup_links
+                WHERE class_id = ? AND live_module = ? AND live_slot = ?
+                LIMIT 1
+                """,
+                (cid, str(meta["live_module"] or ""), str(meta["live_slot"] or "")),
+            ).fetchone()
+            run_link = self.conn.execute(
+                "SELECT * FROM catchup_links WHERE class_id = ? AND run_key = ? LIMIT 1",
+                (cid, run_key),
+            ).fetchone()
+        return {
+            "session_id": None,
+            "class_id": cid,
+            "course_code": course_code,
+            "run_key": run_key,
+            "live_module": str(meta["live_module"] or ""),
+            "live_slot": str(meta["live_slot"] or ""),
+            "ended_at": str(meta["snapshot_at"] or ""),
+            "offered_count": int(meta["offered_count"] or 0),
+            "slot_link": dict(slot_link) if slot_link is not None else None,
+            "run_link": dict(run_link) if run_link is not None else None,
+        }
 
     def _classify_and_record_participation_run(
         self,
@@ -30139,17 +30317,15 @@ class SchoolDB(LovesDB):
         from live_class_run import classify_run_end, parse_ended_at, schedule_from_row
 
         sched_row = self.live_class_schedule_for_class(int(class_id))
-        if not sched_row:
-            auto_real = False
-        else:
-            sched = schedule_from_row(
-                live_days=sched_row["live_days"],
-                live_end_time=sched_row["live_end_time"],
-            )
-            auto_real = bool(
-                sched
-                and classify_run_end(parse_ended_at(ended_at), sched)
-            )
+        if sched_row is None or not str(sched_row.get("live_end_time") or "").strip():
+            return False
+        sched = schedule_from_row(
+            live_days=sched_row["live_days"],
+            live_end_time=sched_row["live_end_time"],
+        )
+        auto_real = bool(
+            sched and classify_run_end(parse_ended_at(ended_at), sched)
+        )
         return self._upsert_participation_run_kind_unlocked(
             int(class_id), str(run_key), is_real=auto_real, auto_is_real=auto_real
         )
@@ -31537,9 +31713,7 @@ class SchoolDB(LovesDB):
         """Return whether ``ended_at`` would classify as a real class for this offering."""
         from live_class_run import classify_run_end, parse_ended_at, schedule_from_row
 
-        sched_row = self.live_class_schedule_for_class(int(class_id))
-        if not sched_row:
-            return False
+        sched_row = self.require_live_class_schedule_for_class(int(class_id))
         sched = schedule_from_row(
             live_days=sched_row["live_days"],
             live_end_time=sched_row["live_end_time"],

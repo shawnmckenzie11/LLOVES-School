@@ -223,6 +223,47 @@ def repair_catchup_sessions(
     return RepairReport(dry_run=not apply, runs=reports)
 
 
+def repair_catchup_run_keys(
+    school: Any,
+    targets: list[tuple[int, str]],
+    *,
+    apply: bool = False,
+) -> RepairReport:
+    """Repair snapshot runs identified by ``(class_id, run_key prefix)`` pairs."""
+    from catchup_schedule import CatchupScheduleError
+
+    reports: list[BackfillRunReport] = []
+    for class_id, run_key_match in targets:
+        cid = int(class_id)
+        needle = str(run_key_match or "").strip()
+        try:
+            school.require_live_class_schedule_for_class(cid)
+        except CatchupScheduleError as exc:
+            raise CatchupScheduleError(str(exc)) from exc
+        row = school.get_catchup_repair_run_row(cid, needle)
+        if row is None:
+            try:
+                school.resolve_snapshot_run_key(cid, needle)
+            except ValueError as exc:
+                detail = str(exc)
+            else:
+                detail = f"no snapshot row for class_id={cid} run_key~{needle}"
+            reports.append(
+                BackfillRunReport(
+                    class_id=cid,
+                    course_code="",
+                    run_key=needle,
+                    live_module="",
+                    live_slot="",
+                    action="error",
+                    detail=detail,
+                )
+            )
+            continue
+        reports.extend(_repair_one_run_row(school, row, apply=apply))
+    return RepairReport(dry_run=not apply, runs=reports)
+
+
 def _repair_one_live_session(
     school: Any,
     session_id: int,
@@ -230,10 +271,9 @@ def _repair_one_live_session(
     apply: bool,
 ) -> list[BackfillRunReport]:
     """Classify and fix catch-up state for a single live session only."""
-    out: list[BackfillRunReport] = []
     row = school.get_live_session_catchup_repair_row(session_id)
     if row is None:
-        out.append(
+        return [
             BackfillRunReport(
                 class_id=0,
                 course_code="",
@@ -244,8 +284,21 @@ def _repair_one_live_session(
                 detail=f"unknown session id={session_id}",
                 session_id=session_id,
             )
-        )
-        return out
+        ]
+    return _repair_one_run_row(school, row, apply=apply)
+
+
+def _repair_one_run_row(
+    school: Any,
+    row: dict[str, Any],
+    *,
+    apply: bool,
+) -> list[BackfillRunReport]:
+    """Classify and fix catch-up state for one snapshot run."""
+    from catchup_schedule import CatchupScheduleError
+
+    out: list[BackfillRunReport] = []
+    session_id = row.get("session_id")
     cid = int(row["class_id"])
     key = str(row["run_key"])
     mod = str(row["live_module"])
@@ -262,10 +315,25 @@ def _repair_one_live_session(
         session_id=session_id,
         action="skip",
     )
-    if apply:
-        is_real = school.classify_participation_run(cid, key, ended_at=ended_at)
-    else:
-        is_real = school.preview_participation_run_real(cid, ended_at=ended_at)
+    try:
+        if apply:
+            is_real = school.classify_participation_run(cid, key, ended_at=ended_at)
+        else:
+            is_real = school.preview_participation_run_real(cid, ended_at=ended_at)
+    except CatchupScheduleError as exc:
+        out.append(
+            BackfillRunReport(
+                class_id=cid,
+                course_code=course,
+                run_key=key,
+                live_module=mod,
+                live_slot=sl,
+                session_id=session_id,
+                action="error",
+                detail=str(exc),
+            )
+        )
+        return out
     kind_action = "classify real" if is_real else "classify test"
     if not apply:
         kind_action = f"would {kind_action}"
@@ -497,11 +565,14 @@ def backfill_catchup_from_snapshots(
 def repair_catchup(
     school: Any,
     *,
-    session_ids: list[int],
+    session_ids: list[int] | None = None,
+    run_targets: list[tuple[int, str]] | None = None,
     apply: bool = False,
 ) -> RepairReport:
-    """Re-classify and fix catch-up links for explicit live session ids (MCK-210)."""
-    return repair_catchup_sessions(school, session_ids, apply=apply)
+    """Re-classify and fix catch-up links for sessions or snapshot run keys."""
+    if run_targets:
+        return repair_catchup_run_keys(school, run_targets, apply=apply)
+    return repair_catchup_sessions(school, list(session_ids or []), apply=apply)
 
 
 def new_catchup_token() -> str:
