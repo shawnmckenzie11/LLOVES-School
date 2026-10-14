@@ -1957,6 +1957,7 @@ class LovesDB:
             self._ensure_live_class_schedule_columns()
             self._ensure_participation_run_kind_columns()
             self._ensure_catchup_slot_unique()
+            self._ensure_catchup_portal_join_code_column()
             self._ensure_library_schema()
             self._ensure_module_bank_schema()
             self._ensure_archived_column()
@@ -3364,6 +3365,60 @@ class LovesDB:
             ON catchup_links(class_id, live_module, live_slot)
             """
         )
+
+    def _ensure_catchup_portal_join_code_column(self) -> None:
+        """Structured portal join codes on catch-up links (MCK-222)."""
+        cols = {
+            row["name"] for row in self.conn.execute("PRAGMA table_info(catchup_links)")
+        }
+        if "portal_join_code" not in cols:
+            self.conn.execute(
+                "ALTER TABLE catchup_links ADD COLUMN portal_join_code TEXT"
+            )
+        self.conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_catchup_links_portal_code
+            ON catchup_links(portal_join_code)
+            WHERE portal_join_code IS NOT NULL AND TRIM(portal_join_code) <> ''
+            """
+        )
+        self._backfill_catchup_portal_join_codes()
+
+    def _backfill_catchup_portal_join_codes(self) -> None:
+        """Assign portal codes to existing catch-up rows that lack one."""
+        from catchup_portal_code import mint_portal_join_code, structured_codes_enabled
+
+        if not structured_codes_enabled():
+            return
+        rows = self.conn.execute(
+            """
+            SELECT id, class_id, live_module, live_slot, portal_join_code
+            FROM catchup_links
+            WHERE portal_join_code IS NULL OR TRIM(portal_join_code) = ''
+            """
+        ).fetchall()
+        for row in rows:
+            course = self._course_code_for_class(int(row["class_id"]))
+            for _ in range(12):
+                try:
+                    code = mint_portal_join_code(
+                        course,
+                        str(row["live_module"] or ""),
+                        str(row["live_slot"] or ""),
+                    )
+                except ValueError:
+                    break
+                clash = self.conn.execute(
+                    "SELECT 1 FROM catchup_links WHERE portal_join_code = ? LIMIT 1",
+                    (code,),
+                ).fetchone()
+                if clash is not None:
+                    continue
+                self.conn.execute(
+                    "UPDATE catchup_links SET portal_join_code = ? WHERE id = ?",
+                    (code, int(row["id"])),
+                )
+                break
 
     def _ensure_live_session_schema(self) -> None:
         """Create live-class session + attendee + prompt tables on existing DBs.
@@ -30491,24 +30546,106 @@ class SchoolDB(LovesDB):
         sl = str(slot or "")
         existing = self.conn.execute(
             """
-            SELECT token FROM catchup_links
+            SELECT token, portal_join_code FROM catchup_links
             WHERE class_id = ? AND live_module = ? AND live_slot = ?
             """,
             (cid, mod, sl),
         ).fetchone()
         token = str(existing["token"]) if existing else new_token()
+        portal_code = str(existing["portal_join_code"] or "").strip() if existing else ""
+        if not portal_code:
+            portal_code = self._mint_unique_portal_join_code(cid, mod, sl)
         self.conn.execute(
             """
             INSERT INTO catchup_links (
-                token, class_id, run_key, live_module, live_slot, is_open, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                token, class_id, run_key, live_module, live_slot, is_open,
+                portal_join_code, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
             ON CONFLICT(class_id, live_module, live_slot) DO UPDATE SET
                 run_key = excluded.run_key,
                 is_open = 1,
-                updated_at = excluded.updated_at
+                updated_at = excluded.updated_at,
+                portal_join_code = COALESCE(
+                    NULLIF(TRIM(catchup_links.portal_join_code), ''),
+                    excluded.portal_join_code
+                )
             """,
-            (token, cid, key, mod, sl, now, now),
+            (token, cid, key, mod, sl, portal_code, now, now),
         )
+
+    def _mint_unique_portal_join_code(
+        self, class_id: int, live_module: str, live_slot: str
+    ) -> str:
+        """Mint a unique structured portal join code for one lesson slot."""
+        from catchup_portal_code import mint_portal_join_code, structured_codes_enabled
+
+        if not structured_codes_enabled():
+            return ""
+        course = self._course_code_for_class(int(class_id))
+        for _ in range(16):
+            try:
+                code = mint_portal_join_code(course, live_module, live_slot)
+            except ValueError:
+                return ""
+            row = self.conn.execute(
+                "SELECT 1 FROM catchup_links WHERE portal_join_code = ? LIMIT 1",
+                (code,),
+            ).fetchone()
+            if row is None:
+                return code
+        return ""
+
+    def resolve_catchup_link_by_portal_code(self, raw_code: str) -> dict[str, Any] | None:
+        """Look up an open catch-up link row from a structured portal join code."""
+        from catchup_portal_code import decode_portal_join_code, normalize_portal_code
+
+        code = normalize_portal_code(raw_code)
+        if not code:
+            return None
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM catchup_links WHERE portal_join_code = ? LIMIT 1",
+                (code,),
+            ).fetchone()
+        if row is not None:
+            return self.resolve_catchup_link(str(row["token"])) or dict(row)
+        decoded = decode_portal_join_code(code)
+        if decoded is None:
+            return None
+        course = str(decoded["course_code"]).upper()
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT c.* FROM catchup_links c
+                INNER JOIN classes cl ON cl.id = c.class_id
+                WHERE UPPER(cl.course_code) = ?
+                  AND UPPER(c.live_module) = UPPER(?)
+                  AND UPPER(c.live_slot) = UPPER(?)
+                ORDER BY c.updated_at DESC, c.id DESC
+                LIMIT 1
+                """,
+                (course, decoded["live_module"], decoded["live_slot"]),
+            ).fetchall()
+        if not rows:
+            return None
+        link = dict(rows[0])
+        if not str(link.get("portal_join_code") or "").strip():
+            portal = self._mint_unique_portal_join_code(
+                int(link["class_id"]),
+                str(link.get("live_module") or ""),
+                str(link.get("live_slot") or ""),
+            )
+            if portal:
+                self.conn.execute(
+                    "UPDATE catchup_links SET portal_join_code = ? WHERE id = ?",
+                    (portal, int(link["id"])),
+                )
+                if self.conn.in_transaction:
+                    self.conn.commit()
+                link["portal_join_code"] = portal
+        if str(link.get("portal_join_code") or "").upper() != code:
+            return None
+        return self.resolve_catchup_link(str(link["token"])) or link
 
     def resolve_catchup_link(self, token: str) -> dict[str, Any] | None:
         """Resolve a catch-up token to the latest real run for that lesson slot."""
@@ -31859,6 +31996,7 @@ class SchoolDB(LovesDB):
         sl = str(live_slot or "")
         now = _now()
         token = new_token()
+        portal_code = self._mint_unique_portal_join_code(cid, mod, sl)
         with self._lock:
             if discard_slot_link_id is not None:
                 self.conn.execute(
@@ -31876,10 +32014,10 @@ class SchoolDB(LovesDB):
                 """
                 INSERT INTO catchup_links (
                     token, class_id, run_key, live_module, live_slot, is_open,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                    portal_join_code, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
                 """,
-                (token, cid, key, mod, sl, now, now),
+                (token, cid, key, mod, sl, portal_code or None, now, now),
             )
             if self.conn.in_transaction:
                 self.conn.commit()
@@ -32094,6 +32232,90 @@ class SchoolDB(LovesDB):
                 "pin_stamp": pin_stamp(stored),
             }
         return {"ok": False, "reason": "wrong", "student_id": stu}
+
+    def catchup_landing_tier_cells(
+        self, class_id: int, student_id: int, link: dict[str, Any]
+    ) -> dict[str, str]:
+        """MCK-222 picker tier cells for one student and one catch-up link row."""
+        from catchup_landing import (
+            COPY_TIER_DONE,
+            COPY_TIER_NA,
+        )
+
+        cid = int(class_id)
+        sid = int(student_id)
+        run_key = str(link.get("run_key") or "").strip()
+        slot = str(link.get("live_slot") or "").strip().upper()
+        pair = "p.question_key"
+        with self._lock:
+            offered = int(
+                self.conn.execute(
+                    f"""
+                    SELECT COUNT(DISTINCT {pair}) AS n FROM participation_items p
+                    WHERE p.class_id = ? AND p.run_key = ? AND UPPER(p.live_slot) = ?
+                    """,
+                    (cid, run_key, slot),
+                ).fetchone()["n"]
+            )
+            answered = int(
+                self.conn.execute(
+                    f"""
+                    SELECT COUNT(DISTINCT {pair}) AS n
+                    FROM participation_answers a
+                    INNER JOIN participation_items p
+                        ON p.class_id = a.class_id AND p.run_key = a.run_key
+                       AND p.question_key = a.question_key
+                    WHERE p.class_id = ? AND p.run_key = ? AND UPPER(p.live_slot) = ?
+                      AND a.student_id = ?
+                    """,
+                    (cid, run_key, slot, sid),
+                ).fetchone()["n"]
+            )
+            item_rows = self.conn.execute(
+                """
+                SELECT p.question_key, p.item_json, p.prompt_kind,
+                       a.answer_json
+                FROM participation_items p
+                LEFT JOIN participation_answers a
+                    ON a.class_id = p.class_id AND a.run_key = p.run_key
+                   AND a.question_key = p.question_key AND a.student_id = ?
+                WHERE p.class_id = ? AND p.run_key = ? AND UPPER(p.live_slot) = ?
+                """,
+                (sid, cid, run_key, slot),
+            ).fetchall()
+        if offered <= 0:
+            t1 = COPY_TIER_NA
+        elif answered >= offered:
+            t1 = COPY_TIER_DONE
+        else:
+            t1 = f"{answered}/{offered}"
+        t2 = COPY_TIER_NA
+        mc_total = 0
+        mc_correct = 0
+        for row in item_rows:
+            try:
+                payload = json.loads(row["item_json"] or "{}")
+            except (TypeError, ValueError):
+                payload = {}
+            payload = payload if isinstance(payload, dict) else {}
+            wrapper = {"item": payload}
+            key_letter = self._mc_key_letter(wrapper)
+            if not key_letter:
+                continue
+            mc_total += 1
+            try:
+                ans = json.loads(row["answer_json"] or "{}")
+            except (TypeError, ValueError):
+                ans = {}
+            value = ans.get("value") if isinstance(ans, dict) else ""
+            verdict = self._group_mc_answer_correct(wrapper, value)
+            if verdict is True:
+                mc_correct += 1
+        if mc_total <= 0:
+            t3 = COPY_TIER_NA
+        else:
+            t3 = f"{round(100.0 * mc_correct / mc_total):.0f}%"
+        return {"t1": t1, "t2": t2, "t3": t3}
 
     def catchup_questions(self, token: str, student_id: int) -> list[dict[str, Any]]:
         """This class's individual questions for one student, for the catch-up page.
@@ -34821,6 +35043,69 @@ class SchoolDB(LovesDB):
                 # A bare "Sam" (or "Mary-Jo", "Jean Luc") also offers the
                 # numbered "Sam 2", so the picker shows both. Typing the
                 # number ("Sam 2") picks that student directly.
+                exact += [
+                    row for row in rows
+                    if row not in exact
+                    and any(numbered(fold(label), typed_full) for label in labels(row))
+                ]
+            if exact:
+                return exact
+            return [
+                row for row in rows
+                if any(
+                    fold(label) == typed_first
+                    or fold(label).split(" ", 1)[0] == typed_first
+                    for label in labels(row)
+                )
+            ]
+
+        matches = tier(name_key, full, first)
+        if matches:
+            return matches
+        loose_full = _spaced_number_key(loose_name_key(name))
+        loose_first = loose_full.split(" ", 1)[0] if loose_full else ""
+        if not loose_full:
+            return []
+        return tier(loose_name_key, loose_full, loose_first)
+
+    def list_roster_matches_for_class(
+        self, class_id: int, name: str
+    ) -> list[dict[str, Any]]:
+        """Roster matches for catch-up portal sign-in (no live session required)."""
+        full = _spaced_number_key(name_key(name))
+        if not full:
+            return []
+        first = full.split(" ", 1)[0]
+        with self.game._lock:
+            rows = [
+                dict(row)
+                for row in self.game.conn.execute(
+                    "SELECT * FROM students WHERE class_id = ? ORDER BY id ASC",
+                    (int(class_id),),
+                ).fetchall()
+            ]
+
+        def labels(row: dict[str, Any]) -> list[str]:
+            return [
+                str(row.get(col) or "")
+                for col in ("codename", "first_name")
+                if str(row.get(col) or "").strip()
+            ]
+
+        def numbered(label_key: str, typed_full: str) -> bool:
+            head, _, tail = label_key.rpartition(" ")
+            return head == typed_full and bool(_REPEAT_NUMBER.fullmatch(tail))
+
+        def tier(raw_fold: Any, typed_full: str, typed_first: str) -> list[dict[str, Any]]:
+            def fold(label: str) -> str:
+                return _spaced_number_key(raw_fold(label))
+
+            exact = [
+                row for row in rows
+                if any(fold(label) == typed_full for label in labels(row))
+            ]
+            typed_number = _REPEAT_NUMBER.fullmatch(typed_full.rpartition(" ")[2])
+            if exact and not typed_number:
                 exact += [
                     row for row in rows
                     if row not in exact

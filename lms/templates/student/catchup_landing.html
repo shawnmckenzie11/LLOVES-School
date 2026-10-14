@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ course_code }} · Catch-up · {{ school_name }}</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+  <link rel="stylesheet" href="/static/student-portal.css">
+  <link rel="stylesheet" href="/static/catchup_landing.css">
+  {% include "_sentry_browser.html" %}
+</head>
+<body class="student-portal catchup-landing-page">
+  <div class="student-wrap catchup-landing" id="catchup-landing-root"
+       data-offset="{{ offset }}" data-page-size="{{ page_size }}" data-total="{{ others_total }}"
+       data-offline="{{ copy.offline }}">
+    <header class="cl-header">
+      <p class="cl-kicker">{{ course_code }} · Catch-up</p>
+      <div class="cl-title-row">
+        <h1>{{ copy.pick_title }}</h1>
+        <a class="cl-not-you" href="{{ url_for('student_catchup_landing_sign_out') }}">{{ copy.not_you }}</a>
+      </div>
+      <p class="cl-signed-in">{{ signed_in_line }}</p>
+    </header>
+
+{% if closed %}
+    <section class="cl-closed-card" aria-labelledby="cl-closed-title">
+      <p class="cl-lock" aria-hidden="true">🔒</p>
+      <h2 id="cl-closed-title">{{ copy.closed_heading }}</h2>
+      {% if matched %}<p class="cl-meta">{{ matched.label }}</p>{% endif %}
+      <p class="cl-closed-detail">{{ closed_detail }}</p>
+      <a class="cl-btn cl-btn-primary" href="{{ url_for('landing') }}">{{ copy.enter_different }}</a>
+    </section>
+    {% if others %}
+    <section class="cl-list-section" aria-labelledby="cl-other-heading-closed">
+      <h2 id="cl-other-heading-closed" class="cl-list-heading">{{ copy.other_header.format(course=course_code) }}</h2>
+      <div class="cl-list">
+        {% for row in others %}
+        <a class="cl-row" href="{{ row.url }}">
+          <div class="cl-row-main">
+            <p class="cl-row-label">{{ row.label }}</p>
+          </div>
+          <div class="cl-tier-row cl-tier-row--compact" aria-label="Participation tiers">
+            <div class="cl-tier"><span class="cl-tier-key">{{ copy.tier_individual }}</span><span class="cl-tier-val">{{ row.tiers.t1 }}</span></div>
+            <div class="cl-tier"><span class="cl-tier-key">{{ copy.tier_group }}</span><span class="cl-tier-val">{{ row.tiers.t2 }}</span></div>
+            <div class="cl-tier"><span class="cl-tier-key">{{ copy.tier_understanding }}</span><span class="cl-tier-val">{{ row.tiers.t3 }}</span></div>
+          </div>
+        </a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+{% else %}
+    {% if matched %}
+    <section class="cl-matched-card" aria-labelledby="cl-matched-label">
+      <p class="cl-matched-kicker">{{ copy.your_code_matched }} · {{ matched.label }}</p>
+      {% if matched.title %}<h2 id="cl-matched-label" class="cl-class-title">{{ matched.title }}</h2>{% endif %}
+      <div class="cl-tier-row" aria-label="Participation tiers">
+        <div class="cl-tier"><span class="cl-tier-key">{{ copy.tier_individual }}</span><span class="cl-tier-val">{{ matched.tiers.t1 }}</span></div>
+        <div class="cl-tier"><span class="cl-tier-key">{{ copy.tier_group }}</span><span class="cl-tier-val">{{ matched.tiers.t2 }}</span></div>
+        <div class="cl-tier"><span class="cl-tier-key">{{ copy.tier_understanding }}</span><span class="cl-tier-val">{{ matched.tiers.t3 }}</span></div>
+      </div>
+      <p class="cl-open-until">{{ matched.open_until_line }}</p>
+      <a class="cl-btn cl-btn-primary" href="{{ matched.url }}">{{ copy.open_catchup }}</a>
+    </section>
+    {% endif %}
+
+    <section class="cl-list-section" aria-labelledby="cl-other-heading">
+      <h2 id="cl-other-heading" class="cl-list-heading">{{ copy.other_header.format(course=course_code) }}</h2>
+      <div id="cl-list" class="cl-list"{% if loading %} aria-busy="true"{% endif %}>
+        {% if not others and not matched %}
+        <p class="cl-empty">{{ copy.all_caught_up }}</p>
+        {% endif %}
+        {% for row in others %}
+        <a class="cl-row" href="{{ row.url }}">
+          <div class="cl-row-main">
+            <p class="cl-row-label">{{ row.label }}</p>
+            {% if row.title %}<p class="cl-row-title">{{ row.title }}</p>{% endif %}
+          </div>
+          <div class="cl-tier-row cl-tier-row--compact" aria-label="Participation tiers">
+            <div class="cl-tier"><span class="cl-tier-key">{{ copy.tier_individual }}</span><span class="cl-tier-val">{{ row.tiers.t1 }}</span></div>
+            <div class="cl-tier"><span class="cl-tier-key">{{ copy.tier_group }}</span><span class="cl-tier-val">{{ row.tiers.t2 }}</span></div>
+            <div class="cl-tier"><span class="cl-tier-key">{{ copy.tier_understanding }}</span><span class="cl-tier-val">{{ row.tiers.t3 }}</span></div>
+          </div>
+        </a>
+        {% endfor %}
+      </div>
+      {% if others_total > offset + others|length %}
+      <button type="button" class="cl-show-older" id="cl-show-older"
+              data-t1="{{ copy.tier_individual }}" data-t2="{{ copy.tier_group }}" data-t3="{{ copy.tier_understanding }}"
+              data-offline="{{ copy.offline }}">{{ copy.show_older }}</button>
+      {% endif %}
+    </section>
+{% endif %}
+  </div>
+  <script type="module" src="/static/catchup_landing.js"></script>
+</body>
+</html>

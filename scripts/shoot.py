@@ -760,6 +760,85 @@ def shoot_mck208(base: str, out_dir: Path, path: Path, widths: list[int], *, onl
     return shots
 
 
+def prepare_mck222_portal_join(path: Path) -> tuple[str, str]:
+    """Portal join code and a roster first name for the catch-up landing picker.
+
+    Args:
+        path: LMS sqlite path.
+
+    Returns:
+        ``(portal_join_code, student_first_name)``.
+
+    Raises:
+        SystemExit: Seed data is missing a portal code or student.
+    """
+    class_id = shawn_class_id(path)
+    con = sqlite3.connect(path)
+    try:
+        row = con.execute(
+            """
+            SELECT cl.portal_join_code, s.first_name
+            FROM catchup_links cl
+            JOIN students s ON s.class_id = cl.class_id
+            WHERE cl.class_id = ?
+              AND cl.is_open = 1
+              AND cl.portal_join_code IS NOT NULL
+              AND TRIM(cl.portal_join_code) <> ''
+            ORDER BY cl.id DESC
+            LIMIT 1
+            """,
+            (class_id,),
+        ).fetchone()
+    finally:
+        con.close()
+    if row is None:
+        raise SystemExit("No open catch-up link with portal_join_code. Run with --seed.")
+    code, name = str(row[0]).strip(), str(row[1] or "").strip()
+    if not code or not name:
+        raise SystemExit("MCK-222 shoot needs portal_join_code and a student first name.")
+    return code, name
+
+
+def shoot_mck222(base: str, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
+    """Student landing join → catch-up picker with tier cells (MCK-222).
+
+    Args:
+        base: Loopback origin.
+        out_dir: Artifact directory.
+        path: LMS sqlite path.
+        widths: Viewport widths in pixels.
+
+    Returns:
+        PNG paths written.
+    """
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    portal_code, first_name = prepare_mck222_portal_join(path)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        for width in widths:
+            context = browser.new_context(viewport={"width": int(width), "height": 900})
+            page = context.new_page()
+            page.goto(f"{origin}/", wait_until="domcontentloaded")
+            page.locator("#code").fill(portal_code)
+            page.locator("#student-name").fill(first_name)
+            page.locator("form#student-code-panel button[type='submit']").click()
+            page.wait_for_url("**/student/catchup**", timeout=30000)
+            page.locator(".catchup-landing").first.wait_for(state="visible", timeout=30000)
+            page.locator(".cl-tier-label", has_text="T1 Individual").first.wait_for(
+                state="visible", timeout=15000
+            )
+            dest = out_dir / f"mck222-catchup-landing-{width}.png"
+            page.screenshot(path=str(dest), full_page=True)
+            written.append(dest)
+            context.close()
+        browser.close()
+    return written
+
+
 def shoot_catchup(base: str, state_path: Path, out_dir: Path, path: Path) -> list[Path]:
     """Save empty, mixed, and expanded catch-up cards at desktop width.
 
@@ -1165,12 +1244,13 @@ def main(argv: list[str] | None = None) -> int:
             "mck207-run-toggle",
             "mck208",
             "avatar-reward",
+            "mck222",
         ),
         default="",
         help=(
             "Built-in catch-up, MCK-62 quiet-dot, engagement override, "
-            "MCK-207 roster/PIN, run-class toggle, MCK-208 dashboard, or "
-            "avatar-reward pop-up shots."
+            "MCK-207 roster/PIN, run-class toggle, MCK-208 dashboard, "
+            "MCK-222 catch-up landing picker, or avatar-reward pop-up shots."
         ),
     )
     args = parser.parse_args(argv)
@@ -1204,6 +1284,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "avatar-reward":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_avatar_reward_popup(args.base, out, widths, path))
+        if args.scenario == "mck222":
+            widths = [int(part) for part in args.widths.split(",") if part.strip()]
+            written.extend(shoot_mck222(args.base, out, path, widths))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(
@@ -1220,7 +1303,7 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
-                "mck208|avatar-reward."
+                "mck208|avatar-reward|mck222."
             )
         for item in written:
             print(item)
