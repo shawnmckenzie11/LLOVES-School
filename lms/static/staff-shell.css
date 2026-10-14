@@ -1,9 +1,13 @@
 /* Staff home + course chrome. Loaded last so Math Game Show app.css cannot
    wash out body text (that file resets :root to dark ink on cream paper). */
+html:has(body.staff-shell) {
+  background: #e8eef4;
+}
 body.staff-shell {
   background: #e8eef4;
   color: #12202e;
   font-family: "Segoe UI", system-ui, sans-serif;
+  min-height: 100vh;
 }
 body.staff-shell .staff-top-menu {
   display: flex;
