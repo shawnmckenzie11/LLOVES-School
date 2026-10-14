@@ -866,13 +866,27 @@ def _wait_quiet_member_dots(
     return False
 
 
-def shoot_mck217_student_view(out_dir: Path) -> list[Path]:
-    """MCK-217: group Questions card with and without Student view masking.
+def _metadata_with_round_page() -> dict:
+    """Deck metadata whose ``round:1`` rail page matches ``q-one`` (page_number 1)."""
+    from test_live_class_backend_state import metadata_fixture  # noqa: E402
 
-    Renders the teacher group-status HTML via the same node harness as
-    ``test_student_view_mck217`` (seeded picks + submitter lines), loads
-    ``staff-shell.css``, and saves desktop PNGs for Show strength vs Student
-    view body class.
+    meta = metadata_fixture()
+    meta["pages"] = [
+        {
+            "id": "round:1",
+            "name": "Round 1",
+            "stage": "round",
+            "page_number": 1,
+        }
+    ]
+    return meta
+
+
+def shoot_mck217_student_view(out_dir: Path) -> list[Path]:
+    """MCK-217: full teacher shell Questions tab before/after Student view.
+
+    Spins a throwaway live session (group MC with both teams sent), logs in as
+    the harness teacher, and saves two 1280×900 viewport PNGs at the same scroll.
 
     Args:
         out_dir: Artifact directory.
@@ -881,43 +895,104 @@ def shoot_mck217_student_view(out_dir: Path) -> list[Path]:
         Paths written.
     """
     sys.path.insert(0, str(LMS_DIR))
-    from test_student_view_mck217 import StudentViewQuestionsTests  # noqa: E402
+    sys.path.insert(0, str(ROOT))
+    os.environ.setdefault("LOCAL_DEV_LOGIN", "1")
+    os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
+    from test_live_class_backend_state import LiveBackendStateTests  # noqa: E402
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    shots = {
-        "show-strength": out_dir / "mck217-questions-show-strength-1280.png",
-        "student-view": out_dir / "mck217-questions-student-view-1280.png",
-    }
-    tester = StudentViewQuestionsTests()
-    shown = tester._render(student_view=False)
-    hidden = tester._render(student_view=True)
-    show_html = shown["group"] + shown["board"]
-    hide_html = hidden["group"] + hidden["board"]
-    if "Eva" in hide_html or "group-picks" in hide_html:
-        raise SystemExit("Student view harness HTML still exposes student detail")
-    css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
-
-    def _page_html(body_class: str, fragment: str) -> str:
-        return f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><style>{css}</style></head>
-<body class="{body_class}">
-<main id="live-question-list" class="live-question-list">{fragment}</main>
-</body></html>"""
-
-    from playwright.sync_api import sync_playwright  # noqa: E402
-
-    with sync_playwright() as playwright:
-        browser = _launch(playwright)
-        page = browser.new_page(viewport={"width": 1280, "height": 900})
-        page.set_content(_page_html("staff-shell", show_html), wait_until="domcontentloaded")
-        page.screenshot(path=str(shots["show-strength"]), full_page=True)
-        page.set_content(
-            _page_html("staff-shell is-student-view", hide_html),
-            wait_until="domcontentloaded",
+    harness = LiveBackendStateTests()
+    harness.setUp()
+    try:
+        harness.school.live_class_metadata_for_session = lambda _sid: _metadata_with_round_page()
+        harness._begin_and_join(4)
+        harness._setup_groups()
+        harness.school.set_live_session_teacher_state(
+            harness.session_id,
+            stage="round",
+            class_set=True,
+            page_id="round:1",
+            live_module="M1",
+            live_slot="C1",
+            run_as_group=True,
+            scoreboard_visible=False,
         )
-        page.screenshot(path=str(shots["student-view"]), full_page=True)
-        browser.close()
-    return list(shots.values())
+        items = harness.school.ensure_live_session_items(harness.session_id)
+        group_item = next(row for row in items if row["item_id"] == "q-one")
+        published = harness.school.publish_live_session_item(
+            harness.session_id,
+            int(group_item["id"]),
+            publish_mode="group_submit",
+        )
+        harness.school.end_group_mc_pick_step(harness.session_id, int(published["id"]))
+        for index, choice in ((0, "A"), (1, "B")):
+            harness.school.submit_group_mc_answer(
+                harness.session_id,
+                int(published["id"]),
+                harness.student_ids[index],
+                choice=choice,
+                why="because the graph rises",
+            )
+        port = 8766
+        origin = f"http://127.0.0.1:{port}"
+        assert_loopback(origin)
+        url = (
+            f"{origin}/staff/class/{harness.class_id}"
+            f"?tab=live&live_session_id={harness.session_id}"
+        )
+
+        def run_server() -> None:
+            harness.app.run(host="127.0.0.1", port=port, threaded=True, use_reloader=False)
+
+        threading.Thread(target=run_server, daemon=True).start()
+        time.sleep(1.5)
+        state = fresh_state_path()
+        login_state(origin, state, teacher_email=str(harness.teacher["email"]))
+        out_dir.mkdir(parents=True, exist_ok=True)
+        shots = {
+            "show-strength": out_dir / "mck217-questions-show-strength-1280.png",
+            "student-view": out_dir / "mck217-questions-student-view-1280.png",
+        }
+        from playwright.sync_api import sync_playwright  # noqa: E402
+
+        with sync_playwright() as playwright:
+            browser = _launch(playwright)
+            context = browser.new_context(
+                storage_state=str(state),
+                viewport={"width": 1280, "height": 900},
+            )
+            page = context.new_page()
+            harness.school.set_live_session_active_media(int(harness.session_id), clear=True)
+            page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            page.locator("body.staff-shell").wait_for(state="attached", timeout=30000)
+            page.locator('.live-content-tab[data-tab="questions"]').click(timeout=5000)
+            card = page.locator("#live-question-list .live-question-card").first
+            card.wait_for(state="visible", timeout=45000)
+            page.locator("#live-question-list .group-status-board").first.wait_for(
+                state="visible", timeout=30000
+            )
+            if page.locator("#live-question-list .group-status-board").count() != 1:
+                raise SystemExit("expected exactly one group status board on the Questions card")
+            page.locator("text=last: Aspen").first.wait_for(state="visible", timeout=15000)
+            card.scroll_into_view_if_needed()
+            page.wait_for_timeout(400)
+            scroll_y = page.evaluate("() => window.scrollY")
+            page.screenshot(path=str(shots["show-strength"]), full_page=False)
+            page.locator("#live-student-view").click(timeout=10000)
+            page.locator("body.is-student-view").wait_for(state="attached", timeout=10000)
+            page.locator("#live-question-list .group-status-board").first.wait_for(
+                state="visible", timeout=15000
+            )
+            page.evaluate("(y) => window.scrollTo(0, y)", scroll_y)
+            page.wait_for_timeout(400)
+            if page.locator("text=Aspen").count():
+                raise SystemExit("Student view still shows Aspen on Questions card")
+            page.screenshot(path=str(shots["student-view"]), full_page=False)
+            context.close()
+            browser.close()
+        state.unlink(missing_ok=True)
+        return list(shots.values())
+    finally:
+        harness.tearDown()
 
 
 def shoot_mck62_quiet_dots(out_dir: Path) -> list[Path]:

@@ -169,9 +169,16 @@ class StudentViewQuestionsTests(unittest.TestCase):
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
         self.assertIn("body.staff-shell.is-student-view .group-picks", css)
 
+    def test_submit_html_has_one_status_board(self) -> None:
+        """Real Questions cards render the board only inside groupSubmitTeacherHtml."""
+        out = self._render(student_view=False)
+        html = out["group"]
+        self.assertEqual(html.count('class="group-status-board"'), 1)
+        self.assertEqual(html.count("Team Maple"), 1)
+
     def test_student_view_hides_names_picks_and_submitter_lines(self) -> None:
         out = self._render(student_view=True)
-        html = out["group"] + out["board"]
+        html = out["group"]
         for name in ("Eva", "Iggy", "James", "Team Maple", "Team Cedar", "vertex", "y-intercept"):
             self.assertNotIn(name, html, html)
         self.assertIn("groups correct", html)
@@ -182,7 +189,7 @@ class StudentViewQuestionsTests(unittest.TestCase):
 
     def test_show_strength_restores_detail(self) -> None:
         out = self._render(student_view=False)
-        html = out["board"]
+        html = out["group"]
         self.assertIn("Eva", html)
         self.assertIn("vertex is (4, 5)", html)
         self.assertIn("group-picks", html)
