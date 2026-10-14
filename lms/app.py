@@ -1968,6 +1968,19 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """Old /calc bookmark — send people to the ALC hash route."""
         return redirect("/#celebrations")
 
+    @app.route("/dev/whiteboard-formative")
+    @app.route("/dev/whiteboard-formative/<role>")
+    def dev_whiteboard_formative(role: str = "student"):
+        """Headless + shoot.py target for MCK-218 formative whiteboard mocks."""
+        from local_dev_seed import local_dev_login_enabled
+
+        if not local_dev_login_enabled():
+            return jsonify({"ok": False, "error": "Not found"}), 404
+        token = str(role or "student").strip().lower()
+        if token not in {"student", "teacher"}:
+            token = "student"
+        return render_template("dev/whiteboard_formative.html", role=token)
+
     @app.route("/api/celebrations", methods=["GET"])
     def public_celebrations():
         """Public read-only celebration board for ``/#celebrations``.

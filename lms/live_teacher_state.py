@@ -241,6 +241,8 @@ def default_teacher_state() -> dict[str, Any]:
         "page_id": "",
         "text_ride": default_text_ride(),
         "question_views": default_question_views(),
+        "whiteboard_always_show_names": False,
+        "whiteboard_projector_names": False,
     }
 
 
@@ -829,6 +831,8 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
         "timer_closes_answers",
         "class_set",
         "eyes_up",
+        "whiteboard_always_show_names",
+        "whiteboard_projector_names",
     ):
         parsed = _as_bool(stored.get(key))
         if parsed is not None:
@@ -988,6 +992,8 @@ def apply_teacher_state_update(
     page_id: Any = None,
     text_ride: Any = None,
     question_views: Any = None,
+    whiteboard_always_show_names: Any = None,
+    whiteboard_projector_names: Any = None,
 ) -> dict[str, Any]:
     """Patch the thin teacher channel. Never persists canvas pixels.
 
@@ -1129,6 +1135,16 @@ def apply_teacher_state_update(
         if paused is None:
             raise ValueError("eyes_up must be a boolean")
         base["eyes_up"] = paused
+    if whiteboard_always_show_names is not None:
+        show = _as_bool(whiteboard_always_show_names)
+        if show is None:
+            raise ValueError("whiteboard_always_show_names must be a boolean")
+        base["whiteboard_always_show_names"] = show
+    if whiteboard_projector_names is not None:
+        proj = _as_bool(whiteboard_projector_names)
+        if proj is None:
+            raise ValueError("whiteboard_projector_names must be a boolean")
+        base["whiteboard_projector_names"] = proj
     if not base.get("groups_configured"):
         base["run_as_group"] = False
     base["teams_mode"] = "teams" if base.get("run_as_group") else "individual"

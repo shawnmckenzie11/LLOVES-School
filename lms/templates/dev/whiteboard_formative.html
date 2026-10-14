@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MCK-218 formative whiteboard (dev)</title>
+  <link rel="stylesheet" href="/static/whiteboard_formative.css" />
+  <link rel="stylesheet" href="/static/staff-shell.css" />
+</head>
+<body class="wb-formative-shell" data-role="{{ role }}">
+  <span class="wb-formative-badge">EXAMPLE DATA</span>
+  <p class="wb-formative-context">MCR3U · M3 · C1 · Group 2 whiteboard</p>
+  <div class="wb-formative-toggles" id="wb-toggles" hidden>
+    <label><input type="checkbox" id="wb-always-names" /> Always show names</label>
+    <label><input type="checkbox" id="wb-projector-names" /> Names on projector</label>
+  </div>
+  <div class="wb-formative-layout" id="wb-layout">
+    <aside class="wb-formative-groups" id="wb-groups" hidden></aside>
+    <div>
+      <div class="wb-formative-legend" id="wb-legend"></div>
+      <div class="wb-formative-stage live-canvas-stage" id="wb-stage">
+        <canvas id="wb-canvas" class="live-canvas-stub" width="720" height="560" aria-label="Group whiteboard"></canvas>
+      </div>
+      <div class="wb-formative-toolbar" role="toolbar" aria-label="Whiteboard tools">
+        <button type="button" id="wb-pen" class="is-active">Pen</button>
+        <button type="button" id="wb-text">Text</button>
+        <button type="button" id="wb-erase">Erase</button>
+        <button type="button" id="wb-undo">Undo</button>
+      </div>
+    </div>
+  </div>
+  <script type="module">
+    import { bindWhiteboard } from "/static/live_whiteboard.js";
+
+    const role = document.body.dataset.role || "student";
+    const isTeacher = role === "teacher";
+    const isPhone = window.innerWidth < 640;
+    if (isTeacher) {
+      document.getElementById("wb-layout").classList.add("is-teacher");
+      document.getElementById("wb-groups").hidden = false;
+      document.getElementById("wb-toggles").hidden = false;
+      const groups = [
+        { id: 1, label: "Group 1", members: 4 },
+        { id: 2, label: "Group 2", members: 4 },
+        { id: 3, label: "Group 3", members: 4 },
+        { id: 4, label: "Group 4", members: 4 },
+        { id: 5, label: "Group 5", members: 4 },
+      ];
+      const host = document.getElementById("wb-groups");
+      host.innerHTML = groups
+        .map(
+          (g, i) =>
+            `<button type="button" class="wb-group-card${i === 1 ? " is-selected" : ""}" data-group="${g.id}">${g.label}<br><small>${g.members} members · active</small></button>`
+        )
+        .join("");
+    }
+
+    const members = [
+      { id: "maya", name: "Maya", color: "#2dd4bf", slot: 0 },
+      { id: "liam", name: "Liam", color: "#f59e0b", slot: 1 },
+      { id: "ava", name: "Ava", color: "#a78bfa", slot: 2 },
+      { id: "noah", name: "Noah", color: "#f472b6", slot: 3 },
+    ];
+    if (isTeacher) {
+      members.push(
+        { id: "zoe", name: "Zoe", color: "#60a5fa", slot: 4 },
+        { id: "eli", name: "Eli", color: "#a3e635", slot: 5 }
+      );
+    }
+
+    const canvas = document.getElementById("wb-canvas");
+    const board = bindWhiteboard(canvas, {
+      owner: () => (isTeacher ? "teacher" : "maya"),
+      undoBtn: document.getElementById("wb-undo"),
+      eraseBtn: document.getElementById("wb-erase"),
+      textBtn: document.getElementById("wb-text"),
+      formative: {
+        enabled: true,
+        members,
+        isTeacher,
+        isPhone,
+        alwaysShowNames: false,
+        projectorShowNames: false,
+      },
+    });
+    board.setCollab(true);
+
+    document.getElementById("wb-always-names")?.addEventListener("change", (e) => {
+      board.setFormative?.({ alwaysShowNames: e.target.checked });
+    });
+    document.getElementById("wb-projector-names")?.addEventListener("change", (e) => {
+      board.setFormative?.({ projectorShowNames: e.target.checked });
+    });
+
+    window.__wbFormativeSeed = (rows) => {
+      const strokes = [];
+      for (const row of rows || []) {
+        for (let i = 0; i < (row.count || 1); i += 1) {
+          strokes.push({
+            id: `${row.owner}-${i}`,
+            owner: row.owner,
+            points: [
+              { x: 40 + i * 18 + (row.offsetX || 0), y: 60 + (row.offsetY || 0) },
+              { x: 90 + i * 18 + (row.offsetX || 0), y: 120 + (row.offsetY || 0) },
+            ],
+            color: members.find((m) => m.id === row.owner)?.color,
+            mine: false,
+          });
+        }
+      }
+      board.importRemote({ strokes, texts: [], cursors: [] }, { collab: true });
+      board.refreshFormative?.();
+    };
+
+    window.__wbFormativeBoard = board;
+  </script>
+</body>
+</html>

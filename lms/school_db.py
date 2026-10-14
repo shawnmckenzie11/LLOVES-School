@@ -14059,11 +14059,17 @@ class SchoolDB(LovesDB):
         self._mirror_presence_attendee(stored)
         return stored
 
-    def _attendee_by_visit_token(self, token: str) -> dict[str, Any] | None:
+    def _attendee_by_visit_token(
+        self, token: str, *, overlay_presence: bool = True
+    ) -> dict[str, Any] | None:
         """Return an attendee row for a rejoin token, ignoring left/ended.
+
+        Board delta polls must not borrow the Postgres presence pool on every
+        read; pass ``overlay_presence=False`` for those gates.
 
         Args:
             token: ``live_session_attendees.visit_token``.
+            overlay_presence: When False, sqlite row only.
         """
         cleaned = (token or "").strip()
         if not cleaned:
@@ -14079,7 +14085,10 @@ class SchoolDB(LovesDB):
             ).fetchone()
         if row is None:
             return None
-        return self._apply_presence(dict(row))
+        attendee = dict(row)
+        if overlay_presence:
+            return self._apply_presence(attendee)
+        return attendee
 
     def _guest_attendee_by_codename(
         self, session_id: int, name: str
@@ -14315,7 +14324,11 @@ class SchoolDB(LovesDB):
         return dict(attendee)
 
     def resolve_student_visit_token(
-        self, token: str, *, allow_left: bool = False
+        self,
+        token: str,
+        *,
+        allow_left: bool = False,
+        overlay_presence: bool = True,
     ) -> dict[str, Any] | None:
         """Resolve an opaque rejoin token to session + attendee context.
 
@@ -14323,13 +14336,16 @@ class SchoolDB(LovesDB):
             token: ``live_session_attendees.visit_token``.
             allow_left: When True, include attendees with ``left_at`` set so
                 cookie auto-resume can re-admit them while the session is live.
+            overlay_presence: When False, skip Postgres overlay (board reads).
 
         Returns:
             Dict with ``attendee``, ``session``, ``class_id``, ``student_id``
             when the token is valid and the session is still active;
             otherwise ``None``.
         """
-        attendee = self._attendee_by_visit_token(token)
+        attendee = self._attendee_by_visit_token(
+            token, overlay_presence=overlay_presence
+        )
         if attendee is None:
             return None
         if attendee.get("left_at") and not allow_left:
@@ -28975,12 +28991,24 @@ class SchoolDB(LovesDB):
         }
         if delta.get("snapshot"):
             reply["canvas_view"] = delta.get("canvas_view")
+
+        def _with_formative(payload: dict[str, Any]) -> dict[str, Any]:
+            meta = self._formative_board_meta(
+                int(session_id),
+                board_key=str(board_key),
+                student_id=student_id,
+                as_teacher=as_teacher,
+            )
+            if meta is not None:
+                payload["formative"] = meta
+            return payload
+
         if (
             teacher_since is None
             or as_teacher
             or board_key == "teacher"
         ):
-            return reply
+            return _with_formative(reply)
         teacher = self.board_delta(
             int(session_id),
             "teacher",
@@ -28996,9 +29024,72 @@ class SchoolDB(LovesDB):
             )
             reply["ops"] = []
             reply["teacher_ops"] = []
-            return reply
+            return _with_formative(reply)
         reply["teacher_ops"] = list(teacher.get("ops") or [])
-        return reply
+        return _with_formative(reply)
+
+    def list_live_session_team_members(
+        self, session_id: int, team_id: int | None
+    ) -> list[dict[str, Any]]:
+        """Roster rows on one team in live-session join order.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            team_id: Game-show team id, or None to include all joined students.
+        """
+        session_row = self.get_live_session(int(session_id))
+        if session_row is None:
+            return []
+        class_id = int(session_row["class_id"])
+        index = self.game.team_membership_index(class_id)
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT student_id, codename, joined_at
+                FROM live_session_attendees
+                WHERE live_session_id = ?
+                  AND student_id IS NOT NULL
+                  AND (left_at IS NULL OR left_at = '')
+                ORDER BY joined_at ASC, id ASC
+                """,
+                (int(session_id),),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            sid = int(row["student_id"])
+            if team_id not in (None, ""):
+                if int(index.get(sid) or -1) != int(team_id):
+                    continue
+            out.append(
+                {
+                    "student_id": sid,
+                    "codename": str(row["codename"] or ""),
+                    "name": str(row["codename"] or ""),
+                }
+            )
+        return out
+
+    def _formative_board_meta(
+        self,
+        session_id: int,
+        *,
+        board_key: str,
+        student_id: int | None,
+        as_teacher: bool,
+    ) -> dict[str, Any] | None:
+        """Formative whiteboard payload for one board read, when enabled."""
+        try:
+            from whiteboard_formative import formative_meta_for_board
+        except ImportError:
+            from lms.whiteboard_formative import formative_meta_for_board
+
+        return formative_meta_for_board(
+            self,
+            int(session_id),
+            student_id=student_id,
+            as_teacher=as_teacher,
+            board_key=board_key,
+        )
 
     @staticmethod
     def board_generation_key(base_key: str, gen: int) -> str:

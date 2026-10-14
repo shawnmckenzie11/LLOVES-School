@@ -2088,6 +2088,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck207",
             "mck207-run-toggle",
             "mck208",
+            "mck218",
             "avatar-reward",
             "mck216",
             "mck220",
@@ -2139,6 +2140,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "mck208":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck208(args.base, out, path, widths, only=args.mck208_only))
+        if args.scenario == "mck218":
+            written.extend(shoot_mck218(args.base, out))
         if args.scenario == "avatar-reward":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_avatar_reward_popup(args.base, out, widths, path))
@@ -2184,7 +2187,8 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
-                "mck208|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|mck217-student-view|mck242."
+                "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
+                "mck217-student-view|mck242."
             )
         for item in written:
             print(item)

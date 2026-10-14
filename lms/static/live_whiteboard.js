@@ -1,3 +1,5 @@
+import { wireFormativeWhiteboard, colorForOwner } from "/static/whiteboard_formative.js";
+
 /**
  * Live whiteboard: draw, undo, redo, erase, and a Text tool.
  *
@@ -452,9 +454,10 @@ export function bindWhiteboard(canvas, opts = {}) {
   let flushTimer = 0;
   let paintQueued = false;
   let fitting = false;
+  /** @type {() => void} */
+  let afterReplay = () => {};
   /** @type {{nx: number, ny: number, hit: any}|null} */
   let reopen = null;
-  const color = opts.color || "#12202e";
   const lineWidth = opts.lineWidth || 2;
   const stage = canvas.parentElement;
   const editor = document.createElement("input");
@@ -476,6 +479,21 @@ export function bindWhiteboard(canvas, opts = {}) {
     }
     return String(opts.owner || "board");
   };
+
+  const memberLookup = () => {
+    const rows = opts.formative?.members;
+    if (!Array.isArray(rows)) return {};
+    const map = {};
+    for (const row of rows) map[String(row.id)] = row;
+    return map;
+  };
+  const strokeColor = (owner) => {
+    if (opts.formative?.enabled) {
+      return colorForOwner(memberLookup(), String(owner || ownerNow()));
+    }
+    return opts.color || "#12202e";
+  };
+  let color = strokeColor(ownerNow());
 
   /**
    * Stroke id unique to this owner. Not a shared clock value.
@@ -597,6 +615,7 @@ export function bindWhiteboard(canvas, opts = {}) {
       strokeSegment(ctx, stroke.points, stroke.color, 0);
     }
     drawTexts();
+    afterReplay();
   };
 
   /**
@@ -972,6 +991,7 @@ export function bindWhiteboard(canvas, opts = {}) {
     drawing = true;
     redoStack = [];
     strokeOwner = ownerNow();
+    color = strokeColor(strokeOwner);
     strokeId = makeStrokeId(strokeOwner);
     ownIds.add(strokeId);
     current = [];
@@ -1008,7 +1028,7 @@ export function bindWhiteboard(canvas, opts = {}) {
       id: strokeId,
       owner: strokeOwner,
       points: current.slice(),
-      color,
+      color: strokeColor(strokeOwner),
       mine: true,
     };
     if (finished.points.length) strokes.push(finished);
@@ -1051,8 +1071,13 @@ export function bindWhiteboard(canvas, opts = {}) {
   });
   opts.eraseBtn?.addEventListener("click", () => {
     if (!strokes.length) return;
-    const gone = strokes.slice();
-    strokes = [];
+    const gone = opts.formative?.enabled
+      ? strokes.filter((stroke) => stroke.mine)
+      : strokes.slice();
+    if (!gone.length) return;
+    strokes = opts.formative?.enabled
+      ? strokes.filter((stroke) => !stroke.mine)
+      : [];
     redoStack = [];
     current = [];
     pending = [];
@@ -1258,6 +1283,35 @@ export function bindWhiteboard(canvas, opts = {}) {
      * @param {any} delta
      */
     applyDelta,
+    getInk: () => ({
+      strokes: strokes.map((s) => ({ ...s, points: s.points.slice() })),
+      texts: texts.map((t) => ({ ...t })),
+    }),
   };
+  /** @type {ReturnType<typeof wireFormativeWhiteboard> | null} */
+  let formativeWire = null;
+  if (opts.formative?.enabled) {
+    formativeWire = wireFormativeWhiteboard(boardApi, {
+      canvas,
+      stage,
+      members: opts.formative.members || [],
+      ownerId: ownerNow,
+      isTeacher: Boolean(opts.formative.isTeacher),
+      isPhone: Boolean(opts.formative.isPhone),
+      alwaysShowNames: Boolean(opts.formative.alwaysShowNames),
+      projectorShowNames: Boolean(opts.formative.projectorShowNames),
+      getInk: () => boardApi.getInk(),
+      onEraseStroke: opts.formative.onEraseStroke,
+    });
+    boardApi.setFormative = (patch) => {
+      if (!formativeWire || !patch || typeof patch !== "object") return;
+      if ("alwaysShowNames" in patch) formativeWire.setAlwaysShowNames(patch.alwaysShowNames);
+      if ("projectorShowNames" in patch) formativeWire.setProjectorNames(patch.projectorShowNames);
+      if (Array.isArray(patch.members)) formativeWire.setMembers(patch.members);
+      formativeWire.refresh();
+    };
+    boardApi.refreshFormative = () => formativeWire?.refresh();
+    afterReplay = () => formativeWire?.refresh();
+  }
   return boardApi;
 }
