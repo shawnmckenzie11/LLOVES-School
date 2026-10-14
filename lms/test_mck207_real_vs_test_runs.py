@@ -140,7 +140,7 @@ class RealVsTestFlowTests(Base):
         return run_key
 
     def test_real_run_creates_catchup_test_run_does_not(self) -> None:
-        real_key = self._end_run("M1", "C1", ended_iso="2026-10-14T10:30:00")
+        real_key = self._end_run("M1", "C1", ended_iso="2026-10-14T14:30:00")
         test_key = self._end_run("M1", "C1", ended_iso="2026-10-20T15:00:00")
         links = self.school.list_catchup_links(self.class_id)
         self.assertEqual(len(links), 1)
@@ -150,9 +150,9 @@ class RealVsTestFlowTests(Base):
         self.assertTrue(self.school.participation_run_discarded(self.class_id, test_key))
 
     def test_shared_link_points_at_latest_real_run(self) -> None:
-        self._end_run("M2", "C1", ended_iso="2026-10-12T10:30:00")
+        self._end_run("M2", "C1", ended_iso="2026-10-12T14:30:00")
         token = str(self.school.list_catchup_links(self.class_id)[0]["token"])
-        second = self._end_run("M2", "C1", ended_iso="2026-10-14T10:30:00")
+        second = self._end_run("M2", "C1", ended_iso="2026-10-14T14:30:00")
         links = self.school.list_catchup_links(self.class_id)
         self.assertEqual(len(links), 1)
         self.assertEqual(links[0]["run_key"], second)

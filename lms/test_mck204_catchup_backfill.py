@@ -50,7 +50,7 @@ class BackfillTests(Base):
         answers: dict[tuple[str, int], str],
     ) -> None:
         """Write snapshot rows without a live session (backfill source)."""
-        stamp = "2026-10-14T10:30:00"
+        stamp = "2026-10-14T14:30:00"
         sid = 9000 + len(run_key)
         for qkey, answered in questions:
             if answered:

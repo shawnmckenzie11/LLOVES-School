@@ -142,9 +142,13 @@ def register_cli(app: Flask) -> None:
             logger.warning(audit_line)
 
     @app.cli.command("repair-catchup")
-    @click.option("--course", default=None, help="Ontario course code, e.g. MCF3M")
-    @click.option("--module", "live_module", default=None, help="Live module, e.g. M2")
-    @click.option("--slot", "live_slot", default=None, help="Live slot, e.g. C1")
+    @click.option(
+        "--run",
+        "session_ids",
+        multiple=True,
+        type=int,
+        help="Ended live_class_sessions.id to repair (repeatable).",
+    )
     @click.option(
         "--apply",
         is_flag=True,
@@ -159,66 +163,42 @@ def register_cli(app: Flask) -> None:
         help="One-shot override to run --apply on production after confirmation.",
     )
     def repair_catchup_cmd(
-        course: str | None,
-        live_module: str | None,
-        live_slot: str | None,
+        session_ids: tuple[int, ...],
         apply: bool,
         prod_override: bool,
     ) -> None:
-        """Re-classify runs and fix shared catch-up links (dry-run by default)."""
+        """Re-classify and fix catch-up links for explicit live sessions (dry-run default)."""
+        ids = [int(x) for x in session_ids]
+        if not ids:
+            raise click.ClickException("At least one --run <live_session_id> is required.")
         if apply and _is_production_env() and not prod_override:
             raise click.ClickException(
                 "Refusing --apply on production without --i-know-this-is-prod."
             )
-        if apply and prod_override:
-            missing = [
-                name
-                for name, value in (
-                    ("--course", course),
-                    ("--module", live_module),
-                    ("--slot", live_slot),
-                )
-                if not str(value or "").strip()
-            ]
-            if missing:
-                raise click.ClickException(
-                    "Production apply requires --course, --module, and --slot "
-                    f"(missing {', '.join(missing)})."
-                )
         school = app.config["SCHOOL_DB"]
         if apply and prod_override:
-            preview = repair_catchup(
-                school,
-                course=course,
-                module=live_module,
-                slot=live_slot,
-                apply=False,
-            )
+            preview = repair_catchup(school, session_ids=ids, apply=False)
             for line in preview.summary_lines():
                 click.echo(line)
-            phrase = _confirmation_phrase(course or "", live_module or "", live_slot or "")
-            typed = click.prompt("Type course/module/slot to confirm", type=str).strip()
-            if typed != phrase:
-                raise click.ClickException("Confirmation did not match; aborting.")
-        report = repair_catchup(
-            school,
-            course=course,
-            module=live_module,
-            slot=live_slot,
-            apply=apply,
-        )
+            for sid in ids:
+                phrase = f"RUN:{sid}"
+                typed = click.prompt(
+                    f"Type {phrase} to confirm apply for session {sid}", type=str
+                ).strip()
+                if typed != phrase:
+                    raise click.ClickException("Confirmation did not match; aborting.")
+        report = repair_catchup(school, session_ids=ids, apply=apply)
         for line in report.summary_lines():
             click.echo(line)
         if apply and prod_override:
-            changed = [r for r in report.runs if r.action not in ("skip", "skip link")]
-            audit_line = (
-                "catchup_repair_audit course=%s module=%s slot=%s actions=%s"
-                % (
-                    str(course or "").upper(),
-                    str(live_module or "").upper(),
-                    str(live_slot or "").upper(),
-                    len(changed),
-                )
+            changed = [
+                r
+                for r in report.runs
+                if not r.action.startswith("skip") and "skip participation" not in r.action
+            ]
+            audit_line = "catchup_repair_audit sessions=%s actions=%s" % (
+                len(ids),
+                len(changed),
             )
             click.echo(audit_line)
             logger.warning(audit_line)
