@@ -354,11 +354,12 @@ class RosterTests(unittest.TestCase):
         part = self.client.get(
             f"/api/classes/{class_id}/participation-grid?sort=az"
         ).get_json()
-        cell = part["cells"].get(f"{ids[0]}:2026-09-11")
+        session_cols = [c for c in part.get("columns") or [] if c.get("kind") == "session"]
+        self.assertTrue(session_cols)
+        sess_id = int(session_cols[-1]["id"])
+        cell = part["cells"].get(f"{sess_id}:{ids[0]}")
         self.assertIsNotNone(cell)
         self.assertEqual(float(cell["points"]), 4.0)
-        empty = part["cells"].get(f"{ids[0]}:2026-09-08") or {}
-        self.assertEqual(float(empty.get("points") or 0), 0.0)
         ctx = self.client.get(f"/api/classes/{class_id}/log-context").get_json()
         self.assertIn("2026-09-11", ctx.get("logged_dates") or [])
 

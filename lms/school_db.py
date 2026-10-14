@@ -31068,24 +31068,38 @@ class SchoolDB(LovesDB):
                 (int(class_id), int(class_id), mod),
             ).fetchall()
             session_ids = [int(r["session_id"]) for r in rows]
-        if not session_ids:
-            has_items = self.conn.execute(
-                "SELECT 1 FROM participation_items WHERE class_id = ? AND live_module = ? LIMIT 1",
-                (int(class_id), mod),
-            ).fetchone()
-            if has_items is None:
-                raise ValueError(f"No live classes recorded for {mod} yet.")
-            game_rows = self.game.conn.execute(
-                """
-                SELECT id FROM sessions
-                WHERE class_id = ?
-                ORDER BY starts_at ASC, id ASC
-                """,
-                (int(class_id),),
-            ).fetchall()
-            if not game_rows:
-                raise ValueError(f"No live classes recorded for {mod} yet.")
-            session_ids = [int(r["id"]) for r in game_rows]
+            if not session_ids:
+                has_items = self.conn.execute(
+                    "SELECT 1 FROM participation_items WHERE class_id = ? AND live_module = ? LIMIT 1",
+                    (int(class_id), mod),
+                ).fetchone()
+                if has_items is None:
+                    raise ValueError(f"No live classes recorded for {mod} yet.")
+                run_rows = self.conn.execute(
+                    """
+                    SELECT DISTINCT run_key FROM participation_items
+                    WHERE class_id = ? AND live_module = ?
+                    """,
+                    (int(class_id), mod),
+                ).fetchall()
+                run_keys = [
+                    str(r["run_key"])
+                    for r in run_rows
+                    if str(r["run_key"] or "").strip()
+                ]
+                for key in run_keys:
+                    lpc_row = self.game.conn.execute(
+                        """
+                        SELECT session_id FROM live_participation_credits
+                        WHERE run_key = ?
+                        LIMIT 1
+                        """,
+                        (key,),
+                    ).fetchone()
+                    if lpc_row is not None:
+                        session_ids.append(int(lpc_row["session_id"]))
+                if not session_ids:
+                    raise ValueError(f"No live classes recorded for {mod} yet.")
         through_id = max(session_ids)
         label = module_finish_label(mod)
         dash = self.game.freeze_subtotal(

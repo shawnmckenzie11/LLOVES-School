@@ -103,12 +103,26 @@ function sessionOpportunities(deckItems) {
   return total;
 }
 
+/** MC prompt / item types that weigh 1 (mirrors lms/participation_weight.py). */
+const MC_KINDS = new Set(["mc", "multiple_choice", "multiple_choice_question"]);
+
+/**
+ * @param {string} promptKind
+ * @param {object|null|undefined} payload
+ * @returns {boolean}
+ */
+function itemIsMultipleChoice(promptKind, payload) {
+  const kind = String(promptKind || "").toLowerCase();
+  if (MC_KINDS.has(kind)) return true;
+  const qtype = String(payload?.type || payload?.question_type || "").toLowerCase();
+  return MC_KINDS.has(qtype) || qtype === "multiple_choice";
+}
+
 /**
  * @param {{prompt_kind?: string, publish_mode?: string, item_json?: any}} row
  * @returns {number}
  */
 function participationWeight(row) {
-  const kind = String(row.prompt_kind || "").toLowerCase();
   let payload = row.item_json;
   if (typeof payload === "string") {
     try {
@@ -117,11 +131,7 @@ function participationWeight(row) {
       payload = {};
     }
   }
-  const qtype = String(payload?.type || payload?.question_type || "").toLowerCase();
-  if (kind === "mc" || qtype === "mc" || qtype === "multiple_choice") {
-    return 1;
-  }
-  return 0;
+  return itemIsMultipleChoice(row.prompt_kind, payload) ? 1 : 0;
 }
 
 /**

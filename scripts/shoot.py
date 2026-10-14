@@ -416,6 +416,7 @@ def shoot_mck230(
                     "() => document.querySelector('th.live-sub')",
                     timeout=60000,
                 )
+                page.wait_for_selector(".ap-finish-module", timeout=60000)
                 dest = out_dir / f"{label}-{width}.png"
                 page.screenshot(path=str(dest), full_page=True)
                 written.append(dest)
