@@ -77,6 +77,13 @@
       var msg = "No live class is running right now. Ask your teacher to start class, then try again.";
       form.addEventListener("submit", function (ev) {
         if (checked) return;
+        var codeInput = document.getElementById("code");
+        var raw = codeInput ? String(codeInput.value || "").replace(/\s/g, "") : "";
+        if (/^[A-Za-z0-9]{5}$/.test(raw)) {
+          checked = true;
+          form.submit();
+          return;
+        }
         ev.preventDefault();
         fetch("/api/student/live-available", { credentials: "same-origin" })
           .then(function (res) { return res.json(); })

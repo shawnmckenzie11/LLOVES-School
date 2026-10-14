@@ -1976,7 +1976,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 note_presence_blip("landing auto-resume skipped")
         return render_template(
             "landing.html",
-            **landing_kwargs(one_tap_auto=False),
+            **landing_kwargs(
+                one_tap_auto=False,
+                student_code=request.args.get("student_code") or request.args.get("code") or "",
+            ),
         )
 
     @app.route("/calc")
@@ -6038,6 +6041,107 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             live_handover=handover,
         )
 
+    @app.route("/student/catchup")
+    @app.route("/student/catchup/landing")
+    def student_catchup_landing():
+        """MCK-222: pick a class to catch up on after portal code sign-in."""
+        from catchup_landing import (
+            PAGE_SIZE,
+            build_matched_card,
+            landing_copy,
+            list_open_catchup_rows,
+            peek_landing_session,
+            signed_in_line,
+            open_until_date,
+        )
+
+        held = peek_landing_session(session)
+        if held is None:
+            return redirect(url_for("landing"))
+        class_id = int(held["class_id"])
+        student_id = int(held["student_id"])
+        matched_token = str(held.get("matched_token") or "")
+        display_name = str(held.get("display_name") or "")
+        course_code = school._course_code_for_class(class_id)
+        state = str(request.args.get("state") or "").strip().lower()
+        link = school.get_catchup_link(matched_token) or {}
+        from catchup_landing import link_still_open
+
+        closed = state == "closed" or (
+            link and not link_still_open(school, {**link, "class_id": class_id})
+        )
+        matched = build_matched_card(school, {**link, "class_id": class_id}, student_id) if link else None
+        others, total = list_open_catchup_rows(
+            school,
+            class_id,
+            student_id,
+            exclude_token=matched_token if not closed else matched_token,
+            offset=0,
+            limit=PAGE_SIZE,
+        )
+        copy = landing_copy()
+        return render_template(
+            "student/catchup_landing.html",
+            course_code=course_code,
+            signed_in_line=signed_in_line(display_name),
+            matched=matched,
+            others=others,
+            others_total=total,
+            offset=0,
+            page_size=PAGE_SIZE,
+            closed=closed,
+            closed_detail=copy["closed_detail"].format(
+                date=open_until_date(
+                    school.ended_at_for_participation_run(
+                        class_id, str(link.get("run_key") or "")
+                    )
+                )
+                if link
+                else ""
+            ),
+            copy=copy,
+            school_name=SCHOOL_NAME,
+            loading=False,
+        )
+
+    @app.route("/student/catchup/sign-out")
+    def student_catchup_landing_sign_out():
+        """Clear catch-up landing session; return to sign-in with code prefilled."""
+        from catchup_landing import clear_landing_session
+
+        code = clear_landing_session(session)
+        return redirect(url_for("landing", student_code=code))
+
+    @app.route("/api/student/catchup-landing")
+    def api_student_catchup_landing():
+        """JSON rows for catch-up landing pagination."""
+        from catchup_landing import PAGE_SIZE, list_open_catchup_rows, peek_landing_session
+
+        held = peek_landing_session(session)
+        if held is None:
+            return jsonify({"ok": False, "error": "Sign in again."}), 403
+        try:
+            offset = max(0, int(request.args.get("offset") or 0))
+        except (TypeError, ValueError):
+            offset = 0
+        rows, total = list_open_catchup_rows(
+            school,
+            int(held["class_id"]),
+            int(held["student_id"]),
+            exclude_token=str(held.get("matched_token") or ""),
+            offset=offset,
+            limit=PAGE_SIZE,
+        )
+        return jsonify(
+            {
+                "ok": True,
+                "rows": rows,
+                "offset": offset,
+                "total": total,
+                "has_more": offset + len(rows) < total,
+            }
+        )
+
     @app.route("/api/student/dashboard")
     @student_required
     def api_student_dashboard():
@@ -9095,21 +9199,12 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/classes/<int:class_id>/participation")
     @login_required
     def staff_participation_page(class_id: int):
-        """Teacher roster view: participation per module, PINs, catch-up links."""
+        """MCK-220: legacy URL → Participation tab (module table merged into main grid)."""
         denied = _require_class_staff(class_id)
         if denied:
             return denied
-        data = school.class_participation(class_id)
-        names = school.class_codenames(class_id)
-        user = current_user()
-        return render_template(
-            "staff/participation.html",
-            class_id=class_id,
-            data=data,
-            names=names,
-            links=_catchup_links_payload(class_id),
-            user=user,
-            school_name=SCHOOL_NAME,
+        return redirect(
+            url_for("staff_course", class_id=class_id, tab="ap", view="participation")
         )
 
     def _serve_catchup_page(token: str, link: dict[str, Any]):

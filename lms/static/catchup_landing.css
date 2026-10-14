@@ -1,0 +1,208 @@
+/* MCK-222 catch-up landing picker (dark, phone-first). */
+
+body.catchup-landing-page {
+  background: #0b1020;
+  color: #f4f6fb;
+}
+
+.catchup-landing .cl-kicker {
+  color: #9fb3c8;
+  font-size: 0.85rem;
+  margin: 0 0 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.catchup-landing .cl-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.catchup-landing h1 {
+  font-size: 1.35rem;
+  margin: 0;
+  line-height: 1.25;
+  flex: 1;
+}
+
+.catchup-landing .cl-not-you {
+  color: #2dd4bf;
+  font-size: 0.9rem;
+  text-decoration: none;
+  white-space: nowrap;
+  padding-top: 0.15rem;
+}
+
+.catchup-landing .cl-not-you:hover {
+  text-decoration: underline;
+}
+
+.catchup-landing .cl-signed-in {
+  color: #9fb3c8;
+  margin: 0.5rem 0 1.25rem;
+  font-size: 0.95rem;
+}
+
+.catchup-landing .cl-matched-card,
+.catchup-landing .cl-closed-card {
+  border: 2px solid #2dd4bf;
+  border-radius: 14px;
+  padding: 1rem 1rem 1.1rem;
+  background: #122033;
+  margin-bottom: 1.25rem;
+}
+
+.catchup-landing .cl-closed-card {
+  border-color: #3a4a5e;
+  text-align: center;
+}
+
+.catchup-landing .cl-matched-kicker {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9fb3c8;
+  margin: 0 0 0.5rem;
+}
+
+.catchup-landing .cl-class-title {
+  font-size: 1.15rem;
+  margin: 0 0 0.65rem;
+}
+
+.catchup-landing .cl-open-until {
+  color: #9fb3c8;
+  font-size: 0.9rem;
+  margin: 0.65rem 0 0.85rem;
+}
+
+.catchup-landing .cl-btn {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  text-align: center;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  font-weight: 600;
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.catchup-landing .cl-btn-primary {
+  background: #2dd4bf;
+  color: #0b1020;
+}
+
+.catchup-landing .cl-list-heading {
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #9fb3c8;
+  margin: 0 0 0.65rem;
+}
+
+.catchup-landing .cl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.catchup-landing .cl-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-height: 3rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: 12px;
+  background: #151d2e;
+  border: 1px solid #243044;
+  color: inherit;
+  text-decoration: none;
+}
+
+.catchup-landing .cl-row-label {
+  margin: 0;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.catchup-landing .cl-row-title {
+  margin: 0.2rem 0 0;
+  color: #c5d4e3;
+  font-size: 0.92rem;
+}
+
+.catchup-landing .cl-tier-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.35rem;
+}
+
+.catchup-landing .cl-tier {
+  background: #0f1726;
+  border-radius: 8px;
+  padding: 0.35rem 0.4rem;
+  text-align: center;
+  font-size: 0.72rem;
+}
+
+.catchup-landing .cl-tier-key {
+  display: block;
+  color: #7f95ad;
+  font-size: 0.62rem;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.15rem;
+}
+
+.catchup-landing .cl-tier-val {
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.catchup-landing .cl-show-older {
+  display: block;
+  margin: 1rem auto 0;
+  background: none;
+  border: none;
+  color: #2dd4bf;
+  font-size: 0.95rem;
+  cursor: pointer;
+  padding: 0.5rem;
+}
+
+.catchup-landing .cl-empty {
+  color: #9fb3c8;
+  text-align: center;
+  padding: 1.5rem 0;
+}
+
+.catchup-landing .cl-lock {
+  font-size: 1.75rem;
+  margin: 0 0 0.5rem;
+}
+
+.catchup-landing .cl-meta {
+  color: #9fb3c8;
+  margin: 0.35rem 0;
+}
+
+.catchup-landing .cl-closed-detail {
+  margin: 0.75rem 0 1rem;
+  color: #c5d4e3;
+}
+
+@media (min-width: 480px) {
+  .catchup-landing .cl-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .catchup-landing .cl-tier-row--compact {
+    flex: 0 0 52%;
+    max-width: 280px;
+  }
+}

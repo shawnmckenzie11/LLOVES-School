@@ -1560,6 +1560,33 @@ def register_auth_routes(app: Flask) -> None:
                 ),
             ), status
 
+        from catchup_portal_join import try_portal_code_join
+        from school_db import first_name_only
+        from student_portal import student_url_with_token
+
+        portal_resp = try_portal_code_join(
+            db,
+            session,
+            code=code,
+            name=name,
+            chosen_id_raw=chosen_id_raw,
+            request_is_json=bool(request.is_json),
+            landing_kwargs=landing_kwargs,
+            render_template=render_template,
+            url_for=url_for,
+            redirect=redirect,
+            jsonify=jsonify,
+            join_limit_ip_key=ip_key,
+            record_join_failures=lambda keys=None: _record_failure(),
+            bind_student_session=bind_student_session,
+            next_student_endpoint=next_student_endpoint,
+            student_url_with_token=student_url_with_token,
+            set_rejoin_cookie=set_rejoin_cookie,
+            first_name_only=first_name_only,
+        )
+        if portal_resp is not None:
+            return portal_resp
+
         if not db.has_active_live_sessions():
             return _fail(no_session_msg)
 
@@ -1569,8 +1596,6 @@ def register_auth_routes(app: Flask) -> None:
             ):
                 return _fail("First name only — then you’re in.")
             return _fail("Enter the first name or Codename on your class roster.")
-
-        from school_db import first_name_only
 
         display_name = first_name_only(name)
 
