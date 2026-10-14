@@ -3497,6 +3497,13 @@ class LovesDB:
             """
         )
 
+
+    def _backfill_lesson_slides_latest(self) -> None:
+        """Populate ``lesson_slides_latest`` from historical real runs (MCK-229)."""
+        from lesson_slides_backfill import backfill_lesson_slides_latest
+
+        backfill_lesson_slides_latest(self)
+
     def _backfill_catchup_portal_join_codes(self) -> None:
         """Assign portal codes to existing catch-up rows that lack one."""
         from catchup_portal_code import mint_portal_join_code, structured_codes_enabled
@@ -7019,6 +7026,7 @@ class SchoolDB(LovesDB):
         with boot_schema_lock(path):
             self.game = mod.GameShowDB(path, store, lock=self._lock)
         self._backfill_catchup_portal_join_codes()
+        self._backfill_lesson_slides_latest()
         self.conn.commit()
         self._artifact_slider_previews: dict[tuple[int, int, int], dict[str, Any]] = {}
         self.data_dir = store

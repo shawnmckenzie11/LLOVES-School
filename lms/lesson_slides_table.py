@@ -161,7 +161,12 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
             test_student_ids=test_ids,
         )
         summary = _summary_counts(questions)
-        has_run = latest is not None and bool(latest.get("run_key"))
+        run_key = ""
+        if latest and str(latest.get("run_key") or "").strip():
+            run_key = str(latest["run_key"])
+        elif catchup and str(catchup.get("run_key") or "").strip():
+            run_key = str(catchup["run_key"])
+        has_run = bool(run_key)
         catchup_url = ""
         if catchup and has_run:
             catchup_url = school.catchup_public_url(cid, catchup)
@@ -188,7 +193,7 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
                 "deck_url": deck_url,
                 "catchup_url": catchup_url,
                 "catchup_enabled": has_run and bool(catchup_url),
-                "run_key": str(latest.get("run_key") or "") if latest else "",
+                "run_key": run_key,
             }
         )
     rows.sort(key=lambda r: (int(_MODULE_RE.match(r["module"]).group(1)) if _MODULE_RE.match(r["module"]) else 0,
