@@ -1,50 +1,67 @@
 # Copy-only fast lane
 
-Use this lane when a pull request changes **only** user-visible wording: template
-text, accessibility labels, copy JSON, or docs prose. No Python, JavaScript,
-CSS, routing, or structural HTML.
+Use this lane when a pull request changes **only** user-visible wording in
+**existing** files: template text, accessibility labels, copy JSON, or docs
+prose. No Python, JavaScript, CSS, routing, structural HTML, or lane
+infra changes.
 
 ## How to use it
 
-1. Open a pull request with your copy edits.
+1. Open a pull request with your copy edits (modify existing paths only).
 2. Add the GitHub label **`copy-only`**.
-3. CI runs [`.github/workflows/copy-only.yml`](../.github/workflows/copy-only.yml)
-   instead of waiting on the full LMS suite for copy review.
+3. Wait for [`.github/workflows/copy-only.yml`](../.github/workflows/copy-only.yml)
+   **and** the normal [`ci.yml`](../.github/workflows/ci.yml) LMS suite before merge.
 
-The workflow runs two checks:
+The copy-only job **always runs** on pull requests. Without the `copy-only`
+label it exits successfully and prints that the lane was not used (so a skipped
+job does not look like a pass on required checks). With the label it runs:
 
 | Step | Script | What it proves |
 |------|--------|----------------|
-| Diff guard | [`scripts/copy_only_check.py`](../scripts/copy_only_check.py) | Every changed hunk is limited to visible copy |
-| Template smoke | [`scripts/copy_only_template_smoke.py`](../scripts/copy_only_template_smoke.py) | Changed staff/student templates still render (HTTP 200 via Flask test client) |
+| Diff guard | [`scripts/copy_only_check.py`](../scripts/copy_only_check.py) from the **base branch** | Every change is limited to visible copy; PRs cannot weaken the checker |
+| Template smoke | [`scripts/copy_only_template_smoke.py`](../scripts/copy_only_template_smoke.py) (PR code) | Changed staff/student templates still render (HTTP 200 via Flask test client) |
 
-Run the guard locally:
+Run the guard locally (use the checker on `main`, not your branch):
 
 ```bash
-python scripts/copy_only_check.py origin/main HEAD
-python scripts/copy_only_template_smoke.py origin/main HEAD
+git show origin/main:scripts/copy_only_check.py > /tmp/copy_only_check.py
+COPY_ONLY_GIT_DIR=$PWD python3 /tmp/copy_only_check.py origin/main HEAD
+python3 scripts/copy_only_template_smoke.py origin/main HEAD
 ```
 
 ## Allowed changes
 
-- **Jinja / HTML** (`lms/templates/**`): text between tags; `alt`, `title`,
-  `placeholder`, and `aria-label` attribute values.
-- **Copy / i18n JSON** (paths containing `copy/` or `i18n/`, or
+- **Jinja / HTML** (`lms/templates/**`, other `.html`): plain text between
+  tags; exact `alt`, `title`, `placeholder`, and `aria-label` values (no Jinja
+  inside those values). Not inside `<script>` / `<style>` bodies.
+- **Copy / i18n JSON** (existing files under `copy/` or `i18n/`, or
   `copy.json` / `strings.json` / `locale.json`): string **values** only.
-- **Docs** (`docs/**/*.md`): markdown prose outside fenced code blocks.
+- **Docs** (`docs/**/*.md`, existing files): markdown prose outside fenced code
+  blocks (no raw HTML or `<script>` in prose).
 
 ## Rejected changes
 
-The diff guard fails (with a path and reason) when a hunk touches:
+The diff guard fails (with a path and reason) when a change touches:
 
-- Python, JavaScript, CSS, or other code files
-- Jinja `{% %}` / `{{ }}` logic or expressions
-- Structural HTML (`class`, `id`, `href`, new tags, and other attributes)
+- New, deleted, or renamed paths; chmod / mode changes; symlinks; binary blobs
+- `scripts/copy_only_check.py`, `scripts/copy_only_template_smoke.py`, or
+  `.github/workflows/copy-only.yml`
+- Python, JavaScript, CSS, or other non-allowlisted files
+- Jinja `{% %}` / `{{ }}` / `{# #}` (including inside copy attributes)
+- `<script>` / `<style>` bodies, structural HTML (`class`, `id`, `href`, …),
+  or non-exact attributes (`data-title`, `subtitle`, …)
 - JSON keys or non-string values
-- Fenced code bodies in docs
+- Bidi / zero-width unicode tricks; HTML tags in docs prose
 
 If you need any of the above, drop the `copy-only` label and use the normal
 **code** lane (full CI on the pull request).
+
+## Branch protection
+
+Keep **`ci.yml` / LMS test suite** required for all merges. Add the copy-only
+job to required checks only if every PR that must pass it carries the
+`copy-only` label (the job succeeds without the label but does not run the
+fast-lane guard).
 
 ## Linear / release notes
 

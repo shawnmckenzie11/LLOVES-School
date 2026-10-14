@@ -49,6 +49,76 @@ class CopyOnlyNormalizerTests(unittest.TestCase):
         ok, _ = coc.file_is_copy_only(old, new, "markup")
         self.assertFalse(ok)
 
+    def test_markup_jinja_in_title_attribute_fails(self) -> None:
+        """Jinja inside a copy attribute is rejected."""
+        old = '<span title="Hello"></span>'
+        new = '<span title="{{ config.SECRET_KEY }}"></span>'
+        ok, reason = coc.file_is_copy_only(old, new, "markup")
+        self.assertFalse(ok)
+        self.assertIn("jinja", reason.lower())
+
+    def test_markup_jinja_include_in_title_fails(self) -> None:
+        """Jinja block tags inside title are rejected."""
+        old = '<span title="Hi"></span>'
+        new = """<span title="{% include 'x' %}"></span>"""
+        ok, reason = coc.file_is_copy_only(old, new, "markup")
+        self.assertFalse(ok)
+
+    def test_markup_script_body_change_fails(self) -> None:
+        """Existing script bodies are not copy."""
+        old = "<script>const x = 1;</script>"
+        new = "<script>fetch('https://evil.example/')</script>"
+        ok, _ = coc.file_is_copy_only(old, new, "markup")
+        self.assertFalse(ok)
+
+    def test_markup_style_body_change_fails(self) -> None:
+        """Existing style bodies are not copy."""
+        old = "<style>.a{color:red}</style>"
+        new = "<style>.a{color:blue}</style>"
+        ok, _ = coc.file_is_copy_only(old, new, "markup")
+        self.assertFalse(ok)
+
+    def test_markup_data_title_not_copy(self) -> None:
+        """Only exact alt/title/placeholder/aria-label count as copy attrs."""
+        old = '<span data-title="1"></span>'
+        new = '<span data-title="2"></span>'
+        ok, _ = coc.file_is_copy_only(old, new, "markup")
+        self.assertFalse(ok)
+
+    def test_markup_subtitle_not_copy(self) -> None:
+        """subtitle= is not an allowed copy attribute."""
+        old = '<span subtitle="a"></span>'
+        new = '<span subtitle="b"></span>'
+        ok, _ = coc.file_is_copy_only(old, new, "markup")
+        self.assertFalse(ok)
+
+    def test_markup_bidi_in_text_fails(self) -> None:
+        """Bidi override characters in text are rejected."""
+        old = "<p>Hello</p>"
+        new = "<p>Hel\u202elo</p>"
+        ok, reason = coc.file_is_copy_only(old, new, "markup")
+        self.assertFalse(ok)
+        self.assertIn("unicode", reason.lower())
+
+    def test_markup_zero_width_in_text_fails(self) -> None:
+        """Zero-width characters in text are rejected."""
+        old = "<p>Hello</p>"
+        new = "<p>Hel\u200blo</p>"
+        ok, reason = coc.file_is_copy_only(old, new, "markup")
+        self.assertFalse(ok)
+
+    def test_new_file_not_allowed(self) -> None:
+        """New files are rejected at the file gate."""
+        ok, reason = coc.file_is_copy_only(None, "<p>x</p>", "markup")
+        self.assertFalse(ok)
+        self.assertIn("new", reason.lower())
+
+    def test_deleted_file_not_allowed(self) -> None:
+        """Deleted files are rejected at the file gate."""
+        ok, reason = coc.file_is_copy_only("<p>x</p>", None, "markup")
+        self.assertFalse(ok)
+        self.assertIn("deleted", reason.lower())
+
     def test_json_string_value_passes(self) -> None:
         """JSON string values may change."""
         old = '{"greeting": "Hello", "count": 3}'
@@ -70,11 +140,30 @@ class CopyOnlyNormalizerTests(unittest.TestCase):
         ok, _ = coc.file_is_copy_only(old, new, "markdown")
         self.assertTrue(ok)
 
+    def test_markdown_html_in_prose_fails(self) -> None:
+        """Raw HTML in docs prose is rejected."""
+        old = "# Title\n\nSafe text.\n"
+        new = "# Title\n\n<script>alert(1)</script>\n"
+        ok, reason = coc.file_is_copy_only(old, new, "markdown")
+        self.assertFalse(ok)
+        self.assertIn("html", reason.lower())
+
+    def test_markdown_tag_in_prose_fails(self) -> None:
+        """HTML tags in docs prose are rejected."""
+        old = "Hello\n"
+        new = "<p>Hello</p>\n"
+        ok, reason = coc.file_is_copy_only(old, new, "markdown")
+        self.assertFalse(ok)
+
     def test_forbidden_path_kind(self) -> None:
         """Python paths are never copy-only."""
         ok, reason = coc.file_is_copy_only("x = 1\n", "x = 2\n", "forbidden")
         self.assertFalse(ok)
         self.assertIn("allowlist", reason)
+
+    def test_trusted_lane_path_constant(self) -> None:
+        """Lane infra paths are listed as trusted."""
+        self.assertIn("scripts/copy_only_check.py", coc.TRUSTED_LANE_PATHS)
 
 
 class CopyOnlyGitTests(unittest.TestCase):
@@ -100,14 +189,12 @@ class CopyOnlyGitTests(unittest.TestCase):
 
     def _git(self, *args: str) -> str:
         """Run git inside the temp repo."""
-        env = {"GIT_DIR": None}
         result = subprocess.run(
             ["git", *args],
             cwd=self.root,
             check=True,
             capture_output=True,
             text=True,
-            env=None,
         )
         return result.stdout
 
@@ -129,6 +216,114 @@ class CopyOnlyGitTests(unittest.TestCase):
         errors = self._check(self.base, head)
         self.assertTrue(errors)
         self.assertIn("sample.html", errors[0])
+
+    def test_git_range_rejects_new_file(self) -> None:
+        """Adding a docs file is rejected."""
+        doc = self.root / "docs" / "new.md"
+        doc.parent.mkdir(parents=True)
+        doc.write_text("# New\n", encoding="utf-8")
+        self._git("add", ".")
+        self._git("commit", "-m", "add doc")
+        head = self._git("rev-parse", "HEAD").strip()
+        errors = self._check(self.base, head)
+        self.assertTrue(any("new files" in e.lower() for e in errors))
+
+    def test_git_range_rejects_delete(self) -> None:
+        """Deleting a template is rejected."""
+        self.template.unlink()
+        self._git("add", ".")
+        self._git("commit", "-m", "delete")
+        head = self._git("rev-parse", "HEAD").strip()
+        errors = self._check(self.base, head)
+        self.assertTrue(any("deleted" in e.lower() for e in errors))
+
+    def test_git_range_rejects_rename(self) -> None:
+        """Renames are surfaced as add+delete and rejected."""
+        target = self.root / "docs" / "sample.md"
+        target.parent.mkdir(parents=True)
+        self.template.rename(target)
+        self._git("add", ".")
+        self._git("commit", "-m", "rename")
+        head = self._git("rev-parse", "HEAD").strip()
+        errors = self._check(self.base, head)
+        self.assertGreaterEqual(len(errors), 2)
+
+    def test_git_range_rejects_mode_change(self) -> None:
+        """chmod on a template is rejected."""
+        self.template.chmod(0o755)
+        self._git("add", ".")
+        self._git("commit", "-m", "mode")
+        head = self._git("rev-parse", "HEAD").strip()
+        errors = self._check(self.base, head)
+        self.assertTrue(any("mode" in e.lower() for e in errors))
+
+    def test_git_range_rejects_symlink(self) -> None:
+        """Symlinked docs paths are rejected."""
+        doc = self.root / "docs" / "existing.md"
+        doc.parent.mkdir(parents=True)
+        doc.write_text("# Hi\n", encoding="utf-8")
+        self._git("add", ".")
+        self._git("commit", "-m", "doc base")
+        base2 = self._git("rev-parse", "HEAD").strip()
+        doc.unlink()
+        doc.symlink_to("../lms/templates/staff/sample.html")
+        self._git("add", ".")
+        self._git("commit", "-m", "symlink")
+        head = self._git("rev-parse", "HEAD").strip()
+        errors = self._check(base2, head)
+        self.assertTrue(
+            any(
+                "symlink" in e.lower() or "type" in e.lower() or "mode" in e.lower()
+                for e in errors
+            )
+        )
+
+    def test_git_range_rejects_binary_docs(self) -> None:
+        """Binary blobs posing as markdown are rejected."""
+        blob = self.root / "docs" / "existing.md"
+        blob.parent.mkdir(parents=True)
+        blob.write_text("# Hi\n", encoding="utf-8")
+        self._git("add", ".")
+        self._git("commit", "-m", "doc base")
+        base2 = self._git("rev-parse", "HEAD").strip()
+        blob.write_bytes(b"hello\x00world")
+        self._git("add", ".")
+        self._git("commit", "-m", "binary")
+        head = self._git("rev-parse", "HEAD").strip()
+        errors = self._check(base2, head)
+        self.assertTrue(any("binary" in e.lower() for e in errors))
+
+    def test_git_range_rejects_checker_edit(self) -> None:
+        """PRs cannot modify the trusted checker."""
+        checker = self.root / "scripts" / "copy_only_check.py"
+        checker.parent.mkdir(parents=True, exist_ok=True)
+        checker.write_text("print('v1')\n", encoding="utf-8")
+        self._git("add", ".")
+        self._git("commit", "-m", "add checker")
+        base2 = self._git("rev-parse", "HEAD").strip()
+        checker.write_text("print('v2')\n", encoding="utf-8")
+        self._git("add", ".")
+        self._git("commit", "-m", "tamper")
+        head = self._git("rev-parse", "HEAD").strip()
+        errors = self._check(base2, head)
+        self.assertTrue(any("trusted" in e.lower() for e in errors))
+
+    def test_git_script_body_in_template_fails(self) -> None:
+        """JS edits inside an existing script tag fail."""
+        self.template.write_text(
+            "<script>const a=1;</script>\n", encoding="utf-8"
+        )
+        self._git("add", ".")
+        self._git("commit", "-m", "add script")
+        base2 = self._git("rev-parse", "HEAD").strip()
+        self.template.write_text(
+            "<script>fetch('evil')</script>\n", encoding="utf-8"
+        )
+        self._git("add", ".")
+        self._git("commit", "-m", "evil js")
+        head = self._git("rev-parse", "HEAD").strip()
+        errors = self._check(base2, head)
+        self.assertTrue(errors)
 
     def _check(self, base: str, head: str) -> list[str]:
         """Run check_range against the temp repo via subprocess."""
