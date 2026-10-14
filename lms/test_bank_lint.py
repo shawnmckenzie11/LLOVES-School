@@ -150,6 +150,13 @@ class CheckTests(unittest.TestCase):
             self.assertIsNone(checker.errors(["x^"]))
         self.assertEqual(checker.status, "skipped")
 
+    def test_whitespace_only_dollars_do_not_raise(self) -> None:
+        """Ops gate PR #314: ``$ $`` raised IndexError."""
+        for stem in ("$ $", "cost $ $ more", "<p>$  $ and $ $</p>"):
+            lint({"stem_html": stem})
+            lint({"prompt": stem})
+            lint({"stem_html": "<p>Pick one</p>", "choices": [{"html": stem}]})
+
     def test_odd_payloads_never_raise(self) -> None:
         for payload in ({}, {"stem_html": None}, {"choices": [None, 3, {"x": 1}]}, {"blanks": ["x"]}, "nope"):
             lint(payload)  # type: ignore[arg-type]
@@ -217,6 +224,28 @@ class StorageAndHookTests(unittest.TestCase):
 
         with mock.patch.object(bank_lint, "lint_questions", side_effect=RuntimeError("boom")):
             self.assertEqual(save(self.db, 1), 7)
+
+    def test_one_item_raising_does_not_abort_the_run(self) -> None:
+        self._ingest()
+        ids = [r[0] for r in self.db.conn.execute("SELECT id FROM questions ORDER BY id")]
+        self.assertGreaterEqual(len(ids), 2)
+        real = bank_lint.lint_question
+        calls = {"n": 0}
+
+        def flaky(*a, **kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise IndexError("bad item")
+            return real(*a, **kw)
+
+        with mock.patch.object(bank_lint, "lint_question", side_effect=flaky), \
+                mock.patch.object(bank_lint, "_report_item_error") as report:
+            summary = bank_lint.lint_library(self.db, int(self.library["id"]))
+        report.assert_called_once()
+        self.assertEqual(report.call_args[0][0], ids[0])
+        self.assertEqual(summary["questions"], len(ids) - 1)
+        checked = {r[0] for r in self.db.conn.execute("SELECT question_id FROM question_lint_checked")}
+        self.assertTrue(set(ids[1:]) <= checked)
 
     def test_lint_unchecked_only_lints_new_rows(self) -> None:
         self._ingest()

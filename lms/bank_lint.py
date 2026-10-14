@@ -502,8 +502,11 @@ def _check_field(ctx: _Ctx, library_id: int, field: str, raw: str, resolver: Ima
         for m in _MATH_TOKEN_RE.finditer(norm):
             prose.append(norm[last:m.start()])
             last = m.end()
-            tex = next(g for g in m.groups() if g)
-            if m.group(4) and CUR.fullmatch("$" + tex.split()[0]) and re.search(r"[A-Za-z]{3,}\s", tex):
+            tex = next((g for g in m.groups() if g), "")
+            words = tex.split()
+            if not words:
+                continue  # ``$ $``: whitespace-only delimiters, nothing to check
+            if m.group(4) and CUR.fullmatch("$" + words[0]) and re.search(r"[A-Za-z]{3,}\s", tex):
                 ctx.add("raw_equation", "currency_dollar_parsed_as_math", field, m.group(0),
                         'write amounts as "N dollars" (house style) instead of $N', "high")
                 continue
@@ -668,8 +671,15 @@ def lint_rows(
             payload = {}
         overlay = {"stem_text": row[4], "options_json": row[5]} if row[4] is not None or row[5] else None
         before_jobs = len(ctx.katex_jobs)
-        found = lint_question(payload, library_id=int(row[3]), image_resolver=resolver,
-                              item_type=str(row[1] or ""), overlay=overlay, _ctx=ctx)
+        before_findings = len(ctx.findings)
+        try:
+            found = lint_question(payload, library_id=int(row[3]), image_resolver=resolver,
+                                  item_type=str(row[1] or ""), overlay=overlay, _ctx=ctx)
+        except Exception as exc:  # noqa: BLE001 - one bad item never aborts the run
+            del ctx.katex_jobs[before_jobs:]
+            del ctx.findings[before_findings:]
+            _report_item_error(qid, exc)
+            continue
         owner += [qid] * len(found)
         job_owner += [qid] * (len(ctx.katex_jobs) - before_jobs)
         results[qid] = list(found)
@@ -712,6 +722,19 @@ def lint_rows(
     results_meta = {"katex": katex.status}
     lint_rows.last_meta = results_meta  # type: ignore[attr-defined]
     return results
+
+
+def _report_item_error(question_id: int, exc: Exception) -> None:
+    """Log + Sentry one question whose lint raised; the run continues."""
+    log.warning("bank_lint: question %s skipped (%s)", question_id, exc, exc_info=True)
+    try:
+        import sentry_sdk
+
+        with sentry_sdk.push_scope() as scope:
+            scope.set_tag("bank_lint_question_id", str(question_id))
+            sentry_sdk.capture_exception(exc)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def lint_questions(school: Any, question_ids: Iterable[int], *, network: bool = False) -> dict[int, list[LintFinding]]:
