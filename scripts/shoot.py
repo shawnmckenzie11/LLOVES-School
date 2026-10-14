@@ -866,6 +866,60 @@ def _wait_quiet_member_dots(
     return False
 
 
+def shoot_mck217_student_view(out_dir: Path) -> list[Path]:
+    """MCK-217: group Questions card with and without Student view masking.
+
+    Renders the teacher group-status HTML via the same node harness as
+    ``test_student_view_mck217`` (seeded picks + submitter lines), loads
+    ``staff-shell.css``, and saves desktop PNGs for Show strength vs Student
+    view body class.
+
+    Args:
+        out_dir: Artifact directory.
+
+    Returns:
+        Paths written.
+    """
+    sys.path.insert(0, str(LMS_DIR))
+    from test_student_view_mck217 import StudentViewQuestionsTests  # noqa: E402
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    shots = {
+        "show-strength": out_dir / "mck217-questions-show-strength-1280.png",
+        "student-view": out_dir / "mck217-questions-student-view-1280.png",
+    }
+    tester = StudentViewQuestionsTests()
+    shown = tester._render(student_view=False)
+    hidden = tester._render(student_view=True)
+    show_html = shown["group"] + shown["board"]
+    hide_html = hidden["group"] + hidden["board"]
+    if "Eva" in hide_html or "group-picks" in hide_html:
+        raise SystemExit("Student view harness HTML still exposes student detail")
+    css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+
+    def _page_html(body_class: str, fragment: str) -> str:
+        return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><style>{css}</style></head>
+<body class="{body_class}">
+<main id="live-question-list" class="live-question-list">{fragment}</main>
+</body></html>"""
+
+    from playwright.sync_api import sync_playwright  # noqa: E402
+
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        page.set_content(_page_html("staff-shell", show_html), wait_until="domcontentloaded")
+        page.screenshot(path=str(shots["show-strength"]), full_page=True)
+        page.set_content(
+            _page_html("staff-shell is-student-view", hide_html),
+            wait_until="domcontentloaded",
+        )
+        page.screenshot(path=str(shots["student-view"]), full_page=True)
+        browser.close()
+    return list(shots.values())
+
+
 def shoot_mck62_quiet_dots(out_dir: Path) -> list[Path]:
     """MCK-62: first load, reload, and Student view exit (isolated harness).
 
@@ -1165,12 +1219,13 @@ def main(argv: list[str] | None = None) -> int:
             "mck207-run-toggle",
             "mck208",
             "avatar-reward",
+            "mck217-student-view",
         ),
         default="",
         help=(
             "Built-in catch-up, MCK-62 quiet-dot, engagement override, "
-            "MCK-207 roster/PIN, run-class toggle, MCK-208 dashboard, or "
-            "avatar-reward pop-up shots."
+            "MCK-207 roster/PIN, run-class toggle, MCK-208 dashboard, "
+            "MCK-217 Student view Questions, or avatar-reward pop-up shots."
         ),
     )
     args = parser.parse_args(argv)
@@ -1204,6 +1259,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "avatar-reward":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_avatar_reward_popup(args.base, out, widths, path))
+        if args.scenario == "mck217-student-view":
+            written.extend(shoot_mck217_student_view(out))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(
@@ -1220,7 +1277,7 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
-                "mck208|avatar-reward."
+                "mck208|avatar-reward|mck217-student-view."
             )
         for item in written:
             print(item)
