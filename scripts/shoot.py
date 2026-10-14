@@ -1043,6 +1043,35 @@ def shoot_engagement_overrides(
     return list(shots.values())
 
 
+def _wait_avatar_reward_modal_settled(page) -> None:
+    """Wait until the reward dialog fade-in finishes (``rw-fade`` on ``.rw-modal``).
+
+    Args:
+        page: Playwright page on ``/student/character`` with the pop-up open.
+    """
+    modal = page.locator("#avatar-reward:not([hidden]) .rw-modal")
+    modal.wait_for(state="visible", timeout=30000)
+    page.evaluate(
+        """() => new Promise((resolve) => {
+          const modal = document.querySelector('#avatar-reward:not([hidden]) .rw-modal');
+          if (!modal) {
+            resolve();
+            return;
+          }
+          const style = getComputedStyle(modal);
+          const animating = style.animationName && style.animationName !== 'none';
+          if (!animating) {
+            resolve();
+            return;
+          }
+          const finish = () => resolve();
+          modal.addEventListener('animationend', finish, { once: true });
+          setTimeout(finish, 400);
+        })"""
+    )
+    page.wait_for_timeout(50)
+
+
 def shoot_avatar_reward_popup(origin: str, out_dir: Path, widths: list[int], path: Path) -> list[Path]:
     """Open the Celebrations avatar reward pop-up on the character picker (JOIN).
 
@@ -1105,6 +1134,7 @@ def shoot_avatar_reward_popup(origin: str, out_dir: Path, widths: list[int], pat
             page.locator("#avatar-reward:not([hidden]) #rw-title").wait_for(
                 state="visible", timeout=30000
             )
+            _wait_avatar_reward_modal_settled(page)
             dest = out_dir / f"student-avatar-reward-{width}.png"
             page.screenshot(path=str(dest), full_page=True)
             written.append(dest)
