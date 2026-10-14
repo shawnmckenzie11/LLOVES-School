@@ -30083,7 +30083,9 @@ class SchoolDB(LovesDB):
                 class_id, run_key, module, slot, now=now
             )
 
-    def live_class_schedule_for_class(self, class_id: int) -> dict[str, str] | None:
+    def live_class_schedule_for_class(
+        self, class_id: int, *, offering_end_required: bool = False
+    ) -> dict[str, str] | None:
         """Live-class days and scheduled end time for one game-show class."""
         from live_class_run import schedule_from_row
 
@@ -30096,7 +30098,6 @@ class SchoolDB(LovesDB):
         if row is None:
             return None
         offering = None
-        course_defaults: dict[str, Any] = {}
         oid = row["offering_id"]
         if oid not in (None, ""):
             try:
@@ -30104,16 +30105,206 @@ class SchoolDB(LovesDB):
             except KeyError:
                 offering = None
         if offering:
-            course_defaults = self.get_ontario_course(str(offering.get("ontario_code") or "")) or {}
-        sched = schedule_from_row(
-            live_days=str((offering or {}).get("live_days") or row["days"] or ""),
-            live_end_time=str((offering or {}).get("live_end_time") or ""),
-            fallback_days=str(course_defaults.get("live_class_days") or ""),
-            fallback_end=str(course_defaults.get("live_class_end_time") or ""),
-        )
-        if sched is None:
+            days = str((offering.get("live_days") or row["days"] or "")).strip()
+            end = str((offering.get("live_end_time") or "")).strip()
+            course_defaults: dict[str, Any] = {}
+            if not days or (not end and not offering_end_required):
+                course_defaults = (
+                    self.get_ontario_course(str(offering.get("ontario_code") or "")) or {}
+                )
+            if not days:
+                days = str(course_defaults.get("live_class_days") or "").strip()
+            if not end and not offering_end_required:
+                end = str(course_defaults.get("live_class_end_time") or "").strip()
+            sched = schedule_from_row(
+                live_days=days,
+                live_end_time=end,
+                fallback_days=days,
+                fallback_end="",
+            )
+        else:
+            crow = self.game.conn.execute(
+                "SELECT course_code FROM classes WHERE id = ?", (int(class_id),)
+            ).fetchone()
+            course_defaults: dict[str, Any] = {}
+            if crow is not None:
+                course_defaults = (
+                    self.get_ontario_course(str(crow["course_code"] or "")) or {}
+                )
+            sched = schedule_from_row(
+                live_days=str(row["days"] or "").strip(),
+                live_end_time="",
+                fallback_days=str(course_defaults.get("live_class_days") or "").strip(),
+                fallback_end=str(course_defaults.get("live_class_end_time") or "").strip(),
+            )
+        if sched is None or not str(sched.end_time_label or "").strip():
             return None
         return {"live_days": sched.days_key, "live_end_time": sched.end_time_label}
+
+    def require_live_class_schedule_for_class(self, class_id: int) -> dict[str, str]:
+        """Return schedule or raise when ``live_end_time`` is missing (MCK-210)."""
+        from catchup_schedule import CatchupScheduleError
+
+        sched = self.live_class_schedule_for_class(
+            int(class_id), offering_end_required=True
+        )
+        if sched is None or not str(sched.get("live_end_time") or "").strip():
+            raise CatchupScheduleError(
+                f"class_id={int(class_id)}: no live_end_time on offering or course catalog "
+                "(classes.time is the start label, not used). Run "
+                "sync-offering-live-schedules from seed data first."
+            )
+        return sched
+
+    def plan_sync_offering_live_schedules(
+        self, *, offering_ids: list[int] | None = None
+    ) -> list[dict[str, Any]]:
+        """List offerings missing ``live_end_time`` that seed data can fill."""
+        from catchup_schedule import load_live_class_schedule_seed, schedule_defaults_for_offering
+
+        seed = load_live_class_schedule_seed()
+        filters = ""
+        params: list[Any] = []
+        if offering_ids:
+            placeholders = ",".join("?" for _ in offering_ids)
+            filters = f" AND o.id IN ({placeholders})"
+            params = [int(x) for x in offering_ids]
+        with self._lock:
+            rows = self.conn.execute(
+                f"""
+                SELECT o.id, o.ontario_code, COALESCE(o.section_index, 1) AS section_index,
+                       o.live_days, o.live_end_time
+                FROM course_offerings o
+                WHERE TRIM(COALESCE(o.live_end_time, '')) = ''
+                {filters}
+                ORDER BY o.id
+                """,
+                params,
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            defaults = schedule_defaults_for_offering(
+                str(row["ontario_code"] or ""),
+                int(row["section_index"] or 1),
+                seed=seed,
+            )
+            if not defaults or not str(defaults.get("live_end_time") or "").strip():
+                continue
+            out.append(
+                {
+                    "offering_id": int(row["id"]),
+                    "ontario_code": str(row["ontario_code"] or ""),
+                    "section_index": int(row["section_index"] or 1),
+                    "live_days": str(defaults.get("live_days") or "").strip(),
+                    "live_end_time": str(defaults.get("live_end_time") or "").strip(),
+                }
+            )
+        return out
+
+    def apply_sync_offering_live_schedules(
+        self, plans: list[dict[str, Any]]
+    ) -> int:
+        """Write planned ``live_days`` / ``live_end_time`` onto offerings."""
+        updated = 0
+        with self._lock:
+            for row in plans:
+                cur = self.conn.execute(
+                    """
+                    UPDATE course_offerings
+                    SET live_days = COALESCE(?, live_days),
+                        live_end_time = COALESCE(?, live_end_time)
+                    WHERE id = ? AND TRIM(COALESCE(live_end_time, '')) = ''
+                    """,
+                    (
+                        row.get("live_days") or None,
+                        row.get("live_end_time") or None,
+                        int(row["offering_id"]),
+                    ),
+                )
+                updated += int(cur.rowcount or 0)
+            if self.conn.in_transaction:
+                self.conn.commit()
+        return updated
+
+    def resolve_snapshot_run_key(self, class_id: int, run_key_match: str) -> str:
+        """Resolve a unique ``run_key`` from a prefix or full key (snapshots only)."""
+        cid = int(class_id)
+        needle = str(run_key_match or "").strip()
+        if not needle:
+            raise ValueError("run_key match is required")
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT DISTINCT run_key FROM live_result_snapshots
+                WHERE class_id = ? AND (run_key = ? OR run_key LIKE '%' || ? || '%')
+                ORDER BY run_key
+                """,
+                (cid, needle, needle),
+            ).fetchall()
+        keys = [str(r[0]) for r in rows if str(r[0] or "").strip()]
+        if not keys:
+            raise ValueError(
+                f"class_id={cid}: no snapshot run_key matching {needle!r}"
+            )
+        if len(keys) > 1:
+            raise ValueError(
+                f"class_id={cid}: run_key {needle!r} is ambiguous: {', '.join(keys)}"
+            )
+        return keys[0]
+
+    def get_catchup_repair_run_row(
+        self, class_id: int, run_key_match: str
+    ) -> dict[str, Any] | None:
+        """Load snapshot-based repair context when live sessions were wiped at End."""
+        cid = int(class_id)
+        try:
+            run_key = self.resolve_snapshot_run_key(cid, run_key_match)
+        except ValueError:
+            return None
+        with self._lock:
+            meta = self.conn.execute(
+                """
+                SELECT MIN(live_module) AS live_module, MIN(live_slot) AS live_slot,
+                       COUNT(DISTINCT CASE WHEN source = 'prompt' AND student_id IS NOT NULL
+                                           THEN question_key END) AS offered_count,
+                       MAX(snapshot_at) AS snapshot_at
+                FROM live_result_snapshots
+                WHERE class_id = ? AND run_key = ?
+                """,
+                (cid, run_key),
+            ).fetchone()
+            if meta is None:
+                return None
+            course_code = str(
+                self.game.conn.execute(
+                    "SELECT course_code FROM classes WHERE id = ?", (cid,)
+                ).fetchone()[0]
+                or ""
+            )
+            slot_link = self.conn.execute(
+                """
+                SELECT * FROM catchup_links
+                WHERE class_id = ? AND live_module = ? AND live_slot = ?
+                LIMIT 1
+                """,
+                (cid, str(meta["live_module"] or ""), str(meta["live_slot"] or "")),
+            ).fetchone()
+            run_link = self.conn.execute(
+                "SELECT * FROM catchup_links WHERE class_id = ? AND run_key = ? LIMIT 1",
+                (cid, run_key),
+            ).fetchone()
+        return {
+            "session_id": None,
+            "class_id": cid,
+            "course_code": course_code,
+            "run_key": run_key,
+            "live_module": str(meta["live_module"] or ""),
+            "live_slot": str(meta["live_slot"] or ""),
+            "ended_at": str(meta["snapshot_at"] or ""),
+            "offered_count": int(meta["offered_count"] or 0),
+            "slot_link": dict(slot_link) if slot_link is not None else None,
+            "run_link": dict(run_link) if run_link is not None else None,
+        }
 
     def _classify_and_record_participation_run(
         self,
@@ -30126,17 +30317,15 @@ class SchoolDB(LovesDB):
         from live_class_run import classify_run_end, parse_ended_at, schedule_from_row
 
         sched_row = self.live_class_schedule_for_class(int(class_id))
-        if not sched_row:
-            auto_real = False
-        else:
-            sched = schedule_from_row(
-                live_days=sched_row["live_days"],
-                live_end_time=sched_row["live_end_time"],
-            )
-            auto_real = bool(
-                sched
-                and classify_run_end(parse_ended_at(ended_at), sched)
-            )
+        if sched_row is None or not str(sched_row.get("live_end_time") or "").strip():
+            return False
+        sched = schedule_from_row(
+            live_days=sched_row["live_days"],
+            live_end_time=sched_row["live_end_time"],
+        )
+        auto_real = bool(
+            sched and classify_run_end(parse_ended_at(ended_at), sched)
+        )
         return self._upsert_participation_run_kind_unlocked(
             int(class_id), str(run_key), is_real=auto_real, auto_is_real=auto_real
         )
@@ -31414,14 +31603,15 @@ class SchoolDB(LovesDB):
         return out
 
     def apply_catchup_backfill_run(self, class_id: int, run_key: str) -> dict[str, int]:
-        """Write participation rows + a closed catch-up link for one snapshot run."""
-        from participation import new_token
+        """Write participation rows from snapshots (link sync is slot-level; MCK-210)."""
+        return self.write_participation_from_snapshots(class_id, run_key)
 
+    def write_participation_from_snapshots(self, class_id: int, run_key: str) -> dict[str, int]:
+        """Insert participation items/answers from ``live_result_snapshots`` only."""
         cid = int(class_id)
         key = str(run_key or "").strip()
         if not key:
             raise ValueError("run_key is required")
-        now = _now()
         with self._lock:
             meta = self.conn.execute(
                 """
@@ -31477,18 +31667,357 @@ class SchoolDB(LovesDB):
                     (cid, key),
                 ).fetchone()[0]
             )
-            self.conn.execute(
-                """
-                INSERT OR IGNORE INTO catchup_links (
-                    token, class_id, run_key, live_module, live_slot, is_open,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, 0, ?, ?)
-                """,
-                (new_token(), cid, key, module, slot, now, now),
-            )
             if self.conn.in_transaction:
                 self.conn.commit()
         return {"items": items, "answers": answers}
+
+    def classify_participation_run(
+        self, class_id: int, run_key: str, *, ended_at: str
+    ) -> bool:
+        """Classify one run and persist ``participation_runs`` (caller may hold no lock)."""
+        with self._lock:
+            return self._classify_and_record_participation_run(
+                int(class_id), str(run_key), ended_at=str(ended_at or "")
+            )
+
+    def ended_at_for_participation_run(self, class_id: int, run_key: str) -> str:
+        """Best-effort ``ended_at`` for a run (ended session, else snapshot max)."""
+        cid = int(class_id)
+        key = str(run_key or "").strip()
+        if not key:
+            return ""
+        with self._lock:
+            sess = self.conn.execute(
+                """
+                SELECT ended_at FROM live_class_sessions
+                WHERE class_id = ? AND run_key = ? AND status = 'ended'
+                ORDER BY id DESC LIMIT 1
+                """,
+                (cid, key),
+            ).fetchone()
+            if sess is not None and str(sess["ended_at"] or "").strip():
+                return str(sess["ended_at"])
+            snap = self.conn.execute(
+                """
+                SELECT MAX(snapshot_at) AS snapshot_at
+                FROM live_result_snapshots
+                WHERE class_id = ? AND run_key = ?
+                """,
+                (cid, key),
+            ).fetchone()
+        if snap is not None and str(snap["snapshot_at"] or "").strip():
+            return str(snap["snapshot_at"])
+        return ""
+
+    def preview_participation_run_real(self, class_id: int, *, ended_at: str) -> bool:
+        """Return whether ``ended_at`` would classify as a real class for this offering."""
+        from live_class_run import classify_run_end, parse_ended_at, schedule_from_row
+
+        sched_row = self.require_live_class_schedule_for_class(int(class_id))
+        sched = schedule_from_row(
+            live_days=sched_row["live_days"],
+            live_end_time=sched_row["live_end_time"],
+        )
+        return bool(
+            sched and classify_run_end(parse_ended_at(str(ended_at or "")), sched)
+        )
+
+    def catchup_link_for_slot(
+        self, class_id: int, live_module: str, live_slot: str
+    ) -> dict[str, Any] | None:
+        """Return the shared catch-up row for one lesson slot, if any."""
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM catchup_links
+                WHERE class_id = ? AND live_module = ? AND live_slot = ?
+                LIMIT 1
+                """,
+                (int(class_id), str(live_module or ""), str(live_slot or "")),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def upsert_real_catchup_link_for_slot(
+        self,
+        class_id: int,
+        run_key: str,
+        live_module: str,
+        live_slot: str,
+    ) -> None:
+        """Point the shared slot link at a real run and leave it open (MCK-207)."""
+        now = _now()
+        with self._lock:
+            self._upsert_real_catchup_link_unlocked(
+                int(class_id),
+                str(run_key),
+                str(live_module),
+                str(live_slot),
+                now=now,
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+
+    def get_live_session_catchup_repair_row(self, session_id: int) -> dict[str, Any] | None:
+        """Load one ended live session plus snapshot/link context for repair."""
+        sid = int(session_id)
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT sess.id AS session_id, sess.class_id, sess.run_key, sess.ended_at,
+                       sess.status,
+                       json_extract(sess.teacher_state_json, '$.live_module') AS live_module,
+                       json_extract(sess.teacher_state_json, '$.live_slot') AS live_slot,
+                       c.course_code
+                FROM live_class_sessions sess
+                INNER JOIN classes c ON c.id = sess.class_id
+                WHERE sess.id = ?
+                """,
+                (sid,),
+            ).fetchone()
+            if row is None:
+                return None
+            run_key = str(row["run_key"] or "").strip()
+            if not run_key:
+                return None
+            cid = int(row["class_id"])
+            snap = self.conn.execute(
+                """
+                SELECT COUNT(DISTINCT CASE WHEN source = 'prompt' AND student_id IS NOT NULL
+                                          THEN question_key END) AS offered_count,
+                       MAX(snapshot_at) AS snapshot_at
+                FROM live_result_snapshots
+                WHERE class_id = ? AND run_key = ?
+                """,
+                (cid, run_key),
+            ).fetchone()
+            slot_link = self.conn.execute(
+                """
+                SELECT * FROM catchup_links
+                WHERE class_id = ? AND live_module = ? AND live_slot = ?
+                LIMIT 1
+                """,
+                (
+                    cid,
+                    str(row["live_module"] or ""),
+                    str(row["live_slot"] or ""),
+                ),
+            ).fetchone()
+            run_link = self.conn.execute(
+                "SELECT * FROM catchup_links WHERE class_id = ? AND run_key = ? LIMIT 1",
+                (cid, run_key),
+            ).fetchone()
+        ended_at = str(row["ended_at"] or "")
+        if not ended_at and snap is not None:
+            ended_at = str(snap["snapshot_at"] or "")
+        return {
+            "session_id": sid,
+            "class_id": cid,
+            "course_code": str(row["course_code"] or ""),
+            "run_key": run_key,
+            "live_module": str(row["live_module"] or ""),
+            "live_slot": str(row["live_slot"] or ""),
+            "ended_at": ended_at,
+            "status": str(row["status"] or ""),
+            "offered_count": int(snap["offered_count"] or 0) if snap else 0,
+            "slot_link": dict(slot_link) if slot_link is not None else None,
+            "run_link": dict(run_link) if run_link is not None else None,
+        }
+
+    def discard_catchup_link(self, link_id: int) -> bool:
+        """Delete one catch-up link row by primary key (discard token; MCK-210)."""
+        with self._lock:
+            cur = self.conn.execute(
+                "DELETE FROM catchup_links WHERE id = ?", (int(link_id),)
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+        return int(cur.rowcount or 0) > 0
+
+    def mint_open_catchup_link(
+        self,
+        class_id: int,
+        run_key: str,
+        live_module: str,
+        live_slot: str,
+        *,
+        discard_slot_link_id: int | None = None,
+    ) -> str:
+        """Create a fresh OPEN catch-up link with a new token (never repoint test tokens)."""
+        from participation import new_token
+
+        cid = int(class_id)
+        key = str(run_key or "").strip()
+        mod = str(live_module or "")
+        sl = str(live_slot or "")
+        now = _now()
+        token = new_token()
+        with self._lock:
+            if discard_slot_link_id is not None:
+                self.conn.execute(
+                    "DELETE FROM catchup_links WHERE id = ?", (int(discard_slot_link_id),)
+                )
+            self.conn.execute(
+                "DELETE FROM catchup_links WHERE class_id = ? AND live_module = ? AND live_slot = ?",
+                (cid, mod, sl),
+            )
+            self.conn.execute(
+                "DELETE FROM catchup_links WHERE class_id = ? AND run_key = ?",
+                (cid, key),
+            )
+            self.conn.execute(
+                """
+                INSERT INTO catchup_links (
+                    token, class_id, run_key, live_module, live_slot, is_open,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                """,
+                (token, cid, key, mod, sl, now, now),
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+        return token
+
+    def reopen_catchup_link(self, link_id: int) -> bool:
+        """Set ``is_open=1`` on an existing link row without changing its token."""
+        now = _now()
+        with self._lock:
+            cur = self.conn.execute(
+                "UPDATE catchup_links SET is_open = 1, updated_at = ? WHERE id = ?",
+                (now, int(link_id)),
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+        return int(cur.rowcount or 0) > 0
+
+    def list_catchup_sync_runs(
+        self,
+        *,
+        course_code: str | None = None,
+        live_module: str | None = None,
+        live_slot: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Runs in scope for backfill/repair (snapshots + existing participation/links)."""
+        from catchup_backfill import MCK45_SNAPSHOT_CUTOFF
+
+        snap_filters = ["s.run_key != ''"]
+        snap_params: list[Any] = []
+        if course_code:
+            snap_filters.append("UPPER(c.course_code) = UPPER(?)")
+            snap_params.append(str(course_code).strip())
+        if live_module:
+            snap_filters.append("UPPER(s.live_module) = UPPER(?)")
+            snap_params.append(str(live_module).strip())
+        if live_slot:
+            snap_filters.append("UPPER(s.live_slot) = UPPER(?)")
+            snap_params.append(str(live_slot).strip())
+
+        with self._lock:
+            snapshot_runs = self.conn.execute(
+                f"""
+                SELECT s.class_id, c.course_code, s.run_key,
+                       MIN(s.live_module) AS live_module,
+                       MIN(s.live_slot) AS live_slot,
+                       COUNT(*) AS snapshot_rows,
+                       COUNT(DISTINCT CASE WHEN s.source = 'prompt' AND s.student_id IS NOT NULL
+                                           THEN s.question_key END) AS offered_count,
+                       COUNT(CASE WHEN s.source = 'prompt' AND s.student_id IS NOT NULL
+                                  THEN 1 END) AS answer_rows,
+                       MAX(s.snapshot_at) AS snapshot_at,
+                       MAX(sess.ended_at) AS session_ended_at
+                FROM live_result_snapshots s
+                INNER JOIN classes c ON c.id = s.class_id
+                LEFT JOIN live_class_sessions sess
+                    ON sess.class_id = s.class_id
+                   AND sess.run_key = s.run_key
+                   AND sess.status = 'ended'
+                WHERE {" AND ".join(snap_filters)}
+                GROUP BY s.class_id, s.run_key
+                """,
+                snap_params,
+            ).fetchall()
+
+            out: list[dict[str, Any]] = []
+            seen: set[tuple[int, str]] = set()
+            for row in snapshot_runs:
+                key = (int(row["class_id"]), str(row["run_key"]))
+                seen.add(key)
+                ended = str(row["session_ended_at"] or row["snapshot_at"] or "")
+                existing_items = int(
+                    self.conn.execute(
+                        "SELECT COUNT(*) FROM participation_items WHERE class_id = ? AND run_key = ?",
+                        key,
+                    ).fetchone()[0]
+                )
+                out.append(
+                    {
+                        "class_id": int(row["class_id"]),
+                        "course_code": str(row["course_code"] or ""),
+                        "run_key": str(row["run_key"]),
+                        "live_module": str(row["live_module"] or ""),
+                        "live_slot": str(row["live_slot"] or ""),
+                        "has_snapshots": True,
+                        "offered_count": int(row["offered_count"] or 0),
+                        "answer_rows": int(row["answer_rows"] or 0),
+                        "ended_at": ended,
+                        "existing_items": existing_items,
+                    }
+                )
+
+            legacy_filters = [
+                "sess.status = 'ended'",
+                "COALESCE(sess.started_at, '') < ?",
+                "COALESCE(sess.run_key, '') != ''",
+                """NOT EXISTS (
+                    SELECT 1 FROM live_result_snapshots snap
+                    WHERE snap.class_id = sess.class_id
+                      AND snap.run_key = COALESCE(sess.run_key, '')
+                )""",
+            ]
+            legacy_params: list[Any] = [MCK45_SNAPSHOT_CUTOFF]
+            if course_code:
+                legacy_filters.append("UPPER(c.course_code) = UPPER(?)")
+                legacy_params.append(str(course_code).strip())
+            if live_module:
+                legacy_filters.append(
+                    "UPPER(json_extract(sess.teacher_state_json, '$.live_module')) = UPPER(?)"
+                )
+                legacy_params.append(str(live_module).strip())
+            if live_slot:
+                legacy_filters.append(
+                    "UPPER(json_extract(sess.teacher_state_json, '$.live_slot')) = UPPER(?)"
+                )
+                legacy_params.append(str(live_slot).strip())
+            legacy = self.conn.execute(
+                f"""
+                SELECT sess.class_id, c.course_code,
+                       COALESCE(sess.run_key, '') AS run_key,
+                       json_extract(sess.teacher_state_json, '$.live_module') AS live_module,
+                       json_extract(sess.teacher_state_json, '$.live_slot') AS live_slot,
+                       sess.ended_at
+                FROM live_class_sessions sess
+                INNER JOIN classes c ON c.id = sess.class_id
+                WHERE {" AND ".join(legacy_filters)}
+                """,
+                legacy_params,
+            ).fetchall()
+            for row in legacy:
+                run_key = str(row["run_key"] or "")
+                key = (int(row["class_id"]), run_key)
+                if key in seen:
+                    continue
+                out.append(
+                    {
+                        "class_id": int(row["class_id"]),
+                        "course_code": str(row["course_code"] or ""),
+                        "run_key": run_key,
+                        "live_module": str(row["live_module"] or ""),
+                        "live_slot": str(row["live_slot"] or ""),
+                        "has_snapshots": False,
+                        "skip_reason": "pre-MCK-45 (no snapshot rows)",
+                        "ended_at": str(row["ended_at"] or ""),
+                    }
+                )
+        return out
 
     def class_codenames(self, class_id: int) -> dict[int, str]:
         """Roster codenames (unique per class), the names the picker shows."""

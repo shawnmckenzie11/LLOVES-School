@@ -16,6 +16,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 TORONTO = ZoneInfo("America/Toronto")
+UTC = ZoneInfo("UTC")
 CONFIG_PATH = Path(__file__).resolve().parent / "config" / "live_class_run.json"
 
 
@@ -120,7 +121,7 @@ def classify_run_end(
     if not weekdays:
         return False
     if ended_at.tzinfo is None:
-        local = ended_at.replace(tzinfo=TORONTO)
+        local = ended_at.replace(tzinfo=UTC).astimezone(TORONTO)
     else:
         local = ended_at.astimezone(TORONTO)
     if local.weekday() not in weekdays:
@@ -179,8 +180,14 @@ def end_time_options() -> tuple[str, ...]:
 
 
 def parse_ended_at(value: str | None, *, fallback: datetime | None = None) -> datetime:
-    """Parse session ``ended_at`` ISO into Toronto-aware datetime."""
+    """Parse session ``ended_at`` ISO into Toronto-aware datetime.
+
+    Production stores UTC timestamps without a ``Z`` suffix; treat zone-less
+    values as UTC before converting to ``America/Toronto``.
+    """
     text = str(value or "").strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
     if text:
         try:
             dt = datetime.fromisoformat(text)
@@ -188,11 +195,11 @@ def parse_ended_at(value: str | None, *, fallback: datetime | None = None) -> da
             dt = None
         if dt is not None:
             if dt.tzinfo is None:
-                return dt.replace(tzinfo=TORONTO)
+                return dt.replace(tzinfo=UTC).astimezone(TORONTO)
             return dt.astimezone(TORONTO)
     ref = fallback or datetime.now(TORONTO)
     if ref.tzinfo is None:
-        return ref.replace(tzinfo=TORONTO)
+        return ref.replace(tzinfo=UTC).astimezone(TORONTO)
     return ref.astimezone(TORONTO)
 
 

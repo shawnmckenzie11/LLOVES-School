@@ -127,7 +127,7 @@ class Base(unittest.TestCase):
         run_key = str(c.execute("SELECT run_key FROM live_class_sessions WHERE id = ?", (sid,)).fetchone()[0] or "")
         c.execute(
             "UPDATE live_class_sessions SET ended_at = ?, status = 'ended' WHERE id = ?",
-            ("2026-10-14T10:30:00", sid),
+            ("2026-10-14T14:30:00", sid),
         )
         c.commit()
         self.school.cleanup_live_session_response_data(sid)
