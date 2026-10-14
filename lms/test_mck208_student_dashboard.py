@@ -16,20 +16,28 @@ def _catchup_url(school, class_id: int, token: str) -> str:
 
 
 def _pin_sign_in(client, test: Base, *, play: bool = False) -> None:
-    """Codename + PIN on the class catch-up link."""
+    """Catch-up identity + optional play page (MCK-234)."""
+    from catchup_landing import set_landing_session
+    from catchup_session import establish_catchup_identity
+
     env = {"REMOTE_ADDR": "127.0.0.1"}
-    client.post(
-        f"/catchup/{test.token}",
-        data={"action": "who", "codename": test.first},
-        environ_base=env,
-    )
-    rv = client.post(
-        f"/catchup/{test.token}",
-        data={"action": "pin", "pin": "4321"},
-        environ_base=env,
-    )
-    if play and rv.status_code in (301, 302, 303, 307, 308):
-        client.get(_catchup_url(test.school, test.class_id, test.token) + "?play=1", environ_base=env)
+    sid = test.students[0]
+    stamp = test.school.catchup_pin_stamp(test.class_id, sid)
+    with client.session_transaction() as sess:
+        set_landing_session(
+            sess,
+            class_id=test.class_id,
+            student_id=sid,
+            matched_token=test.token,
+            portal_code="R3K1X",
+            display_name=test.first,
+        )
+        establish_catchup_identity(sess, test.school, test.class_id, sid, stamp)
+    if play:
+        client.get(
+            _catchup_url(test.school, test.class_id, test.token) + "?play=1",
+            environ_base=env,
+        )
 
 
 class Mck208DashboardTest(Base):
@@ -43,17 +51,8 @@ class Mck208DashboardTest(Base):
 
     def test_pin_sign_in_lands_on_dashboard(self) -> None:
         client = self.app.test_client()
-        env = {"REMOTE_ADDR": "127.0.0.1"}
-        client.post(
-            f"/catchup/{self.token}",
-            data={"action": "who", "codename": self.first},
-            environ_base=env,
-        )
-        rv = client.post(
-            f"/catchup/{self.token}",
-            data={"action": "pin", "pin": "4321"},
-            environ_base=env,
-        )
+        _pin_sign_in(client, self, play=False)
+        rv = client.get(_catchup_url(self.school, self.class_id, self.token))
         self.assertEqual(rv.status_code, 302)
         self.assertIn("/student/dashboard", rv.headers.get("Location") or "")
         html = client.get("/student/dashboard").get_data(as_text=True)
@@ -78,8 +77,22 @@ class Mck208DashboardTest(Base):
         client_b = self.app.test_client()
         ben = self.school.class_codenames(self.class_id)[self.students[1]]
         self.school.set_student_pin(self.class_id, self.students[1], "5678")
-        client_b.post(f"/catchup/{self.token}", data={"action": "who", "codename": ben})
-        client_b.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "5678"})
+        from catchup_landing import set_landing_session
+        from catchup_session import establish_catchup_identity
+
+        stamp_b = self.school.catchup_pin_stamp(self.class_id, self.students[1])
+        with client_b.session_transaction() as sess:
+            set_landing_session(
+                sess,
+                class_id=self.class_id,
+                student_id=self.students[1],
+                matched_token=self.token,
+                portal_code="R3K1X",
+                display_name=ben,
+            )
+            establish_catchup_identity(
+                sess, self.school, self.class_id, self.students[1], stamp_b
+            )
         body_b = client_b.get("/api/student/dashboard").get_json()
         self.assertTrue(body_b.get("ok"))
         self.assertNotEqual(body_b["dashboard"]["codename"], sid_a)
@@ -102,16 +115,9 @@ class Mck208DashboardTest(Base):
 
     def test_pin_redirect_has_no_catchup_token_in_url(self) -> None:
         client = self.app.test_client()
-        env = {"REMOTE_ADDR": "127.0.0.1"}
-        client.post(
-            f"/catchup/{self.token}",
-            data={"action": "who", "codename": self.first},
-            environ_base=env,
-        )
-        resp = client.post(
-            f"/catchup/{self.token}",
-            data={"action": "pin", "pin": "4321"},
-            environ_base=env,
+        _pin_sign_in(client, self, play=False)
+        resp = client.get(
+            _catchup_url(self.school, self.class_id, self.token),
             follow_redirects=False,
         )
         self.assertIn(resp.status_code, (302, 303))
@@ -226,17 +232,7 @@ class Mck208LiveHandoverTest(Base):
 
     def _pin_client(self):
         client = self.app.test_client()
-        env = {"REMOTE_ADDR": "127.0.0.1"}
-        client.post(
-            f"/catchup/{self.token}",
-            data={"action": "who", "codename": self.first},
-            environ_base=env,
-        )
-        client.post(
-            f"/catchup/{self.token}",
-            data={"action": "pin", "pin": "4321"},
-            environ_base=env,
-        )
+        _pin_sign_in(client, self, play=False)
         return client
 
     def test_dashboard_api_live_handover_when_session_starts(self) -> None:
@@ -336,17 +332,20 @@ class Mck208ShootScenarioHtmlTest(unittest.TestCase):
 
                 app = create_app(db_path=str(db_path))
                 client = app.test_client()
-                env = {"REMOTE_ADDR": "127.0.0.1"}
-                client.post(
-                    f"/catchup/{token}",
-                    data={"action": "who", "codename": "Maple"},
-                    environ_base=env,
-                )
-                client.post(
-                    f"/catchup/{token}",
-                    data={"action": "pin", "pin": "5678"},
-                    environ_base=env,
-                )
+                from catchup_landing import set_landing_session
+                from catchup_session import establish_catchup_identity
+
+                stamp = school.catchup_pin_stamp(class_id, student_id)
+                with client.session_transaction() as sess:
+                    set_landing_session(
+                        sess,
+                        class_id=class_id,
+                        student_id=student_id,
+                        matched_token=token,
+                        portal_code="R3K1X",
+                        display_name="Maple",
+                    )
+                    establish_catchup_identity(sess, school, class_id, student_id, stamp)
                 html = client.get("/student/dashboard").get_data(as_text=True)
             finally:
                 if prior_db is None:

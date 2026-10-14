@@ -111,6 +111,13 @@ class CatchupLandingFlowTests(Base):
         )
         self.assertEqual(rv.status_code, 302)
         self.assertIn("/student/catchup", rv.headers.get("Location") or "")
+        pin_page = client.get("/student/catchup").get_data(as_text=True)
+        self.assertIn('id="landing_pin"', pin_page)
+        client.post(
+            "/student/catchup/landing",
+            data={"action": "pin", "pin": "4321"},
+            environ_base=env,
+        )
         html = client.get("/student/catchup").get_data(as_text=True)
         self.assertIn(COPY_PICK_TITLE, html)
         self.assertIn("T1 Individual", html)

@@ -142,6 +142,14 @@ def try_portal_code_join(
     student_id = int(student["id"])
     display = landing_display_name(db, class_id, student_id)
 
+    from catchup_session import peek_catchup_identity, clear_catchup_browser_session
+
+    ident = peek_catchup_identity(session, db)
+    if ident is not None and (
+        int(ident["student_id"]) != student_id or int(ident["class_id"]) != class_id
+    ):
+        clear_catchup_browser_session(session)
+
     live = db.get_active_live_session_for_class(class_id)
     if live is not None:
         return _join_live_from_portal(
@@ -285,6 +293,9 @@ def _join_live_from_portal(
     visit_token = str(attendee.get("visit_token") or "")
     participant_uuid = str(attendee.get("participant_uuid") or "")
     sid = attendee.get("student_id")
+    from catchup_session import clear_catchup_browser_session
+
+    clear_catchup_browser_session(session)
     bind_student_session(
         session,
         offering,

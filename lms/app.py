@@ -1112,40 +1112,11 @@ def board_write_closed(exc: BoardSessionClosed):
     return jsonify({"ok": False, "error": "Session has ended.", "ended": True}), 409
 
 
-def _catchup_session_student(school: SchoolDB, key: str, class_id: int) -> int | None:
-    """Student held in one catch-up session, or None (and the key dropped).
-
-    The session ends when it expires, belongs to another class, or the
-    student's PIN changed since sign-in (a teacher reset).
-    """
-    import time as _time
-
-    held = session.get(key) or {}
-    sid = held.get("sid")
-    if sid is None:
-        return None
-    valid = (
-        float(held.get("exp") or 0) > _time.time()
-        and int(held.get("cid") or 0) == int(class_id)
-        and str(held.get("pin") or "") != ""
-        and str(held.get("pin")) == school.catchup_pin_stamp(int(class_id), int(sid))
-    )
-    if not valid:
-        session.pop(key, None)
-        return None
-    return int(sid)
-
-
 def _catchup_student_for_class(school: SchoolDB, class_id: int) -> int | None:
-    """A student signed in on any catch-up link of this class, else None."""
-    for key in [k for k in session.keys() if k.startswith("catchup:") and not k.endswith(":who")]:
-        held = session.get(key) or {}
-        if int(held.get("cid") or 0) != int(class_id):
-            continue
-        sid = _catchup_session_student(school, key, int(class_id))
-        if sid is not None:
-            return sid
-    return None
+    """A student signed in for catch-up in this class, else None (MCK-234)."""
+    from catchup_session import identity_for_class
+
+    return identity_for_class(session, school, int(class_id))
 
 
 def _pin_portal_identity(school: SchoolDB) -> tuple[int, int] | None:
@@ -6059,8 +6030,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             live_handover=handover,
         )
 
-    @app.route("/student/catchup")
-    @app.route("/student/catchup/landing")
+    @app.route("/student/catchup", methods=["GET", "POST"])
+    @app.route("/student/catchup/landing", methods=["GET", "POST"])
     def student_catchup_landing():
         """MCK-222: pick a class to catch up on after portal code sign-in."""
         from catchup_landing import (
@@ -6072,14 +6043,104 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             signed_in_line,
             open_until_date,
         )
+        from catchup_session import (
+            codename_for_student,
+            establish_catchup_identity,
+            identity_for_class,
+            peek_catchup_identity,
+        )
+        from participation import (
+            CATCHUP_PIN_IP_LIMIT,
+            KEY_PIN_HELP,
+            KEY_PIN_IP_LOCKED,
+            KEY_PIN_LABEL,
+            KEY_PIN_LOOKS_LIKE_JOIN_CODE,
+            KEY_PIN_NOT_SET,
+            KEY_PIN_WRONG,
+            PIN_WINDOW_S,
+            catchup_ip_limit_key,
+            copy,
+        )
 
         held = peek_landing_session(session)
         if held is None:
-            return redirect(url_for("landing"))
-        class_id = int(held["class_id"])
-        student_id = int(held["student_id"])
-        matched_token = str(held.get("matched_token") or "")
-        display_name = str(held.get("display_name") or "")
+            ident = peek_catchup_identity(session, school)
+            if ident is None:
+                return redirect(url_for("landing"))
+            class_id = int(ident["class_id"])
+            student_id = int(ident["student_id"])
+            matched_token = ""
+            display_name = codename_for_student(school, class_id, student_id)
+        else:
+            class_id = int(held["class_id"])
+            student_id = int(held["student_id"])
+            matched_token = str(held.get("matched_token") or "")
+            display_name = codename_for_student(school, class_id, student_id)
+        pin_sid = identity_for_class(session, school, class_id)
+        if request.method == "POST" and request.form.get("action") == "pin" and pin_sid is None:
+            client_ip_key = join_limit_ip_key(request_client_ip())
+            global_ip_key = catchup_ip_limit_key(client_ip_key)
+            limits = {global_ip_key: CATCHUP_PIN_IP_LIMIT}
+            reserved = school.reserve_catchup_pin_attempts(
+                [global_ip_key], limits, window_s=PIN_WINDOW_S
+            )
+            pin_error = None
+            if reserved is None:
+                pin_error = copy(KEY_PIN_IP_LOCKED)
+            else:
+                gate = school.catchup_pin_student_gate(class_id, int(student_id))
+                if gate:
+                    school.release_catchup_pin_attempts(reserved)
+                    pin_error = copy(gate)
+                else:
+                    result = school.catchup_verify_student_pin(
+                        class_id, int(student_id), request.form.get("pin", "")
+                    )
+                    if result["ok"]:
+                        school.release_catchup_pin_attempts(reserved)
+                        establish_catchup_identity(
+                            session,
+                            school,
+                            class_id,
+                            int(result["student_id"]),
+                            str(result.get("pin_stamp") or ""),
+                        )
+                        return redirect(url_for("student_catchup_landing"))
+                    if result["reason"] == "wrong":
+                        school.record_catchup_pin_failure(class_id, int(student_id))
+                    else:
+                        school.release_catchup_pin_attempts(reserved)
+                    pin_error = copy(
+                        {
+                            "looks_like_join_code": KEY_PIN_LOOKS_LIKE_JOIN_CODE,
+                            "not_set": KEY_PIN_NOT_SET,
+                        }.get(result["reason"], KEY_PIN_WRONG)
+                    )
+            return render_template(
+                "student/catchup_landing.html",
+                course_code=school._course_code_for_class(class_id),
+                signed_in_line=signed_in_line(display_name),
+                pin_required=True,
+                pin_error=pin_error,
+                pin_label=copy(KEY_PIN_LABEL),
+                pin_help=copy(KEY_PIN_HELP),
+                copy=landing_copy(),
+                school_name=SCHOOL_NAME,
+            )
+        if pin_sid is None:
+            return render_template(
+                "student/catchup_landing.html",
+                course_code=school._course_code_for_class(class_id),
+                signed_in_line=signed_in_line(display_name),
+                pin_required=True,
+                pin_error=None,
+                pin_label=copy(KEY_PIN_LABEL),
+                pin_help=copy(KEY_PIN_HELP),
+                copy=landing_copy(),
+                school_name=SCHOOL_NAME,
+            )
+        student_id = int(pin_sid)
+        display_name = codename_for_student(school, class_id, student_id)
         course_code = school._course_code_for_class(class_id)
         state = str(request.args.get("state") or "").strip().lower()
         link = school.get_catchup_link(matched_token) or {}
@@ -6125,9 +6186,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/student/catchup/sign-out")
     def student_catchup_landing_sign_out():
         """Clear catch-up landing session; return to sign-in with code prefilled."""
-        from catchup_landing import clear_landing_session
+        from catchup_session import clear_catchup_browser_session
 
-        code = clear_landing_session(session)
+        code = clear_catchup_browser_session(session)
         return redirect(url_for("landing", student_code=code))
 
     @app.route("/api/student/catchup-landing")
@@ -9270,6 +9331,15 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             copy,
         )
 
+        from catchup_session import (
+            clear_global_student_keys,
+            codename_for_student,
+            establish_catchup_identity,
+            identity_for_class,
+            landing_pending_student,
+            CATCHUP_IDENTITY_KEY,
+        )
+
         class_id = int(link["class_id"])
         course_code = school._course_code_for_class(class_id)
         header_kicker = catchup_header_kicker(
@@ -9295,7 +9365,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 line=progress.get("line"),
                 questions=school.catchup_questions(token, int(sid)),
                 tag=COPY_CATCHUP_TAG,
-                codename=school.class_codenames(class_id).get(int(sid), ""),
+                codename=codename_for_student(school, class_id, int(sid)),
                 **extra,
                 **page_ctx,
             )
@@ -9318,10 +9388,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
         if not int(link["is_open"]):
             return closed()
-        key = f"catchup:{link['id']}"
-        student_id = _catchup_session_student(school, key, int(link["class_id"]))
-        pending_key = f"{key}:who"
-        pending = session.get(pending_key) or {}
+        student_id = identity_for_class(session, school, class_id)
         action = request.form.get("action") if request.method == "POST" else None
 
         def pin_screen(error_key: str | None = None) -> Any:
@@ -9334,17 +9401,11 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 **page_ctx,
             )
 
-        error = None
-        if action == "who":
-            check = school.catchup_sign_in(token, request.form.get("codename", ""), None)
-            if check["reason"] == "closed":
-                return closed()
-            if check["reason"] == "need_pin":
-                session[pending_key] = {"name": request.form.get("codename", ""),
-                                        "exp": _time.time() + CATCHUP_SESSION_S}
-                return pin_screen()
-            error = copy(KEY_NAME_UNKNOWN)
-        elif action == "pin" and float(pending.get("exp") or 0) > _time.time():
+        def verify_pin_for_pending() -> Any:
+            """PIN for the landing-matched student (no name picker)."""
+            target_sid = landing_pending_student(session, class_id)
+            if target_sid is None:
+                return redirect(url_for("landing"))
             client_ip_key = join_limit_ip_key(request_client_ip())
             global_ip_key = catchup_ip_limit_key(client_ip_key)
             link_ip_key = catchup_link_ip_limit_key(token, client_ip_key)
@@ -9357,48 +9418,47 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             )
             if reserved is None:
                 return pin_screen(KEY_PIN_IP_LOCKED)
-            pre = school.catchup_sign_in(token, pending.get("name", ""), None)
-            if pre.get("reason") == "need_pin":
-                gate = school.catchup_pin_student_gate(
-                    int(link["class_id"]), int(pre["student_id"])
-                )
-                if gate:
-                    school.release_catchup_pin_attempts(reserved)
-                    return pin_screen(gate)
-            result = school.catchup_sign_in(
-                token, pending.get("name", ""), request.form.get("pin", "")
+            gate = school.catchup_pin_student_gate(class_id, int(target_sid))
+            if gate:
+                school.release_catchup_pin_attempts(reserved)
+                return pin_screen(gate)
+            result = school.catchup_verify_student_pin(
+                class_id, int(target_sid), request.form.get("pin", "")
             )
             if result["ok"]:
                 school.release_catchup_pin_attempts(reserved)
-                student_id = int(result["student_id"])
-                session.pop(pending_key, None)
-                session[key] = {"sid": student_id, "cid": int(link["class_id"]),
-                                "pin": str(result.get("pin_stamp") or ""),
-                                "exp": _time.time() + CATCHUP_SESSION_S}
-                pin_prompt = school.catchup_pin_prompt_for_student(class_id, student_id)
-                if pin_prompt and pin_prompt.get("forced"):
-                    return render_template(
-                        "student/catchup.html",
-                        pin_modal=True,
-                        pin_prompt=pin_prompt,
-                        codename=school.class_codenames(class_id).get(student_id, ""),
-                        **page_ctx,
-                    )
-                return go_student_dashboard(student_id)
-            elif result["reason"] == "closed":
-                return closed()
+                establish_catchup_identity(
+                    session,
+                    school,
+                    class_id,
+                    int(result["student_id"]),
+                    str(result.get("pin_stamp") or ""),
+                )
+                return go_student_dashboard(int(result["student_id"]))
+            if result["reason"] == "wrong":
+                school.record_catchup_pin_failure(class_id, int(target_sid))
             else:
-                if result["reason"] == "wrong":
-                    sid = result.get("student_id")
-                    if sid is not None:
-                        school.record_catchup_pin_failure(int(link["class_id"]), int(sid))
-                else:
-                    school.release_catchup_pin_attempts(reserved)
-                return pin_screen({
+                school.release_catchup_pin_attempts(reserved)
+            return pin_screen(
+                {
                     "looks_like_join_code": KEY_PIN_LOOKS_LIKE_JOIN_CODE,
                     "not_set": KEY_PIN_NOT_SET,
-                    "unknown_name": KEY_NAME_UNKNOWN,
-                }.get(result["reason"], KEY_PIN_WRONG))
+                }.get(result["reason"], KEY_PIN_WRONG)
+            )
+
+        if action == "pin":
+            pending_sid = landing_pending_student(session, class_id)
+            if (
+                student_id is not None
+                and pending_sid is not None
+                and int(pending_sid) != int(student_id)
+            ):
+                session.pop(CATCHUP_IDENTITY_KEY, None)
+                clear_global_student_keys(session)
+                student_id = None
+            if student_id is not None and pending_sid is None:
+                return go_student_dashboard(int(student_id))
+            return verify_pin_for_pending()
         elif action == "pin_later" and student_id is not None:
             if not school.require_catchup_pin_change(class_id):
                 session[f"catchup_pin_later:{class_id}:{student_id}"] = True
@@ -9433,12 +9493,12 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     pin_modal=True,
                     pin_prompt=pin_prompt or {"forced": False, "show": True},
                     pin_error=pin_error,
-                    codename=school.class_codenames(class_id).get(int(student_id), ""),
+                    codename=codename_for_student(school, class_id, int(student_id)),
                     **page_ctx,
                 )
             return go_student_dashboard(int(student_id))
         elif request.method == "POST" and student_id is not None and action not in {
-            "who", "pin", "set_catchup_pin", "pin_later"
+            "pin", "set_catchup_pin", "pin_later"
         }:
             if school.catchup_pin_change_blocks_student(class_id, int(student_id), session):
                 pin_prompt = school.catchup_pin_prompt_for_student(class_id, int(student_id))
@@ -9447,7 +9507,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     pin_modal=True,
                     pin_prompt=pin_prompt or {"forced": True, "show": True},
                     pin_error="Set a PIN before answering catch-up questions.",
-                    codename=school.class_codenames(class_id).get(int(student_id), ""),
+                    codename=codename_for_student(school, class_id, int(student_id)),
                     **page_ctx,
                 )
             try:
@@ -9458,13 +9518,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             except PermissionError:
                 return closed()
         if student_id is None:
-            return render_template(
-                "student/catchup.html",
-                signin=True,
-                error=error,
-                codenames=list(school.class_codenames(class_id).values()),
-                **page_ctx,
-            )
+            if landing_pending_student(session, class_id) is not None:
+                return pin_screen()
+            return redirect(url_for("student_catchup_landing"))
         dismiss_key = f"catchup_pin_later:{class_id}:{student_id}"
         pin_prompt = school.catchup_pin_prompt_for_student(class_id, int(student_id))
         if pin_prompt and pin_prompt.get("forced"):
@@ -9476,7 +9532,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 "student/catchup.html",
                 pin_modal=True,
                 pin_prompt=pin_prompt,
-                codename=school.class_codenames(class_id).get(int(student_id), ""),
+                codename=codename_for_student(school, class_id, int(student_id)),
                 **page_ctx,
             )
         if pin_prompt and not catchup_play_mode():
@@ -9484,7 +9540,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 "student/catchup.html",
                 pin_modal=True,
                 pin_prompt=pin_prompt,
-                codename=school.class_codenames(class_id).get(int(student_id), ""),
+                codename=codename_for_student(school, class_id, int(student_id)),
                 **page_ctx,
             )
         return go_student_dashboard(int(student_id))

@@ -8,6 +8,15 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from catchup_session import (
+    CATCHUP_LANDING_SESSION_KEY,
+    CATCHUP_LANDING_SESSION_S,
+    catchup_url_with_play,
+    clear_landing_session,
+    peek_landing_session,
+    pop_landing_session,
+    set_landing_session,
+)
 from student_dashboard import module_number, slot_class_label
 
 TORONTO = ZoneInfo("America/Toronto")
@@ -36,8 +45,6 @@ COPY_LIVE_JOINING = "Class is live — joining…"
 COPY_ALL_CAUGHT_UP = "All caught up."
 COPY_OFFLINE = "No connection. Retry."
 
-CATCHUP_LANDING_SESSION_KEY = "catchup_landing"
-CATCHUP_LANDING_SESSION_S = 30 * 60
 PAGE_SIZE = 6
 
 
@@ -230,7 +237,9 @@ def list_open_catchup_rows(
                 ),
                 "title": "",
                 "tiers": tiers,
-                "url": school.catchup_canonical_path_for_link({**link, "class_id": cid}),
+                "url": catchup_url_with_play(
+                    school.catchup_canonical_path_for_link({**link, "class_id": cid})
+                ),
                 "open_until": open_until_date(ended),
             }
         )
@@ -255,53 +264,10 @@ def build_matched_card(
         "title": "",
         "tiers": tier_cells_for_link(school, link, int(student_id)),
         "open_until_line": COPY_OPEN_UNTIL.format(date=open_until_date(ended)),
-        "url": school.catchup_canonical_path_for_link({**link, "class_id": cid}),
+        "url": catchup_url_with_play(
+            school.catchup_canonical_path_for_link({**link, "class_id": cid})
+        ),
     }
-
-
-def set_landing_session(
-    session: Any,
-    *,
-    class_id: int,
-    student_id: int,
-    matched_token: str,
-    portal_code: str,
-    display_name: str,
-) -> None:
-    """Store a short-lived catch-up landing session."""
-    session[CATCHUP_LANDING_SESSION_KEY] = {
-        "class_id": int(class_id),
-        "student_id": int(student_id),
-        "matched_token": str(matched_token or "")[:80],
-        "portal_code": str(portal_code or "").strip().upper()[:8],
-        "display_name": str(display_name or "").strip()[:80],
-        "exp": time.time() + CATCHUP_LANDING_SESSION_S,
-    }
-
-
-def peek_landing_session(session: Any) -> dict[str, Any] | None:
-    """Read landing session without clearing it."""
-    held = session.get(CATCHUP_LANDING_SESSION_KEY)
-    if not isinstance(held, dict):
-        return None
-    if float(held.get("exp") or 0) <= time.time():
-        session.pop(CATCHUP_LANDING_SESSION_KEY, None)
-        return None
-    return held
-
-
-def pop_landing_session(session: Any) -> dict[str, Any] | None:
-    """Read and remove landing session (one-shot flows only)."""
-    held = peek_landing_session(session)
-    if held is not None:
-        session.pop(CATCHUP_LANDING_SESSION_KEY, None)
-    return held
-
-
-def clear_landing_session(session: Any) -> str:
-    """Clear landing session; return prefilled portal code if any."""
-    held = session.pop(CATCHUP_LANDING_SESSION_KEY, None) or {}
-    return str(held.get("portal_code") or "").strip()
 
 
 def signed_in_line(display_name: str) -> str:

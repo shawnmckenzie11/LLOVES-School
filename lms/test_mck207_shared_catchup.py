@@ -56,9 +56,11 @@ class Mck207CatchupFlowTest(Base):
     def test_canonical_page_shows_header_on_signin(self) -> None:
         client = self.app.test_client()
         path = self.school.catchup_canonical_path_for_link(self.link)
+        resp = client.get(path, follow_redirects=False)
+        self.assertEqual(resp.status_code, 302)
         html = client.get(path).get_data(as_text=True)
-        self.assertIn("MCR3U · MODULE 1 · CLASS 1", html)
-        self.assertIn("Who are you?", html)
+        self.assertNotIn("Who are you?", html)
+        self.assertNotIn('name="codename"', html)
 
     def test_staff_api_canonical_url(self) -> None:
         client = self.app.test_client()
@@ -93,20 +95,11 @@ class Mck207CatchupFlowTest(Base):
         slips_before = self.school.teacher_default_pin_slips(self.class_id, secret)
         self.assertTrue(any(s["student_id"] == sid for s in slips_before) or True)
         client = self.app.test_client()
-        link_id = int(self.link["id"])
         stamp = self.school.catchup_pin_stamp(self.class_id, sid)
         with client.session_transaction() as sess:
-            sess["student_offering_id"] = self.school.conn.execute(
-                "SELECT offering_id FROM classes WHERE id = ?", (self.class_id,)
-            ).fetchone()[0]
-            sess["student_class_id"] = self.class_id
-            sess["student_id"] = sid
-            sess[f"catchup:{link_id}"] = {
-                "sid": sid,
-                "cid": self.class_id,
-                "pin": stamp,
-                "exp": 9_999_999_999.0,
-            }
+            from catchup_session import establish_catchup_identity
+
+            establish_catchup_identity(sess, self.school, self.class_id, sid, stamp)
         res = client.post(
             "/api/student/catchup-pin",
             json={"pin": "2468", "confirm": "2468", "current_pin": "5678"},
