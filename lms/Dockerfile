@@ -32,4 +32,4 @@ EXPOSE 8080
 # create_app sheds /state for a few seconds after this process loads so a
 # restart backlog cannot pin every thread. Prefer a fresh machine launch
 # over `fly machines restart` while polls are attached.
-CMD ["gunicorn", "--worker-class", "gthread", "--workers", "4", "--threads", "8", "--worker-connections", "32", "--keep-alive", "1", "--timeout", "120", "--graceful-timeout", "30", "--backlog", "64", "--bind", "0.0.0.0:8080", "--chdir", "lms", "app:create_app()"]
+CMD ["gunicorn", "--worker-class", "gthread", "--workers", "4", "--threads", "8", "--worker-connections", "32", "--keep-alive", "1", "--timeout", "120", "--graceful-timeout", "30", "--max-requests", "1000", "--max-requests-jitter", "100", "--backlog", "64", "--bind", "0.0.0.0:8080", "--chdir", "lms", "app:create_app()"]

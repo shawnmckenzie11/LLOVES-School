@@ -26,11 +26,9 @@ _SCHEMA_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 # PgBouncer ``client_idle_timeout`` on Fly Managed Postgres closes a client
 # that has not issued a query. This pool is LIFO inside each worker.
-# Production is 4 gunicorn workers × 8 threads. This pool stays at four
-# connections per worker, so one connection stays hot on 1–4s polls while a
-# sibling sits until the next burst and then raises
-# ``ProtocolViolation: client_idle_timeout``. Extra threads wait on the
-# semaphore and the poll returns retry JSON instead of opening more sockets.
+# Production is 4 gunicorn workers × 8 threads. The pool matches ``THREADS``
+# per worker so a board or heartbeat read is not stuck behind a four-seat cap.
+# Idle connections are recycled before Fly's pooler ``client_idle_timeout``.
 # Recycle anything idle this long before the pooler does.
 _MAX_IDLE_SECONDS = 15.0
 # Milliseconds. A silent dead socket must not hold a gunicorn thread until
@@ -277,21 +275,28 @@ class LivePresenceStore:
     """Postgres rows for live session status and attendee heartbeats.
 
     One process checks out a connection per call. Production is four gunicorn
-    workers and eight threads each; this pool stays at four connections per
-    worker so a burst cannot open a socket per thread. Statements are autocommit so a heartbeat
+    workers and eight threads each; the pool size matches ``serve_capacity.THREADS``
+    per worker. Statements are autocommit so a heartbeat
     does not hold a transaction open across the poll. Idle connections are
     closed before Fly's pooler ``client_idle_timeout`` can turn the next poll
     into a protocol error. Successful and failed checkouts update
     ``cached_label`` for ``/health``, which does not ping.
     """
 
-    def __init__(self, dsn: str, *, schema: str | None = None, pool_size: int = 4) -> None:
+    def __init__(
+        self,
+        dsn: str,
+        *,
+        schema: str | None = None,
+        pool_size: int | None = None,
+    ) -> None:
         """Open a pool and ensure the presence tables exist.
 
         Args:
             dsn: Postgres connection string.
             schema: Optional schema (tests). Production uses ``public``.
-            pool_size: Max checked-out connections.
+            pool_size: Max checked-out connections. Defaults to
+                ``serve_capacity.PRESENCE_POOL_SIZE`` (gunicorn threads).
 
         Raises:
             LivePresenceUnavailable: Connect or DDL failed.
@@ -302,10 +307,13 @@ class LivePresenceStore:
             raise ValueError("live presence DSN is empty")
         if schema is not None and not _SCHEMA_NAME.fullmatch(schema):
             raise ValueError(f"invalid presence schema: {schema!r}")
+        from serve_capacity import PRESENCE_POOL_SIZE, THREADS
+
         self.dsn = cleaned
         self.schema = schema
         self.heartbeat_writes = 0
-        self._pool_size = max(1, int(pool_size))
+        requested = PRESENCE_POOL_SIZE if pool_size is None else int(pool_size)
+        self._pool_size = max(max(1, requested), THREADS)
         self._sem = threading.BoundedSemaphore(self._pool_size)
         self._idle: list[Any] = []
         self._idle_lock = threading.Lock()

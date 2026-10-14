@@ -1,24 +1,18 @@
 /**
  * MCK-171 Team challenge on the phone (390px), pure HTML builders.
  *
- * IA v0.2 F3 + mock v1 §5, Wonder v3 copy (final). One calm cue line per
- * state, no countdown, no rank or score before the reveal, and the word
- * "race" never reaches the screen (payload keys only).
+ * MCK-216: no team strip, no I-agree quorum; explicit lock-in + Undo for the
+ * last placer when every spot is filled.
  */
 
 import { fill, teamMark } from "./rank_challenge_view.js";
 
-/** Wonder v3 strings (final, Oct 3) on the phone. */
+/** Wonder / MCK-216 strings on the phone. */
 export const PHONE_COPY = Object.freeze({
   cue: "Talk it through. Lock in when your whole team agrees.", // race.cue.together
-  agree: "I agree", // race.agree
-  undo: "Not yet", // race.agree.undo
-  count: "{k} of {m} agree", // race.agree.count
-  waiting: "Waiting for {names} to agree.", // race.agree.waiting
-  reset: "The order changed. Agree again when you're ready.", // race.agree.reset
-  agreed: "Your whole team agreed.", // race.agreed
-  locked: "Your group's order is in.", // race.locked
-  sentCount: "{k} of {n} teams locked in", // race.sent_count
+  lockIn: "Lock in our order",
+  undo: "Undo",
+  locked: "Waiting for the reveal.",
   timesup: "Time's up. We'll score what your group placed.", // race.timesup (0:00 only)
   closed: "Answers are closed. We'll score what your group placed.", // race.closed
 });
@@ -37,31 +31,16 @@ function esc(value) {
 }
 
 /**
- * "Eli", "Eli and Gus", "Ava, Eli and Gus".
- * @param {unknown} names
- * @returns {string}
- */
-function nameList(names) {
-  const list = (Array.isArray(names) ? names : []).map((n) => String(n || "").trim()).filter(Boolean);
-  if (list.length < 2) return list.join("");
-  return `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`;
-}
-
-/**
  * Which phone state a Team challenge card is in.
  * @param {any} group ``item.group_submit`` (with ``race``)
  * @param {string} status Lifecycle status (``active`` / ``closed``).
- * @returns {"ranking"|"waiting"|"reset"|"agreed"|"locked"|"timesup"|"closed"}
+ * @returns {"ranking"|"ready"|"locked"|"timesup"|"closed"}
  */
 export function phoneState(group, status) {
   const race = group?.race || {};
-  if (race.locked) {
-    return race.mode === "together" && String(race.locked_by || "team") === "team" ? "agreed" : "locked";
-  }
+  if (race.locked) return "locked";
   if (status === "closed") return race.closed_unlocked === "timer" ? "timesup" : "closed";
-  const agree = race.agree || {};
-  if (agree.mine) return "waiting";
-  if (agree.reset) return "reset";
+  if (race.can_lock) return "ready";
   return "ranking";
 }
 
@@ -74,43 +53,18 @@ export function phoneState(group, status) {
 export function phoneCue(group, status) {
   const C = PHONE_COPY;
   const state = phoneState(group, status);
-  if (state === "agreed") return C.agreed;
   if (state === "locked") return C.locked;
   if (state === "timesup") return C.timesup;
   if (state === "closed") return C.closed;
-  if (state === "reset") return C.reset;
-  if (state === "waiting") {
-    const names = nameList(group?.race?.agree?.waiting_names);
-    return names ? fill(C.waiting, { names }) : C.cue;
-  }
   return C.cue;
 }
 
 /**
- * Team strip: shape chip, team name, teammates, and the right-hand pill.
- * @param {any} group
- * @param {string} [pill] Pill text (defaults to "{k} of {n} teams locked in").
+ * MCK-216: student phones no longer show the team strip (team name / lock count).
  * @returns {string}
  */
-export function phoneStripHtml(group, pill) {
-  const race = group?.race || {};
-  const slot = Number(race.slot);
-  const mark = teamMark(Number.isFinite(slot) ? slot : 0);
-  const members = (Array.isArray(group?.members) ? group.members : [])
-    .map((n) => String(n || "").trim())
-    .filter(Boolean)
-    .join(", ");
-  const text =
-    pill != null
-      ? String(pill)
-      : fill(PHONE_COPY.sentCount, { k: Number(race.teams_locked) || 0, n: Number(race.teams_total) || 0 });
-  return `<div class="race-phone-strip" style="--team:${mark.colour}">
-    <span class="race-phone-chip" aria-hidden="true">${mark.shape}</span>
-    <span class="race-phone-team"><span class="race-phone-team-name">${esc(group?.team_name || "")}</span>${
-      members ? `<span class="race-phone-members">${esc(members)}</span>` : ""
-    }</span>
-    ${text ? `<span class="race-phone-pill">${esc(text)}</span>` : ""}
-  </div>`;
+export function phoneStripHtml() {
+  return "";
 }
 
 /**
@@ -127,41 +81,25 @@ export function phoneCueHtml(group, status) {
 }
 
 /**
- * Agree pips + "{k} of {m} agree".
+ * Lock in our order (enabled when the server says ``race.can_lock``).
  * @param {any} group
  * @returns {string}
  */
-export function agreeLineHtml(group) {
-  const race = group?.race || {};
-  const agree = race.agree || {};
-  const of = Math.max(0, Number(agree.of) || 0);
-  const k = race.locked && String(race.locked_by || "team") === "team" ? of : Math.min(of, Number(agree.count) || 0);
-  const pips = Array.from({ length: of }, (_, i) =>
-    `<span class="race-phone-pip${i < k ? " is-on" : ""}">${i < k ? "✓" : ""}</span>`
-  ).join("");
-  const slot = Number(race.slot);
-  const colour = teamMark(Number.isFinite(slot) ? slot : 0).colour;
-  return `<p class="race-phone-agree" style="--team:${colour}"><span class="race-phone-pips" aria-hidden="true">${pips}</span><span>${esc(
-    fill(PHONE_COPY.count, { k, m: of })
-  )}</span></p>`;
+export function lockButtonHtml(group) {
+  const ready = Boolean(group?.race?.can_lock);
+  return `<button type="button" class="prompt-submit race-phone-btn" data-race-lock="1"${
+    ready ? "" : " disabled"
+  } aria-disabled="${ready ? "false" : "true"}">${esc(PHONE_COPY.lockIn)}</button>`;
 }
 
 /**
- * I agree (or Not yet once mine). ``order`` rides along so the server can
- * refuse an agree on an order this phone has not seen yet.
+ * Undo for the teammate who placed last (Rank together only).
  * @param {any} group
- * @param {boolean} complete Every option is numbered on this phone.
  * @returns {string}
  */
-export function agreeButtonHtml(group, complete) {
-  const agree = group?.race?.agree || {};
-  if (agree.mine) {
-    return `<button type="button" class="race-phone-btn is-outline" data-race-agree="0">${esc(PHONE_COPY.undo)}</button>`;
-  }
-  const ready = Boolean(complete && agree.can_agree !== false);
-  return `<button type="button" class="prompt-submit race-phone-btn" data-race-agree="1"${
-    ready ? "" : " disabled"
-  } aria-disabled="${ready ? "false" : "true"}">${esc(PHONE_COPY.agree)}</button>`;
+export function undoButtonHtml(group) {
+  if (!group?.race?.can_undo) return "";
+  return `<button type="button" class="race-phone-btn is-outline" data-race-undo="1">${esc(PHONE_COPY.undo)}</button>`;
 }
 
 /**
@@ -213,9 +151,6 @@ export const PHONE_RESULTS_COPY = Object.freeze({
   tie: "{n} teams tied", // results.tie
   fromDraft: "Scored from your group's draft.", // results.from_draft
   pill: "Results", // results.pill
-  // Reused (not new copy): the group-answer note for a joiner after Close
-  // (student-portal.js lifecycleConsensusHtml). MCK-171 LOW-1: a member
-  // who joined after Close is credited 0, so no "N points each".
   lateJoin: "You joined after voting closed for this question.",
 });
 
@@ -267,13 +202,11 @@ export function phoneResultsHtml(group) {
     ? `<div class="race-phone-burst" aria-hidden="true">${Array.from({ length: 10 }, (_, i) => `<i style="--i:${i}"></i>`).join("")}</div>`
     : "";
   return `<div class="student-group-card race-phone race-phone-results" data-race-results-card="1" style="--team:${colour}">
-    ${phoneStripHtml(group, C.pill)}
+    <p class="race-phone-pill">${esc(C.pill)}</p>
     <p class="race-phone-cue is-results">${esc(cue)}</p>
     ${res.from_draft ? `<p class="race-phone-draft">${esc(C.fromDraft)}</p>` : ""}
     <ol class="race-phone-spots">${spots}</ol>
     ${
-      // Points (then the podium) wait for the projector's matching step.
-      // A member who joined after Close is credited 0: say so instead.
       res.show_points && res.credited === false
         ? `<p class="student-live-note race-phone-late">${esc(C.lateJoin)}</p>`
         : res.points === null || res.points === undefined
