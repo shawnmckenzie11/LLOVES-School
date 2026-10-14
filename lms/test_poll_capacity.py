@@ -70,8 +70,8 @@ class ServeCapacityTests(unittest.TestCase):
         self.assertIn("--workers 4", command)
         self.assertIn("--threads 8", command)
         self.assertIn("--timeout 120", command)
-        self.assertIn("--max-requests 1000", command)
-        self.assertIn("--max-requests-jitter 100", command)
+        # MCK-231: workers must not recycle mid-class.
+        self.assertNotIn("--max-requests", command)
         self.assertGreaterEqual(cap.PRESENCE_POOL_SIZE, cap.THREADS)
         self.assertNotIn("--timeout 600", command)
         self.assertNotIn("--workers 1", command)
@@ -80,6 +80,8 @@ class ServeCapacityTests(unittest.TestCase):
         self.assertIn(command, fly)
         for token in command.split():
             self.assertIn(json.dumps(token), dockerfile)
+        self.assertNotIn("max-requests", dockerfile)
+        self.assertNotIn("max-requests", fly)
         self.assertNotIn('"--threads", "2"', dockerfile)
         self.assertNotIn('"--workers", "1"', dockerfile)
         self.assertNotIn('"--timeout", "600"', dockerfile)
@@ -404,3 +406,80 @@ class LivePollHardenTests(unittest.TestCase):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     unittest.main()
+
+
+class RunOncePerBootTests(unittest.TestCase):
+    """MCK-231: boot-time migration runs in one worker per machine boot."""
+
+    def test_runs_once_per_master_pid_under_gunicorn(self) -> None:
+        import tempfile as _tempfile
+        from unittest import mock as _mock
+
+        calls: list[int] = []
+        with _tempfile.TemporaryDirectory() as tmp, _mock.patch.dict(
+            os.environ, {"SERVER_SOFTWARE": "gunicorn/26.2.0"}
+        ):
+            with _mock.patch("os.getppid", return_value=4242):
+                self.assertTrue(cap.run_once_per_boot("t", lambda: calls.append(1), lock_dir=tmp))
+                self.assertFalse(cap.run_once_per_boot("t", lambda: calls.append(2), lock_dir=tmp))
+            with _mock.patch("os.getppid", return_value=4343):
+                self.assertTrue(cap.run_once_per_boot("t", lambda: calls.append(3), lock_dir=tmp))
+        self.assertEqual(calls, [1, 3])
+
+    def test_always_runs_outside_gunicorn(self) -> None:
+        from unittest import mock as _mock
+
+        calls: list[int] = []
+        with _mock.patch.dict(os.environ, {"SERVER_SOFTWARE": ""}):
+            cap.run_once_per_boot("t", lambda: calls.append(1))
+            cap.run_once_per_boot("t", lambda: calls.append(1))
+        self.assertEqual(calls, [1, 1])
+
+    def test_warmup_is_short(self) -> None:
+        self.assertLessEqual(cap.WORKER_WARMUP_SECONDS, 3.0)
+
+
+class LiveMetadataCacheBoundTests(unittest.TestCase):
+    """MCK-231: one cached revision per lesson deck, bounded overall."""
+
+    def test_new_revision_replaces_old_and_cache_is_capped(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        app = create_app(
+            db_path=Path(tmp.name) / "lloves.sqlite",
+            data_dir=Path(tmp.name),
+            testing=True,
+            live_database_url="",
+        )
+        school = app.config["SCHOOL_DB"]
+        self.addCleanup(school.close)
+        school._live_metadata_cache.clear()
+        for rev in range(5):
+            school._store_live_metadata_cache((1, "MCF3M", "M1", "C2", f"r{rev}"), {"rev": rev})
+        self.assertEqual(list(school._live_metadata_cache), [(1, "MCF3M", "M1", "C2", "r4")])
+        for cid in range(school.LIVE_METADATA_CACHE_MAX + 10):
+            school._store_live_metadata_cache((cid + 10, "MCF3M", "M1", "C2", "r"), {})
+        self.assertEqual(len(school._live_metadata_cache), school.LIVE_METADATA_CACHE_MAX)
+
+    def test_artifact_slider_previews_are_bounded(self) -> None:
+        import school_db as sdb
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        app = create_app(
+            db_path=Path(tmp.name) / "lloves.sqlite",
+            data_dir=Path(tmp.name),
+            testing=True,
+            live_database_url="",
+        )
+        school = app.config["SCHOOL_DB"]
+        self.addCleanup(school.close)
+        previous = sdb.ARTIFACT_SLIDER_PREVIEWS_MAX
+        sdb.ARTIFACT_SLIDER_PREVIEWS_MAX = 50
+        try:
+            for sid in range(200):
+                school.record_artifact_slider_preview(sid, 1, 1, {"a": 1})
+        finally:
+            sdb.ARTIFACT_SLIDER_PREVIEWS_MAX = previous
+        self.assertEqual(len(school._artifact_slider_previews), 50)
+        self.assertIn((199, 1, 1), school._artifact_slider_previews)

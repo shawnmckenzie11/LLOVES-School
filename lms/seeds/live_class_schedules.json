@@ -2,10 +2,12 @@
   "courses": {
     "MCR3U": {
       "live_days": "M/W/F",
+      "live_time": "9:15am",
       "live_end_time": "10:30am"
     },
     "MCF3M": {
       "live_days": "M/W/F",
+      "live_time": "2:00pm",
       "live_end_time": "3:15pm"
     }
   },
@@ -14,12 +16,14 @@
       "ontario_code": "MCR3U",
       "section_index": 2,
       "live_days": "M/W/F",
+      "live_time": "10:40am",
       "live_end_time": "11:55am"
     },
     {
       "ontario_code": "MCR3U",
       "section_index": 5,
       "live_days": "M/W/F",
+      "live_time": "10:40am",
       "live_end_time": "11:55am"
     }
   ]

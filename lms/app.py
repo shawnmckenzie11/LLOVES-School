@@ -117,6 +117,7 @@ from serve_capacity import (  # noqa: E402
     PollBudgetExceeded,
     is_live_state_poll,
     maybe_arm_worker_warmup,
+    run_once_per_boot,
     missing_live_session,
     poll_slot,
     worker_warmup_active,
@@ -340,6 +341,9 @@ def _note_live_session_gone(session_id: int) -> None:
     sid = int(session_id)
     if sid in _gone_live_sessions_logged:
         return
+    if len(_gone_live_sessions_logged) > 1024:
+        # MCK-231: bounded; a repeat log line beats unbounded growth.
+        _gone_live_sessions_logged.clear()
     _gone_live_sessions_logged.add(sid)
     logger.warning("live session %s is gone; polls return ended", sid)
 
@@ -1335,7 +1339,10 @@ def create_app(
         try:
             from mck210_catchup_migration import run_mck210_catchup_migration_if_needed
 
-            run_mck210_catchup_migration_if_needed(school)
+            # MCK-231: once per machine boot, not once per gunicorn worker.
+            run_once_per_boot(
+                "mck210", lambda: run_mck210_catchup_migration_if_needed(school)
+            )
         except Exception:  # noqa: BLE001 - migration must not block boot
             app.logger.exception("MCK-210 catch-up migration failed")
     if local_dev_login_enabled() and not secure:

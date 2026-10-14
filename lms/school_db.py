@@ -1810,6 +1810,11 @@ def _ev_exit(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any] | None:
                         "has_comment": bool(str(a.get("comment") or "").strip())}}
 
 
+
+#: MCK-231: newest Artifact slider previews kept per worker (about 30
+#: students x a few prompts x a day of classes). Oldest are dropped first.
+ARTIFACT_SLIDER_PREVIEWS_MAX = 4096
+
 class WhiteboardReopenConflict(ValueError):
     """A reopen that conflicts with the board or session state (409).
 
@@ -22829,10 +22834,15 @@ class SchoolDB(LovesDB):
         raw = posted.get("params") if isinstance(posted.get("params"), dict) else posted
         if not isinstance(raw, dict):
             return
+        key = (int(session_id), int(prompt_id), int(student_id))
         with self._lock:
-            self._artifact_slider_previews[
-                (int(session_id), int(prompt_id), int(student_id))
-            ] = dict(raw)
+            previews = self._artifact_slider_previews
+            previews.pop(key, None)
+            previews[key] = dict(raw)
+            # MCK-231: bounded. Entries from ended sessions were never
+            # removed and lived as long as the worker.
+            while len(previews) > ARTIFACT_SLIDER_PREVIEWS_MAX:
+                previews.pop(next(iter(previews)), None)
 
     def artifact_group_q_status(
         self,
@@ -24357,8 +24367,33 @@ class SchoolDB(LovesDB):
         )
         merged["deck_revision"] = revision
         merged = self._clean_metadata_question_stems(merged)
-        self._live_metadata_cache[cache_key] = merged
+        self._store_live_metadata_cache(cache_key, merged)
         return deepcopy(merged)
+
+    #: MCK-231: most decks one worker keeps merged at once. A worker serves a
+    #: handful of classes a day; 64 covers every lesson open in a day.
+    LIVE_METADATA_CACHE_MAX = 64
+
+    def _store_live_metadata_cache(
+        self, cache_key: tuple[int, str, str, str, str], merged: dict[str, Any]
+    ) -> None:
+        """Cache one merged deck, dropping its stale revisions (MCK-231).
+
+        The key carries ``class_deck_revision``. An edit in one worker only
+        invalidates that worker's cache; the other three saw a new revision
+        and added a second full copy of the deck, and the old copy was never
+        read or freed again. With workers no longer recycled every ~1000
+        requests, those copies grew for the life of the process. Keep one
+        revision per lesson deck and at most ``LIVE_METADATA_CACHE_MAX`` decks.
+        """
+        cache = self._live_metadata_cache
+        lesson = cache_key[:4]
+        for key in [k for k in cache if k[:4] == lesson and k != cache_key]:
+            cache.pop(key, None)
+        cache.pop(cache_key, None)
+        cache[cache_key] = merged
+        while len(cache) > self.LIVE_METADATA_CACHE_MAX:
+            cache.pop(next(iter(cache)), None)
 
     #: MCK-191: seed-file media items every deck for this course challenge
     #: keeps, including working copies (Previous / Course deck / Blank /
