@@ -164,7 +164,16 @@ export function usableReleases(data) {
   const out = [];
   const ids = new Set();
   for (const release of releases) {
-    if (!release || typeof release.id !== "string" || !release.id || ids.has(release.id)) continue;
+    if (
+      release == null ||
+      typeof release !== "object" ||
+      Array.isArray(release) ||
+      typeof release.id !== "string" ||
+      !release.id ||
+      ids.has(release.id)
+    ) {
+      continue;
+    }
     const items = cleanItems(release);
     const time = releaseTime(release);
     const day = releaseDay(release);
@@ -191,7 +200,9 @@ export function seenTime(stored, releases) {
   const value = String(stored == null ? "" : stored).trim();
   if (!value) return null;
   if (DAY_RE.test(value)) return Date.parse(`${value}T23:59:00-04:00`);
-  const match = (releases || []).find((r) => r.id === value);
+  const match = (releases || []).find(
+    (r) => r != null && typeof r === "object" && !Array.isArray(r) && r.id === value,
+  );
   if (match) return match.time;
   const parsed = Date.parse(value);
   return Number.isNaN(parsed) ? null : parsed;

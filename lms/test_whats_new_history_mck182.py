@@ -103,6 +103,22 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(counts["skipped"], 3)
         self.assertEqual(self.ids(), [])
 
+    def test_read_file_skips_null_releases_and_item_holes_mck124(self) -> None:
+        """MCK-124: null holes in ``releases`` or ``items`` must not throw."""
+        good = deploy_entry(6, "In Run Live Class, after null holes.")
+        path = write(
+            self.dir / "nulls.json",
+            [None, {**good, "items": [None, {"text": "  "}, "x", good["items"][0]]}, "nope", []],
+        )
+        got = store.read_file(path)
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0]["id"], good["id"])
+        self.assertTrue(all(isinstance(item, dict) for item in got[0]["items"]))
+        self.assertIn(good["items"][0], got[0]["items"])
+        payload = store.teacher_payload([None, good])
+        self.assertEqual(len(payload["releases"]), 1)
+        self.assertEqual(payload["releases"][0]["items"][0]["text"], good["items"][0]["text"])
+
     def test_history_outlives_the_30_run_window(self) -> None:
         """35 deploys, each shipping only the last 30 generated entries."""
         base = committed()["releases"]
