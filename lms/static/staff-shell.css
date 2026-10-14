@@ -630,10 +630,36 @@ body.staff-shell .ap-view-label {
   font-weight: 600;
   color: #475569;
 }
-body.staff-shell #round-view-select {
+body.staff-shell #ap-group-slice-select,
+body.staff-shell #ap-data-mode-select,
+body.staff-shell #ap-individual-metric-select {
   min-width: 11rem;
   padding: 0.35rem 0.5rem;
   font-size: 0.95rem;
+}
+body.staff-shell table.ap-module-grid th.ap-module-col {
+  min-width: 9rem;
+  vertical-align: top;
+  font-weight: 600;
+}
+body.staff-shell .ap-module-head {
+  margin-bottom: 0.35rem;
+}
+body.staff-shell .ap-module-mark {
+  display: block;
+  width: 100%;
+  margin: 0.25rem 0;
+  font-size: 0.78rem;
+  white-space: normal;
+}
+body.staff-shell .ap-module-l4 {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 400;
+  margin-top: 0.35rem;
+}
+body.staff-shell td.ap-module-cell {
+  font-variant-numeric: tabular-nums;
 }
 body.staff-shell .ap-overlay-toolbar {
   display: flex;
