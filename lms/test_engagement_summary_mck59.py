@@ -22,7 +22,11 @@ from app import create_app  # noqa: E402
 import engagement_rubric as R  # noqa: E402
 import participation as P  # noqa: E402
 from engagement_events import clean_payload  # noqa: E402
-from engagement_summary import build_summary, suggest_student  # noqa: E402
+from engagement_summary import (  # noqa: E402
+    COPY_ENGAGEMENT_SUMMARY_EMPTY,
+    build_summary,
+    suggest_student,
+)
 
 
 class RubricTests(unittest.TestCase):
@@ -247,6 +251,35 @@ class ApiTests(unittest.TestCase):
         self.assertIn("engagement-summary-root", html)
         self.assertIn("End-of-class engagement", html)
         self.assertNotIn("student_engagement", html.lower())
+
+    def test_engagement_empty_when_no_ended_runs(self) -> None:
+        """Engagement tab copy when the class has no ended runs with rollup."""
+        offering_b = self.school.assign_course(
+            teacher_user_id=int(self.teacher_a["id"]), ontario_code="SPH3U"
+        )
+        empty_class = int(
+            self.school.game.create_class(
+                year="2026/27",
+                semester="Semester 1",
+                course_code="SPH3U",
+                days_preset="M/W/F",
+                time_label="2:00pm",
+                codenames=["Cedar"],
+                offering_id=int(offering_b["id"]),
+                teacher_user_id=int(self.teacher_a["id"]),
+            )["id"]
+        )
+        self._login("a@gmail.com")
+        rv = self.client.get(f"/api/classes/{empty_class}/engagement-summary")
+        self.assertEqual(rv.status_code, 200)
+        body = rv.get_json()
+        self.assertIsNone(body["summary"])
+        self.assertEqual(body["runs"], [])
+        html = self.client.get(
+            f"/staff/class/{empty_class}?tab=ap&view=engagement"
+        ).get_data(as_text=True)
+        self.assertIn(COPY_ENGAGEMENT_SUMMARY_EMPTY, html)
+        self.assertIn('id="engagement-summary-empty"', html)
 
 
 if __name__ == "__main__":

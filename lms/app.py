@@ -4040,6 +4040,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             or cls.get("ontario_code")
             or "MCF3M"
         )
+        from engagement_summary import KEY_ENGAGEMENT_SUMMARY_EMPTY, engagement_copy
         from flask import make_response
 
         html = render_template(
@@ -4077,6 +4078,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 testing=bool(app.config.get("TESTING"))
             ),
             roster_students=school.roster_name_entries(class_id),
+            engagement_summary_empty_copy=engagement_copy(KEY_ENGAGEMENT_SUMMARY_EMPTY),
         )
         resp = make_response(html)
         if (
