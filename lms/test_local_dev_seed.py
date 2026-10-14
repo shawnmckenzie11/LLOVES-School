@@ -125,13 +125,13 @@ class LocalDevSeedTests(unittest.TestCase):
         maple = self.school.game.find_student_by_codename(int(row["id"]), "Maple")
         self.assertIsNotNone(maple)
 
-    def test_teacher_participation_page_renders_m1_column_and_catchup_rows(self) -> None:
-        """MCK-198: stock seed alone shows the M1 % column and C1/C2 link rows."""
+    def test_teacher_participation_tab_and_grid_show_m1_module_data(self) -> None:
+        """MCK-220: stock seed M1 individual participation lives on the Participation tab."""
         # create_app already seeded at boot, as on a laptop or Cloud Agent.
         first = seed_local_dev_school(self.school)
         self.assertEqual(first["participation_seed"], {"skipped": "already seeded"})
         class_id = int(first["class_id"])
-        self.assertEqual(len(self.school.list_catchup_links(class_id)), 2)
+        self.assertEqual(len(self.school.list_catchup_links(class_id)), 3)
         self.assertIsNone(self.school.get_active_live_session_for_class(class_id))
         staff = self.app.test_client()
         staff.get(
@@ -140,20 +140,23 @@ class LocalDevSeedTests(unittest.TestCase):
         )
         course = staff.get(f"/staff/class/{class_id}?tab=ap&view=participation")
         self.assertEqual(course.status_code, 200)
-        self.assertIn(f'href="/staff/classes/{class_id}/participation"',
-                      course.get_data(as_text=True))
+        course_html = course.get_data(as_text=True)
+        self.assertIn('id="ap-data-mode-select"', course_html)
+        self.assertNotIn("participation-catchup-link", course_html)
         rv = staff.get(f"/staff/classes/{class_id}/participation")
-        self.assertEqual(rv.status_code, 200)
-        html = rv.get_data(as_text=True)
-        self.assertIn("M1 (8)", html)  # 4 questions x C1 + C2
-        self.assertIn('data-module="M1"', html)
-        self.assertIn("<td>Maple</td>", html)
-        self.assertIn("5/8 · 62% · L2", " ".join(html.split()))  # Maple: 2 in C1 + 3 in C2
-        self.assertEqual(html.count('class="toggle"'), 2)
-        self.assertEqual(html.count('class="btn secondary copy"'), 2)
-        self.assertIn("M1 C1:", html)
-        self.assertIn("M1 C2:", html)
-        self.assertNotIn("A link appears after End Live Class.", html)
+        self.assertEqual(rv.status_code, 302)
+        grid = staff.get(f"/api/classes/{class_id}/participation-grid?sort=az").get_json()
+        modules = {m["module"]: m for m in grid["module_participation"]["modules"]}
+        self.assertEqual(modules["M1"]["offered"], 8)
+        self.assertEqual(modules["M3"]["offered"], 2)
+        maple_row = next(
+            s for s in grid["module_participation"]["students"]
+            if s["modules"]["M1"]["answered"] == 5
+        )
+        self.assertEqual(maple_row["modules"]["M1"]["percent"], 62)
+        self.assertEqual(maple_row["modules"]["M1"]["level"], 2)
+        self.assertEqual(maple_row["modules"]["M3"]["answered"], 1)
+        self.assertEqual(maple_row["modules"]["M3"]["offered"], 2)
         token = self.school.list_catchup_links(class_id)[0]["token"]
         maple = self.school.game.find_student_by_codename(class_id, "Maple")
         assert maple is not None
