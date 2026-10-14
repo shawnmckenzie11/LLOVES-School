@@ -53,9 +53,11 @@ THREADS = 8
 # Checked-out Postgres sockets per gunicorn worker for live presence + boards.
 # Must be at least ``THREADS`` so every thread can hold one checkout briefly.
 PRESENCE_POOL_SIZE = THREADS
-# Recycle workers after this many requests (plus jitter) to cap memory growth.
-MAX_REQUESTS = 1000
-MAX_REQUESTS_JITTER = 100
+# MCK-231: no ``--max-requests``. Recycling every ~1000 requests cost one
+# of four workers every 4-5 minutes during a 30-student class (each recycle
+# drained for up to 25 s, then booted under CPU pressure and shed /state).
+# The per-worker growth it was hiding is fixed at the source; see
+# ``scripts/load_class.py`` for the 60-minute flat-memory bar.
 # Per worker. Not gunicorn's 1000. Four workers × 32 = 128 sockets, not ~1k.
 WORKER_CONNECTIONS = 32
 KEEPALIVE_SECONDS = 1
@@ -79,7 +81,9 @@ POLL_BUDGET_SECONDS = 8.0
 POLL_IN_FLIGHT = 5
 # After create_app(), shed /state this long so the boot backlog drains
 # as retry JSON. /health is not shed. Tests leave the window disarmed.
-WORKER_WARMUP_SECONDS = 8.0
+# MCK-231: 8 s -> 2 s. Workers no longer recycle mid-class, so this only
+# runs at machine start, and clients retry /state after the shed anyway.
+WORKER_WARMUP_SECONDS = 2.0
 
 _poll_budget = threading.local()
 _POLL_SLOTS = threading.BoundedSemaphore(POLL_IN_FLIGHT)
@@ -279,13 +283,53 @@ def image_gunicorn_command() -> str:
         f"--keep-alive {KEEPALIVE_SECONDS} "
         f"--timeout {WORKER_TIMEOUT_SECONDS} "
         f"--graceful-timeout {GRACEFUL_TIMEOUT_SECONDS} "
-        f"--max-requests {MAX_REQUESTS} "
-        f"--max-requests-jitter {MAX_REQUESTS_JITTER} "
         f"--backlog {BACKLOG} "
         "--bind 0.0.0.0:8080 "
         "--chdir lms "
         "app:create_app()"
     )
+
+
+def run_once_per_boot(name: str, task, *, lock_dir: str | None = None) -> bool:
+    """Run ``task`` in one gunicorn worker per machine boot, not in every worker.
+
+    MCK-231: one-time boot work (the MCK-210 catch-up check) ran inside every
+    worker's ``create_app``. Under gunicorn the workers share a master pid,
+    so the first worker to take the lock runs ``task`` and leaves a marker
+    keyed by that pid; the others see the marker and skip. A new machine
+    (new master pid) runs it again. Outside gunicorn ``task`` always runs.
+
+    Args:
+        name: Short task key used in the marker file name.
+        task: Zero-argument callable.
+        lock_dir: Marker directory. Defaults to the system temp dir.
+
+    Returns:
+        True when this process ran ``task``.
+    """
+    if not running_under_gunicorn():
+        task()
+        return True
+    import fcntl
+    import tempfile
+
+    base = lock_dir or tempfile.gettempdir()
+    stem = os.path.join(base, f"lloves-boot-{name}-{os.getppid()}")
+    with open(stem + ".lock", "a+") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            if os.path.exists(stem + ".done"):
+                return False
+            try:
+                task()
+            finally:
+                # A failed task is logged by the caller; do not retry it in
+                # every other worker of this boot.
+                with open(stem + ".done", "w") as done:
+                    done.write(str(os.getpid()))
+            return True
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
 
 
 def is_live_state_poll(path: str) -> bool:

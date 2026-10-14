@@ -36,7 +36,7 @@ kill_timeout = 35
 # (fresh launch) restored it. Recovery under live polls is a fresh launch
 # or an image deploy. Backlog 64 refuses the rest of that boot flood.
 [processes]
-  app = "gunicorn --worker-class gthread --workers 4 --threads 8 --worker-connections 32 --keep-alive 1 --timeout 120 --graceful-timeout 30 --max-requests 1000 --max-requests-jitter 100 --backlog 64 --bind 0.0.0.0:8080 --chdir lms app:create_app()"
+  app = "gunicorn --worker-class gthread --workers 4 --threads 8 --worker-connections 32 --keep-alive 1 --timeout 120 --graceful-timeout 30 --backlog 64 --bind 0.0.0.0:8080 --chdir lms app:create_app()"
 
 [env]
   FLASK_ENV = 'production'

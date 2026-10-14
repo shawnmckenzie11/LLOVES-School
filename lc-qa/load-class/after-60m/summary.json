@@ -1,0 +1,167 @@
+{
+  "minutes": 60.0,
+  "requests": 42418,
+  "http_p50_ms": 4.8,
+  "http_p95_ms": 44.2,
+  "errors_5xx": 33,
+  "worker_restarts": 0,
+  "log_worker_timeouts": 0,
+  "log_autorestarts": 0,
+  "log_oom_or_sigkill": 0,
+  "max_total_rss_mb": 615.8,
+  "over_1gb": false,
+  "kinds": {
+    "add_question": {
+      "n": 53,
+      "p50_ms": 61.3,
+      "p95_ms": 96.6,
+      "max_ms": 112.7,
+      "errors_5xx": 0,
+      "status": {
+        "200": 53
+      }
+    },
+    "board_mine": {
+      "n": 4911,
+      "p50_ms": 3.0,
+      "p95_ms": 7.8,
+      "max_ms": 2151.1,
+      "errors_5xx": 0,
+      "status": {
+        "200": 34,
+        "403": 4877
+      }
+    },
+    "publish": {
+      "n": 15,
+      "p50_ms": 70.3,
+      "p95_ms": 88.0,
+      "max_ms": 89.3,
+      "errors_5xx": 0,
+      "status": {
+        "200": 15
+      }
+    },
+    "rank_turn": {
+      "n": 5331,
+      "p50_ms": 4.9,
+      "p95_ms": 16.9,
+      "max_ms": 3571.3,
+      "errors_5xx": 0,
+      "status": {
+        "200": 5202,
+        "409": 129
+      }
+    },
+    "sse_busy": {
+      "n": 2226,
+      "p50_ms": 3.6,
+      "p95_ms": 9.2,
+      "max_ms": 160689.1,
+      "errors_5xx": 0,
+      "status": {
+        "200": 2226
+      }
+    },
+    "sse_first_byte": {
+      "n": 2057,
+      "p50_ms": 3.6,
+      "p95_ms": 7.5,
+      "max_ms": 158223.9,
+      "errors_5xx": 27,
+      "status": {
+        "200": 2030,
+        "599": 27
+      }
+    },
+    "staff_class_page": {
+      "n": 106,
+      "p50_ms": 11.6,
+      "p95_ms": 61.1,
+      "max_ms": 144.1,
+      "errors_5xx": 0,
+      "status": {
+        "200": 106
+      }
+    },
+    "staff_state": {
+      "n": 1580,
+      "p50_ms": 49.4,
+      "p95_ms": 78.9,
+      "max_ms": 68046.4,
+      "errors_5xx": 1,
+      "status": {
+        "200": 1579,
+        "599": 1
+      }
+    },
+    "student_home": {
+      "n": 1650,
+      "p50_ms": 5.6,
+      "p95_ms": 14.4,
+      "max_ms": 1255.0,
+      "errors_5xx": 0,
+      "status": {
+        "200": 1650
+      }
+    },
+    "student_state": {
+      "n": 24474,
+      "p50_ms": 4.8,
+      "p95_ms": 11.1,
+      "max_ms": 165880.0,
+      "errors_5xx": 5,
+      "status": {
+        "200": 24469,
+        "599": 5
+      }
+    },
+    "teacher_state": {
+      "n": 15,
+      "p50_ms": 6.3,
+      "p95_ms": 19.4,
+      "max_ms": 40.2,
+      "errors_5xx": 0,
+      "status": {
+        "200": 15
+      }
+    }
+  },
+  "rss": {
+    "2399481": {
+      "start_mb": 26.2,
+      "early_median_mb": 21.9,
+      "late_median_mb": 22.2,
+      "max_mb": 26.2,
+      "growth_mb_per_hour": 0.4
+    },
+    "2399483": {
+      "start_mb": 142.0,
+      "early_median_mb": 129.4,
+      "late_median_mb": 132.3,
+      "max_mb": 145.2,
+      "growth_mb_per_hour": 3.7
+    },
+    "2399484": {
+      "start_mb": 142.0,
+      "early_median_mb": 130.3,
+      "late_median_mb": 132.5,
+      "max_mb": 145.9,
+      "growth_mb_per_hour": 2.8
+    },
+    "2399485": {
+      "start_mb": 143.4,
+      "early_median_mb": 129.5,
+      "late_median_mb": 132.1,
+      "max_mb": 152.6,
+      "growth_mb_per_hour": 3.3
+    },
+    "2399486": {
+      "start_mb": 142.3,
+      "early_median_mb": 129.5,
+      "late_median_mb": 132.8,
+      "max_mb": 146.3,
+      "growth_mb_per_hour": 4.3
+    }
+  }
+}

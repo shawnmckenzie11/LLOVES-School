@@ -1,0 +1,532 @@
+#!/usr/bin/env python3
+"""Reproducible live-class load test (MCK-231).
+
+Seeds a private data dir with one MCF3M class of N students in a live run,
+starts gunicorn with the production flags (4 workers x 8 threads, timeout
+120, backlog 64; only the bind changes), then drives it for ``--minutes``:
+
+* every student holds the LiveNewsWire SSE stream (25 s holds, reconnect),
+  polls ``/api/student/state`` every 4 s, ``/api/student/board/mine``
+  every 20 s and reloads ``/student/home`` every 60 s;
+* the teacher polls ``/api/live-sessions/<sid>/state`` every 2 s and
+  reloads ``/staff/class/<id>`` every 30 s;
+* every ``--round-minutes`` the teacher moves the page and publishes the
+  next rank question (take turns), and each team places its options;
+* about once a minute the teacher adds a question to the deck (a mid-class
+  edit, which changes ``class_deck_revision`` for every worker);
+* a sampler records RSS per worker every 15 s and notices worker restarts.
+
+Outputs (in ``--out``): ``samples.csv`` (time, pid, rss_mb), ``requests.csv``
+(time, kind, status, ms), ``summary.json`` and ``summary.md``.
+
+The 1 GB limit is checked, not enforced: the box has no cgroup scope, so
+the summary flags any sample where the sum of worker + master RSS > 1024 MB.
+
+Usage::
+
+    python scripts/load_class.py --minutes 60 --students 30 --out lc-qa/load-class/run1
+
+Pass ``--tracemalloc`` to dump the top allocation growth per worker every
+5 minutes (slows the server; profiling only). Needs Postgres for live
+presence at ``--presence-url`` (default local lloves_live), like prod.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import os
+import random
+import signal
+import statistics
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from pathlib import Path
+from typing import Any
+
+REPO = Path(__file__).resolve().parents[1]
+LMS = REPO / "lms"
+
+SECRET = "load-class-secret-not-for-prod-0123456789abcdef"
+DEFAULT_PRESENCE = "postgresql://lloves:lloves@127.0.0.1:5432/lloves_live"
+RANK_ITEMS = 16
+
+
+# --------------------------------------------------------------------------- setup
+def seed(data: Path, students: int, presence_url: str) -> dict[str, Any]:
+    """Build the class in-process and return cookies + ids for the clients."""
+    sys.path.insert(0, str(LMS))
+    sys.path.insert(0, str(REPO))
+    os.environ["ALLOW_DEV_VERIFICATION_CODE"] = "1"
+    os.environ["FLASK_SECRET_KEY"] = SECRET
+    from app import create_app  # noqa: PLC0415
+
+    app = create_app(
+        db_path=data / "lloves.sqlite",
+        data_dir=data,
+        testing=True,
+        live_database_url=presence_url,
+    )
+    school = app.config["SCHOOL_DB"]
+    staff = app.test_client()
+    school.activate_from_semester_json()
+    teacher = school.register_staff("teacher@gmail.com")
+    offering = school.assign_course(teacher_user_id=int(teacher["id"]), ontario_code="MCF3M")
+    names = [f"S{i:02d}" for i in range(students)]
+    class_id = int(
+        school.game.create_class(
+            year="2026/27",
+            semester="Semester 1",
+            course_code="MCF3M",
+            days_preset="M/W/F",
+            time_label="2:00pm",
+            codenames=names,
+            offering_id=int(offering["id"]),
+            teacher_user_id=int(teacher["id"]),
+        )["id"]
+    )
+    staff.get("/auth/google?portal=staff")
+    staff.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+    code = school.get_user_by_email("teacher@gmail.com")["verification_code"]
+    staff.post("/verify-email", data={"code": code})
+    live = school.start_live_class_session(class_id, int(teacher["id"]))
+    sid = int(live["id"])
+    staff.post(
+        f"/api/live-sessions/{sid}/teacher-state",
+        json={"live_module": "M1", "live_slot": "C2", "stage": "round", "page_id": "round_1"},
+    )
+    school.game.begin_game(class_id)
+    rows = school.game.conn.execute(
+        "SELECT id, codename FROM students WHERE class_id = ? ORDER BY id", (class_id,)
+    ).fetchall()
+    ids = {str(r["codename"]): int(r["id"]) for r in rows}
+    cookies: dict[str, str] = {}
+    for name in names:
+        client = app.test_client()
+        rv = client.post("/auth/student-code", data={"code": str(live["session_code"]), "name": name})
+        assert rv.status_code == 302, rv.get_data(as_text=True)[:300]
+        client.post("/student/mood", data={"mood": "good"})
+        cookies[name] = client.get_cookie("session").value
+    n_teams = max(2, students // 4)
+    order = [ids[n] for n in names]
+    school.setup_live_session_groups(
+        sid,
+        n_teams=n_teams,
+        mode="manual",
+        present_ids=order,
+        assignments=[{"student_id": s, "team_index": i % n_teams} for i, s in enumerate(order)],
+    )
+    school.ensure_live_session_items(sid)
+    items: list[dict[str, Any]] = []
+    for k in range(RANK_ITEMS):
+        rv = staff.post(
+            f"/api/staff/class/{class_id}/live-lessons/M1/C2/add-question",
+            json={
+                "page_number": 5,
+                "stage": "round",
+                "type": "rank",
+                "text": f"Rank these representations ({k}).",
+                "options": ["Two points", "A graph", "An equation", "A table"],
+            },
+        )
+        assert rv.status_code == 200, rv.get_data(as_text=True)[:300]
+        item_id = rv.get_json()["placement"]["item"]["id"]
+        row = next(r for r in school.list_live_session_items(sid) if r["item_id"] == item_id)
+        staff.patch(f"/api/live-sessions/{sid}/items/{row['id']}/settings", json={"group_rank_mode": "turns"})
+        live_item = school.get_live_session_item(sid, int(row["id"]))
+        raw = [o["id"] for o in school._rank_option_rows(live_item)]
+        aliases = school.student_rank_aliases(live_item)
+        opts = [aliases.out(o) for o in raw] if aliases is not None else raw
+        items.append({"live_item_id": int(row["id"]), "options": opts})
+    fixture = {
+        "session_id": sid,
+        "class_id": class_id,
+        "staff_cookie": staff.get_cookie("session").value,
+        "students": [{"name": n, "id": ids[n], "cookie": cookies[n]} for n in names],
+        "items": items,
+    }
+    school.close()
+    return fixture
+
+
+# --------------------------------------------------------------------------- server
+GUNICORN_HOOKS = '''
+import os, threading, time, tracemalloc
+OUT = os.environ["LOAD_OUT"]
+def post_fork(server, worker):
+    if os.environ.get("LOAD_TRACEMALLOC") != "1":
+        return
+    tracemalloc.start(15)
+    def dump():
+        base = None
+        n = 0
+        while True:
+            time.sleep(300)
+            snap = tracemalloc.take_snapshot()
+            path = os.path.join(OUT, f"tracemalloc-{os.getpid()}.txt")
+            with open(path, "a") as fh:
+                fh.write(f"\\n===== t+{(n+1)*5} min pid {os.getpid()} =====\\n")
+                stats = snap.compare_to(base, "traceback") if base else snap.statistics("traceback")
+                for st in stats[:15]:
+                    fh.write(f"{st}\\n")
+                    for line in st.traceback.format()[-8:]:
+                        fh.write(f"    {line}\\n")
+            if base is None:
+                base = snap
+            n += 1
+    threading.Thread(target=dump, daemon=True).start()
+'''
+
+
+def gunicorn_argv(port: int, hooks: Path, strip_max_requests: bool = False) -> list[str]:
+    sys.path.insert(0, str(LMS))
+    import serve_capacity  # noqa: PLC0415
+
+    cmd = serve_capacity.image_gunicorn_command().split()
+    if strip_max_requests:
+        for flag in ("--max-requests", "--max-requests-jitter"):
+            while flag in cmd:
+                i = cmd.index(flag)
+                del cmd[i : i + 2]
+    cmd = [c.replace("0.0.0.0:8080", f"127.0.0.1:{port}") for c in cmd]
+    # Extra hooks for the sampler only; keep any -c the image command carries.
+    return [sys.executable, "-m", *cmd[:1], "-c", str(hooks), *cmd[1:]] if "-c" not in cmd and "--config" not in cmd else [
+        sys.executable, "-m", *cmd
+    ]
+
+
+# --------------------------------------------------------------------------- clients
+class Recorder:
+    def __init__(self, path: Path) -> None:
+        self.lock = threading.Lock()
+        self.fh = path.open("w", newline="")
+        self.w = csv.writer(self.fh)
+        self.w.writerow(["t", "kind", "status", "ms"])
+        self.rows: list[tuple[float, str, int, float]] = []
+
+    def add(self, kind: str, status: int, ms: float) -> None:
+        t = time.time()
+        with self.lock:
+            self.rows.append((t, kind, status, ms))
+            self.w.writerow([f"{t:.3f}", kind, status, f"{ms:.1f}"])
+
+
+def run_load(base: str, fx: dict[str, Any], minutes: float, round_minutes: float, rec: Recorder) -> None:
+    import requests  # noqa: PLC0415
+
+    stop = time.monotonic() + minutes * 60
+    sid = fx["session_id"]
+    state = {"item": -1}
+
+    def call(sess: Any, kind: str, method: str, url: str, **kw: Any) -> Any:
+        t0 = time.perf_counter()
+        try:
+            rv = sess.request(method, base + url, timeout=60, **kw)
+            rec.add(kind, rv.status_code, (time.perf_counter() - t0) * 1000)
+            return rv
+        except Exception:  # noqa: BLE001
+            rec.add(kind, 599, (time.perf_counter() - t0) * 1000)
+            time.sleep(1)
+            return None
+
+    def mk(cookie: str) -> Any:
+        s = requests.Session()
+        s.headers["Cookie"] = f"session={cookie}"
+        return s
+
+    def student_poll(st: dict[str, Any]) -> None:
+        s = mk(st["cookie"])
+        time.sleep(random.random() * 4)
+        n = 0
+        while time.monotonic() < stop:
+            call(s, "student_state", "GET", "/api/student/state")
+            if n % 5 == 0:
+                call(s, "board_mine", "GET", "/api/student/board/mine")
+            if n % 15 == 0:
+                call(s, "student_home", "GET", "/student/home")
+            n += 1
+            time.sleep(4)
+
+    def student_sse(st: dict[str, Any]) -> None:
+        s = mk(st["cookie"])
+        last = None
+        while time.monotonic() < stop:
+            t0 = time.perf_counter()
+            hdr = {"Last-Event-ID": last} if last else {}
+            try:
+                with s.get(base + f"/api/live/session/{sid}/events", stream=True, timeout=60, headers=hdr) as rv:
+                    first = None
+                    busy = False
+                    for line in rv.iter_lines(decode_unicode=True):
+                        if first is None:
+                            first = (time.perf_counter() - t0) * 1000
+                        if line.startswith("id:"):
+                            last = line[3:].strip()
+                        if '"busy"' in line:
+                            busy = True
+                        if time.monotonic() >= stop:
+                            break
+                    rec.add("sse_busy" if busy else "sse_first_byte", rv.status_code, first or 0.0)
+                    if busy:
+                        time.sleep(20)
+            except Exception:  # noqa: BLE001
+                rec.add("sse_first_byte", 599, (time.perf_counter() - t0) * 1000)
+                time.sleep(1)
+            time.sleep(1)
+
+    def student_rank(st: dict[str, Any]) -> None:
+        s = mk(st["cookie"])
+        seen = -1
+        while time.monotonic() < stop:
+            k = state["item"]
+            if k >= 0 and k != seen:
+                item = fx["items"][k]
+                for _ in range(12):
+                    if time.monotonic() >= stop:
+                        break
+                    opt = random.choice(item["options"])
+                    rv = call(s, "rank_turn", "POST", f"/api/student/live-items/{item['live_item_id']}/rank-turn",
+                              json={"option_id": opt})
+                    time.sleep(random.uniform(2, 6))
+                    if rv is not None and rv.status_code == 200:
+                        body = rv.json().get("group_submit") or {}
+                        if (body.get("turns") or {}).get("done"):
+                            break
+                seen = k
+            time.sleep(1)
+
+    def teacher() -> None:
+        s = mk(fx["staff_cookie"])
+        next_round = time.monotonic()
+        page = 1
+        while time.monotonic() < stop:
+            call(s, "staff_state", "GET", f"/api/live-sessions/{sid}/state")
+            ticks = state.setdefault("ticks", 0)
+            state["ticks"] = ticks + 1
+            if ticks % 15 == 0:
+                call(s, "staff_class_page", "GET", f"/staff/class/{fx['class_id']}")
+            if time.monotonic() >= next_round and state["item"] + 1 < len(fx["items"]):
+                page += 1
+                call(s, "teacher_state", "POST", f"/api/live-sessions/{sid}/teacher-state",
+                     json={"live_module": "M1", "live_slot": "C2", "stage": "round", "page_id": f"round_{page}"})
+                k = state["item"] + 1
+                call(s, "publish", "POST", f"/api/live-sessions/{sid}/items/{fx['items'][k]['live_item_id']}/publish",
+                     json={"publish_mode": "group_submit"})
+                state["item"] = k
+                next_round = time.monotonic() + round_minutes * 60
+            if ticks % 30 == 15:
+                # Mid-class deck edit (teacher adds a question), about once a
+                # minute. Bumps class_deck_revision, which every worker sees.
+                edits = state.setdefault("edits", 0)
+                state["edits"] = edits + 1
+                call(s, "add_question", "POST", f"/api/staff/class/{fx['class_id']}/live-lessons/M1/C2/add-question",
+                     json={"page_number": 6, "stage": "round", "type": "rank",
+                           "text": f"Extra rank {edits}", "options": ["w", "x", "y", "z"]})
+            time.sleep(2)
+
+    threads = [threading.Thread(target=teacher, daemon=True)]
+    for st in fx["students"]:
+        for fn in (student_poll, student_sse, student_rank):
+            threads.append(threading.Thread(target=fn, args=(st,), daemon=True))
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=max(1.0, stop - time.monotonic() + 90))
+
+
+# --------------------------------------------------------------------------- sampler
+def sampler(master_pid: int, out: Path, stop_evt: threading.Event, info: dict[str, Any]) -> None:
+    import psutil  # noqa: PLC0415
+
+    master = psutil.Process(master_pid)
+    seen: set[int] = set()
+    first = True
+    with (out / "samples.csv").open("w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["t", "pid", "rss_mb", "total_mb"])
+        while not stop_evt.is_set():
+            try:
+                kids = master.children()
+                procs = [master, *kids]
+                rss = {p.pid: p.memory_info().rss / 1e6 for p in procs}
+            except psutil.Error:
+                break
+            total = sum(rss.values())
+            now = time.time()
+            for pid, mb in rss.items():
+                w.writerow([f"{now:.0f}", pid, f"{mb:.1f}", f"{total:.1f}"])
+            fh.flush()
+            pids = {p.pid for p in kids}
+            if not first:
+                info["restarts"] += len(pids - seen)
+            seen |= pids
+            first = False
+            info["max_total_mb"] = max(info["max_total_mb"], total)
+            stop_evt.wait(15)
+
+
+# --------------------------------------------------------------------------- summary
+def pct(vals: list[float], p: float) -> float:
+    if not vals:
+        return 0.0
+    vals = sorted(vals)
+    return vals[min(len(vals) - 1, int(round(p / 100 * (len(vals) - 1))))]
+
+
+def summarize(out: Path, rec: Recorder, info: dict[str, Any], minutes: float, server_log: Path) -> dict[str, Any]:
+    by: dict[str, list[tuple[int, float]]] = {}
+    for _, kind, status, ms in rec.rows:
+        by.setdefault(kind, []).append((status, ms))
+    kinds = {}
+    for kind, vals in sorted(by.items()):
+        ms = [m for s, m in vals if s < 500]
+        kinds[kind] = {
+            "n": len(vals),
+            "p50_ms": round(pct(ms, 50), 1),
+            "p95_ms": round(pct(ms, 95), 1),
+            "max_ms": round(max(ms) if ms else 0, 1),
+            "errors_5xx": sum(1 for s, _ in vals if s >= 500),
+            "status": {str(s): sum(1 for x, _ in vals if x == s) for s in sorted({x for x, _ in vals})},
+        }
+    http = [m for _, k, s, m in rec.rows if not k.startswith("sse") and s < 500]
+    # RSS: per-pid first/last 10 min medians.
+    rows = list(csv.DictReader((out / "samples.csv").open()))
+    per: dict[str, list[tuple[float, float]]] = {}
+    for r in rows:
+        per.setdefault(r["pid"], []).append((float(r["t"]), float(r["rss_mb"])))
+    growth = {}
+    for pid, pts in per.items():
+        if len(pts) < 8:
+            continue
+        t0 = pts[0][0]
+        early = [m for t, m in pts if 300 <= t - t0 <= 900] or [pts[0][1]]
+        late = [m for t, m in pts if t - t0 >= (pts[-1][0] - t0) - 600]
+        growth[pid] = {
+            "start_mb": round(pts[0][1], 1),
+            "early_median_mb": round(statistics.median(early), 1),
+            "late_median_mb": round(statistics.median(late), 1),
+            "max_mb": round(max(m for _, m in pts), 1),
+            "growth_mb_per_hour": round(
+                (statistics.median(late) - statistics.median(early))
+                / max(1e-6, ((pts[-1][0] - t0) - 600) / 3600 - 0.1)
+                if len(pts) > 40 else 0.0,
+                1,
+            ),
+        }
+    log = server_log.read_text(errors="replace") if server_log.exists() else ""
+    summary = {
+        "minutes": minutes,
+        "requests": len(rec.rows),
+        "http_p50_ms": round(pct(http, 50), 1),
+        "http_p95_ms": round(pct(http, 95), 1),
+        "errors_5xx": sum(1 for _, _, s, _ in rec.rows if s >= 500),
+        "worker_restarts": info["restarts"],
+        "log_worker_timeouts": log.count("WORKER TIMEOUT"),
+        "log_autorestarts": log.count("Autorestarting worker"),
+        "log_oom_or_sigkill": log.count("SIGKILL") + log.count("Out of memory"),
+        "max_total_rss_mb": round(info["max_total_mb"], 1),
+        "over_1gb": info["max_total_mb"] > 1024,
+        "kinds": kinds,
+        "rss": growth,
+    }
+    (out / "summary.json").write_text(json.dumps(summary, indent=2))
+    md = [f"# load_class.py — {minutes:g} min", "", "| metric | value |", "|---|---|"]
+    for key in ("requests", "http_p50_ms", "http_p95_ms", "errors_5xx", "worker_restarts",
+                "log_worker_timeouts", "log_autorestarts", "max_total_rss_mb", "over_1gb"):
+        md.append(f"| {key} | {summary[key]} |")
+    md += ["", "| kind | n | p50 ms | p95 ms | max ms | 5xx |", "|---|---|---|---|---|---|"]
+    for k, v in kinds.items():
+        md.append(f"| {k} | {v['n']} | {v['p50_ms']} | {v['p95_ms']} | {v['max_ms']} | {v['errors_5xx']} |")
+    md += ["", "| pid | start MB | 5–15 min MB | last 10 min MB | max MB | MB/h |", "|---|---|---|---|---|---|"]
+    for pid, g in growth.items():
+        md.append(f"| {pid} | {g['start_mb']} | {g['early_median_mb']} | {g['late_median_mb']} | {g['max_mb']} | {g['growth_mb_per_hour']} |")
+    (out / "summary.md").write_text("\n".join(md) + "\n")
+    return summary
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--minutes", type=float, default=60)
+    ap.add_argument("--students", type=int, default=30)
+    ap.add_argument("--round-minutes", type=float, default=4)
+    ap.add_argument("--port", type=int, default=18791)
+    ap.add_argument("--out", type=Path, default=REPO / "lc-qa" / "load-class" / time.strftime("%Y%m%d-%H%M"))
+    ap.add_argument("--presence-url", default=os.environ.get("LIVE_PRESENCE_TEST_URL", DEFAULT_PRESENCE))
+    ap.add_argument("--tracemalloc", action="store_true")
+    ap.add_argument("--strip-max-requests", action="store_true",
+                    help="Drop --max-requests from the image command (baseline leak runs).")
+    args = ap.parse_args()
+    out = args.out.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    data = Path(tempfile.mkdtemp(prefix="load-class-"))
+    # Fresh presence schema per run so attendees from old runs are not counted.
+    import psycopg  # noqa: PLC0415
+    dbname = f"load_{int(time.time())}_{os.getpid()}"
+    with psycopg.connect(args.presence_url, autocommit=True) as conn:
+        conn.execute(f'CREATE DATABASE "{dbname}"')
+    presence = args.presence_url.rsplit("/", 1)[0] + "/" + dbname
+    fx = seed(data, args.students, presence)
+    (out / "fixture.json").write_text(json.dumps({k: v for k, v in fx.items() if k != "students"}, indent=2))
+    hooks = out / "gunicorn_hooks.py"
+    hooks.write_text(GUNICORN_HOOKS)
+    env = {
+        **os.environ,
+        "FLASK_ENV": "production",
+        "FLASK_SECRET_KEY": SECRET,
+        "LLOVES_DB": str(data / "lloves.sqlite"),
+        "LLOVES_DATA_DIR": str(data),
+        "LIVE_DATABASE_URL": presence,
+        "LOAD_OUT": str(out),
+        "LOAD_TRACEMALLOC": "1" if args.tracemalloc else "0",
+        "SENTRY_DSN": "",
+        "PYTHONPATH": str(REPO),
+    }
+    env.pop("LOCAL_DEV_LOGIN", None)
+    server_log = out / "server.log"
+    argv = gunicorn_argv(args.port, hooks, args.strip_max_requests)
+    (out / "command.txt").write_text(" ".join(argv) + "\n")
+    proc = subprocess.Popen(argv, cwd=REPO, env=env, stdout=server_log.open("w"), stderr=subprocess.STDOUT)
+    import requests  # noqa: PLC0415
+    base = f"http://127.0.0.1:{args.port}"
+    for _ in range(120):
+        if proc.poll() is not None:
+            break
+        try:
+            if requests.get(base + "/health", timeout=2).status_code == 200:
+                break
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(1)
+    else:
+        proc.terminate()
+        print("server did not come up; see", server_log)
+        return 2
+    time.sleep(10)  # let every worker finish create_app()
+    info = {"restarts": 0, "max_total_mb": 0.0}
+    stop_evt = threading.Event()
+    smp = threading.Thread(target=sampler, args=(proc.pid, out, stop_evt, info), daemon=True)
+    smp.start()
+    rec = Recorder(out / "requests.csv")
+    try:
+        run_load(base, fx, args.minutes, args.round_minutes, rec)
+    finally:
+        stop_evt.set()
+        smp.join(timeout=20)
+        rec.fh.close()
+        proc.send_signal(signal.SIGTERM)
+        try:
+            proc.wait(timeout=40)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    summary = summarize(out, rec, info, args.minutes, server_log)
+    print(json.dumps({k: v for k, v in summary.items() if k not in ("kinds", "rss")}, indent=2))
+    print("results:", out)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
