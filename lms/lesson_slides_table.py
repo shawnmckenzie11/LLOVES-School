@@ -176,7 +176,11 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
                 "slot": slot,
                 "label": f"{module}{slot}",
                 "last_run_at": str(latest.get("ended_at") or "") if latest else "",
-                "join_code": str(latest.get("session_code") or "") if latest else "",
+                "join_code": (
+                    str(catchup.get("portal_join_code") or catchup.get("token") or "").strip()
+                    if catchup and has_run
+                    else ""
+                ),
                 "has_run": has_run,
                 "question_summary": _question_summary_text(summary) if questions else "—",
                 "summary": summary,

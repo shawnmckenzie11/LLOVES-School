@@ -31636,7 +31636,7 @@ class SchoolDB(LovesDB):
             rows = self.conn.execute(
                 """
                 SELECT c.class_id, c.token, c.run_key, c.live_module, c.live_slot, c.is_open,
-                       c.created_at,
+                       c.created_at, c.portal_join_code,
                        COALESCE(r.discarded, 0) AS discarded,
                        COALESCE(r.is_real, 0) AS is_real
                 FROM catchup_links c

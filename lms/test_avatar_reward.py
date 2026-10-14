@@ -555,7 +555,7 @@ class AvatarRewardTests(unittest.TestCase):
         css = (LMS_DIR / "static" / "student-portal.css").read_text(encoding="utf-8")
         self.assertIn(".me-meet-chip[hidden] {\n  display: none;", css)
 
-    # MED-2: a reused student id never inherits the Shoutout ---------------
+    # MED-2: a replacement student never inherits the Shoutout -------------
 
     def _feature_zara(self) -> int:
         """Ops repro setup: Zara (highest id) gets the Shoutout and claims it."""
@@ -591,8 +591,8 @@ class AvatarRewardTests(unittest.TestCase):
         board = self.app.test_client().get("/api/celebrations").get_json()
         self.assertNotIn("Yuri", json.dumps(board))
 
-    def test_med2_deleted_featured_student_id_reused_by_new_student(self) -> None:
-        """Delete featured Zara, add Yuri on her id: no Shoutout, grant or claim."""
+    def test_med2_deleted_featured_student_new_id_does_not_inherit(self) -> None:
+        """Delete featured Zara; Yuri gets a fresh id with no Shoutout, grant or claim."""
         zara = self._feature_zara()
         res = self.staff.post(
             f"/api/classes/{self.class_id}/students/delete", json={"student_id": zara}
@@ -600,8 +600,9 @@ class AvatarRewardTests(unittest.TestCase):
         self.assertEqual(res.status_code, 200, res.get_data(as_text=True)[:200])
         self.assertEqual(self.school.get_school_setting(SETTING_FEATURED_AWARD, ""), "")
         self.assertEqual(self.school.get_school_setting(SETTING_FEATURED_AWARD_ID, ""), "")
-        self.assertEqual(self._add_student("Yuri"), zara)  # SQLite reused the id
-        self._assert_yuri_gets_nothing(zara)
+        yuri = self._add_student("Yuri")
+        self.assertGreater(yuri, zara)
+        self._assert_yuri_gets_nothing(yuri)
 
     def test_med2_roster_replace_drops_the_featured_student(self) -> None:
         """Roster replace that drops featured Zara clears the Shoutout too."""
@@ -612,8 +613,9 @@ class AvatarRewardTests(unittest.TestCase):
         )
         self.assertEqual(res.status_code, 200, res.get_data(as_text=True)[:200])
         self.assertEqual(self.school.get_school_setting(SETTING_FEATURED_AWARD, ""), "")
-        self.assertEqual(self._add_student("Yuri"), zara)
-        self._assert_yuri_gets_nothing(zara)
+        yuri = self._add_student("Yuri")
+        self.assertGreater(yuri, zara)
+        self._assert_yuri_gets_nothing(yuri)
 
     def test_med2_stale_pointer_fails_the_fingerprint(self) -> None:
         """Even if the pointer survives (no hook ran), the fp check refuses Yuri."""
@@ -621,8 +623,9 @@ class AvatarRewardTests(unittest.TestCase):
         self.school.game.delete_student(self.class_id, zara)  # no app hook
         self.school.delete_avatar_reward_grants(self.class_id, [zara])
         self.assertNotEqual(self.school.get_school_setting(SETTING_FEATURED_AWARD, ""), "")
-        self.assertEqual(self._add_student("Yuri"), zara)
-        self._assert_yuri_gets_nothing(zara)
+        yuri = self._add_student("Yuri")
+        self.assertGreater(yuri, zara)
+        self._assert_yuri_gets_nothing(yuri)
 
     def test_med2_legacy_shoutout_is_pinned_before_reuse(self) -> None:
         """A pre-#221 Shoutout (no fp) is pinned on first read, then guarded."""
@@ -635,8 +638,9 @@ class AvatarRewardTests(unittest.TestCase):
         self.assertIn(zara, [r["student_id"] for r in reward_appearances(self.school)])
         self.assertTrue(json.loads(self.school.get_school_setting(SETTING_FEATURED_AWARD_ID))["fp"])
         self.school.game.delete_student(self.class_id, zara)  # no app hook
-        self.assertEqual(self._add_student("Yuri"), zara)
-        self._assert_yuri_gets_nothing(zara)
+        yuri = self._add_student("Yuri")
+        self.assertGreater(yuri, zara)
+        self._assert_yuri_gets_nothing(yuri)
 
     # LOW-4: one Shoutout, one grant, across a rollback ---------------------
 

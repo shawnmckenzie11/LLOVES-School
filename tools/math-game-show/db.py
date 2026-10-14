@@ -830,6 +830,7 @@ class GameShowDB:
         self._migrate_student_default_pin_ciphertext()
         self._migrate_student_pin_set_by()
         self._migrate_test_student_flag()
+        self._migrate_student_id_seq()
         self._migrate_class_require_catchup_pin_change()
         self._migrate_student_portal()
         self._migrate_session_scores_late()
@@ -971,6 +972,29 @@ class GameShowDB:
         if "is_test_student" not in cols:
             self.conn.execute(
                 "ALTER TABLE students ADD COLUMN is_test_student INTEGER NOT NULL DEFAULT 0"
+            )
+
+    def _migrate_student_id_seq(self) -> None:
+        """Allocate monotonic ``students.id`` values (never reuse deleted ids)."""
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS student_id_seq (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                next_id INTEGER NOT NULL
+            )
+            """
+        )
+        row = self.conn.execute(
+            "SELECT next_id FROM student_id_seq WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            n = int(
+                self.conn.execute(
+                    "SELECT COALESCE(MAX(id), 0) + 1 FROM students"
+                ).fetchone()[0]
+            )
+            self.conn.execute(
+                "INSERT INTO student_id_seq (id, next_id) VALUES (1, ?)", (n,)
             )
 
     def _migrate_class_require_catchup_pin_change(self) -> None:
@@ -1128,40 +1152,22 @@ class GameShowDB:
             return base
         return f"{base[:19]}.{datetime.now().microsecond:06d}{base[19:]}"
 
-    def _next_student_id_for_class(self, class_id: int, *, test_row: bool) -> int:
-        """Pick a student primary key.
-
-        Roster students reuse the lowest global id gap so deleted ids can be
-        taken again (celebration fingerprint / Shoutout guards). The Test
-        Student always appends at max(id)+1 so it does not occupy a gap a
-        real student needs after a delete.
-
-        Args:
-            class_id: Classes primary key (unused; ids are global).
-            test_row: When True, allocate at the end of the id sequence.
-
-        Returns:
-            Unused ``students.id``.
-        """
-        if test_row:
-            row = self.conn.execute(
-                "SELECT COALESCE(MAX(id), 0) + 1 FROM students"
-            ).fetchone()
-            return int(row[0])
-        gap = self.conn.execute(
-            """
-            SELECT MIN(s1.id + 1) AS next_id
-            FROM students AS s1
-            LEFT JOIN students AS s2 ON s2.id = s1.id + 1
-            WHERE s2.id IS NULL
-            """
-        ).fetchone()
-        if gap and gap[0] is not None:
-            return int(gap[0])
+    def _allocate_student_id(self) -> int:
+        """Return the next ``students.id`` (monotonic; never reuse a deleted id)."""
         row = self.conn.execute(
-            "SELECT COALESCE(MAX(id), 0) + 1 FROM students"
+            "SELECT next_id FROM student_id_seq WHERE id = 1"
         ).fetchone()
-        return int(row[0])
+        if row is None:
+            self._migrate_student_id_seq()
+            row = self.conn.execute(
+                "SELECT next_id FROM student_id_seq WHERE id = 1"
+            ).fetchone()
+        student_id = int(row[0])
+        self.conn.execute(
+            "UPDATE student_id_seq SET next_id = ? WHERE id = 1",
+            (student_id + 1,),
+        )
+        return student_id
 
     def _insert_student_row(
         self,
@@ -1187,9 +1193,7 @@ class GameShowDB:
             New student primary key.
         """
         cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(students)").fetchall()}
-        student_id = self._next_student_id_for_class(
-            class_id, test_row=bool(is_test_student)
-        )
+        student_id = self._allocate_student_id()
         if "is_test_student" in cols:
             self.conn.execute(
                 """
@@ -1223,7 +1227,7 @@ class GameShowDB:
                     codename,
                 ),
             )
-        return int(student_id)
+        return student_id
 
     def create_class(
         self,
@@ -6150,7 +6154,7 @@ class GameShowDB:
             students = [
                 dict(r)
                 for r in self.conn.execute(
-                    "SELECT * FROM students WHERE class_id = ? ORDER BY last_display, first_name",
+                    "SELECT * FROM students WHERE class_id = ? AND COALESCE(is_test_student, 0) = 0 ORDER BY last_display, first_name",
                     (class_id,),
                 )
             ]

@@ -1966,8 +1966,14 @@ body.staff-shell .live-header-save {
   padding: 0.28rem 0.65rem;
   cursor: pointer;
 }
+body.staff-shell .lesson-slides-table-card .table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
 body.staff-shell table.ls-run-table {
   width: 100%;
+  min-width: 34rem;
   border-collapse: collapse;
 }
 body.staff-shell table.ls-run-table th,
