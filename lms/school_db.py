@@ -910,6 +910,20 @@ CREATE TABLE IF NOT EXISTS lesson_slide_decks (
     UNIQUE(class_id, module_number, live_index)
 );
 
+-- MCK-229: latest real run per live class (one row per module/slot).
+CREATE TABLE IF NOT EXISTS lesson_slides_latest (
+    class_id INTEGER NOT NULL,
+    live_module TEXT NOT NULL,
+    live_slot TEXT NOT NULL,
+    run_key TEXT NOT NULL,
+    session_code TEXT NOT NULL DEFAULT '',
+    ended_at TEXT NOT NULL,
+    presentation_url TEXT NOT NULL DEFAULT '',
+    questions_json TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (class_id, live_module, live_slot)
+);
+
 CREATE TABLE IF NOT EXISTS live_problems (
     id INTEGER PRIMARY KEY,
     ontario_code TEXT NOT NULL,
@@ -1971,6 +1985,7 @@ class LovesDB:
             self._ensure_offering_schedule_columns()
             self._ensure_live_class_schedule_columns()
             self._ensure_participation_run_kind_columns()
+            self._ensure_lesson_slides_latest_schema()
             self._ensure_catchup_slot_unique()
             self._ensure_catchup_portal_join_code_column()
             self._ensure_library_schema()
@@ -3400,6 +3415,25 @@ class LovesDB:
             self.conn.execute(
                 "ALTER TABLE ontario_courses ADD COLUMN live_class_end_time TEXT"
             )
+
+    def _ensure_lesson_slides_latest_schema(self) -> None:
+        """``lesson_slides_latest`` stores the newest real run per live class (MCK-229)."""
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS lesson_slides_latest (
+                class_id INTEGER NOT NULL,
+                live_module TEXT NOT NULL,
+                live_slot TEXT NOT NULL,
+                run_key TEXT NOT NULL,
+                session_code TEXT NOT NULL DEFAULT '',
+                ended_at TEXT NOT NULL,
+                presentation_url TEXT NOT NULL DEFAULT '',
+                questions_json TEXT NOT NULL DEFAULT '[]',
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (class_id, live_module, live_slot)
+            );
+            """
+        )
 
     def _ensure_participation_run_kind_columns(self) -> None:
         """``is_real`` / ``auto_is_real`` on ``participation_runs`` (MCK-207)."""
@@ -27877,7 +27911,7 @@ class SchoolDB(LovesDB):
                 for row in self.game.conn.execute(
                     """
                     SELECT * FROM students
-                    WHERE class_id = ?
+                    WHERE class_id = ? AND COALESCE(is_test_student, 0) = 0
                     ORDER BY lower(codename), id
                     """,
                     (class_id,),
@@ -30257,6 +30291,15 @@ class SchoolDB(LovesDB):
             self._upsert_real_catchup_link_unlocked(
                 class_id, run_key, module, slot, now=now
             )
+            self._upsert_lesson_slides_latest_unlocked(
+                sid,
+                class_id=class_id,
+                run_key=run_key,
+                module=module,
+                slot=slot,
+                ended_at=ended_at,
+                session_code=str(session["session_code"] or ""),
+            )
 
     def live_class_schedule_for_class(
         self, class_id: int, *, offering_end_required: bool = False
@@ -30792,6 +30835,277 @@ class SchoolDB(LovesDB):
             return link
         return dict(row)
 
+    TEST_STUDENT_CODENAME = "Test Student"
+
+    def test_student_ids(self, class_id: int) -> list[int]:
+        """Ids of roster Test Student rows (excluded from class metrics)."""
+        if getattr(self, "game", None) is None:
+            return []
+        with self.game._lock:
+            rows = self.game.conn.execute(
+                """
+                SELECT id FROM students
+                WHERE class_id = ? AND COALESCE(is_test_student, 0) = 1
+                """,
+                (int(class_id),),
+            ).fetchall()
+        return [int(r[0]) for r in rows]
+
+    def is_test_student(self, student_id: int) -> bool:
+        """True when the roster row is the class Test Student."""
+        if getattr(self, "game", None) is None:
+            return False
+        with self.game._lock:
+            row = self.game.conn.execute(
+                "SELECT COALESCE(is_test_student, 0) FROM students WHERE id = ?",
+                (int(student_id),),
+            ).fetchone()
+        return bool(row and int(row[0]))
+
+    def ensure_class_test_student(self, class_id: int) -> dict[str, Any] | None:
+        """Ensure exactly one Test Student exists on the class roster (MCK-229)."""
+        if getattr(self, "game", None) is None:
+            return None
+        cid = int(class_id)
+        with self.game._lock:
+            row = self.game.conn.execute(
+                """
+                SELECT id FROM students
+                WHERE class_id = ? AND COALESCE(is_test_student, 0) = 1
+                LIMIT 1
+                """,
+                (cid,),
+            ).fetchone()
+        if row is not None:
+            stu_id = int(row[0])
+        else:
+            stu_id = self.game._insert_student_row(
+                cid,
+                canvas_id=f"test-student:{cid}",
+                last_display=self.TEST_STUDENT_CODENAME,
+                first_name=self.TEST_STUDENT_CODENAME,
+                codename=self.TEST_STUDENT_CODENAME,
+                is_test_student=True,
+            )
+            self.game.conn.commit()
+        return {"student_id": stu_id, "codename": self.TEST_STUDENT_CODENAME}
+
+    def catchup_public_url(self, class_id: int, link: dict[str, Any]) -> str:
+        """Relative catch-up page URL for one link row."""
+        from participation import catchup_lesson_slug
+
+        course = self._course_code_for_class(int(class_id)).upper()
+        slug = catchup_lesson_slug(
+            str(link.get("live_module") or ""),
+            str(link.get("live_slot") or ""),
+        )
+        token = str(link.get("token") or "")
+        return f"/catchup/{course}/{slug}/{token}"
+
+    def list_lesson_slides_latest(self, class_id: int) -> list[dict[str, Any]]:
+        """Return stored latest-run rows for Lesson Slides (MCK-229)."""
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT * FROM lesson_slides_latest
+                WHERE class_id = ?
+                ORDER BY live_module, live_slot
+                """,
+                (int(class_id),),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            try:
+                item["questions"] = json.loads(item.pop("questions_json") or "[]")
+            except (TypeError, ValueError):
+                item["questions"] = []
+            out.append(item)
+        return out
+
+    def _upsert_lesson_slides_latest_unlocked(
+        self,
+        session_id: int,
+        *,
+        class_id: int,
+        run_key: str,
+        module: str,
+        slot: str,
+        ended_at: str,
+        session_code: str,
+    ) -> None:
+        """Replace the Lesson Slides ground-truth row for one live class slot."""
+        from lesson_slides_table import _bank_question_id, _stem, _type_label
+        from participation_weight import item_participation_weight
+
+        sid = int(session_id)
+        cid = int(class_id)
+        mod = str(module or "").upper()
+        sl = str(slot or "").upper()
+        mod_num = int(mod[1:]) if mod.startswith("M") and mod[1:].isdigit() else 0
+        slot_num = int(sl[1:]) if sl.startswith("C") and sl[1:].isdigit() else 0
+        deck = self.get_lesson_slide_deck(cid, mod_num, slot_num) if mod_num and slot_num else None
+        presentation_url = str((deck or {}).get("presentation_url") or "")
+        item_rows = self.conn.execute(
+            """
+            SELECT i.placement_key, i.page_number, i.publish_mode, i.response_mode, i.kind,
+                   CASE WHEN TRIM(COALESCE(pr.payload, '')) NOT IN ('', '{}')
+                        THEN pr.payload ELSE i.item_json END AS payload
+            FROM live_session_items i
+            LEFT JOIN live_session_prompts pr ON pr.id = i.prompt_id
+            WHERE i.live_session_id = ? AND i.published_at IS NOT NULL
+            ORDER BY COALESCE(i.page_number, 0), i.id
+            """,
+            (sid,),
+        ).fetchall()
+        questions: list[dict[str, Any]] = []
+        catchup_keys = {
+            str(r[0])
+            for r in self.conn.execute(
+                """
+                SELECT question_key FROM participation_items
+                WHERE class_id = ? AND run_key = ?
+                """,
+                (cid, str(run_key)),
+            ).fetchall()
+        }
+        for row in item_rows:
+            try:
+                payload = json.loads(row["payload"] or "{}")
+            except (TypeError, ValueError):
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            payload.setdefault("type", str(row["kind"] or payload.get("type") or ""))
+            qkey = f"item:{row['placement_key']}"
+            pub = str(row["publish_mode"] or "individual").strip().lower()
+            mode = (
+                "group"
+                if pub in {"group_consensus", "group_shared", "group"}
+                else "individual"
+            )
+            questions.append(
+                {
+                    "question_key": qkey,
+                    "page": int(row["page_number"] or 0),
+                    "stem": _stem(payload),
+                    "type": str(payload.get("type") or ""),
+                    "type_label": _type_label(payload),
+                    "mode": mode,
+                    "weight": item_participation_weight(
+                        str(row["kind"] or payload.get("type") or ""),
+                        publish_mode=str(row["publish_mode"] or "individual"),
+                        item_json=payload,
+                    ),
+                    "in_catchup": qkey in catchup_keys,
+                    "bank_question_id": _bank_question_id(payload),
+                }
+            )
+        now = _now()
+        self.conn.execute(
+            """
+            INSERT INTO lesson_slides_latest (
+                class_id, live_module, live_slot, run_key, session_code, ended_at,
+                presentation_url, questions_json, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(class_id, live_module, live_slot) DO UPDATE SET
+                run_key = excluded.run_key,
+                session_code = excluded.session_code,
+                ended_at = excluded.ended_at,
+                presentation_url = excluded.presentation_url,
+                questions_json = excluded.questions_json,
+                updated_at = excluded.updated_at
+            """,
+            (
+                cid,
+                mod,
+                sl,
+                str(run_key),
+                str(session_code or ""),
+                str(ended_at or now),
+                presentation_url,
+                json.dumps(questions),
+                now,
+            ),
+        )
+
+    def lesson_slides_question_rows(
+        self,
+        class_id: int,
+        module: str,
+        slot: str,
+        *,
+        latest: dict[str, Any] | None,
+        test_student_ids: set[int] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Question rows for Lesson Slides with live/catch-up completion counts."""
+        from bank_lint import fix_codes
+
+        cid = int(class_id)
+        test_ids = test_student_ids or set(self.test_student_ids(cid))
+        base: list[dict[str, Any]] = []
+        run_key = ""
+        if latest and isinstance(latest.get("questions"), list):
+            base = [dict(q) for q in latest["questions"]]
+            run_key = str(latest.get("run_key") or "")
+        if not base:
+            return []
+        lint_ids = [int(q["bank_question_id"]) for q in base if q.get("bank_question_id")]
+        lint_map = fix_codes(self, lint_ids) if lint_ids else {}
+        live_counts: dict[str, int] = {}
+        catch_counts: dict[str, int] = {}
+        if run_key:
+            exclude = ",".join("?" * len(test_ids)) if test_ids else ""
+            live_params: list[Any] = [cid, run_key]
+            if test_ids:
+                live_sql = f"""
+                    SELECT question_key, COUNT(DISTINCT student_id) AS n
+                    FROM live_result_snapshots
+                    WHERE class_id = ? AND run_key = ? AND source = 'prompt'
+                      AND student_id IS NOT NULL
+                      {f'AND student_id NOT IN ({exclude})' if test_ids else ''}
+                    GROUP BY question_key
+                """
+                live_params.extend(sorted(test_ids))
+            else:
+                live_sql = """
+                    SELECT question_key, COUNT(DISTINCT student_id) AS n
+                    FROM live_result_snapshots
+                    WHERE class_id = ? AND run_key = ? AND source = 'prompt'
+                      AND student_id IS NOT NULL
+                    GROUP BY question_key
+                """
+            with self._lock:
+                for row in self.conn.execute(live_sql, live_params).fetchall():
+                    live_counts[str(row["question_key"])] = int(row["n"])
+                catch_params: list[Any] = [cid, run_key]
+                catch_sql = """
+                    SELECT question_key, COUNT(DISTINCT student_id) AS n
+                    FROM participation_answers
+                    WHERE class_id = ? AND run_key = ? AND source = 'catchup'
+                """
+                if test_ids:
+                    catch_sql += f" AND student_id NOT IN ({exclude})"
+                    catch_params.extend(sorted(test_ids))
+                catch_sql += " GROUP BY question_key"
+                for row in self.conn.execute(catch_sql, catch_params).fetchall():
+                    catch_counts[str(row["question_key"])] = int(row["n"])
+        out: list[dict[str, Any]] = []
+        for q in base:
+            qid = int(q.get("bank_question_id") or 0)
+            codes = lint_map.get(qid, []) if qid else []
+            key = str(q.get("question_key") or "")
+            out.append(
+                {
+                    **q,
+                    "lint_codes": codes,
+                    "lint_ok": not codes,
+                    "live_completed": int(live_counts.get(key, 0)),
+                    "catchup_completed": int(catch_counts.get(key, 0)),
+                }
+            )
+        return out
+
     def module_complete(self, class_id: int, module: str) -> bool:
         """A teacher mark wins (reversible); otherwise complete once C4 has run."""
         with self._lock:
@@ -31246,11 +31560,19 @@ class SchoolDB(LovesDB):
 
         offered, answered = self._participation_counts(class_id)
         modules = sorted(offered)
+        test_ids = set(self.test_student_ids(class_id))
         students = self.game.conn.execute(
-            "SELECT id FROM students WHERE class_id = ? ORDER BY id", (int(class_id),)
+            """
+            SELECT id FROM students
+            WHERE class_id = ? AND COALESCE(is_test_student, 0) = 0
+            ORDER BY id
+            """,
+            (int(class_id),),
         ).fetchall() if getattr(self, "game", None) is not None else []
         rows = []
         for stu in students:
+            if int(stu["id"]) in test_ids:
+                continue
             cells = {}
             for mod in modules:
                 got = answered.get((int(stu["id"]), mod), {"n": 0, "catchup": 0})
@@ -31452,7 +31774,7 @@ class SchoolDB(LovesDB):
             rows = self.conn.execute(
                 """
                 SELECT c.class_id, c.token, c.run_key, c.live_module, c.live_slot, c.is_open,
-                       c.created_at,
+                       c.created_at, c.portal_join_code,
                        COALESCE(r.discarded, 0) AS discarded,
                        COALESCE(r.is_real, 0) AS is_real
                 FROM catchup_links c
@@ -32571,11 +32893,24 @@ class SchoolDB(LovesDB):
                 )
         return out
 
-    def class_codenames(self, class_id: int) -> dict[int, str]:
-        """Roster codenames (unique per class), the names the picker shows."""
+    def class_codenames(
+        self, class_id: int, *, include_test_students: bool = False
+    ) -> dict[int, str]:
+        """Roster codenames (unique per class), the names the picker shows.
+
+        Args:
+            class_id: Classes primary key.
+            include_test_students: When True, include the class Test Student
+                (Attendance & Participation roster tab only).
+        """
+        clause = (
+            "class_id = ?"
+            if include_test_students
+            else "class_id = ? AND COALESCE(is_test_student, 0) = 0"
+        )
         with self.game._lock:
             rows = self.game.conn.execute(
-                "SELECT id, codename FROM students WHERE class_id = ? "
+                f"SELECT id, codename FROM students WHERE {clause} "
                 "AND TRIM(COALESCE(codename, '')) <> '' ORDER BY codename COLLATE NOCASE",
                 (int(class_id),),
             ).fetchall()

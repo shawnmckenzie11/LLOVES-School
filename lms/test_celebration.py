@@ -787,22 +787,23 @@ class CelebrationTests(unittest.TestCase):
             )
         self.assertEqual(self._engaged_names(), {})
 
-    def test_reused_student_id_is_not_celebrated(self) -> None:
-        """MCK-118 LOW-5: a new student who gets a deleted winner's id is skipped."""
+    def test_deleted_winner_id_not_reused_skips_stale_engagement(self) -> None:
+        """A replacement student on a fresh id does not inherit Most Engaged credit."""
         class_id = self._populate(["Birch", "Winner"])
         ids = self._ids(class_id)
-        self.assertGreater(ids["Winner"], ids["Birch"])
-        self._log_day(class_id, "2026-09-09", [ids["Winner"]], {ids["Winner"]: 5})
+        winner_id = ids["Winner"]
+        self._log_day(class_id, "2026-09-09", [winner_id], {winner_id: 5})
         self.assertEqual(self._engaged_names(), {"MCF3M": ["Winner"]})
         self.client.post(
             f"/api/classes/{class_id}/students/delete",
-            json={"student_id": ids["Winner"]},
+            json={"student_id": winner_id},
         )
         added = self.client.post(
             f"/api/classes/{class_id}/students", json={"codename": "Newkid"}
         )
         self.assertEqual(added.status_code, 200, added.get_json())
-        self.assertEqual(self._ids(class_id)["Newkid"], ids["Winner"])
+        new_id = self._ids(class_id)["Newkid"]
+        self.assertGreater(new_id, winner_id)
         self.assertEqual(self._engaged_names(), {})
         self.assertEqual(
             [r for r in celebrated_students(self.school) if r["card"] == "engaged"], []

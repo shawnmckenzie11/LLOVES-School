@@ -147,9 +147,19 @@ def seed_local_dev_school(school: Any) -> dict[str, Any]:
         from lms.curriculum_bank_seed import seed_local_question_banks
 
     summary["import_banks"] = seed_local_question_banks(school)
+    school.ensure_class_test_student(int(class_row["id"]))
     summary["participation_seed"] = _seed_demo_participation(
         school, int(class_row["id"]), int(shawn["id"])
     )
+    test_ids = school.test_student_ids(int(class_row["id"]))
+    if test_ids:
+        school.set_student_pin(
+            int(class_row["id"]),
+            int(test_ids[0]),
+            LOCAL_DEV_TEST_STUDENT_PIN,
+            pin_set_by="teacher",
+        )
+        summary["test_student_pin"] = LOCAL_DEV_TEST_STUDENT_PIN
     summary["engagement_roster"] = _seed_engagement_ap_roster(
         school, int(class_row["id"])
     )
@@ -157,6 +167,8 @@ def seed_local_dev_school(school: Any) -> dict[str, Any]:
 
 
 LOCAL_DEV_PIN = "1234"
+# Local demo only — never used in populate/production paths (MCK-229 Ops).
+LOCAL_DEV_TEST_STUDENT_PIN = "9999"
 LOCAL_DEV_M1_QUESTIONS: tuple[dict[str, Any], ...] = (
     {"text": "Which expression is the expanded form of $(x + 3)^2$?", "type": "mc",
      "options": [{"text": "$x^2 + 9$"}, {"text": "$x^2 + 6x + 9$"}, {"text": "$x^2 + 3x + 9$"}]},

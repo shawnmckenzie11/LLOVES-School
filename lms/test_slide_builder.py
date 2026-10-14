@@ -655,7 +655,7 @@ class LessonSlidesHttpTests(unittest.TestCase):
         self.assertIn("jigsaw", text.lower())
         self.assertIn("TEAM_CHALLENGE_ROUND_CONTEXT", text)
         tab = self.client.get(f"/staff/class/{self.class_id}?tab=lesson-slides")
-        self.assertIn("ls-preview", tab.get_data(as_text=True))
+        self.assertIn('id="ls-run-table"', tab.get_data(as_text=True))
         live = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         self.assertNotIn("ap-connect-slides", live.get_data(as_text=True))
 

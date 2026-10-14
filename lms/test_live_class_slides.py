@@ -440,8 +440,7 @@ class LiveClassSlidesTests(unittest.TestCase):
         slides_tab = self.client.get(f"/staff/class/{self.class_id}?tab=lesson-slides")
         slides_html = slides_tab.get_data(as_text=True)
         self.assertIn("Lesson Slides", slides_html)
-        self.assertIn("Connect Google Slides", slides_html)
-        self.assertIn("ls-build", slides_html)
+        self.assertIn('id="ls-run-table"', slides_html)
 
     def test_observation_crud_and_coverage(self) -> None:
         """Student-scope observation, coverage counts, then delete."""
