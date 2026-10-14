@@ -116,7 +116,7 @@ class RosterTests(unittest.TestCase):
         self.assertIn("<h1>MCF3M</h1>", html)
         self.assertNotIn("Tue/Thu/Fri", html)
         self.assertNotIn("Log Participation", html)
-        self.assertIn("round-view-select", html)
+        self.assertIn("ap-group-slice-select", html)
         self.assertNotIn("Start Live Class Tracker", html)
         self.assertNotIn(">Add Student</h2>", html)
         self.assertNotIn("id=\"add-student\"", html)

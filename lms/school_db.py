@@ -36280,6 +36280,11 @@ class SchoolDB(LovesDB):
         grid["class"] = self.enrich_class(dash["class"])
         grid["live_subtotals"] = dash.get("live_subtotals") or {}
         grid["totals"] = dash.get("totals") or {}
+        try:
+            grid["module_participation"] = self.class_participation(class_id)
+        except Exception:  # noqa: BLE001 - never break the calendar grid
+            logger.exception("module_participation failed class=%s", class_id)
+            grid["module_participation"] = {"modules": [], "students": []}
         grid["ok"] = True
         return grid
 

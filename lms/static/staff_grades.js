@@ -2,16 +2,23 @@ import { api, escapeHtml, formatPoints, hideError, showError } from "/static/com
 
 const root = document.getElementById("grades-root");
 const classId = Number(root?.dataset.classId || 0);
+const courseSimple = root?.dataset.courseSimple === "1";
 const sortKey = `lloves-sort-${classId}`;
 const roundViewKey = `mgs-round-view-${classId}`;
+const dataModeKey = `lloves-ap-data-mode-${classId}`;
+const individualMetricKey = `lloves-ap-individual-metric-${classId}`;
 const ROUND_VIEWS = ["total", "r1", "r2", "r3"];
+const DATA_MODES = ["group", "individual"];
+const INDIVIDUAL_METRICS = ["level", "percent"];
 const SLICE_KEYS = { total: "points", r1: "points_r1", r2: "points_r2", r3: "points_r3" };
 const STACK_LABELS = { r1: "Open", r2: "Challenge", r3: "Formative" };
 
 let sort = localStorage.getItem(sortKey) === "za" ? "za" : "az";
 let roundView = loadRoundView(localStorage.getItem(roundViewKey));
-// MCK-183: no Class Data View picker (pack-less non-math course) means Total.
-if (!document.getElementById("round-view-select")) roundView = "total";
+// MCK-183: pack-less non-math courses have no group slice picker — Total only.
+if (!document.getElementById("ap-group-slice-select")) roundView = "total";
+let dataMode = loadDataMode(localStorage.getItem(dataModeKey));
+let individualMetric = loadIndividualMetric(localStorage.getItem(individualMetricKey));
 let latest = null;
 let clearMode = false;
 
@@ -36,11 +43,45 @@ function loadRoundView(raw) {
 }
 
 /**
+ * @param {string|null} raw
+ * @returns {"group"|"individual"}
+ */
+function loadDataMode(raw) {
+  return DATA_MODES.includes(raw || "") ? raw : "group";
+}
+
+/**
+ * @param {string|null} raw
+ * @returns {"level"|"percent"}
+ */
+function loadIndividualMetric(raw) {
+  return INDIVIDUAL_METRICS.includes(raw || "") ? raw : "level";
+}
+
+/**
+ * Ensure module_participation is present (grid embed or teacher API fallback).
+ * @param {any} data
+ */
+async function ensureModuleParticipation(data) {
+  const embedded = data?.module_participation?.modules;
+  if (Array.isArray(embedded) && embedded.length > 0) return;
+  try {
+    const part = await api(`/api/classes/${classId}/participation`);
+    if (Array.isArray(part?.modules) && part.modules.length > 0) {
+      data.module_participation = { modules: part.modules, students: part.students || [] };
+    }
+  } catch (_err) {
+    /* group calendar still works */
+  }
+}
+
+/**
  * Load and paint the class spreadsheet.
  */
 async function refresh() {
   hideError("#error");
   const data = await api(`/api/classes/${classId}/participation-grid?sort=${sort}`);
+  await ensureModuleParticipation(data);
   paint(data);
 }
 
@@ -50,9 +91,29 @@ async function refresh() {
  */
 function paint(data) {
   latest = data;
-  const select = document.getElementById("round-view-select");
-  if (select instanceof HTMLSelectElement) select.value = roundView;
+  const sliceSelect = document.getElementById("ap-group-slice-select");
+  if (sliceSelect instanceof HTMLSelectElement) sliceSelect.value = roundView;
+  const modeSelect = document.getElementById("ap-data-mode-select");
+  if (modeSelect instanceof HTMLSelectElement) modeSelect.value = dataMode;
+  const metricSelect = document.getElementById("ap-individual-metric-select");
+  if (metricSelect instanceof HTMLSelectElement) metricSelect.value = individualMetric;
+  updateFilterChrome();
   renderSheet(data);
+}
+
+/** Show group vs individual controls and hide calendar-only tools when needed. */
+function updateFilterChrome() {
+  const individual = dataMode === "individual";
+  document.getElementById("ap-individual-metric-wrap")?.toggleAttribute("hidden", !individual);
+  document.getElementById("ap-individual-hint")?.toggleAttribute("hidden", !individual);
+  document.getElementById("ap-module-l4-caption")?.toggleAttribute("hidden", !individual);
+  document.getElementById("ap-group-slice-wrap")?.toggleAttribute("hidden", individual);
+  document.getElementById("ap-evidence-coverage")?.toggleAttribute("hidden", individual || courseSimple);
+  document.querySelector(".grades-panel")?.toggleAttribute("hidden", individual);
+  document.getElementById("part-clear")?.toggleAttribute("hidden", individual);
+  if (individual && clearMode) {
+    clearMode = false;
+  }
 }
 
 /**
@@ -73,6 +134,12 @@ function gridCellPoints(cell) {
 function renderSheet(data) {
   const table = document.getElementById("sheet");
   if (!table) return;
+  table.classList.remove("attendance-grid", "ap-module-grid");
+  if (dataMode === "individual") {
+    renderIndividualSheet(data, table);
+    return;
+  }
+  clearModuleL4Caption();
   const weeks = data.weeks || [];
   const labels = data.date_labels || [];
   const meta = data.day_meta || [];
@@ -161,6 +228,111 @@ function renderSheet(data) {
   if (clearBtn) clearBtn.classList.toggle("on", clearMode);
   const sortBtn = document.getElementById("sort-toggle");
   if (sortBtn) sortBtn.textContent = sortLabel;
+}
+
+/**
+ * Per-module individual participation (MCK-198 / MCK-220).
+ * @param {any} data
+ * @param {HTMLTableElement} table
+ */
+function renderIndividualSheet(data, table) {
+  const students = data.students || [];
+  const part = data.module_participation || { modules: [], students: [] };
+  const modules = part.modules || [];
+  const byStudent = new Map(
+    (part.students || []).map((row) => [Number(row.student_id), row.modules || {}]),
+  );
+  const sortLabel = sort === "za" ? "Sort: Z–A" : "Sort: A–Z";
+
+  if (!modules.length) {
+    table.innerHTML = `<tbody><tr><td class="name muted">No individual questions recorded yet. End a live class with individual items, then refresh.</td></tr></tbody>`;
+    table.classList.add("ap-module-grid");
+    clearModuleL4Caption();
+    return;
+  }
+
+  renderModuleL4Caption(modules);
+
+  let head = `<tr><th class="name">Student</th>`;
+  for (const mod of modules) {
+    const complete = Boolean(mod.complete);
+    const markLabel = complete
+      ? `Module ${escapeHtml(mod.module)} complete · Undo`
+      : `Mark Module ${escapeHtml(mod.module)} Complete`;
+    head += `<th class="ap-module-col">
+      <div class="ap-module-head">${escapeHtml(mod.module)} (${Number(mod.offered) || 0})</div>
+      <button type="button" class="btn secondary ap-module-mark" data-module="${escapeHtml(mod.module)}" data-complete="${complete ? "0" : "1"}">${markLabel}</button>
+    </th>`;
+  }
+  head += "</tr>";
+
+  let body = "";
+  for (const student of students) {
+    const sid = Number(student.id);
+    const cells = byStudent.get(sid) || {};
+    body += `<tr><td class="name">${escapeHtml(displayName(student))}</td>`;
+    for (const mod of modules) {
+      const cell = cells[mod.module] || { answered: 0, offered: mod.offered, percent: null, level: null };
+      body += `<td class="ap-module-cell">${escapeHtml(formatIndividualCell(cell))}</td>`;
+    }
+    body += "</tr>";
+  }
+
+  table.innerHTML = `<thead>${head}</thead><tbody>${body}</tbody>`;
+  table.classList.add("ap-module-grid");
+  document.getElementById("part-clear-hint")?.toggleAttribute("hidden", true);
+  document.getElementById("part-clear")?.classList.remove("on");
+  const sortBtn = document.getElementById("sort-toggle");
+  if (sortBtn) sortBtn.textContent = sortLabel;
+}
+
+/** Hide per-module Level 4 toggles (group calendar view). */
+function clearModuleL4Caption() {
+  const el = document.getElementById("ap-module-l4-caption");
+  if (!el) return;
+  el.hidden = true;
+  el.innerHTML = "";
+}
+
+/**
+ * Level 4 needs group work — one line under the individual hint (not in column headers).
+ * @param {Array<{module: string, complete?: boolean, l4_needs_group?: boolean}>} modules
+ */
+function renderModuleL4Caption(modules) {
+  const el = document.getElementById("ap-module-l4-caption");
+  if (!el) return;
+  if (!modules.length) {
+    clearModuleL4Caption();
+    return;
+  }
+  el.hidden = false;
+  el.innerHTML = modules
+    .map((mod) => {
+      const complete = Boolean(mod.complete);
+      const checked = mod.l4_needs_group ? "checked" : "";
+      const disabled = complete ? "disabled" : "";
+      return `<label class="ap-module-l4-inline"><input type="checkbox" class="ap-module-l4-input" data-module="${escapeHtml(mod.module)}" ${checked} ${disabled}><span>${escapeHtml(mod.module)} · Level 4 needs group work</span></label>`;
+    })
+    .join("");
+}
+
+/**
+ * @param {{answered?: number, offered?: number, percent?: number|null, level?: number|null, catchup?: number}} cell
+ * @returns {string}
+ */
+function formatIndividualCell(cell) {
+  const answered = Number(cell.answered) || 0;
+  const offered = Number(cell.offered) || 0;
+  if (offered <= 0) return "—";
+  const base = `${answered}/${offered}`;
+  if (individualMetric === "percent") {
+    const pct = cell.percent;
+    return pct == null ? base : `${base} · ${pct}%`;
+  }
+  const level = cell.level;
+  if (level == null) return base;
+  const levelText = level === 0 ? "below L1" : `L${level}`;
+  return `${base} · ${levelText}`;
 }
 
 /**
@@ -329,13 +501,31 @@ async function mutate(url, extra) {
   await refresh();
 }
 
-document.getElementById("round-view-select")?.addEventListener("change", (event) => {
+document.getElementById("ap-group-slice-select")?.addEventListener("change", (event) => {
   const select = event.target;
   if (!(select instanceof HTMLSelectElement)) return;
   const next = select.value;
   if (!ROUND_VIEWS.includes(next)) return;
   roundView = next;
   localStorage.setItem(roundViewKey, roundView);
+  if (latest) paint(latest);
+});
+
+document.getElementById("ap-data-mode-select")?.addEventListener("change", (event) => {
+  const select = event.target;
+  if (!(select instanceof HTMLSelectElement)) return;
+  if (!DATA_MODES.includes(select.value)) return;
+  dataMode = select.value;
+  localStorage.setItem(dataModeKey, dataMode);
+  if (latest) paint(latest);
+});
+
+document.getElementById("ap-individual-metric-select")?.addEventListener("change", (event) => {
+  const select = event.target;
+  if (!(select instanceof HTMLSelectElement)) return;
+  if (!INDIVIDUAL_METRICS.includes(select.value)) return;
+  individualMetric = select.value;
+  localStorage.setItem(individualMetricKey, individualMetric);
   if (latest) paint(latest);
 });
 
@@ -376,10 +566,24 @@ document.getElementById("confirm-dialog")?.addEventListener("click", (event) => 
   }
 });
 
-document.getElementById("sheet").addEventListener("click", (event) => {
+root?.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : event.target.parentElement;
   if (!target) return;
-  const dateCell = target.closest("[data-clear-date]");
+  const markBtn = target.closest(".ap-module-mark");
+  if (markBtn instanceof HTMLButtonElement) {
+    const module = markBtn.dataset.module;
+    if (!module) return;
+    const complete = markBtn.dataset.complete === "1";
+    hideError("#error");
+    api(`/api/classes/${classId}/participation/modules/${encodeURIComponent(module)}/complete`, {
+      method: "POST",
+      body: JSON.stringify({ complete }),
+    })
+      .then(() => refresh())
+      .catch((err) => showError("#error", err));
+    return;
+  }
+  const dateCell = target.closest("#sheet [data-clear-date]");
   if (!dateCell || !clearMode) return;
   const iso = dateCell.getAttribute("data-clear-date");
   if (!iso) return;
@@ -408,6 +612,22 @@ document.getElementById("part-clear")?.addEventListener("click", (event) => {
   event.preventDefault();
   clearMode = !clearMode;
   if (latest) paint(latest);
+});
+
+root?.addEventListener("change", (event) => {
+  const l4Input = event.target;
+  if (!(l4Input instanceof HTMLInputElement) || !l4Input.classList.contains("ap-module-l4-input")) {
+    return;
+  }
+  const module = l4Input.dataset.module;
+  if (!module) return;
+  hideError("#error");
+  api(`/api/classes/${classId}/participation/modules/${encodeURIComponent(module)}/settings`, {
+    method: "POST",
+    body: JSON.stringify({ l4_needs_group: l4Input.checked }),
+  })
+    .then(() => refresh())
+    .catch((err) => showError("#error", err));
 });
 
 refresh().catch((err) => showError("#error", err));
