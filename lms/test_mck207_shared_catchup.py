@@ -120,7 +120,7 @@ class Mck207CatchupFlowTest(Base):
 
 
     def test_live_join_cannot_set_pin_without_current(self) -> None:
-        """Name-only live join must not change a classmate's PIN via the API."""
+        """Live join with a signed-in student must require current_pin to change PIN."""
         victim = self.students[0]
         self.school.set_student_pin(self.class_id, victim, "2468", pin_set_by="student")
         live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
@@ -128,6 +128,7 @@ class Mck207CatchupFlowTest(Base):
         with client.session_transaction() as sess:
             sess["student_live_session_id"] = int(live["id"])
             sess["student_class_id"] = self.class_id
+            sess["student_id"] = victim
             sess["student_codename"] = self.first
             sess["student_offering_id"] = self.school.conn.execute(
                 "SELECT offering_id FROM classes WHERE id = ?", (self.class_id,)
@@ -136,7 +137,10 @@ class Mck207CatchupFlowTest(Base):
             "/api/student/catchup-pin",
             json={"pin": "1357", "confirm": "1357"},
         )
-        self.assertEqual(res.status_code, 403)
+        from participation import KEY_PIN_CURRENT_REQUIRED, copy
+
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.get_json()["error"], copy(KEY_PIN_CURRENT_REQUIRED)["text"])
         from participation import check_pin
 
         stored = self.school.game.conn.execute(

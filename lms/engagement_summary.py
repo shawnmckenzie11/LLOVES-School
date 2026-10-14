@@ -175,3 +175,17 @@ def build_summary(
         "groups": groups,
         "ungrouped": ungrouped,
     }
+
+
+KEY_ENGAGEMENT_SUMMARY_EMPTY = "engagement.summary_empty"
+COPY_ENGAGEMENT_SUMMARY_EMPTY = (
+    "No class runs yet. Your summary shows up here after your next class ends."
+)
+_ENGAGEMENT_COPY_FALLBACKS = {
+    KEY_ENGAGEMENT_SUMMARY_EMPTY: COPY_ENGAGEMENT_SUMMARY_EMPTY,
+}
+
+
+def engagement_copy(key: str) -> dict[str, str]:
+    """Return ``{key, text}`` for staff engagement UI strings."""
+    return {"key": key, "text": _ENGAGEMENT_COPY_FALLBACKS.get(key, key)}
