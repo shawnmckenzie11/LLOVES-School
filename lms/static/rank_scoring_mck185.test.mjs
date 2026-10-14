@@ -9,6 +9,7 @@ import {
   scoreTeamsPending,
   scoreTeamsRows,
   spotsResults,
+  teacherSkipsRaceReveal,
 } from "./rank_challenge_view.js";
 import { phoneResultsHtml } from "./rank_challenge_phone.js";
 import { FULL_ORDER_COPY, fullOrderHtml, fullOrderText, joinTeamNames } from "./rank_full_order.js";
@@ -51,6 +52,7 @@ const paying = { ...spots, challenge: true, pays: true };
 
 // Steps: rows, then the podium; a Team challenge too (no Points step).
 check(spotsResults(spots) && spotsResults(challenge) && !spotsResults(paying), "hand-scored results");
+check(teacherSkipsRaceReveal(spots) && teacherSkipsRaceReveal(challenge) && !teacherSkipsRaceReveal(paying), "MCK-219 teacher skips reveal");
 check(lastResultsStep(spots) === 5 && lastResultsStep(challenge) === 5, "last step is n+1");
 check(lastResultsStep(paying) === 6, "MCK-171 payout on keeps n+2");
 check(lastResultsStep({ total: 4 }) === 6, "older payload keeps n+2");

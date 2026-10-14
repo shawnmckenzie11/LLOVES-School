@@ -360,6 +360,17 @@ export function spotsResults(results) {
 }
 
 /**
+ * MCK-219: the teacher does not walk the projector reveal (rows, Next,
+ * podium) for hand-scored group answer-order ranks; they land on the
+ * question card with Score teams instead.
+ * @param {any} results Teacher ``race.results``.
+ * @returns {boolean}
+ */
+export function teacherSkipsRaceReveal(results) {
+  return spotsResults(results);
+}
+
+/**
  * "{k} of {n} spots" for the spots podium and "Also on the board".
  * @param {number} k
  * @param {number} n

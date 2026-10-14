@@ -769,6 +769,11 @@ class ViewTests(unittest.TestCase):
         self.assertNotIn("dialog.showModal();\n  rankScore", staff)
         # Never auto-opened: only the Score teams button opens it.
         self.assertEqual(staff.count("openRankScoreDialog("), 2)  # definition + the button
+        # MCK-219: hand-scored ranks skip the teacher reveal after Close.
+        self.assertIn("teacherSkipsRaceReveal", staff)
+        self.assertIn("skipTeacherRaceRevealFor", staff)
+        self.assertIn("if (teacherSkipsRaceReveal(race.results)) return", staff)
+        self.assertIn("if (teacherSkipsRaceReveal(result.race.results)) return", staff)
         self.assertNotIn("rankScoringRowsHtml", staff)
         self.assertIn("function teamControls(teamId) {", staff)  # Class list chips untouched
         template = (LMS_DIR / "templates" / "staff" / "course.html").read_text(encoding="utf-8")

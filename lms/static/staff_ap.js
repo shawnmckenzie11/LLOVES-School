@@ -113,6 +113,7 @@ import {
   scoreTeamsPending,
   scoreTeamsRows,
   spotsResults,
+  teacherSkipsRaceReveal,
 } from "/static/rank_challenge_view.js";
 import { fullOrderHtml } from "/static/rank_full_order.js";
 import { mountStudentView, studentViewOn } from "/static/student_view.js";
@@ -1497,6 +1498,18 @@ const raceStep = new Map();
 const raceStepInFlight = new Set();
 
 /**
+ * MCK-219: keep hand-scored ranks on the question card (Score teams), not
+ * the projector reveal the students already have on their phones.
+ * @param {number} liveItemId
+ * @param {any} entry ``lifecycleResults`` row (group submit view).
+ */
+function skipTeacherRaceRevealFor(liveItemId, entry) {
+  const id = Number(liveItemId) || 0;
+  if (!id || !entry || typeof entry !== "object") return;
+  if (teacherSkipsRaceReveal(entry?.race?.results)) raceViewOff.add(id);
+}
+
+/**
  * @param {number} liveItemId
  * @param {any} race Teacher ``race`` block.
  * @returns {Set<number>}
@@ -1528,6 +1541,8 @@ function rankRaceTeacherHtml(result, revealed, liveItemId) {
   if (raceViewOff.has(liveItemId)) return "";
   if (revealed) {
     if (!race.results) return "";
+    // MCK-219: hand-scored ranks skip the teacher reveal entirely.
+    if (teacherSkipsRaceReveal(race.results)) return "";
     return raceResultsHtml(race.results, liveItemId, {
       step: raceStepFor(liveItemId, race.results),
       stem: raceStem(result?.item),
@@ -1553,6 +1568,8 @@ function rankRaceTeacherHtml(result, revealed, liveItemId) {
  */
 function rankRaceEnterHtml(result, liveItemId) {
   if (!result?.race || !raceViewOff.has(liveItemId)) return "";
+  // MCK-219: no link back into a reveal the teacher no longer runs.
+  if (teacherSkipsRaceReveal(result.race.results)) return "";
   // MCK-185: the spots results reopen under their own title.
   const label = result.race.challenge === false ? RESULTS_COPY.revealTitle : RACE_COPY.view;
   return `<p class="race-view-enter"><button type="button" class="link-button" data-race-view-toggle="${liveItemId}">${escapeHtml(
@@ -1567,14 +1584,15 @@ function rankRaceEnterHtml(result, liveItemId) {
 const rankScore = { itemId: 0, drafts: new Map(), rule: "each_member", busy: false, error: "" };
 
 /**
- * True once the reveal reached the podium on a hand-scored rank (the
- * "Score teams" button shows from then on).
+ * True when the teacher may open "Score teams" on the question card
+ * (hand-scored group answer-order ranks after Close).
  * @param {any} results Teacher ``race.results``.
  * @param {number} liveItemId
  * @returns {boolean}
  */
 function rankScoreReady(results, liveItemId) {
-  return Boolean(results) && spotsResults(results) && raceStepFor(liveItemId, results) >= lastResultsStep(results);
+  void liveItemId;
+  return Boolean(results) && teacherSkipsRaceReveal(results);
 }
 
 /**
@@ -4726,8 +4744,8 @@ function groupSubmitTeacherHtml(result, revealed, liveItemId) {
     const log = Array.isArray(result?.submitter_log) ? result.submitter_log : [];
     // MCK-155 take-turns rows sit above the #226 stack; the stack carries
     // the submitter names, so no separate list goes under it.
-    // MCK-185: "Score teams" stays by the reveal link once the podium
-    // showed; the full-order line sits under the stack.
+    // MCK-185 / MCK-219: "Score teams" on the question card after Close
+    // (hand-scored ranks skip the teacher reveal); full-order under stack.
     const scoreBtn =
       revealed && rankScoreReady(result?.race?.results, itemId)
         ? `<p class="race-score-again">${scoreTeamsButtonHtml(itemId)}</p>`
@@ -5579,7 +5597,10 @@ async function closeLifecycleItem(liveItemId) {
     { method: "POST", body: "{}" }
   );
   adoptLiveItem(result?.item);
-  if (result?.results) lifecycleResults.set(liveItemId, result.results);
+  if (result?.results) {
+    lifecycleResults.set(liveItemId, result.results);
+    skipTeacherRaceRevealFor(liveItemId, result.results);
+  }
   paintLiveQuestionCards();
 }
 
@@ -5800,7 +5821,10 @@ async function refreshLifecycleResults() {
         const payload = await api(
           `/api/live-sessions/${sessionId}/items/${id}/results`
         );
-        if (payload?.results) lifecycleResults.set(id, payload.results);
+        if (payload?.results) {
+          lifecycleResults.set(id, payload.results);
+          skipTeacherRaceRevealFor(id, payload.results);
+        }
       } catch (_) {
         /* next state poll retries */
       }
