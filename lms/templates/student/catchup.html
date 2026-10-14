@@ -39,18 +39,6 @@
       <p id="pin_help" class="help" data-key="{{ pin_help.key }}">{{ pin_help.text }}</p>
       <p><button class="full" type="submit">Start</button></p>
     </form>
-{% elif signin %}
-    <h1>Who are you?</h1>
-    {% if error %}<div class="error" data-key="{{ error.key }}">{{ error.text }}</div>{% endif %}
-    <form method="post">
-      <input type="hidden" name="action" value="who">
-      <label class="field" for="codename">Your name</label>
-      <select class="full" id="codename" name="codename" required>
-        <option value="">Choose your name</option>
-        {% for name in codenames %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
-      </select>
-      <p><button class="full" type="submit">Next</button></p>
-    </form>
 {% else %}
     <h1>{{ codename or 'Catch-up' }}</h1>
     {% if line %}<p class="sub line">{{ line }}</p>{% endif %}

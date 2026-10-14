@@ -31541,26 +31541,9 @@ class SchoolDB(LovesDB):
         self, flask_session: Any, class_id: int, student_id: int
     ) -> bool:
         """True when the browser holds a non-expired catch-up portal session."""
-        import time as _time
+        from catchup_session import catchup_portal_session_valid as _valid
 
-        cid = int(class_id)
-        sid = int(student_id)
-        want_stamp = self.catchup_pin_stamp(cid, sid)
-        if not want_stamp:
-            return False
-        now = _time.time()
-        for key, held in dict(flask_session or {}).items():
-            if not str(key).startswith("catchup:") or str(key).endswith(":who"):
-                continue
-            if not isinstance(held, dict):
-                continue
-            if float(held.get("exp") or 0) <= now:
-                continue
-            if int(held.get("cid") or 0) != cid or int(held.get("sid") or 0) != sid:
-                continue
-            if str(held.get("pin") or "") == want_stamp:
-                return True
-        return False
+        return _valid(flask_session, self, int(class_id), int(student_id))
 
     def authorize_student_pin_change(
         self,
@@ -31606,24 +31589,11 @@ class SchoolDB(LovesDB):
         self, flask_session: Any, class_id: int, student_id: int
     ) -> None:
         """Update catch-up session stamps after the student sets a new PIN."""
-        import time as _time
+        from catchup_session import refresh_identity_pin_stamp
 
-        from participation import CATCHUP_SESSION_S
-
-        cid, sid = int(class_id), int(student_id)
-        stamp = self.catchup_pin_stamp(cid, sid)
-        now = _time.time()
-        for key, held in list(dict(flask_session or {}).items()):
-            if not str(key).startswith("catchup:") or str(key).endswith(":who"):
-                continue
-            if not isinstance(held, dict):
-                continue
-            if int(held.get("cid") or 0) != cid or int(held.get("sid") or 0) != sid:
-                continue
-            held = dict(held)
-            held["pin"] = stamp
-            held["exp"] = max(float(held.get("exp") or 0), now + CATCHUP_SESSION_S)
-            flask_session[key] = held
+        refresh_identity_pin_stamp(
+            flask_session, self, int(class_id), int(student_id)
+        )
 
     def record_catchup_pin_failure(self, class_id: int, student_id: int) -> int:
         """Count one wrong catch-up PIN for a roster student (does not lock them out)."""
@@ -31680,40 +31650,14 @@ class SchoolDB(LovesDB):
             for r in rows
         ]
 
-
-    def catchup_portal_session_valid(
-        self, flask_session: Any, class_id: int, student_id: int
-    ) -> bool:
-        """True when the browser holds a catch-up portal session for this student."""
-        cid = int(class_id)
-        sid = int(student_id)
-        want_stamp = self.catchup_pin_stamp(cid, sid)
-        if not want_stamp:
-            return False
-        for key, held in dict(flask_session or {}).items():
-            if not str(key).startswith("catchup:") or str(key).endswith(":who"):
-                continue
-            if not isinstance(held, dict):
-                continue
-            if int(held.get("cid") or 0) != cid or int(held.get("sid") or 0) != sid:
-                continue
-            if str(held.get("pin") or "") == want_stamp:
-                return True
-        return False
-
     def catchup_pin_change_blocks_student(
         self, class_id: int, student_id: int, flask_session: Any
     ) -> bool:
         """True when the student must set a catch-up PIN before answering."""
+        if not self.require_catchup_pin_change(int(class_id)):
+            return False
         prompt = self.catchup_pin_prompt_for_student(int(class_id), int(student_id))
-        if not prompt:
-            return False
-        if prompt.get("forced"):
-            return True
-        dismiss_key = f"catchup_pin_later:{class_id}:{student_id}"
-        if flask_session.get(dismiss_key):
-            return False
-        return bool(prompt.get("show"))
+        return bool(prompt)
 
     def catchup_pin_stamp(self, class_id: int, student_id: int) -> str:
         """Fingerprint of the student's current PIN hash, ``""`` when none is set.
@@ -32498,6 +32442,42 @@ class SchoolDB(LovesDB):
                 (int(class_id),),
             ).fetchall()
         return {int(r[0]): str(r[1]).strip() for r in rows}
+
+    def catchup_verify_student_pin(
+        self, class_id: int, student_id: int, pin: str | None
+    ) -> dict[str, Any]:
+        """Verify one roster student's course PIN (no name lookup)."""
+        from participation import check_pin, looks_like_join_code, pin_stamp
+
+        cid = int(class_id)
+        sid = int(student_id)
+        if pin is None:
+            return {"ok": False, "reason": "need_pin", "student_id": sid}
+        with self.game._lock:
+            pin_row = self.game.conn.execute(
+                "SELECT pin_hash FROM students WHERE id = ? AND class_id = ?",
+                (sid, cid),
+            ).fetchone()
+        with self._lock:
+            active = [
+                r[0]
+                for r in self.conn.execute(
+                    "SELECT session_code FROM live_class_sessions WHERE status = 'active'"
+                ).fetchall()
+            ]
+        stored = str(pin_row[0] or "") if pin_row is not None else ""
+        if looks_like_join_code(pin, active):
+            return {"ok": False, "reason": "looks_like_join_code", "student_id": sid}
+        if not stored:
+            return {"ok": False, "reason": "not_set", "student_id": sid}
+        if check_pin(str(pin or ""), stored):
+            return {
+                "ok": True,
+                "student_id": sid,
+                "class_id": cid,
+                "pin_stamp": pin_stamp(stored),
+            }
+        return {"ok": False, "reason": "wrong", "student_id": sid}
 
     def catchup_sign_in(
         self, token: str, codename: str, pin: str | None, *, now: float | None = None

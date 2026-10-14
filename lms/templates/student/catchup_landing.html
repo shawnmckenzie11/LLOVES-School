@@ -16,13 +16,26 @@
     <header class="cl-header">
       <p class="cl-kicker">{{ course_code }} · Catch-up</p>
       <div class="cl-title-row">
-        <h1>{{ copy.pick_title }}</h1>
+        <h1>{% if pin_required %}Enter your PIN{% else %}{{ copy.pick_title }}{% endif %}</h1>
         <a class="cl-not-you" href="{{ url_for('student_catchup_landing_sign_out') }}">{{ copy.not_you }}</a>
       </div>
       <p class="cl-signed-in">{{ signed_in_line }}</p>
     </header>
 
-{% if closed %}
+{% if pin_required %}
+    <section class="cl-matched-card" aria-labelledby="cl-pin-title">
+      <h2 id="cl-pin-title" class="cl-class-title">Catch-up PIN</h2>
+      {% if pin_error %}<div class="error" data-key="{{ pin_error.key }}">{{ pin_error.text }}</div>{% endif %}
+      <form method="post" autocomplete="off">
+        <input type="hidden" name="action" value="pin">
+        <label class="field" for="landing_pin" data-key="{{ pin_label.key }}">{{ pin_label.text }}</label>
+        <input class="full" id="landing_pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}"
+               minlength="4" maxlength="4" autocomplete="off" aria-describedby="landing_pin_help" required>
+        <p id="landing_pin_help" class="help" data-key="{{ pin_help.key }}">{{ pin_help.text }}</p>
+        <p><button class="cl-btn cl-btn-primary" type="submit">Continue</button></p>
+      </form>
+    </section>
+{% elif closed %}
     <section class="cl-closed-card" aria-labelledby="cl-closed-title">
       <p class="cl-lock" aria-hidden="true">🔒</p>
       <h2 id="cl-closed-title">{{ copy.closed_heading }}</h2>

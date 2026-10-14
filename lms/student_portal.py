@@ -539,24 +539,12 @@ def bind_pin_portal_session(
 
 def resolve_pin_portal_context(school: Any, session: Any) -> dict[str, Any] | None:
     """Return class and student ids for a valid catch-up portal session (MCK-207)."""
-    import time as _time
+    from catchup_session import peek_catchup_identity
 
-    now = _time.time()
-    for key in list(session.keys()):
-        if not str(key).startswith("catchup:") or str(key).endswith(":who"):
-            continue
-        held = session.get(key) or {}
-        if not isinstance(held, dict):
-            continue
-        cid = held.get("cid")
-        sid = held.get("sid")
-        if sid is None or cid is None:
-            continue
-        if float(held.get("exp") or 0) <= now:
-            session.pop(key, None)
-            continue
-        if not school.catchup_portal_session_valid(session, int(cid), int(sid)):
-            session.pop(key, None)
-            continue
-        return {"class_id": int(cid), "student_id": int(sid)}
-    return None
+    ident = peek_catchup_identity(session, school)
+    if ident is None:
+        return None
+    return {
+        "class_id": int(ident["class_id"]),
+        "student_id": int(ident["student_id"]),
+    }

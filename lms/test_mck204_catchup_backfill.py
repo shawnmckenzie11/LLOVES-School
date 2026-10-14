@@ -244,11 +244,8 @@ class CatchupWithDefaultPinTests(Base):
             self.school.catchup_sign_in(self.token, self.first, self.default_pin)["ok"]
         )
         client = self.app.test_client()
-        client.post(f"/catchup/{self.token}", data={"action": "who", "codename": self.first})
-        rv = client.post(
-            f"/catchup/{self.token}", data={"action": "pin", "pin": self.default_pin},
-            follow_redirects=False,
-        )
+        self.begin_catchup_pin(client)
+        rv = self.post_catchup_pin(client, self.default_pin)
         self.assertEqual(rv.status_code, 302)
         self.assertIn("/student/dashboard", rv.headers.get("Location") or "")
         play = client.get(
