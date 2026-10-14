@@ -106,6 +106,7 @@ function updateFilterChrome() {
   const individual = dataMode === "individual";
   document.getElementById("ap-individual-metric-wrap")?.toggleAttribute("hidden", !individual);
   document.getElementById("ap-individual-hint")?.toggleAttribute("hidden", !individual);
+  document.getElementById("ap-module-l4-caption")?.toggleAttribute("hidden", !individual);
   document.getElementById("ap-group-slice-wrap")?.toggleAttribute("hidden", individual);
   document.getElementById("ap-evidence-coverage")?.toggleAttribute("hidden", individual || courseSimple);
   document.querySelector(".grades-panel")?.toggleAttribute("hidden", individual);
@@ -138,6 +139,7 @@ function renderSheet(data) {
     renderIndividualSheet(data, table);
     return;
   }
+  clearModuleL4Caption();
   const weeks = data.weeks || [];
   const labels = data.date_labels || [];
   const meta = data.day_meta || [];
@@ -245,8 +247,11 @@ function renderIndividualSheet(data, table) {
   if (!modules.length) {
     table.innerHTML = `<tbody><tr><td class="name muted">No individual questions recorded yet. End a live class with individual items, then refresh.</td></tr></tbody>`;
     table.classList.add("ap-module-grid");
+    clearModuleL4Caption();
     return;
   }
+
+  renderModuleL4Caption(modules);
 
   let head = `<tr><th class="name">Student</th>`;
   for (const mod of modules) {
@@ -257,7 +262,6 @@ function renderIndividualSheet(data, table) {
     head += `<th class="ap-module-col">
       <div class="ap-module-head">${escapeHtml(mod.module)} (${Number(mod.offered) || 0})</div>
       <button type="button" class="btn secondary ap-module-mark" data-module="${escapeHtml(mod.module)}" data-complete="${complete ? "0" : "1"}">${markLabel}</button>
-      <label class="ap-module-l4"><input type="checkbox" class="ap-module-l4-input" data-module="${escapeHtml(mod.module)}" ${mod.l4_needs_group ? "checked" : ""} ${complete ? "disabled" : ""}> Level 4 needs group work</label>
     </th>`;
   }
   head += "</tr>";
@@ -280,6 +284,36 @@ function renderIndividualSheet(data, table) {
   document.getElementById("part-clear")?.classList.remove("on");
   const sortBtn = document.getElementById("sort-toggle");
   if (sortBtn) sortBtn.textContent = sortLabel;
+}
+
+/** Hide per-module Level 4 toggles (group calendar view). */
+function clearModuleL4Caption() {
+  const el = document.getElementById("ap-module-l4-caption");
+  if (!el) return;
+  el.hidden = true;
+  el.innerHTML = "";
+}
+
+/**
+ * Level 4 needs group work — one line under the individual hint (not in column headers).
+ * @param {Array<{module: string, complete?: boolean, l4_needs_group?: boolean}>} modules
+ */
+function renderModuleL4Caption(modules) {
+  const el = document.getElementById("ap-module-l4-caption");
+  if (!el) return;
+  if (!modules.length) {
+    clearModuleL4Caption();
+    return;
+  }
+  el.hidden = false;
+  el.innerHTML = modules
+    .map((mod) => {
+      const complete = Boolean(mod.complete);
+      const checked = mod.l4_needs_group ? "checked" : "";
+      const disabled = complete ? "disabled" : "";
+      return `<label class="ap-module-l4-inline"><input type="checkbox" class="ap-module-l4-input" data-module="${escapeHtml(mod.module)}" ${checked} ${disabled}><span>${escapeHtml(mod.module)} · Level 4 needs group work</span></label>`;
+    })
+    .join("");
 }
 
 /**
@@ -532,7 +566,7 @@ document.getElementById("confirm-dialog")?.addEventListener("click", (event) => 
   }
 });
 
-document.getElementById("sheet").addEventListener("click", (event) => {
+root?.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : event.target.parentElement;
   if (!target) return;
   const markBtn = target.closest(".ap-module-mark");
@@ -549,20 +583,7 @@ document.getElementById("sheet").addEventListener("click", (event) => {
       .catch((err) => showError("#error", err));
     return;
   }
-  const l4Input = target.closest(".ap-module-l4-input");
-  if (l4Input instanceof HTMLInputElement) {
-    const module = l4Input.dataset.module;
-    if (!module) return;
-    hideError("#error");
-    api(`/api/classes/${classId}/participation/modules/${encodeURIComponent(module)}/settings`, {
-      method: "POST",
-      body: JSON.stringify({ l4_needs_group: l4Input.checked }),
-    })
-      .then(() => refresh())
-      .catch((err) => showError("#error", err));
-    return;
-  }
-  const dateCell = target.closest("[data-clear-date]");
+  const dateCell = target.closest("#sheet [data-clear-date]");
   if (!dateCell || !clearMode) return;
   const iso = dateCell.getAttribute("data-clear-date");
   if (!iso) return;
@@ -591,6 +612,22 @@ document.getElementById("part-clear")?.addEventListener("click", (event) => {
   event.preventDefault();
   clearMode = !clearMode;
   if (latest) paint(latest);
+});
+
+root?.addEventListener("change", (event) => {
+  const l4Input = event.target;
+  if (!(l4Input instanceof HTMLInputElement) || !l4Input.classList.contains("ap-module-l4-input")) {
+    return;
+  }
+  const module = l4Input.dataset.module;
+  if (!module) return;
+  hideError("#error");
+  api(`/api/classes/${classId}/participation/modules/${encodeURIComponent(module)}/settings`, {
+    method: "POST",
+    body: JSON.stringify({ l4_needs_group: l4Input.checked }),
+  })
+    .then(() => refresh())
+    .catch((err) => showError("#error", err));
 });
 
 refresh().catch((err) => showError("#error", err));
