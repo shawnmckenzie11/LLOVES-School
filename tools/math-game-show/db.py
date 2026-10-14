@@ -973,6 +973,18 @@ class GameShowDB:
             self.conn.execute(
                 "ALTER TABLE students ADD COLUMN is_test_student INTEGER NOT NULL DEFAULT 0"
             )
+        # MCK-231 gate MED2: at most one Test Student per class, enforced by
+        # the database so two workers cannot both insert one.
+        try:
+            self.conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_students_one_test_student
+                ON students(class_id) WHERE is_test_student = 1
+                """
+            )
+        except sqlite3.IntegrityError:
+            # Existing duplicates: keep booting; the lock still guards new ones.
+            logger.warning("duplicate Test Students exist; unique index not created")
 
     def _migrate_student_id_seq(self) -> None:
         """Allocate monotonic ``students.id`` values (never reuse deleted ids)."""
@@ -993,8 +1005,9 @@ class GameShowDB:
                     "SELECT COALESCE(MAX(id), 0) + 1 FROM students"
                 ).fetchone()[0]
             )
+            # OR IGNORE: two workers migrating at once keep the first seed.
             self.conn.execute(
-                "INSERT INTO student_id_seq (id, next_id) VALUES (1, ?)", (n,)
+                "INSERT OR IGNORE INTO student_id_seq (id, next_id) VALUES (1, ?)", (n,)
             )
 
     def _migrate_class_require_catchup_pin_change(self) -> None:
@@ -1153,21 +1166,43 @@ class GameShowDB:
         return f"{base[:19]}.{datetime.now().microsecond:06d}{base[19:]}"
 
     def _allocate_student_id(self) -> int:
-        """Return the next ``students.id`` (monotonic; never reuse a deleted id)."""
-        row = self.conn.execute(
-            "SELECT next_id FROM student_id_seq WHERE id = 1"
-        ).fetchone()
-        if row is None:
+        """Return the next ``students.id`` (monotonic; never reuse a deleted id).
+
+        MCK-231/MCK-229 gate MED1: one ``UPDATE ... RETURNING`` statement, so
+        the read and the bump are a single atomic write even across the four
+        gunicorn worker processes. The old SELECT-then-UPDATE let two workers
+        read the same ``next_id`` and one insert failed with IntegrityError.
+        SQLite before 3.35 has no RETURNING; there the pair runs inside
+        ``BEGIN IMMEDIATE`` (when no transaction is already open).
+        """
+        for _ in range(2):
+            if sqlite3.sqlite_version_info >= (3, 35, 0):
+                row = self.conn.execute(
+                    "UPDATE student_id_seq SET next_id = next_id + 1 "
+                    "WHERE id = 1 RETURNING next_id - 1"
+                ).fetchone()
+            else:  # pragma: no cover - prod and CI run SQLite >= 3.35
+                own = not self.conn.in_transaction
+                if own:
+                    self.conn.execute("BEGIN IMMEDIATE")
+                try:
+                    row = self.conn.execute(
+                        "SELECT next_id FROM student_id_seq WHERE id = 1"
+                    ).fetchone()
+                    if row is not None:
+                        self.conn.execute(
+                            "UPDATE student_id_seq SET next_id = next_id + 1 WHERE id = 1"
+                        )
+                    if own:
+                        self.conn.execute("COMMIT")
+                except BaseException:
+                    if own:
+                        self.conn.execute("ROLLBACK")
+                    raise
+            if row is not None:
+                return int(row[0])
             self._migrate_student_id_seq()
-            row = self.conn.execute(
-                "SELECT next_id FROM student_id_seq WHERE id = 1"
-            ).fetchone()
-        student_id = int(row[0])
-        self.conn.execute(
-            "UPDATE student_id_seq SET next_id = ? WHERE id = 1",
-            (student_id + 1,),
-        )
-        return student_id
+        raise RuntimeError("student_id_seq is not initialised")
 
     def _insert_student_row(
         self,

@@ -30867,27 +30867,36 @@ class SchoolDB(LovesDB):
         if getattr(self, "game", None) is None:
             return None
         cid = int(class_id)
+        find = """
+            SELECT id FROM students
+            WHERE class_id = ? AND COALESCE(is_test_student, 0) = 1
+            ORDER BY id LIMIT 1
+        """
+        # MCK-231 gate MED2: check and insert under one lock (threads in this
+        # worker) plus the partial unique index (other workers).
         with self.game._lock:
-            row = self.game.conn.execute(
-                """
-                SELECT id FROM students
-                WHERE class_id = ? AND COALESCE(is_test_student, 0) = 1
-                LIMIT 1
-                """,
-                (cid,),
-            ).fetchone()
-        if row is not None:
-            stu_id = int(row[0])
-        else:
-            stu_id = self.game._insert_student_row(
-                cid,
-                canvas_id=f"test-student:{cid}",
-                last_display=self.TEST_STUDENT_CODENAME,
-                first_name=self.TEST_STUDENT_CODENAME,
-                codename=self.TEST_STUDENT_CODENAME,
-                is_test_student=True,
-            )
-            self.game.conn.commit()
+            row = self.game.conn.execute(find, (cid,)).fetchone()
+            if row is not None:
+                stu_id = int(row[0])
+            else:
+                try:
+                    stu_id = self.game._insert_student_row(
+                        cid,
+                        canvas_id=f"test-student:{cid}",
+                        last_display=self.TEST_STUDENT_CODENAME,
+                        first_name=self.TEST_STUDENT_CODENAME,
+                        codename=self.TEST_STUDENT_CODENAME,
+                        is_test_student=True,
+                    )
+                    self.game.conn.commit()
+                except sqlite3.IntegrityError:
+                    # Another worker won the race; use its row.
+                    if self.game.conn.in_transaction:
+                        self.game.conn.rollback()
+                    row = self.game.conn.execute(find, (cid,)).fetchone()
+                    if row is None:
+                        raise
+                    stu_id = int(row[0])
         return {"student_id": stu_id, "codename": self.TEST_STUDENT_CODENAME}
 
     def catchup_public_url(self, class_id: int, link: dict[str, Any]) -> str:
