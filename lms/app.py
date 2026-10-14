@@ -6896,6 +6896,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 order=body.get("order"),
                 tap=body.get("tap"),
                 clear=bool(body.get("clear")),
+                undo_last=bool(body.get("undo_last")),
             )
         except GroupAnswerLocked as exc:
             return jsonify({"ok": False, "error": str(exc), "locked": True, "group_submit": exc.card}), 409
@@ -7035,11 +7036,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     )
     @student_required
     def api_student_rank_agree(live_item_id: int):
-        """MCK-171 Team challenge: "I agree" / "Not yet" on the team order.
-
-        Every tap emits one group postcard so teammates and the projector
-        lane see "{k} of {m} agree" (and the lock-in) right away.
-        """
+        """MCK-216 Team challenge: explicit "Lock in our order" on the team draft."""
 
         denied = _require_active_live_attendee(as_json=True)
         if denied is not None:

@@ -225,10 +225,18 @@ class TwoPlayerRotationTests(SeededTurnsHarness):
         turns = self._phone("Cy", item)
         self.assertTrue(turns["done"])
         self.assertEqual((turns["can_place"], turns["can_undo"]), (False, False))
-        self.assertFalse(self._phone("Ava", item)["can_undo"])  # no Undo once the order is in
+        if self.race:
+            # MCK-216: last placer can Undo until the team taps Lock in our order.
+            self.assertTrue(self._phone("Ava", item)["can_undo"])
+            self.assertTrue(self._card("Ava", item)["race"]["can_lock"])
+            order = [s["option_id"] for s in self._phone("Ava", item)["spots"]]
+            self._post("Ava", item, "rank-agree", {"agree": True, "order": order})
+            self._undo("Ava", item, 409)
+        else:
+            self.assertFalse(self._phone("Ava", item)["can_undo"])  # no Undo once the order is in
+            self._undo("Ava", item, 409)
         self.assertEqual([s["by_name"] for s in turns["spots"]], ["Ava", "Cy", "Ava", "Cy", "Ava"])
         self.assertEqual([s["label"] for s in turns["spots"]], [L[3], L[0], L[2], L[4], L[1]])
-        self._undo("Ava", item, 409)
 
 class TwoPlayerRotationRaceTests(TwoPlayerRotationTests):
     """The same rotation as a Team challenge (MCK-171) Take turns."""
