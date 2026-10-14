@@ -9199,21 +9199,12 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/classes/<int:class_id>/participation")
     @login_required
     def staff_participation_page(class_id: int):
-        """Teacher roster view: participation per module, PINs, catch-up links."""
+        """MCK-220: legacy URL → Participation tab (module table merged into main grid)."""
         denied = _require_class_staff(class_id)
         if denied:
             return denied
-        data = school.class_participation(class_id)
-        names = school.class_codenames(class_id)
-        user = current_user()
-        return render_template(
-            "staff/participation.html",
-            class_id=class_id,
-            data=data,
-            names=names,
-            links=_catchup_links_payload(class_id),
-            user=user,
-            school_name=SCHOOL_NAME,
+        return redirect(
+            url_for("staff_course", class_id=class_id, tab="ap", view="participation")
         )
 
     def _serve_catchup_page(token: str, link: dict[str, Any]):
