@@ -18,7 +18,7 @@ image deploy.
 
 Four workers share one machine. They are not a second Fly machine. Each
 worker is its own process, so sqlite writers can wait on ``busy_timeout``,
-and the presence pool (4 connections) is per process.
+and the presence pool (8 connections) is per process.
 
 gunicorn's default ``worker_connections`` is 1000 and its default listen
 backlog is 2048. The caps here are 32 connections per worker and a backlog
@@ -50,6 +50,12 @@ WORKERS = 4
 # Eight threads per worker. ``/health`` can run while a few ``/state`` polls
 # are slow, and three other workers still accept if one worker wedges.
 THREADS = 8
+# Checked-out Postgres sockets per gunicorn worker for live presence + boards.
+# Must be at least ``THREADS`` so every thread can hold one checkout briefly.
+PRESENCE_POOL_SIZE = THREADS
+# Recycle workers after this many requests (plus jitter) to cap memory growth.
+MAX_REQUESTS = 1000
+MAX_REQUESTS_JITTER = 100
 # Per worker. Not gunicorn's 1000. Four workers × 32 = 128 sockets, not ~1k.
 WORKER_CONNECTIONS = 32
 KEEPALIVE_SECONDS = 1
@@ -273,6 +279,8 @@ def image_gunicorn_command() -> str:
         f"--keep-alive {KEEPALIVE_SECONDS} "
         f"--timeout {WORKER_TIMEOUT_SECONDS} "
         f"--graceful-timeout {GRACEFUL_TIMEOUT_SECONDS} "
+        f"--max-requests {MAX_REQUESTS} "
+        f"--max-requests-jitter {MAX_REQUESTS_JITTER} "
         f"--backlog {BACKLOG} "
         "--bind 0.0.0.0:8080 "
         "--chdir lms "

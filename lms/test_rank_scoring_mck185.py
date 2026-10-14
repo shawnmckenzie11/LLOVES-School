@@ -634,7 +634,7 @@ class FullOrderTests(SpotsHarness):
 
     def test_lock_timing_per_mode(self) -> None:
         timing = rank_challenge.full_order_timing
-        self.assertEqual(timing(challenge=True, rank_mode="together", results_on=True), "lock")
+        self.assertEqual(timing(challenge=True, rank_mode="together", results_on=True), "reveal")
         self.assertEqual(timing(challenge=False, rank_mode="turns", results_on=True), "lock")
         self.assertEqual(timing(challenge=False, rank_mode="together", results_on=True), "reveal")
         self.assertEqual(timing(challenge=True, rank_mode="turns", results_on=False), "reveal")
@@ -655,17 +655,25 @@ class FullOrderTests(SpotsHarness):
         self.assertNotIn("full_order", self._view(item))
 
     def test_lock_timing_shows_as_soon_as_a_final_order_is_right(self) -> None:
+        """Take turns (not Team challenge) may show the line at the last spot."""
         with mock.patch.object(rank_challenge, "FULL_ORDER_WHEN", "lock"):
-            item = self._challenge()
-            self._order("Ben", item, KEY_IDS)  # a right draft: not yet
-            self.assertIsNone(self._notice("Ava", item))
-            self._lock_team(item, TEAM_A, KEY_IDS)
-            other = self._notice("Ben", item)
-            self.assertEqual(len(other["teams"]), 1)
-            self.assertTrue(self._notice("Ava", item)["you"])
-            self.assertIn("full_order", self._view(item))
+            item = self._spots()  # Rank together spots, not Team challenge
+            self._submit(item, "Ava", KEY_IDS)
+            self.assertIsNone(self._notice("Ben", item))
             self._close(item)
             self.assertTrue(self._notice("Ava", item)["you"])
+            self.assertIn("full_order", self._view(item))
+
+    def test_team_challenge_lock_hides_full_order_until_close(self) -> None:
+        """MCK-216: no correctness pill on the phone while waiting for reveal."""
+        item = self._challenge()
+        self._order("Ben", item, KEY_IDS)
+        self.assertIsNone(self._notice("Ava", item))
+        self._lock_team(item, TEAM_A, KEY_IDS)
+        self.assertIsNone(self._notice("Ava", item))
+        self.assertNotIn("full_order", self._card("Ava", item))
+        self._close(item)
+        self.assertTrue(self._notice("Ava", item)["you"])
 
     def test_timing_rule(self) -> None:
         self.assertFalse(rank_challenge.full_order_visible("active", "reveal"))
