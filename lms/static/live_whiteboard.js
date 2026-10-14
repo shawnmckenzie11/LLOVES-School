@@ -1,4 +1,4 @@
-import { wireFormativeWhiteboard, colorForOwner } from "/static/whiteboard_formative.js";
+import { wireFormativeWhiteboard, colorForOwner } from "./whiteboard_formative.js";
 
 /**
  * Live whiteboard: draw, undo, redo, erase, and a Text tool.
