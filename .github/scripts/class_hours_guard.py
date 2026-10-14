@@ -3,8 +3,8 @@
 
 Windows come from schedule data, not this file:
 
-* ``lms/seeds/live_class_schedules.json``: per course / offering section
-  ``live_days`` (e.g. ``M/W/F``), ``live_time`` (start) and ``live_end_time``.
+* ``lms/seeds/live_class_windows.json``: per course code ``live_days``
+  (e.g. ``M/W/F``), ``live_time`` (start) and ``live_end_time``.
 * ``frameworks/semester.json``: instructional days, holidays, PD and exam
   days. No class on those, so no block.
 
@@ -28,7 +28,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 REPO = Path(__file__).resolve().parents[2]
-SCHEDULE = REPO / "lms" / "seeds" / "live_class_schedules.json"
+SCHEDULE = REPO / "lms" / "seeds" / "live_class_windows.json"
 SEMESTER = REPO / "frameworks" / "semester.json"
 TZ = ZoneInfo("America/Toronto")
 PRE_MINUTES = 15
@@ -67,8 +67,6 @@ def class_windows(schedule: dict) -> list[dict]:
     rows: list[dict] = []
     for code, row in (schedule.get("courses") or {}).items():
         rows.append({"label": code, **row})
-    for row in schedule.get("offering_sections") or []:
-        rows.append({"label": f"{row.get('ontario_code')}-{row.get('section_index')}", **row})
     out = []
     for row in rows:
         if not row.get("live_time") or not row.get("live_end_time") or not row.get("live_days"):

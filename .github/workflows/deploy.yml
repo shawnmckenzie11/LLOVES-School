@@ -213,7 +213,7 @@ jobs:
         run: python3 .github/scripts/whats_new.py build
 
       # MCK-231: a deploy replaces the only Fly machine. Refuse it while a
-      # class is live; windows come from lms/seeds/live_class_schedules.json
+      # class is live; windows come from lms/seeds/live_class_windows.json
       # and frameworks/semester.json. Checked right before flyctl, since the
       # approval wait can be long. Override: Run workflow with
       # override_class_hours=true.

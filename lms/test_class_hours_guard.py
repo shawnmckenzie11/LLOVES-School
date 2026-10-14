@@ -48,3 +48,35 @@ class ClassHoursGuardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConfirmedScheduleTests(unittest.TestCase):
+    """Shawn's confirmed M/W/F schedule (2026-10-14), America/Toronto."""
+
+    def test_windows_are_pinned(self) -> None:
+        from datetime import time as t
+
+        wins = {w["label"]: w for w in guard.class_windows(json.loads(guard.SCHEDULE.read_text()))}
+        self.assertEqual(set(wins), {"MCR3U", "MCR3U-2", "MCF3M"})
+        expect = {
+            "MCR3U": (t(9, 15), t(10, 30)),
+            "MCR3U-2": (t(10, 40), t(11, 55)),
+            "MCF3M": (t(14, 0), t(15, 15)),
+        }
+        for label, (start, end) in expect.items():
+            self.assertEqual(wins[label]["days"], {0, 2, 4}, label)
+            self.assertEqual((wins[label]["start"], wins[label]["end"]), (start, end), label)
+
+    def test_tuesday_930_allowed_wednesday_905_blocked(self) -> None:
+        self.assertEqual(guard.main(["--at", "2026-10-20T09:30"]), 0)  # Tue
+        self.assertEqual(guard.main(["--at", "2026-10-14T09:05"]), 1)  # Wed, MCR3U pre-window
+
+    def test_no_guard_tue_thu_weekend(self) -> None:
+        for day in ("2026-10-20", "2026-10-22", "2026-10-24", "2026-10-25"):
+            for hhmm in ("09:30", "11:00", "14:30"):
+                self.assertEqual(guard.main(["--at", f"{day}T{hhmm}"]), 0, (day, hhmm))
+
+    def test_mon_wed_fri_classes_blocked(self) -> None:
+        for day in ("2026-10-19", "2026-10-21", "2026-10-23"):
+            for hhmm in ("09:30", "11:00", "14:30"):
+                self.assertEqual(guard.main(["--at", f"{day}T{hhmm}"]), 1, (day, hhmm))

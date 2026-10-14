@@ -1,0 +1,9 @@
+{
+  "_doc": "MCK-231 deploy guard (.github/scripts/class_hours_guard.py). Live class windows, America/Toronto. Confirmed by Shawn 2026-10-14. Course codes are the keys; MCR3U-2 is the second MCR3U class.",
+  "timezone": "America/Toronto",
+  "courses": {
+    "MCR3U": {"live_days": "M/W/F", "live_time": "9:15am", "live_end_time": "10:30am"},
+    "MCR3U-2": {"live_days": "M/W/F", "live_time": "10:40am", "live_end_time": "11:55am"},
+    "MCF3M": {"live_days": "M/W/F", "live_time": "2:00pm", "live_end_time": "3:15pm"}
+  }
+}
