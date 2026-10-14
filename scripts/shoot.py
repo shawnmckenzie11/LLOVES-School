@@ -1061,7 +1061,7 @@ def prepare_mck222_portal_join(path: Path) -> tuple[str, str]:
               AND cl.is_open = 1
               AND cl.portal_join_code IS NOT NULL
               AND TRIM(cl.portal_join_code) <> ''
-            ORDER BY cl.id DESC
+            ORDER BY cl.id DESC, s.id ASC
             LIMIT 1
             """,
             (class_id,),
@@ -1077,7 +1077,7 @@ def prepare_mck222_portal_join(path: Path) -> tuple[str, str]:
 
 
 def shoot_mck222(base: str, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
-    """Student landing join → catch-up picker with tier cells (MCK-222).
+    """Student landing join → landing PIN → catch-up picker with tier cells (MCK-222).
 
     Args:
         base: Loopback origin.
@@ -1091,7 +1091,9 @@ def shoot_mck222(base: str, out_dir: Path, path: Path, widths: list[int]) -> lis
     from playwright.sync_api import sync_playwright
 
     origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    prepare_mck207_pin_modal(path)
     portal_code, first_name = prepare_mck222_portal_join(path)
+    catchup_pin = "5678"
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     with sync_playwright() as playwright:
@@ -1105,8 +1107,12 @@ def shoot_mck222(base: str, out_dir: Path, path: Path, widths: list[int]) -> lis
             page.locator("form#student-code-panel button[type='submit']").click()
             page.wait_for_url("**/student/catchup**", timeout=30000)
             page.locator(".catchup-landing").first.wait_for(state="visible", timeout=30000)
+            landing_pin = page.locator("#landing_pin")
+            if landing_pin.count():
+                landing_pin.fill(catchup_pin)
+                page.locator(".catchup-landing button.cl-btn-primary").click()
             page.locator(".cl-tier-key", has_text="T1 Individual").first.wait_for(
-                state="visible", timeout=15000
+                state="visible", timeout=30000
             )
             dest = out_dir / f"mck222-catchup-landing-{width}.png"
             page.screenshot(path=str(dest), full_page=True)
