@@ -4267,6 +4267,23 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             int(bank_id),
             class_id=int(class_id),
         )
+        # Bank linter (report-only): per-row fix codes + per-code counts.
+        try:
+            from bank_lint import fix_codes, lint_counts
+        except ImportError:
+            from lms.bank_lint import fix_codes, lint_counts
+        try:
+            codes = fix_codes(
+                school,
+                [int(q.get("source_question_id") or q.get("id") or 0) for q in questions
+                 if str(q.get("source_question_id") or q.get("id") or "").isdigit()],
+            )
+            for q in questions:
+                key = str(q.get("source_question_id") or q.get("id") or "")
+                q["fix_codes"] = codes.get(int(key), []) if key.isdigit() else []
+            fix_counts = lint_counts(school, int(library_id))
+        except Exception:  # noqa: BLE001 - lint data is optional
+            fix_counts = {}
         return jsonify(
             {
                 "ok": True,
@@ -4277,6 +4294,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 },
                 "questions": questions,
                 "hidden_duplicates": max(0, len(stored) - len(questions)),
+                "fix_counts": fix_counts,
             }
         )
 

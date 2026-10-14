@@ -32,6 +32,11 @@ except ImportError:
     from lms.builder_bank_seed import seed_builder_module_bank
     from lms.slide_builder import local_curriculum_course_dir
 
+try:
+    from bank_lint import lints_library_after
+except ImportError:  # package import
+    from lms.bank_lint import lints_library_after
+
 
 def is_curriculum_open(payload: Any) -> bool:
     """True when a stored row is a constructed curriculum prompt.
@@ -263,6 +268,7 @@ def _upsert_curriculum_bank(
     }
 
 
+@lints_library_after
 def seed_library_import_banks(
     school: Any,
     library_id: int,

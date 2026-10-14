@@ -1360,4 +1360,13 @@ def ingest_library(db: Any, data_dir: Path, library_id: int, unpacked: Path) -> 
     Returns:
         Summary counts from :class:`IngestResult`.
     """
-    return LibraryIngestor(db, data_dir).ingest(int(library_id), Path(unpacked)).as_dict()
+    result = LibraryIngestor(db, data_dir).ingest(int(library_id), Path(unpacked)).as_dict()
+    # Bank linter: report-only, never blocks or rolls back the import.
+    try:
+        from bank_lint import safe_lint_library
+    except ImportError:
+        from lms.bank_lint import safe_lint_library
+    lint = safe_lint_library(db, int(library_id))
+    if lint is not None:
+        result["lint"] = {"flagged": lint.get("flagged", 0), "by_code": lint.get("by_code", {})}
+    return result

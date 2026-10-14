@@ -48,6 +48,11 @@ RANK_ITEM_KEY_PREFIX = "rank"
 META_FIELDS = frozenset({"rank_catalogue_hash", "retired", "retired_at"})
 _ENSURE_LOCK = threading.Lock()
 
+try:
+    from bank_lint import lints_library_after
+except ImportError:  # package import
+    from lms.bank_lint import lints_library_after
+
 
 def rank_bank_key(course_code: str, module_number: int) -> str:
     """Return ``rank-bank:<CODE>:M<n>``."""
@@ -140,6 +145,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+@lints_library_after
 def seed_rank_bank(
     school: Any,
     library_id: int,
