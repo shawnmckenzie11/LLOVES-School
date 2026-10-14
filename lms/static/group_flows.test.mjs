@@ -155,8 +155,10 @@ const notMine = rankTurnsHtml({ turns: { mode: "turns", total: 3, rev: 2, can_un
 check(!notMine.includes("data-rank-turn-undo"), "teammate sees no Undo");
 const staleUndo = rankTurnsHtml({ turns: { mode: "turns", total: 3, rev: 3, can_undo: true, spots: [{ option_id: "a", label: "A", by_name: "Iggy", mine: true }, { option_id: "b", label: "B", by_name: "Eva", mine: false }] } }, undoOpts);
 check(!staleUndo.includes("data-rank-turn-undo"), "no Undo when the last spot is a teammate's (stale can_undo)");
-const doneUndo = rankTurnsHtml({ turns: { mode: "turns", total: 1, rev: 1, done: true, can_undo: true, spots: [{ option_id: "a", label: "A", by_name: "Iggy", mine: true }] } }, undoOpts);
+const doneUndo = rankTurnsHtml({ turns: { mode: "turns", total: 1, rev: 1, done: true, can_undo: false, spots: [{ option_id: "a", label: "A", by_name: "Iggy", mine: true }] } }, undoOpts);
 check(!doneUndo.includes("data-rank-turn-undo"), "no Undo once the order is in");
+const raceDoneUndo = rankTurnsHtml({ turns: { mode: "turns", total: 1, rev: 1, done: true, can_undo: true, spots: [{ option_id: "a", label: "A", by_name: "Iggy", mine: true }] } }, undoOpts);
+check(raceDoneUndo.includes("data-rank-turn-undo"), "MCK-216 undo before lock-in");
 
 if (failures) {
   console.error(`${failures} failure(s)`);
