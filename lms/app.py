@@ -1301,6 +1301,13 @@ def create_app(
     except Exception:
         logger.exception("celebration freeze flag check failed")
     seed_curriculum(school)
+    if not testing:
+        try:
+            from mck210_catchup_migration import run_mck210_catchup_migration_if_needed
+
+            run_mck210_catchup_migration_if_needed(school)
+        except Exception:  # noqa: BLE001 - migration must not block boot
+            app.logger.exception("MCK-210 catch-up migration failed")
     if local_dev_login_enabled() and not secure:
         try:
             seed_local_dev_school(school)
