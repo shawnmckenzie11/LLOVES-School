@@ -1043,6 +1043,76 @@ def shoot_engagement_overrides(
     return list(shots.values())
 
 
+def shoot_avatar_reward_popup(origin: str, out_dir: Path, widths: list[int], path: Path) -> list[Path]:
+    """Open the Celebrations avatar reward pop-up on the character picker (JOIN).
+
+    Seeds one Shoutout grant for Maple, starts a live class, joins as Maple,
+    and screenshots the auto-opened ``You made Celebrations!`` dialog.
+
+    Args:
+        origin: Loopback LMS origin (no path).
+        out_dir: Directory for PNG files.
+        widths: Viewport widths in pixels.
+        path: LMS sqlite path (same file the dev server uses).
+
+    Returns:
+        PNG paths written.
+    """
+    sys.path.insert(0, str(LMS_DIR))
+    os.environ["LLOVES_DB"] = str(path)
+    os.environ["LOCAL_DEV_LOGIN"] = "1"
+    from app import create_app
+    from celebration import set_featured_award
+    from playwright.sync_api import sync_playwright
+
+    app = create_app(db_path=path, testing=True)
+    school = app.config["SCHOOL_DB"]
+    class_id = shawn_class_id(path)
+    teacher = school.get_user_by_email(SHAWN_EMAIL)
+    if teacher is None:
+        raise SystemExit("Shawn staff user missing. Run with --seed first.")
+    active = school.get_active_live_session_for_class(class_id)
+    if active:
+        school.end_live_class_session(int(active["id"]))
+    maple = school.game.find_student_by_codename(class_id, "Maple")
+    if maple is None:
+        raise SystemExit("No Maple on the demo class. Run with --seed first.")
+    set_featured_award(
+        school,
+        teacher_user_id=int(teacher["id"]),
+        class_id=class_id,
+        student_id=int(maple["id"]),
+        blurb="",
+    )
+    live = school.start_live_class_session(class_id, int(teacher["id"]))
+    cls = school.game.get_class(class_id)
+    code = str(live.get("session_code") or cls.get("live_access_code") or "")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    base = assert_loopback(origin if "://" in origin else f"http://{origin}")
+    written: list[Path] = []
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        for width in widths:
+            context = browser.new_context(viewport={"width": int(width), "height": 900})
+            page = context.new_page()
+            page.goto(base, wait_until="domcontentloaded")
+            page.fill("#code", code)
+            page.fill("#student-name", "Maple")
+            page.locator('#student-code-panel button[type="submit"]').click()
+            page.wait_for_url("**/student/mood**", timeout=30000)
+            page.get_by_role("button", name="Skip").click()
+            page.wait_for_url("**/student/character**", timeout=30000)
+            page.locator("#avatar-reward:not([hidden]) #rw-title").wait_for(
+                state="visible", timeout=30000
+            )
+            dest = out_dir / f"student-avatar-reward-{width}.png"
+            page.screenshot(path=str(dest), full_page=True)
+            written.append(dest)
+            context.close()
+        browser.close()
+    return written
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry: seed, log in once, then shoot URLs or the catch-up scenario."""
     parser = argparse.ArgumentParser(description="Headless local LMS screenshots.")
@@ -1064,11 +1134,13 @@ def main(argv: list[str] | None = None) -> int:
             "mck207",
             "mck207-run-toggle",
             "mck208",
+            "avatar-reward",
         ),
         default="",
         help=(
             "Built-in catch-up, MCK-62 quiet-dot, engagement override, "
-            "MCK-207 roster/PIN, run-class toggle, or MCK-208 dashboard shots."
+            "MCK-207 roster/PIN, run-class toggle, MCK-208 dashboard, or "
+            "avatar-reward pop-up shots."
         ),
     )
     args = parser.parse_args(argv)
@@ -1099,6 +1171,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "mck208":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck208(args.base, out, path, widths, only=args.mck208_only))
+        if args.scenario == "avatar-reward":
+            widths = [int(part) for part in args.widths.split(",") if part.strip()]
+            written.extend(shoot_avatar_reward_popup(args.base, out, widths, path))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(
@@ -1114,7 +1189,8 @@ def main(argv: list[str] | None = None) -> int:
         if not written:
             raise SystemExit(
                 "Pass --url and/or --scenario "
-                "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|mck208."
+                "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
+                "mck208|avatar-reward."
             )
         for item in written:
             print(item)

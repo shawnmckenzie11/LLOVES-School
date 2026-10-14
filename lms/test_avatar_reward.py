@@ -220,11 +220,12 @@ class AvatarRewardTests(unittest.TestCase):
         self.assertIn('id="avatar-reward"', html)
         self.assertIn('data-auto-open="1"', html)
         self.assertIn(TITLE, html)
-        self.assertIn("You're on the board for Most Engaged.", html)
-        self.assertIn("Pick a new avatar. It's yours to keep.", html)
+        self.assertIn("Choose a new avatar to add to your roster:", html)
+        self.assertNotIn("You're on the board for Most Engaged.", html)
+        self.assertNotIn("Pick a new avatar. It's yours to keep.", html)
         self.assertIn("Keep this one", html)
         self.assertIn("Pick later", html)
-        self.assertIn("Your reward will wait for you.", html)
+        self.assertNotIn("Your reward will wait for you.", html)
         self.assertEqual(html.count('name="rw-avatar"'), 20)
         self.assertIn('id="rw-count" hidden', html)
         grants = self._grants(self.maple)
@@ -378,7 +379,7 @@ class AvatarRewardTests(unittest.TestCase):
             class_id=self.class_id, student_id=self.aspen, blurb="Great work",
         )
         html = self._landing(self._login("Aspen"))
-        self.assertIn("You're on the board for Shoutout.", html)
+        self.assertIn("Choose a new avatar to add to your roster:", html)
         set_featured_award(
             self.school, teacher_user_id=self.teacher_id,
             class_id=self.class_id, student_id=self.aspen, blurb="Even better",
@@ -752,21 +753,22 @@ class AvatarRewardJsTests(unittest.TestCase):
     def test_script_uses_wonder_copy_and_no_innerhtml(self) -> None:
         js = (LMS_DIR / "static" / "avatar_reward.js").read_text(encoding="utf-8")
         self.assertNotIn("innerHTML", js)
-        for text in ("Saving…", "Keep this one", "You're on the board for ", "Reward "):
+        for text in ("Saving…", "Keep this one", "Choose a new avatar to add to your roster:", "Reward "):
             self.assertIn(text, js)
         partial = (LMS_DIR / "templates" / "student" / "_avatar_reward.html").read_text(
             encoding="utf-8"
         )
         for text in (
             "You made Celebrations!",
-            "Pick a new avatar. It's yours to keep.",
+            "Choose a new avatar to add to your roster:",
             "Keep this one",
             "Pick later",
-            "Your reward will wait for you.",
             "Added to your avatars.",
             "Couldn't save that. Try again.",
         ):
             self.assertIn(text, partial)
+        self.assertNotIn("Your reward will wait for you.", partial)
+        self.assertNotIn("Pick a new avatar. It's yours to keep.", partial)
 
 
 if __name__ == "__main__":
