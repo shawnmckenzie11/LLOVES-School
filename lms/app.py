@@ -496,6 +496,36 @@ def _json_error(exc: BaseException):
     return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+_BOARD_POOL_RETRY_AFTER = "2"
+
+
+def _board_read_pool_busy(exc: BaseException):
+    """Map a saturated presence pool to HTTP 503 for board delta reads.
+
+    Args:
+        exc: Error from ``read_board`` / ``board_delta``.
+
+    Returns:
+        ``(response, status)`` when ``exc`` is pool busy, else ``None``.
+    """
+    from live_presence import LivePresenceUnavailable, note_presence_blip
+
+    if not isinstance(exc, LivePresenceUnavailable):
+        return None
+    if "pool busy" not in str(exc):
+        return None
+    note_presence_blip("board read pool busy")
+    response = jsonify(
+        {
+            "ok": False,
+            "error": "Board is busy — try again.",
+            "retry": True,
+        }
+    )
+    response.headers["Retry-After"] = _BOARD_POOL_RETRY_AFTER
+    return response, 503
+
+
 def _artifact_busy(action: str):
     """JSON retry when an Artifact open path fails under class load.
 
@@ -8577,6 +8607,11 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        except Exception as exc:
+            busy = _board_read_pool_busy(exc)
+            if busy is not None:
+                return busy
+            raise
         return jsonify(reply)
 
     @app.route("/api/student/board/<board_key>/ops", methods=["POST"])
@@ -8660,6 +8695,11 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 )
             except (KeyError, ValueError) as exc:
                 return _json_error(exc)
+            except Exception as exc:
+                busy = _board_read_pool_busy(exc)
+                if busy is not None:
+                    return busy
+                raise
             return jsonify(reply)
         student_id, rejected = _student_for_board(session_id)
         if rejected is not None:
@@ -8679,6 +8719,11 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        except Exception as exc:
+            busy = _board_read_pool_busy(exc)
+            if busy is not None:
+                return busy
+            raise
         return jsonify(reply)
 
     @app.route(

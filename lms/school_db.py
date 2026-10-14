@@ -2056,7 +2056,13 @@ class LovesDB:
             self.presence = None
             return
         try:
-            store = LivePresenceStore(url, schema=self._live_presence_schema)
+            from serve_capacity import PRESENCE_POOL_SIZE
+
+            store = LivePresenceStore(
+                url,
+                schema=self._live_presence_schema,
+                pool_size=PRESENCE_POOL_SIZE,
+            )
             store.backfill_active(self.conn)
         except (LivePresenceUnavailable, OSError) as exc:
             logger.error("live presence postgres refused: %s", exc)
