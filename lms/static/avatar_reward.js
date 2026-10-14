@@ -33,7 +33,6 @@
 
   const modal = root.querySelector(".rw-modal");
   const titleEl = document.getElementById("rw-title");
-  const reasonEl = document.getElementById("rw-reason");
   const countEl = document.getElementById("rw-count");
   const grid = document.getElementById("rw-grid");
   const promptEl = document.getElementById("rw-prompt");
@@ -48,6 +47,7 @@
   const token = root.getAttribute("data-visit-token") || "";
   const KEEP_LABEL = "Keep this one";
   const SAVING_LABEL = "Saving…";
+  const PROMPT_LABEL = "Choose a new avatar to add to your roster:";
 
   function radios() {
     return Array.from(grid.querySelectorAll('input[name="rw-avatar"]'));
@@ -92,7 +92,7 @@
   function paintGrant() {
     const g = grants[0];
     if (!g) return;
-    reasonEl.textContent = "You're on the board for " + g.award_title + ".";
+    promptEl.textContent = PROMPT_LABEL;
     const total = done + grants.length;
     countEl.hidden = total < 2;
     countEl.textContent = "Reward " + (done + 1) + " of " + total;

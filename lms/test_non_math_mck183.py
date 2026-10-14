@@ -132,9 +132,12 @@ class NonMathTests(unittest.TestCase):
     def test_student_landing_says_join_code(self) -> None:
         html = self.app.test_client().get("/").get_data(as_text=True)
         self.assertIn('<label class="field" for="code">Join code</label>', html)
-        self.assertIn("Enter the join code and your first name to join the live lesson.", html)
+        self.assertIn("<h1>Join Class</h1>", html)
+        self.assertIn('<label class="field" for="student-name">Name</label>', html)
+        self.assertNotIn("Enter the join code and your first name to join the live lesson.", html)
         self.assertNotIn(">Course code</label>", html)
-        self.assertIn('placeholder="Code on the screen"', html)
+        self.assertNotIn('placeholder="Code on the screen"', html)
+        self.assertNotIn('placeholder="First name on the roster"', html)
 
 
 if __name__ == "__main__":

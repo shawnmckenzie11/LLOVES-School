@@ -25,26 +25,25 @@
     body.landing-page .join-card h1 { margin:0 0 1rem; font-size:1.4rem; text-align:center; }
     body.landing-page .join-card input, body.landing-page .join-card button[type="submit"] { box-sizing:border-box; width:100%; }
     body.landing-page .join-card button[type="submit"] { min-height:3rem; margin-top:1rem; font-size:1.05rem; }
-    body.landing-page .join-card .landing-hash-nav { text-align:center; margin:1rem 0 0; }
     @media (max-width: 480px) {
       body.landing-page .join-card { margin-top:1rem; }
     }
   </style>
   <header class="join-topbar">
-    <nav aria-label="Staff sign-in">
+    <nav aria-label="Landing">
+      <a href="#celebrations">Celebrations</a>
       <a href="{{ teacher_href }}">Teacher login</a>
       <a href="{{ url_for('auth_google', portal='it') }}">Admin login</a>
     </nav>
   </header>
   <main class="wrap landing-wrap join-card" id="sign-in">
-    <h1>Join your class</h1>
-    <p class="hint">Enter the join code and your first name to join the live lesson.</p>
+    <h1>Join Class</h1>
     {% if student_error %}<div class="error" id="error">{{ student_error }}</div>{% endif %}
     <form class="student-code-panel" id="student-code-panel" method="post" action="{{ url_for('auth_student_code') }}">
       <label class="field" for="code">Join code</label>
-      <input id="code" name="code" minlength="4" maxlength="24" pattern="\s*(?:(?:[A-Za-z0-9]\s*){4,6}|(?:[A-Za-z0-9]\s*){8})" title="The code on your teacher's screen: 4 to 6 letters and numbers (older codes have 8)" autocomplete="off" autocapitalize="characters" spellcheck="false" required placeholder="Code on the screen" value="{{ student_code or '' }}">
-      <label class="field" for="student-name">First name or Codename</label>
-      <input id="student-name" name="name" autocomplete="given-name" required placeholder="First name on the roster" value="{{ student_name or '' }}">
+      <input id="code" name="code" minlength="4" maxlength="24" pattern="\s*(?:(?:[A-Za-z0-9]\s*){4,6}|(?:[A-Za-z0-9]\s*){8})" title="The code on your teacher's screen: 4 to 6 letters and numbers (older codes have 8)" autocomplete="off" autocapitalize="characters" spellcheck="false" required value="{{ student_code or '' }}">
+      <label class="field" for="student-name">Name</label>
+      <input id="student-name" name="name" autocomplete="given-name" required value="{{ student_name or '' }}">
       {% if student_candidates %}
       <p class="hint" id="student-pick-hint">More than one student matches that name. Pick yours:</p>
       <fieldset class="student-name-picker" id="student-name-picker">
@@ -59,7 +58,6 @@
       {% endif %}
       <button type="submit">Join</button>
     </form>
-    <p class="landing-hash-nav"><a href="#celebrations">Celebrations</a></p>
   </main>
   <section class="wrap calc-wrap" id="celebrations" hidden>
     <p class="landing-hash-nav"><a href="#sign-in">Back to sign-in</a></p>
