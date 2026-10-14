@@ -93,8 +93,17 @@ class Base(unittest.TestCase):
         logging.disable(logging.NOTSET)
         self.tmp.cleanup()
 
-    def run_class(self, module: str, slot: str, individual: int, group: int, answers: dict[int, int],
-                  *, wipe: bool = True) -> str:
+    def run_class(
+        self,
+        module: str,
+        slot: str,
+        individual: int,
+        group: int,
+        answers: dict[int, int],
+        *,
+        wipe: bool = True,
+        ended_iso: str = "2026-10-14T14:30:00",
+    ) -> str:
         """Start a run, publish items, answer some, End. Returns the run key."""
         live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
         sid = int(live["id"])
@@ -127,7 +136,7 @@ class Base(unittest.TestCase):
         run_key = str(c.execute("SELECT run_key FROM live_class_sessions WHERE id = ?", (sid,)).fetchone()[0] or "")
         c.execute(
             "UPDATE live_class_sessions SET ended_at = ?, status = 'ended' WHERE id = ?",
-            ("2026-10-14T14:30:00", sid),
+            (ended_iso, sid),
         )
         c.commit()
         self.school.cleanup_live_session_response_data(sid)

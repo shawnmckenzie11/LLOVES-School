@@ -6397,7 +6397,15 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             elif prompt and session.get(dismiss_key):
                 prompt = None
             if prompt:
-                portal_url = school.open_catchup_portal_url_for_class(int(class_id))
+                try:
+                    portal_url = school.open_catchup_portal_url_for_class(int(class_id))
+                except Exception:
+                    logger.exception(
+                        "catch-up portal URL failed class=%s student=%s",
+                        class_id,
+                        student_id,
+                    )
+                    portal_url = None
                 payload["catchup_pin_prompt"] = {
                     **prompt,
                     "catchup_url": portal_url,

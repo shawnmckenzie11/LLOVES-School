@@ -30628,14 +30628,15 @@ class SchoolDB(LovesDB):
             where += " AND p.live_module = ?"
             params.append(str(module))
         pair = "p.live_slot || char(31) || p.question_key"
-        discard_clause = (
+        real_run_clause = (
             " AND NOT EXISTS (SELECT 1 FROM participation_runs dr "
-            "WHERE dr.class_id = p.class_id AND dr.run_key = p.run_key AND dr.discarded = 1)"
+            "WHERE dr.class_id = p.class_id AND dr.run_key = p.run_key "
+            "AND (dr.discarded = 1 OR dr.is_real = 0))"
         )
         with self._lock:
             offered_rows = self.conn.execute(
                 f"SELECT p.live_module, COUNT(DISTINCT {pair}) AS n FROM participation_items p "
-                f"WHERE {where}{discard_clause} GROUP BY p.live_module",
+                f"WHERE {where}{real_run_clause} GROUP BY p.live_module",
                 params,
             ).fetchall()
             ans_where, ans_params = where, list(params)
@@ -30651,7 +30652,7 @@ class SchoolDB(LovesDB):
                 INNER JOIN participation_items p
                     ON p.class_id = a.class_id AND p.run_key = a.run_key
                    AND p.question_key = a.question_key
-                WHERE {ans_where}{discard_clause}
+                WHERE {ans_where}{real_run_clause}
                 GROUP BY a.student_id, p.live_module
                 """,
                 ans_params,
@@ -30709,9 +30710,10 @@ class SchoolDB(LovesDB):
             ``(offered_by_slot, answered_by_slot, slots_that_ran)``.
         """
         pair = "p.live_slot || char(31) || p.question_key"
-        discard_clause = (
+        real_run_clause = (
             " AND NOT EXISTS (SELECT 1 FROM participation_runs dr "
-            "WHERE dr.class_id = p.class_id AND dr.run_key = p.run_key AND dr.discarded = 1)"
+            "WHERE dr.class_id = p.class_id AND dr.run_key = p.run_key "
+            "AND (dr.discarded = 1 OR dr.is_real = 0))"
         )
         cid = int(class_id)
         mod = str(module)
@@ -30721,7 +30723,7 @@ class SchoolDB(LovesDB):
                 f"""
                 SELECT UPPER(p.live_slot) AS slot, COUNT(DISTINCT {pair}) AS n
                 FROM participation_items p
-                WHERE p.class_id = ? AND p.live_module = ?{discard_clause}
+                WHERE p.class_id = ? AND p.live_module = ?{real_run_clause}
                 GROUP BY UPPER(p.live_slot)
                 """,
                 (cid, mod),
@@ -30733,7 +30735,7 @@ class SchoolDB(LovesDB):
                 INNER JOIN participation_items p
                     ON p.class_id = a.class_id AND p.run_key = a.run_key
                    AND p.question_key = a.question_key
-                WHERE p.class_id = ? AND p.live_module = ? AND a.student_id = ?{discard_clause}
+                WHERE p.class_id = ? AND p.live_module = ? AND a.student_id = ?{real_run_clause}
                 GROUP BY UPPER(p.live_slot)
                 """,
                 (cid, mod, sid),
@@ -30850,7 +30852,8 @@ class SchoolDB(LovesDB):
         with self._lock:
             rows = self.conn.execute(
                 """
-                SELECT c.token, c.run_key, c.live_module, c.live_slot, c.is_open, c.created_at,
+                SELECT c.class_id, c.token, c.run_key, c.live_module, c.live_slot, c.is_open,
+                       c.created_at,
                        COALESCE(r.discarded, 0) AS discarded,
                        COALESCE(r.is_real, 0) AS is_real
                 FROM catchup_links c
@@ -31358,17 +31361,22 @@ class SchoolDB(LovesDB):
 
     def open_catchup_portal_url_for_class(self, class_id: int) -> str | None:
         """First open catch-up link path for a class (canonical when module/slot known)."""
-        for row in self.list_catchup_links(int(class_id)):
+        cid = int(class_id)
+        for row in self.list_catchup_links(cid):
             if not int(row.get("is_open") or 0):
                 continue
-            return self.catchup_canonical_path_for_link(row)
+            return self.catchup_canonical_path_for_link(
+                {**row, "class_id": row.get("class_id") or cid}
+            )
         return None
 
     def catchup_canonical_path_for_link(self, link: dict[str, Any]) -> str:
         """Canonical ``/catchup/<COURSE>/<mN-cK>/<token>`` path for one link."""
         from participation import catchup_canonical_path
 
-        cid = int(link["class_id"])
+        cid = int(link.get("class_id") or 0)
+        if not cid:
+            raise KeyError("class_id")
         return catchup_canonical_path(
             self._course_code_for_class(cid),
             str(link.get("live_module") or ""),
