@@ -382,6 +382,32 @@ body.staff-shell .sheet-wrap {
   color: #1c1914;
   padding: 0.5rem;
 }
+body.staff-shell #grades-root .sheet-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+body.staff-shell #grades-root .sheet.attendance-grid,
+body.staff-shell #grades-root .sheet.ap-module-grid {
+  min-width: max-content;
+}
+body.staff-shell #grades-root .sheet.attendance-grid th.name,
+body.staff-shell #grades-root .sheet.attendance-grid td.name,
+body.staff-shell #grades-root .sheet.ap-module-grid th.name,
+body.staff-shell #grades-root .sheet.ap-module-grid td.name {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #fffdf8;
+  box-shadow: 1px 0 0 #e2e8f0;
+}
+body.staff-shell #grades-root .sheet.attendance-grid thead th.name,
+body.staff-shell #grades-root .sheet.ap-module-grid thead th.name {
+  z-index: 3;
+}
+body.staff-shell #grades-root .sheet.attendance-grid tr.att-day-total td.name {
+  background: #f8fafc;
+}
 body.staff-shell #grades-root .view-toggle button {
   background: #fff;
   color: #12202e;

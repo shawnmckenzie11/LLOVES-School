@@ -306,6 +306,57 @@ def shoot_urls(
     return written
 
 
+def shoot_mck220(
+    base: str,
+    state_path: Path,
+    out_dir: Path,
+    db: Path,
+    widths: list[int],
+) -> list[Path]:
+    """MCK-220: Participation tab group grid + individual module columns."""
+    from playwright.sync_api import sync_playwright
+
+    class_id = shawn_class_id(db)
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    url = f"{origin}/staff/class/{class_id}?tab=ap&view=participation"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        for label, setup in (
+            ("mck-220-participation-group", None),
+            ("mck-220-participation-individual-level", "individual"),
+        ):
+            for width in widths:
+                context = browser.new_context(
+                    storage_state=str(state_path),
+                    viewport={"width": int(width), "height": 900},
+                )
+                page = context.new_page()
+                page.goto(url, wait_until="networkidle", timeout=60000)
+                page.locator("#sheet").wait_for(state="visible", timeout=60000)
+                if setup == "individual":
+                    page.select_option("#ap-data-mode-select", "individual")
+                    page.wait_for_function(
+                        "() => document.querySelector('table.ap-module-grid th.ap-module-col')"
+                        " && document.querySelector('.ap-module-mark')",
+                        timeout=60000,
+                    )
+                    page.wait_for_function(
+                        "() => document.body.innerText.includes('M3 (2)')",
+                        timeout=60000,
+                    )
+                else:
+                    page.wait_for_function(
+                        "() => document.querySelector('.attendance-grid th.live-sub')",
+                        timeout=60000,
+                    )
+                dest = out_dir / f"{label}-{width}.png"
+                page.screenshot(path=str(dest), full_page=True)
+                written.append(dest)
+                context.close()
+        browser.close()
+    return written
 
 
 def prepare_mck207_pin_modal(path: Path) -> tuple[int, str, int]:
@@ -1164,13 +1215,14 @@ def main(argv: list[str] | None = None) -> int:
             "mck207",
             "mck207-run-toggle",
             "mck208",
+            "mck220",
             "avatar-reward",
         ),
         default="",
         help=(
             "Built-in catch-up, MCK-62 quiet-dot, engagement override, "
-            "MCK-207 roster/PIN, run-class toggle, MCK-208 dashboard, or "
-            "avatar-reward pop-up shots."
+            "MCK-207 roster/PIN, run-class toggle, MCK-208 dashboard, "
+            "MCK-220 participation filters, or avatar-reward pop-up shots."
         ),
     )
     args = parser.parse_args(argv)
@@ -1201,6 +1253,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "mck208":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck208(args.base, out, path, widths, only=args.mck208_only))
+        if args.scenario == "mck220":
+            widths = [int(part) for part in args.widths.split(",") if part.strip()]
+            written.extend(shoot_mck220(args.base, state, out, path, widths))
         if args.scenario == "avatar-reward":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_avatar_reward_popup(args.base, out, widths, path))
@@ -1220,7 +1275,7 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
-                "mck208|avatar-reward."
+                "mck208|mck220|avatar-reward."
             )
         for item in written:
             print(item)

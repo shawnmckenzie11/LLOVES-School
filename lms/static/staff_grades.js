@@ -59,11 +59,29 @@ function loadIndividualMetric(raw) {
 }
 
 /**
+ * Ensure module_participation is present (grid embed or teacher API fallback).
+ * @param {any} data
+ */
+async function ensureModuleParticipation(data) {
+  const embedded = data?.module_participation?.modules;
+  if (Array.isArray(embedded) && embedded.length > 0) return;
+  try {
+    const part = await api(`/api/classes/${classId}/participation`);
+    if (Array.isArray(part?.modules) && part.modules.length > 0) {
+      data.module_participation = { modules: part.modules, students: part.students || [] };
+    }
+  } catch (_err) {
+    /* group calendar still works */
+  }
+}
+
+/**
  * Load and paint the class spreadsheet.
  */
 async function refresh() {
   hideError("#error");
   const data = await api(`/api/classes/${classId}/participation-grid?sort=${sort}`);
+  await ensureModuleParticipation(data);
   paint(data);
 }
 
@@ -224,6 +242,12 @@ function renderIndividualSheet(data, table) {
   );
   const sortLabel = sort === "za" ? "Sort: Z–A" : "Sort: A–Z";
 
+  if (!modules.length) {
+    table.innerHTML = `<tbody><tr><td class="name muted">No individual questions recorded yet. End a live class with individual items, then refresh.</td></tr></tbody>`;
+    table.classList.add("ap-module-grid");
+    return;
+  }
+
   let head = `<tr><th class="name">Student</th>`;
   for (const mod of modules) {
     const complete = Boolean(mod.complete);
@@ -265,16 +289,16 @@ function renderIndividualSheet(data, table) {
 function formatIndividualCell(cell) {
   const answered = Number(cell.answered) || 0;
   const offered = Number(cell.offered) || 0;
-  const base = `${answered}/${offered}`;
   if (offered <= 0) return "—";
+  const base = `${answered}/${offered}`;
   if (individualMetric === "percent") {
     const pct = cell.percent;
-    return pct == null ? base : `${pct}%`;
+    return pct == null ? base : `${base} · ${pct}%`;
   }
   const level = cell.level;
   if (level == null) return base;
-  if (level === 0) return "below L1";
-  return `L${level}`;
+  const levelText = level === 0 ? "below L1" : `L${level}`;
+  return `${base} · ${levelText}`;
 }
 
 /**

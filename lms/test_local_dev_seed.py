@@ -131,7 +131,7 @@ class LocalDevSeedTests(unittest.TestCase):
         first = seed_local_dev_school(self.school)
         self.assertEqual(first["participation_seed"], {"skipped": "already seeded"})
         class_id = int(first["class_id"])
-        self.assertEqual(len(self.school.list_catchup_links(class_id)), 2)
+        self.assertEqual(len(self.school.list_catchup_links(class_id)), 3)
         self.assertIsNone(self.school.get_active_live_session_for_class(class_id))
         staff = self.app.test_client()
         staff.get(
@@ -146,14 +146,17 @@ class LocalDevSeedTests(unittest.TestCase):
         rv = staff.get(f"/staff/classes/{class_id}/participation")
         self.assertEqual(rv.status_code, 302)
         grid = staff.get(f"/api/classes/{class_id}/participation-grid?sort=az").get_json()
-        m1 = next(m for m in grid["module_participation"]["modules"] if m["module"] == "M1")
-        self.assertEqual(m1["offered"], 8)
+        modules = {m["module"]: m for m in grid["module_participation"]["modules"]}
+        self.assertEqual(modules["M1"]["offered"], 8)
+        self.assertEqual(modules["M3"]["offered"], 2)
         maple_row = next(
             s for s in grid["module_participation"]["students"]
             if s["modules"]["M1"]["answered"] == 5
         )
         self.assertEqual(maple_row["modules"]["M1"]["percent"], 62)
         self.assertEqual(maple_row["modules"]["M1"]["level"], 2)
+        self.assertEqual(maple_row["modules"]["M3"]["answered"], 1)
+        self.assertEqual(maple_row["modules"]["M3"]["offered"], 2)
         token = self.school.list_catchup_links(class_id)[0]["token"]
         maple = self.school.game.find_student_by_codename(class_id, "Maple")
         assert maple is not None
