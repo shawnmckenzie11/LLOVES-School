@@ -40,6 +40,7 @@ from engagement_events import (  # noqa: E402
     first_name_only,
     now_iso,
 )
+from engagement_live import live_engagement_snapshot  # noqa: E402
 from engagement_rollup import compute_rollup, rollup_row_to_store  # noqa: E402
 from serve_capacity import poll_budget_expired  # noqa: E402
 from serve_capacity import (  # noqa: E402
@@ -2519,6 +2520,65 @@ class LovesDB:
             for r in computed
         ]
         return store.insert_rollup_batch(payload)
+
+    def student_live_engagement_fields(
+        self, class_id: int, live_session_id: int, student_id: int
+    ) -> dict[str, Any]:
+        """Tier-1 engagement display and group-activity flag for the current run (MCK-215)."""
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT run_key FROM live_class_sessions WHERE id = ? AND class_id = ?",
+                (int(live_session_id), int(class_id)),
+            ).fetchone()
+        if row is None or not str(row["run_key"] or ""):
+            return {"tier1": "0/0", "group_activity": False}
+        run_key = str(row["run_key"])
+        events = self.list_engagement_events(
+            int(class_id), live_session=int(live_session_id)
+        )
+        game = getattr(self, "game", None)
+        student_ids: list[int] = []
+        if game is not None:
+            with game._lock:
+                studs = game.conn.execute(
+                    "SELECT id FROM students WHERE class_id = ? ORDER BY id",
+                    (int(class_id),),
+                ).fetchall()
+            student_ids = [int(r[0]) for r in studs]
+        team_for = {
+            sid: self.student_team_id_for_class(int(class_id), sid) for sid in student_ids
+        }
+        return live_engagement_snapshot(
+            events,
+            class_id=int(class_id),
+            live_session=int(live_session_id),
+            run_key=run_key,
+            student_id=int(student_id),
+            team_for_student=team_for,
+            student_ids=student_ids,
+        )
+
+    def apply_student_live_engagement(
+        self,
+        payload: dict[str, Any],
+        live_session_id: int,
+        class_id: int,
+        student_id: int | None,
+    ) -> dict[str, Any]:
+        """Attach ``me.engagement`` and team-score visibility for the live card."""
+        me = payload.get("me")
+        if not isinstance(me, dict):
+            return payload
+        if student_id in (None, ""):
+            me["engagement"] = "0/0"
+            me["show_team_score"] = False
+            return payload
+        snap = self.student_live_engagement_fields(
+            int(class_id), int(live_session_id), int(student_id)
+        )
+        me["engagement"] = str(snap.get("tier1") or "0/0")
+        me["show_team_score"] = bool(snap.get("group_activity"))
+        return payload
 
     def live_presence_label(self) -> str:
         """Cheap label for ``/health``. Does not ping or read a live session.
@@ -35043,6 +35103,10 @@ class SchoolDB(LovesDB):
         )
         if shell_only:
             ensure_poll_budget()
+            self.apply_student_live_engagement(
+                payload, int(live_session_id), int(class_id), sid
+            )
+            ensure_poll_budget()
             self.apply_student_end_overlay(
                 payload,
                 int(live_session_id),
@@ -35073,6 +35137,10 @@ class SchoolDB(LovesDB):
         ensure_poll_budget()
         payload["live_metadata"] = self.student_live_class_metadata_for_session(
             int(live_session_id)
+        )
+        ensure_poll_budget()
+        self.apply_student_live_engagement(
+            payload, int(live_session_id), int(class_id), sid
         )
         ensure_poll_budget()
         self.apply_student_end_overlay(
@@ -35116,6 +35184,8 @@ class SchoolDB(LovesDB):
                 "character": None,
                 "mood": None,
                 "points": 0,
+                "engagement": "0/0",
+                "show_team_score": False,
                 "team_name": None,
                 "team_points": 0,
             },

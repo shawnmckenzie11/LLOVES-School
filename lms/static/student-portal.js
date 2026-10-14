@@ -119,7 +119,8 @@ const mediaEncoreLink = document.getElementById("media-encore-link");
 const meAvatarEl = document.getElementById("me-avatar");
 const meNameEl = document.getElementById("me-name");
 const meChipEl = document.getElementById("me-meet-chip");
-const mePointsEl = document.getElementById("me-points");
+const meEngagementEl = document.getElementById("me-engagement");
+const meTeamStatEl = document.getElementById("me-team-stat");
 const meTeamLabelEl = document.getElementById("me-team-label");
 const meTeamPointsEl = document.getElementById("me-team-points");
 const meRankEl = document.getElementById("me-rank");
@@ -375,7 +376,11 @@ function paintMe(payload) {
     if (chip) meChipEl.title = "Meet window only";
     else meChipEl.removeAttribute("title");
   }
-  if (mePointsEl) mePointsEl.textContent = pts(me.points);
+  if (meEngagementEl) {
+    meEngagementEl.textContent = String(me.engagement || "0/0");
+  }
+  const showTeam = Boolean(me.show_team_score);
+  if (meTeamStatEl) meTeamStatEl.hidden = !showTeam;
   if (meTeamLabelEl) meTeamLabelEl.textContent = String(me.team_name || "Team");
   if (meTeamPointsEl) meTeamPointsEl.textContent = pts(me.team_points);
   if (meRankEl) meRankEl.hidden = true;
