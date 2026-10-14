@@ -154,9 +154,9 @@ class CaptureTests(Base):
             "AND student_id = ?", (self.class_id, self.students[0])).fetchone()[0]
         self.assertGreaterEqual(kept, 3)
         data = self.school.class_participation(self.class_id)
-        self.assertEqual(data["modules"][0]["offered"], 4)
+        self.assertEqual(data["modules"][0]["offered"], 3)
         cell = data["students"][0]["modules"]["M1"]
-        self.assertEqual((cell["answered"], cell["offered"], cell["percent"], cell["level"]), (3, 4, 75, 3))
+        self.assertEqual((cell["answered"], cell["offered"], cell["percent"], cell["level"]), (3, 3, 100, 4))
         self.assertEqual(data["students"][1]["modules"]["M1"]["answered"], 0)
 
     def test_module_complete_after_c4_or_manual_and_reversible(self) -> None:
@@ -196,11 +196,11 @@ class CaptureTests(Base):
         self.run_class("M1", "C1", 3, 0, {s0: 2})
         self.run_class("M1", "C2", 3, 0, {s0: 1, s1: 3})
         data = self.school.class_participation(self.class_id)
-        self.assertEqual(data["modules"][0]["offered"], 6)
+        self.assertEqual(data["modules"][0]["offered"], 5)
         cells = {row["student_id"]: row["modules"]["M1"] for row in data["students"]}
-        self.assertEqual((cells[s0]["answered"], cells[s0]["percent"]), (3, 50))
-        self.assertEqual((cells[s1]["answered"], cells[s1]["percent"]), (3, 50))
-        # Re-running C1 re-offers the same keys: still 6 offered, answers union.
+        self.assertEqual((cells[s0]["answered"], cells[s0]["percent"]), (3, 60))
+        self.assertEqual((cells[s1]["answered"], cells[s1]["percent"]), (3, 60))
+        # Re-running C1 re-offers the same keys: all three C1 questions get live answers.
         self.run_class("M1", "C1", 3, 0, {s0: 3})
         data = self.school.class_participation(self.class_id)
         self.assertEqual(data["modules"][0]["offered"], 6)
@@ -234,7 +234,13 @@ class CatchupTests(Base):
 
     def setUp(self) -> None:
         super().setUp()
-        self.run_class("M1", "C1", individual=4, group=2, answers={self.students[0]: 1})
+        self.run_class(
+            "M1",
+            "C1",
+            individual=4,
+            group=2,
+            answers={self.students[0]: 1, self.students[1]: 3},
+        )
         self.token = self.school.list_catchup_links(self.class_id)[0]["token"]
         self.school.set_student_pin(self.class_id, self.students[0], "4321")
 
@@ -486,7 +492,7 @@ class CatchupTests(Base):
                       rv.get_data(as_text=True))
         rv = client.post(f"/catchup/{self.token}", data={"action": "pin", "pin": "4321"})
         html = client.get(self.catchup_url() + "?play=1").get_data(as_text=True)
-        self.assertIn("1/4 completed \u00b7 1 more", html)
+        self.assertIn("1/3 completed \u00b7 1 more", html)
         data = catchup_data(html)
         self.assertEqual([q["question_key"] for q in data["questions"]],
                          ["item:M1-q1", "item:M1-q2", "item:M1-q3"])  # not q0 (live), not group

@@ -46,7 +46,7 @@ class RealRunParticipationDenominatorTests(Base):
     """Test-run items must not inflate module or slot denominators."""
 
     def test_m3_c1_counts_only_real_run_not_test_rehearsal(self) -> None:
-        real_key = self.run_class("M3", "C1", 2, 0, {})
+        real_key = self.run_class("M3", "C1", 2, 0, {self.students[0]: 2})
         test_key = self.run_class(
             "M3", "C2", 2, 0, {}, ended_iso="2026-10-20T15:00:00"
         )

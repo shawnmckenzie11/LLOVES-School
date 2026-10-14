@@ -30926,7 +30926,9 @@ class SchoolDB(LovesDB):
                 rows = self.conn.execute(
                     """
                     SELECT i.publish_mode, i.response_mode, i.item_json,
-                           COALESCE(pr.kind, '') AS prompt_kind
+                           COALESCE(pr.kind, '') AS prompt_kind,
+                           i.placement_key,
+                           'item:' || i.placement_key AS question_key
                     FROM live_session_items i
                     LEFT JOIN live_session_prompts pr ON pr.id = i.prompt_id
                     WHERE i.live_session_id = ? AND i.published_at IS NOT NULL
@@ -30939,7 +30941,8 @@ class SchoolDB(LovesDB):
             rows = self.conn.execute(
                 """
                 SELECT 'individual' AS publish_mode, 'individual' AS response_mode,
-                       item_json, prompt_kind
+                       item_json, prompt_kind, question_key,
+                       REPLACE(question_key, 'item:', '') AS placement_key
                 FROM participation_items
                 WHERE class_id = ? AND run_key = ?
                 ORDER BY id ASC
@@ -30948,28 +30951,113 @@ class SchoolDB(LovesDB):
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def participation_run_live_answered_keys(
+        self, class_id: int, run_key: str
+    ) -> frozenset[str]:
+        """Question keys with at least one live (non-catch-up) student response."""
+        key = str(run_key or "").strip()
+        if not key:
+            return frozenset()
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT DISTINCT question_key
+                FROM participation_answers
+                WHERE class_id = ? AND run_key = ? AND source = 'live'
+                """,
+                (int(class_id), key),
+            ).fetchall()
+        return frozenset(str(r["question_key"]) for r in rows if r["question_key"])
+
+    def participation_run_offered(
+        self,
+        class_id: int,
+        run_key: str,
+        *,
+        include_individual: bool,
+        include_group: bool,
+    ) -> int:
+        """MC opportunities for one run that collected live responses."""
+        from participation_weight import count_participation_opportunities
+
+        key = str(run_key or "").strip()
+        if not key:
+            return 0
+        live_keys = self.participation_run_live_answered_keys(class_id, key)
+        items = self.participation_deck_items_for_run(class_id, key)
+        return count_participation_opportunities(
+            items,
+            include_individual=include_individual,
+            include_group=include_group,
+            live_answered_keys=live_keys,
+        )
+
     def participation_module_offered(
         self, class_id: int, live_module: str, *, include_individual: bool, include_group: bool
     ) -> int:
-        """Deck-weighted opportunities for one module (latest real run per slot)."""
-        from participation_weight import count_participation_opportunities
-
+        """Live-response-weighted opportunities for one module (latest real run per slot)."""
         mod = str(live_module or "").strip().upper()
         total = 0
         for slot in ("C1", "C2", "C3", "C4"):
             run_key = self._latest_real_run_key_for_slot(class_id, mod, slot)
             if not run_key:
                 continue
-            items = self.participation_deck_items_for_run(class_id, run_key)
-            total += count_participation_opportunities(
-                items,
+            total += self.participation_run_offered(
+                class_id,
+                run_key,
                 include_individual=include_individual,
                 include_group=include_group,
             )
         if total > 0:
             return total
-        offered, _ = self._participation_counts(class_id, mod)
-        return int(offered.get(mod, 0))
+        return self._participation_live_mc_offered_module(
+            class_id, mod, include_individual=include_individual, include_group=include_group
+        )
+
+    def _participation_live_mc_offered_module(
+        self,
+        class_id: int,
+        live_module: str,
+        *,
+        include_individual: bool,
+        include_group: bool,
+    ) -> int:
+        """Count MC items in a module that have live answers (no deck snapshot)."""
+        from participation_weight import count_participation_opportunities
+
+        mod = str(live_module or "").strip().upper()
+        real_run_clause = (
+            " AND NOT EXISTS (SELECT 1 FROM participation_runs dr "
+            "WHERE dr.class_id = p.class_id AND dr.run_key = p.run_key "
+            "AND (dr.discarded = 1 OR dr.is_real = 0))"
+        )
+        with self._lock:
+            rows = self.conn.execute(
+                f"""
+                SELECT DISTINCT p.run_key, p.question_key, p.item_json, p.prompt_kind,
+                       'individual' AS publish_mode
+                FROM participation_items p
+                INNER JOIN participation_answers a
+                    ON a.class_id = p.class_id AND a.run_key = p.run_key
+                   AND a.question_key = p.question_key AND a.source = 'live'
+                WHERE p.class_id = ? AND p.live_module = ?{real_run_clause}
+                """,
+                (int(class_id), mod),
+            ).fetchall()
+        by_run: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            rk = str(row["run_key"])
+            by_run.setdefault(rk, []).append(dict(row))
+        total = 0
+        for items in by_run.values():
+            live_keys = frozenset(str(i["question_key"]) for i in items)
+            total += count_participation_opportunities(
+                items,
+                include_individual=include_individual,
+                include_group=include_group,
+                live_answered_keys=live_keys,
+            )
+        return total
 
     def participation_individual_session_cells(self, class_id: int) -> dict[str, int]:
         """``{session_id}:{student_id}`` → distinct individual MC answers for that run."""
@@ -31036,12 +31124,18 @@ class SchoolDB(LovesDB):
             sid = int(row["session_id"])
             run_key = str(row["run_key"] or "")
             deck = self.participation_deck_items_for_run(class_id, run_key) if run_key else []
+            live_keys = (
+                sorted(self.participation_run_live_answered_keys(class_id, run_key))
+                if run_key
+                else []
+            )
             meta[str(sid)] = {
                 "run_key": run_key,
                 "live_module": str(row["live_module"] or ""),
                 "live_slot": str(row["live_slot"] or ""),
                 "ended_at": str(row["ended_at"] or row["starts_at"] or ""),
                 "deck_items": deck,
+                "live_answered_keys": live_keys,
             }
         return meta
 
@@ -31155,9 +31249,12 @@ class SchoolDB(LovesDB):
     def student_module_participation(self, class_id: int, student_id: int, module: str) -> dict[str, Any]:
         from participation import level_line, summary
 
-        offered, answered = self._participation_counts(class_id, module, student_id)
-        o = offered.get(str(module), 0)
-        a = answered.get((int(student_id), str(module)), {"n": 0})["n"]
+        mod = str(module or "").strip().upper()
+        _, answered = self._participation_counts(class_id, mod, student_id)
+        o = self.participation_module_offered(
+            class_id, mod, include_individual=True, include_group=False
+        )
+        a = answered.get((int(student_id), mod), {"n": 0})["n"]
         out = summary(a, o)
         out["line"] = level_line(a, o)
         return out
@@ -31179,16 +31276,22 @@ class SchoolDB(LovesDB):
         cid = int(class_id)
         mod = str(module)
         sid = int(student_id)
+        offered: dict[str, int] = {}
+        ran: set[str] = set()
+        for slot in ("C1", "C2", "C3", "C4"):
+            run_key = self._latest_real_run_key_for_slot(cid, mod, slot)
+            if not run_key:
+                continue
+            count = self.participation_run_offered(
+                cid,
+                run_key,
+                include_individual=True,
+                include_group=False,
+            )
+            if count > 0:
+                offered[slot] = count
+                ran.add(slot)
         with self._lock:
-            offered_rows = self.conn.execute(
-                f"""
-                SELECT UPPER(p.live_slot) AS slot, COUNT(DISTINCT {pair}) AS n
-                FROM participation_items p
-                WHERE p.class_id = ? AND p.live_module = ?{real_run_clause}
-                GROUP BY UPPER(p.live_slot)
-                """,
-                (cid, mod),
-            ).fetchall()
             answered_rows = self.conn.execute(
                 f"""
                 SELECT UPPER(p.live_slot) AS slot, COUNT(DISTINCT {pair}) AS n
@@ -31201,9 +31304,7 @@ class SchoolDB(LovesDB):
                 """,
                 (cid, mod, sid),
             ).fetchall()
-        offered = {str(r["slot"]): int(r["n"]) for r in offered_rows}
         answered = {str(r["slot"]): int(r["n"]) for r in answered_rows}
-        ran = set(offered.keys())
         return offered, answered, ran
 
     def student_dashboard_payload(self, class_id: int, student_id: int) -> dict[str, Any]:
@@ -31245,7 +31346,9 @@ class SchoolDB(LovesDB):
                 }
             )
         mod_ans = answered_mod.get((sid, str(current)), {"n": 0})["n"]
-        mod_off = int(offered_mod.get(str(current), 0))
+        mod_off = self.participation_module_offered(
+            cid, str(current), include_individual=True, include_group=False
+        )
         finish: list[dict[str, Any]] = []
         for link in self.list_catchup_links(cid):
             if not int(link.get("is_open") or 0):

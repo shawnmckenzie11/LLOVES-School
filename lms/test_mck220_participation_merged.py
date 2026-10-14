@@ -73,7 +73,7 @@ class Mck220ParticipationTabTests(unittest.TestCase):
         modules = part.get("modules") or []
         self.assertTrue(any(m.get("module") == "M1" for m in modules))
         m1 = next(m for m in modules if m["module"] == "M1")
-        self.assertEqual(m1.get("offered"), 6)
+        self.assertEqual(m1.get("offered"), 5)
         students = part.get("students") or []
         maple = next(s for s in students if s["modules"]["M1"]["answered"] == 5)
         m1_cell = maple["modules"]["M1"]
