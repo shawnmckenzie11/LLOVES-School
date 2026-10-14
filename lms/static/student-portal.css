@@ -1700,6 +1700,10 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
   gap: 0.12rem;
 }
 
+.student-me .me-stat[hidden] {
+  display: none !important;
+}
+
 .student-me .me-stat-label {
   font-size: 0.72rem;
   letter-spacing: 0.08em;
