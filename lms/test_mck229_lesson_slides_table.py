@@ -47,15 +47,26 @@ class LessonSlidesTableTests(RealVsTestFlowTests):
         self.assertTrue(row["join_code"])
         self.assertTrue(row["catchup_enabled"])
 
-    def test_test_student_created_with_known_pin(self) -> None:
-        """Each class gets one Test Student excluded from participation grid."""
+    def test_test_student_gets_default_pin_and_excluded_from_participation(self) -> None:
+        """Test Student uses generated default PINs, not a hardcoded production PIN."""
         info = self.school.ensure_class_test_student(self.class_id)
         assert info is not None
         self.assertEqual(info["codename"], self.school.TEST_STUDENT_CODENAME)
-        self.assertIn(info["student_id"], self.school.test_student_ids(self.class_id))
+        stu_id = int(info["student_id"])
+        self.assertIn(stu_id, self.school.test_student_ids(self.class_id))
+        secret = "unit-test-pin-secret"
+        assigned = self.school.ensure_default_pins_for_class(self.class_id, secret)
+        self.assertGreaterEqual(int(assigned["assigned"]), 1)
+        with self.school.game._lock:
+            row = self.school.game.conn.execute(
+                "SELECT pin_hash, default_pin_ciphertext FROM students WHERE id = ?",
+                (stu_id,),
+            ).fetchone()
+        self.assertTrue(str(row["pin_hash"] or "").strip())
+        self.assertTrue(str(row["default_pin_ciphertext"] or "").strip())
         part = self.school.class_participation(self.class_id)
         student_ids = {int(r["student_id"]) for r in part["students"]}
-        self.assertNotIn(int(info["student_id"]), student_ids)
+        self.assertNotIn(stu_id, student_ids)
 
     def test_lesson_slides_tab_mounts_table(self) -> None:
         """Staff Lesson Slides tab loads the new table shell."""

@@ -1078,7 +1078,7 @@
       <div id="roster-root" class="ap-roster" data-class-id="{{ cls.id }}">
         <p class="hint">Catch-up PINs are course-wide. Students use the same PIN on every catch-up link.</p>
         {% if 'Test Student' in roster_codenames.values() %}
-        <p class="hint"><strong>Test Student</strong> is for join-code rehearsal only (PIN <code>9999</code>). Excluded from attendance, participation, teams, and celebrations.</p>
+        <p class="hint"><strong>Test Student</strong> is for join-code rehearsal only. Use the default PIN slip or Set PIN below like any other student. Excluded from attendance, participation, teams, and celebrations.</p>
         {% endif %}
         <label class="switch no-print"><input type="checkbox" id="require-catchup-pin-change" {% if require_catchup_pin_change %}checked{% endif %}> Require students to change default PINs</label>
         {% if roster_pin_alerts %}

@@ -30801,7 +30801,6 @@ class SchoolDB(LovesDB):
         return dict(row)
 
     TEST_STUDENT_CODENAME = "Test Student"
-    TEST_STUDENT_PIN = "9999"
 
     def test_student_ids(self, class_id: int) -> list[int]:
         """Ids of roster Test Student rows (excluded from class metrics)."""
@@ -30854,12 +30853,6 @@ class SchoolDB(LovesDB):
                 is_test_student=True,
             )
             self.game.conn.commit()
-        self.set_student_pin(
-            cid,
-            stu_id,
-            self.TEST_STUDENT_PIN,
-            pin_set_by="teacher",
-        )
         return {"student_id": stu_id, "codename": self.TEST_STUDENT_CODENAME}
 
     def catchup_public_url(self, class_id: int, link: dict[str, Any]) -> str:

@@ -1636,7 +1636,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             offering_id=int(offering["id"]),
             teacher_user_id=int(teacher_user_id),
         )
-        school.ensure_class_test_student(int(created["id"]))
+        class_id = int(created["id"])
+        school.ensure_class_test_student(class_id)
+        school.ensure_default_pins_for_class(class_id, str(app.secret_key or DEV_SECRET_KEY))
         return school.enrich_class(created)
 
     def _owned_offering_for_pack(class_id: int) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -3676,7 +3678,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         except ValueError as exc:
             simple = _simple_course(offering.get("ontario_code"), offering.get("library_id"))
             return jsonify({"ok": False, "error": _roster_message(exc, simple)}), 400
-        school.ensure_class_test_student(int(created["id"]))
+        class_id = int(created["id"])
+        school.ensure_class_test_student(class_id)
+        school.ensure_default_pins_for_class(class_id, str(app.secret_key or DEV_SECRET_KEY))
         created = school.enrich_class(created)
         return jsonify({"ok": True, "class": created})
 
