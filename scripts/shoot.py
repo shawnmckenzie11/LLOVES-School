@@ -18,6 +18,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sqlite3
 import subprocess
@@ -168,25 +169,73 @@ def prepare_catchup(path: Path, mode: str) -> int:
     try:
         _ensure_demo_deck(con, class_id)
         con.execute("DELETE FROM catchup_links WHERE class_id = ?", (class_id,))
+        con.execute("DELETE FROM lesson_slides_latest WHERE class_id = ?", (class_id,))
         if mode == "mixed":
             rows = [
-                ("cu-old", "session:1:2026-09-01T09:00:00", "M1", "C1", 1, "2026-09-01T09:00:00"),
-                ("cu-mid", "session:2:2026-09-15T09:00:00", "M1", "C1", 0, "2026-09-15T09:00:00"),
-                ("cu-new", "session:3:2026-10-13T09:00:00", "M1", "C1", 1, "2026-10-13T09:00:00"),
-                ("cu-c2", "session:4:2026-10-02T09:00:00", "M1", "C2", 0, "2026-10-02T09:00:00"),
+                ("cu-new", "session:3:2026-10-13T09:00:00", "M1", "C1", 1, "2026-10-13T09:00:00", "AB12"),
+                ("cu-c2", "session:4:2026-10-02T09:00:00", "M1", "C2", 0, "2026-10-02T09:00:00", "CD34"),
             ]
-            con.executemany(
-                """
-                INSERT INTO catchup_links (
-                    token, class_id, run_key, live_module, live_slot, is_open,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+            sample_questions = json.dumps(
                 [
-                    (token, class_id, run_key, module, slot, is_open, created, created)
-                    for token, run_key, module, slot, is_open, created in rows
-                ],
+                    {
+                        "question_key": "item:q0",
+                        "page": 1,
+                        "stem": "Which expression is equivalent to $(x+2)^2$?",
+                        "type": "mc",
+                        "type_label": "Multiple choice",
+                        "mode": "individual",
+                        "weight": 1,
+                        "in_catchup": True,
+                    },
+                    {
+                        "question_key": "item:q1",
+                        "page": 2,
+                        "stem": "Order the team steps.",
+                        "type": "rank",
+                        "type_label": "Rank",
+                        "mode": "group",
+                        "weight": 0,
+                        "in_catchup": False,
+                    },
+                ]
             )
+            for token, run_key, module, slot, is_open, created, join_code in rows:
+                con.execute(
+                    """
+                    INSERT INTO catchup_links (
+                        token, class_id, run_key, live_module, live_slot, is_open,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (token, class_id, run_key, module, slot, is_open, created, created),
+                )
+                con.execute(
+                    """
+                    INSERT OR REPLACE INTO participation_runs (
+                        class_id, run_key, is_real, auto_is_real, discarded
+                    ) VALUES (?, ?, 1, 1, 0)
+                    """,
+                    (class_id, run_key),
+                )
+                con.execute(
+                    """
+                    INSERT OR REPLACE INTO lesson_slides_latest (
+                        class_id, live_module, live_slot, run_key, session_code, ended_at,
+                        presentation_url, questions_json, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        class_id,
+                        module,
+                        slot,
+                        run_key,
+                        join_code,
+                        created,
+                        f"/staff/class/{class_id}?tab=lesson-slides",
+                        sample_questions,
+                        created,
+                    ),
+                )
         con.commit()
     finally:
         con.close()
@@ -1147,27 +1196,20 @@ def shoot_catchup(base: str, state_path: Path, out_dir: Path, path: Path) -> lis
         )
         page = context.new_page()
         page.goto(url, wait_until="domcontentloaded")
-        card = page.locator(".catchup-links-card").first
-        card.wait_for(state="visible", timeout=15000)
-        page.locator(".catchup-pending").first.wait_for(state="visible", timeout=15000)
-        if page.locator(".catchup-links-card iframe, .catchup-links-card embed").count():
-            raise SystemExit("Catch-up card rendered a frame or embed.")
-        page.locator(".ls-module-block").first.screenshot(path=str(shots["empty"]))
+        table = page.locator("#ls-run-table")
+        table.wait_for(state="visible", timeout=15000)
+        page.locator("#ls-run-table-body tr").first.wait_for(state="visible", timeout=15000)
+        page.locator(".lesson-slides-table-card").screenshot(path=str(shots["empty"]))
 
         prepare_catchup(path, "mixed")
         page.reload(wait_until="domcontentloaded")
-        card.wait_for(state="visible", timeout=15000)
-        page.locator(".catchup-slot > .catchup-row .catchup-badge.is-open").first.wait_for(
-            state="visible", timeout=15000
-        )
-        page.locator(".catchup-slot > .catchup-row .catchup-badge.is-muted").first.wait_for(
-            state="visible", timeout=15000
-        )
-        page.locator(".ls-module-block").first.screenshot(path=str(shots["mixed"]))
+        table.wait_for(state="visible", timeout=15000)
+        page.locator("#ls-run-table-body tr").first.wait_for(state="visible", timeout=15000)
+        page.locator(".lesson-slides-table-card").screenshot(path=str(shots["mixed"]))
 
-        page.locator("details.catchup-earlier summary").first.click()
-        page.locator(".catchup-row.is-earlier").first.wait_for(state="visible", timeout=15000)
-        page.locator(".ls-module-block").first.screenshot(path=str(shots["earlier"]))
+        page.locator("#ls-run-table details summary").first.click()
+        page.locator("table.ls-questions-sheet").first.wait_for(state="visible", timeout=15000)
+        page.locator(".lesson-slides-table-card").screenshot(path=str(shots["earlier"]))
         context.close()
         browser.close()
     return list(shots.values())

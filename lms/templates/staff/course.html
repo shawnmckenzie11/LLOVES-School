@@ -865,74 +865,34 @@
     </dialog>
     <script type="module" src="/static/staff_ap.js"></script>
     {% elif tab == 'lesson-slides' %}
-    <div class="card lesson-slides-wizard" id="lesson-slides-root" data-class-id="{{ cls.id }}">
+    <div class="card lesson-slides-table-card" id="lesson-slides-root" data-class-id="{{ cls.id }}">
       <h2>Lesson Slides</h2>
-      <p class="hint">Map one live class onto async Lessons, confirm the team challenge, then copy Lesson Theme Template #1 and fill by slide order.</p>
-      <h3>Saved Google decks</h3>
-      <p class="hint">Google Slides already copied for this class. Catch-up links for C1–C4 sit under each module.</p>
-      <div id="ls-module-sections">
-        <p class="hint">Loading…</p>
+      <p class="hint">One row per live class. The latest real run is the deck and catch-up ground truth (join code, questions, completion counts).</p>
+      <div class="ls-filter-bar" role="toolbar" aria-label="Question filters">
+        <span class="ls-filter-label">Questions</span>
+        <button type="button" class="secondary ls-filter on" data-ls-filter="all">All</button>
+        <button type="button" class="secondary ls-filter" data-ls-filter="individual">Individual</button>
+        <button type="button" class="secondary ls-filter" data-ls-filter="group">Group</button>
+        <button type="button" class="secondary ls-filter" data-ls-filter="weighted">Weighted only</button>
       </div>
-      <h3>Live lesson files</h3>
-      <p class="hint">Saved Run Live Class templates for this course. Question counts include questions you added or removed for this class. Media and artifact labels name the pack. Open Stems to read questions without opening the lesson.</p>
       <div class="table-wrap">
-        <table class="ls-live-lessons" id="ls-live-lessons">
+        <table class="ls-run-table" id="ls-run-table">
           <thead>
             <tr>
-              <th>Module</th>
               <th>Class</th>
-              <th>Pages</th>
+              <th>Last run</th>
+              <th>Join code</th>
               <th>Questions</th>
-              <th>Media</th>
-              <th>Artifacts</th>
-              <th>Scan</th>
+              <th>Deck</th>
+              <th>Catch-up</th>
             </tr>
           </thead>
-          <tbody id="ls-live-lessons-body">
-            <tr><td colspan="7">Loading…</td></tr>
+          <tbody id="ls-run-table-body">
+            <tr><td colspan="6">Loading…</td></tr>
           </tbody>
         </table>
       </div>
-      <div class="lesson-slides-grid">
-        <label class="field">Module #
-          <input id="ls-module" type="number" min="1" value="1">
-        </label>
-        <label class="field">Live class # in module
-          <input id="ls-live-index" type="number" min="1" value="1">
-        </label>
-        <label class="field">Live classes per module
-          <input id="ls-lives" type="number" min="1" value="4">
-        </label>
-        <label class="field">Weeks per module
-          <input id="ls-weeks" type="number" min="1" value="2">
-        </label>
-        <label class="field">Async keyword
-          <input id="ls-keyword" type="text" value="Lesson">
-        </label>
-      </div>
-      <p class="row-actions compact">
-        <button type="button" id="ls-preview">Preview connected Lessons</button>
-      </p>
-      <p class="hint" id="ls-preview-status">Defaults are M1C1 (module 1, live class 1).</p>
-      <ul id="ls-preview-list"></ul>
-      <p class="hint" id="ls-expect-codes"></p>
-      <label class="field">Team challenge context
-        <textarea id="ls-context" rows="4"></textarea>
-      </label>
-      <label class="field">Team challenge question
-        <textarea id="ls-question" rows="3"></textarea>
-      </label>
-      <label class="field">Speaker notes (context slide)
-        <textarea id="ls-notes" rows="3"></textarea>
-      </label>
-      <p class="hint compact" id="ls-status"></p>
-      <p class="row-actions">
-        <a class="btn secondary" id="ls-connect" href="/auth/google/slides">Connect Google Slides</a>
-        <button type="button" id="ls-build">Build deck</button>
-        <button type="button" class="secondary" id="ls-rebuild" hidden>Rebuild deck</button>
-        <a class="btn secondary" id="ls-open" href="#" target="_blank" rel="noopener" hidden>Open slides</a>
-      </p>
-      <p class="hint compact">Connect lives only on this tab. If Google shows <strong>redirect_uri_mismatch</strong>, add this exact URI under the Web client → Authorized redirect URIs, then Save: <code>http://127.0.0.1:8787/auth/google/slides/callback</code></p>
+      <p class="hint compact" id="ls-table-status" hidden></p>
     </div>
     <script type="module" src="/static/staff_lesson_slides.js"></script>
     {% elif tab == 'ap' %}
@@ -1117,6 +1077,9 @@
       {% elif ap_view == 'roster' %}
       <div id="roster-root" class="ap-roster" data-class-id="{{ cls.id }}">
         <p class="hint">Catch-up PINs are course-wide. Students use the same PIN on every catch-up link.</p>
+        {% if 'Test Student' in roster_codenames.values() %}
+        <p class="hint"><strong>Test Student</strong> is for join-code rehearsal only (PIN <code>9999</code>). Excluded from attendance, participation, teams, and celebrations.</p>
+        {% endif %}
         <label class="switch no-print"><input type="checkbox" id="require-catchup-pin-change" {% if require_catchup_pin_change %}checked{% endif %}> Require students to change default PINs</label>
         {% if roster_pin_alerts %}
         <div class="pin-alerts card no-print" role="status">

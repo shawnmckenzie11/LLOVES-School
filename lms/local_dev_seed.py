@@ -147,6 +147,7 @@ def seed_local_dev_school(school: Any) -> dict[str, Any]:
         from lms.curriculum_bank_seed import seed_local_question_banks
 
     summary["import_banks"] = seed_local_question_banks(school)
+    school.ensure_class_test_student(int(class_row["id"]))
     summary["participation_seed"] = _seed_demo_participation(
         school, int(class_row["id"]), int(shawn["id"])
     )

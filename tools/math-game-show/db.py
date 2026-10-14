@@ -829,6 +829,7 @@ class GameShowDB:
         self._migrate_student_pin_hash()
         self._migrate_student_default_pin_ciphertext()
         self._migrate_student_pin_set_by()
+        self._migrate_test_student_flag()
         self._migrate_class_require_catchup_pin_change()
         self._migrate_student_portal()
         self._migrate_session_scores_late()
@@ -963,6 +964,14 @@ class GameShowDB:
         cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(students)").fetchall()}
         if "pin_set_by" not in cols:
             self.conn.execute("ALTER TABLE students ADD COLUMN pin_set_by TEXT")
+
+    def _migrate_test_student_flag(self) -> None:
+        """MCK-229: roster Test Student excluded from class metrics."""
+        cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(students)").fetchall()}
+        if "is_test_student" not in cols:
+            self.conn.execute(
+                "ALTER TABLE students ADD COLUMN is_test_student INTEGER NOT NULL DEFAULT 0"
+            )
 
     def _migrate_class_require_catchup_pin_change(self) -> None:
         """MCK-207: force students off teacher default PINs before catch-up."""
@@ -1127,6 +1136,7 @@ class GameShowDB:
         last_display: str,
         first_name: str,
         codename: str | None = None,
+        is_test_student: bool = False,
     ) -> int:
         """Insert one students row, including ``codename`` when migrated.
 
@@ -1136,18 +1146,30 @@ class GameShowDB:
             last_display: Family name, or empty on the LLOVES path.
             first_name: Given name, or the Codename on the LLOVES path.
             codename: LLOVES roster name, or None for Canvas CSV imports.
+            is_test_student: When True, exclude from attendance and participation.
 
         Returns:
             New student primary key.
         """
-        self.conn.execute(
-            """
-            INSERT INTO students
-                (class_id, canvas_id, last_display, first_name, codename)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (class_id, canvas_id, last_display, first_name, codename),
-        )
+        cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(students)").fetchall()}
+        if "is_test_student" in cols:
+            self.conn.execute(
+                """
+                INSERT INTO students
+                    (class_id, canvas_id, last_display, first_name, codename, is_test_student)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (class_id, canvas_id, last_display, first_name, codename, 1 if is_test_student else 0),
+            )
+        else:
+            self.conn.execute(
+                """
+                INSERT INTO students
+                    (class_id, canvas_id, last_display, first_name, codename)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (class_id, canvas_id, last_display, first_name, codename),
+            )
         return int(self.conn.execute("SELECT last_insert_rowid()").fetchone()[0])
 
     def create_class(
@@ -2718,6 +2740,14 @@ class GameShowDB:
             ).fetchall()
         return {int(row["student_id"]): as_points(row["total"]) for row in rows}
 
+    def _student_is_test_locked(self, student_id: int) -> bool:
+        """True when the student is the class Test Student (MCK-229)."""
+        row = self.conn.execute(
+            "SELECT COALESCE(is_test_student, 0) FROM students WHERE id = ?",
+            (int(student_id),),
+        ).fetchone()
+        return bool(row and int(row[0]))
+
     def dashboard(self, class_id: int, sort: str = "last") -> dict[str, Any]:
         """Spreadsheet payload: students, mixed columns, cells, totals.
 
@@ -2732,12 +2762,13 @@ class GameShowDB:
         cls = self.get_class(class_id)
         self.set_current_class(class_id)
         with self._lock:
-            students = [
-                dict(row)
-                for row in self.conn.execute(
-                    "SELECT * FROM students WHERE class_id = ?", (class_id,)
-                )
-            ]
+            students = []
+            for row in self.conn.execute(
+                "SELECT * FROM students WHERE class_id = ?", (class_id,)
+            ):
+                if "is_test_student" in row.keys() and int(row["is_test_student"] or 0):
+                    continue
+                students.append(dict(row))
             sessions = [
                 dict(row)
                 for row in self.conn.execute(
@@ -4480,7 +4511,11 @@ class GameShowDB:
                 """,
                 (session_id,),
             ).fetchall()
-            present_ids = [int(r["id"]) for r in present_rows]
+            present_ids = [
+                int(r["id"])
+                for r in present_rows
+                if not self._student_is_test_locked(int(r["id"]))
+            ]
             validate_team_count(int(n_teams), len(present_ids))
             totals_map = {}
             for sid in present_ids:

@@ -1636,6 +1636,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             offering_id=int(offering["id"]),
             teacher_user_id=int(teacher_user_id),
         )
+        school.ensure_class_test_student(int(created["id"]))
         return school.enrich_class(created)
 
     def _owned_offering_for_pack(class_id: int) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -3675,6 +3676,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         except ValueError as exc:
             simple = _simple_course(offering.get("ontario_code"), offering.get("library_id"))
             return jsonify({"ok": False, "error": _roster_message(exc, simple)}), 400
+        school.ensure_class_test_student(int(created["id"]))
         created = school.enrich_class(created)
         return jsonify({"ok": True, "class": created})
 
@@ -9034,6 +9036,20 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         if denied:
             return denied
         return jsonify({"ok": True, "catchup_links": _catchup_links_payload(class_id)})
+
+    @app.route("/api/classes/<int:class_id>/lesson-slides/table")
+    @login_required
+    def api_lesson_slides_table(class_id: int):
+        """MCK-229: one row per live class with latest-run deck and questions."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        from lesson_slides_table import build_lesson_slides_table
+
+        payload = build_lesson_slides_table(school, class_id)
+        response = jsonify(payload)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.route("/api/classes/<int:class_id>/catchup-links/<token>", methods=["POST"])
     @login_required

@@ -1,346 +1,272 @@
 /**
- * Lesson Slides wizard: preview connected async Lessons, then build a Drive deck.
+ * Lesson Slides table (MCK-229): one row per live class, latest real run.
  */
-import {
-  bindCatchupLinks,
-  CATCHUP_LOAD_ERROR,
-  paintLessonModuleSections,
-} from "./catchup_links_card.js";
 
 const root = document.getElementById("lesson-slides-root");
 const classId = root?.dataset.classId;
+let tableRows = [];
+let activeFilter = "all";
 
 /**
- * Read wizard numeric/text fields.
- * @returns {{module:number, live_index:number, lives_per_module:number, weeks_per_module:number, keyword:string}}
- */
-function wizardFields() {
-  return {
-    module: Number(document.getElementById("ls-module")?.value || 1),
-    live_index: Number(document.getElementById("ls-live-index")?.value || 1),
-    lives_per_module: Number(document.getElementById("ls-lives")?.value || 4),
-    weeks_per_module: Number(document.getElementById("ls-weeks")?.value || 2),
-    keyword: String(document.getElementById("ls-keyword")?.value || "Lesson"),
-  };
-}
-
-/**
- * Query string for preview GET.
+ * Format an ISO timestamp for teachers (local date + time).
+ * @param {string} iso
  * @returns {string}
  */
-function previewQuery() {
-  const f = wizardFields();
-  const q = new URLSearchParams({
-    module: String(f.module),
-    live_index: String(f.live_index),
-    lives_per_module: String(f.lives_per_module),
-    weeks_per_module: String(f.weeks_per_module),
-    keyword: f.keyword,
+function formatRunTime(iso) {
+  const text = String(iso || "").trim();
+  if (!text) return "—";
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return text;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
   });
-  return q.toString();
 }
 
-/** Saved decks and catch-up links painted together under each module. */
-let savedDecks = [];
-let catchupLinks = [];
-let catchupError = "";
+/**
+ * Summary strip text for expanded questions.
+ * @param {Record<string, unknown>} summary
+ * @returns {string}
+ */
+function summaryStrip(summary) {
+  const modes = summary?.by_mode || {};
+  const types = summary?.by_type || {};
+  const typeBits = Object.entries(types)
+    .map(([label, count]) => `${count} ${label}`)
+    .join(" · ");
+  return [
+    `${modes.individual || 0} individual`,
+    `${modes.group || 0} group`,
+    typeBits,
+    `total weight ${summary?.total_weight ?? 0}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 /**
- * Paint one deck list per module, with the Catch-up links card underneath.
+ * Filter question rows client-side.
+ * @param {Array<Record<string, unknown>>} questions
+ * @returns {Array<Record<string, unknown>>}
+ */
+function filteredQuestions(questions) {
+  const list = Array.isArray(questions) ? questions : [];
+  if (activeFilter === "individual") {
+    return list.filter((q) => String(q.mode || "").toLowerCase() === "individual");
+  }
+  if (activeFilter === "group") {
+    return list.filter((q) => String(q.mode || "").toLowerCase() === "group");
+  }
+  if (activeFilter === "weighted") {
+    return list.filter((q) => Number(q.weight || 0) > 0);
+  }
+  return list;
+}
+
+/**
+ * Build the questions detail block for one row.
+ * @param {Record<string, unknown>} row
+ * @returns {HTMLTableRowElement}
+ */
+function questionsDetailRow(row) {
+  const tr = document.createElement("tr");
+  tr.className = "ls-questions-row";
+  const td = document.createElement("td");
+  td.colSpan = 6;
+  const questions = filteredQuestions(row.questions);
+  const strip = document.createElement("p");
+  strip.className = "ls-summary-strip hint compact";
+  strip.textContent = summaryStrip(row.summary);
+  td.appendChild(strip);
+  if (!questions.length) {
+    const empty = document.createElement("p");
+    empty.className = "hint";
+    empty.textContent = row.has_run
+      ? "No questions match this filter."
+      : "Run this class to capture the live deck.";
+    td.appendChild(empty);
+    tr.appendChild(td);
+    return tr;
+  }
+  const table = document.createElement("table");
+  table.className = "ls-questions-sheet sheet";
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Page</th>
+        <th>Stem</th>
+        <th>Type</th>
+        <th>Mode</th>
+        <th>Weight</th>
+        <th>Catch-up</th>
+        <th>Lint</th>
+        <th>Live done</th>
+        <th>Catch-up done</th>
+      </tr>
+    </thead>
+  `;
+  const body = document.createElement("tbody");
+  for (const q of questions) {
+    const qtr = document.createElement("tr");
+    const lint = q.lint_ok ? "OK" : (Array.isArray(q.lint_codes) ? q.lint_codes.join(", ") : "—");
+    const cells = [
+      q.page ?? "",
+      String(q.stem || "").slice(0, 120),
+      q.type_label || q.type || "",
+      q.mode || "",
+      q.weight ?? 0,
+      q.in_catchup ? "yes" : "no",
+      lint,
+      q.live_completed ?? 0,
+      q.catchup_completed ?? 0,
+    ];
+    for (const value of cells) {
+      const cell = document.createElement("td");
+      cell.textContent = String(value);
+      qtr.appendChild(cell);
+    }
+    body.appendChild(qtr);
+  }
+  table.appendChild(body);
+  td.appendChild(table);
+  tr.appendChild(td);
+  return tr;
+}
+
+/**
+ * Paint the main table from cached payload rows.
  * @returns {void}
  */
-function paintModules() {
-  const mount = document.getElementById("ls-module-sections");
-  if (!mount) return;
-  paintLessonModuleSections(mount, {
-    decks: savedDecks,
-    links: catchupLinks,
-    error: catchupError,
-  });
-}
-
-/**
- * Paint saved Google decks from the lesson-slides GET payload.
- * @param {Record<string, unknown>} data
- */
-function paintSavedDecks(data) {
-  savedDecks = Array.isArray(data.saved_decks) ? data.saved_decks : [];
-  paintModules();
-}
-
-/**
- * GET catch-up links for this class and repaint the module cards.
- * @returns {Promise<void>}
- */
-async function loadCatchupLinks() {
-  if (!classId) return;
-  try {
-    const res = await fetch(`/api/classes/${classId}/catchup-links`, {
-      credentials: "same-origin",
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      catchupLinks = [];
-      catchupError = res.status === 401 || res.status === 403
-        ? "Catch-up links are available to the class teacher."
-        : CATCHUP_LOAD_ERROR;
-    } else {
-      catchupLinks = Array.isArray(data.catchup_links) ? data.catchup_links : [];
-      catchupError = "";
-    }
-  } catch {
-    catchupLinks = [];
-    catchupError = CATCHUP_LOAD_ERROR;
-  }
-  paintModules();
-}
-
-/**
- * Load saved live-lesson files and paint the inventory table.
- * @returns {Promise<void>}
- */
-async function loadLiveLessons() {
-  const body = document.getElementById("ls-live-lessons-body");
-  if (!classId || !body) return;
-  const res = await fetch(`/api/classes/${classId}/live-lessons`, {
-    credentials: "same-origin",
-  });
-  const data = await res.json().catch(() => ({}));
-  const lessons = Array.isArray(data.lessons) ? data.lessons : [];
+function paintTable() {
+  const body = document.getElementById("ls-run-table-body");
+  if (!body) return;
   body.replaceChildren();
-  if (!res.ok || !lessons.length) {
+  if (!tableRows.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 7;
-    td.textContent = "No saved live lesson files yet.";
+    td.colSpan = 6;
+    td.textContent = "No live classes found for this course.";
     tr.appendChild(td);
     body.appendChild(tr);
     return;
   }
-  for (const lesson of lessons) {
+  for (const row of tableRows) {
     const tr = document.createElement("tr");
-    const plain = [
-      lesson.module || "",
-      lesson.live_class || "",
-      lesson.page_count ?? "",
-      lesson.question_count ?? "",
-      lesson.media_label || "—",
-      lesson.artifact_label || "—",
-    ];
-    for (const value of plain) {
-      const td = document.createElement("td");
-      td.textContent = String(value);
-      tr.appendChild(td);
+    tr.className = "ls-run-row";
+    const label = document.createElement("td");
+    label.textContent = String(row.label || `${row.module}${row.slot}`);
+    tr.appendChild(label);
+    const ran = document.createElement("td");
+    ran.textContent = row.has_run ? formatRunTime(row.last_run_at) : "Not run yet";
+    tr.appendChild(ran);
+    const code = document.createElement("td");
+    code.textContent = row.has_run ? String(row.join_code || "—") : "—";
+    tr.appendChild(code);
+    const summary = document.createElement("td");
+    const details = document.createElement("details");
+    const sum = document.createElement("summary");
+    sum.textContent = String(row.question_summary || "—");
+    details.appendChild(sum);
+    summary.appendChild(details);
+    tr.appendChild(summary);
+    const deck = document.createElement("td");
+    if (row.deck_url) {
+      const link = document.createElement("a");
+      link.href = String(row.deck_url);
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.className = "btn secondary";
+      link.textContent = "Deck";
+      deck.appendChild(link);
+    } else {
+      deck.textContent = "—";
     }
-    tr.appendChild(scanCell(lesson));
+    tr.appendChild(deck);
+    const catchup = document.createElement("td");
+    if (row.catchup_enabled && row.catchup_url) {
+      const link = document.createElement("a");
+      link.href = String(row.catchup_url);
+      link.className = "btn secondary";
+      link.textContent = "Catch-up";
+      catchup.appendChild(link);
+    } else {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn secondary";
+      btn.disabled = true;
+      btn.textContent = "Catch-up";
+      catchup.appendChild(btn);
+    }
+    tr.appendChild(catchup);
     body.appendChild(tr);
+    details.addEventListener("toggle", () => {
+      const next = tr.nextElementSibling;
+      if (details.open) {
+        if (!next || !next.classList.contains("ls-questions-row")) {
+          body.insertBefore(questionsDetailRow(row), tr.nextSibling);
+        } else {
+          next.replaceWith(questionsDetailRow(row));
+        }
+      } else if (next?.classList.contains("ls-questions-row")) {
+        next.remove();
+      }
+    });
   }
 }
 
 /**
- * Scan cell: one-line pack summary plus question stems, no lesson open.
- * @param {Record<string, unknown>} lesson
- * @returns {HTMLTableCellElement}
- */
-function scanCell(lesson) {
-  const td = document.createElement("td");
-  const line = document.createElement("p");
-  line.className = "ls-scan-line";
-  line.textContent = String(lesson.scan || "");
-  td.appendChild(line);
-  const questions = Array.isArray(lesson.questions) ? lesson.questions : [];
-  if (!questions.length) return td;
-  const details = document.createElement("details");
-  const summary = document.createElement("summary");
-  summary.textContent = "Stems";
-  details.appendChild(summary);
-  const list = document.createElement("ul");
-  for (const question of questions) {
-    const item = document.createElement("li");
-    const text = String(question?.text || question?.id || "").trim();
-    item.textContent = text;
-    list.appendChild(item);
-  }
-  details.appendChild(list);
-  td.appendChild(details);
-  return td;
-}
-
-/**
- * Paint preview summary, connected Lessons, and challenge defaults.
- * @param {Record<string, unknown>} data
- */
-function paintPreview(data) {
-  const status = document.getElementById("ls-preview-status");
-  const list = document.getElementById("ls-preview-list");
-  const codes = document.getElementById("ls-expect-codes");
-  const preview = data.preview || data;
-  if (status) status.textContent = String(preview.summary || "");
-  if (list) {
-    list.replaceChildren();
-    for (const lesson of preview.connected_lessons || []) {
-      const li = document.createElement("li");
-      li.textContent = `Lesson ${lesson.lesson_number}: ${lesson.title || ""}`;
-      list.appendChild(li);
-    }
-  }
-  if (codes) {
-    const found = preview.expectation_codes || [];
-    codes.textContent = found.length
-      ? `Expectations: ${found.join(", ")}`
-      : "No seeded expectation codes matched these Lessons.";
-  }
-  const challenge = preview.team_challenge || {};
-  const context = document.getElementById("ls-context");
-  const question = document.getElementById("ls-question");
-  const notes = document.getElementById("ls-notes");
-  if (context && !context.value) context.value = String(challenge.context || "");
-  if (question && !question.value) question.value = String(challenge.question || "");
-  if (notes && !notes.value) notes.value = String(challenge.speaker_notes || "");
-  const open = document.getElementById("ls-open");
-  const rebuild = document.getElementById("ls-rebuild");
-  const url = data.presentation_url || "";
-  if (open) {
-    open.hidden = !url;
-    if (url) open.href = url;
-  }
-  if (rebuild) rebuild.hidden = !url;
-  paintSavedDecks(data);
-}
-
-/**
- * Connect / skip chrome for the operator allowlist.
- * @param {Record<string, unknown>} status
- */
-function paintConnect(status) {
-  const connect = document.getElementById("ls-connect");
-  const hint = document.getElementById("ls-status");
-  const next = encodeURIComponent(window.location.pathname + window.location.search);
-  if (connect) {
-    connect.href = status.connect_url || `/auth/google/slides?next=${next}`;
-    connect.hidden = !status.allowed || Boolean(status.connected);
-  }
-  if (hint && !hint.textContent) {
-    if (!status.allowed) {
-      hint.textContent = "Google Slides connect is limited to solutions@ and Shawn's Gmail.";
-    } else if (status.connected) {
-      hint.textContent = status.mock
-        ? "Slides connected in mock mode (HTML preview)."
-        : "Google Slides connected.";
-    }
-  }
-}
-
-/**
- * GET preview + existing deck.
+ * Load table payload from the API.
  * @returns {Promise<void>}
  */
-async function loadPreview() {
+async function loadTable() {
+  const status = document.getElementById("ls-table-status");
   if (!classId) return;
-  const res = await fetch(`/api/classes/${classId}/lesson-slides?${previewQuery()}`, {
-    credentials: "same-origin",
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const status = document.getElementById("ls-preview-status");
-    if (status) status.textContent = data.error || "Could not preview Lessons.";
-    return;
+  try {
+    const res = await fetch(`/api/classes/${classId}/lesson-slides/table`, {
+      credentials: "same-origin",
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      tableRows = [];
+      if (status) {
+        status.hidden = false;
+        status.textContent = String(data.error || "Could not load Lesson Slides.");
+      }
+      paintTable();
+      return;
+    }
+    tableRows = Array.isArray(data.rows) ? data.rows : [];
+    if (status) status.hidden = true;
+    paintTable();
+  } catch {
+    tableRows = [];
+    if (status) {
+      status.hidden = false;
+      status.textContent = "Could not load Lesson Slides.";
+    }
+    paintTable();
   }
-  paintPreview(data);
 }
 
 /**
- * POST copy + fill.
- * @param {boolean} force
- * @returns {Promise<void>}
+ * Wire filter chips and initial load.
+ * @returns {void}
  */
-async function buildDeck(force) {
-  if (!classId) return;
-  const hint = document.getElementById("ls-status");
-  if (hint) hint.textContent = force ? "Rebuilding deck…" : "Building deck…";
-  const fields = wizardFields();
-  const res = await fetch(`/api/classes/${classId}/lesson-slides`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "same-origin",
-    body: JSON.stringify({
-      ...fields,
-      context: document.getElementById("ls-context")?.value || "",
-      question: document.getElementById("ls-question")?.value || "",
-      speaker_notes: document.getElementById("ls-notes")?.value || "",
-      force_regenerate: Boolean(force),
-    }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 409 && data.needs_slides_connect) {
-    if (hint) hint.textContent = "Connect Google Slides first.";
-    const connect = document.getElementById("ls-connect");
-    if (connect) {
-      connect.hidden = false;
-      if (data.connect_url) connect.href = data.connect_url;
-    }
-    return;
-  }
-  if (!res.ok) {
-    if (hint) hint.textContent = data.error || "Could not build the deck.";
-    return;
-  }
-  paintPreview(data);
-  const notes = [];
-  if (data.reused) notes.push("Opened the existing deck for this live class.");
-  if (data.image_fallback_note) notes.push(data.image_fallback_note);
-  if (hint) hint.textContent = notes.join(" ") || "Deck ready.";
-}
-
-document.getElementById("ls-preview")?.addEventListener("click", () => {
-  loadPreview().catch((err) => {
-    const status = document.getElementById("ls-preview-status");
-    if (status) status.textContent = err?.message || "Preview failed.";
-  });
-});
-document.getElementById("ls-build")?.addEventListener("click", () => {
-  buildDeck(false).catch((err) => {
-    const hint = document.getElementById("ls-status");
-    if (hint) hint.textContent = err?.message || "Build failed.";
-  });
-});
-document.getElementById("ls-rebuild")?.addEventListener("click", () => {
-  buildDeck(true).catch((err) => {
-    const hint = document.getElementById("ls-status");
-    if (hint) hint.textContent = err?.message || "Rebuild failed.";
-  });
-});
-
-const slidesReturn = new URLSearchParams(window.location.search).get("slides");
-if (slidesReturn === "connected" || slidesReturn === "mock") {
-  const hint = document.getElementById("ls-status");
-  if (hint) {
-    hint.textContent =
-      slidesReturn === "mock"
-        ? "Slides connected in mock mode (HTML preview)."
-        : "Google Slides connected.";
+function bindFilters() {
+  for (const button of document.querySelectorAll("[data-ls-filter]")) {
+    button.addEventListener("click", () => {
+      activeFilter = String(button.getAttribute("data-ls-filter") || "all");
+      for (const peer of document.querySelectorAll(".ls-filter")) {
+        peer.classList.toggle("on", peer === button);
+      }
+      paintTable();
+    });
   }
 }
 
 if (root && classId) {
-  bindCatchupLinks(document.getElementById("ls-module-sections"), classId);
-  const next = encodeURIComponent(
-    `/staff/class/${classId}?tab=lesson-slides`
-  );
-  fetch(`/api/auth/slides-status?next=/staff/class/${classId}?tab=lesson-slides`, {
-    credentials: "same-origin",
-  })
-    .then((res) => res.json())
-    .then((status) => {
-      if (status.connect_url) {
-        /* keep */
-      } else {
-        status.connect_url = `/auth/google/slides?next=${next}`;
-      }
-      paintConnect(status);
-    })
-    .catch(() => {});
-  loadCatchupLinks().catch(() => {});
-  loadPreview().catch(() => {});
-  loadLiveLessons().catch(() => {});
+  bindFilters();
+  loadTable().catch(() => {});
 }

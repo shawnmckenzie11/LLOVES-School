@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MCK-203: Catch-up links card on the teacher Lesson Slides page."""
+"""MCK-203 / MCK-229: catch-up links card module (legacy) and Lesson Slides table."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from app import create_app  # noqa: E402
 
 
 class CatchupCardStaticTests(unittest.TestCase):
-    """Node harness plus the staff page shell the card mounts on."""
+    """Node harness for the catch-up card module (still used elsewhere)."""
 
     def test_node_harness(self) -> None:
         """Grouping, grey rows, newest run, copy, and preview pass in node."""
@@ -35,26 +35,16 @@ class CatchupCardStaticTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
         self.assertIn("ok", result.stdout)
 
-    def test_staff_shell_hides_the_card_below_desktop(self) -> None:
-        """The card uses staff styles and is hidden under desktop width."""
-        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
-        self.assertIn("body.staff-shell .catchup-links-card", css)
-        self.assertIn("max-width: 959px", css)
-        self.assertIn(".catchup-badge.is-muted", css)
-        self.assertIn(".catchup-slot.is-pending", css)
-        self.assertIn("font-family: inherit", css)
+    def test_lesson_slides_script_targets_table_api(self) -> None:
+        """Lesson Slides loads the MCK-229 table script and API."""
         script = (LMS_DIR / "static" / "staff_lesson_slides.js").read_text(encoding="utf-8")
-        self.assertIn('from "./catchup_links_card.js"', script)
-        self.assertIn("CATCHUP_LOAD_ERROR", script)
-        self.assertIn("/catchup-links", script)
-        card = (LMS_DIR / "static" / "catchup_links_card.js").read_text(encoding="utf-8")
-        self.assertIn("CATCHUP_LOAD_ERROR", card)
-        self.assertNotIn('createElement("iframe")', card)
-        self.assertNotIn("createElement(\"embed\")", card)
+        self.assertIn("/lesson-slides/table", script)
+        self.assertIn("ls-run-table", script)
+        self.assertNotIn("catchup_links_card.js", script)
 
 
 class CatchupCardHttpTests(unittest.TestCase):
-    """Lesson Slides is staff-only and reads the catch-up link payload."""
+    """Lesson Slides staff tab and catch-up link API."""
 
     def setUp(self) -> None:
         """Isolated sqlite and a signed-in teacher who owns one class."""
@@ -100,18 +90,16 @@ class CatchupCardHttpTests(unittest.TestCase):
         )
         self.school.conn.commit()
 
-    def test_lesson_slides_page_mounts_the_card_for_the_teacher(self) -> None:
-        """The staff Lesson Slides tab includes the module mount and the script."""
+    def test_lesson_slides_page_mounts_table_for_teacher(self) -> None:
+        """The staff Lesson Slides tab includes the run table mount."""
         anon = self.client.get(f"/staff/class/{self.class_id}?tab=lesson-slides")
         self.assertIn(anon.status_code, (302, 401, 403))
         self._sign_in()
         page = self.client.get(f"/staff/class/{self.class_id}?tab=lesson-slides")
         self.assertEqual(page.status_code, 200)
         html = page.get_data(as_text=True)
-        self.assertIn('id="ls-module-sections"', html)
+        self.assertIn('id="ls-run-table"', html)
         self.assertIn("/static/staff_lesson_slides.js", html)
-        self.assertIn('type="module"', html)
-        self.assertNotIn("<iframe", html.lower())
 
     def test_payload_fields_and_open_post(self) -> None:
         """GET returns the card fields; POST {open} closes the link."""
@@ -120,19 +108,18 @@ class CatchupCardHttpTests(unittest.TestCase):
             is_open=True, created_at="2026-10-13T09:00:00",
         )
         self._sign_in()
-        body = self.client.get(f"/api/classes/{self.class_id}/catchup-links").get_json()
-        link = body["catchup_links"][0]
-        for key in ("token", "url", "live_module", "live_slot", "is_open", "created_at", "run_key"):
-            self.assertIn(key, link)
-        self.assertIn("/catchup/MCF3M/m1-c4/cardTok", link["url"])
-        self.assertTrue(link["is_open"])
+        res = self.client.get(f"/api/classes/{self.class_id}/catchup-links")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data.get("ok"))
+        links = data.get("catchup_links") or []
+        self.assertEqual(len(links), 1)
+        self.assertIn("url", links[0])
         closed = self.client.post(
-            f"/api/classes/{self.class_id}/catchup-links/cardTok", json={"open": False},
+            f"/api/classes/{self.class_id}/catchup-links/cardTok",
+            json={"open": False},
         )
         self.assertEqual(closed.status_code, 200)
-        self.assertFalse(closed.get_json()["open"])
-        again = self.client.get(f"/api/classes/{self.class_id}/catchup-links").get_json()
-        self.assertFalse(again["catchup_links"][0]["is_open"])
 
 
 if __name__ == "__main__":

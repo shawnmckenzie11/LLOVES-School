@@ -1966,6 +1966,33 @@ body.staff-shell .live-header-save {
   padding: 0.28rem 0.65rem;
   cursor: pointer;
 }
+body.staff-shell table.ls-run-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+body.staff-shell table.ls-run-table th,
+body.staff-shell table.ls-run-table td {
+  padding: 0.45rem 0.55rem;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border, #d8dde6);
+}
+body.staff-shell .ls-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  margin: 0.75rem 0 1rem;
+}
+body.staff-shell .ls-filter.on {
+  font-weight: 600;
+}
+body.staff-shell .ls-summary-strip {
+  margin: 0.35rem 0 0.65rem;
+}
+body.staff-shell table.ls-questions-sheet {
+  width: 100%;
+  font-size: 0.92rem;
+}
 body.staff-shell table.ls-live-lessons {
   width: 100%;
   border-collapse: collapse;
