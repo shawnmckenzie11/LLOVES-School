@@ -51,5 +51,18 @@ class Mck216StudentLockTests(ChallengeHarness):
         self.assertTrue(rv.get_json()["group_submit"]["race"]["locked"])
 
 
+    def test_locked_hides_full_order_until_close(self) -> None:
+        """Server must not send the MCK-185 full-order notice at lock-in."""
+        item = self._challenge()
+        self._order("Ava", item, KEY_IDS)
+        rv = self._post("Ava", item, "rank-agree", {"agree": True, "order": KEY_IDS})
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        card = self._card("Ava", item)
+        self.assertTrue(card["race"]["locked"])
+        self.assertNotIn("full_order", card)
+        self._close(item)
+        self.assertIn("full_order", self._card("Ava", item))
+
+
 if __name__ == "__main__":
     unittest.main()

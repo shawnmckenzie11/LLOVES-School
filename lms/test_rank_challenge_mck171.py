@@ -339,7 +339,7 @@ class LockInTests(ChallengeHarness):
         self.assertEqual(rv.status_code, 409)
         body = rv.get_json()
         self.assertTrue(body["locked"])
-        self.assertEqual(body["error"], "Locked in. Waiting for the reveal.")
+        self.assertEqual(body["error"], "Waiting for the reveal.")
         self.assertTrue(body["group_submit"]["race"]["locked"])
         rv = self._post("Cy", item, "group-draft", {"clear": True})
         self.assertEqual(rv.status_code, 409)

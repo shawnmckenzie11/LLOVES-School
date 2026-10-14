@@ -12,7 +12,7 @@ export const PHONE_COPY = Object.freeze({
   cue: "Talk it through. Lock in when your whole team agrees.", // race.cue.together
   lockIn: "Lock in our order",
   undo: "Undo",
-  locked: "Locked in. Waiting for the reveal.",
+  locked: "Waiting for the reveal.",
   timesup: "Time's up. We'll score what your group placed.", // race.timesup (0:00 only)
   closed: "Answers are closed. We'll score what your group placed.", // race.closed
 });

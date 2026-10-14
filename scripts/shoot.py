@@ -1291,7 +1291,7 @@ def shoot_mck216(base: str, out_dir: Path, path: Path, widths: list[int]) -> lis
             written.append(ready)
             page.locator('[data-race-lock="1"]').click(timeout=15000)
             page.locator('[data-race-phone-state="locked"]').wait_for(state="visible", timeout=30000)
-            page.get_by_text("Locked in. Waiting for the reveal.").wait_for(
+            page.get_by_text("Waiting for the reveal.").wait_for(
                 state="visible", timeout=15000
             )
             locked = out_dir / f"mck216-locked-{width}.png"

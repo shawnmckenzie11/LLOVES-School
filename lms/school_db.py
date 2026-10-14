@@ -1667,7 +1667,7 @@ def parse_semester_label(semester: str) -> tuple[str, str]:
 
 
 # MCK-171 Team challenge student lines (Wonder v3 race.locked / race.agree.reset).
-RACE_LOCKED_COPY = "Locked in. Waiting for the reveal."
+RACE_LOCKED_COPY = "Waiting for the reveal."
 RACE_AGREE_RESET_COPY = "The order changed. Agree again when you're ready."
 
 # MCK-155 gate MED-2: group MC flow recorded on ``item_json`` at publish.

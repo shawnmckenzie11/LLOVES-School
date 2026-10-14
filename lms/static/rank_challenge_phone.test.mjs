@@ -21,7 +21,7 @@ function check(cond, label) {
 check(PHONE_COPY.cue === "Talk it through. Lock in when your whole team agrees.", "race.cue.together");
 check(PHONE_COPY.lockIn === "Lock in our order", "lock in label");
 check(PHONE_COPY.undo === "Undo", "undo label");
-check(PHONE_COPY.locked === "Locked in. Waiting for the reveal.", "locked copy");
+check(PHONE_COPY.locked === "Waiting for the reveal.", "locked copy");
 check(PHONE_COPY.timesup === "Time's up. We'll score what your group placed.", "race.timesup");
 check(PHONE_COPY.closed === "Answers are closed. We'll score what your group placed.", "race.closed");
 check(!/race|fastest|bonus|first|\bsent\b/i.test(Object.values(PHONE_COPY).join(" ")), "no race / speed / bonus words");
