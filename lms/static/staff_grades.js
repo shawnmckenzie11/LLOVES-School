@@ -91,13 +91,28 @@ function numericPoints(value) {
  * @param {Array<{kind?: string, publish_mode?: string, prompt_kind?: string, item_json?: any}>} deckItems
  * @returns {number}
  */
-function sessionOpportunities(deckItems) {
+function participationQuestionKey(row) {
+  const explicit = String(row.question_key || "").trim();
+  if (explicit) return explicit;
+  const placement = String(row.placement_key || "").trim();
+  if (placement) return `item:${placement}`;
+  return "";
+}
+
+function sessionOpportunities(deckItems, liveAnsweredKeys) {
   const items = deckItems || [];
+  const liveKeys = liveAnsweredKeys == null
+    ? null
+    : new Set((liveAnsweredKeys || []).map((k) => String(k)));
   let total = 0;
   for (const row of items) {
     const mode = String(row.publish_mode || "individual").toLowerCase();
     if (mode === "individual" && !includeIndividual) continue;
     if (mode !== "individual" && !includeGroup) continue;
+    if (liveKeys) {
+      const qkey = participationQuestionKey(row);
+      if (!qkey || !liveKeys.has(qkey)) continue;
+    }
     total += participationWeight(row);
   }
   return total;
@@ -181,7 +196,7 @@ function legacyCap(endedAt) {
  * @returns {{score: number, opportunities: number, ended_at: string}}
  */
 function cellScore(data, sessionId, studentId, meta) {
-  const opportunities = sessionOpportunities(meta?.deck_items);
+  const opportunities = sessionOpportunities(meta?.deck_items, meta?.live_answered_keys);
   let score = 0;
   if (includeGroup) {
     const cell = data.cells?.[`${sessionId}:${studentId}`] || {};

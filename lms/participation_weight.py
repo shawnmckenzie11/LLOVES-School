@@ -1,8 +1,9 @@
 """MCK-230: shared participation opportunity weights for Lesson Slides decks.
 
-Each multiple-choice question (individual or group) counts as one opportunity;
-other question types count as zero. Lesson Slides and Attendance & Participation
-both import this module so denominators stay aligned.
+Each multiple-choice question (individual or group) counts as one opportunity
+when it collected at least one live-class student response; catch-up answers
+do not add opportunities. Other question types count as zero. Lesson Slides
+and Attendance & Participation both import this module so denominators stay aligned.
 """
 
 from __future__ import annotations
@@ -56,6 +57,17 @@ def item_participation_weight(
     return 1 if item_is_multiple_choice(prompt_kind, item_json) else 0
 
 
+def participation_question_key(row: dict[str, Any]) -> str:
+    """Stable ``participation_items.question_key`` for a deck row."""
+    explicit = str(row.get("question_key") or "").strip()
+    if explicit:
+        return explicit
+    placement = str(row.get("placement_key") or "").strip()
+    if placement:
+        return f"item:{placement}"
+    return ""
+
+
 def item_matches_scope(publish_mode: str, *, include_individual: bool, include_group: bool) -> bool:
     """Whether a deck item counts toward the active Individual/Group filters."""
     mode = str(publish_mode or "individual").strip().lower()
@@ -71,8 +83,14 @@ def count_participation_opportunities(
     *,
     include_individual: bool,
     include_group: bool,
+    live_answered_keys: frozenset[str] | None = None,
 ) -> int:
-    """Sum deck weights for items that match the scope checkboxes."""
+    """Sum deck weights for in-scope items that had live student responses.
+
+    When ``live_answered_keys`` is omitted, every in-scope MC item counts (unit
+    tests for deck shape only). Callers computing teacher denominators must pass
+    the set of ``question_key`` values with at least one ``source='live'`` answer.
+    """
     total = 0
     for row in items:
         if not item_matches_scope(
@@ -81,6 +99,10 @@ def count_participation_opportunities(
             include_group=include_group,
         ):
             continue
+        if live_answered_keys is not None:
+            qkey = participation_question_key(row)
+            if not qkey or qkey not in live_answered_keys:
+                continue
         total += item_participation_weight(
             str(row.get("prompt_kind") or ""),
             publish_mode=str(row.get("publish_mode") or "individual"),

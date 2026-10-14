@@ -147,13 +147,13 @@ class LocalDevSeedTests(unittest.TestCase):
         self.assertEqual(rv.status_code, 302)
         grid = staff.get(f"/api/classes/{class_id}/participation-grid?sort=az").get_json()
         modules = {m["module"]: m for m in grid["module_participation"]["modules"]}
-        self.assertEqual(modules["M1"]["offered"], 6)
+        self.assertEqual(modules["M1"]["offered"], 5)
         self.assertEqual(modules["M3"]["offered"], 1)
         maple_row = next(
             s for s in grid["module_participation"]["students"]
             if s["modules"]["M1"]["answered"] == 5
         )
-        self.assertEqual(maple_row["modules"]["M1"]["percent"], 83)
+        self.assertEqual(maple_row["modules"]["M1"]["percent"], 100)
         self.assertEqual(maple_row["modules"]["M1"]["level"], 4)
         self.assertEqual(maple_row["modules"]["M3"]["answered"], 1)
         self.assertEqual(maple_row["modules"]["M3"]["offered"], 1)
