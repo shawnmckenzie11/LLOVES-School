@@ -998,7 +998,7 @@ function bindStudentCanvas() {
       enabled: true,
       members: [],
       isTeacher: false,
-      isPhone: window.matchMedia("(max-width: 480px)").matches,
+      isPhone: typeof window.matchMedia === "function" && window.matchMedia("(max-width: 480px)").matches,
       alwaysShowNames: false,
       projectorShowNames: false,
     },
