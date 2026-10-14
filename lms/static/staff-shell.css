@@ -3510,6 +3510,14 @@ body.staff-shell.is-student-view .quiet-member-strip,
 body.staff-shell.is-quiet-strip-suppressed .quiet-member-strip {
   display: none !important;
 }
+/* MCK-217: belt-and-suspenders if a poll repaints before Questions re-render. */
+body.staff-shell.is-student-view .group-picks,
+body.staff-shell.is-student-view .group-submitter-log,
+body.staff-shell.is-student-view .live-consensus-inspect,
+body.staff-shell.is-student-view .live-consensus-team-answer,
+body.staff-shell.is-student-view .group-reveal-board {
+  display: none !important;
+}
 body.staff-shell .live-consensus-team .quiet-member-strip {
   margin-top: 0.35rem;
 }

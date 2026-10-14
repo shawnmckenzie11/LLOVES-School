@@ -776,7 +776,16 @@ class GroupFlowsClientTests(unittest.TestCase):
         start = staff.index("const TURNS_COPY = Object.freeze(")
         copy = staff[start : staff.index("});", start) + 3]
         src = "\n".join(
-            [copy, "const turnSkipNotes = new Map();", _function_source(staff, "skipNameList"), _function_source(staff, "rankTurnsTeacherHtml")]
+            [
+                copy,
+                "const turnSkipNotes = new Map();",
+                "let hideResponseNames = false;",
+                "function studentViewOn() { return false; }",
+                _function_source(staff, "questionsMaskStudentDetail"),
+                _function_source(staff, "maskedGroupLabel"),
+                _function_source(staff, "skipNameList"),
+                _function_source(staff, "rankTurnsTeacherHtml"),
+            ]
         )
         harness = r"""
 const vm = require("vm");

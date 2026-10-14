@@ -1257,6 +1257,27 @@ function groupSubmitterLine(row) {
 }
 
 /**
+ * MCK-217: Student view and Hide names strip student-specific detail from
+ * Questions cards (picks, submitter lines, member answers, custom names).
+ * @returns {boolean}
+ */
+function questionsMaskStudentDetail() {
+  return studentViewOn() || hideResponseNames;
+}
+
+/**
+ * Team label on a Questions card while masking is on.
+ * @param {number} index 0-based row index on the card.
+ * @param {unknown} name Committed team name.
+ * @returns {string}
+ */
+function maskedGroupLabel(index, name) {
+  if (questionsMaskStudentDetail()) return `Group ${Number(index) + 1}`;
+  const text = String(name || "").trim();
+  return text || "Group";
+}
+
+/**
  * True when the teacher is showing something students could see on a projector
  * (MCK-64). The quiet strip is teacher-only and must not appear then.
  * @returns {boolean}
@@ -1419,6 +1440,7 @@ function groupCorrectSummaryHtml(result) {
  * @returns {string}
  */
 function groupPicksHtml(row) {
+  if (questionsMaskStudentDetail()) return "";
   if (!Array.isArray(row?.picks)) return "";
   const picks = row.picks;
   const total = Math.max(Number(row.member_count) || 0, picks.length);
@@ -1936,29 +1958,33 @@ function skipNameList(names) {
 function rankTurnsTeacherHtml(result, liveItemId) {
   const rows = Array.isArray(result?.turns) ? result.turns : [];
   if (!rows.length) return "";
+  const mask = questionsMaskStudentDetail();
   return `<ul class="rank-turns-teacher" aria-label="Take turns">${rows
-    .map((row) => {
+    .map((row, index) => {
       const total = Number(row.total) || 0;
       const placed = Math.min(total, Number(row.placed) || 0);
       const dots = `<span class="rank-turn-dots" aria-hidden="true">${"●".repeat(placed)}${"○".repeat(
         Math.max(0, total - placed)
       )}</span>`;
-      const names = Array.isArray(row.next_names) ? row.next_names : [];
+      const names = mask ? [] : Array.isArray(row.next_names) ? row.next_names : [];
       const who = skipNameList(names);
       const holder =
-        names.length === 1
-          ? TURNS_COPY.holder.replace("{name}", String(names[0]))
-          : names.length > 1 && row.can_skip
-            ? TURNS_COPY.waitingOn.replace("{names}", who)
-            : "";
+        mask || !names.length
+          ? ""
+          : names.length === 1
+            ? TURNS_COPY.holder.replace("{name}", String(names[0]))
+            : names.length > 1 && row.can_skip
+              ? TURNS_COPY.waitingOn.replace("{names}", who)
+              : "";
       const text = row.done
         ? TURNS_COPY.sent
         : `${TURNS_COPY.progress.replace("{k}", String(placed)).replace("{n}", String(total))}${holder}`;
-      const skip = row.can_skip
-        ? `<button type="button" class="secondary live-q-btn" data-rank-turn-skip="${Number(liveItemId) || 0}" data-team-id="${Number(row.team_id) || 0}" data-skip-names="${escapeHtml(who)}" data-skip-count="${names.length}"${
-            who ? ` aria-label="${escapeHtml(TURNS_COPY.skipLabel.replace("{names}", who))}"` : ""
-          }>${TURNS_COPY.skip}</button>`
-        : "";
+      const skip =
+        !mask && row.can_skip
+          ? `<button type="button" class="secondary live-q-btn" data-rank-turn-skip="${Number(liveItemId) || 0}" data-team-id="${Number(row.team_id) || 0}" data-skip-names="${escapeHtml(who)}" data-skip-count="${names.length}"${
+              who ? ` aria-label="${escapeHtml(TURNS_COPY.skipLabel.replace("{names}", who))}"` : ""
+            }>${TURNS_COPY.skip}</button>`
+          : "";
       const noteKey = `${Number(liveItemId) || 0}:${Number(row.team_id) || 0}`;
       const note = turnSkipNotes.get(noteKey);
       if (note && note.placed !== placed) turnSkipNotes.delete(noteKey);
@@ -1966,7 +1992,8 @@ function rankTurnsTeacherHtml(result, liveItemId) {
         note && note.placed === placed
           ? `<span class="rank-turn-skip-note" role="status">${escapeHtml(note.text)}</span>`
           : "";
-      return `<li data-turn-team="${Number(row.team_id) || 0}"><span>${escapeHtml(row.team_name || "Group")}</span>${dots}<span class="rank-turn-progress">${escapeHtml(text)}</span>${skip}${noteHtml}</li>`;
+      const teamLabel = maskedGroupLabel(index, row.team_name);
+      return `<li data-turn-team="${Number(row.team_id) || 0}"><span>${escapeHtml(teamLabel)}</span>${dots}<span class="rank-turn-progress">${escapeHtml(text)}</span>${skip}${noteHtml}</li>`;
     })
     .join("")}</ul>`;
 }
@@ -1983,18 +2010,20 @@ function groupStatusBoardHtml(result) {
   if (!rows.length) {
     return `<p class="hint compact">Groups appear here after publish.</p>`;
   }
+  const mask = questionsMaskStudentDetail();
   return `<ul class="group-status-board" aria-label="Group status">${rows
-    .map((row) => {
+    .map((row, index) => {
       const source = submitterLogRow(log, row);
       const submitted =
         Boolean(row.submitted) || String(row.status || source.status || "") === "submitted";
       const mark = submitted ? "✓" : "Waiting";
-      const line = groupSubmitterLine(source);
+      const line = mask ? "" : groupSubmitterLine(source);
       // MCK-155 S3: keyed group MC gets a right/wrong mark once sent.
       const keyMark = submitted ? answerMarkHtml(row.correct) : "";
       const quietStrip = quietMemberStripHtml(row.quiet_dots);
+      const teamLabel = maskedGroupLabel(index, row.team_name || source.team_name);
       return `<li>
-        <span>${escapeHtml(row.team_name || source.team_name || "Group")}</span>
+        <span>${escapeHtml(teamLabel)}</span>
         <span class="group-status-mark">${mark}</span>
         ${keyMark}
         ${line ? `<span class="group-submitter-log">${escapeHtml(line)}</span>` : ""}
@@ -4713,12 +4742,25 @@ function rankCollateHtml(rank, liveItemId, submitterLog) {
     rawRows,
     Number(rank.seq ?? rank.response_seq) || 0
   );
-  const lastByTeam = new Map(
-    (Array.isArray(submitterLog) ? submitterLog : [])
-      .filter((row) => row && String(row.last_submitter || "").trim())
-      .map((row) => [Number(row.team_id) || 0, String(row.last_submitter || "").trim()])
-  );
-  const stack = rankStackHtml(rank, { audience: "teacher", rows, lastByTeam });
+  const mask = questionsMaskStudentDetail();
+  const lastByTeam = mask
+    ? new Map()
+    : new Map(
+        (Array.isArray(submitterLog) ? submitterLog : [])
+          .filter((row) => row && String(row.last_submitter || "").trim())
+          .map((row) => [Number(row.team_id) || 0, String(row.last_submitter || "").trim()])
+      );
+  let rankView = rank;
+  if (mask && Array.isArray(rank?.teams)) {
+    rankView = {
+      ...rank,
+      teams: rank.teams.map((team, index) => ({
+        ...team,
+        team_name: maskedGroupLabel(index, team.team_name),
+      })),
+    };
+  }
+  const stack = rankStackHtml(rankView, { audience: "teacher", rows, lastByTeam });
   return `<div class="rank-collate" data-rank-seq="${Number(rank.seq) || 0}">${stack}</div>`;
 }
 
@@ -4759,22 +4801,24 @@ function groupSubmitTeacherHtml(result, revealed, liveItemId) {
     return `${open}${rankHtml}</div>`;
   }
   const reveal = revealed && Array.isArray(result?.reveal) ? result.reveal : [];
-  const revealHtml = reveal.length
-    ? `<table class="group-reveal-board">
+  const mask = questionsMaskStudentDetail();
+  const revealHtml =
+    !mask && reveal.length
+      ? `<table class="group-reveal-board">
         <caption>Group answers</caption>
         <thead><tr><th>Group</th><th>Answer</th><th>Why</th></tr></thead>
         <tbody>${reveal
-          .map((row) => {
+          .map((row, index) => {
             const missed = Boolean(row.missed);
             return `<tr class="${missed ? "is-missed" : ""}">
-              <th>${escapeHtml(row.team_name || "Group")}</th>
+              <th>${escapeHtml(maskedGroupLabel(index, row.team_name))}</th>
               <td>${missed ? "" : `${escapeHtml(row.answer || "")} ${answerMarkHtml(row.correct)}`}</td>
               <td>${missed ? "" : escapeHtml(row.why || "")}</td>
             </tr>`;
           })
           .join("")}</tbody>
       </table>`
-    : "";
+      : "";
   return `${open}${groupCorrectSummaryHtml(result)}${groupStatusBoardHtml(result)}${revealHtml}</div>`;
 }
 
@@ -5354,25 +5398,26 @@ function groupConsensusResultsHtml(result, revealed, liveItemId) {
     liveQuestionHasSingularKey(consensusItem)
   );
   const showAnswers = Boolean(revealed) || Boolean(result?.answers_revealed);
+  const mask = questionsMaskStudentDetail();
   return `<div class="live-consensus-teams" data-group-results="${hostId}" data-group-seq="${seq}">${teams
-    .map((team) => {
+    .map((team, index) => {
       const status = String(team.status || "collecting_votes");
       const submitted = status === "finalized" || status === "submitted";
       const responded = Number(team.vote_count) || 0;
       const eligible = Math.max(Number(team.eligible_count) || 0, responded);
       const mark = submitted ? "✓" : "Waiting";
-      const line = groupSubmitterLine(team);
-      const answers = showAnswers ? groupMemberAnswerValues(team) : [];
+      const line = mask ? "" : groupSubmitterLine(team);
+      const answers = !mask && showAnswers ? groupMemberAnswerValues(team) : [];
       const answerList = answers.map((value) => `<li>${escapeHtml(value)}</li>`).join("");
       const inspect =
-        showAnswers && answers.length
+        !mask && showAnswers && answers.length
           ? `<details class="live-consensus-inspect">
         <summary>Member answers</summary>
         <ul>${answerList}</ul>
       </details>`
           : "";
       const answer =
-        showAnswers && team.final_answer
+        !mask && showAnswers && team.final_answer
           ? `<p class="live-consensus-team-answer">${escapeHtml(
               groupAnswerLabel(team.final_answer)
             )}</p>`
@@ -5384,8 +5429,9 @@ function groupConsensusResultsHtml(result, revealed, liveItemId) {
             )}" data-team-id="${Number(team.team_id)}">+1 team</button>`
           : "";
       const quietStrip = quietMemberStripHtml(team.quiet_dots);
+      const teamLabel = maskedGroupLabel(index, team.team_name);
       return `<article class="live-consensus-team is-${escapeHtml(status)}">
-        <p class="live-consensus-team-name">${escapeHtml(team.team_name || "Team")}</p>
+        <p class="live-consensus-team-name">${escapeHtml(teamLabel)}</p>
         <p class="live-consensus-team-count"><span class="group-status-mark">${mark}</span> ${responded}/${eligible}</p>
         ${
           line
@@ -11413,8 +11459,10 @@ studentView = mountStudentView({
   button: $("live-student-view"),
   roster: () => lastClassListFull,
   classId,
-  onChange: (on) => {
-    if (!on) paintGroupResultsInPlace(true);
+  onChange: () => {
+    syncQuietStripSuppressed();
+    paintGroupResultsInPlace(true);
+    paintLiveQuestionCards();
   },
 });
 
