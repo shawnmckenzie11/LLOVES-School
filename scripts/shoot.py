@@ -676,6 +676,113 @@ def _mck208_end_active_live(school, class_id: int) -> None:
         school.end_live_class_session(int(live["id"]))
 
 
+def mck215_maple_visit_url(
+    school: object,
+    class_id: int,
+    teacher_id: int,
+    *,
+    group_question: bool,
+) -> str:
+    """Start a fresh live class for Maple and return the visit token (MCK-215)."""
+    _mck208_end_active_live(school, class_id)
+    live = school.start_live_class_session(int(class_id), int(teacher_id))
+    session_id = int(live["id"])
+    maple = school.game.find_student_by_codename(class_id, "Maple")
+    if maple is None:
+        raise SystemExit("No Maple on the demo class. Run with --seed first.")
+    maple_id = int(maple["id"])
+    school.join_live_class_session(session_id, maple_id, codename="Maple")
+    if group_question:
+        school.record_engagement_event(
+            "item.offered",
+            session_id=session_id,
+            item_ref="shoot-mck215-group",
+            payload={"mode": "group"},
+        )
+    rows = school.list_live_session_attendees(session_id)
+    visit = str(next(row["visit_token"] for row in rows if row.get("codename") == "Maple"))
+    return visit
+
+
+def _mck215_dismiss_catchup_pin(page: object) -> None:
+    """Close the first-login catch-up PIN modal via Later (MCK-215 shots)."""
+    dialog = page.locator(".catchup-pin-dialog")  # type: ignore[attr-defined]
+    try:
+        dialog.wait_for(state="visible", timeout=20000)
+        later = page.locator("#live-catchup-pin-later")  # type: ignore[attr-defined]
+        later.click(timeout=5000)
+        dialog.wait_for(state="hidden", timeout=15000)
+    except Exception:
+        pass
+
+
+def _mck215_reach_live_home(page: object) -> None:
+    """Join flow through mood/character until ``/student/home`` (MCK-215)."""
+    page.wait_for_url("**/student/**", timeout=30000)  # type: ignore[attr-defined]
+    if "/student/mood" in page.url:  # type: ignore[attr-defined]
+        page.get_by_role("button", name="Skip").click()  # type: ignore[attr-defined]
+        page.wait_for_url("**/student/character**", timeout=30000)  # type: ignore[attr-defined]
+    if "/student/character" in page.url:  # type: ignore[attr-defined]
+        page.locator('label:has(input[value="fox"])').click()  # type: ignore[attr-defined]
+        page.locator('button[type="submit"]').click()  # type: ignore[attr-defined]
+    page.wait_for_url("**/student/home**", timeout=30000)  # type: ignore[attr-defined]
+    page.locator(".student-home, .student-portal.student-home").first.wait_for(  # type: ignore[attr-defined]
+        state="visible", timeout=30000
+    )
+
+
+def shoot_mck215(base: str, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
+    """MCK-215: student live engagement card before/after a group question (PIN dismissed)."""
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    prepare_mck207_pin_modal(path)
+    school = _mck208_school(path)
+    class_id = shawn_class_id(path)
+    teacher = school.get_user_by_email(SHAWN_EMAIL)
+    if teacher is None:
+        raise SystemExit("Shawn staff user missing. Run with --seed first.")
+    teacher_id = int(teacher["id"])
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    shots: tuple[tuple[bool, str], ...] = (
+        (False, "mck215-engagement-no-group"),
+        (True, "mck215-engagement-with-group"),
+    )
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        for group_question, prefix in shots:
+            visit = mck215_maple_visit_url(
+                school, class_id, teacher_id, group_question=group_question
+            )
+            url = f"{origin}/student/s/{visit}"
+            for width in widths:
+                context = browser.new_context(viewport={"width": int(width), "height": 900})
+                page = context.new_page()
+                page.goto(url, wait_until="domcontentloaded")
+                _mck215_reach_live_home(page)
+                _mck215_dismiss_catchup_pin(page)
+                page.locator("#me-engagement").wait_for(state="visible", timeout=30000)
+                if group_question:
+                    page.wait_for_function(
+                        "() => { const el = document.getElementById('me-team-stat'); "
+                        "return el && !el.hidden; }",
+                        timeout=30000,
+                    )
+                else:
+                    page.wait_for_function(
+                        "() => { const el = document.getElementById('me-team-stat'); "
+                        "return el && el.hidden; }",
+                        timeout=30000,
+                    )
+                dest = out_dir / f"{prefix}-{width}.png"
+                page.screenshot(path=str(dest), full_page=True)
+                written.append(dest)
+                context.close()
+        browser.close()
+    return written
+
+
 def shoot_mck208(base: str, out_dir: Path, path: Path, widths: list[int], *, only: str | None = None) -> list[Path]:
     """MCK-208: student dashboard states at 390px (seeded Maple / PIN portal)."""
     from playwright.sync_api import sync_playwright
@@ -1164,13 +1271,14 @@ def main(argv: list[str] | None = None) -> int:
             "mck207",
             "mck207-run-toggle",
             "mck208",
+            "mck215",
             "avatar-reward",
         ),
         default="",
         help=(
             "Built-in catch-up, MCK-62 quiet-dot, engagement override, "
-            "MCK-207 roster/PIN, run-class toggle, MCK-208 dashboard, or "
-            "avatar-reward pop-up shots."
+            "MCK-207 roster/PIN, run-class toggle, MCK-208 dashboard, "
+            "MCK-215 student engagement card, or avatar-reward pop-up shots."
         ),
     )
     args = parser.parse_args(argv)
@@ -1201,6 +1309,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "mck208":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck208(args.base, out, path, widths, only=args.mck208_only))
+        if args.scenario == "mck215":
+            widths = [int(part) for part in args.widths.split(",") if part.strip()]
+            written.extend(shoot_mck215(args.base, out, path, widths))
         if args.scenario == "avatar-reward":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_avatar_reward_popup(args.base, out, widths, path))
@@ -1220,7 +1331,7 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
-                "mck208|avatar-reward."
+                "mck208|mck215|avatar-reward."
             )
         for item in written:
             print(item)
