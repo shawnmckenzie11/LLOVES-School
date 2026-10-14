@@ -170,16 +170,58 @@ export function raceStem(item) {
 }
 
 /**
+ * One rank option label from a string, ``{id,label}`` object, or a legacy
+ * stringified dict (bad playlist rows).
+ * @param {unknown} option
+ * @returns {string}
+ */
+export function rankOptionLabel(option) {
+  if (option == null) return "";
+  if (typeof option === "string") {
+    const text = option.trim();
+    if (text.startsWith("{") && text.includes("label")) {
+      const quoted = text.replace(/'/g, '"');
+      try {
+        const parsed = JSON.parse(quoted);
+        if (parsed && typeof parsed === "object") {
+          const label = parsed.label ?? parsed.text;
+          if (label != null && String(label).trim()) return String(label).trim();
+        }
+      } catch (_) {
+        /* not JSON */
+      }
+    }
+    return text;
+  }
+  if (typeof option === "object") {
+    const label = option.label ?? option.text;
+    return label != null ? String(label).trim() : "";
+  }
+  return String(option).trim();
+}
+
+/**
+ * Authored rank labels for a teacher deck card (``rank_options`` first).
+ * @param {any} item Question payload or lifecycle ``item`` row.
+ * @returns {string[]}
+ */
+export function rankAuthoredOptionLabels(item) {
+  const q = item?.item && typeof item.item === "object" ? item.item : item || {};
+  const rows = Array.isArray(q.rank_options) && q.rank_options.length
+    ? q.rank_options
+    : Array.isArray(q.options)
+      ? q.options
+      : [];
+  return rows.map((row) => rankOptionLabel(row)).filter(Boolean);
+}
+
+/**
  * Option labels (authored order) off a lifecycle row's rank question.
  * @param {any} item ``result.item``
  * @returns {string[]}
  */
 export function raceOptionLabels(item) {
-  const q = item?.item && typeof item.item === "object" ? item.item : item || {};
-  const rows = Array.isArray(q.rank_options) ? q.rank_options : Array.isArray(q.options) ? q.options : [];
-  return rows
-    .map((row) => (row && typeof row === "object" ? String(row.label || row.text || "") : String(row || "")).trim())
-    .filter(Boolean);
+  return rankAuthoredOptionLabels(item);
 }
 
 /**
@@ -357,6 +399,17 @@ export function lastResultsStep(results) {
  */
 export function spotsResults(results) {
   return results?.challenge === false || results?.pays === false;
+}
+
+/**
+ * MCK-219: the teacher does not walk the projector reveal (rows, Next,
+ * podium) for hand-scored group answer-order ranks; they land on the
+ * question card with Score teams instead.
+ * @param {any} results Teacher ``race.results``.
+ * @returns {boolean}
+ */
+export function teacherSkipsRaceReveal(results) {
+  return spotsResults(results);
 }
 
 /**

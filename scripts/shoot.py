@@ -256,6 +256,79 @@ def _launch(playwright: object):
     return chromium.launch(**launch_args)
 
 
+def shoot_mck219(
+    origin: str,
+    state_path: Path,
+    out_dir: Path,
+    widths: list[int],
+) -> list[Path]:
+    """MCK-219: closed group rank on the teacher card with Score teams (no reveal).
+
+    Runs ``shoot_mck219_prep.py``, lands on the lesson page, and screenshots the
+    closed card (no projector reveal or podium).
+    """
+    import json
+    import subprocess
+
+    from playwright.sync_api import sync_playwright
+
+    env = os.environ.copy()
+    env["LOCAL_DEV_LOGIN"] = "1"
+    env["PYTHONPATH"] = os.pathsep.join([str(ROOT), str(LMS_DIR)])
+    env["SHOOT_BASE"] = origin if "://" in origin else f"http://{origin}"
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "shoot_mck219_prep.py")],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(ROOT),
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise SystemExit(proc.stderr or proc.stdout or "shoot_mck219_prep failed")
+    lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    if len(lines) < 2:
+        raise SystemExit(f"shoot_mck219_prep output missing metadata: {proc.stdout!r}")
+    meta = json.loads(lines[1])
+    item_id = int(meta["live_item_id"])
+    url = str(meta.get("url") or lines[0])
+    evidence = str(meta.get("evidence_text") or "")
+    card_sel = f'.live-question-card.is-closed[data-live-item-id="{item_id}"]'
+    score_sel = f'{card_sel} [data-rank-score-open="{item_id}"]'
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        for width in widths:
+            context = browser.new_context(
+                storage_state=str(state_path),
+                viewport={"width": int(width), "height": 900},
+            )
+            page = context.new_page()
+            page.goto(url, wait_until="networkidle", timeout=60000)
+            for _ in range(12):
+                if page.locator(score_sel).count() > 0:
+                    break
+                if evidence and page.get_by_text(evidence).count() > 0:
+                    break
+                next_btn = page.locator("#live-stage-next")
+                if next_btn.count() == 0 or next_btn.is_disabled():
+                    break
+                next_btn.click()
+                page.wait_for_timeout(400)
+            page.locator(score_sel).first.wait_for(state="visible", timeout=45000)
+            if page.locator(f"{card_sel} .race-results").count() > 0:
+                raise SystemExit("Teacher reveal UI still visible on closed rank card")
+            card = page.locator(card_sel).first
+            card.scroll_into_view_if_needed()
+            dest = out_dir / f"mck219-teacher-score-teams-{width}.png"
+            card.screenshot(path=str(dest))
+            written.append(dest)
+            context.close()
+        browser.close()
+    return written
+
+
 def shoot_urls(
     urls: list[str],
     widths: list[int],
@@ -1567,13 +1640,14 @@ def main(argv: list[str] | None = None) -> int:
             "mck220",
             "mck215",
             "mck222",
+            "mck219",
         ),
         default="",
         help=(
             "Built-in catch-up, MCK-62 quiet-dot, engagement override, "
             "MCK-207 roster/PIN, run-class toggle, MCK-208 dashboard, "
             "avatar-reward pop-up, MCK-216 Team challenge rank lock-in, "
-            "MCK-220 participation filters, MCK-215 student live engagement, or MCK-222 catch-up landing picker."
+            "MCK-220/215/222 scenarios, or MCK-219 closed group rank Score teams."
         ),
     )
     args = parser.parse_args(argv)
@@ -1623,6 +1697,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "mck222":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck222(args.base, out, path, widths))
+        if args.scenario == "mck219":
+            widths = [int(part) for part in args.widths.split(",") if part.strip()]
+            written.extend(shoot_mck219(args.base, state, out, widths))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(
@@ -1639,7 +1716,7 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
-                "mck208|avatar-reward|mck216|mck220|mck215|mck222."
+                "mck208|avatar-reward|mck216|mck220|mck215|mck222|mck219."
             )
         for item in written:
             print(item)
