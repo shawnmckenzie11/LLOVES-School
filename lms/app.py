@@ -8987,6 +8987,27 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         )
         return jsonify({"ok": True, "module": module, "complete": state})
 
+    @app.route("/api/classes/<int:class_id>/participation/modules/<module>/finish", methods=["POST"])
+    @login_required
+    def api_finish_participation_module(class_id: int, module: str):
+        """Log module total column and mark the module complete (MCK-230)."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        body = request.get_json(silent=True) or {}
+        sort = str(body.get("sort") or "az")
+        user = current_user()
+        try:
+            dash = school.finish_participation_module(
+                class_id,
+                str(module)[:20],
+                user_id=int(user["id"]) if user else None,
+                sort=sort,
+            )
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, "module": module, "dashboard": dash})
+
     @app.route("/api/classes/<int:class_id>/participation/modules/<module>/settings", methods=["POST"])
     @login_required
     def api_module_settings(class_id: int, module: str):

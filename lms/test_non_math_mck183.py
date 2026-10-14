@@ -91,7 +91,7 @@ class NonMathTests(unittest.TestCase):
         part = self.client.get(
             f"/staff/class/{class_id}?tab=ap&view=participation"
         ).get_data(as_text=True)
-        self.assertNotIn('id="ap-group-slice-select"', part)
+        self.assertIn('id="ap-include-group"', part)
         self.assertIn('id="ap-evidence-coverage" hidden', part)
 
     def test_math_course_without_pack_is_unchanged(self) -> None:
@@ -116,7 +116,7 @@ class NonMathTests(unittest.TestCase):
         part = self.client.get(
             f"/staff/class/{class_id}?tab=ap&view=participation"
         ).get_data(as_text=True)
-        self.assertIn('id="ap-group-slice-select"', part)
+        self.assertIn('id="ap-include-group"', part)
         self.assertIn('id="ap-evidence-coverage">', part)
 
     def test_course_with_a_pack_is_unchanged(self) -> None:

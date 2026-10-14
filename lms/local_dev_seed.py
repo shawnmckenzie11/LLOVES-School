@@ -256,10 +256,12 @@ def _seed_demo_participation(school: Any, class_id: int, teacher_id: int) -> dic
         "SELECT 1 FROM participation_items WHERE class_id = ? AND live_module = 'M3' LIMIT 1",
         (class_id,),
     ).fetchone():
+        _backfill_demo_live_participation_credits(school, int(class_id))
         return {"skipped": "already seeded"}
     if conn.execute(
         "SELECT 1 FROM participation_items WHERE class_id = ? LIMIT 1", (class_id,)
     ).fetchone():
+        _backfill_demo_live_participation_credits(school, int(class_id))
         return _seed_demo_m3_participation(school, class_id, teacher_id)
     if school.get_active_live_session_for_class(class_id):
         return {"skipped": "live class in progress"}
@@ -398,16 +400,84 @@ def _run_demo_individual_live_end(
         (int(class_id), mod, str(live_slot)),
     ).fetchone()
     if row:
+        run_key = str(row["run_key"])
         conn.execute(
             """
             UPDATE participation_runs
             SET is_real = 1, discarded = 0
             WHERE class_id = ? AND run_key = ?
             """,
-            (int(class_id), str(row["run_key"])),
+            (int(class_id), run_key),
         )
         conn.commit()
+        _persist_demo_live_participation_credit(
+            school, int(class_id), maple_id, run_key, answered
+        )
     return str(live_slot)
+
+
+def _backfill_demo_live_participation_credits(school: Any, class_id: int) -> None:
+    """Ensure LPC rows exist for every participation run already in the demo class."""
+    maple = school.game.find_student_by_codename(class_id, "Maple")
+    if maple is None:
+        return
+    maple_id = int(maple["id"])
+    rows = school.conn.execute(
+        """
+        SELECT pi.run_key,
+               COUNT(DISTINCT CASE WHEN a.student_id = ? THEN a.question_key END) AS answered
+        FROM participation_items pi
+        LEFT JOIN participation_answers a
+            ON a.class_id = pi.class_id
+           AND a.run_key = pi.run_key
+           AND a.question_key = pi.question_key
+        WHERE pi.class_id = ?
+        GROUP BY pi.run_key
+        """,
+        (maple_id, int(class_id)),
+    ).fetchall()
+    for row in rows:
+        _persist_demo_live_participation_credit(
+            school,
+            int(class_id),
+            maple_id,
+            str(row["run_key"]),
+            int(row["answered"] or 0),
+        )
+
+
+def _persist_demo_live_participation_credit(
+    school: Any,
+    class_id: int,
+    maple_id: int,
+    run_key: str,
+    answered: int,
+) -> None:
+    """Link one demo live run to a game-show column via ``live_participation_credits``.
+
+    Idempotent when a credit row already exists for ``run_key``. Gives the
+    Participation tab session metadata and Finish Module actions in local dev.
+    """
+    key = str(run_key or "").strip()
+    if not key:
+        return
+    game = school.game
+    existing = game.conn.execute(
+        "SELECT 1 FROM live_participation_credits WHERE run_key = ? LIMIT 1",
+        (key,),
+    ).fetchone()
+    if existing is not None:
+        return
+    credits = {int(maple_id): int(answered)} if answered > 0 else {}
+    game.persist_end_class_column(
+        int(class_id),
+        [int(maple_id)],
+        credits,
+        include_attendance=True,
+        include_participation=bool(credits),
+        run_key=key,
+        create_game=True,
+    )
 
 
 def _seed_demo_m3_participation(school: Any, class_id: int, teacher_id: int) -> dict[str, Any]:

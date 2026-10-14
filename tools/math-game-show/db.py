@@ -3216,6 +3216,8 @@ class GameShowDB:
         class_id: int,
         name: str | None = None,
         sort: str = "last",
+        *,
+        through_session_id: int | None = None,
     ) -> dict[str, Any]:
         """Snapshot current TOTAL into a frozen column after the last class.
 
@@ -3226,21 +3228,32 @@ class GameShowDB:
             class_id: Classes primary key.
             name: Optional header; defaults to SUBTOTAL, SUBTOTAL 2, …
             sort: Dashboard name order to return.
+            through_session_id: When set, freeze through this session instead of
+                the newest column (MCK-230 module finish).
 
         Returns:
             Updated dashboard payload.
         """
         self.get_class(class_id)
         with self._lock:
-            last = self.conn.execute(
-                """
-                SELECT * FROM sessions
-                WHERE class_id = ?
-                ORDER BY starts_at DESC, id DESC
-                LIMIT 1
-                """,
-                (class_id,),
-            ).fetchone()
+            if through_session_id is not None:
+                last = self.conn.execute(
+                    """
+                    SELECT * FROM sessions
+                    WHERE class_id = ? AND id = ?
+                    """,
+                    (class_id, int(through_session_id)),
+                ).fetchone()
+            else:
+                last = self.conn.execute(
+                    """
+                    SELECT * FROM sessions
+                    WHERE class_id = ?
+                    ORDER BY starts_at DESC, id DESC
+                    LIMIT 1
+                    """,
+                    (class_id,),
+                ).fetchone()
             if last is None:
                 raise ValueError("Add a live-class column before logging a subtotal")
             label = self._unique_subtotal_name(class_id, name)

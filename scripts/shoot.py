@@ -381,6 +381,50 @@ def shoot_urls(
 
 
 
+def shoot_mck230(
+    base: str,
+    state_path: Path,
+    out_dir: Path,
+    db: Path,
+    widths: list[int],
+) -> list[Path]:
+    """MCK-230: Participation tab with merged Individual/Group filters and fraction view."""
+    from playwright.sync_api import sync_playwright
+
+    class_id = shawn_class_id(db)
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    url = f"{origin}/staff/class/{class_id}?tab=ap&view=participation"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        for label, setup in (
+            ("mck-230-participation-points", "points"),
+            ("mck-230-participation-fraction", "fraction"),
+        ):
+            for width in widths:
+                context = browser.new_context(
+                    storage_state=str(state_path),
+                    viewport={"width": int(width), "height": 900},
+                )
+                page = context.new_page()
+                page.goto(url, wait_until="networkidle", timeout=60000)
+                page.locator("#sheet").wait_for(state="visible", timeout=60000)
+                if setup == "fraction":
+                    page.select_option("#ap-display-mode-select", "fraction")
+                page.wait_for_function(
+                    "() => document.querySelector('th.live-sub')",
+                    timeout=60000,
+                )
+                page.wait_for_selector(".ap-finish-module", timeout=60000)
+                dest = out_dir / f"{label}-{width}.png"
+                page.screenshot(path=str(dest), full_page=True)
+                written.append(dest)
+                context.close()
+        browser.close()
+    return written
+
+
 def shoot_mck220(
     base: str,
     state_path: Path,
@@ -1767,6 +1811,7 @@ def main(argv: list[str] | None = None) -> int:
             "avatar-reward",
             "mck216",
             "mck220",
+            "mck230",
             "mck215",
             "mck222",
             "mck219",
@@ -1777,7 +1822,7 @@ def main(argv: list[str] | None = None) -> int:
             "Built-in catch-up, MCK-62 quiet-dot, engagement override, "
             "MCK-207 roster/PIN, run-class toggle, MCK-208 dashboard, "
             "avatar-reward pop-up, MCK-216 Team challenge rank lock-in, "
-            "MCK-220/215/222/219 scenarios, or MCK-217 Student view Questions."
+            "MCK-220/230/215/222/219 scenarios, or MCK-217 Student view Questions."
         ),
     )
     args = parser.parse_args(argv)
@@ -1821,6 +1866,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "mck220":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck220(args.base, state, out, path, widths))
+        if args.scenario == "mck230":
+            widths = [int(part) for part in args.widths.split(",") if part.strip()]
+            written.extend(shoot_mck230(args.base, state, out, path, widths))
         if args.scenario == "mck215":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck215(args.base, out, path, widths))
@@ -1848,7 +1896,7 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
-                "mck208|avatar-reward|mck216|mck220|mck215|mck222|mck219|mck217-student-view."
+                "mck208|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|mck217-student-view."
             )
         for item in written:
             print(item)

@@ -116,11 +116,11 @@ class RosterTests(unittest.TestCase):
         self.assertIn("<h1>MCF3M</h1>", html)
         self.assertNotIn("Tue/Thu/Fri", html)
         self.assertNotIn("Log Participation", html)
-        self.assertIn("ap-group-slice-select", html)
+        self.assertIn("ap-include-group", html)
         self.assertNotIn("Start Live Class Tracker", html)
         self.assertNotIn(">Add Student</h2>", html)
         self.assertNotIn("id=\"add-student\"", html)
-        self.assertIn(">Log TOTAL</h2>", html)
+        self.assertNotIn(">Log TOTAL</h2>", html)
         self.assertNotIn("Begin a New Game", html)
         self.assertNotIn("Track Attendance &amp; Participation", html)
 
@@ -354,11 +354,12 @@ class RosterTests(unittest.TestCase):
         part = self.client.get(
             f"/api/classes/{class_id}/participation-grid?sort=az"
         ).get_json()
-        cell = part["cells"].get(f"{ids[0]}:2026-09-11")
+        session_cols = [c for c in part.get("columns") or [] if c.get("kind") == "session"]
+        self.assertTrue(session_cols)
+        sess_id = int(session_cols[-1]["id"])
+        cell = part["cells"].get(f"{sess_id}:{ids[0]}")
         self.assertIsNotNone(cell)
         self.assertEqual(float(cell["points"]), 4.0)
-        empty = part["cells"].get(f"{ids[0]}:2026-09-08") or {}
-        self.assertEqual(float(empty.get("points") or 0), 0.0)
         ctx = self.client.get(f"/api/classes/{class_id}/log-context").get_json()
         self.assertIn("2026-09-11", ctx.get("logged_dates") or [])
 
@@ -413,8 +414,8 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(state["game"]["round_count"], 2)
         self.assertEqual(state["game"]["round_duration_sec"], 15 * 60)
 
-    def test_participation_grid_matches_attendance_columns(self) -> None:
-        """Participation tab grid shares semester date columns with attendance."""
+    def test_participation_grid_uses_live_session_columns(self) -> None:
+        """Participation tab grid is the live-points dashboard layout (MCK-230)."""
         rv = self.client.post(
             "/api/staff/classes",
             json={
@@ -425,10 +426,9 @@ class RosterTests(unittest.TestCase):
             },
         )
         class_id = rv.get_json()["class"]["id"]
-        att = self.client.get(f"/api/classes/{class_id}/attendance-grid?sort=az").get_json()
         part = self.client.get(f"/api/classes/{class_id}/participation-grid?sort=az").get_json()
-        self.assertEqual(att["weeks"], part["weeks"])
-        self.assertEqual(att["date_labels"], part["date_labels"])
+        self.assertIn("columns", part)
+        self.assertNotIn("weeks", part)
 
     def test_log_context_and_live_day_setting(self) -> None:
         """Admin live-day gate flips valid picker dates; log-context exposes it."""
