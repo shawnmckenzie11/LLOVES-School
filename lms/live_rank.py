@@ -816,8 +816,10 @@ def apply_turn_undo(state: dict[str, Any], student_id: int) -> dict[str, Any]:
         TurnConflict: Nothing to undo, someone moved since, or the order is in.
     """
     events = list(state.get("events") or [])
-    if state.get("complete") or not events:
+    if not events:
         raise TurnConflict("no_undo", "That spot is locked now.")
+    if state.get("complete"):
+        raise TurnConflict("done", "That spot is locked now.")
     last = events[-1]
     if last[1] != "place" or int(last[0]) != int(student_id):
         raise TurnConflict("no_undo", "That spot is locked now.")

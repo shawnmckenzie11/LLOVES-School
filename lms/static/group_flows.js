@@ -283,7 +283,7 @@ export function rankTurnsHtml(group, opts) {
     .join("");
   // MCK-184: Undo is only for the teammate whose pick is the last spot.
   const lastSpot = spots.length ? spots[spots.length - 1] : null;
-  const undo = turns.can_undo && !turns.done && lastSpot && lastSpot.mine === true
+  const undo = turns.can_undo && lastSpot && lastSpot.mine === true
     ? ` <button type="button" class="link-button rank-turn-undo" data-rank-turn-undo>${esc(C.undo)}</button>`
     : "";
   const note = String(opts.note || "").trim();

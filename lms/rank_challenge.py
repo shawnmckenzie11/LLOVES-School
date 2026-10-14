@@ -46,8 +46,8 @@ CHALLENGE_AUTO_PAYS = False
 #: MCK-185 full-order notice timing: ``"reveal"`` shows "{team} put every item
 #: in the right order." after Close & reveal; ``"lock"`` shows it as soon as
 #: a team's final order (locked, sent, or last Take turns spot) is all right.
-#: Drafts never count. Shawn chose ``"lock"`` (Oct 4); the flag stays so
-#: ``"reveal"`` is one change away.
+#: Drafts never count. ``FULL_ORDER_WHEN`` stays ``"lock"`` for Take turns;
+#: Team challenge overrides to ``"reveal"`` in :func:`full_order_timing`.
 FULL_ORDER_WHEN = "lock"
 FULL_ORDER_TIMINGS = ("reveal", "lock")
 
@@ -70,13 +70,11 @@ def full_order_timing(
 ) -> str:
     """The timing that applies to one item (gate MED-1 on f0a15be).
 
-    ``"lock"`` only holds where a final order really is final: a Team
-    challenge lock-in (unlock is refused) or the last Take turns spot (Undo
-    is refused). A plain Rank together send can be changed and resent while
-    the question is open, so under ``"lock"`` it would let a team resend
-    until the line appears (a right/wrong check before Close). That mode
-    shows the line at Close instead. With live results off the line also
-    waits for Close.
+    Team challenge always waits for Close (``"reveal"``): the phone must
+    not leak correctness at lock-in (MCK-216 / Mobbin). ``"lock"`` still
+    applies to Take turns (last spot, Undo refused). Plain Rank together can
+    be resent while open, so it also waits for Close. With live results off
+    the line waits for Close everywhere.
 
     Args:
         challenge: The item is a Team challenge.
@@ -89,7 +87,9 @@ def full_order_timing(
         return timing
     if not results_on:
         return "reveal"
-    if challenge or str(rank_mode) == "turns":
+    if challenge:
+        return "reveal"
+    if str(rank_mode) == "turns":
         return "lock"
     return "reveal"
 
