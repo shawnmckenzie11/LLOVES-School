@@ -30,7 +30,23 @@ from zoneinfo import ZoneInfo
 REPO = Path(__file__).resolve().parents[2]
 SCHEDULE = REPO / "lms" / "seeds" / "live_class_windows.json"
 SEMESTER = REPO / "frameworks" / "semester.json"
-TZ = ZoneInfo("America/Toronto")
+DEFAULT_TZ = "America/Toronto"
+TZ = ZoneInfo(DEFAULT_TZ)
+
+
+def schedule_tz(schedule: dict) -> ZoneInfo:
+    """The schedule's ``tz`` (IANA name), else America/Toronto.
+
+    Raises:
+        ValueError: ``tz`` is set but is not a known zone (fail closed).
+    """
+    name = schedule.get("tz") if isinstance(schedule, dict) else None
+    if name in (None, ""):
+        return ZoneInfo(DEFAULT_TZ)
+    try:
+        return ZoneInfo(str(name))
+    except Exception as exc:  # ZoneInfoNotFoundError, ValueError
+        raise ValueError(f"unknown tz {name!r}") from exc
 PRE_MINUTES = 15
 POST_MINUTES = 10
 
@@ -63,7 +79,13 @@ def parse_clock(text: str) -> time:
 
 
 def class_windows(schedule: dict) -> list[dict]:
-    """Every (label, days, start, end) the schedule data defines."""
+    """Every (label, days, start, end) the schedule data defines.
+
+    Raises:
+        ValueError: No courses, so the guard would never block (fail closed).
+    """
+    if not isinstance(schedule, dict) or not isinstance(schedule.get("courses"), dict) or not schedule["courses"]:
+        raise ValueError("'courses' is missing or empty")
     rows: list[dict] = []
     for code, row in (schedule.get("courses") or {}).items():
         rows.append({"label": code, **row})
@@ -103,14 +125,16 @@ def no_class_day(day: date, semester: dict) -> str | None:
 
 def active_window(now: datetime, schedule: dict, semester: dict) -> dict | None:
     """The class window ``now`` falls in, padded by PRE/POST minutes."""
-    local = now.astimezone(TZ)
+    tz = schedule_tz(schedule)
+    windows = class_windows(schedule)
+    local = now.astimezone(tz)
     if no_class_day(local.date(), semester):
         return None
-    for win in class_windows(schedule):
+    for win in windows:
         if local.weekday() not in win["days"]:
             continue
-        start = datetime.combine(local.date(), win["start"], TZ) - timedelta(minutes=PRE_MINUTES)
-        end = datetime.combine(local.date(), win["end"], TZ) + timedelta(minutes=POST_MINUTES)
+        start = datetime.combine(local.date(), win["start"], tz) - timedelta(minutes=PRE_MINUTES)
+        end = datetime.combine(local.date(), win["end"], tz) + timedelta(minutes=POST_MINUTES)
         if start <= local < end:
             return {**win, "blocked_from": start, "blocked_until": end}
     return None
@@ -119,20 +143,21 @@ def active_window(now: datetime, schedule: dict, semester: dict) -> dict | None:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--override", action="store_true")
-    ap.add_argument("--at", help="Local America/Toronto time, ISO (default: now)")
+    ap.add_argument("--at", help="Local time in the schedule's tz, ISO (default: now)")
     ap.add_argument("--schedule", type=Path, default=SCHEDULE)
     ap.add_argument("--semester", type=Path, default=SEMESTER)
     args = ap.parse_args(argv)
-    now = datetime.fromisoformat(args.at).replace(tzinfo=TZ) if args.at else datetime.now(TZ)
     try:
         schedule = json.loads(args.schedule.read_text(encoding="utf-8"))
         semester = json.loads(args.semester.read_text(encoding="utf-8"))
+        tz = schedule_tz(schedule)
+        now = datetime.fromisoformat(args.at).replace(tzinfo=tz) if args.at else datetime.now(tz)
         win = active_window(now, schedule, semester)
     except (OSError, ValueError) as exc:
         if args.override:
             print(f"Schedule data unreadable ({exc}); override set, deploying.")
             return 0
-        print(f"::error title=Class-hours guard::Cannot read the class schedule: {exc}")
+        print(f"::error title=Class-hours guard::Cannot read the class schedule {args.schedule}: {exc}. Deploy refused (fail closed); fix the file or use override_class_hours=true.")
         return 1
     stamp = now.strftime("%a %Y-%m-%d %H:%M ET")
     if win is None:

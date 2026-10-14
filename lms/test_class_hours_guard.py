@@ -46,10 +46,6 @@ class ClassHoursGuardTests(unittest.TestCase):
             self.assertEqual(guard.main(["--at", "2026-10-14T14:40", "--schedule", str(sched)]), 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ConfirmedScheduleTests(unittest.TestCase):
     """Shawn's confirmed M/W/F schedule (2026-10-14), America/Toronto."""
 
@@ -80,3 +76,44 @@ class ConfirmedScheduleTests(unittest.TestCase):
         for day in ("2026-10-19", "2026-10-21", "2026-10-23"):
             for hhmm in ("09:30", "11:00", "14:30"):
                 self.assertEqual(guard.main(["--at", f"{day}T{hhmm}"]), 1, (day, hhmm))
+
+
+class FailClosedTests(unittest.TestCase):
+    """A missing, unreadable or empty schedule refuses the deploy."""
+
+    def _run(self, text: str | None, *extra: str) -> int:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "w.json"
+            if text is not None:
+                path.write_text(text)
+            return guard.main(["--at", "2026-10-20T09:30", "--schedule", str(path), *extra])
+
+    def test_missing_file_fails(self) -> None:
+        self.assertEqual(self._run(None), 1)
+
+    def test_unreadable_json_fails(self) -> None:
+        self.assertEqual(self._run("{not json"), 1)
+
+    def test_empty_courses_fails(self) -> None:
+        self.assertEqual(self._run(json.dumps({"tz": "America/Toronto", "courses": {}})), 1)
+        self.assertEqual(self._run(json.dumps({"tz": "America/Toronto"})), 1)
+
+    def test_bad_tz_fails(self) -> None:
+        body = {"tz": "Mars/Olympus", "courses": {"X": {"live_days": "M", "live_time": "1:00pm", "live_end_time": "2:00pm"}}}
+        self.assertEqual(self._run(json.dumps(body)), 1)
+
+    def test_override_still_deploys(self) -> None:
+        self.assertEqual(self._run(None, "--override"), 0)
+
+    def test_tz_field_is_used(self) -> None:
+        body = {"tz": "America/Vancouver", "courses": {"X": {"live_days": "T", "live_time": "9:00am", "live_end_time": "10:00am"}}}
+        # --at is local to the schedule tz: 9:30 Vancouver on a Tuesday is blocked.
+        self.assertEqual(self._run(json.dumps(body)), 1)
+        self.assertEqual(guard.schedule_tz({}).key, "America/Toronto")
+
+    def test_repo_file_uses_toronto(self) -> None:
+        self.assertEqual(guard.schedule_tz(json.loads(guard.SCHEDULE.read_text())).key, "America/Toronto")
+
+
+if __name__ == "__main__":
+    unittest.main()
