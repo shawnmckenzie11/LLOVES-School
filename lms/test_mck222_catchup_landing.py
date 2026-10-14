@@ -121,10 +121,11 @@ class CatchupLandingFlowTests(Base):
     def test_wrong_portal_code_shows_spec_copy(self) -> None:
         from catchup_landing import COPY_WRONG_CODE
 
+        bogus = mint_portal_join_code("MCR3U", "M9", "C4")
         client = self.app.test_client()
         rv = client.post(
             "/auth/student-code",
-            data={"code": "ZZZZZ", "name": self.first},
+            data={"code": bogus, "name": self.first},
             environ_base={"REMOTE_ADDR": "127.0.0.1"},
         )
         self.assertIn(COPY_WRONG_CODE, html.unescape(rv.get_data(as_text=True)))

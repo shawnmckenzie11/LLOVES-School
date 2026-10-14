@@ -16,7 +16,11 @@ from catchup_landing import (
     signed_in_line,
     landing_copy,
 )
-from catchup_portal_code import normalize_portal_code
+from catchup_portal_code import (
+    decode_portal_join_code,
+    normalize_portal_code,
+    structured_codes_enabled,
+)
 
 
 def try_portal_code_join(
@@ -44,20 +48,14 @@ def try_portal_code_join(
 
     Returns a Flask response when this path owns the request, else ``None``.
     """
+    if not structured_codes_enabled():
+        return None
     normalized = normalize_portal_code(code)
-    if not normalized and len(str(code or "").strip()) == 5:
-        return _portal_fail(
-            COPY_WRONG_CODE,
-            code=code,
-            name=name,
-            request_is_json=request_is_json,
-            landing_kwargs=landing_kwargs,
-            render_template=render_template,
-            jsonify=jsonify,
-            record_join_failures=record_join_failures,
-            join_limit_ip_key=join_limit_ip_key,
-        )
-    if not normalized:
+    if not normalized or len(normalized) != 5:
+        return None
+    if decode_portal_join_code(normalized) is None:
+        # Five- and six-character live session codes share this shape; only
+        # checksum-valid portal codes are handled here.
         return None
 
     link = db.resolve_catchup_link_by_portal_code(normalized)

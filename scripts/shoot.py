@@ -828,7 +828,7 @@ def shoot_mck222(base: str, out_dir: Path, path: Path, widths: list[int]) -> lis
             page.locator("form#student-code-panel button[type='submit']").click()
             page.wait_for_url("**/student/catchup**", timeout=30000)
             page.locator(".catchup-landing").first.wait_for(state="visible", timeout=30000)
-            page.locator(".cl-tier-label", has_text="T1 Individual").first.wait_for(
+            page.locator(".cl-tier-key", has_text="T1 Individual").first.wait_for(
                 state="visible", timeout=15000
             )
             dest = out_dir / f"mck222-catchup-landing-{width}.png"
@@ -1261,7 +1261,11 @@ def main(argv: list[str] | None = None) -> int:
     owns_state = not args.state
     state = Path(args.state) if args.state else fresh_state_path()
     try:
-        needs_login = args.seed or not state.exists() or state.stat().st_size == 0
+        student_only = args.scenario in {"mck222"}
+        needs_login = (
+            not student_only
+            and (args.seed or not state.exists() or state.stat().st_size == 0)
+        )
         if needs_login:
             login_state(args.base, state, teacher_email=staff_shawn_email(path))
         out = Path(args.out)

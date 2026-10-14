@@ -3382,7 +3382,6 @@ class LovesDB:
             WHERE portal_join_code IS NOT NULL AND TRIM(portal_join_code) <> ''
             """
         )
-        self._backfill_catchup_portal_join_codes()
 
     def _backfill_catchup_portal_join_codes(self) -> None:
         """Assign portal codes to existing catch-up rows that lack one."""
@@ -6905,6 +6904,8 @@ class SchoolDB(LovesDB):
         # after the school schema lock above was released (MCK-104).
         with boot_schema_lock(path):
             self.game = mod.GameShowDB(path, store, lock=self._lock)
+        self._backfill_catchup_portal_join_codes()
+        self.conn.commit()
         self._artifact_slider_previews: dict[tuple[int, int, int], dict[str, Any]] = {}
         self.data_dir = store
         self._live_metadata_cache: dict[
