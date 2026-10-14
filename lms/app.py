@@ -6030,8 +6030,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             live_handover=handover,
         )
 
-    @app.route("/student/catchup")
-    @app.route("/student/catchup/landing")
+    @app.route("/student/catchup", methods=["GET", "POST"])
+    @app.route("/student/catchup/landing", methods=["GET", "POST"])
     def student_catchup_landing():
         """MCK-222: pick a class to catch up on after portal code sign-in."""
         from catchup_landing import (

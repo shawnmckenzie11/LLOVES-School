@@ -32,6 +32,28 @@ class Mck234CatchupClickthroughTest(Base):
         )
         self.test_student_codename = "Test Student"
 
+    def test_landing_accepts_pin_post(self) -> None:
+        """Landing PIN form must accept POST (browser Continue button)."""
+        from catchup_landing import set_landing_session
+
+        client = self.app.test_client()
+        sid = self.students[0]
+        with client.session_transaction() as sess:
+            set_landing_session(
+                sess,
+                class_id=self.class_id,
+                student_id=sid,
+                matched_token=self.token_m1,
+                portal_code="R3K1X",
+                display_name=self.test_student_codename,
+            )
+        rv = client.post(
+            "/student/catchup/landing",
+            data={"action": "pin", "pin": "4321"},
+            follow_redirects=False,
+        )
+        self.assertIn(rv.status_code, (302, 303))
+
     def test_landing_open_links_include_play_mode(self) -> None:
         """Bug 2: picker cards must open questions, not the dashboard."""
         from catchup_landing import set_landing_session
