@@ -96,12 +96,14 @@
       const strokes = [];
       for (const row of rows || []) {
         for (let i = 0; i < (row.count || 1); i += 1) {
+          const lw = 720;
+          const lh = 560;
           strokes.push({
             id: `${row.owner}-${i}`,
             owner: row.owner,
             points: [
-              { x: 40 + i * 18 + (row.offsetX || 0), y: 60 + (row.offsetY || 0) },
-              { x: 90 + i * 18 + (row.offsetX || 0), y: 120 + (row.offsetY || 0) },
+              [(40 + i * 18 + (row.offsetX || 0)) / lw, (60 + (row.offsetY || 0)) / lh],
+              [(90 + i * 18 + (row.offsetX || 0)) / lw, (120 + (row.offsetY || 0)) / lh],
             ],
             color: members.find((m) => m.id === row.owner)?.color,
             mine: false,

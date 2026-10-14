@@ -458,14 +458,29 @@ export function bindWhiteboard(canvas, opts = {}) {
   let afterReplay = () => {};
   /** @type {{nx: number, ny: number, hit: any}|null} */
   let reopen = null;
+  let lastEditorOpenAt = 0;
   const lineWidth = opts.lineWidth || 2;
+  const formativeMode = Boolean(opts.formative?.enabled);
+  const formativeTextWidthPx = Number(opts.formative?.textWidthPx) || 160;
   const stage = canvas.parentElement;
-  const editor = document.createElement("input");
-  editor.type = "text";
-  editor.className = "canvas-text-editor";
+  /** @type {HTMLInputElement | HTMLTextAreaElement} */
+  const editor = formativeMode
+    ? document.createElement("textarea")
+    : document.createElement("input");
+  if (!formativeMode) editor.type = "text";
+  editor.className = formativeMode
+    ? "canvas-text-editor wb-formative-text"
+    : "canvas-text-editor";
   editor.maxLength = 240;
   editor.hidden = true;
   editor.setAttribute("aria-label", "Whiteboard text");
+  if (formativeMode) {
+    editor.style.width = `${formativeTextWidthPx}px`;
+    editor.style.maxWidth = `${formativeTextWidthPx}px`;
+    editor.style.resize = "none";
+    editor.rows = 1;
+    editor.wrap = "soft";
+  }
   if (stage) stage.appendChild(editor);
 
   /**
@@ -593,6 +608,40 @@ export function bindWhiteboard(canvas, opts = {}) {
     context.stroke();
   };
 
+  const formativeTextBoxLogical = () =>
+    (formativeTextWidthPx / Math.max(canvas.clientWidth, 1)) * logicalW;
+
+  const wrapTextLines = (context, body, maxWidth) => {
+    const words = String(body || "").split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let line = words[0];
+    for (let i = 1; i < words.length; i += 1) {
+      const probe = `${line} ${words[i]}`;
+      if (context.measureText(probe).width <= maxWidth) line = probe;
+      else {
+        lines.push(line);
+        line = words[i];
+      }
+    }
+    lines.push(line);
+    return lines;
+  };
+
+  const drawWrappedLabel = (context, body, x, y, maxWidth, fill) => {
+    const lineHeight = 16 * 1.35;
+    const hard = String(body || "").split("\n");
+    let row = 0;
+    for (const chunk of hard) {
+      const lines = formativeMode ? wrapTextLines(context, chunk, maxWidth) : [chunk];
+      for (const line of lines) {
+        if (!line) continue;
+        context.fillText(line, x, y + row * lineHeight);
+        row += 1;
+      }
+    }
+  };
+
   /**
    * Paint session labels on the committed layer.
    */
@@ -602,8 +651,34 @@ export function bindWhiteboard(canvas, opts = {}) {
     for (const label of texts) {
       if (!label.text || label.id === editingId) continue;
       ctx.fillStyle = label.color || color;
-      ctx.fillText(label.text, label.x * logicalW, label.y * logicalH);
+      if (formativeMode) {
+        drawWrappedLabel(
+          ctx,
+          label.text,
+          label.x * logicalW,
+          label.y * logicalH,
+          formativeTextBoxLogical(),
+          label.color || color
+        );
+      } else {
+        ctx.fillText(label.text, label.x * logicalW, label.y * logicalH);
+      }
     }
+    if (formativeMode && !editor.hidden) {
+      const left = Number(editor.dataset.nx || "0") * logicalW;
+      const top = Number(editor.dataset.ny || "0") * logicalH;
+      const draft = String(editor.value || "");
+      if (draft) {
+        ctx.fillStyle = color;
+        drawWrappedLabel(ctx, draft, left, top, formativeTextBoxLogical(), color);
+      }
+    }
+  };
+
+  const layoutFormativeEditor = () => {
+    if (!formativeMode || editor.hidden) return;
+    editor.style.height = "auto";
+    editor.style.height = `${editor.scrollHeight}px`;
   };
 
   /**
@@ -813,10 +888,16 @@ export function bindWhiteboard(canvas, opts = {}) {
     editor.dataset.nx = String(nx);
     editor.dataset.ny = String(ny);
     editor.hidden = false;
+    editor.removeAttribute("hidden");
     editor.style.left = `${nx * canvas.clientWidth}px`;
     editor.style.top = `${ny * canvas.clientHeight}px`;
-    editor.focus();
-    editor.select();
+    if (formativeMode) layoutFormativeEditor();
+    lastEditorOpenAt = performance.now();
+    window.setTimeout(() => {
+      if (editor.hidden) return;
+      editor.focus();
+      if (!formativeMode) editor.select();
+    }, 0);
   };
 
   /**
@@ -950,7 +1031,15 @@ export function bindWhiteboard(canvas, opts = {}) {
     return true;
   };
 
+  editor.addEventListener("input", () => {
+    if (!formativeMode) return;
+    layoutFormativeEditor();
+    replayCommitted();
+  });
   editor.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && formativeMode && event.shiftKey) {
+      return;
+    }
     if (event.key === "Enter") {
       event.preventDefault();
       editor.blur();
@@ -964,7 +1053,7 @@ export function bindWhiteboard(canvas, opts = {}) {
   });
   editor.addEventListener("blur", () => {
     window.setTimeout(() => {
-      commitEditor();
+commitEditor();
       if (!reopen) return;
       const next = reopen;
       reopen = null;
@@ -980,6 +1069,7 @@ export function bindWhiteboard(canvas, opts = {}) {
       const hit = hitText(p.x, p.y);
       const next = { nx: hit ? hit.x : p.x, ny: hit ? hit.y : p.y, hit };
       if (!editor.hidden) {
+        if (performance.now() - lastEditorOpenAt < 200) return;
         reopen = next;
         editor.blur();
         return;
@@ -1287,6 +1377,11 @@ export function bindWhiteboard(canvas, opts = {}) {
       strokes: strokes.map((s) => ({ ...s, points: s.points.slice() })),
       texts: texts.map((t) => ({ ...t })),
     }),
+    openTextAt: (nx, ny, existing = null) => {
+      tool = "text";
+      syncButtons();
+      openEditor(Number(nx), Number(ny), existing);
+    },
   };
   /** @type {ReturnType<typeof wireFormativeWhiteboard> | null} */
   let formativeWire = null;

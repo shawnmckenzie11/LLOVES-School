@@ -908,6 +908,7 @@ function studentPresenceQueue() {
         if (typeof bindStudentCanvas.applyDelta === "function") {
           bindStudentCanvas.applyDelta(data);
         }
+        applyStudentBoardFormative(data.formative);
         return;
       }
       const teamOps = opsAboveCursor(data.ops_since, studentBoardSince);
@@ -974,6 +975,16 @@ function postStudentCanvas(p, extra) {
 /**
  * Bind drawing, the Text tool, and group collab posts.
  */
+
+/**
+ * Push formative roster metadata from a board poll onto the live canvas.
+ * @param {any} meta
+ */
+function applyStudentBoardFormative(meta) {
+  if (!meta || typeof bindStudentCanvas.applyFormativePatch !== "function") return;
+  bindStudentCanvas.applyFormativePatch(meta);
+}
+
 function bindStudentCanvas() {
   if (!(studentCanvas instanceof HTMLCanvasElement)) return;
   let lastAlign = "student";
@@ -983,6 +994,14 @@ function bindStudentCanvas() {
     eraseBtn: document.getElementById("student-canvas-erase"),
     textBtn: document.getElementById("student-canvas-text"),
     cursorLayer: canvasCursors,
+    formative: {
+      enabled: true,
+      members: [],
+      isTeacher: false,
+      isPhone: window.matchMedia("(max-width: 480px)").matches,
+      alwaysShowNames: false,
+      projectorShowNames: false,
+    },
     owner: () => {
       const id = lastStudentPayload?.me?.id;
       return id != null && id !== "" ? String(id) : "student";
@@ -1038,6 +1057,15 @@ function bindStudentCanvas() {
    */
   bindStudentCanvas.resetRun = (view) => {
     if (typeof board.resetRun === "function") board.resetRun(view);
+  };
+  bindStudentCanvas.applyFormativePatch = (meta) => {
+    if (!meta || typeof board.setFormative !== "function") return;
+    board.setFormative({
+      members: meta.members || [],
+      alwaysShowNames: Boolean(meta.always_show_names),
+      projectorShowNames: Boolean(meta.projector_show_names),
+    });
+    board.refreshFormative?.();
   };
   ensureStudentBoardPoll();
 }
@@ -1116,6 +1144,7 @@ function refreshStudentBoard() {
     }
     studentBoardSince = Number(data.board_seq) || 0;
     studentTeacherSince = Number(data.teacher_board_seq) || 0;
+    applyStudentBoardFormative(data.formative);
     if (studentCanvas instanceof HTMLCanvasElement) {
       // MCK-174: a Fresh board reopen also changes the run key. Keep the
       // reopen line instead of the new-class line.

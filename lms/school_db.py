@@ -14059,17 +14059,11 @@ class SchoolDB(LovesDB):
         self._mirror_presence_attendee(stored)
         return stored
 
-    def _attendee_by_visit_token(
-        self, token: str, *, overlay_presence: bool = True
-    ) -> dict[str, Any] | None:
+    def _attendee_by_visit_token(self, token: str) -> dict[str, Any] | None:
         """Return an attendee row for a rejoin token, ignoring left/ended.
-
-        Board delta polls must not borrow the Postgres presence pool on every
-        read; pass ``overlay_presence=False`` for those gates.
 
         Args:
             token: ``live_session_attendees.visit_token``.
-            overlay_presence: When False, sqlite row only.
         """
         cleaned = (token or "").strip()
         if not cleaned:
@@ -14085,10 +14079,7 @@ class SchoolDB(LovesDB):
             ).fetchone()
         if row is None:
             return None
-        attendee = dict(row)
-        if overlay_presence:
-            return self._apply_presence(attendee)
-        return attendee
+        return self._apply_presence(dict(row))
 
     def _guest_attendee_by_codename(
         self, session_id: int, name: str
@@ -14324,11 +14315,7 @@ class SchoolDB(LovesDB):
         return dict(attendee)
 
     def resolve_student_visit_token(
-        self,
-        token: str,
-        *,
-        allow_left: bool = False,
-        overlay_presence: bool = True,
+        self, token: str, *, allow_left: bool = False
     ) -> dict[str, Any] | None:
         """Resolve an opaque rejoin token to session + attendee context.
 
@@ -14336,16 +14323,13 @@ class SchoolDB(LovesDB):
             token: ``live_session_attendees.visit_token``.
             allow_left: When True, include attendees with ``left_at`` set so
                 cookie auto-resume can re-admit them while the session is live.
-            overlay_presence: When False, skip Postgres overlay (board reads).
 
         Returns:
             Dict with ``attendee``, ``session``, ``class_id``, ``student_id``
             when the token is valid and the session is still active;
             otherwise ``None``.
         """
-        attendee = self._attendee_by_visit_token(
-            token, overlay_presence=overlay_presence
-        )
+        attendee = self._attendee_by_visit_token(token)
         if attendee is None:
             return None
         if attendee.get("left_at") and not allow_left:
