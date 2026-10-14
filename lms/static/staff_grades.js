@@ -4,23 +4,36 @@ const root = document.getElementById("grades-root");
 const classId = Number(root?.dataset.classId || 0);
 const courseSimple = root?.dataset.courseSimple === "1";
 const sortKey = `lloves-sort-${classId}`;
-const roundViewKey = `mgs-round-view-${classId}`;
-const dataModeKey = `lloves-ap-data-mode-${classId}`;
-const individualMetricKey = `lloves-ap-individual-metric-${classId}`;
-const ROUND_VIEWS = ["total", "r1", "r2", "r3"];
-const DATA_MODES = ["group", "individual"];
-const INDIVIDUAL_METRICS = ["level", "percent"];
-const SLICE_KEYS = { total: "points", r1: "points_r1", r2: "points_r2", r3: "points_r3" };
-const STACK_LABELS = { r1: "Open", r2: "Challenge", r3: "Formative" };
+const includeIndividualKey = `lloves-ap-include-individual-${classId}`;
+const includeGroupKey = `lloves-ap-include-group-${classId}`;
+const displayModeKey = `lloves-ap-display-mode-${classId}`;
+const DISPLAY_MODES = ["points", "fraction", "percent"];
 
 let sort = localStorage.getItem(sortKey) === "za" ? "za" : "az";
-let roundView = loadRoundView(localStorage.getItem(roundViewKey));
-// MCK-183: pack-less non-math courses have no group slice picker — Total only.
-if (!document.getElementById("ap-group-slice-select")) roundView = "total";
-let dataMode = loadDataMode(localStorage.getItem(dataModeKey));
-let individualMetric = loadIndividualMetric(localStorage.getItem(individualMetricKey));
+let includeIndividual = loadBool(includeIndividualKey, true);
+let includeGroup = loadBool(includeGroupKey, true);
+let displayMode = loadDisplayMode(localStorage.getItem(displayModeKey));
 let latest = null;
-let clearMode = false;
+
+/**
+ * @param {string} key
+ * @param {boolean} fallback
+ * @returns {boolean}
+ */
+function loadBool(key, fallback) {
+  const raw = localStorage.getItem(key);
+  if (raw === "0" || raw === "false") return false;
+  if (raw === "1" || raw === "true") return true;
+  return fallback;
+}
+
+/**
+ * @param {string|null} raw
+ * @returns {"points"|"fraction"|"percent"}
+ */
+function loadDisplayMode(raw) {
+  return DISPLAY_MODES.includes(raw || "") ? raw : "points";
+}
 
 /**
  * Roster label is the Codename only.
@@ -32,56 +45,11 @@ function displayName(student) {
 }
 
 /**
- * Restore the lesson-score view. Old Overall/By-round prefs still work.
- * @param {string|null} raw
- * @returns {"total"|"r1"|"r2"|"r3"|"all"}
- */
-function loadRoundView(raw) {
-  if (raw === "overall" || raw === "all" || raw === "rounds") return "total";
-  if (ROUND_VIEWS.includes(raw)) return raw;
-  return "total";
-}
-
-/**
- * @param {string|null} raw
- * @returns {"group"|"individual"}
- */
-function loadDataMode(raw) {
-  return DATA_MODES.includes(raw || "") ? raw : "group";
-}
-
-/**
- * @param {string|null} raw
- * @returns {"level"|"percent"}
- */
-function loadIndividualMetric(raw) {
-  return INDIVIDUAL_METRICS.includes(raw || "") ? raw : "level";
-}
-
-/**
- * Ensure module_participation is present (grid embed or teacher API fallback).
- * @param {any} data
- */
-async function ensureModuleParticipation(data) {
-  const embedded = data?.module_participation?.modules;
-  if (Array.isArray(embedded) && embedded.length > 0) return;
-  try {
-    const part = await api(`/api/classes/${classId}/participation`);
-    if (Array.isArray(part?.modules) && part.modules.length > 0) {
-      data.module_participation = { modules: part.modules, students: part.students || [] };
-    }
-  } catch (_err) {
-    /* group calendar still works */
-  }
-}
-
-/**
  * Load and paint the class spreadsheet.
  */
 async function refresh() {
   hideError("#error");
   const data = await api(`/api/classes/${classId}/participation-grid?sort=${sort}`);
-  await ensureModuleParticipation(data);
   paint(data);
 }
 
@@ -91,263 +59,25 @@ async function refresh() {
  */
 function paint(data) {
   latest = data;
-  const sliceSelect = document.getElementById("ap-group-slice-select");
-  if (sliceSelect instanceof HTMLSelectElement) sliceSelect.value = roundView;
-  const modeSelect = document.getElementById("ap-data-mode-select");
-  if (modeSelect instanceof HTMLSelectElement) modeSelect.value = dataMode;
-  const metricSelect = document.getElementById("ap-individual-metric-select");
-  if (metricSelect instanceof HTMLSelectElement) metricSelect.value = individualMetric;
+  const ind = document.getElementById("ap-include-individual");
+  const grp = document.getElementById("ap-include-group");
+  if (ind instanceof HTMLInputElement) ind.checked = includeIndividual;
+  if (grp instanceof HTMLInputElement) grp.checked = includeGroup;
+  const modeSelect = document.getElementById("ap-display-mode-select");
+  if (modeSelect instanceof HTMLSelectElement) modeSelect.value = displayMode;
   updateFilterChrome();
   renderSheet(data);
 }
 
-/** Show group vs individual controls and hide calendar-only tools when needed. */
+/** Toggle evidence panel visibility for pack courses. */
 function updateFilterChrome() {
-  const individual = dataMode === "individual";
-  document.getElementById("ap-individual-metric-wrap")?.toggleAttribute("hidden", !individual);
-  document.getElementById("ap-individual-hint")?.toggleAttribute("hidden", !individual);
-  document.getElementById("ap-module-l4-caption")?.toggleAttribute("hidden", !individual);
-  document.getElementById("ap-group-slice-wrap")?.toggleAttribute("hidden", individual);
-  document.getElementById("ap-evidence-coverage")?.toggleAttribute("hidden", individual || courseSimple);
-  document.querySelector(".grades-panel")?.toggleAttribute("hidden", individual);
-  document.getElementById("part-clear")?.toggleAttribute("hidden", individual);
-  if (individual && clearMode) {
-    clearMode = false;
-  }
-}
-
-/**
- * Points for one calendar cell for the active Class Data View slice.
- * @param {{points?: number, points_r1?: number, points_r2?: number, points_r3?: number}|null|undefined} cell
- * @returns {number}
- */
-function gridCellPoints(cell) {
-  if (!cell) return 0;
-  const slice = roundView === "r1" || roundView === "r2" || roundView === "r3" ? roundView : "total";
-  return cellSlice(cell, slice);
-}
-
-/**
- * Build the semester calendar sheet (same columns as attendance).
- * @param {any} data
- */
-function renderSheet(data) {
-  const table = document.getElementById("sheet");
-  if (!table) return;
-  table.classList.remove("attendance-grid", "ap-module-grid");
-  if (dataMode === "individual") {
-    renderIndividualSheet(data, table);
-    return;
-  }
-  clearModuleL4Caption();
-  const weeks = data.weeks || [];
-  const labels = data.date_labels || [];
-  const meta = data.day_meta || [];
-  const headers = data.weekday_headers || ["M", "T", "W", "T", "F"];
-  const students = data.students || [];
-  const sortLabel = sort === "za" ? "Sort: Z–A" : "Sort: A–Z";
-  const daySums = {};
-
-  let dates = `<tr class="att-dates"><th class="name"></th>`;
-  weeks.forEach((week, weekIndex) => {
-    week.forEach((iso, dayIndex) => {
-      const edge = dayIndex === 0 && weekIndex > 0 ? " week-start" : "";
-      const cell = meta[weekIndex]?.[dayIndex];
-      const label = labels[weekIndex]?.[dayIndex] || cell?.label || "";
-      const closed = cell && cell.school_day === false;
-      const clickable =
-        clearMode && iso && cell?.school_day ? ` data-clear-date="${escapeHtml(iso)}"` : "";
-      const title = cell?.iso
-        ? ` title="${escapeHtml(cell.iso)}${cell.reason ? ` · ${escapeHtml(cell.reason)}` : ""}"`
-        : "";
-      dates += `<th class="att-day att-date${edge}${closed ? " closed" : ""}${clickable ? " clear-target" : ""}"${title}${clickable}>${escapeHtml(label)}</th>`;
-    });
-  });
-  dates += `<th class="live-sub">SUBTOTAL</th><th class="total">TOTAL</th></tr>`;
-
-  let head = `<tr><th class="name">Student</th>`;
-  weeks.forEach((week, weekIndex) => {
-    headers.forEach((label, dayIndex) => {
-      const edge = dayIndex === 0 && weekIndex > 0 ? " week-start" : "";
-      const cell = meta[weekIndex]?.[dayIndex];
-      const closed = cell && cell.school_day === false;
-      const title = cell?.iso ? ` title="${escapeHtml(cell.iso)}"` : "";
-      head += `<th class="att-day${edge}${closed ? " closed" : ""}"${title}>${escapeHtml(label)}</th>`;
-    });
-  });
-  head += `<th class="live-sub">SUBTOTAL</th><th class="total">TOTAL SCORE</th></tr>`;
-
-  let body = "";
-  for (const student of students) {
-    const sid = Number(student.id);
-    body += `<tr><td class="name">${escapeHtml(displayName(student))}</td>`;
-    weeks.forEach((week, weekIndex) => {
-      week.forEach((iso, dayIndex) => {
-        const edge = dayIndex === 0 && weekIndex > 0 ? " week-start" : "";
-        const cellMeta = meta[weekIndex]?.[dayIndex];
-        if (!iso || !cellMeta) {
-          body += `<td class="att-day empty${edge}"></td>`;
-          return;
-        }
-        if (cellMeta.school_day === false) {
-          body += `<td class="att-day closed${edge}"></td>`;
-          return;
-        }
-        const cell = data.cells?.[`${sid}:${iso}`];
-        const pts = gridCellPoints(cell);
-        if (pts) daySums[iso] = numericPoints((daySums[iso] || 0) + pts);
-        const text = pts ? escapeHtml(formatPoints(pts)) : "";
-        body += `<td class="att-day cell${edge}">${text}</td>`;
-      });
-    });
-    const liveSub = data.live_subtotals?.[String(sid)] ?? 0;
-    const total = data.totals?.[String(sid)] ?? 0;
-    body += `<td class="live-sub">${escapeHtml(formatPoints(liveSub))}</td>`;
-    body += `<td class="total">${escapeHtml(formatPoints(total))}</td></tr>`;
-  }
-
-  let dayTotalRow = `<tr class="att-day-total"><td class="name">Total</td>`;
-  weeks.forEach((week, weekIndex) => {
-    week.forEach((iso, dayIndex) => {
-      const edge = dayIndex === 0 && weekIndex > 0 ? " week-start" : "";
-      const cellMeta = meta[weekIndex]?.[dayIndex];
-      if (!iso || !cellMeta || cellMeta.school_day === false) {
-        dayTotalRow += `<td class="att-day total-cell${edge}"></td>`;
-        return;
-      }
-      const sum = daySums[iso] ?? 0;
-      dayTotalRow += `<td class="att-day total-cell${edge}">${sum ? escapeHtml(formatPoints(sum)) : ""}</td>`;
-    });
-  });
-  dayTotalRow += `<td class="live-sub"></td><td class="total"></td></tr>`;
-
-  table.innerHTML = `<thead>${dates}${head}</thead><tbody>${body}${dayTotalRow}</tbody>`;
-  table.classList.add("attendance-grid");
-  document.getElementById("part-clear-hint")?.toggleAttribute("hidden", !clearMode);
-  const clearBtn = document.getElementById("part-clear");
-  if (clearBtn) clearBtn.classList.toggle("on", clearMode);
-  const sortBtn = document.getElementById("sort-toggle");
-  if (sortBtn) sortBtn.textContent = sortLabel;
-}
-
-/**
- * Per-module individual participation (MCK-198 / MCK-220).
- * @param {any} data
- * @param {HTMLTableElement} table
- */
-function renderIndividualSheet(data, table) {
-  const students = data.students || [];
-  const part = data.module_participation || { modules: [], students: [] };
-  const modules = part.modules || [];
-  const byStudent = new Map(
-    (part.students || []).map((row) => [Number(row.student_id), row.modules || {}]),
+  document.getElementById("ap-evidence-coverage")?.toggleAttribute(
+    "hidden",
+    courseSimple || (!includeGroup && !includeIndividual),
   );
-  const sortLabel = sort === "za" ? "Sort: Z–A" : "Sort: A–Z";
-
-  if (!modules.length) {
-    table.innerHTML = `<tbody><tr><td class="name muted">No individual questions recorded yet. End a live class with individual items, then refresh.</td></tr></tbody>`;
-    table.classList.add("ap-module-grid");
-    clearModuleL4Caption();
-    return;
-  }
-
-  renderModuleL4Caption(modules);
-
-  let head = `<tr><th class="name">Student</th>`;
-  for (const mod of modules) {
-    const complete = Boolean(mod.complete);
-    const markLabel = complete
-      ? `Module ${escapeHtml(mod.module)} complete · Undo`
-      : `Mark Module ${escapeHtml(mod.module)} Complete`;
-    head += `<th class="ap-module-col">
-      <div class="ap-module-head">${escapeHtml(mod.module)} (${Number(mod.offered) || 0})</div>
-      <button type="button" class="btn secondary ap-module-mark" data-module="${escapeHtml(mod.module)}" data-complete="${complete ? "0" : "1"}">${markLabel}</button>
-    </th>`;
-  }
-  head += "</tr>";
-
-  let body = "";
-  for (const student of students) {
-    const sid = Number(student.id);
-    const cells = byStudent.get(sid) || {};
-    body += `<tr><td class="name">${escapeHtml(displayName(student))}</td>`;
-    for (const mod of modules) {
-      const cell = cells[mod.module] || { answered: 0, offered: mod.offered, percent: null, level: null };
-      body += `<td class="ap-module-cell">${escapeHtml(formatIndividualCell(cell))}</td>`;
-    }
-    body += "</tr>";
-  }
-
-  table.innerHTML = `<thead>${head}</thead><tbody>${body}</tbody>`;
-  table.classList.add("ap-module-grid");
-  document.getElementById("part-clear-hint")?.toggleAttribute("hidden", true);
-  document.getElementById("part-clear")?.classList.remove("on");
-  const sortBtn = document.getElementById("sort-toggle");
-  if (sortBtn) sortBtn.textContent = sortLabel;
-}
-
-/** Hide per-module Level 4 toggles (group calendar view). */
-function clearModuleL4Caption() {
-  const el = document.getElementById("ap-module-l4-caption");
-  if (!el) return;
-  el.hidden = true;
-  el.innerHTML = "";
 }
 
 /**
- * Level 4 needs group work — one line under the individual hint (not in column headers).
- * @param {Array<{module: string, complete?: boolean, l4_needs_group?: boolean}>} modules
- */
-function renderModuleL4Caption(modules) {
-  const el = document.getElementById("ap-module-l4-caption");
-  if (!el) return;
-  if (!modules.length) {
-    clearModuleL4Caption();
-    return;
-  }
-  el.hidden = false;
-  el.innerHTML = modules
-    .map((mod) => {
-      const complete = Boolean(mod.complete);
-      const checked = mod.l4_needs_group ? "checked" : "";
-      const disabled = complete ? "disabled" : "";
-      return `<label class="ap-module-l4-inline"><input type="checkbox" class="ap-module-l4-input" data-module="${escapeHtml(mod.module)}" ${checked} ${disabled}><span>${escapeHtml(mod.module)} · Level 4 needs group work</span></label>`;
-    })
-    .join("");
-}
-
-/**
- * @param {{answered?: number, offered?: number, percent?: number|null, level?: number|null, catchup?: number}} cell
- * @returns {string}
- */
-function formatIndividualCell(cell) {
-  const answered = Number(cell.answered) || 0;
-  const offered = Number(cell.offered) || 0;
-  if (offered <= 0) return "—";
-  const base = `${answered}/${offered}`;
-  if (individualMetric === "percent") {
-    const pct = cell.percent;
-    return pct == null ? base : `${base} · ${pct}%`;
-  }
-  const level = cell.level;
-  if (level == null) return base;
-  const levelText = level === 0 ? "below L1" : `L${level}`;
-  return `${base} · ${levelText}`;
-}
-
-/**
- * Credited points for one slice of a lesson cell.
- * @param {{points?: number, points_r1?: number, points_r2?: number, points_r3?: number}|null|undefined} cell
- * @param {"total"|"r1"|"r2"|"r3"} slice
- * @returns {number}
- */
-function cellSlice(cell, slice) {
-  const key = SLICE_KEYS[slice] || "points";
-  return numericPoints(cell?.[key]);
-}
-
-/**
- * Round a credit the same way the sheet prints it.
  * @param {unknown} value
  * @returns {number}
  */
@@ -355,6 +85,218 @@ function numericPoints(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return 0;
   return Math.round(n * 10) / 10;
+}
+
+/**
+ * @param {Array<{kind?: string, publish_mode?: string, prompt_kind?: string, item_json?: any}>} deckItems
+ * @returns {number}
+ */
+function sessionOpportunities(deckItems) {
+  const items = deckItems || [];
+  let total = 0;
+  for (const row of items) {
+    const mode = String(row.publish_mode || "individual").toLowerCase();
+    if (mode === "individual" && !includeIndividual) continue;
+    if (mode !== "individual" && !includeGroup) continue;
+    total += participationWeight(row);
+  }
+  return total;
+}
+
+/**
+ * @param {{prompt_kind?: string, publish_mode?: string, item_json?: any}} row
+ * @returns {number}
+ */
+function participationWeight(row) {
+  const kind = String(row.prompt_kind || "").toLowerCase();
+  let payload = row.item_json;
+  if (typeof payload === "string") {
+    try {
+      payload = JSON.parse(payload);
+    } catch (_err) {
+      payload = {};
+    }
+  }
+  const qtype = String(payload?.type || payload?.question_type || "").toLowerCase();
+  if (kind === "mc" || qtype === "mc" || qtype === "multiple_choice") {
+    return 1;
+  }
+  return 0;
+}
+
+/**
+ * @param {number} score
+ * @param {number} opportunities
+ * @param {string|null|undefined} endedAt
+ * @returns {string}
+ */
+function formatParticipationCell(score, opportunities, endedAt) {
+  if (!includeIndividual && !includeGroup) return "—";
+  if (displayMode === "fraction") {
+    if (opportunities <= 0) return "—";
+    return `${formatScore(score)}/${opportunities}`;
+  }
+  if (displayMode === "percent") {
+    if (opportunities <= 0) return "—";
+    let pct = Math.round((100 * score) / opportunities);
+    if (endedAt && legacyCap(endedAt) && pct > 100) pct = 100;
+    return `${pct}%`;
+  }
+  return escapeHtml(formatPoints(score));
+}
+
+/**
+ * @param {number} value
+ * @returns {string}
+ */
+function formatScore(value) {
+  const n = numericPoints(value);
+  return String(n);
+}
+
+/**
+ * @param {string} endedAt
+ * @returns {boolean}
+ */
+function legacyCap(endedAt) {
+  const day = String(endedAt || "").slice(0, 10);
+  return day && day < "2026-10-14";
+}
+
+/**
+ * @param {any} data
+ * @param {number} sessionId
+ * @param {number} studentId
+ * @param {{deck_items?: any[], ended_at?: string}} meta
+ * @returns {{score: number, opportunities: number, ended_at: string}}
+ */
+function cellScore(data, sessionId, studentId, meta) {
+  const opportunities = sessionOpportunities(meta?.deck_items);
+  let score = 0;
+  if (includeGroup) {
+    const cell = data.cells?.[`${sessionId}:${studentId}`] || {};
+    score += numericPoints(cell.points);
+  }
+  if (includeIndividual) {
+    const key = `${sessionId}:${studentId}`;
+    score += numericPoints(data.individual_cells?.[key] || 0);
+  }
+  return { score, opportunities, ended_at: String(meta?.ended_at || "") };
+}
+
+/**
+ * Build the live-points session spreadsheet.
+ * @param {any} data
+ */
+function renderSheet(data) {
+  const table = document.getElementById("sheet");
+  if (!table) return;
+  table.classList.remove("attendance-grid", "ap-module-grid");
+  const columns = data.columns || [];
+  const students = data.students || [];
+  const sessionMeta = data.session_meta || {};
+  const modules = data.module_participation?.modules || [];
+  const completeByModule = new Map(modules.map((m) => [String(m.module), Boolean(m.complete)]));
+  const sortLabel = sort === "za" ? "Sort: Z–A" : "Sort: A–Z";
+
+  const moduleBands = buildModuleBands(columns, sessionMeta);
+  let head = `<tr><th class="name">Student</th>`;
+  for (const column of columns) {
+    if (column.kind === "subtotal") {
+      head += `<th class="subtotal-col">${escapeHtml(column.name || column.header_label)}</th>`;
+      continue;
+    }
+    head += `<th>${escapeHtml(column.header_label || "")}</th>`;
+  }
+  head += `<th class="live-sub">SUBTOTAL</th><th class="total">TOTAL SCORE</th></tr>`;
+
+  let moduleRow = `<tr class="ap-module-band"><th class="name"></th>`;
+  for (const band of moduleBands) {
+    const colspan = band.span || 1;
+    const mod = band.module;
+    if (!mod) {
+      moduleRow += `<th colspan="${colspan}"></th>`;
+      continue;
+    }
+    const complete = completeByModule.get(mod);
+    const label = complete ? `Module ${moduleNumber(mod)} total` : `Finish Module ${moduleNumber(mod)}`;
+    if (complete) {
+      moduleRow += `<th colspan="${colspan}" class="ap-module-finish done">${escapeHtml(label)}</th>`;
+    } else {
+      moduleRow += `<th colspan="${colspan}" class="ap-module-finish">
+        <button type="button" class="btn secondary ap-finish-module" data-module="${escapeHtml(mod)}">${escapeHtml(label)}</button>
+      </th>`;
+    }
+  }
+  moduleRow += `<th class="live-sub"></th><th class="total"></th></tr>`;
+
+  let body = "";
+  const liveCols = liveSessionColumns(columns);
+  const allCols = sessionColumns(columns);
+  for (const student of students) {
+    const sid = Number(student.id);
+    body += `<tr><td class="name">${escapeHtml(displayName(student))}</td>`;
+    for (const column of columns) {
+      if (column.kind === "subtotal") {
+        const frozen = data.cells?.[`sub:${column.id}:${sid}`] || { points: 0 };
+        body += `<td class="cell frozen">${escapeHtml(formatPoints(frozen.points))}</td>`;
+        continue;
+      }
+      const meta = sessionMeta[String(column.id)] || {};
+      const { score, opportunities, ended_at } = cellScore(data, Number(column.id), sid, meta);
+      const text = formatParticipationCell(score, opportunities, ended_at);
+      const kind = score > 0 ? "present" : "absent";
+      body += `<td class="cell ${kind}">${text}</td>`;
+    }
+    body += summaryCellHtml(data, sid, liveCols);
+    body += summaryCellHtml(data, sid, allCols, "total");
+    body += "</tr>";
+  }
+
+  table.innerHTML = `<thead>${moduleRow}${head}</thead><tbody>${body}</tbody>`;
+  const sortBtn = document.getElementById("sort-toggle");
+  if (sortBtn) sortBtn.textContent = sortLabel;
+}
+
+/**
+ * @param {string} liveModule
+ * @returns {number}
+ */
+function moduleNumber(liveModule) {
+  const digits = String(liveModule || "").replace(/^M/i, "");
+  return digits && /^\d+$/.test(digits) ? Number(digits) : 0;
+}
+
+/**
+ * @param {Array<any>} columns
+ * @param {Record<string, any>} sessionMeta
+ * @returns {Array<{module?: string, span: number}>}
+ */
+function buildModuleBands(columns, sessionMeta) {
+  const bands = [];
+  let current = "";
+  let span = 0;
+  const flush = () => {
+    if (span > 0) bands.push({ module: current || undefined, span });
+    span = 0;
+  };
+  for (const column of columns) {
+    if (column.kind === "subtotal") {
+      flush();
+      bands.push({ span: 1 });
+      current = "";
+      continue;
+    }
+    const mod = String(sessionMeta[String(column.id)]?.live_module || "");
+    if (mod && mod !== current) {
+      flush();
+      current = mod;
+    }
+    if (!mod) current = "";
+    span += 1;
+  }
+  flush();
+  return bands;
 }
 
 /**
@@ -388,103 +330,20 @@ function liveSessionColumns(columns) {
 }
 
 /**
- * Sum one slice across the given lesson columns.
  * @param {any} data
  * @param {number} studentId
- * @param {Array<{id: number}>} columns
- * @param {"total"|"r1"|"r2"|"r3"} slice
- * @returns {number}
+ * @param {Array<{id: number, kind?: string}>} columns
+ * @param {string} [extraClass]
+ * @returns {string}
  */
-function sumStudentSlice(data, studentId, columns, slice) {
+function summaryCellHtml(data, studentId, columns, extraClass = "live-sub") {
   let sum = 0;
   for (const column of columns) {
-    const cell = data.cells[`${column.id}:${studentId}`];
-    if (!cell) continue;
-    sum = numericPoints(sum + cellSlice(cell, slice));
+    if (column.kind === "subtotal") continue;
+    const meta = data.session_meta?.[String(column.id)] || {};
+    sum += cellScore(data, Number(column.id), studentId, meta).score;
   }
-  return sum;
-}
-
-/**
- * Live SUBTOTAL or TOTAL SCORE for the active slice (or stacked All).
- * @param {any} data
- * @param {number} studentId
- * @param {Array<{id: number}>} columns
- * @param {string} extraClass
- * @returns {string}
- */
-function summaryCellHtml(data, studentId, columns, extraClass) {
-  if (roundView === "all") {
-    const r1 = formatPoints(sumStudentSlice(data, studentId, columns, "r1"));
-    const r2 = formatPoints(sumStudentSlice(data, studentId, columns, "r2"));
-    const r3 = formatPoints(sumStudentSlice(data, studentId, columns, "r3"));
-    return `<td class="${extraClass} by-round"><div class="round-stack">
-      <span>${STACK_LABELS.r1} ${escapeHtml(r1)}</span>
-      <span>${STACK_LABELS.r2} ${escapeHtml(r2)}</span>
-      <span>${STACK_LABELS.r3} ${escapeHtml(r3)}</span>
-    </div></td>`;
-  }
-  const slice = roundView === "r1" || roundView === "r2" || roundView === "r3" ? roundView : "total";
-  return `<td class="${extraClass}">${escapeHtml(formatPoints(sumStudentSlice(data, studentId, columns, slice)))}</td>`;
-}
-
-/**
- * True when this round is the student's strongest slice that day.
- * Skips single-round (all-in-R1) days so every scorer is not highlighted.
- * @param {{points_r1?: number, points_r2?: number, points_r3?: number}} cell
- * @param {"total"|"r1"|"r2"|"r3"|"all"} view
- * @returns {boolean}
- */
-function sliceIsLead(cell, view) {
-  if (view !== "r1" && view !== "r2" && view !== "r3") return false;
-  const r1 = numericPoints(cell.points_r1);
-  const r2 = numericPoints(cell.points_r2);
-  const r3 = numericPoints(cell.points_r3);
-  const scored = [r1, r2, r3].filter((v) => v > 0).length;
-  if (scored < 2) return false;
-  const val = view === "r1" ? r1 : view === "r2" ? r2 : r3;
-  return val > 0 && val >= r1 && val >= r2 && val >= r3;
-}
-
-/**
- * Thin Open / Challenge / Formative mix bar. Zero rounds are omitted.
- * @param {{points_r1?: number, points_r2?: number, points_r3?: number}} cell
- * @returns {string}
- */
-function mixBarHtml(cell) {
-  const r1 = Math.max(0, numericPoints(cell.points_r1));
-  const r2 = Math.max(0, numericPoints(cell.points_r2));
-  const r3 = Math.max(0, numericPoints(cell.points_r3));
-  if (r1 + r2 + r3 <= 0) return "";
-  const parts = [];
-  if (r1 > 0) parts.push(`<span class="mix-r1" style="flex:${r1}"></span>`);
-  if (r2 > 0) parts.push(`<span class="mix-r2" style="flex:${r2}"></span>`);
-  if (r3 > 0) parts.push(`<span class="mix-r3" style="flex:${r3}"></span>`);
-  return `<div class="round-mix" aria-hidden="true">${parts.join("")}</div>`;
-}
-
-/**
- * One lesson cell: a single slice, or stacked Open / Challenge / Formative.
- * @param {{present?: boolean, points?: number, points_r1?: number, points_r2?: number, points_r3?: number}} cell
- * @param {string} kind
- * @returns {string}
- */
-function sessionCellHtml(cell, kind) {
-  if (roundView === "all") {
-    const r1 = formatPoints(cell.points_r1);
-    const r2 = formatPoints(cell.points_r2);
-    const r3 = formatPoints(cell.points_r3);
-    const mix = kind === "present" ? mixBarHtml(cell) : "";
-    return `<td class="cell ${kind} by-round">${mix}<div class="round-stack">
-      <span>${STACK_LABELS.r1} ${escapeHtml(r1)}</span>
-      <span>${STACK_LABELS.r2} ${escapeHtml(r2)}</span>
-      <span>${STACK_LABELS.r3} ${escapeHtml(r3)}</span>
-    </div></td>`;
-  }
-  const slice = roundView === "r1" || roundView === "r2" || roundView === "r3" ? roundView : "total";
-  const value = formatPoints(cellSlice(cell, slice));
-  const lead = kind === "present" && sliceIsLead(cell, slice) ? " slice-lead" : "";
-  return `<td class="cell ${kind}${lead}"><span class="cell-score">${escapeHtml(value)}</span></td>`;
+  return `<td class="${extraClass}">${escapeHtml(formatPoints(sum))}</td>`;
 }
 
 /**
@@ -501,104 +360,29 @@ async function mutate(url, extra) {
   await refresh();
 }
 
-document.getElementById("ap-group-slice-select")?.addEventListener("change", (event) => {
-  const select = event.target;
-  if (!(select instanceof HTMLSelectElement)) return;
-  const next = select.value;
-  if (!ROUND_VIEWS.includes(next)) return;
-  roundView = next;
-  localStorage.setItem(roundViewKey, roundView);
+document.getElementById("ap-include-individual")?.addEventListener("change", (event) => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement)) return;
+  includeIndividual = input.checked;
+  localStorage.setItem(includeIndividualKey, includeIndividual ? "1" : "0");
   if (latest) paint(latest);
 });
 
-document.getElementById("ap-data-mode-select")?.addEventListener("change", (event) => {
-  const select = event.target;
-  if (!(select instanceof HTMLSelectElement)) return;
-  if (!DATA_MODES.includes(select.value)) return;
-  dataMode = select.value;
-  localStorage.setItem(dataModeKey, dataMode);
+document.getElementById("ap-include-group")?.addEventListener("change", (event) => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement)) return;
+  includeGroup = input.checked;
+  localStorage.setItem(includeGroupKey, includeGroup ? "1" : "0");
   if (latest) paint(latest);
 });
 
-document.getElementById("ap-individual-metric-select")?.addEventListener("change", (event) => {
+document.getElementById("ap-display-mode-select")?.addEventListener("change", (event) => {
   const select = event.target;
   if (!(select instanceof HTMLSelectElement)) return;
-  if (!INDIVIDUAL_METRICS.includes(select.value)) return;
-  individualMetric = select.value;
-  localStorage.setItem(individualMetricKey, individualMetric);
+  if (!DISPLAY_MODES.includes(select.value)) return;
+  displayMode = select.value;
+  localStorage.setItem(displayModeKey, displayMode);
   if (latest) paint(latest);
-});
-
-document.getElementById("freeze-sub").addEventListener("submit", (event) => {
-  event.preventDefault();
-  const name = document.getElementById("sub-name").value;
-  mutate(`/api/classes/${classId}/subtotals`, { name }).catch((err) =>
-    showError("#error", err)
-  );
-});
-
-/**
- * Ask the teacher to confirm a destructive delete.
- * @param {string} message
- * @returns {Promise<boolean>}
- */
-function askToDelete(message) {
-  const dialog = document.getElementById("confirm-dialog");
-  const text = document.getElementById("confirm-message");
-  if (!dialog || typeof dialog.showModal !== "function") {
-    return Promise.resolve(window.confirm(message));
-  }
-  text.textContent = message;
-  dialog.returnValue = "cancel";
-  dialog.showModal();
-  return new Promise((resolve) => {
-    const finish = () => {
-      dialog.removeEventListener("close", finish);
-      resolve(dialog.returnValue === "ok");
-    };
-    dialog.addEventListener("close", finish);
-  });
-}
-
-document.getElementById("confirm-dialog")?.addEventListener("click", (event) => {
-  if (event.target === event.currentTarget) {
-    event.currentTarget.close("cancel");
-  }
-});
-
-root?.addEventListener("click", (event) => {
-  const target = event.target instanceof Element ? event.target : event.target.parentElement;
-  if (!target) return;
-  const markBtn = target.closest(".ap-module-mark");
-  if (markBtn instanceof HTMLButtonElement) {
-    const module = markBtn.dataset.module;
-    if (!module) return;
-    const complete = markBtn.dataset.complete === "1";
-    hideError("#error");
-    api(`/api/classes/${classId}/participation/modules/${encodeURIComponent(module)}/complete`, {
-      method: "POST",
-      body: JSON.stringify({ complete }),
-    })
-      .then(() => refresh())
-      .catch((err) => showError("#error", err));
-    return;
-  }
-  const dateCell = target.closest("#sheet [data-clear-date]");
-  if (!dateCell || !clearMode) return;
-  const iso = dateCell.getAttribute("data-clear-date");
-  if (!iso) return;
-  if (!window.confirm(`Clear participation and attendance for ${iso}?`)) return;
-  hideError("#error");
-  api(`/api/classes/${classId}/attendance-day/clear`, {
-    method: "POST",
-    body: JSON.stringify({ date: iso, sort }),
-  })
-    .then(() => {
-      clearMode = false;
-      window.dispatchEvent(new CustomEvent("lloves-attendance-refresh"));
-      return refresh();
-    })
-    .catch((err) => showError("#error", err));
 });
 
 document.getElementById("sort-toggle")?.addEventListener("click", (event) => {
@@ -608,26 +392,28 @@ document.getElementById("sort-toggle")?.addEventListener("click", (event) => {
   refresh().catch((err) => showError("#error", err));
 });
 
-document.getElementById("part-clear")?.addEventListener("click", (event) => {
-  event.preventDefault();
-  clearMode = !clearMode;
-  if (latest) paint(latest);
-});
-
-root?.addEventListener("change", (event) => {
-  const l4Input = event.target;
-  if (!(l4Input instanceof HTMLInputElement) || !l4Input.classList.contains("ap-module-l4-input")) {
-    return;
+root?.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+  if (!target) return;
+  const finishBtn = target.closest(".ap-finish-module");
+  if (finishBtn instanceof HTMLButtonElement) {
+    const module = finishBtn.dataset.module;
+    if (!module) return;
+    if (
+      !window.confirm(
+        `Finish ${module}? This logs a locked Module total column and marks the module complete.`,
+      )
+    ) {
+      return;
+    }
+    hideError("#error");
+    api(`/api/classes/${classId}/participation/modules/${encodeURIComponent(module)}/finish`, {
+      method: "POST",
+      body: JSON.stringify({ sort }),
+    })
+      .then(() => refresh())
+      .catch((err) => showError("#error", err));
   }
-  const module = l4Input.dataset.module;
-  if (!module) return;
-  hideError("#error");
-  api(`/api/classes/${classId}/participation/modules/${encodeURIComponent(module)}/settings`, {
-    method: "POST",
-    body: JSON.stringify({ l4_needs_group: l4Input.checked }),
-  })
-    .then(() => refresh())
-    .catch((err) => showError("#error", err));
 });
 
 refresh().catch((err) => showError("#error", err));

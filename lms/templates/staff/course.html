@@ -1159,41 +1159,28 @@
       <div id="grades-root" data-class-id="{{ cls.id }}" data-course-simple="{{ 1 if course_simple else 0 }}">
         <div class="topbar ap-participation-bar">
           <div class="row-actions ap-toolbar">
-            <button type="button" class="secondary" id="part-clear">Clear</button>
             <button type="button" class="secondary" id="sort-toggle">Sort: A–Z</button>
             <a class="btn secondary" id="export-results-csv" href="{{ url_for('staff_class_results_csv', class_id=cls.id) }}" download>Export results (CSV)</a>
-            <label class="field ap-view-field" for="ap-data-mode-select">
-              <span class="ap-view-label">Show</span>
-              <select id="ap-data-mode-select" aria-label="Participation data mode">
-                <option value="group">Group participation (live points)</option>
-                <option value="individual">Individual questions (by module)</option>
+            <label class="field ap-view-field ap-check-field">
+              <input type="checkbox" id="ap-include-individual" checked>
+              <span>Individual</span>
+            </label>
+            <label class="field ap-view-field ap-check-field">
+              <input type="checkbox" id="ap-include-group" checked>
+              <span>Group</span>
+            </label>
+            <label class="field ap-view-field" for="ap-display-mode-select">
+              <span class="ap-view-label">Display</span>
+              <select id="ap-display-mode-select" aria-label="Participation display mode">
+                <option value="points">Points</option>
+                <option value="fraction">Fraction</option>
+                <option value="percent">%</option>
               </select>
             </label>
-            <label class="field ap-view-field" for="ap-individual-metric-select" id="ap-individual-metric-wrap" hidden>
-              <span class="ap-view-label">Individual display</span>
-              <select id="ap-individual-metric-select" aria-label="Individual participation display">
-                <option value="level">Level (L1–L4)</option>
-                <option value="percent">Percent</option>
-              </select>
-            </label>
-            {# MCK-183: pack-less non-math courses show Total only (no math round slices). #}
-            {% if not course_simple %}
-            <label class="field ap-view-field" for="ap-group-slice-select" id="ap-group-slice-wrap">
-              <span class="ap-view-label">Group slice</span>
-              <select id="ap-group-slice-select" aria-label="Group participation slice">
-                <option value="total">Total</option>
-                <option value="r1">Open Question</option>
-                <option value="r2">Team Challenge</option>
-                <option value="r3">Formative</option>
-              </select>
-            </label>
-            {% endif %}
           </div>
         </div>
-        <p class="hint compact" id="ap-individual-hint" hidden>Individual live questions answered / offered per module. Group questions and team points are not included.</p>
-        <p class="hint compact ap-module-l4-caption" id="ap-module-l4-caption" hidden></p>
+        <p class="hint compact">Denominator uses MC questions from each lesson&apos;s latest real deck (Lesson Slides). Legacy points before Oct 14, 2026 cap at 100% in percent view.</p>
         <div id="error" class="error" hidden></div>
-        <p class="hint" id="part-clear-hint" hidden>Clear mode: click a date label in the top row (e.g. S23) to remove that day&apos;s participation and attendance.</p>
         <section class="card ap-evidence-coverage" id="ap-evidence-coverage"{% if course_simple %} hidden{% endif %}>
           <h2>Process evidence (this live session)</h2>
           <p class="hint compact">Qualitative observations from Team Challenge. Not written to participation points.</p>
@@ -1209,13 +1196,6 @@
             </thead>
           </table>
         </div>
-        <section class="card grades-panel">
-          <h2>Log TOTAL</h2>
-          <form id="freeze-sub" class="tool-form">
-            <input id="sub-name" type="text" value="SUBTOTAL" placeholder="SUBTOTAL" autocomplete="off">
-            <button type="submit">Log TOTAL as Subtotal</button>
-          </form>
-        </section>
       </div>
       <dialog id="confirm-dialog" class="confirm-dialog">
         <form method="dialog">

@@ -141,20 +141,20 @@ class LocalDevSeedTests(unittest.TestCase):
         course = staff.get(f"/staff/class/{class_id}?tab=ap&view=participation")
         self.assertEqual(course.status_code, 200)
         course_html = course.get_data(as_text=True)
-        self.assertIn('id="ap-data-mode-select"', course_html)
+        self.assertIn('id="ap-include-individual"', course_html)
         self.assertNotIn("participation-catchup-link", course_html)
         rv = staff.get(f"/staff/classes/{class_id}/participation")
         self.assertEqual(rv.status_code, 302)
         grid = staff.get(f"/api/classes/{class_id}/participation-grid?sort=az").get_json()
         modules = {m["module"]: m for m in grid["module_participation"]["modules"]}
-        self.assertEqual(modules["M1"]["offered"], 8)
+        self.assertEqual(modules["M1"]["offered"], 6)
         self.assertEqual(modules["M3"]["offered"], 2)
         maple_row = next(
             s for s in grid["module_participation"]["students"]
             if s["modules"]["M1"]["answered"] == 5
         )
-        self.assertEqual(maple_row["modules"]["M1"]["percent"], 62)
-        self.assertEqual(maple_row["modules"]["M1"]["level"], 2)
+        self.assertEqual(maple_row["modules"]["M1"]["percent"], 83)
+        self.assertEqual(maple_row["modules"]["M1"]["level"], 3)
         self.assertEqual(maple_row["modules"]["M3"]["answered"], 1)
         self.assertEqual(maple_row["modules"]["M3"]["offered"], 2)
         token = self.school.list_catchup_links(class_id)[0]["token"]

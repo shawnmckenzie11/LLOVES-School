@@ -698,12 +698,24 @@ body.staff-shell .ap-view-label {
   font-weight: 600;
   color: #475569;
 }
-body.staff-shell #ap-group-slice-select,
-body.staff-shell #ap-data-mode-select,
-body.staff-shell #ap-individual-metric-select {
-  min-width: 11rem;
+body.staff-shell #ap-display-mode-select {
+  min-width: 8rem;
   padding: 0.35rem 0.5rem;
   font-size: 0.95rem;
+}
+body.staff-shell .ap-check-field {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.95rem;
+}
+body.staff-shell .ap-module-band th.ap-module-finish {
+  font-size: 0.78rem;
+  font-weight: 600;
+  vertical-align: bottom;
+}
+body.staff-shell .ap-module-band th.ap-module-finish.done {
+  color: #475569;
 }
 body.staff-shell table.ap-module-grid th.ap-module-col {
   min-width: 9rem;
