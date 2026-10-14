@@ -143,6 +143,35 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
 
 
+def _normalize_release_row(release: Any) -> dict[str, Any] | None:
+    """One release object from ``releases.json``, with null item holes removed.
+
+    Args:
+        release: A value from the file's ``releases`` array.
+
+    Returns:
+        A shallow copy with only object ``items``, or ``None`` when unusable.
+    """
+    if not isinstance(release, dict):
+        return None
+    items = release.get("items")
+    if isinstance(items, list):
+        release = {**release, "items": [item for item in items if isinstance(item, dict)]}
+    return release
+
+
+def _release_rows(releases: Any) -> list[dict[str, Any]]:
+    """Skip null and malformed entries in a ``releases`` array."""
+    if not isinstance(releases, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for release in releases:
+        row = _normalize_release_row(release)
+        if row is not None:
+            out.append(row)
+    return out
+
+
 def read_file(path: Path | str | None = None) -> list[dict[str, Any]]:
     """Releases in a ``releases.json`` file; ``[]`` if missing or unreadable."""
     target = Path(path) if path else RELEASES_FILE
@@ -152,7 +181,7 @@ def read_file(path: Path | str | None = None) -> list[dict[str, Any]]:
         logger.warning("whats-new: cannot read %s (%s)", target, type(exc).__name__)
         return []
     releases = data.get("releases") if isinstance(data, dict) else None
-    return [r for r in releases or [] if isinstance(r, dict)]
+    return _release_rows(releases)
 
 
 def sync_from_file(conn: sqlite3.Connection, path: Path | str | None = None) -> dict[str, int]:
@@ -277,7 +306,7 @@ def teacher_payload(releases: list[dict[str, Any]], limit: int = PAYLOAD_LIMIT) 
     shaped: list[dict[str, Any]] = []
     seen: set[str] = set()
     public_ids: set[str] = set()
-    for release in sorted(releases, key=sort_at, reverse=True):
+    for release in sorted(_release_rows(releases), key=sort_at, reverse=True):
         rid = str(release.get("id") or "").strip()
         day = release_day(release)
         key = sort_at(release)
@@ -322,7 +351,7 @@ def legacy_seen_at(releases: list[dict[str, Any]], value: Any) -> str | None:
     if not _LEGACY_ID.fullmatch(text):
         return None
     low = text.lower()
-    for release in releases:
+    for release in _release_rows(releases):
         rid = str(release.get("id") or "").strip().lower()
         sha = str(release.get("sha") or "").strip().lower()
         if rid and (rid == low or (sha and sha.startswith(low))):

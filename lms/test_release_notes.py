@@ -797,6 +797,28 @@ class WhatsNewScriptTests(unittest.TestCase):
         self.assertNotIn("innerHTML", src)
         self.assertIn('classList.contains("course-live")', src)
 
+    def test_usable_releases_skips_null_releases_mck124(self) -> None:
+        """MCK-124: null holes in the API payload must not throw in the browser."""
+        uri = WHATS_NEW_JS.resolve().as_uri()
+        done = subprocess.run(
+            [
+                shutil.which("node"),
+                "--input-type=module",
+                "-e",
+                f"""import {{ usableReleases }} from '{uri}';
+const data = {{ releases: [null, {{ id: '2026-10-04', day: '2026-10-04', items: [null, {{ text: 'ok' }}] }}] }};
+console.log(JSON.stringify(usableReleases(data)));""",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr or done.stdout)
+        got = json.loads(done.stdout.strip())
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0]["items"], [{"text": "ok"}])
+
 
 if __name__ == "__main__":
     unittest.main()
