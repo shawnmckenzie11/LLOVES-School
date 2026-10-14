@@ -1172,7 +1172,7 @@ function ensureStudentBoardPoll() {
           studentBoardPoll.stop();
           return { status: status || 302 };
         }
-        if (status === 429 || status >= 500) {
+        if (status === 429 || status === 503 || status >= 500) {
           return { status, busy: true };
         }
         let data = null;

@@ -17,6 +17,7 @@ import time
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 LMS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = LMS_DIR.parent
@@ -107,6 +108,14 @@ def _bare_store(connect: Any) -> LivePresenceStore:
 
 class PresencePoolTests(unittest.TestCase):
     """Idle sockets are dropped. A protocol error is retried once."""
+
+    def test_pool_size_is_at_least_gunicorn_threads(self) -> None:
+        """An undersized pool_size argument is raised to ``serve_capacity.THREADS``."""
+        import serve_capacity as cap
+
+        with patch.object(LivePresenceStore, "ensure_schema", lambda self: None):
+            store = LivePresenceStore("postgresql://unused", pool_size=2)
+        self.assertEqual(store._pool_size, cap.THREADS)
 
     def test_idle_connection_is_replaced_before_use(self) -> None:
         """A sibling idle longer than the pooler window is not checked out."""
@@ -366,6 +375,37 @@ class PresencePollDegradeTests(unittest.TestCase):
         self.assertTrue(body.get("ok"), body)
         self.assertNotEqual(body.get("error"), "state unavailable")
         self.assertGreaterEqual(int(body.get("count") or 0), 1)
+
+    def test_teacher_board_pool_busy_is_503_with_retry_after(self) -> None:
+        """Board delta reads shed as 503 instead of HTML 500 when the pool is full."""
+
+        def busy(*_args: Any, **_kwargs: Any) -> None:
+            raise LivePresenceUnavailable("live presence pool busy")
+
+        self.school.read_board = busy  # type: ignore[method-assign]
+        rv = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/board/teacher?since=0"
+        )
+        body_text = rv.get_data(as_text=True)
+        self.assertEqual(rv.status_code, 503, body_text[:400])
+        self.assertIn("application/json", rv.content_type)
+        self.assertNotIn("Internal Server Error", body_text)
+        self.assertEqual(rv.headers.get("Retry-After"), "2")
+        body = rv.get_json()
+        self.assertTrue(body.get("retry"))
+
+    def test_student_board_pool_busy_is_503_with_retry_after(self) -> None:
+        """Student board mine polls get the same 503 retry contract."""
+
+        def busy(*_args: Any, **_kwargs: Any) -> None:
+            raise LivePresenceUnavailable("live presence pool busy")
+
+        self.school.read_board = busy  # type: ignore[method-assign]
+        rv = self.student.get("/api/student/board/mine?since=0&teacher_since=0")
+        body_text = rv.get_data(as_text=True)
+        self.assertEqual(rv.status_code, 503, body_text[:400])
+        self.assertEqual(rv.headers.get("Retry-After"), "2")
+        self.assertTrue(rv.get_json().get("retry"))
 
 
 if __name__ == "__main__":
