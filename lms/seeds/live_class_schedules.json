@@ -15,6 +15,12 @@
       "section_index": 2,
       "live_days": "M/W/F",
       "live_end_time": "11:55am"
+    },
+    {
+      "ontario_code": "MCR3U",
+      "section_index": 5,
+      "live_days": "M/W/F",
+      "live_end_time": "11:55am"
     }
   ]
 }
