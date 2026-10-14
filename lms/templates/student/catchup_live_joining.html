@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ message }}</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+  <link rel="stylesheet" href="/static/student-portal.css">
+</head>
+<body class="student-portal">
+  <div class="student-wrap">
+    <h1>{{ message }}</h1>
+  </div>
+  <script>
+    window.setTimeout(function () {
+      window.location.replace({{ redirect_url | tojson }});
+    }, 400);
+  </script>
+</body>
+</html>

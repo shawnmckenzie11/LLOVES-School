@@ -382,6 +382,74 @@ body.staff-shell .sheet-wrap {
   color: #1c1914;
   padding: 0.5rem;
 }
+body.staff-shell #grades-root .sheet-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+body.staff-shell #grades-root .sheet.attendance-grid,
+body.staff-shell #grades-root .sheet.ap-module-grid {
+  min-width: max-content;
+}
+body.staff-shell #grades-root .sheet.attendance-grid {
+  --ap-rollup-total-w: 4.5rem;
+  --ap-rollup-sub-w: 5.25rem;
+}
+body.staff-shell #grades-root .sheet.attendance-grid th.name,
+body.staff-shell #grades-root .sheet.attendance-grid td.name,
+body.staff-shell #grades-root .sheet.ap-module-grid th.name,
+body.staff-shell #grades-root .sheet.ap-module-grid td.name {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #fffdf8;
+  border-right: 1px solid #e2e8f0;
+  box-shadow: none;
+}
+body.staff-shell #grades-root .sheet.attendance-grid thead th.name,
+body.staff-shell #grades-root .sheet.ap-module-grid thead th.name {
+  z-index: 3;
+}
+body.staff-shell #grades-root .sheet.attendance-grid tr.att-day-total td.name {
+  background: #f8fafc;
+}
+body.staff-shell #grades-root .sheet.attendance-grid th.live-sub,
+body.staff-shell #grades-root .sheet.attendance-grid td.live-sub,
+body.staff-shell #grades-root .sheet.attendance-grid th.total,
+body.staff-shell #grades-root .sheet.attendance-grid td.total {
+  position: sticky;
+  z-index: 2;
+  background: #fffdf8;
+  border-left: none;
+  background-clip: padding-box;
+}
+body.staff-shell #grades-root .sheet.attendance-grid th.week-start:has(+ th.live-sub),
+body.staff-shell #grades-root .sheet.attendance-grid td.week-start:has(+ td.live-sub) {
+  border-left-width: 0;
+}
+body.staff-shell #grades-root .sheet.attendance-grid th.live-sub,
+body.staff-shell #grades-root .sheet.attendance-grid td.live-sub {
+  right: var(--ap-rollup-total-w);
+  min-width: var(--ap-rollup-sub-w);
+  border-left: 1px solid #cbd5e1;
+  box-shadow: none;
+}
+body.staff-shell #grades-root .sheet.attendance-grid th.total,
+body.staff-shell #grades-root .sheet.attendance-grid td.total {
+  right: 0;
+  min-width: var(--ap-rollup-total-w);
+  box-shadow: none;
+}
+body.staff-shell #grades-root .sheet.attendance-grid tr.att-day-total td.live-sub,
+body.staff-shell #grades-root .sheet.attendance-grid tr.att-day-total td.total {
+  background: #f1f5f9;
+}
+body.staff-shell #grades-root .sheet.attendance-grid th.live-sub::before,
+body.staff-shell #grades-root .sheet.attendance-grid td.live-sub::before,
+body.staff-shell #grades-root .sheet.attendance-grid th.total::before,
+body.staff-shell #grades-root .sheet.attendance-grid td.total::before {
+  content: none;
+}
 body.staff-shell #grades-root .view-toggle button {
   background: #fff;
   color: #12202e;
@@ -630,10 +698,44 @@ body.staff-shell .ap-view-label {
   font-weight: 600;
   color: #475569;
 }
-body.staff-shell #round-view-select {
+body.staff-shell #ap-group-slice-select,
+body.staff-shell #ap-data-mode-select,
+body.staff-shell #ap-individual-metric-select {
   min-width: 11rem;
   padding: 0.35rem 0.5rem;
   font-size: 0.95rem;
+}
+body.staff-shell table.ap-module-grid th.ap-module-col {
+  min-width: 9rem;
+  vertical-align: top;
+  font-weight: 600;
+}
+body.staff-shell .ap-module-head {
+  margin-bottom: 0.35rem;
+}
+body.staff-shell .ap-module-mark {
+  display: block;
+  width: 100%;
+  margin: 0.25rem 0;
+  font-size: 0.78rem;
+  white-space: normal;
+}
+body.staff-shell .ap-module-l4-caption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1.25rem;
+  margin-top: 0.15rem;
+}
+body.staff-shell .ap-module-l4-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  margin: 0;
+}
+body.staff-shell td.ap-module-cell {
+  font-variant-numeric: tabular-nums;
 }
 body.staff-shell .ap-overlay-toolbar {
   display: flex;

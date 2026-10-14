@@ -168,6 +168,12 @@ LOCAL_DEV_M1_QUESTIONS: tuple[dict[str, Any], ...] = (
 )
 # (live slot, how many of the questions Maple answered live)
 LOCAL_DEV_M1_RUNS: tuple[tuple[str, int], ...] = (("C1", 2), ("C2", 3))
+LOCAL_DEV_M3_QUESTIONS: tuple[dict[str, Any], ...] = (
+    {"text": "Simplify: $(2x^3)(3x^2)$", "type": "mc",
+     "options": [{"text": "$5x^5$"}, {"text": "$6x^5$"}]},
+    {"text": "What is the slope of $y = -3x + 7$?", "type": "numeric"},
+)
+LOCAL_DEV_M3_RUN: tuple[str, int] = ("C1", 1)
 
 
 def _seed_engagement_ap_roster(school: Any, class_id: int) -> dict[str, Any]:
@@ -247,9 +253,14 @@ def _seed_demo_participation(school: Any, class_id: int, teacher_id: int) -> dic
 
     conn = school.conn
     if conn.execute(
-        "SELECT 1 FROM participation_items WHERE class_id = ? LIMIT 1", (class_id,)
+        "SELECT 1 FROM participation_items WHERE class_id = ? AND live_module = 'M3' LIMIT 1",
+        (class_id,),
     ).fetchone():
         return {"skipped": "already seeded"}
+    if conn.execute(
+        "SELECT 1 FROM participation_items WHERE class_id = ? LIMIT 1", (class_id,)
+    ).fetchone():
+        return _seed_demo_m3_participation(school, class_id, teacher_id)
     if school.get_active_live_session_for_class(class_id):
         return {"skipped": "live class in progress"}
     maple = school.game.find_student_by_codename(class_id, "Maple")
@@ -271,64 +282,182 @@ def _seed_demo_participation(school: Any, class_id: int, teacher_id: int) -> dic
     )
     runs: list[str] = []
     for run_index, (slot, answered) in enumerate(LOCAL_DEV_M1_RUNS):
-        session_id = int(school.start_live_class_session(class_id, teacher_id)["id"])
-        ended_dt = scheduled_class_end_datetime(schedule, which=run_index)
-        ended_iso = ended_dt.replace(microsecond=0).isoformat()
-        stamp = ended_iso
-        conn.execute(
-            "UPDATE live_class_sessions SET teacher_state_json = ? WHERE id = ?",
-            (json.dumps({"live_module": "M1", "live_slot": slot}), session_id),
-        )
-        school.record_engagement_event(
-            "present.join", session_id=session_id, student_id=maple_id
-        )
-        for index, question in enumerate(LOCAL_DEV_M1_QUESTIONS):
-            prompt_id = conn.execute(
-                "INSERT INTO live_session_prompts (live_session_id, slide_index, kind, payload, "
-                "created_at, updated_at) VALUES (?, ?, 'poll', '{}', ?, ?)",
-                (session_id, index, stamp, stamp),
-            ).lastrowid
-            conn.execute(
-                "INSERT INTO live_session_items (live_session_id, placement_key, item_id, stage, "
-                "kind, item_json, prompt_id, status, publish_mode, response_mode, published_at, "
-                "created_at, updated_at) VALUES (?, ?, ?, 'round', 'poll', ?, ?, 'closed', "
-                "'individual', 'individual', ?, ?, ?)",
-                (session_id, f"demo-M1-q{index}", f"demo-q{index}", json.dumps(question),
-                 prompt_id, stamp, stamp, stamp),
+        runs.append(
+            _run_demo_individual_live_end(
+                school,
+                class_id,
+                teacher_id,
+                maple_id,
+                schedule,
+                run_index,
+                live_module="M1",
+                live_slot=slot,
+                questions=LOCAL_DEV_M1_QUESTIONS,
+                answered=answered,
             )
-            school.record_engagement_event(
-                "item.offered",
-                session_id=session_id,
-                item_ref=f"demo-q{index}",
-                payload={"mode": "individual"},
-            )
-            if index < answered:
-                school.record_engagement_event(
-                    "answer.submit",
-                    session_id=session_id,
-                    student_id=maple_id,
-                    item_ref=f"demo-q{index}",
-                )
-            if index < answered:
-                conn.execute(
-                    "INSERT INTO live_session_responses (prompt_id, student_id, response_json, "
-                    "created_at, updated_at) VALUES (?, ?, '{}', ?, ?)",
-                    (prompt_id, maple_id, stamp, stamp),
-                )
-        conn.commit()
-        conn.execute(
-            "UPDATE live_class_sessions SET ended_at = ? WHERE id = ?",
-            (ended_iso, session_id),
         )
-        conn.commit()
-        school.end_live_class_session(session_id)
-        runs.append(slot)
     m2 = _seed_m2_c1_snapshot_only(school, class_id, maple_id)
+    m3 = _seed_demo_m3_participation(school, class_id, teacher_id)
     return {
         "runs": runs,
         "links": len(school.list_catchup_links(class_id)),
         "m2_c1_snapshot": m2,
+        "m3": m3,
     }
+
+
+def _run_demo_individual_live_end(
+    school: Any,
+    class_id: int,
+    teacher_id: int,
+    maple_id: int,
+    schedule: Any,
+    run_index: int,
+    *,
+    live_module: str,
+    live_slot: str,
+    questions: tuple[dict[str, Any], ...],
+    answered: int,
+) -> str:
+    """Publish individual items, record Maple's answers, and End one live class.
+
+    Returns:
+        The ``live_slot`` label written (e.g. ``C1``).
+    """
+    import json
+
+    from live_class_run import scheduled_class_end_datetime
+
+    conn = school.conn
+    session_id = int(school.start_live_class_session(class_id, teacher_id)["id"])
+    ended_dt = scheduled_class_end_datetime(schedule, which=run_index)
+    ended_iso = ended_dt.replace(microsecond=0).isoformat()
+    stamp = ended_iso
+    mod = str(live_module)
+    conn.execute(
+        "UPDATE live_class_sessions SET teacher_state_json = ? WHERE id = ?",
+        (json.dumps({"live_module": mod, "live_slot": live_slot}), session_id),
+    )
+    school.record_engagement_event(
+        "present.join", session_id=session_id, student_id=maple_id
+    )
+    for index, question in enumerate(questions):
+        item_ref = f"demo-{mod}-q{index}"
+        prompt_id = conn.execute(
+            "INSERT INTO live_session_prompts (live_session_id, slide_index, kind, payload, "
+            "created_at, updated_at) VALUES (?, ?, 'poll', '{}', ?, ?)",
+            (session_id, index, stamp, stamp),
+        ).lastrowid
+        conn.execute(
+            "INSERT INTO live_session_items (live_session_id, placement_key, item_id, stage, "
+            "kind, item_json, prompt_id, status, publish_mode, response_mode, published_at, "
+            "created_at, updated_at) VALUES (?, ?, ?, 'round', 'poll', ?, ?, 'closed', "
+            "'individual', 'individual', ?, ?, ?)",
+            (
+                session_id,
+                item_ref,
+                item_ref,
+                json.dumps(question),
+                prompt_id,
+                stamp,
+                stamp,
+                stamp,
+            ),
+        )
+        school.record_engagement_event(
+            "item.offered",
+            session_id=session_id,
+            item_ref=item_ref,
+            payload={"mode": "individual"},
+        )
+        if index < answered:
+            school.record_engagement_event(
+                "answer.submit",
+                session_id=session_id,
+                student_id=maple_id,
+                item_ref=item_ref,
+            )
+            conn.execute(
+                "INSERT INTO live_session_responses (prompt_id, student_id, response_json, "
+                "created_at, updated_at) VALUES (?, ?, '{}', ?, ?)",
+                (prompt_id, maple_id, stamp, stamp),
+            )
+    conn.commit()
+    conn.execute(
+        "UPDATE live_class_sessions SET ended_at = ? WHERE id = ?",
+        (ended_iso, session_id),
+    )
+    conn.commit()
+    school.end_live_class_session(session_id)
+    row = conn.execute(
+        """
+        SELECT run_key FROM participation_items
+        WHERE class_id = ? AND live_module = ? AND live_slot = ?
+        ORDER BY id DESC LIMIT 1
+        """,
+        (int(class_id), mod, str(live_slot)),
+    ).fetchone()
+    if row:
+        conn.execute(
+            """
+            UPDATE participation_runs
+            SET is_real = 1, discarded = 0
+            WHERE class_id = ? AND run_key = ?
+            """,
+            (int(class_id), str(row["run_key"])),
+        )
+        conn.commit()
+    return str(live_slot)
+
+
+def _seed_demo_m3_participation(school: Any, class_id: int, teacher_id: int) -> dict[str, Any]:
+    """Add one real M3 C1 run with two individual questions (Maple answers one).
+
+    Idempotent: skipped when M3 items already exist or a live class is open.
+    """
+    conn = school.conn
+    if conn.execute(
+        "SELECT 1 FROM participation_items WHERE class_id = ? AND live_module = 'M3' LIMIT 1",
+        (class_id,),
+    ).fetchone():
+        return {"skipped": "m3 present"}
+    if school.get_active_live_session_for_class(class_id):
+        return {"skipped": "live class in progress"}
+    maple = school.game.find_student_by_codename(class_id, "Maple")
+    if not maple:
+        return {"skipped": "no Maple"}
+    maple_id = int(maple["id"])
+    from live_class_run import LiveClassSchedule
+
+    sched_row = school.live_class_schedule_for_class(class_id)
+    if not sched_row:
+        return {"skipped": "no live class schedule"}
+    schedule = LiveClassSchedule(
+        days_key=str(sched_row["live_days"]),
+        end_time_label=str(sched_row["live_end_time"]),
+    )
+    slot, answered = LOCAL_DEV_M3_RUN
+    run_index = 4
+    slot_label = _run_demo_individual_live_end(
+        school,
+        class_id,
+        teacher_id,
+        maple_id,
+        schedule,
+        run_index,
+        live_module="M3",
+        live_slot=slot,
+        questions=LOCAL_DEV_M3_QUESTIONS,
+        answered=answered,
+    )
+    offered = conn.execute(
+        """
+        SELECT COUNT(DISTINCT question_key) FROM participation_items
+        WHERE class_id = ? AND live_module = 'M3'
+        """,
+        (int(class_id),),
+    ).fetchone()[0]
+    return {"slot": slot_label, "offered": int(offered), "answered": answered}
 
 
 def _seed_m2_c1_snapshot_only(school: Any, class_id: int, maple_id: int) -> str:

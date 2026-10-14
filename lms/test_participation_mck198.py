@@ -531,18 +531,15 @@ class CatchupTests(Base):
         self.sign_in(client)
         self.assertNotEqual(client.get(path).status_code, 403)
 
-    def test_staff_page_has_badge_toggle_and_copy_button(self) -> None:
+    def test_staff_participation_legacy_url_redirects_to_class_tab(self) -> None:
         client = self.app.test_client()
         client.get("/auth/google?portal=staff")
         client.get("/auth/google/callback?email=teacher@gmail.com&name=T")
         code = self.school.get_user_by_email("teacher@gmail.com")["verification_code"]
         client.post("/verify-email", data={"code": code})
-        html = client.get(f"/staff/classes/{self.class_id}/participation").get_data(as_text=True)
-        self.assertIn('class="badge open"', html)
-        self.assertIn('class="btn secondary copy"', html)
-        self.assertIn("Copy link", html)
-        self.assertNotIn("Close it", html)
-        self.assertNotIn("<code>", html)
+        rv = client.get(f"/staff/classes/{self.class_id}/participation")
+        self.assertEqual(rv.status_code, 302)
+        self.assertIn("view=participation", rv.headers.get("Location", ""))
 
     def test_staff_api_is_teacher_only(self) -> None:
         client = self.app.test_client()
@@ -553,7 +550,10 @@ class CatchupTests(Base):
         client.post("/verify-email", data={"code": code})
         body = client.get(f"/api/classes/{self.class_id}/catchup-links").get_json()
         self.assertIn(f"/catchup/MCR3U/m1-c1/{self.token}", body["catchup_links"][0]["url"])
-        self.assertEqual(client.get(f"/staff/classes/{self.class_id}/participation").status_code, 200)
+        self.assertEqual(
+            client.get(f"/staff/class/{self.class_id}?tab=ap&view=participation").status_code,
+            200,
+        )
         self.assertEqual(client.put(f"/api/classes/{self.class_id}/students/{self.students[1]}/pin",
                                     json={"pin": "12ab"}).status_code, 400)
 
