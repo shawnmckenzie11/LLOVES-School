@@ -1143,6 +1143,165 @@ def shoot_avatar_reward_popup(origin: str, out_dir: Path, widths: list[int], pat
     return written
 
 
+MCK216_OPTIONS = ("Two points", "A graph", "An equation", "A table")
+MCK216_RANK_KEY = (2, 0, 3, 1)
+
+
+def _mck216_key_order(school, session_id: int, live_item_id: int) -> list[str]:
+    """Answer-order option ids for the seeded rank key (same labels as MCK-171)."""
+    item = school.get_live_session_item(session_id, live_item_id)
+    by_label = {row["label"]: row["id"] for row in school._rank_option_rows(item)}
+    ordered = [by_label[label] for label in MCK216_OPTIONS]
+    return [ordered[index] for index in MCK216_RANK_KEY]
+
+
+def prepare_mck216_student_live_url(origin: str, path: Path) -> str:
+    """Seed one active Team challenge rank (full order, not locked) and return Maple's live URL.
+
+    Ends any active live on Shawn's class, starts a new session with a published
+    group rank + ``group_rank_race``, and pre-fills the shared order without locking.
+
+    Args:
+        origin: Loopback LMS origin (scheme + host + port).
+        path: Sqlite path the dev server uses.
+
+    Returns:
+        Absolute ``/student/s/<visit_token>`` URL for Maple.
+    """
+    sys.path.insert(0, str(LMS_DIR))
+    os.environ["LLOVES_DB"] = str(path)
+    os.environ["LOCAL_DEV_LOGIN"] = "1"
+    from app import create_app
+
+    app = create_app(db_path=path, testing=True)
+    school = app.config["SCHOOL_DB"]
+    class_id = shawn_class_id(path)
+    teacher = school.get_user_by_email(SHAWN_EMAIL)
+    if teacher is None:
+        raise SystemExit("Shawn staff user missing. Run with --seed first.")
+    maple = school.game.find_student_by_codename(class_id, "Maple")
+    if maple is None:
+        raise SystemExit("No Maple on the demo class. Run with --seed first.")
+    _mck208_end_active_live(school, class_id)
+    live = school.start_live_class_session(class_id, int(teacher["id"]))
+    session_id = int(live["id"])
+    school.set_live_session_teacher_state(
+        session_id,
+        stage="round",
+        live_module="M1",
+        live_slot="C1",
+        page_id="round_1",
+        class_set=True,
+    )
+    school.game.begin_game(class_id)
+    present = [int(maple["id"])]
+    assignments = [{"student_id": int(maple["id"]), "team_index": 0}]
+    cedar = school.game.find_student_by_codename(class_id, "Cedar")
+    if cedar is not None:
+        present.append(int(cedar["id"]))
+        assignments.append({"student_id": int(cedar["id"]), "team_index": 0})
+    school.setup_live_session_groups(
+        session_id,
+        n_teams=1,
+        mode="manual",
+        present_ids=present,
+        assignments=assignments,
+    )
+    school.ensure_live_session_items(session_id)
+    placement = school.add_staff_question_to_class_playlist(
+        class_id,
+        "M1",
+        "C1",
+        question_type="rank",
+        text="Rank these representations.",
+        page_number=4,
+        stage="round",
+        options=list(MCK216_OPTIONS),
+        rank_key=list(MCK216_RANK_KEY),
+    )
+    items = school.ensure_live_session_items(session_id)
+    row = next(r for r in items if r["item_id"] == placement["item_id"])
+    live_item_id = int(row["id"])
+    school.update_live_session_item_settings(session_id, live_item_id, group_rank_race=True)
+    school.publish_live_session_item(session_id, live_item_id, publish_mode="group_submit")
+    key_order = _mck216_key_order(school, session_id, live_item_id)
+    school.save_group_mc_draft(
+        session_id,
+        live_item_id,
+        int(maple["id"]),
+        order=key_order,
+        choice=None,
+        why=None,
+    )
+    code = str(
+        live.get("session_code")
+        or school.game.get_class(class_id).get("live_access_code")
+        or ""
+    )
+    client = app.test_client()
+    client.post("/auth/student-code", data={"code": code, "name": "Maple"}, follow_redirects=True)
+    client.post("/student/mood", data={"mood": "good"}, follow_redirects=True)
+    client.post("/student/character", data={"character": "fox"}, follow_redirects=True)
+    attendees = school.list_live_session_attendees(session_id)
+    visit = str(next(r["visit_token"] for r in attendees if r.get("codename") == "Maple"))
+    base = assert_loopback(origin if "://" in origin else f"http://{origin}").rstrip("/")
+    return f"{base}/student/s/{visit}"
+
+
+def _mck216_wait_ready_to_lock(page) -> None:
+    """Wait until the student card shows Undo + enabled Lock in (no strip / agree UI)."""
+    lock = page.locator('[data-race-lock="1"]')
+    lock.wait_for(state="visible", timeout=30000)
+    if lock.is_disabled():
+        raise SystemExit("Lock in our order is disabled; expected a complete unlocked order.")
+    page.locator('[data-race-undo="1"]').wait_for(state="visible", timeout=15000)
+    page.get_by_role("button", name="Lock in our order").wait_for(state="visible", timeout=15000)
+    if page.locator(".race-phone-strip").count():
+        raise SystemExit("race-phone-strip visible; MCK-216 shots expect no team strip.")
+    if page.locator(".race-phone-pips").count():
+        raise SystemExit("race-phone-pips visible; MCK-216 shots expect no agree pips.")
+
+
+def shoot_mck216(base: str, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
+    """MCK-216: student Team challenge group rank before and after lock-in (phone).
+
+    Args:
+        base: Loopback LMS origin.
+        out_dir: Artifact directory.
+        path: LMS sqlite path.
+        widths: Viewport widths (typically ``390`` only).
+
+    Returns:
+        PNG paths: ``mck216-ready-<w>.png`` and ``mck216-locked-<w>.png`` per width.
+    """
+    from playwright.sync_api import sync_playwright
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        for width in widths:
+            url = prepare_mck216_student_live_url(base, path)
+            context = browser.new_context(viewport={"width": int(width), "height": 900})
+            page = context.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            _mck216_wait_ready_to_lock(page)
+            ready = out_dir / f"mck216-ready-{width}.png"
+            page.screenshot(path=str(ready), full_page=True)
+            written.append(ready)
+            page.locator('[data-race-lock="1"]').click(timeout=15000)
+            page.locator('[data-race-phone-state="locked"]').wait_for(state="visible", timeout=30000)
+            page.get_by_text("Waiting for the reveal.").wait_for(
+                state="visible", timeout=15000
+            )
+            locked = out_dir / f"mck216-locked-{width}.png"
+            page.screenshot(path=str(locked), full_page=True)
+            written.append(locked)
+            context.close()
+        browser.close()
+    return written
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry: seed, log in once, then shoot URLs or the catch-up scenario."""
     parser = argparse.ArgumentParser(description="Headless local LMS screenshots.")
@@ -1165,12 +1324,13 @@ def main(argv: list[str] | None = None) -> int:
             "mck207-run-toggle",
             "mck208",
             "avatar-reward",
+            "mck216",
         ),
         default="",
         help=(
             "Built-in catch-up, MCK-62 quiet-dot, engagement override, "
             "MCK-207 roster/PIN, run-class toggle, MCK-208 dashboard, or "
-            "avatar-reward pop-up shots."
+            "avatar-reward pop-up, or MCK-216 Team challenge rank lock-in shots."
         ),
     )
     args = parser.parse_args(argv)
@@ -1204,6 +1364,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "avatar-reward":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_avatar_reward_popup(args.base, out, widths, path))
+        if args.scenario == "mck216":
+            widths = [int(part) for part in args.widths.split(",") if part.strip()]
+            written.extend(shoot_mck216(args.base, out, path, widths))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(
@@ -1220,7 +1383,7 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
-                "mck208|avatar-reward."
+                "mck208|avatar-reward|mck216."
             )
         for item in written:
             print(item)

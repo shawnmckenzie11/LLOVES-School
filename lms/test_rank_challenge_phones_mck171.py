@@ -37,7 +37,10 @@ class PhoneViewTests(unittest.TestCase):
         portal = (STATIC / "student-portal.js").read_text(encoding="utf-8")
         self.assertIn('from "/static/rank_challenge_phone.js"', portal)
         self.assertIn("if (rank && item?.group_submit?.race) return rankChallengeCardHtml(item);", portal)
-        self.assertIn('postGroupFlow(card, "rank-agree", { agree, order })', portal)
+        self.assertIn('postGroupFlow(card, "rank-agree", { agree: true, order })', portal)
+        self.assertIn("data-race-lock", portal)
+        self.assertNotIn("data-race-agree", portal)
+        self.assertNotIn("race-phone-strip", portal)
         self.assertIn('rankInputHtml(options, shown, "group", { noSubmit: true })', portal)
         # No countdown on phones while a challenge is open.
         self.assertIn("if (teamChallengeOpen(payload)) {", portal)
@@ -55,9 +58,9 @@ class PhoneViewTests(unittest.TestCase):
         block = portal[start : portal.index("groupInstructionHtml(item, content)", start)]
         self.assertIn('item.group_submit?.race?.mode !== "together"', block)
 
-    def test_not_yet_is_an_outline_button(self) -> None:
+    def test_undo_is_an_outline_button(self) -> None:
         phone = (STATIC / "rank_challenge_phone.js").read_text(encoding="utf-8")
-        self.assertIn('class="race-phone-btn is-outline" data-race-agree="0"', phone)
+        self.assertIn('class="race-phone-btn is-outline" data-race-undo="1"', phone)
         css = (STATIC / "student-portal.css").read_text(encoding="utf-8")
         rule = css[css.index(".race-phone-btn.is-outline {") :][:200]
         self.assertIn("border: 2px solid #5eead4", rule)

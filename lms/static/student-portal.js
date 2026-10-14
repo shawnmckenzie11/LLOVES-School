@@ -57,10 +57,9 @@ import {
 import { nameWithAvatar, paintAvatar } from "/static/student_avatars.js";
 import { rankStackHtml } from "/static/rank_stack.js";
 import {
-  agreeButtonHtml,
-  agreeLineHtml,
+  lockButtonHtml,
+  undoButtonHtml,
   phoneCueHtml,
-  phoneStripHtml,
   phoneResultsHtml,
   readOnlyOrderHtml,
   raceDisplayOptions,
@@ -2481,12 +2480,11 @@ function syncRankGate(card) {
     submit.disabled = !ready;
     submit.setAttribute("aria-disabled", ready ? "false" : "true");
   }
-  // MCK-171: I agree needs every spot numbered too.
-  const agree = card.querySelector('[data-race-agree="1"]');
-  if (agree instanceof HTMLButtonElement) {
+  const lockBtn = card.querySelector('[data-race-lock="1"]');
+  if (lockBtn instanceof HTMLButtonElement) {
     const ready = order.length === n && n > 0;
-    agree.disabled = !ready;
-    agree.setAttribute("aria-disabled", ready ? "false" : "true");
+    lockBtn.disabled = !ready;
+    lockBtn.setAttribute("aria-disabled", ready ? "false" : "true");
   }
 }
 
@@ -2508,35 +2506,32 @@ function rankChallengeCardHtml(item) {
   const locked = Boolean(race.locked);
   // R6: after Close, with results on, the phone shows its own results.
   if (status === "closed" && race.results) return phoneResultsHtml(group);
-  const strip = phoneStripHtml(group);
   if (race.mode === "turns" && status !== "closed") {
+    const turns = group.turns || {};
+    const lockRow =
+      turns.done && !locked ? `<div class="race-phone-actions">${lockButtonHtml(group)}</div>` : "";
     return `<div class="student-group-card race-phone" data-live-action="group" data-rank-turns-card="1">
-      ${strip}
+      ${phoneCueHtml(group, status)}
       ${rankTurnsHtml(group, { options, itemId, note: groupFlowNotes.get(itemId) || "" })}
+      ${lockRow}
     </div>`;
   }
   if (locked || status === "closed") {
     const shown = locked && Array.isArray(group.submitted_order) && group.submitted_order.length
       ? group.submitted_order.map(String)
       : order;
-    const agreeLine = race.mode === "together" && locked ? agreeLineHtml(group) : "";
     return `<div class="student-group-card race-phone is-readonly" data-live-action="group" data-race-card="1">
-      ${strip}
       ${phoneCueHtml(group, status)}
       ${readOnlyOrderHtml(options, shown)}
-      ${agreeLine}
     </div>`;
   }
   // One shared order: always the server's (a teammate's move shows here).
   const shown = order;
-  const complete = options.length > 0 && shown.length === options.length;
   const note = groupFlowNotes.get(itemId) || "";
   return `<div class="student-group-card race-phone" data-live-action="group" data-rank-shared="1" data-race-card="1">
-    ${strip}
     ${phoneCueHtml(group, status)}
     ${rankInputHtml(options, shown, "group", { noSubmit: true })}
-    ${agreeLineHtml(group)}
-    ${agreeButtonHtml(group, complete)}
+    <div class="race-phone-actions">${undoButtonHtml(group)}${lockButtonHtml(group)}</div>
     ${note ? `<p class="rank-turn-note" role="status">${escapeText(note)}</p>` : ""}
   </div>`;
 }
@@ -5217,16 +5212,24 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
     }
     return;
   }
-  const raceAgree = event.target.closest("[data-race-agree]");
-  if (raceAgree instanceof HTMLButtonElement) {
-    const card = raceAgree.closest("[data-live-card-id]");
-    if (card instanceof HTMLElement && !raceAgree.disabled) {
-      raceAgree.disabled = true;
-      const agree = raceAgree.dataset.raceAgree === "1";
+  const raceLock = event.target.closest("[data-race-lock]");
+  if (raceLock instanceof HTMLButtonElement) {
+    const card = raceLock.closest("[data-live-card-id]");
+    if (card instanceof HTMLElement && !raceLock.disabled) {
+      raceLock.disabled = true;
       const itemId = Number(card.dataset.liveCardId) || 0;
       const order = rankOrderFromCard(card);
       if (itemId) rankLocalDrafts.delete(itemId);
-      void postGroupFlow(card, "rank-agree", { agree, order });
+      void postGroupFlow(card, "rank-agree", { agree: true, order });
+    }
+    return;
+  }
+  const raceUndo = event.target.closest("[data-race-undo]");
+  if (raceUndo instanceof HTMLButtonElement) {
+    const card = raceUndo.closest("[data-live-card-id]");
+    if (card instanceof HTMLElement) {
+      raceUndo.disabled = true;
+      void postGroupFlow(card, "group-draft", { undo_last: true });
     }
     return;
   }
