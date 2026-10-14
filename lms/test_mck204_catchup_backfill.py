@@ -50,7 +50,7 @@ class BackfillTests(Base):
         answers: dict[tuple[str, int], str],
     ) -> None:
         """Write snapshot rows without a live session (backfill source)."""
-        stamp = "2026-10-10T09:00:00"
+        stamp = "2026-10-14T10:30:00"
         sid = 9000 + len(run_key)
         for qkey, answered in questions:
             if answered:
@@ -115,7 +115,7 @@ class BackfillTests(Base):
             answers={("a", s0): "A", ("c", s0): "B"},
         )
         report = backfill_catchup_from_snapshots(self.school, module="M2", slot="C1", apply=True)
-        self.assertTrue(any(r.action == "wrote" for r in report.runs))
+        self.assertTrue(any("participation" in r.action for r in report.runs))
         keys = [
             r["question_key"]
             for r in self.school.conn.execute(
@@ -142,8 +142,17 @@ class BackfillTests(Base):
             "SELECT COUNT(*) FROM participation_items WHERE class_id = ?", (self.class_id,)
         ).fetchone()[0]
         report = backfill_catchup_from_snapshots(self.school, apply=True)
-        self.assertTrue(all(r.action == "skip" for r in report.runs if r.run_key == run_key))
         self.assertEqual(len(self.school.list_catchup_links(self.class_id)), n_links)
+        link = self.school.list_catchup_links(self.class_id)[0]
+        self.assertTrue(int(link["is_open"]))
+        self.assertEqual(
+            sum(
+                1
+                for r in report.runs
+                if r.run_key == run_key and "participation" in r.action
+            ),
+            1,
+        )
         self.assertEqual(
             self.school.conn.execute(
                 "SELECT COUNT(*) FROM participation_items WHERE class_id = ?", (self.class_id,)

@@ -31414,14 +31414,15 @@ class SchoolDB(LovesDB):
         return out
 
     def apply_catchup_backfill_run(self, class_id: int, run_key: str) -> dict[str, int]:
-        """Write participation rows + a closed catch-up link for one snapshot run."""
-        from participation import new_token
+        """Write participation rows from snapshots (link sync is slot-level; MCK-210)."""
+        return self.write_participation_from_snapshots(class_id, run_key)
 
+    def write_participation_from_snapshots(self, class_id: int, run_key: str) -> dict[str, int]:
+        """Insert participation items/answers from ``live_result_snapshots`` only."""
         cid = int(class_id)
         key = str(run_key or "").strip()
         if not key:
             raise ValueError("run_key is required")
-        now = _now()
         with self._lock:
             meta = self.conn.execute(
                 """
@@ -31477,18 +31478,198 @@ class SchoolDB(LovesDB):
                     (cid, key),
                 ).fetchone()[0]
             )
-            self.conn.execute(
-                """
-                INSERT OR IGNORE INTO catchup_links (
-                    token, class_id, run_key, live_module, live_slot, is_open,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, 0, ?, ?)
-                """,
-                (new_token(), cid, key, module, slot, now, now),
-            )
             if self.conn.in_transaction:
                 self.conn.commit()
         return {"items": items, "answers": answers}
+
+    def classify_participation_run(
+        self, class_id: int, run_key: str, *, ended_at: str
+    ) -> bool:
+        """Classify one run and persist ``participation_runs`` (caller may hold no lock)."""
+        with self._lock:
+            return self._classify_and_record_participation_run(
+                int(class_id), str(run_key), ended_at=str(ended_at or "")
+            )
+
+    def preview_participation_run_real(self, class_id: int, *, ended_at: str) -> bool:
+        """Return whether ``ended_at`` would classify as a real class for this offering."""
+        from live_class_run import classify_run_end, parse_ended_at, schedule_from_row
+
+        sched_row = self.live_class_schedule_for_class(int(class_id))
+        if not sched_row:
+            return False
+        sched = schedule_from_row(
+            live_days=sched_row["live_days"],
+            live_end_time=sched_row["live_end_time"],
+        )
+        return bool(
+            sched and classify_run_end(parse_ended_at(str(ended_at or "")), sched)
+        )
+
+    def catchup_link_for_slot(
+        self, class_id: int, live_module: str, live_slot: str
+    ) -> dict[str, Any] | None:
+        """Return the shared catch-up row for one lesson slot, if any."""
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM catchup_links
+                WHERE class_id = ? AND live_module = ? AND live_slot = ?
+                LIMIT 1
+                """,
+                (int(class_id), str(live_module or ""), str(live_slot or "")),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def upsert_real_catchup_link_for_slot(
+        self,
+        class_id: int,
+        run_key: str,
+        live_module: str,
+        live_slot: str,
+    ) -> None:
+        """Point the shared slot link at a real run and leave it open (MCK-207)."""
+        now = _now()
+        with self._lock:
+            self._upsert_real_catchup_link_unlocked(
+                int(class_id),
+                str(run_key),
+                str(live_module),
+                str(live_slot),
+                now=now,
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+
+    def list_catchup_sync_runs(
+        self,
+        *,
+        course_code: str | None = None,
+        live_module: str | None = None,
+        live_slot: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Runs in scope for backfill/repair (snapshots + existing participation/links)."""
+        from catchup_backfill import MCK45_SNAPSHOT_CUTOFF
+
+        snap_filters = ["s.run_key != ''"]
+        snap_params: list[Any] = []
+        if course_code:
+            snap_filters.append("UPPER(c.course_code) = UPPER(?)")
+            snap_params.append(str(course_code).strip())
+        if live_module:
+            snap_filters.append("UPPER(s.live_module) = UPPER(?)")
+            snap_params.append(str(live_module).strip())
+        if live_slot:
+            snap_filters.append("UPPER(s.live_slot) = UPPER(?)")
+            snap_params.append(str(live_slot).strip())
+
+        with self._lock:
+            snapshot_runs = self.conn.execute(
+                f"""
+                SELECT s.class_id, c.course_code, s.run_key,
+                       MIN(s.live_module) AS live_module,
+                       MIN(s.live_slot) AS live_slot,
+                       COUNT(*) AS snapshot_rows,
+                       COUNT(DISTINCT CASE WHEN s.source = 'prompt' AND s.student_id IS NOT NULL
+                                           THEN s.question_key END) AS offered_count,
+                       COUNT(CASE WHEN s.source = 'prompt' AND s.student_id IS NOT NULL
+                                  THEN 1 END) AS answer_rows,
+                       MAX(s.snapshot_at) AS snapshot_at,
+                       MAX(sess.ended_at) AS session_ended_at
+                FROM live_result_snapshots s
+                INNER JOIN classes c ON c.id = s.class_id
+                LEFT JOIN live_class_sessions sess
+                    ON sess.class_id = s.class_id
+                   AND sess.run_key = s.run_key
+                   AND sess.status = 'ended'
+                WHERE {" AND ".join(snap_filters)}
+                GROUP BY s.class_id, s.run_key
+                """,
+                snap_params,
+            ).fetchall()
+
+            out: list[dict[str, Any]] = []
+            seen: set[tuple[int, str]] = set()
+            for row in snapshot_runs:
+                key = (int(row["class_id"]), str(row["run_key"]))
+                seen.add(key)
+                ended = str(row["session_ended_at"] or row["snapshot_at"] or "")
+                existing_items = int(
+                    self.conn.execute(
+                        "SELECT COUNT(*) FROM participation_items WHERE class_id = ? AND run_key = ?",
+                        key,
+                    ).fetchone()[0]
+                )
+                out.append(
+                    {
+                        "class_id": int(row["class_id"]),
+                        "course_code": str(row["course_code"] or ""),
+                        "run_key": str(row["run_key"]),
+                        "live_module": str(row["live_module"] or ""),
+                        "live_slot": str(row["live_slot"] or ""),
+                        "has_snapshots": True,
+                        "offered_count": int(row["offered_count"] or 0),
+                        "answer_rows": int(row["answer_rows"] or 0),
+                        "ended_at": ended,
+                        "existing_items": existing_items,
+                    }
+                )
+
+            legacy_filters = [
+                "sess.status = 'ended'",
+                "COALESCE(sess.started_at, '') < ?",
+                "COALESCE(sess.run_key, '') != ''",
+                """NOT EXISTS (
+                    SELECT 1 FROM live_result_snapshots snap
+                    WHERE snap.class_id = sess.class_id
+                      AND snap.run_key = COALESCE(sess.run_key, '')
+                )""",
+            ]
+            legacy_params: list[Any] = [MCK45_SNAPSHOT_CUTOFF]
+            if course_code:
+                legacy_filters.append("UPPER(c.course_code) = UPPER(?)")
+                legacy_params.append(str(course_code).strip())
+            if live_module:
+                legacy_filters.append(
+                    "UPPER(json_extract(sess.teacher_state_json, '$.live_module')) = UPPER(?)"
+                )
+                legacy_params.append(str(live_module).strip())
+            if live_slot:
+                legacy_filters.append(
+                    "UPPER(json_extract(sess.teacher_state_json, '$.live_slot')) = UPPER(?)"
+                )
+                legacy_params.append(str(live_slot).strip())
+            legacy = self.conn.execute(
+                f"""
+                SELECT sess.class_id, c.course_code,
+                       COALESCE(sess.run_key, '') AS run_key,
+                       json_extract(sess.teacher_state_json, '$.live_module') AS live_module,
+                       json_extract(sess.teacher_state_json, '$.live_slot') AS live_slot,
+                       sess.ended_at
+                FROM live_class_sessions sess
+                INNER JOIN classes c ON c.id = sess.class_id
+                WHERE {" AND ".join(legacy_filters)}
+                """,
+                legacy_params,
+            ).fetchall()
+            for row in legacy:
+                run_key = str(row["run_key"] or "")
+                key = (int(row["class_id"]), run_key)
+                if key in seen:
+                    continue
+                out.append(
+                    {
+                        "class_id": int(row["class_id"]),
+                        "course_code": str(row["course_code"] or ""),
+                        "run_key": run_key,
+                        "live_module": str(row["live_module"] or ""),
+                        "live_slot": str(row["live_slot"] or ""),
+                        "has_snapshots": False,
+                        "skip_reason": "pre-MCK-45 (no snapshot rows)",
+                        "ended_at": str(row["ended_at"] or ""),
+                    }
+                )
+        return out
 
     def class_codenames(self, class_id: int) -> dict[int, str]:
         """Roster codenames (unique per class), the names the picker shows."""
