@@ -4077,7 +4077,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             if tab == "ap" and ap_view == "roster"
             else []
         )
-        roster_codenames = school.class_codenames(class_id) if tab == "ap" and ap_view == "roster" else {}
+        roster_codenames = school.class_codenames(class_id, include_test_students=True) if tab == "ap" and ap_view == "roster" else {}
         require_catchup_pin_change = (
             school.require_catchup_pin_change(class_id) if tab == "ap" and ap_view == "roster" else False
         )

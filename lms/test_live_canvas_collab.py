@@ -93,7 +93,11 @@ class WhiteboardCollabTests(unittest.TestCase):
         students = [
             dict(row)
             for row in self.school.game.conn.execute(
-                "SELECT id, codename FROM students WHERE class_id = ? ORDER BY id",
+                """
+                SELECT id, codename FROM students
+                WHERE class_id = ? AND COALESCE(is_test_student, 0) = 0
+                ORDER BY id
+                """,
                 (self.class_id,),
             ).fetchall()
         ]

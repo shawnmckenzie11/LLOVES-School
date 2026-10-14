@@ -406,6 +406,8 @@ def _gather_stats(school: Any) -> list[dict[str, Any]]:
                 present_days.setdefault(stid, set()).add(day)
         held_days = set(session_days.values())
         for student in students:
+            if int(student.get("is_test_student") or 0):
+                continue
             stid = int(student["id"])
             stats.append(
                 {
@@ -1643,6 +1645,8 @@ def celebration_candidates(school: Any, teacher_user_id: int) -> list[dict[str, 
                 )
             ]
         for student in students:
+            if int(student.get("is_test_student") or 0):
+                continue
             out.append(
                 {
                     "class_id": class_id,

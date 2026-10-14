@@ -1,42 +1,68 @@
 #!/usr/bin/env python3
-"""Tests for shared participation question weights (MCK-229 / MCK-230)."""
+"""MCK-230 shared participation weight helpers."""
 
 from __future__ import annotations
 
 import unittest
 
 from participation_weight import (
-    participation_question_weight,
-    question_mode_label,
-    total_participation_weight,
+    count_participation_opportunities,
+    item_is_multiple_choice,
+    item_participation_weight,
 )
 
 
 class ParticipationWeightTests(unittest.TestCase):
-    """MC questions weigh 1; others 0 for now."""
+    """Deck opportunity weights align with Attendance & Participation."""
 
-    def test_mc_individual_and_group_weigh_one(self) -> None:
-        """Multiple-choice items count whether individual or group."""
-        self.assertEqual(participation_question_weight({"type": "mc"}), 1)
+    def test_mc_counts_as_one(self) -> None:
+        """Multiple-choice items weigh 1 in individual or group publish modes."""
+        self.assertTrue(item_is_multiple_choice("mc"))
         self.assertEqual(
-            participation_question_weight({"type": "multiple_choice", "publish_mode": "group"}),
+            item_participation_weight("mc", publish_mode="individual"),
+            1,
+        )
+        self.assertEqual(
+            item_participation_weight(
+                "multiple_choice",
+                publish_mode="group_consensus",
+                item_json={"type": "multiple_choice"},
+            ),
             1,
         )
 
-    def test_non_mc_weighs_zero(self) -> None:
-        """Rank and numeric items are 0 until MCK-230 extends weights."""
-        self.assertEqual(participation_question_weight({"type": "rank"}), 0)
-        self.assertEqual(participation_question_weight({"type": "numeric"}), 0)
+    def test_non_mc_is_zero(self) -> None:
+        """Rank and numeric types do not add opportunities."""
+        self.assertEqual(item_participation_weight("rank"), 0)
+        self.assertEqual(item_participation_weight("numeric"), 0)
 
-    def test_total_weight_sums_rows(self) -> None:
-        """Denominator helper sums a question list."""
-        rows = [{"type": "mc"}, {"type": "rank"}, {"type": "mc"}]
-        self.assertEqual(total_participation_weight(rows), 2)
-
-    def test_mode_label(self) -> None:
-        """Individual vs group label for the Lesson Slides table."""
-        self.assertEqual(question_mode_label("individual", "individual"), "individual")
-        self.assertEqual(question_mode_label("group", "individual"), "group")
+    def test_scope_filter_sums_weights(self) -> None:
+        """Checkbox scope limits which deck rows count toward the denominator."""
+        items = [
+            {
+                "prompt_kind": "mc",
+                "publish_mode": "individual",
+                "item_json": {"type": "mc"},
+            },
+            {
+                "prompt_kind": "mc",
+                "publish_mode": "group_consensus",
+                "item_json": {"type": "mc"},
+            },
+            {"prompt_kind": "rank", "publish_mode": "individual"},
+        ]
+        self.assertEqual(
+            count_participation_opportunities(
+                items, include_individual=True, include_group=False
+            ),
+            1,
+        )
+        self.assertEqual(
+            count_participation_opportunities(
+                items, include_individual=True, include_group=True
+            ),
+            2,
+        )
 
 
 if __name__ == "__main__":

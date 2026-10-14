@@ -27876,7 +27876,7 @@ class SchoolDB(LovesDB):
                 for row in self.game.conn.execute(
                     """
                     SELECT * FROM students
-                    WHERE class_id = ?
+                    WHERE class_id = ? AND COALESCE(is_test_student, 0) = 0
                     ORDER BY lower(codename), id
                     """,
                     (class_id,),
@@ -30901,7 +30901,7 @@ class SchoolDB(LovesDB):
     ) -> None:
         """Replace the Lesson Slides ground-truth row for one live class slot."""
         from lesson_slides_table import _bank_question_id, _stem, _type_label
-        from participation_weight import participation_question_weight, question_mode_label
+        from participation_weight import item_participation_weight
 
         sid = int(session_id)
         cid = int(class_id)
@@ -30943,7 +30943,12 @@ class SchoolDB(LovesDB):
                 payload = {}
             payload.setdefault("type", str(row["kind"] or payload.get("type") or ""))
             qkey = f"item:{row['placement_key']}"
-            mode = question_mode_label(row["publish_mode"], row["response_mode"])
+            pub = str(row["publish_mode"] or "individual").strip().lower()
+            mode = (
+                "group"
+                if pub in {"group_consensus", "group_shared", "group"}
+                else "individual"
+            )
             questions.append(
                 {
                     "question_key": qkey,
@@ -30952,7 +30957,11 @@ class SchoolDB(LovesDB):
                     "type": str(payload.get("type") or ""),
                     "type_label": _type_label(payload),
                     "mode": mode,
-                    "weight": participation_question_weight(payload),
+                    "weight": item_participation_weight(
+                        str(row["kind"] or payload.get("type") or ""),
+                        publish_mode=str(row["publish_mode"] or "individual"),
+                        item_json=payload,
+                    ),
                     "in_catchup": qkey in catchup_keys,
                     "bank_question_id": _bank_question_id(payload),
                 }
@@ -32802,11 +32811,24 @@ class SchoolDB(LovesDB):
                 )
         return out
 
-    def class_codenames(self, class_id: int) -> dict[int, str]:
-        """Roster codenames (unique per class), the names the picker shows."""
+    def class_codenames(
+        self, class_id: int, *, include_test_students: bool = False
+    ) -> dict[int, str]:
+        """Roster codenames (unique per class), the names the picker shows.
+
+        Args:
+            class_id: Classes primary key.
+            include_test_students: When True, include the class Test Student
+                (Attendance & Participation roster tab only).
+        """
+        clause = (
+            "class_id = ?"
+            if include_test_students
+            else "class_id = ? AND COALESCE(is_test_student, 0) = 0"
+        )
         with self.game._lock:
             rows = self.game.conn.execute(
-                "SELECT id, codename FROM students WHERE class_id = ? "
+                f"SELECT id, codename FROM students WHERE {clause} "
                 "AND TRIM(COALESCE(codename, '')) <> '' ORDER BY codename COLLATE NOCASE",
                 (int(class_id),),
             ).fetchall()

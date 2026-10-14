@@ -7,11 +7,16 @@ import re
 from typing import Any
 
 from bank_question_types import TYPE_LABELS, bank_question_type
-from participation_weight import (
-    participation_question_weight,
-    question_mode_label,
-    total_participation_weight,
-)
+from participation_weight import count_participation_opportunities, item_participation_weight
+
+_GROUP_PUBLISH = frozenset({"group_consensus", "group_shared", "group"})
+
+
+def _publish_mode_label(publish_mode: str) -> str:
+    """Map live publish_mode to individual vs group for filters."""
+    pub = str(publish_mode or "individual").strip().lower()
+    return "group" if pub in _GROUP_PUBLISH else "individual"
+
 
 _SLOT_RE = re.compile(r"^C(\d+)$", re.I)
 _MODULE_RE = re.compile(r"^M(\d+)$", re.I)
@@ -78,7 +83,7 @@ def _summary_counts(questions: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "by_mode": by_mode,
         "by_type": by_type,
-        "total_weight": total_participation_weight(questions),
+        "total_weight": sum(int(q.get("weight") or 0) for q in questions),
         "total_questions": len(questions),
     }
 

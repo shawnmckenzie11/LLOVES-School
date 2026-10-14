@@ -1128,6 +1128,41 @@ class GameShowDB:
             return base
         return f"{base[:19]}.{datetime.now().microsecond:06d}{base[19:]}"
 
+    def _next_student_id_for_class(self, class_id: int, *, test_row: bool) -> int:
+        """Pick a student primary key.
+
+        Roster students reuse the lowest global id gap so deleted ids can be
+        taken again (celebration fingerprint / Shoutout guards). The Test
+        Student always appends at max(id)+1 so it does not occupy a gap a
+        real student needs after a delete.
+
+        Args:
+            class_id: Classes primary key (unused; ids are global).
+            test_row: When True, allocate at the end of the id sequence.
+
+        Returns:
+            Unused ``students.id``.
+        """
+        if test_row:
+            row = self.conn.execute(
+                "SELECT COALESCE(MAX(id), 0) + 1 FROM students"
+            ).fetchone()
+            return int(row[0])
+        gap = self.conn.execute(
+            """
+            SELECT MIN(s1.id + 1) AS next_id
+            FROM students AS s1
+            LEFT JOIN students AS s2 ON s2.id = s1.id + 1
+            WHERE s2.id IS NULL
+            """
+        ).fetchone()
+        if gap and gap[0] is not None:
+            return int(gap[0])
+        row = self.conn.execute(
+            "SELECT COALESCE(MAX(id), 0) + 1 FROM students"
+        ).fetchone()
+        return int(row[0])
+
     def _insert_student_row(
         self,
         class_id: int,
@@ -1152,25 +1187,43 @@ class GameShowDB:
             New student primary key.
         """
         cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(students)").fetchall()}
+        student_id = self._next_student_id_for_class(
+            class_id, test_row=bool(is_test_student)
+        )
         if "is_test_student" in cols:
             self.conn.execute(
                 """
                 INSERT INTO students
-                    (class_id, canvas_id, last_display, first_name, codename, is_test_student)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (id, class_id, canvas_id, last_display, first_name, codename, is_test_student)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (class_id, canvas_id, last_display, first_name, codename, 1 if is_test_student else 0),
+                (
+                    student_id,
+                    class_id,
+                    canvas_id,
+                    last_display,
+                    first_name,
+                    codename,
+                    1 if is_test_student else 0,
+                ),
             )
         else:
             self.conn.execute(
                 """
                 INSERT INTO students
-                    (class_id, canvas_id, last_display, first_name, codename)
-                VALUES (?, ?, ?, ?, ?)
+                    (id, class_id, canvas_id, last_display, first_name, codename)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (class_id, canvas_id, last_display, first_name, codename),
+                (
+                    student_id,
+                    class_id,
+                    canvas_id,
+                    last_display,
+                    first_name,
+                    codename,
+                ),
             )
-        return int(self.conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+        return int(student_id)
 
     def create_class(
         self,
@@ -1262,7 +1315,7 @@ class GameShowDB:
             student_ids = [
                 int(row["id"])
                 for row in self.conn.execute(
-                    "SELECT id FROM students WHERE class_id = ?", (class_id,)
+                    "SELECT id FROM students WHERE class_id = ? AND COALESCE(is_test_student, 0) = 0", (class_id,)
                 )
             ]
             for sid in student_ids:
@@ -2572,7 +2625,10 @@ class GameShowDB:
         """
         with self._lock:
             row = self.conn.execute(
-                "SELECT COUNT(*) AS n FROM students WHERE class_id = ?",
+                """
+                SELECT COUNT(*) AS n FROM students
+                WHERE class_id = ? AND COALESCE(is_test_student, 0) = 0
+                """,
                 (int(class_id),),
             ).fetchone()
         if row is None:
@@ -2730,10 +2786,10 @@ class GameShowDB:
         with self._lock:
             rows = self.conn.execute(
                 """
-                SELECT ss.student_id AS student_id, COALESCE(SUM(ss.points), 0) AS total
+                SELECT s.id AS student_id, COALESCE(SUM(ss.points), 0) AS total
                 FROM students s
                 LEFT JOIN session_scores ss ON ss.student_id = s.id
-                WHERE s.class_id = ?
+                WHERE s.class_id = ? AND COALESCE(s.is_test_student, 0) = 0
                 GROUP BY s.id
                 """,
                 (class_id,),
@@ -2992,7 +3048,8 @@ class GameShowDB:
         self.conn.execute(
             """
             INSERT OR IGNORE INTO session_scores (session_id, student_id, present, points)
-            SELECT ?, id, 0, 0 FROM students WHERE class_id = ?
+            SELECT ?, id, 0, 0 FROM students
+            WHERE class_id = ? AND COALESCE(is_test_student, 0) = 0
             """,
             (session_id, class_id),
         )
@@ -3007,7 +3064,8 @@ class GameShowDB:
         self.conn.execute(
             """
             INSERT OR IGNORE INTO subtotal_scores (subtotal_id, student_id, points)
-            SELECT ?, id, 0 FROM students WHERE class_id = ?
+            SELECT ?, id, 0 FROM students
+            WHERE class_id = ? AND COALESCE(is_test_student, 0) = 0
             """,
             (subtotal_id, class_id),
         )
@@ -3127,6 +3185,8 @@ class GameShowDB:
         wanted_keys = {name.lower() for name in wanted}
         for key, student_id in list(current.items()):
             if key not in wanted_keys:
+                if self._student_is_test_locked(student_id):
+                    continue
                 self.delete_student(class_id, student_id, sort=sort)
                 current.pop(key, None)
         for name in wanted:
@@ -3859,7 +3919,7 @@ class GameShowDB:
         session_id = int(game["session_id"])
         class_id = int(game["class_id"])
         students = self.conn.execute(
-            "SELECT id FROM students WHERE class_id = ?", (class_id,)
+            "SELECT id FROM students WHERE class_id = ? AND COALESCE(is_test_student, 0) = 0", (class_id,)
         ).fetchall()
         for row in students:
             sid = int(row["id"])
@@ -5375,7 +5435,7 @@ class GameShowDB:
                 present_ids = [
                     int(r["id"])
                     for r in self.conn.execute(
-                        "SELECT id FROM students WHERE class_id = ? ORDER BY id",
+                        "SELECT id FROM students WHERE class_id = ? AND COALESCE(is_test_student, 0) = 0 ORDER BY id",
                         (class_id,),
                     ).fetchall()
                 ]
