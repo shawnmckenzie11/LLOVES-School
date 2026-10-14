@@ -24232,10 +24232,38 @@ class SchoolDB(LovesDB):
     #: MCK-191: seed-file media items every deck for this course challenge
     #: keeps, including working copies (Previous / Course deck / Blank /
     #: cross-section copies) made before the item was added to the seed.
-    #: ``(course, module, slot) -> item ids``. Only these exact keys.
-    PINNED_SEED_MEDIA: dict[tuple[str, str, str], tuple[str, ...]] = {
-        ("MCR3U", "M3", "C1"): ("real-slice",),
-    }
+    #: Derived from the seed files: a seed item with
+    #: ``"pin_to_working_copies": true`` is pinned for that
+    #: ``(course, module, slot)``. No course codes live in code.
+    PIN_SEED_FLAG = "pin_to_working_copies"
+
+    @staticmethod
+    def pinned_seed_media_ids(course: str, module: str, slot: str) -> tuple[str, ...]:
+        """Return seed item ids pinned onto working copies for one live class.
+
+        Reads the raw seed JSON (the flag is not part of the normalized
+        item schema). Ids come from the item's ``id`` or the last segment
+        of its ``ref`` (``course/MCF3M/media/real-slice`` -> ``real-slice``).
+
+        Args:
+            course: Ontario course code.
+            module: Module token.
+            slot: Challenge token.
+        """
+        try:
+            path = metadata_path(course, module, slot)
+            raw = json.loads(Path(path).read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 - missing/malformed seed pins nothing
+            return ()
+        ids: list[str] = []
+        for row in raw.get("items") or []:
+            if not isinstance(row, dict) or row.get(SchoolDB.PIN_SEED_FLAG) is not True:
+                continue
+            ref = str(row.get("ref") or row.get("item_ref") or "").strip()
+            item_id = str(row.get("id") or ref.rsplit("/", 1)[-1]).strip()
+            if item_id and item_id not in ids:
+                ids.append(item_id)
+        return tuple(ids)
 
     @classmethod
     def _with_pinned_seed_media(
@@ -24257,9 +24285,7 @@ class SchoolDB(LovesDB):
         Returns:
             The same metadata, with any missing pinned items appended.
         """
-        ids = cls.PINNED_SEED_MEDIA.get(
-            (str(course or "").upper(), str(module or "").upper(), str(slot or "").upper())
-        )
+        ids = cls.pinned_seed_media_ids(course, module, slot)
         if not ids:
             return metadata
         try:

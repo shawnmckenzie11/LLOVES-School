@@ -36,7 +36,8 @@
       "publish_modes": [
         "individual"
       ],
-      "response_mode": "individual"
+      "response_mode": "individual",
+      "pin_to_working_copies": true
     }
   ],
   "pages": [

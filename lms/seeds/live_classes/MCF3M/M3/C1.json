@@ -26,6 +26,18 @@
         "individual"
       ],
       "response_mode": "individual"
+    },
+    {
+      "ref": "course/MCF3M/media/real-slice",
+      "stage": "play",
+      "page_number": 5,
+      "order": 1,
+      "default_status": "inactive",
+      "publish_modes": [
+        "individual"
+      ],
+      "response_mode": "individual",
+      "pin_to_working_copies": true
     }
   ],
   "pages": [
