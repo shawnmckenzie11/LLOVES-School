@@ -318,6 +318,30 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
         self.assertEqual(self._deck(self.a1, "M2", "C3"), source)
         self.assertEqual(self._deck(it_class, "M2", "C3"), source)
 
+    def test_db_refuses_non_it_copy_into_another_teachers_class(self) -> None:
+        """Without the route 403, the DB still refuses a cross-teacher copy."""
+
+        other = self.school.register_staff("other-copy@gmail.com")
+        other_id = int(other["id"])
+        other_off = self.school.assign_course(teacher_user_id=other_id, ontario_code="MCF3M")
+        own_class = self._make_class(other_off, other_id)
+        self._edit_first_question(own_class, "M2", "C3", "From the other teacher")
+        before = self._deck(self.a1, "M2", "C3")
+        with self.assertRaises(PermissionError):
+            self.school.apply_class_deck_seed(
+                self.a1,
+                "M2",
+                "C3",
+                mode="course",
+                source_module="M2",
+                source_slot="C3",
+                source_class_id=own_class,
+                teacher_user_id=other_id,
+                require_replace_confirm=True,
+                replace=True,
+            )
+        self.assertEqual(self._deck(self.a1, "M2", "C3"), before)
+
     # --- ordering and defaults --------------------------------------------
 
     def test_decks_sort_siblings_first_then_natural_module_slot(self) -> None:

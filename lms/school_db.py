@@ -10395,6 +10395,11 @@ class SchoolDB(LovesDB):
                     int(teacher_user_id), source_class
                 ):
                     raise PermissionError("You can't copy a deck from that class.")
+                # MCK-153: defence in depth behind the route 403. A non-IT
+                # teacher may only copy into a class they own; IT passes
+                # teacher_owns_class for any class in their tenant.
+                if not self.teacher_owns_class(int(teacher_user_id), int(class_id)):
+                    raise PermissionError("You can't copy a deck into that class.")
                 if self._course_code_for_class(source_class) != course:
                     raise ValueError("Choose a deck from this course.")
                 self._require_deck_copy_sibling(
