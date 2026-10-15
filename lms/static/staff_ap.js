@@ -8555,24 +8555,7 @@ async function applyValidateDateChoice(opts = {}) {
     return;
   }
   if (root?.dataset.apView === "live") {
-    let choice;
-    try {
-      choice = await unfinishedModuleChoice();
-    } catch (err) {
-      closeReservedLiveWindow(opts.reservedWin);
-      throw err;
-    }
-    if (choice.action === "cancel") {
-      closeReservedLiveWindow(opts.reservedWin);
-      return;
-    }
-    if (choice.action === "finish" && choice.module) {
-      await api(
-        `/api/classes/${classId}/participation/modules/${encodeURIComponent(choice.module)}/finish`,
-        { method: "POST", body: JSON.stringify({ sort: "az" }) }
-      );
-    }
-    await proceedRunLiveBegin(iso, { reservedWin: opts.reservedWin || null });
+    await continueRunLiveAfterPrompt(iso, opts);
     return;
   }
   showPanel("gamify");
@@ -8596,6 +8579,34 @@ function closeReservedLiveWindow(reservedWin) {
  * Prompt when Set Class would start a module after the open one.
  * @returns {Promise<{action: "cancel"|"start"|"finish", module: string}>}
  */
+/**
+ * Ask before starting a later module, then begin Run Live Class.
+ * Cancel stays on Set Class. Finish logs the open module, then begins.
+ * @param {string} iso Meeting date already validated.
+ * @param {{ reservedWin?: Window|null }} [opts]
+ * @returns {Promise<void>}
+ */
+async function continueRunLiveAfterPrompt(iso, opts = {}) {
+  let choice;
+  try {
+    choice = await unfinishedModuleChoice();
+  } catch (err) {
+    closeReservedLiveWindow(opts.reservedWin);
+    throw err;
+  }
+  if (choice.action === "cancel") {
+    closeReservedLiveWindow(opts.reservedWin);
+    return;
+  }
+  if (choice.action === "finish" && choice.module) {
+    await api(
+      `/api/classes/${classId}/participation/modules/${encodeURIComponent(choice.module)}/finish`,
+      { method: "POST", body: JSON.stringify({ sort: "az" }) }
+    );
+  }
+  await proceedRunLiveBegin(iso, { reservedWin: opts.reservedWin || null });
+}
+
 async function unfinishedModuleChoice() {
   const pack = selectedSetClassPack();
   const payload = await api(
@@ -8741,7 +8752,7 @@ export async function openRunLiveClass() {
         gridSelectedIso($("ap-day-grid")) ||
         $("ap-valid-date")?.value ||
         decision.iso;
-      await proceedRunLiveBegin(iso, {
+      await continueRunLiveAfterPrompt(iso, {
         reservedWin: actionOpts.reservedWin || null,
       });
     };
