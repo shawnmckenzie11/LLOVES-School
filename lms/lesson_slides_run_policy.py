@@ -116,7 +116,11 @@ def effective_run_is_real(
     *,
     end_instant: RunEndInstant | None = None,
 ) -> bool:
-    """Whether a run counts as a real class for Lesson Slides (not test/discarded)."""
+    """Whether a run counts as a real class for Lesson Slides (not test/discarded).
+
+    Schedule-based recomputation never overrides a teacher manual real/test toggle
+    (``is_real`` diverged from ``auto_is_real``) or a discarded run.
+    """
     row = participation_run_row(school, class_id, run_key)
     if row is not None and int(row.get("discarded") or 0):
         return False

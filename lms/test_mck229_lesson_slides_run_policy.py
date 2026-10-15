@@ -71,6 +71,42 @@ class RunPolicyScheduleTests(LessonSlidesBackfillTests):
         self.school.conn.commit()
         self.assertFalse(effective_run_is_real(self.school, self.class_id, run_key))
 
+    def test_teacher_manual_real_test_not_overridden_by_schedule(self) -> None:
+        """MCK-207 teacher toggles win over start-window recomputation."""
+        outside_key = LessonSlidesBackfillTests._ended_real_run_keep_session(
+            self,
+            "M2",
+            "C2",
+            ended_iso="2026-10-20T15:00:00",
+        )
+        self.school.conn.execute(
+            """
+            UPDATE participation_runs
+            SET is_real = 0, auto_is_real = 0, discarded = 0, ended_at = NULL
+            WHERE class_id = ? AND run_key = ?
+            """,
+            (int(self.class_id), outside_key),
+        )
+        self.school.conn.commit()
+        self.assertFalse(effective_run_is_real(self.school, self.class_id, outside_key))
+        self.school.set_participation_run_real(
+            self.class_id, outside_key, True, user_id=int(self.teacher["id"])
+        )
+        self.assertTrue(effective_run_is_real(self.school, self.class_id, outside_key))
+
+        inside_key = LessonSlidesBackfillTests._ended_real_run_keep_session(
+            self,
+            "M2",
+            "C3",
+            ended_iso="2026-10-14T14:29:00",
+        )
+        self.assertTrue(effective_run_is_real(self.school, self.class_id, inside_key))
+        self.school.set_participation_run_real(
+            self.class_id, inside_key, False, user_id=int(self.teacher["id"])
+        )
+        self.assertFalse(effective_run_is_real(self.school, self.class_id, inside_key))
+        self.assertTrue(self.school.participation_run_discarded(self.class_id, inside_key))
+
 
 class RunPolicyRankingTests(unittest.TestCase):
     """Latest run selection uses parsed datetimes."""
