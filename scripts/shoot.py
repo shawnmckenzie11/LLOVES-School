@@ -1866,6 +1866,167 @@ def _mck216_wait_ready_to_lock(page) -> None:
         raise SystemExit("race-phone-pips visible; MCK-216 shots expect no agree pips.")
 
 
+_MCK242_TINY_PNG_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+
+
+def prepare_mck242_live(path: Path, origin: str) -> dict[str, int | str]:
+    """Publish Team Draw on Shawn's class and return teacher/student live URLs.
+
+    Ends any active live session, starts a fresh one with two teams (Maple + Cedar),
+    publishes one built-in Team Draw prompt, and pre-submits Cedar's team so the
+    teacher grid shows mixed ``drawing…`` / ``✓ submitted`` rows.
+
+    Args:
+        path: Sqlite path the dev server uses.
+        origin: Loopback LMS origin.
+
+    Returns:
+        Dict with ``class_id``, ``session_id``, ``live_item_id``, ``teacher_url``,
+        and ``student_url`` (Maple's visit link).
+    """
+    school = _mck208_school(path)
+    from team_draw import BUILTIN_PROMPTS
+    class_id = shawn_class_id(path)
+    teacher = school.get_user_by_email(SHAWN_EMAIL)
+    if teacher is None:
+        raise SystemExit("Shawn staff user missing. Run with --seed first.")
+    maple = school.game.find_student_by_codename(class_id, "Maple")
+    if maple is None:
+        raise SystemExit("No Maple on the demo class. Run with --seed first.")
+    cedar = school.game.find_student_by_codename(class_id, "Cedar")
+    if cedar is None:
+        school.game.add_student(class_id, codename="Cedar")
+        cedar = school.game.find_student_by_codename(class_id, "Cedar")
+    if cedar is None:
+        raise SystemExit("Could not add Cedar for Team Draw demo.")
+    _mck208_end_active_live(school, class_id)
+    live = school.start_live_class_session(class_id, int(teacher["id"]))
+    session_id = int(live["id"])
+    school.set_live_session_teacher_state(
+        session_id,
+        stage="round",
+        live_module="M1",
+        live_slot="C1",
+        page_id="round:1",
+        class_set=True,
+        run_as_group=True,
+        groups_configured=True,
+    )
+    school.game.begin_game(class_id)
+    maple_id = int(maple["id"])
+    cedar_id = int(cedar["id"])
+    for student_id, codename in ((maple_id, "Maple"), (cedar_id, "Cedar")):
+        school.join_live_class_session(session_id, student_id, codename=codename)
+    school.setup_live_session_groups(
+        session_id,
+        n_teams=2,
+        mode="manual",
+        present_ids=[maple_id, cedar_id],
+        assignments=[
+            {"student_id": maple_id, "team_index": 0},
+            {"student_id": cedar_id, "team_index": 1},
+        ],
+    )
+    school.ensure_live_session_items(session_id)
+    mystery = BUILTIN_PROMPTS[1]
+    placement = school.add_staff_question_to_class_playlist(
+        class_id,
+        "M1",
+        "C1",
+        question_type="team_draw",
+        text=mystery["text"],
+        page_number=4,
+        stage="round",
+        extra_item={"team_draw_prompt_id": mystery["id"]},
+    )
+    items = school.ensure_live_session_items(session_id)
+    row = next(r for r in items if r["item_id"] == placement["item_id"])
+    live_item_id = int(row["id"])
+    school.publish_live_session_item(session_id, live_item_id, publish_mode="group_submit")
+    school.submit_team_draw(
+        session_id,
+        live_item_id,
+        cedar_id,
+        title="Forest Friends",
+        image_b64=_MCK242_TINY_PNG_B64,
+    )
+    rows = school.list_live_session_attendees(session_id)
+    visit = str(next(r["visit_token"] for r in rows if r.get("codename") == "Maple"))
+    base = assert_loopback(origin if "://" in origin else f"http://{origin}").rstrip("/")
+    teacher_url = f"{base}/staff/class/{class_id}?tab=live&live_session_id={session_id}"
+    student_url = f"{base}/student/s/{visit}"
+    return {
+        "class_id": class_id,
+        "session_id": session_id,
+        "live_item_id": live_item_id,
+        "teacher_url": teacher_url,
+        "student_url": student_url,
+    }
+
+
+def shoot_mck242(
+    base: str,
+    state_path: Path,
+    out_dir: Path,
+    path: Path,
+    widths: list[int],
+) -> list[Path]:
+    """MCK-242: Team Draw teacher status grid (desktop) and student naming UI (phone).
+
+    Args:
+        base: Loopback LMS origin.
+        state_path: Shawn's Playwright storageState.
+        out_dir: Artifact directory.
+        path: LMS sqlite path.
+        widths: Viewport widths (typically ``1280`` and ``390``).
+
+    Returns:
+        PNG paths ``mck242-teacher-<w>.png`` and ``mck242-student-<w>.png``.
+    """
+    from playwright.sync_api import sync_playwright
+
+    meta = prepare_mck242_live(path, base)
+    teacher_url = str(meta["teacher_url"])
+    student_url = str(meta["student_url"])
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        for width in widths:
+            if int(width) >= 768:
+                context = browser.new_context(
+                    storage_state=str(state_path),
+                    viewport={"width": int(width), "height": 900},
+                )
+                page = context.new_page()
+                page.goto(teacher_url, wait_until="domcontentloaded", timeout=60000)
+                page.locator("body.staff-shell").wait_for(state="attached", timeout=30000)
+                page.locator('.live-content-tab[data-tab="questions"]').click(timeout=10000)
+                page.locator(".team-draw-status-board").first.wait_for(state="visible", timeout=60000)
+                page.get_by_role("button", name="Show gallery").wait_for(state="visible", timeout=30000)
+                dest = out_dir / f"mck242-teacher-{width}.png"
+                page.screenshot(path=str(dest), full_page=True)
+                written.append(dest)
+                context.close()
+            else:
+                context = browser.new_context(viewport={"width": int(width), "height": 900})
+                page = context.new_page()
+                page.goto(student_url, wait_until="domcontentloaded", timeout=60000)
+                _mck215_reach_live_home(page)
+                _mck215_dismiss_catchup_pin(page)
+                page.locator("#team-draw-phone").wait_for(state="visible", timeout=60000)
+                page.locator(".live-canvas-stage").first.wait_for(state="visible", timeout=30000)
+                page.locator("#team-draw-title").fill("Maple Mascot")
+                dest = out_dir / f"mck242-student-{width}.png"
+                page.screenshot(path=str(dest), full_page=True)
+                written.append(dest)
+                context.close()
+        browser.close()
+    return written
+
+
 def shoot_mck216(base: str, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
     """MCK-216: student Team challenge group rank before and after lock-in (phone).
 
@@ -1936,13 +2097,14 @@ def main(argv: list[str] | None = None) -> int:
             "mck219",
             "mck233-end-live",
             "mck217-student-view",
+            "mck242",
         ),
         default="",
         help=(
             "Built-in catch-up, MCK-62 quiet-dot, engagement override, "
             "MCK-207 roster/PIN, run-class toggle, MCK-208 dashboard, "
             "avatar-reward pop-up, MCK-216 Team challenge rank lock-in, "
-            "MCK-220/230/215/222/219 scenarios, or MCK-217 Student view Questions."
+            "MCK-220/230/215/222/219 scenarios, MCK-217 Student view Questions, or MCK-242 Team Draw."
         ),
     )
     args = parser.parse_args(argv)
@@ -2003,6 +2165,9 @@ def main(argv: list[str] | None = None) -> int:
             written.extend(shoot_mck219(args.base, state, out, widths))
         if args.scenario == "mck217-student-view":
             written.extend(shoot_mck217_student_view(out))
+        if args.scenario == "mck242":
+            widths = [int(part) for part in args.widths.split(",") if part.strip()]
+            written.extend(shoot_mck242(args.base, state, out, path, widths))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(
@@ -2019,7 +2184,7 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
-                "mck208|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|mck217-student-view."
+                "mck208|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|mck217-student-view|mck242."
             )
         for item in written:
             print(item)

@@ -46,6 +46,7 @@ import {
   opsAboveCursor,
   showBoardRefreshCue,
 } from "/static/live_whiteboard.js";
+import { teamDrawStatusBoardHtml } from "/static/team_draw.js";
 import {
   RECONNECT_PENDING_MS,
   RECONNECT_STUCK_MS,
@@ -1172,7 +1173,8 @@ function adoptLifecycleResponseCounts(counts, rankRevs) {
     }
     const groupMode =
       String(row?.response_mode || prev.response_mode || "") === "group_consensus" ||
-      String(row?.response_mode || prev.response_mode || "") === "group_submit";
+      String(row?.response_mode || prev.response_mode || "") === "group_submit" ||
+      String(row?.response_mode || prev.response_mode || "") === "team_draw";
     if (groupMode) {
       // Thin group_results paints in place. Do not refreshLifecycleResults on a light tick.
       continue;
@@ -2052,7 +2054,30 @@ function adoptLightGroupResults(bag) {
     const prev = lifecycleResults.get(liveItemId) || {};
     if (seq && seq === String(prev.group_response_seq || "")) continue;
     const mode = String(entry.response_mode || prev.response_mode || "group_submit");
-    if (mode === "group_consensus") {
+    if (mode === "team_draw") {
+      const mysterySteps = Array.isArray(entry.mystery_steps)
+        ? entry.mystery_steps
+        : prev.mystery_steps;
+      lifecycleResults.set(liveItemId, {
+        ...prev,
+        live_item_id: liveItemId,
+        response_mode: "team_draw",
+        group_response_seq: seq,
+        prompt: String(entry.prompt || prev.prompt || ""),
+        mystery_rule: Boolean(entry.mystery_rule ?? prev.mystery_rule),
+        mystery_steps: Array.isArray(mysterySteps) ? mysterySteps : [],
+        item: prev.item,
+        status_board: teams.map((team) => ({
+          team_id: Number(team.team_id) || 0,
+          team_name: String(team.team_name || "Team"),
+          submitted: team.status === "submitted",
+          status_label: team.status === "submitted" ? "✓ submitted" : "drawing…",
+          title: String(team.title || "").trim(),
+        })),
+        response_count: teams.filter((team) => team.status === "submitted").length,
+        eligible_count: teams.length,
+      });
+    } else if (mode === "group_consensus") {
       const prevTeams = new Map(
         (Array.isArray(prev.teams) ? prev.teams : []).map((team) => [
           Number(team?.team_id) || 0,
@@ -2138,7 +2163,7 @@ function paintGroupResultsInPlace(force = false) {
     const result = lifecycleResults.get(liveItemId);
     if (!result) return;
     const mode = String(result.response_mode || "");
-    if (mode !== "group_submit" && mode !== "group_consensus") return;
+    if (mode !== "group_submit" && mode !== "group_consensus" && mode !== "team_draw") return;
     const seq = String(result.group_response_seq || "");
     const current = card.querySelector(`[data-group-results="${liveItemId}"]`);
     const stripMissing =
@@ -2173,7 +2198,7 @@ function paintGroupResultsInPlace(force = false) {
       const main = card.querySelector(".live-question-card-main");
       if (main) main.appendChild(next);
     }
-    if (mode === "group_submit") {
+    if (mode === "group_submit" || mode === "team_draw") {
       const progress = card.querySelector(".live-question-progress");
       const board = Array.isArray(result.status_board) ? result.status_board : [];
       if (progress && board.length) {
@@ -4776,6 +4801,9 @@ function groupSubmitTeacherHtml(result, revealed, liveItemId) {
   const hostId = groupResultsHostId(result, liveItemId);
   const seq = escapeHtml(String(result?.group_response_seq || ""));
   const open = `<div class="group-submit-teacher" data-group-results="${hostId}" data-group-seq="${seq}">`;
+  if (String(result?.response_mode || "") === "team_draw") {
+    return `${open}${teamDrawStatusBoardHtml(result)}</div>`;
+  }
   if (result?.rank) {
     // MCK-171: a Team challenge shows lanes (no orders) instead.
     const itemId = Number(result?.item?.id) || hostId;
@@ -5038,9 +5066,13 @@ function paintLiveQuestionCards() {
       const showGroupBadge =
         groupChrome ||
         card.response_mode === "group_submit" ||
+        card.response_mode === "team_draw" ||
         card.response_mode === "group_consensus";
       const result = lifecycleResults.get(liveItemId);
-      const resultHtml = groupChrome
+      const resultHtml =
+        card.response_mode === "team_draw"
+          ? groupSubmitTeacherHtml(result, closed, liveItemId)
+          : groupChrome
         ? groupSubmitTeacherHtml(result, closed, liveItemId)
         : card.response_mode === "group_consensus"
           ? groupConsensusResultsHtml(result, closed, liveItemId)
@@ -5576,7 +5608,59 @@ document.addEventListener("click", (event) => {
   if (no instanceof HTMLButtonElement) {
     settleGroupPublishConfirm(no.getAttribute("data-group-confirm-cancel") || "", false);
   }
+  const galleryBtn = target?.closest("button[data-team-draw-gallery]");
+  if (galleryBtn instanceof HTMLButtonElement) {
+    void openTeamDrawGallery(Number(galleryBtn.getAttribute("data-team-draw-gallery")) || 0);
+    return;
+  }
+  const clearBtn = target?.closest("button[data-team-draw-clear]");
+  if (clearBtn instanceof HTMLButtonElement) {
+    void clearTeamDrawBoards(Number(clearBtn.getAttribute("data-team-draw-clear")) || 0);
+  }
 });
+
+/**
+ * Load and paint the Team Draw gallery modal for one lifecycle item.
+ * @param {number} liveItemId
+ */
+async function openTeamDrawGallery(liveItemId) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId || !liveItemId) return;
+  const host = document.querySelector(`[data-team-draw-gallery-host="${liveItemId}"]`);
+  const res = await api(
+    `/api/live-sessions/${sessionId}/items/${liveItemId}/team-draw/gallery`
+  );
+  const gallery = Array.isArray(res?.gallery) ? res.gallery : [];
+  const tiles = gallery
+    .map(
+      (row) => `<figure class="team-draw-gallery-tile">
+        <img src="${escapeHtml(String(row.image_url || ""))}" alt="" loading="lazy" />
+        <figcaption>${escapeHtml(String(row.title || row.team_name || "Team"))}</figcaption>
+      </figure>`
+    )
+    .join("");
+  if (host instanceof HTMLElement) {
+    host.hidden = false;
+    host.innerHTML = `<div class="team-draw-gallery-grid">${tiles || "<p class=hint>No submissions yet.</p>"}</div>`;
+  }
+}
+
+/**
+ * Purge Team Draw boards and gallery blobs for one item.
+ * @param {number} liveItemId
+ */
+async function clearTeamDrawBoards(liveItemId) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId || !liveItemId) return;
+  const res = await api(
+    `/api/live-sessions/${sessionId}/items/${liveItemId}/team-draw/clear`,
+    { method: "POST", body: "{}" }
+  );
+  if (res?.team_draw) {
+    lifecycleResults.set(liveItemId, { ...res.team_draw, live_item_id: liveItemId });
+    paintGroupResultsInPlace(true);
+  }
+}
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape" || !groupPublishConfirms.size) return;
@@ -5861,7 +5945,8 @@ async function refreshLifecycleResults() {
       ).toLowerCase();
       const mode = String(row?.response_mode || "");
       return (
-        (mode === "group_consensus" ||
+        (mode === "team_draw" ||
+          mode === "group_consensus" ||
           ["question", "poll", "mc", "numeric", "text", "open", "share", "rank"].includes(
             type
           )) &&

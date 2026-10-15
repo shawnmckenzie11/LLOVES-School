@@ -3339,3 +3339,112 @@ dialog.student-pin-dialog::backdrop {
   flex-wrap: wrap;
   margin-top: 0.75rem;
 }
+
+/* MCK-242 Team Draw */
+.canvas-pane.is-team-draw .live-canvas-stage {
+  min-height: min(62vh, 520px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.canvas-pane.is-team-draw.is-mystery-rule .live-canvas-stage {
+  min-height: min(68vh, 560px);
+}
+.canvas-pane.is-mystery-rule .student-canvas {
+  flex: 1 1 auto;
+  min-height: min(48vh, 420px);
+  width: 100%;
+}
+.team-draw-mystery-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+  margin: 0;
+}
+.team-draw-mystery-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.35rem 0.4rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--border, #c8c8c8);
+  background: var(--surface-2, #f4f4f5);
+  font-size: 0.72rem;
+  line-height: 1.2;
+  min-height: 2.75rem;
+}
+.team-draw-mystery-chip.is-locked {
+  opacity: 0.92;
+}
+.team-draw-mystery-chip-num {
+  font-weight: 700;
+  font-size: 0.68rem;
+  color: var(--muted, #555);
+}
+.team-draw-mystery-chip-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: #0f172a;
+}
+.team-draw-step4-banner {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent, #0b3d91);
+}
+.team-draw-phone {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+.team-draw-turn-pill {
+  align-self: flex-start;
+  margin: 0;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: var(--surface-2, #eef2ff);
+  color: var(--accent, #1e3a8a);
+  border: 1px solid var(--border, #c7d2fe);
+}
+.team-draw-submit {
+  font-size: 1.05rem;
+  padding: 0.65rem 1rem;
+}
+.team-draw-saved {
+  color: var(--muted, #555);
+  font-size: 0.95rem;
+}
+
+/* Mystery rule on a phone: keep locked steps visible above the canvas. */
+@media (max-width: 47.99rem) {
+  body.student-home.is-team-draw-mystery-focus .live-question-stack {
+    top: auto;
+    bottom: 0.55rem;
+    left: 0.65rem;
+    right: auto;
+    z-index: 6;
+    width: min(11.5rem, 46vw);
+  }
+
+  body.student-home.is-team-draw-mystery-focus .canvas-pane.is-mystery-rule {
+    position: relative;
+    z-index: 8;
+  }
+
+  body.student-home.is-team-draw-mystery-focus .student-live-card.is-mystery-collapsed {
+    max-height: 2.4rem;
+    overflow: hidden;
+    margin: 0;
+  }
+
+  body.student-home.is-team-draw-mystery-focus
+    .student-live-card.is-mystery-collapsed
+    > :not(.student-pane-bar) {
+    display: none !important;
+  }
+}

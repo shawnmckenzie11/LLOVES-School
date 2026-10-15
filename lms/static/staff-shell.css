@@ -8139,3 +8139,86 @@ body.staff-shell .student-view-banner a#student-view-exit:hover {
   padding: 0 0.35rem;
   margin-left: 0.5rem;
 }
+
+/* MCK-242 Team Draw teacher grid */
+body.staff-shell .team-draw-status-board {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+body.staff-shell .team-draw-status-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.35rem 0.75rem;
+  align-items: baseline;
+}
+body.staff-shell .team-draw-title {
+  grid-column: 1 / -1;
+  font-style: italic;
+  color: var(--muted, #555);
+}
+body.staff-shell .team-draw-teacher-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+body.staff-shell .team-draw-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+body.staff-shell .team-draw-gallery-tile img {
+  width: 100%;
+  border-radius: 0.35rem;
+  border: 1px solid var(--border, #ccc);
+}
+
+/* MCK-242 mystery rule: locked steps 1–3 + dashed step 4 */
+body.staff-shell .team-draw-mystery-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin: 0.65rem 0 0.85rem;
+}
+body.staff-shell .team-draw-mystery-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-height: 4.5rem;
+  padding: 0.5rem 0.55rem;
+  border-radius: 0.45rem;
+  background: var(--surface-2, #f6f6f7);
+  border: 1px solid var(--border, #d0d0d0);
+}
+body.staff-shell .team-draw-mystery-tile.is-locked {
+  background: var(--surface-1, #fafafa);
+}
+body.staff-shell .team-draw-mystery-tile.is-yours {
+  border-style: dashed;
+  border-width: 2px;
+  border-color: var(--accent, #0b3d91);
+  background: #fff;
+}
+body.staff-shell .team-draw-mystery-num {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted, #666);
+}
+body.staff-shell .team-draw-mystery-text {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.25;
+  flex: 1 1 auto;
+}
+body.staff-shell .team-draw-mystery-lock {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.4rem;
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
