@@ -101,6 +101,9 @@ def _question_summary_text(summary: dict[str, Any]) -> str:
     return " · ".join(parts)
 
 
+from lesson_slides_run_policy import display_ended_at_from_latest, effective_run_is_real
+
+
 def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
     """Build the Lesson Slides table payload for one class.
 
@@ -167,8 +170,8 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
         elif (
             catchup
             and str(catchup.get("run_key") or "").strip()
-            and bool(catchup.get("is_real", True))
             and not bool(catchup.get("discarded"))
+            and effective_run_is_real(school, cid, str(catchup.get("run_key") or ""))
         ):
             run_key = str(catchup["run_key"])
         has_run = bool(run_key)
@@ -189,10 +192,8 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
             str(latest.get("session_code") or "").strip() if latest else ""
         )
         join_code = portal_code or session_code
-        last_run_at = ""
-        if latest and str(latest.get("ended_at") or "").strip():
-            last_run_at = str(latest["ended_at"])
-        elif has_run and run_key:
+        last_run_at = display_ended_at_from_latest(latest) if latest else ""
+        if not last_run_at and has_run and run_key:
             last_run_at = school.ended_at_for_participation_run(cid, run_key)
         rows.append(
             {
