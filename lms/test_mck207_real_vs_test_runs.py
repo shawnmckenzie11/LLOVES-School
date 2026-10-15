@@ -98,6 +98,7 @@ class RealVsTestFlowTests(Base):
         *,
         ended_iso: str,
         individual: int = 2,
+        live_run: bool = True,
     ) -> str:
         live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
         sid = int(live["id"])
@@ -125,6 +126,11 @@ class RealVsTestFlowTests(Base):
                 now,
             ),
         )
+        c.execute(
+            "INSERT INTO live_session_responses (prompt_id, student_id, response_json, created_at, updated_at) "
+            "VALUES (?, ?, '{}', ?, ?)",
+            (int(pid), int(self.students[0]), now, now),
+        )
         c.commit()
         c.execute(
             "UPDATE live_class_sessions SET ended_at = ?, status = 'ended' WHERE id = ?",
@@ -135,13 +141,13 @@ class RealVsTestFlowTests(Base):
             c.execute("SELECT run_key FROM live_class_sessions WHERE id = ?", (sid,)).fetchone()[0]
             or ""
         )
-        self.school.cleanup_live_session_response_data(sid)
+        self.school.cleanup_live_session_response_data(sid, live_run=live_run)
         self.school.wipe_live_sessions_for_class(self.class_id)
         return run_key
 
     def test_real_run_creates_catchup_test_run_does_not(self) -> None:
-        real_key = self._end_run("M1", "C1", ended_iso="2026-10-14T14:30:00")
-        test_key = self._end_run("M1", "C1", ended_iso="2026-10-20T15:00:00")
+        real_key = self._end_run("M1", "C1", ended_iso="2026-10-14T14:30:00", live_run=True)
+        test_key = self._end_run("M1", "C1", ended_iso="2026-10-20T15:00:00", live_run=False)
         links = self.school.list_catchup_links(self.class_id)
         self.assertEqual(len(links), 1)
         self.assertEqual(links[0]["run_key"], real_key)
@@ -166,7 +172,7 @@ class RealVsTestFlowTests(Base):
         self.assertIn(f"/catchup/MCR3U/m2-c1/{token}", resp.headers.get("Location") or "")
 
     def test_teacher_toggle_both_ways(self) -> None:
-        run_key = self._end_run("M3", "C1", ended_iso="2026-10-20T12:00:00")
+        run_key = self._end_run("M3", "C1", ended_iso="2026-10-20T12:00:00", live_run=False)
         self.assertFalse(self.school.list_catchup_links(self.class_id))
         self.school.set_participation_run_real(self.class_id, run_key, True, user_id=1)
         self.assertEqual(len(self.school.list_catchup_links(self.class_id)), 1)

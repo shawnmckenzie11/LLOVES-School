@@ -87,7 +87,7 @@ class Mck220RealRunGridCountsTests(Base):
     """Non-discarded real runs only — same denominators as class_participation."""
 
     def test_test_run_excluded_from_grid_module_participation(self) -> None:
-        self.run_class("M3", "C1", 2, 0, {})
+        self.run_class("M3", "C1", 2, 0, {self.students[0]: 2})
         test_key = self.run_class("M3", "C2", 3, 0, {}, ended_iso="2026-10-20T15:00:00")
         self.school.conn.execute(
             """

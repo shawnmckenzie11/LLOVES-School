@@ -3421,6 +3421,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         active_live_session = school.get_active_live_session_for_teacher(
             int(user["id"])
         )
+        end_live_default_mode = "test"
+        if active_live_session is not None:
+            end_live_default_mode = school.default_end_live_run_mode_for_class(
+                int(active_live_session["class_id"]),
+                str(active_live_session.get("started_at") or ""),
+            )
         # MCK-124: hold the What's new panel while any class this teacher
         # teaches is live (they may be projecting the Dashboard). Decided
         # here, so the page never carries the panel or its script.
@@ -3436,6 +3442,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             offerings=offerings,
             classes=classes,
             active_live_session=active_live_session,
+            end_live_default_mode=end_live_default_mode,
             catchup_pin_alerts=catchup_pin_alerts,
             whats_new_hold=whats_new_hold,
             tour_offer=_tour_offer(user, classes),
@@ -3841,9 +3848,18 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if str(form.get("end_options") or "") == "1":
             save_attendance = str(form.get("save_attendance") or "") == "1"
             save_participation = str(form.get("save_participation") or "") == "1"
+            default_mode = school.default_end_live_run_mode_for_class(
+                int(class_id), str(active.get("started_at") or "")
+            )
+            from end_live_run_mode import resolve_live_run_from_posted_run_mode
+
+            live_run = resolve_live_run_from_posted_run_mode(
+                form.get("run_mode"), default_mode=default_mode
+            )
         else:
             save_attendance = True
             save_participation = True
+            live_run = True
         # The run this request saw as active. If another End closes it
         # first, this one is a no-op instead of a new column (MCK-72).
         ended = school.finish_live_class(
@@ -3852,6 +3868,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             save_participation=save_participation,
             celebrate=True,
             run_key=str(active.get("run_key") or "") or None,
+            live_run=live_run,
         )
         if isinstance(ended, dict) and ended.get("in_progress"):
             # Another End holds this run and the game is still open (it is
@@ -4019,6 +4036,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         }:
             live_step = ""
         active_live = school.get_active_live_session_for_class(class_id)
+        end_live_default_mode = "test"
+        if active_live is not None:
+            end_live_default_mode = school.default_end_live_run_mode_for_class(
+                int(class_id), str(active_live.get("started_at") or "")
+            )
         live_session_id = request.args.get("live_session_id") or ""
         if not live_session_id and active_live is not None:
             live_session_id = str(active_live["id"])
@@ -4088,6 +4110,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             live_session_id=live_session_id,
             live_session_code=live_session_code,
             live_step=live_step,
+            end_live_default_mode=end_live_default_mode,
             school_name=SCHOOL_NAME,
             roster_pin_slips=roster_pin_slips,
             roster_pin_alerts=roster_pin_alerts,

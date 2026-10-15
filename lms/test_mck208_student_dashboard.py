@@ -45,7 +45,7 @@ class Mck208DashboardTest(Base):
 
     def setUp(self) -> None:
         super().setUp()
-        self.run_class("M1", "C1", individual=4, group=2, answers={self.students[0]: 1})
+        self.run_class("M1", "C1", individual=4, group=2, answers={self.students[0]: 1, self.students[1]: 4})
         self.token = self.school.list_catchup_links(self.class_id)[0]["token"]
         self.school.set_student_pin(self.class_id, self.students[0], "4321")
 
@@ -226,7 +226,7 @@ class Mck208LiveHandoverTest(Base):
 
     def setUp(self) -> None:
         super().setUp()
-        self.run_class("M1", "C1", individual=4, group=2, answers={self.students[0]: 1})
+        self.run_class("M1", "C1", individual=4, group=2, answers={self.students[0]: 1, self.students[1]: 4})
         self.token = self.school.list_catchup_links(self.class_id)[0]["token"]
         self.school.set_student_pin(self.class_id, self.students[0], "4321")
 

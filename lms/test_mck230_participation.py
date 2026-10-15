@@ -153,9 +153,13 @@ class Mck230LiveDenominatorTests(Base):
         self.assertEqual(offered, 2)
 
     def test_catchup_only_answers_do_not_count_in_denominator(self) -> None:
-        run_key = self.run_class("M3", "C1", 2, 0, {})
+        run_key = self.run_class("M3", "C1", 2, 0, {}, ensure_data_indices=(0,))
         link = self.school.list_catchup_links(self.class_id)[0]
         self.assertEqual(link["run_key"], run_key)
+        offered_before = self.school.participation_module_offered(
+            self.class_id, "M3", include_individual=True, include_group=False
+        )
+        self.assertEqual(offered_before, 1)
         self.assertTrue(
             self.school.submit_catchup_answer(
                 link["token"], self.students[0], "item:M3-q0", "x"
@@ -164,11 +168,13 @@ class Mck230LiveDenominatorTests(Base):
         offered = self.school.participation_module_offered(
             self.class_id, "M3", include_individual=True, include_group=False
         )
-        self.assertEqual(offered, 0)
+        self.assertEqual(offered, 1)
 
     def test_denominator_is_live_questions_not_response_volume(self) -> None:
         """Three live MC questions (14/11/16 student answers) plus silent deck MC → /3."""
-        run_key = self.run_class("M4", "C1", 5, 0, {})
+        run_key = self.run_class(
+            "M4", "C1", 5, 0, {}, ensure_data_indices=(0, 1, 2)
+        )
         c = self.school.conn
         now = "2026-10-14T15:00:00"
         extra_ids: list[int] = []

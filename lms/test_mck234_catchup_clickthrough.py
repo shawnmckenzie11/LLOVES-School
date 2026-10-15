@@ -16,9 +16,22 @@ class Mck234CatchupClickthroughTest(Base):
 
     def setUp(self) -> None:
         super().setUp()
-        self.run_class("M1", "C1", individual=4, group=2, answers={self.students[0]: 1})
         self.run_class(
-            "M2", "C1", individual=2, group=0, answers={self.students[0]: 1}, wipe=False
+            "M1",
+            "C1",
+            individual=4,
+            group=2,
+            answers={self.students[0]: 1},
+            ensure_data_indices=(0, 1, 2, 3),
+        )
+        self.run_class(
+            "M2",
+            "C1",
+            individual=2,
+            group=0,
+            answers={self.students[0]: 1},
+            wipe=False,
+            ensure_data_indices=(0, 1),
         )
         self.token_m1 = self.school.list_catchup_links(self.class_id)[0]["token"]
         self.token = self.token_m1

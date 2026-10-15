@@ -75,7 +75,7 @@ class StudentStateCatchupPinTests(Base):
 
     def setUp(self) -> None:
         super().setUp()
-        self.run_class("M1", "C1", 1, 0, {})
+        self.run_class("M1", "C1", 1, 0, {self.students[0]: 1})
         self.student_id = self.students[0]
         self.school.set_student_pin(
             self.class_id, self.student_id, "4321", pin_set_by="default"

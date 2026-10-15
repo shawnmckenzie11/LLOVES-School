@@ -219,18 +219,6 @@
           <div class="live-end-class-form">
             <button type="button" class="live-header-end danger" id="live-end-class" data-open-end-live aria-label="End Live Class">End Live Class</button>
           </div>
-          <div class="run-class-kind" id="run-class-kind" hidden>
-            <fieldset class="run-class-kind-toggle" role="group" aria-label="Real class or test run">
-              <label class="run-class-kind-option">
-                <input type="radio" name="run-class-kind" value="real">
-                <span>Real class</span>
-              </label>
-              <label class="run-class-kind-option">
-                <input type="radio" name="run-class-kind" value="test">
-                <span>Test</span>
-              </label>
-            </fieldset>
-          </div>
           <form class="live-quit-class-form" id="live-quit-class-form" method="post" action="{{ url_for('staff_quit_live_class', class_id=cls.id) }}"
                 data-confirm="Quit without saving attendance or participation?">
             <button type="submit" class="live-header-quit secondary" id="live-quit-class" aria-label="Quit">Quit</button>
@@ -1352,7 +1340,7 @@
     {% endif %}
   </div>
   <div id="score-pop-layer" class="score-pop-layer" aria-hidden="true"></div>
-  <dialog id="end-live-dialog" class="end-live-dialog">
+  <dialog id="end-live-dialog" class="end-live-dialog" data-end-live-default="{{ end_live_default_mode }}">
     <form class="end-live-dialog-form" method="post" action="{{ url_for('staff_end_live_class', class_id=cls.id) }}">
       <h2>End Live Class</h2>
       <p>Choose what to save before ending this class.</p>
@@ -1366,6 +1354,17 @@
           <input type="checkbox" name="save_participation" value="1" checked>
           <span>Save participation</span>
         </label>
+        <fieldset class="end-live-run-mode" role="group" aria-label="Test or Live class">
+          <span class="end-live-run-mode-label">Class run</span>
+          <label class="end-live-run-mode-option">
+            <input type="radio" name="run_mode" value="test">
+            <span>Test</span>
+          </label>
+          <label class="end-live-run-mode-option">
+            <input type="radio" name="run_mode" value="live">
+            <span>Live</span>
+          </label>
+        </fieldset>
       </div>
       <div class="end-live-dialog-actions">
         <button type="button" class="secondary" data-close-end-live>Cancel</button>

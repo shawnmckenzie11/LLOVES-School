@@ -231,7 +231,7 @@ class CatchupWithDefaultPinTests(Base):
     def setUp(self) -> None:
         super().setUp()
         self.secret = str(self.app.secret_key or "")
-        self.run_class("M2", "C1", individual=3, group=0, answers={self.students[0]: 2})
+        self.run_class("M2", "C1", individual=3, group=0, answers={self.students[0]: 2, self.students[1]: 3})
         self.token = self.school.list_catchup_links(self.class_id)[0]["token"]
         self.school.ensure_default_pins_for_class(self.class_id, self.secret)
         row = self.school.game.conn.execute(

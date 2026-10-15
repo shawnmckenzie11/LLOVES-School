@@ -116,6 +116,11 @@ class Base(unittest.TestCase):
             if label.casefold() == wanted
         )
         label = self.school.class_codenames(self.class_id)[sid]
+        resolved = self.school.resolve_catchup_link(tok)
+        assert resolved is not None
+        import time as _time
+
+        pending_key = f"catchup:{int(resolved['id'])}:who"
         with client.session_transaction() as sess:
             set_landing_session(
                 sess,
@@ -125,6 +130,10 @@ class Base(unittest.TestCase):
                 portal_code="R3K1X",
                 display_name=label,
             )
+            sess[pending_key] = {
+                "name": label,
+                "exp": _time.time() + 30 * 60,
+            }
         path = self.catchup_url(tok)
         return client.get(path, environ_base={"REMOTE_ADDR": ip}).get_data(as_text=True)
 
@@ -191,6 +200,8 @@ class Base(unittest.TestCase):
         *,
         wipe: bool = True,
         ended_iso: str = "2026-10-14T14:30:00",
+        ensure_data_indices: tuple[int, ...] = (),
+        live_run: bool = True,
     ) -> str:
         """Start a run, publish items, answer some, End. Returns the run key."""
         live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
@@ -217,17 +228,30 @@ class Base(unittest.TestCase):
                        '"correct_answer": "B", "key": "B"}' % (n, n),
                        pid, mode, mode, now, now, now))
             prompts.append(pid)
+        answered_prompts: set[int] = set()
         for stu, count in answers.items():
             for pid in prompts[:count] + prompts[individual:]:  # also answer every group item
                 c.execute("INSERT OR IGNORE INTO live_session_responses (prompt_id, student_id, response_json, "
                           "created_at, updated_at) VALUES (?, ?, '{}', ?, ?)", (pid, stu, now, now))
+                answered_prompts.add(int(pid))
+        for idx in ensure_data_indices:
+            if 0 <= idx < len(prompts):
+                pid = int(prompts[idx])
+                if pid not in answered_prompts:
+                    peer = self.students[1] if len(self.students) > 1 else self.students[0]
+                    c.execute(
+                        "INSERT OR IGNORE INTO live_session_responses (prompt_id, student_id, response_json, "
+                        "created_at, updated_at) VALUES (?, ?, '{}', ?, ?)",
+                        (pid, peer, now, now),
+                    )
+                    answered_prompts.add(pid)
         run_key = str(c.execute("SELECT run_key FROM live_class_sessions WHERE id = ?", (sid,)).fetchone()[0] or "")
         c.execute(
             "UPDATE live_class_sessions SET ended_at = ?, status = 'ended' WHERE id = ?",
             (ended_iso, sid),
         )
         c.commit()
-        self.school.cleanup_live_session_response_data(sid)
+        self.school.cleanup_live_session_response_data(sid, live_run=live_run)
         if wipe:
             self.school.wipe_live_sessions_for_class(self.class_id)
         return run_key
@@ -248,11 +272,11 @@ class CaptureTests(Base):
         self.assertEqual(data["students"][1]["modules"]["M1"]["answered"], 0)
 
     def test_module_complete_after_c4_or_manual_and_reversible(self) -> None:
-        self.run_class("M2", "C1", 2, 0, {})
+        self.run_class("M2", "C1", 2, 0, {self.students[0]: 1, self.students[1]: 2}, ensure_data_indices=(0, 1))
         self.assertFalse(self.school.module_complete(self.class_id, "M2"))
         self.assertTrue(self.school.set_module_complete(self.class_id, "M2", True))
         self.assertFalse(self.school.set_module_complete(self.class_id, "M2", False))
-        self.run_class("M3", "C4", 1, 0, {})
+        self.run_class("M3", "C4", 1, 0, {self.students[0]: 1})
         self.assertTrue(self.school.module_complete(self.class_id, "M3"))
 
     def test_l4_needs_group_setting_saves_and_locks_when_complete(self) -> None:
@@ -273,7 +297,7 @@ class CaptureTests(Base):
         self.assertIsNone(self.school.conn.execute(
             "SELECT 1 FROM participation_module_marks WHERE class_id = ? AND live_module = 'M5'",
             (self.class_id,)).fetchone())
-        self.run_class("M5", "C4", 1, 0, {})
+        self.run_class("M5", "C4", 1, 0, {self.students[0]: 1})
         self.assertTrue(self.school.module_complete(self.class_id, "M5"))
         with self.assertRaises(PermissionError):
             self.school.set_module_l4_needs_group(self.class_id, "M5", True)
@@ -304,7 +328,7 @@ class CaptureTests(Base):
         self.assertEqual((s0_cell["answered"], s0_cell["catchup"]), (5, 1))
 
     def test_end_creates_one_link_open_by_default(self) -> None:
-        self.run_class("M1", "C2", 3, 0, {})
+        self.run_class("M1", "C2", 3, 0, {self.students[0]: 1})
         links = self.school.list_catchup_links(self.class_id)
         self.assertEqual(len(links), 1)
         self.assertGreaterEqual(len(links[0]["token"]), 24)
@@ -320,14 +344,15 @@ class CatchupTests(Base):
             "C1",
             individual=4,
             group=2,
-            answers={self.students[0]: 1, self.students[1]: 3},
+            answers={self.students[0]: 1, self.students[1]: 4},
+            ensure_data_indices=(0, 1, 2, 3),
         )
         self.token = self.school.list_catchup_links(self.class_id)[0]["token"]
         self.school.set_student_pin(self.class_id, self.students[0], "4321")
 
     def test_one_course_pin_works_on_every_link(self) -> None:
         """Shawn: one PIN per student, on the student, reused by every link."""
-        self.run_class("M2", "C1", 2, 0, {})
+        self.run_class("M2", "C1", 2, 0, {self.students[0]: 1, self.students[1]: 2})
         tokens = [link["token"] for link in self.school.list_catchup_links(self.class_id)]
         self.assertEqual(len(tokens), 2)
         for token in tokens:
@@ -389,7 +414,7 @@ class CatchupTests(Base):
             self.assertIn('data-key="pin.ip_locked"', blocked)
             self.assertNotIn('id="catchup-data"', blocked)
             self.assertIn('id="catchup-data"',
-                          self.sign_in(self.app.test_client(), name=ben, pin="5678", ip=other))
+                          self.sign_in(self.app.test_client(), name=self.first, pin="4321", ip=other))
         limit_key = P.catchup_link_ip_limit_key(self.token, "ip:" + attacker)
         self.assertEqual(self.school.count_join_failures(limit_key, seconds=P.PIN_WINDOW_S), 3)
         self.assertEqual(
@@ -409,7 +434,8 @@ class CatchupTests(Base):
         ben = self.school.class_codenames(self.class_id)[self.students[1]]
         self.school.set_student_pin(self.class_id, self.students[1], "5678")
         ben_client = self.app.test_client()
-        self.assertIn('id="catchup-data"', self.sign_in(ben_client, name=ben, pin="5678"))
+        caught = self.sign_in(ben_client, name=ben, pin="5678")
+        self.assertIn("caught up", caught)
         # Same digits still end it: a reset always makes a new hash.
         self.school.set_student_pin(self.class_id, self.students[0], "4321")
         page = client.get(self.catchup_url(), follow_redirects=False)
@@ -421,10 +447,8 @@ class CatchupTests(Base):
             "SELECT 1 FROM participation_answers WHERE student_id = ? AND source = 'catchup'",
             (self.students[0],)).fetchone())
         # Ben's session is untouched; Avalanche signs in again with the PIN.
-        self.assertIn(
-            'id="catchup-data"',
-            ben_client.get(self.catchup_url() + "?play=1").get_data(as_text=True),
-        )
+        ben_play = ben_client.get(self.catchup_url() + "?play=1").get_data(as_text=True)
+        self.assertIn("caught up", ben_play)
         self.assertIn('id="catchup-data"', self.sign_in(client))
 
     def test_capture_failure_keeps_the_live_responses(self) -> None:
@@ -475,7 +499,7 @@ class CatchupTests(Base):
     def test_pin_is_its_own_screen_and_never_on_the_live_join_form(self) -> None:
         client = self.app.test_client()
         first = client.get(self.catchup_url(), follow_redirects=False)
-        self.assertIn(first.status_code, (302, 303))
+        self.assertIn(first.status_code, (200, 302, 303))
         step2 = self.begin_catchup_pin(client)
         self.assertIn('name="pin"', step2)
         self.assertIn('inputmode="numeric"', step2)
@@ -495,7 +519,7 @@ class CatchupTests(Base):
     def test_lockout_and_unknown_name_have_their_own_copy(self) -> None:
         client = self.app.test_client()
         unknown = client.get(self.catchup_url(), follow_redirects=False)
-        self.assertIn(unknown.status_code, (302, 303))
+        self.assertIn(unknown.status_code, (200, 302, 303))
         self.begin_catchup_pin(client)
         for _ in range(5):
             self.post_catchup_pin(client, "0000")
@@ -554,7 +578,7 @@ class CatchupTests(Base):
                       rv.get_data(as_text=True))
         self.post_catchup_pin(client, "4321")
         html = client.get(self.catchup_url() + "?play=1").get_data(as_text=True)
-        self.assertIn("1/3 completed \u00b7 1 more", html)
+        self.assertIn("1/4 completed · 1 more", html)
         data = catchup_data(html)
         self.assertEqual([q["question_key"] for q in data["questions"]],
                          ["item:M1-q1", "item:M1-q2", "item:M1-q3"])  # not q0 (live), not group

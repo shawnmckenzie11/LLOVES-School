@@ -7015,11 +7015,9 @@ async function pollLiveSessionAttendees(opts = {}) {
       sessionPollQueued = null;
       setLiveReconnectBanner(Boolean(fault), fault);
       paintJoinBillboard("", { ended: true });
-      paintRunClassKind(payload?.ended_run);
       stopLiveSessionPolling();
       return;
     }
-    paintRunClassKind(null);
     if (
       payload?.error === "state unavailable" ||
       isLiveStateBusy(payload) ||
@@ -12744,64 +12742,60 @@ function spawnScorePop(name) {
   window.setTimeout(() => chip.remove(), 5000);
 }
 
-/** Last run-key posted so a double toggle does not stack requests. */
-let runClassKindBusy = "";
-
-/**
- * Show the Real class / Test toggle after End (MCK-207).
- * @param {{run_key?: string, is_real?: boolean} | null | undefined} endedRun
- */
-function paintRunClassKind(endedRun) {
-  const root = document.getElementById("run-class-kind");
-  if (!(root instanceof HTMLElement)) return;
-  const key = String(endedRun?.run_key || "").trim();
-  if (!key || !classId) {
-    root.hidden = true;
-    return;
-  }
-  root.hidden = false;
-  root.dataset.runKey = key;
-  const pick = endedRun?.is_real ? "real" : "test";
-  root.querySelectorAll('input[name="run-class-kind"]').forEach((input) => {
-    if (input instanceof HTMLInputElement) input.checked = input.value === pick;
-  });
-}
-
-/**
- * Teacher-only toggle: flip real vs test for the ended run.
- */
-function wireRunClassKindToggle() {
-  const root = document.getElementById("run-class-kind");
-  if (!(root instanceof HTMLElement) || !classId) return;
-  root.addEventListener("change", async (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLInputElement) || target.name !== "run-class-kind") return;
-    const runKey = root.dataset.runKey || "";
-    if (!runKey || runClassKindBusy === runKey) return;
-    runClassKindBusy = runKey;
-    const real = target.value === "real";
-    try {
-      await api(`/api/classes/${classId}/participation/runs/${encodeURIComponent(runKey)}/class-kind`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ real }),
-      });
-    } catch {
-      paintRunClassKind({ run_key: runKey, is_real: !real });
-    } finally {
-      runClassKindBusy = "";
-    }
-  });
-}
-
 /**
  * Open / close the End Live Class save-options dialog.
  */
+function syncEndLiveSaveCheckboxes(dialog) {
+  const testOn = dialog.querySelector(
+    'input[name="run_mode"][value="test"]'
+  );
+  const isTest = testOn instanceof HTMLInputElement && testOn.checked;
+  const att = dialog.querySelector('input[name="save_attendance"]');
+  const part = dialog.querySelector('input[name="save_participation"]');
+  if (!(att instanceof HTMLInputElement) || !(part instanceof HTMLInputElement)) {
+    return;
+  }
+  if (isTest) {
+    if (dialog.dataset.saveAttendanceStash === undefined) {
+      dialog.dataset.saveAttendanceStash = att.checked ? "1" : "0";
+      dialog.dataset.saveParticipationStash = part.checked ? "1" : "0";
+    }
+    att.checked = false;
+    part.checked = false;
+    return;
+  }
+  if (dialog.dataset.saveAttendanceStash !== undefined) {
+    att.checked = dialog.dataset.saveAttendanceStash === "1";
+    part.checked = dialog.dataset.saveParticipationStash === "1";
+    delete dialog.dataset.saveAttendanceStash;
+    delete dialog.dataset.saveParticipationStash;
+  }
+}
+
+function applyEndLiveRunModeDefault(dialog) {
+  delete dialog.dataset.saveAttendanceStash;
+  delete dialog.dataset.saveParticipationStash;
+  const mode = String(dialog.dataset.endLiveDefault || "test").toLowerCase();
+  const pick = mode === "live" ? "live" : "test";
+  dialog.querySelectorAll('input[name="run_mode"]').forEach((input) => {
+    if (input instanceof HTMLInputElement) {
+      input.checked = input.value === pick;
+    }
+  });
+  syncEndLiveSaveCheckboxes(dialog);
+}
+
 function wireEndLiveDialog() {
   const dialog = document.getElementById("end-live-dialog");
   if (!(dialog instanceof HTMLDialogElement)) return;
+  dialog.querySelectorAll('input[name="run_mode"]').forEach((input) => {
+    input.addEventListener("change", () => syncEndLiveSaveCheckboxes(dialog));
+  });
   document.querySelectorAll("[data-open-end-live]").forEach((btn) => {
-    btn.addEventListener("click", () => dialog.showModal());
+    btn.addEventListener("click", () => {
+      applyEndLiveRunModeDefault(dialog);
+      dialog.showModal();
+    });
   });
   dialog.querySelector("[data-close-end-live]")?.addEventListener("click", () => {
     dialog.close();
@@ -12809,7 +12803,6 @@ function wireEndLiveDialog() {
 }
 
 wireEndLiveDialog();
-wireRunClassKindToggle();
 if (
   liveSessionId
   && new URLSearchParams(window.location.search).get("tab") === "live"

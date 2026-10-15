@@ -193,6 +193,7 @@ class ProdMigrationFixture(unittest.TestCase):
         link_closed: bool = False,
         link_token: str | None = None,
         wrong_run_key: str | None = None,
+        is_test_rehearsal: bool = False,
     ) -> None:
         run_key = wrong_run_key or f"prod-{suffix}-run"
         stu = self.students[0]
@@ -224,6 +225,15 @@ class ProdMigrationFixture(unittest.TestCase):
             """,
             (sid, class_id, run_key, module, slot, stu, ended_utc, ended_utc),
         )
+        if is_test_rehearsal:
+            self.school.conn.execute(
+                """
+                INSERT OR IGNORE INTO participation_runs (
+                    class_id, run_key, is_real, auto_is_real, discarded
+                ) VALUES (?, ?, 0, 0, 0)
+                """,
+                (class_id, run_key),
+            )
         if link_id is not None or link_token:
             token = link_token or f"tok-{suffix}"
             open_flag = 0 if link_closed else 1
@@ -273,17 +283,15 @@ class ProdMigrationFixture(unittest.TestCase):
         self._insert_snapshot("1b01", c9, "M2", "C3", real_1030, link_id=5, link_closed=True)
         self._insert_snapshot("9a20", c10, "M2", "C3", real_1155)
         self._insert_snapshot(
-            "8312", c10, "M2", "C3", test_utc, link_id=6, link_closed=True, link_token="tok-8312"
-        )
+            "8312", c10, "M2", "C3", test_utc, link_id=6, link_closed=True, link_token="tok-8312", is_test_rehearsal=True)
         self._insert_snapshot("7e0c", c9, "M2", "C4", real_1030, link_id=8, link_closed=True)
         self._insert_snapshot("4373", c10, "M2", "C4", real_1155, link_id=7, link_closed=True)
-        self._insert_snapshot("3b4b", c9, "M2", "C3", test_utc)
-        self._insert_snapshot("a5d4", c9, "M2", "C1", test_utc)
+        self._insert_snapshot("3b4b", c9, "M2", "C3", test_utc, is_test_rehearsal=True)
+        self._insert_snapshot("a5d4", c9, "M2", "C1", test_utc, is_test_rehearsal=True)
         self._insert_snapshot("7656", c9, "M2", "C5", real_1030, link_id=2, link_token="good-link-2")
         self._insert_snapshot("d20a", c8, "M2", "C3", real_mcf)
         self._insert_snapshot(
-            "0dae", c8, "M2", "C3", test_utc, link_id=9, link_closed=True, link_token="tok-0dae"
-        )
+            "0dae", c8, "M2", "C3", test_utc, link_id=9, link_closed=True, link_token="tok-0dae", is_test_rehearsal=True)
         self._insert_snapshot("2af3", c8, "M2", "C4", real_mcf, link_id=10, link_closed=True)
         self.school.conn.execute(
             """
@@ -326,12 +334,13 @@ class MigrationApplyTests(ProdMigrationFixture):
         self.assertEqual([tuple(x) for x in detail["run_targets"]], list(migration.RUN_TARGETS))
 
     def test_abort_on_mismatch_leaves_no_marker(self) -> None:
+        # MCK-233: rehearsal is teacher/stored kind, not snapshot time.
         self.school.conn.execute(
             """
-            UPDATE live_result_snapshots SET snapshot_at = ?, answered_at = ?
-            WHERE run_key LIKE '%7e0c%'
-            """,
-            ("2026-10-20T22:00:00", "2026-10-20T22:00:00"),
+            INSERT OR REPLACE INTO participation_runs (
+                class_id, run_key, is_real, auto_is_real, discarded
+            ) VALUES (9, 'prod-7e0c-run', 0, 0, 0)
+            """
         )
         self.school.conn.commit()
         result = run_mck210_catchup_migration_if_needed(self.school)

@@ -23,7 +23,8 @@ sys.path.insert(0, str(REPO_ROOT))
 os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
-from app import create_app  # noqa: E402
+from app import create_app
+from test_end_live_helpers import end_live_live_form  # noqa: E402
 import celebration  # noqa: E402
 from celebration import (  # noqa: E402
     CELEBRATIONS_FROZEN_ENV,
@@ -1129,7 +1130,7 @@ class CelebrationTests(unittest.TestCase):
         self.assertEqual(self._engaged_names(), {})
         self.assertIsNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))
         ended = self.client.post(
-            f"/staff/class/{class_id}/end-live", data={"end_options": "1"}
+            f"/staff/class/{class_id}/end-live", data=end_live_live_form()
         )
         self.assertIn(ended.status_code, (200, 302))
         self.assertFalse(self.school.has_active_live_sessions())
@@ -1161,7 +1162,7 @@ class CelebrationTests(unittest.TestCase):
         self.assertIsNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))
         ended = self.client.post(
             f"/staff/class/{class_id}/end-live",
-            data={"end_options": "1", "save_attendance": "1"},
+            data=end_live_live_form(save_attendance="1"),
         )
         self.assertIn(ended.status_code, (200, 302))
         self.assertEqual(self._engaged_names(), {"MCF3M": ["Bellamy", "Cordelia"]})
@@ -1179,7 +1180,7 @@ class CelebrationTests(unittest.TestCase):
         self.assertEqual(started.status_code, 200, started.get_json())
         self.assertEqual(self._engaged_names(), {"MCF3M": ["Birch", "Cedar", "Maple"]})
         self.assertIsNone(self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None))
-        self.client.post(f"/staff/class/{other}/end-live", data={"end_options": "1"})
+        self.client.post(f"/staff/class/{other}/end-live", data=end_live_live_form())
         self.assertEqual(self._engaged_names(), {"MCF3M": ["Birch", "Cedar", "Maple"]})
         raw = self.school.get_school_setting(SETTING_PUBLIC_SNAPSHOT, None)
         self.assertIsNotNone(raw)

@@ -290,11 +290,11 @@ class EndParticipationAddsTests(shell.LiveShellTests):
         active = self.school.get_active_live_session_for_class(self.class_id)
         assert active is not None
         run = str(active["run_key"])
-        self.school.finish_live_class(self.class_id, celebrate=True, run_key=run)
+        self.school.finish_live_class(self.class_id, celebrate=True, run_key=run, live_run=True)
         columns = self._columns()
         claims = self._claims()
         late = self.school.finish_live_class(
-            self.class_id, celebrate=True, run_key=run
+            self.class_id, celebrate=True, run_key=run, live_run=True
         )
         self.assertTrue(late.get("already_ended"), late)
         self.assertEqual(self._columns(), columns, "phantom class-day column")
@@ -331,7 +331,7 @@ class EndParticipationAddsTests(shell.LiveShellTests):
         self.school.game.persist_end_class_column(
             self.class_id, [student_id], {student_id: 2}, create_game=False
         )
-        self.school.finish_live_class(self.class_id, celebrate=True)
+        self.school.finish_live_class(self.class_id, celebrate=True, live_run=False)
         self.assertEqual(self._columns(), columns)
 
     def test_stale_claim_from_a_dead_worker_is_retaken(self) -> None:
@@ -458,7 +458,7 @@ class EndParticipationAddsTests(shell.LiveShellTests):
         game.persist_end_class_column = busy_then_done  # type: ignore[method-assign]
         try:
             result = self.school.finish_live_class(
-                self.class_id, celebrate=True, run_key=str(active["run_key"])
+                self.class_id, celebrate=True, run_key=str(active["run_key"]), live_run=True
             )
         finally:
             del game.persist_end_class_column

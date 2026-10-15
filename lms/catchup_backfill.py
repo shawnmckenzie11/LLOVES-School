@@ -3,8 +3,9 @@
 Offered individual questions are exactly those with at least one student
 answer in the snapshot (unpublished or unanswered prompts are omitted).
 
-Catch-up links follow MCK-207: one shared OPEN link per class lesson slot on
-the latest *real* run. Repair targets explicit ``live_class_sessions.id``
+Catch-up links follow MCK-207 / MCK-233: one shared OPEN link per class
+lesson slot on the latest *real* run (teacher checkbox at End Live Class;
+no schedule auto-discard). Repair targets explicit ``live_class_sessions.id``
 values and never reclassifies sibling runs in the same slot.
 """
 
@@ -118,12 +119,9 @@ def _run_real_for_link_decision(
     kind = school.participation_run_kind(int(class_id), str(run_key))
     if kind is not None:
         return bool(kind.get("is_real"))
-    if ended_at:
-        return school.preview_participation_run_real(int(class_id), ended_at=str(ended_at))
-    ended = school.ended_at_for_participation_run(int(class_id), str(run_key))
-    if ended:
-        return school.preview_participation_run_real(int(class_id), ended_at=ended)
-    return False
+    return school.preview_participation_run_real(
+        int(class_id), run_key=str(run_key)
+    )
 
 
 def _plan_real_run_link(
@@ -319,7 +317,9 @@ def _repair_one_run_row(
         if apply:
             is_real = school.classify_participation_run(cid, key, ended_at=ended_at)
         else:
-            is_real = school.preview_participation_run_real(cid, ended_at=ended_at)
+            is_real = school.preview_participation_run_real(
+                cid, ended_at=ended_at, run_key=key
+            )
     except CatchupScheduleError as exc:
         out.append(
             BackfillRunReport(
@@ -466,7 +466,9 @@ def _sync_one_lesson_slot(
         if apply:
             is_real = school.classify_participation_run(class_id, run_key, ended_at=ended_at)
         else:
-            is_real = school.preview_participation_run_real(class_id, ended_at=ended_at)
+            is_real = school.preview_participation_run_real(
+                class_id, ended_at=ended_at, run_key=run_key
+            )
         row["is_real"] = is_real
         row["ended_at"] = ended_at
         kind_action = "classify real" if is_real else "classify test"

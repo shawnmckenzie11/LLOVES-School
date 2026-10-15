@@ -72,6 +72,7 @@ class LessonSlidesBackfillTests(RealVsTestFlowTests):
         *,
         ended_iso: str,
         run_key: str | None = None,
+        live_run: bool = True,
     ) -> str:
         """End a real run but keep the session row for backfill (prod-shaped)."""
         live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
@@ -102,6 +103,11 @@ class LessonSlidesBackfillTests(RealVsTestFlowTests):
                 now,
             ),
         )
+        c.execute(
+            "INSERT INTO live_session_responses (prompt_id, student_id, response_json, created_at, updated_at) "
+            "VALUES (?, ?, '{}', ?, ?)",
+            (int(pid), int(self.students[0]), now, now),
+        )
         c.commit()
         c.execute(
             "UPDATE live_class_sessions SET ended_at = ?, status = 'ended' WHERE id = ?",
@@ -112,7 +118,7 @@ class LessonSlidesBackfillTests(RealVsTestFlowTests):
             c.execute("SELECT run_key FROM live_class_sessions WHERE id = ?", (sid,)).fetchone()[0]
             or ""
         )
-        self.school.cleanup_live_session_response_data(sid)
+        self.school.cleanup_live_session_response_data(sid, live_run=live_run)
         LessonSlidesBackfillTests._ensure_real_student_answer(self, key, module, slot, now)
         c.execute("DELETE FROM lesson_slides_latest WHERE class_id = ?", (int(self.class_id),))
         c.commit()
@@ -172,6 +178,7 @@ class LessonSlidesBackfillTests(RealVsTestFlowTests):
             "M4",
             "C1",
             ended_iso="2026-10-20T15:00:00",
+            live_run=False,
         )
         self.assertFalse(self.school.participation_run_kind(self.class_id, test_key)["is_real"])
         backfill_lesson_slides_latest(self.school)
@@ -259,6 +266,7 @@ class LessonSlidesBackfillTests(RealVsTestFlowTests):
             "M1",
             "C2",
             ended_iso="2026-10-20T15:00:00",
+            live_run=False,
         )
         self.school.conn.execute(
             """
