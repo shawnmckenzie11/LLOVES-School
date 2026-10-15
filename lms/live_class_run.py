@@ -30,10 +30,11 @@ class RealClassWindow:
 
 @dataclass(frozen=True)
 class LiveClassSchedule:
-    """Days preset (``M/W/F``) and scheduled end time label (``10:30am``)."""
+    """Days preset (``M/W/F``) and scheduled start/end time labels."""
 
     days_key: str
     end_time_label: str
+    start_time_label: str = ""
 
 
 def load_real_class_window(path: Path | None = None) -> RealClassWindow:
@@ -135,12 +136,54 @@ def classify_run_end(
     return start <= local <= finish
 
 
+
+
+def load_real_class_start_window(path: Path | None = None) -> RealClassWindow:
+    """Read start-time slack from ``live_class_run.json`` (MCK-229 backfill)."""
+    target = path or CONFIG_PATH
+    data: dict[str, Any] = {}
+    if target.is_file():
+        try:
+            raw = json.loads(target.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                data = raw.get("real_class_start_window") or raw
+        except (OSError, json.JSONDecodeError, TypeError):
+            data = {}
+    before = int(data.get("minutes_before_scheduled_start") or 10)
+    after = int(data.get("minutes_after_scheduled_start") or 90)
+    return RealClassWindow(before_min=max(0, before), after_min=max(0, after))
+
+
+def classify_run_start(
+    ended_at: datetime,
+    schedule: LiveClassSchedule,
+    *,
+    window: RealClassWindow | None = None,
+) -> bool:
+    """Return True when ``ended_at`` falls on a scheduled day within the start window."""
+    slack = window or load_real_class_start_window()
+    if not str(schedule.days_key or "").strip() or not str(schedule.start_time_label or "").strip():
+        return False
+    weekdays = _weekdays_for_days_key(schedule.days_key)
+    local = ended_at.astimezone(TORONTO) if ended_at.tzinfo else ended_at.replace(tzinfo=TORONTO)
+    if local.weekday() not in weekdays:
+        return False
+    start_clock = _parse_time_label(schedule.start_time_label)
+    class_start = local.replace(
+        hour=start_clock.hour, minute=start_clock.minute, second=0, microsecond=0
+    )
+    start = class_start - timedelta(minutes=slack.before_min)
+    finish = class_start + timedelta(minutes=slack.after_min)
+    return start <= local <= finish
+
 def schedule_from_row(
     *,
     live_days: str | None,
     live_end_time: str | None,
+    live_time: str | None = None,
     fallback_days: str | None = None,
     fallback_end: str | None = None,
+    fallback_start: str | None = None,
 ) -> LiveClassSchedule | None:
     """Build a schedule from offering/course columns.
 
@@ -149,9 +192,10 @@ def schedule_from_row(
     """
     days = (live_days or "").strip() or (fallback_days or "").strip()
     end = (live_end_time or "").strip() or (fallback_end or "").strip()
+    start = (live_time or "").strip() or (fallback_start or "").strip()
     if not days or not end:
         return None
-    return LiveClassSchedule(days_key=days, end_time_label=end)
+    return LiveClassSchedule(days_key=days, end_time_label=end, start_time_label=start)
 
 
 def end_time_options() -> tuple[str, ...]:

@@ -101,6 +101,24 @@ def _question_summary_text(summary: dict[str, Any]) -> str:
     return " · ".join(parts)
 
 
+from lesson_slides_run_policy import display_ended_at_from_latest, effective_run_is_real
+
+
+def catchup_run_visible_for_staff(
+    school: Any, class_id: int, catchup: dict[str, Any] | None
+) -> bool:
+    """Staff Lesson Slides: only surface catch-up runs that are real and not discarded."""
+    if not catchup:
+        return False
+    if bool(catchup.get("discarded")):
+        return False
+    run_key = str(catchup.get("run_key") or "").strip()
+    if not run_key:
+        return False
+    return effective_run_is_real(school, int(class_id), run_key)
+
+
+
 def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
     """Build the Lesson Slides table payload for one class.
 
@@ -164,12 +182,7 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
         run_key = ""
         if latest and str(latest.get("run_key") or "").strip():
             run_key = str(latest["run_key"])
-        elif (
-            catchup
-            and str(catchup.get("run_key") or "").strip()
-            and bool(catchup.get("is_real", True))
-            and not bool(catchup.get("discarded"))
-        ):
+        elif catchup_run_visible_for_staff(school, cid, catchup):
             run_key = str(catchup["run_key"])
         has_run = bool(run_key)
         catchup_url = ""
@@ -189,10 +202,8 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
             str(latest.get("session_code") or "").strip() if latest else ""
         )
         join_code = portal_code or session_code
-        last_run_at = ""
-        if latest and str(latest.get("ended_at") or "").strip():
-            last_run_at = str(latest["ended_at"])
-        elif has_run and run_key:
+        last_run_at = display_ended_at_from_latest(latest) if latest else ""
+        if not last_run_at and has_run and run_key:
             last_run_at = school.ended_at_for_participation_run(cid, run_key)
         rows.append(
             {

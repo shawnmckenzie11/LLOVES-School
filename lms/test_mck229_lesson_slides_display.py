@@ -41,11 +41,13 @@ class LessonSlidesTorontoDisplayTests(unittest.TestCase):
         self.assertIn("America/Toronto", js)
 
 
+
+
 class ParticipationEndedAtBackfillSafetyTests(RealVsTestFlowTests):
-    """``_backfill_participation_runs_ended_at`` only fills missing ``ended_at``."""
+    """Lesson slides backfill never mass-writes ``participation_runs.ended_at`` (#322)."""
 
     def test_ended_at_backfill_never_overwrites_or_changes_flags(self) -> None:
-        """Existing ``ended_at``, ``is_real``, and ``discarded`` stay intact."""
+        """``backfill_lesson_slides_latest`` does not touch stored run flags or ``ended_at``."""
         run_key = LessonSlidesBackfillTests._ended_real_run_keep_session(
             self,
             "M2",
@@ -77,8 +79,8 @@ class ParticipationEndedAtBackfillSafetyTests(RealVsTestFlowTests):
                 (int(self.class_id), run_key),
             ).fetchone()
         )
-        self.school._backfill_participation_runs_ended_at_unlocked()
-        self.school._backfill_participation_runs_ended_at_unlocked()
+        backfill_lesson_slides_latest(self.school)
+        backfill_lesson_slides_latest(self.school)
         after = dict(
             c.execute(
                 "SELECT is_real, discarded, ended_at FROM participation_runs WHERE class_id = ? AND run_key = ?",
@@ -88,7 +90,7 @@ class ParticipationEndedAtBackfillSafetyTests(RealVsTestFlowTests):
         self.assertEqual(after, before)
 
     def test_ended_at_backfill_fills_only_empty(self) -> None:
-        """Rows missing ``ended_at`` get a value; flags are unchanged."""
+        """Missing ``ended_at`` stays empty on ``participation_runs``; latest row uses inferred time."""
         c = self.school.conn
         c.execute(
             """
@@ -107,17 +109,37 @@ class ParticipationEndedAtBackfillSafetyTests(RealVsTestFlowTests):
             """,
             (int(self.class_id),),
         )
+        student_id = int(self.students[0])
+        c.execute(
+            """
+            INSERT INTO participation_answers (
+                class_id, run_key, live_module, question_key, student_id, source,
+                answer_json, answered_at
+            ) VALUES (?, 'orphan-run', 'M1', 'item:q0', ?, 'live', '{}', '2026-10-14T15:00:00')
+            """,
+            (int(self.class_id), student_id),
+        )
         c.commit()
-        self.school._backfill_participation_runs_ended_at_unlocked()
+        backfill_lesson_slides_latest(self.school)
         row = c.execute(
             "SELECT is_real, discarded, ended_at FROM participation_runs WHERE run_key = 'orphan-run'"
         ).fetchone()
         self.assertEqual(int(row["is_real"]), 1)
         self.assertEqual(int(row["discarded"]), 0)
-        self.assertEqual(str(row["ended_at"]), "2026-10-14T15:00:00")
+        self.assertFalse(str(row["ended_at"] or "").strip())
+        latest = c.execute(
+            """
+            SELECT ended_at_inferred, inferred_ended_at FROM lesson_slides_latest
+            WHERE class_id = ? AND live_module = 'M1' AND live_slot = 'C3'
+            """,
+            (int(self.class_id),),
+        ).fetchone()
+        self.assertIsNotNone(latest)
+        self.assertEqual(int(latest["ended_at_inferred"]), 1)
+        self.assertTrue(str(latest["inferred_ended_at"] or "").strip())
 
 
-class LessonSlidesJoinCodeDisplayTests(RealVsTestFlowTests):
+class LessonSlidesJoinCodeDisplayTests(LessonSlidesBackfillTests):
     """Backfilled rows use catch-up portal code when session code is empty."""
 
     def test_backfilled_row_shows_portal_not_empty_session_code(self) -> None:
