@@ -5997,9 +5997,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if ids is None:
             pin_sid = _catchup_student_for_class(school, int(session.get("student_class_id") or 0))
             if pin_sid is not None:
-                bind_pin_portal_session(
-                    session, school, int(session.get("student_class_id")), int(pin_sid)
-                )
+                try:
+                    bind_pin_portal_session(
+                        session, school, int(session.get("student_class_id")), int(pin_sid)
+                    )
+                except PermissionError:
+                    return redirect(url_for("landing"))
                 ids = (int(session.get("student_class_id")), int(pin_sid))
         if ids is None:
             return redirect(url_for("landing"))
@@ -9399,7 +9402,14 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
         def go_student_dashboard(sid: int) -> Any:
             """Bind PIN portal session and open the class dashboard (MCK-208)."""
-            bind_pin_portal_session(session, school, class_id, int(sid))
+            try:
+                bind_pin_portal_session(session, school, class_id, int(sid))
+            except PermissionError:
+                from participation import KEY_PIN_SIGN_IN_AGAIN
+
+                session.pop(CATCHUP_IDENTITY_KEY, None)
+                clear_global_student_keys(session)
+                return pin_screen(KEY_PIN_SIGN_IN_AGAIN)
             live_resp = _student_dashboard_redirect_if_live(school, class_id, int(sid))
             if live_resp is not None:
                 return live_resp
@@ -9510,7 +9520,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     session.pop(f"catchup_pin_later:{class_id}:{student_id}", None)
                     pin_saved_toast = "PIN saved. You're set for catch-up."
                 except PermissionError:
-                    pin_error = "Sign in on the catch-up page to set your PIN."
+                    from participation import KEY_PIN_SIGN_IN_AGAIN
+
+                    pin_error = copy(KEY_PIN_SIGN_IN_AGAIN)["text"]
                 except ValueError as exc:
                     pin_error = str(exc)
             pin_prompt = school.catchup_pin_prompt_for_student(class_id, int(student_id))

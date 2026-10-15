@@ -56,6 +56,7 @@ KEY_PIN_IP_LOCKED = "pin.ip_locked"
 KEY_PIN_TRY_LATER = "pin.try_later"
 KEY_PIN_STUDENT_SOFT = "pin.student_soft"
 KEY_PIN_CURRENT_REQUIRED = "pin.current_required"
+KEY_PIN_SIGN_IN_AGAIN = "pin.sign_in_again"
 COPY_FALLBACKS = {
     KEY_PIN_NOT_SET: "Your teacher hasn't set your PIN yet. Ask your teacher.",
     KEY_PIN_IP_LOCKED: "Too many tries from this device. Wait 15 minutes and try again.",
@@ -68,6 +69,9 @@ COPY_FALLBACKS = {
     KEY_PIN_LOCKED: "Too many tries. Wait 15 minutes or ask your teacher to reset your PIN.",
     KEY_NAME_UNKNOWN: "We couldn't find that name. Pick your name from the list.",
     KEY_PIN_WRONG: COPY_WRONG_PIN,
+    KEY_PIN_SIGN_IN_AGAIN: (
+        "Sign in again with your catch-up PIN. Your teacher may have reset it."
+    ),
 }
 
 
