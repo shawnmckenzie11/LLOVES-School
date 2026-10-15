@@ -1083,6 +1083,15 @@ body.student-home .student-live-response:has(.student-live-card) > .student-wait
   font-weight: 650;
 }
 
+/* MCK-42: the answer is on this device and will send when the link returns. */
+.student-live-unsent-pending {
+  margin: 0.6rem 0 0;
+  color: #f5d48a;
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
 .prompt-dismiss {
   position: absolute;
   z-index: 4;

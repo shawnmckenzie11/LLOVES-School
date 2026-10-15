@@ -1758,6 +1758,8 @@ def _ev_prompt_points(db: Any, a: dict[str, Any], r: Any) -> list[dict[str, Any]
 
 
 def _ev_answer(db: Any, a: dict[str, Any], r: Any) -> dict[str, Any] | None:
+    if isinstance(r, dict) and r.get("idempotent_replay"):
+        return None
     if a.get("student_id") in (None, ""):
         return None
     with db._lock:
@@ -24554,6 +24556,91 @@ class SchoolDB(LovesDB):
         payload["response"] = parsed if isinstance(parsed, dict) else {}
         return payload
 
+    @staticmethod
+    def _live_response_json_same(stored_json: str, incoming_json: str) -> bool:
+        """True when two answer JSON texts encode the same object.
+
+        Key order does not count. A replay of an answer that already
+        landed must not insert a second row.
+
+        Args:
+            stored_json: ``response_json`` already in the database.
+            incoming_json: JSON about to be written.
+        """
+        try:
+            left = json.loads(stored_json or "{}")
+            right = json.loads(incoming_json or "{}")
+        except json.JSONDecodeError:
+            return stored_json == incoming_json
+        return left == right if isinstance(left, dict) and isinstance(right, dict) else False
+
+    def _lookup_live_response_row(
+        self,
+        prompt_id: int,
+        *,
+        participant_uuid: str,
+        student_id: int | None,
+    ) -> Any:
+        """Return ``id`` and ``response_json`` for this person on this prompt.
+
+        Caller holds ``self._lock``. Uuid is preferred; roster id is the
+        fallback so a guest row and a roster row do not fork.
+
+        Args:
+            prompt_id: ``live_session_prompts.id``.
+            participant_uuid: Live-session person key.
+            student_id: Optional roster id.
+        """
+        pid = (participant_uuid or "").strip()
+        row = None
+        if pid:
+            row = self.conn.execute(
+                """
+                SELECT id, response_json FROM live_session_responses
+                WHERE prompt_id = ? AND participant_uuid = ?
+                """,
+                (int(prompt_id), pid),
+            ).fetchone()
+        if row is None and student_id is not None:
+            row = self.conn.execute(
+                """
+                SELECT id, response_json FROM live_session_responses
+                WHERE prompt_id = ? AND student_id = ?
+                """,
+                (int(prompt_id), int(student_id)),
+            ).fetchone()
+        return row
+
+    def _update_live_response_row(
+        self,
+        row_id: int,
+        body: str,
+        now: str,
+        *,
+        participant_uuid: str,
+        student_id: int | None,
+    ) -> None:
+        """Overwrite one existing answer row. Caller holds ``self._lock``.
+
+        Args:
+            row_id: ``live_session_responses.id``.
+            body: New ``response_json``.
+            now: Timestamp.
+            participant_uuid: Live-session person key, if any.
+            student_id: Optional roster id.
+        """
+        pid = (participant_uuid or "").strip()
+        self.conn.execute(
+            """
+            UPDATE live_session_responses
+            SET response_json = ?, updated_at = ?,
+                participant_uuid = COALESCE(?, participant_uuid),
+                student_id = COALESCE(?, student_id)
+            WHERE id = ?
+            """,
+            (body, now, pid or None, student_id, int(row_id)),
+        )
+
     @emits("answer.submit", _ev_answer)
     def submit_live_prompt_response(
         self,
@@ -24567,6 +24654,12 @@ class SchoolDB(LovesDB):
 
         Keys off ``participant_uuid`` when provided so guests (no roster id)
         can still answer. Does not award points yet.
+
+        A second write of the same answer is a no-op: one row, no new
+        engagement event. The returned dict then includes
+        ``idempotent_replay``. A different answer while the question is
+        still open updates that same row. Callers that build JSON should
+        drop ``idempotent_replay``.
 
         Args:
             prompt_id: ``live_session_prompts.id``.
@@ -24661,49 +24754,60 @@ class SchoolDB(LovesDB):
         response["question_view"] = questions_mode
         now = _now()
         body = json.dumps(response or {})
+        replay = False
         with self._lock:
-            existing = None
-            if pid:
-                existing = self.conn.execute(
-                    """
-                    SELECT id FROM live_session_responses
-                    WHERE prompt_id = ? AND participant_uuid = ?
-                    """,
-                    (int(prompt_id), pid),
-                ).fetchone()
-            if existing is None and sid is not None:
-                existing = self.conn.execute(
-                    """
-                    SELECT id FROM live_session_responses
-                    WHERE prompt_id = ? AND student_id = ?
-                    """,
-                    (int(prompt_id), sid),
-                ).fetchone()
-            if existing is not None:
-                self.conn.execute(
-                    """
-                    UPDATE live_session_responses
-                    SET response_json = ?, updated_at = ?,
-                        participant_uuid = COALESCE(?, participant_uuid),
-                        student_id = COALESCE(?, student_id)
-                    WHERE id = ?
-                    """,
-                    (body, now, pid or None, sid, int(existing["id"])),
+            existing = self._lookup_live_response_row(
+                int(prompt_id), participant_uuid=pid, student_id=sid
+            )
+            if existing is not None and self._live_response_json_same(
+                str(existing["response_json"] or ""), body
+            ):
+                replay = True
+            elif existing is not None:
+                self._update_live_response_row(
+                    int(existing["id"]),
+                    body,
+                    now,
+                    participant_uuid=pid,
+                    student_id=sid,
                 )
             else:
-                self.conn.execute(
-                    """
-                    INSERT INTO live_session_responses (
-                        prompt_id, student_id, participant_uuid, response_json,
-                        awarded_points, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, NULL, ?, ?)
-                    """,
-                    (int(prompt_id), sid, pid or None, body, now, now),
-                )
-            self.conn.commit()
+                try:
+                    self.conn.execute(
+                        """
+                        INSERT INTO live_session_responses (
+                            prompt_id, student_id, participant_uuid, response_json,
+                            awarded_points, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, NULL, ?, ?)
+                        """,
+                        (int(prompt_id), sid, pid or None, body, now, now),
+                    )
+                except sqlite3.IntegrityError:
+                    existing = self._lookup_live_response_row(
+                        int(prompt_id), participant_uuid=pid, student_id=sid
+                    )
+                    if existing is None:
+                        raise
+                    if self._live_response_json_same(
+                        str(existing["response_json"] or ""), body
+                    ):
+                        replay = True
+                    else:
+                        self._update_live_response_row(
+                            int(existing["id"]),
+                            body,
+                            now,
+                            participant_uuid=pid,
+                            student_id=sid,
+                        )
+            if not replay:
+                self.conn.commit()
         result = self.get_live_prompt_response(
             prompt_id, sid, participant_uuid=pid
         )
+        if replay:
+            result = dict(result or {})
+            result["idempotent_replay"] = True
         if sid is not None:
             if is_minds_on_payload(payload):
                 self.activate_welcome_c2(session_id)

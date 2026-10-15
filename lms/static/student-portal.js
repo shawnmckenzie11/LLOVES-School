@@ -79,6 +79,18 @@ import {
   rankTurnsHtml,
   turnsCardIsStale,
 } from "/static/group_flows.js";
+import {
+  UNSENT_ANSWER_COPY,
+  classifyUnsentFailure,
+  clearUnsentAnswers,
+  forgetUnsentAnswer,
+  listUnsentAnswers,
+  markUnsentClosed,
+  pruneUnsentAnswers,
+  rememberUnsentAnswer,
+  unsentResendDecision,
+  unsentStudentKey,
+} from "/static/unsent_answer.js";
 
 const waitEl = document.getElementById("student-wait");
 const gameShowWelcomeEl = document.getElementById("game-show-welcome");
@@ -194,6 +206,277 @@ function unsentDraftNoteHtml(item) {
     typed.slice(0, 300)
   )}</q></p>`;
 }
+
+/**
+ * localStorage for unsent answers, or null when the browser blocks it.
+ * @returns {Storage|null}
+ */
+function unsentStore() {
+  try {
+    return window.localStorage;
+  } catch (_err) {
+    return null;
+  }
+}
+
+/**
+ * Drop stale outbox rows (TTL, other or ended session). Safe to call often.
+ * @param {any} [payload] Latest /state body; null on load prunes by TTL only.
+ */
+function pruneUnsentOutbox(payload) {
+  try {
+    pruneUnsentAnswers(unsentStore(), {
+      liveSessionId: payload?.live_session_id,
+      sessionEnded: Boolean(payload && (payload.status === "ended" || payload.celebrate)),
+    });
+  } catch (err) {
+    window.llovesSentryReport?.(err, "unsent-answer-prune");
+  }
+}
+
+/** Roster id the outbox last saw. A different student on this tab clears it. */
+let unsentOwnerStudentId = 0;
+
+/**
+ * Clear the outbox when this tab now belongs to a different student.
+ * @param {any} payload
+ */
+function noteUnsentOwner(payload) {
+  const id = Number(payload?.me?.id) || 0;
+  if (!id) return;
+  if (unsentOwnerStudentId && unsentOwnerStudentId !== id) clearUnsentAnswers(unsentStore());
+  unsentOwnerStudentId = id;
+}
+
+// On load: TTL and legacy raw-token rows go before anything reads them.
+pruneUnsentOutbox(null);
+
+/**
+ * Person key for the outbox: roster id, else this tab's visit token.
+ * @returns {{studentId: number, visitToken: string, studentKey: string}}
+ */
+function currentUnsentIdentity() {
+  const studentId = Number(lastStudentPayload?.me?.id) || 0;
+  const visitToken = String(document.body?.dataset?.visitToken || "").trim();
+  return {
+    studentId,
+    visitToken,
+    studentKey: unsentStudentKey({ studentId, visitToken }),
+  };
+}
+
+/**
+ * Lifecycle item id for a prompt, when the latest state still has the card.
+ * @param {number} promptId
+ * @returns {number}
+ */
+function itemIdForPrompt(promptId) {
+  const pools = []
+    .concat(lastStudentPayload?.active_questions || [])
+    .concat(lastStudentPayload?.closed_results || [])
+    .concat(lastStudentPayload?.saved_cards || []);
+  const row = pools.find((item) => Number(item?.prompt?.id) === Number(promptId));
+  return Number(row?.id) || 0;
+}
+
+/**
+ * Outbox rows for this student, including ones we will not send.
+ * @returns {any[]}
+ */
+function heldUnsentRows() {
+  return listUnsentAnswers(unsentStore(), currentUnsentIdentity(), { includeHeld: true });
+}
+
+/**
+ * Stored answer for one card, if this student still has one.
+ * @param {any} item
+ * @returns {any|null}
+ */
+function heldUnsentForItem(item) {
+  const promptId = Number(item?.prompt?.id) || 0;
+  const itemId = Number(item?.id) || 0;
+  return (
+    heldUnsentRows().find((row) => {
+      const pid = Number(row?.promptId) || 0;
+      const iid = Number(row?.itemId) || 0;
+      return (promptId && pid === promptId) || (itemId && iid === itemId);
+    }) || null
+  );
+}
+
+/**
+ * Calm line while this card's answer is waiting to send.
+ * @param {any} item
+ * @returns {string}
+ */
+function unsentPendingNoteHtml(item) {
+  if (String(item?.status || "") === "closed" || item?.my_response) return "";
+  const row = heldUnsentForItem(item);
+  if (!row || row.doNotSend) return "";
+  return `<p class="student-live-unsent-pending" role="status">${escapeText(
+    UNSENT_ANSWER_COPY
+  )}</p>`;
+}
+
+/**
+ * Copy a saved answer back into the in-memory draft so a refresh keeps it typed.
+ */
+function hydrateUnsentDrafts() {
+  heldUnsentRows().forEach((row) => {
+    const response = row?.response;
+    if (!response || typeof response !== "object") return;
+    const itemId = Number(row.itemId) || itemIdForPrompt(Number(row.promptId) || 0);
+    if (!itemId) return;
+    const key = `${itemId}:${row.action || "individual"}`;
+    if (!liveCardDrafts.has(key)) liveCardDrafts.set(key, response);
+  });
+}
+
+/**
+ * Keep a failed submit and return the calm error, or null when it must not retry.
+ * @param {{promptId?: number, itemId?: number, action?: string, url?: string, body?: any, response?: any}} details
+ * @param {{message?: string, error?: string, status?: number, pollClosed?: boolean}} failure
+ * @returns {Error|null}
+ */
+function holdUnsentLiveAnswer(details, failure) {
+  if (classifyUnsentFailure(failure) !== "offline") return null;
+  const identity = currentUnsentIdentity();
+  if (!identity.studentKey) return null;
+  const promptId = Number(details.promptId) || 0;
+  if (!promptId) return null;
+  const response =
+    details.response && typeof details.response === "object" ? details.response : {};
+  const itemId = Number(details.itemId) || itemIdForPrompt(promptId);
+  rememberUnsentAnswer(unsentStore(), {
+    studentKey: identity.studentKey,
+    studentId: identity.studentId,
+    visitToken: identity.visitToken,
+    promptId,
+    itemId,
+    sessionId: Number(lastStudentPayload?.live_session_id) || 0,
+    action: details.action || "individual",
+    url: details.url || "/api/student/live-prompt/response",
+    body: details.body || { prompt_id: promptId, response },
+    response,
+  });
+  if (itemId) liveCardDrafts.set(`${itemId}:${details.action || "individual"}`, response);
+  const held = new Error(UNSENT_ANSWER_COPY);
+  held.unsentHeld = true;
+  window.queueMicrotask(() => {
+    void flushUnsentAnswers();
+  });
+  return held;
+}
+
+/** One reconnect flush at a time. */
+let unsentFlushPromise = null;
+
+/**
+ * POST one stored answer. Does not write the outbox.
+ * @param {any} row
+ * @returns {Promise<"sent"|"closed"|"forget"|"offline">}
+ */
+async function postOneUnsent(row) {
+  let res;
+  try {
+    res = await fetch(
+      row.url || "/api/student/live-prompt/response",
+      visitFetchInit({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(row.body || {}),
+      })
+    );
+  } catch (_err) {
+    return "offline";
+  }
+  let data = {};
+  try {
+    data = await res.json();
+  } catch (_err) {
+    return "offline";
+  }
+  if (res.ok && data.ok !== false) {
+    const promptId = Number(row.promptId) || 0;
+    const itemId = Number(row.itemId) || itemIdForPrompt(promptId);
+    const pools = []
+      .concat(lastStudentPayload?.active_questions || [])
+      .concat(lastStudentPayload?.closed_results || []);
+    const item = pools.find(
+      (card) => Number(card?.prompt?.id) === promptId || Number(card?.id) === itemId
+    );
+    if (item && lastStudentPayload) {
+      lastStudentPayload = mergeLifecycleSubmitResponse(lastStudentPayload, item, data);
+    } else if (data.my_response && lastStudentPayload) {
+      lastStudentPayload = { ...lastStudentPayload, my_response: data.my_response };
+    }
+    return "sent";
+  }
+  const kind = classifyUnsentFailure({
+    message: data.error || "",
+    error: data.error || "",
+    status: res.status,
+    pollClosed: data.poll_closed,
+  });
+  if (kind === "closed") return "closed";
+  if (kind === "rejected") return "forget";
+  return "offline";
+}
+
+/**
+ * Send stored answers once the question is still open. Skip a closed one.
+ * @returns {Promise<void>}
+ */
+async function flushUnsentAnswers() {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+  if (studentOutageStartedAt) return;
+  const previous = unsentFlushPromise || Promise.resolve();
+  const run = previous.catch(() => {}).then(() => flushUnsentAnswersNow());
+  unsentFlushPromise = run.finally(() => {
+    if (unsentFlushPromise === run) unsentFlushPromise = null;
+  });
+  return unsentFlushPromise;
+}
+
+/**
+ * Walk the outbox once. Closed questions stay on the device as a note.
+ * @returns {Promise<void>}
+ */
+async function flushUnsentAnswersNow() {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+  if (studentOutageStartedAt) return;
+  noteUnsentOwner(lastStudentPayload);
+  pruneUnsentOutbox(lastStudentPayload);
+  const identity = currentUnsentIdentity();
+  const rows = listUnsentAnswers(unsentStore(), identity);
+  let changed = false;
+  for (const row of rows) {
+    const decision = unsentResendDecision(lastStudentPayload, row);
+    if (decision === "wait") continue;
+    if (decision === "send") {
+      const outcome = await postOneUnsent(row);
+      if (outcome === "offline") continue;
+      if (outcome === "closed") markUnsentClosed(unsentStore(), row);
+      else forgetUnsentAnswer(unsentStore(), row);
+      changed = true;
+      continue;
+    }
+    if (decision === "closed") markUnsentClosed(unsentStore(), row);
+    else forgetUnsentAnswer(unsentStore(), row);
+    changed = true;
+  }
+  pruneUnsentOutbox(lastStudentPayload);
+  if (!changed || !lastStudentPayload) return;
+  try {
+    hydrateUnsentDrafts();
+    paintLifecycleQuestionStack(lastStudentPayload);
+    paintPrompt(lastStudentPayload);
+  } catch (err) {
+    window.llovesSentryReport?.(err, "unsent-answer-paint");
+  }
+}
+
 /** In-flight lifecycle submit keys (`itemId:action`) to block double posts. */
 const liveSubmitInFlight = new Set();
 /** @type {number} */
@@ -3527,6 +3810,7 @@ function refreshFloatingCard(card, html) {
 
 function paintLifecycleQuestionStack(payload) {
   if (!liveQuestionStack) return;
+  hydrateUnsentDrafts();
   const grabbedCard = [...activePaneDrags].find((el) =>
     el instanceof HTMLElement && el.classList.contains("student-live-card")
   );
@@ -3708,6 +3992,7 @@ function paintLifecycleQuestionStack(payload) {
         ${answerControls}
         ${ownAnswer}
         ${unsentDraftNoteHtml(item)}
+        ${unsentPendingNoteHtml(item)}
         ${results}
       </article>`;
   };
@@ -3890,16 +4175,39 @@ async function submitLifecycleAnswer(card, action) {
             why: whyEl instanceof HTMLTextAreaElement ? whyEl.value : "",
           };
     }
-    const res = await fetch(
-      url,
-      visitFetchInit({
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify(body),
-      })
-    );
-    const data = await res.json();
+    const promptId = Number(item.prompt?.id) || promptIdFromCard || 0;
+    const holdDetails = { promptId, itemId, action, url, body, response };
+    let res;
+    let data = {};
+    let networkFailed = false;
+    try {
+      res = await fetch(
+        url,
+        visitFetchInit({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(body),
+        })
+      );
+    } catch (_err) {
+      networkFailed = true;
+    }
+    if (!networkFailed && res) {
+      try {
+        data = await res.json();
+      } catch (_err) {
+        networkFailed = true;
+      }
+    }
+    if (networkFailed) {
+      const held = holdUnsentLiveAnswer(holdDetails, {
+        message: "Could not submit that answer.",
+        status: res && res.status ? res.status : 0,
+      });
+      if (held) throw held;
+      throw new Error("Could not submit that answer.");
+    }
     if (res.status === 409 && data.locked && data.group_submit && lastStudentPayload) {
       // MCK-155 option B: a teammate sent first. Show the locked answer.
       liveCardDrafts.delete(`${itemId}:${action}`);
@@ -3908,8 +4216,16 @@ async function submitLifecycleAnswer(card, action) {
       return;
     }
     if (!res.ok || data.ok === false) {
+      const held = holdUnsentLiveAnswer(holdDetails, {
+        message: data.error || "Could not submit that answer.",
+        error: data.error,
+        status: res.status,
+        pollClosed: data.poll_closed,
+      });
+      if (held) throw held;
       throw new Error(data.error || "Could not submit that answer.");
     }
+    forgetUnsentAnswer(unsentStore(), { ...currentUnsentIdentity(), promptId });
     liveCardDrafts.delete(`${itemId}:${action}`);
     rankEditing.delete(itemId);
     rankLocalDrafts.delete(itemId);
@@ -4224,6 +4540,7 @@ function renderPromptBody(prompt, data, payload, lockChoices) {
     wirePromptControls(prompt);
   }
   void renderLiveQuestionMath(promptShell);
+  restorePromptShellUnsent(payload);
   if (kind === "artifact") {
     applyArtifactPreview(lastArtifactSliders);
     syncArtifactGroupQLock();
@@ -4643,19 +4960,59 @@ function hideFeedbackPanel() {
  * @param {Record<string, unknown>} response
  */
 /**
- * Show a submit failure on the legacy prompt shell.
+ * Show a submit failure, or the calm held-answer line, on the legacy prompt shell.
  * @param {string} message
+ * @param {{held?: boolean}} [opts]
  */
-function showPromptSubmitError(message) {
+function showPromptSubmitError(message, opts = {}) {
   const root = promptShell?.querySelector(".prompt-controls") || promptShell;
   if (!(root instanceof HTMLElement)) return;
-  let note = root.querySelector(".student-live-submit-error");
+  const held = Boolean(opts.held) || message === UNSENT_ANSWER_COPY;
+  let note = root.querySelector(".student-live-submit-error, .student-live-unsent-pending");
   if (!(note instanceof HTMLElement)) {
     note = document.createElement("p");
-    note.className = "student-live-submit-error";
     root.appendChild(note);
   }
-  note.textContent = message;
+  note.className = held ? "student-live-unsent-pending" : "student-live-submit-error";
+  note.setAttribute("role", "status");
+  note.textContent = held ? UNSENT_ANSWER_COPY : message;
+}
+
+/**
+ * Put a stored shell answer back into the inputs and show the calm line.
+ * @param {any} payload
+ */
+function restorePromptShellUnsent(payload) {
+  const promptId = Number(payload?.prompt?.id) || 0;
+  if (!promptId || !promptShell) return;
+  const row = heldUnsentRows().find(
+    (item) => Number(item?.promptId) === promptId && !item.doNotSend
+  );
+  if (!row) return;
+  const root = promptShell.querySelector(".prompt-controls");
+  if (!(root instanceof HTMLElement)) return;
+  const response = row.response || {};
+  if (response.choice) {
+    root.querySelectorAll(".prompt-choice").forEach((button) => {
+      button.classList.toggle(
+        "is-selected",
+        button.getAttribute("data-choice") === String(response.choice)
+      );
+    });
+  }
+  const numeric = root.querySelector("#prompt-numeric-input");
+  if (
+    numeric instanceof HTMLInputElement &&
+    response.value != null &&
+    numeric.value === ""
+  ) {
+    numeric.value = String(response.value);
+  }
+  const share = root.querySelector("#prompt-share-input");
+  if (share instanceof HTMLTextAreaElement && response.text && share.value === "") {
+    share.value = String(response.text);
+  }
+  showPromptSubmitError(UNSENT_ANSWER_COPY, { held: true });
 }
 
 /**
@@ -4700,21 +5057,44 @@ async function submitPromptShellAnswer(button) {
 }
 
 async function submitResponse(promptId, response, { draft = false } = {}) {
+  const holdDetails = {
+    promptId,
+    action: "individual",
+    url: "/api/student/live-prompt/response",
+    body: { prompt_id: promptId, response },
+    response,
+  };
   try {
-    const res = await fetch(
-      "/api/student/live-prompt/response",
-      visitFetchInit({
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ prompt_id: promptId, response, draft }),
-      })
-    );
+    let res;
+    try {
+      res = await fetch(
+        "/api/student/live-prompt/response",
+        visitFetchInit({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ prompt_id: promptId, response, draft }),
+        })
+      );
+    } catch (_err) {
+      if (draft) return;
+      const held = holdUnsentLiveAnswer(holdDetails, {
+        message: "Could not submit that answer.",
+        status: 0,
+      });
+      if (held) throw held;
+      throw new Error("Could not submit that answer.");
+    }
     let data = {};
     try {
       data = await res.json();
     } catch (_err) {
       if (draft) return;
+      const held = holdUnsentLiveAnswer(holdDetails, {
+        message: "Could not submit that answer.",
+        status: res.status || 0,
+      });
+      if (held) throw held;
       throw new Error("Could not submit that answer.");
     }
     if (data.redirect) {
@@ -4723,7 +5103,17 @@ async function submitResponse(promptId, response, { draft = false } = {}) {
     }
     if (!res.ok || data.ok === false) {
       if (draft) return;
+      const held = holdUnsentLiveAnswer(holdDetails, {
+        message: data.error || "Could not submit that answer.",
+        error: data.error,
+        status: res.status,
+        pollClosed: data.poll_closed,
+      });
+      if (held) throw held;
       throw new Error(data.error || "Could not submit that answer.");
+    }
+    if (!draft) {
+      forgetUnsentAnswer(unsentStore(), { ...currentUnsentIdentity(), promptId });
     }
     if (data.ok && data.draft) {
       return;
@@ -5046,6 +5436,7 @@ function clearStudentOutage() {
   studentNewsFetch = false;
   clearStudentFeelTimers();
   paintStudentReconnect("ok");
+  void flushUnsentAnswers();
 }
 
 /**
@@ -5288,6 +5679,14 @@ async function tick() {
 }
 
 document.getElementById("student-reconnect-retry")?.addEventListener("click", () => {
+  reissueStudentStateOnce();
+});
+
+window.addEventListener("online", () => {
+  // A Wi-Fi return should send the stored answer now. Waiting for the
+  // backed-off /state poll left the calm line up after the link was back.
+  studentOutageStartedAt = 0;
+  void flushUnsentAnswers();
   reissueStudentStateOnce();
 });
 
@@ -5564,7 +5963,8 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
     promptSubmit.disabled = true;
     submitPromptShellAnswer(promptSubmit)
       .catch((err) => {
-        showPromptSubmitError(err instanceof Error ? err.message : "Could not submit.");
+        const held = Boolean(err && err.unsentHeld);
+        showPromptSubmitError(err instanceof Error ? err.message : "Could not submit.", { held });
         promptSubmit.disabled = false;
       });
     return;
@@ -5576,13 +5976,19 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
   submit.disabled = true;
   submitLifecycleAnswer(card, submit.dataset.liveSubmit || "individual")
     .catch((err) => {
-      let note = card.querySelector(".student-live-submit-error");
+      const held = Boolean(err && err.unsentHeld);
+      let note = card.querySelector(".student-live-submit-error, .student-live-unsent-pending");
       if (!note) {
         note = document.createElement("p");
-        note.className = "student-live-submit-error";
         card.appendChild(note);
       }
-      note.textContent = err instanceof Error ? err.message : "Could not submit.";
+      note.className = held ? "student-live-unsent-pending" : "student-live-submit-error";
+      note.setAttribute("role", "status");
+      note.textContent = held
+        ? UNSENT_ANSWER_COPY
+        : err instanceof Error
+          ? err.message
+          : "Could not submit.";
       submit.disabled = false;
     });
 });
