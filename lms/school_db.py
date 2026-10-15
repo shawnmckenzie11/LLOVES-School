@@ -29888,7 +29888,9 @@ class SchoolDB(LovesDB):
         self.game.clear_students_live_presence(class_id, student_ids)
         return len(student_ids)
 
-    def _snapshot_live_results_unlocked(self, session_id: int) -> int:
+    def _snapshot_live_results_unlocked(
+        self, session_id: int, *, live_run: bool = True
+    ) -> int:
         """Copy every answer for one session into ``live_result_snapshots``.
 
         Called by ``cleanup_live_session_response_data`` in the same
@@ -30034,6 +30036,8 @@ class SchoolDB(LovesDB):
             except (TypeError, ValueError, json.JSONDecodeError):
                 item_json = {}
             if is_team_draw_item({"item": item_json}):
+                if not live_run:
+                    continue
                 if not should_snapshot_team_draw_run(
                     self, int(session["class_id"]), run_key
                 ):
@@ -33975,7 +33979,9 @@ class SchoolDB(LovesDB):
                 # snapshot and delete as before.
                 self.conn.execute("SAVEPOINT live_result_snapshot")
                 try:
-                    self._snapshot_live_results_unlocked(int(session_id))
+                    self._snapshot_live_results_unlocked(
+                        int(session_id), live_run=bool(live_run)
+                    )
                 except Exception:  # noqa: BLE001
                     self.conn.execute("ROLLBACK TO live_result_snapshot")
                     logger.exception(
@@ -34349,6 +34355,7 @@ class SchoolDB(LovesDB):
         for sid in session_ids:
             self.release_eyes_up(int(sid))
             self.purge_board_ops(sid)
+            self._purge_team_draw_images(int(sid))
             self.clear_attendee_moods_and_characters(sid)
         try:
             self.game.clear_class_moods_and_characters(int(class_id))

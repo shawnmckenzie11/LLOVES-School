@@ -1792,6 +1792,15 @@ function syncTeamDrawChrome(payload, proj) {
       canvasPane.classList.remove("is-team-draw");
     }
   }
+  const mysteryFocus = showMystery && on && canvasPane instanceof HTMLElement && !canvasPane.hidden;
+  document.body.classList.toggle("is-team-draw-mystery-focus", mysteryFocus);
+  if (liveQuestionStackBody instanceof HTMLElement) {
+    liveQuestionStackBody.querySelectorAll(".student-live-card").forEach((card) => {
+      if (card instanceof HTMLElement) {
+        card.classList.toggle("is-mystery-collapsed", mysteryFocus);
+      }
+    });
+  }
 }
 
 /**

@@ -20,7 +20,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
-from participation_exclusion import exclude_participation_answer_student_ids  # noqa: E402
+from participation_real_students import exclude_participation_answer_student_ids  # noqa: E402
 from team_draw import BUILTIN_PROMPTS, decode_png_payload, is_team_draw_item  # noqa: E402
 
 # 1x1 PNG
@@ -165,18 +165,73 @@ class TeamDrawTests(unittest.TestCase):
 
     def test_mystery_rule_state_includes_steps_and_pass_turn(self) -> None:
         published = self._add_publish_team_draw(prompt_id="mystery_rule")
-        live_id = int(published["id"])
-        card = self.school.student_team_draw_state(
+        card_a = self.school.student_team_draw_state(
             published, self.student_ids[0]
         )
-        self.assertTrue(card.get("mystery_rule"))
-        self.assertEqual(len(card.get("mystery_steps") or []), 3)
-        turn = card.get("pass_turn")
-        self.assertIsNotNone(turn)
-        self.assertEqual(int(turn["turn_total"]), 2)
+        card_b = self.school.student_team_draw_state(
+            published, self.student_ids[1]
+        )
+        self.assertTrue(card_a.get("mystery_rule"))
+        self.assertEqual(len(card_a.get("mystery_steps") or []), 3)
+        turn_a = card_a.get("pass_turn")
+        turn_b = card_b.get("pass_turn")
+        self.assertIsNotNone(turn_a)
+        self.assertIsNotNone(turn_b)
+        self.assertEqual(int(turn_a["turn_total"]), 2)
+        self.assertEqual(turn_a["holder_name"], turn_b["holder_name"])
+        self.assertEqual(int(turn_a["turn_index"]), 1)
         view = self.school.team_draw_teacher_view(self.session_id, published)
         self.assertTrue(view.get("mystery_rule"))
         self.assertEqual(len(view.get("mystery_steps") or []), 3)
+
+    def test_test_run_end_skips_team_draw_snapshot(self) -> None:
+        published = self._add_publish_team_draw()
+        live_id = int(published["id"])
+        self.school.submit_team_draw(
+            self.session_id,
+            live_id,
+            self.student_ids[0],
+            title="Practice sketch",
+            image_b64=base64.b64encode(_TINY_PNG).decode("ascii"),
+        )
+        session = self.school.get_live_session(self.session_id)
+        assert session is not None
+        run_key = str(session["run_key"] or "")
+        self.school.cleanup_live_session_response_data(
+            self.session_id, live_run=False
+        )
+        count = self.school.conn.execute(
+            """
+            SELECT COUNT(*) FROM live_result_snapshots
+            WHERE class_id = ? AND run_key = ?
+            """,
+            (self.class_id, run_key),
+        ).fetchone()[0]
+        self.assertEqual(int(count), 0)
+
+    def test_quit_wipe_purges_team_draw_images(self) -> None:
+        published = self._add_publish_team_draw()
+        live_id = int(published["id"])
+        self.school.submit_team_draw(
+            self.session_id,
+            live_id,
+            self.student_ids[0],
+            title="Ephemeral",
+            image_b64=base64.b64encode(_TINY_PNG).decode("ascii"),
+        )
+        before = self.school.conn.execute(
+            "SELECT COUNT(*) FROM live_team_draw_images WHERE live_session_id = ?",
+            (self.session_id,),
+        ).fetchone()[0]
+        self.assertGreater(int(before), 0)
+        self.school.finish_live_class(
+            self.class_id, persist=False, celebrate=False
+        )
+        after = self.school.conn.execute(
+            "SELECT COUNT(*) FROM live_team_draw_images WHERE live_session_id = ?",
+            (self.session_id,),
+        ).fetchone()[0]
+        self.assertEqual(int(after), 0)
 
 
 if __name__ == "__main__":

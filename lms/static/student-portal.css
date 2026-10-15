@@ -3418,3 +3418,32 @@ dialog.student-pin-dialog::backdrop {
   color: var(--muted, #555);
   font-size: 0.95rem;
 }
+
+/* Mystery rule on a phone: keep locked steps visible above the canvas. */
+@media (max-width: 47.99rem) {
+  body.student-home.is-team-draw-mystery-focus .live-question-stack {
+    top: auto;
+    bottom: 0.55rem;
+    left: 0.65rem;
+    right: auto;
+    z-index: 6;
+    width: min(11.5rem, 46vw);
+  }
+
+  body.student-home.is-team-draw-mystery-focus .canvas-pane.is-mystery-rule {
+    position: relative;
+    z-index: 8;
+  }
+
+  body.student-home.is-team-draw-mystery-focus .student-live-card.is-mystery-collapsed {
+    max-height: 2.4rem;
+    overflow: hidden;
+    margin: 0;
+  }
+
+  body.student-home.is-team-draw-mystery-focus
+    .student-live-card.is-mystery-collapsed
+    > :not(.student-pane-bar) {
+    display: none !important;
+  }
+}

@@ -144,7 +144,7 @@ def team_draw_teacher_view(
     self: SchoolDB, session_id: int, item: dict[str, Any]
 ) -> dict[str, Any]:
     """Staff grid: drawing / submitted plus title; gallery metadata."""
-    from participation_exclusion import exclude_participation_answer_student_ids
+    from participation_real_students import exclude_participation_answer_student_ids
 
     session_row = self.get_live_session(session_id)
     class_id = int(session_row["class_id"]) if session_row else 0
@@ -217,16 +217,14 @@ def _present_team_draw_member_labels(
 def _team_draw_pass_turn(
     self: SchoolDB, session_id: int, team_id: int, student_id: int
 ) -> dict[str, Any] | None:
-    """Pass-it-on pill: whose step-4 turn among present teammates (mystery rule only)."""
+    """Pass-it-on pill: shared current holder among present teammates (mystery rule)."""
     members = self._present_team_draw_member_labels(session_id, int(team_id))
     if len(members) < 2:
         return None
-    index = next(
-        (idx for idx, (sid, _name) in enumerate(members) if int(sid) == int(student_id)),
-        None,
-    )
-    if index is None:
+    if not any(int(sid) == int(student_id) for sid, _name in members):
         return None
+    # One holder for the whole team: first present member in roster order.
+    index = 0
     _sid, holder_name = members[index]
     return {
         "holder_name": holder_name,
