@@ -1,4 +1,4 @@
-"""Shared helpers for excluding Test Student and staff preview seats from participation counts."""
+"""Shared helpers for excluding Test Student from participation answer counts."""
 
 from __future__ import annotations
 
@@ -12,8 +12,6 @@ class _ParticipationSchool(Protocol):
 
     def test_student_ids(self, class_id: int) -> list[int]: ...
 
-    def staff_student_ids(self, class_id: int) -> list[int]: ...
-
 
 def exclude_test_student_ids(class_id: int, school: _ParticipationSchool) -> set[int]:
     """Return Test Student ids for one class (shared exclusion list)."""
@@ -23,9 +21,8 @@ def exclude_test_student_ids(class_id: int, school: _ParticipationSchool) -> set
 def exclude_participation_answer_student_ids(
     class_id: int, school: _ParticipationSchool
 ) -> set[int]:
-    """Return roster ids excluded from Lesson Slides / latest-run student-answer gates."""
-    cid = int(class_id)
-    return exclude_test_student_ids(cid, school) | set(school.staff_student_ids(cid))
+    """Return roster ids excluded from participation / attendance answer gates."""
+    return exclude_test_student_ids(int(class_id), school)
 
 
 def run_has_real_student_answer(
@@ -34,19 +31,17 @@ def run_has_real_student_answer(
     run_key: str,
     *,
     excluded_student_ids: set[int] | None = None,
-    test_student_ids: set[int] | None = None,
 ) -> bool:
     """True when at least one non-excluded student row exists in ``participation_answers``."""
     cid = int(class_id)
     key = str(run_key or "").strip()
     if not key:
         return False
-    if excluded_student_ids is not None:
-        exclude_ids = excluded_student_ids
-    elif test_student_ids is not None:
-        exclude_ids = test_student_ids
-    else:
-        exclude_ids = exclude_participation_answer_student_ids(cid, school)
+    exclude_ids = (
+        excluded_student_ids
+        if excluded_student_ids is not None
+        else exclude_participation_answer_student_ids(cid, school)
+    )
     params: list[Any] = [cid, key]
     exclude_sql = ""
     if exclude_ids:

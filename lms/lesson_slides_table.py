@@ -177,7 +177,7 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
             module,
             slot,
             latest=latest,
-            test_student_ids=test_ids,
+            excluded_student_ids=test_ids,
         )
         summary = _summary_counts(questions)
         run_key = ""

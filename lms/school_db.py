@@ -6971,12 +6971,27 @@ class LovesDB:
         window = LIVE_RESULT_SNAPSHOT_RETENTION_DAYS if days is None else int(days)
         if window <= 0:
             return 0
+        from live_class_run import parse_ended_at
+
         ref = now or datetime.now()
-        cutoff = (ref - timedelta(days=window)).replace(microsecond=0).isoformat()
+        cutoff_dt = (ref - timedelta(days=window)).replace(microsecond=0)
+        cutoff_cmp = parse_ended_at(cutoff_dt.isoformat(), fallback=cutoff_dt)
         with self._lock:
+            rows = self.conn.execute(
+                "SELECT id, snapshot_at FROM live_result_snapshots"
+            ).fetchall()
+            stale = [
+                int(r["id"])
+                for r in rows
+                if parse_ended_at(str(r["snapshot_at"] or ""), fallback=cutoff_cmp)
+                < cutoff_cmp
+            ]
+            if not stale:
+                return 0
+            placeholders = ",".join("?" * len(stale))
             cur = self.conn.execute(
-                "DELETE FROM live_result_snapshots WHERE snapshot_at < ?",
-                (cutoff,),
+                f"DELETE FROM live_result_snapshots WHERE id IN ({placeholders})",
+                stale,
             )
             self.conn.commit()
         return int(cur.rowcount or 0)
@@ -30936,21 +30951,6 @@ class SchoolDB(LovesDB):
             ).fetchone()
         return bool(row and int(row[0]))
 
-
-    def staff_student_ids(self, class_id: int) -> list[int]:
-        """Ids of staff preview roster rows (excluded from student-answer gates)."""
-        if getattr(self, "game", None) is None:
-            return []
-        with self.game._lock:
-            rows = self.game.conn.execute(
-                """
-                SELECT id FROM students
-                WHERE class_id = ? AND canvas_id GLOB 'staff-student:*'
-                """,
-                (int(class_id),),
-            ).fetchall()
-        return [int(r[0]) for r in rows]
-
     def ensure_class_test_student(self, class_id: int) -> dict[str, Any] | None:
         """Ensure exactly one Test Student exists on the class roster (MCK-229)."""
         if getattr(self, "game", None) is None:
@@ -31192,13 +31192,19 @@ class SchoolDB(LovesDB):
         slot: str,
         *,
         latest: dict[str, Any] | None,
-        test_student_ids: set[int] | None = None,
+        excluded_student_ids: set[int] | None = None,
     ) -> list[dict[str, Any]]:
         """Question rows for Lesson Slides with live/catch-up completion counts."""
         from bank_lint import fix_codes
 
         cid = int(class_id)
-        test_ids = test_student_ids or set(self.test_student_ids(cid))
+        from participation_real_students import exclude_participation_answer_student_ids
+
+        test_ids = (
+            excluded_student_ids
+            if excluded_student_ids is not None
+            else exclude_participation_answer_student_ids(cid, self)
+        )
         base: list[dict[str, Any]] = []
         run_key = ""
         if latest and isinstance(latest.get("questions"), list):
@@ -31377,11 +31383,13 @@ class SchoolDB(LovesDB):
             where += " AND p.live_module = ?"
             params.append(str(module))
         from participation_exclusion import sql_exclude_non_counted_participation_run
+        from participation_real_students import exclude_participation_answer_student_ids
 
         pair = "p.live_slot || char(31) || p.question_key"
         real_run_clause = sql_exclude_non_counted_participation_run(
             "p.class_id", "p.run_key"
         )
+        excluded = sorted(exclude_participation_answer_student_ids(int(class_id), self))
         with self._lock:
             offered_rows = self.conn.execute(
                 f"SELECT p.live_module, COUNT(DISTINCT {pair}) AS n FROM participation_items p "
@@ -31392,6 +31400,9 @@ class SchoolDB(LovesDB):
             if student_id is not None:
                 ans_where += " AND a.student_id = ?"
                 ans_params.append(int(student_id))
+            if excluded:
+                ans_where += f" AND a.student_id NOT IN ({','.join('?' * len(excluded))})"
+                ans_params.extend(excluded)
             answer_rows = self.conn.execute(
                 f"""
                 SELECT a.student_id, p.live_module,
@@ -31487,8 +31498,10 @@ class SchoolDB(LovesDB):
             return frozenset()
         if not self.participation_run_counts_in_tab(class_id, key):
             return frozenset()
-        test_ids = sorted(set(self.test_student_ids(class_id)))
-        exclude = ",".join("?" * len(test_ids)) if test_ids else ""
+        from participation_real_students import exclude_participation_answer_student_ids
+
+        excluded = sorted(exclude_participation_answer_student_ids(class_id, self))
+        exclude = ",".join("?" * len(excluded)) if excluded else ""
         params: list[Any] = [int(class_id), key]
         sql = """
             SELECT DISTINCT question_key
@@ -31496,9 +31509,9 @@ class SchoolDB(LovesDB):
             WHERE class_id = ? AND run_key = ? AND source = 'live'
               AND student_id IS NOT NULL
         """
-        if test_ids:
+        if excluded:
             sql += f" AND student_id NOT IN ({exclude})"
-            params.extend(test_ids)
+            params.extend(excluded)
         with self._lock:
             rows = self.conn.execute(sql, params).fetchall()
         return frozenset(str(r["question_key"]) for r in rows if r["question_key"])
@@ -31604,9 +31617,11 @@ class SchoolDB(LovesDB):
         """``{session_id}:{student_id}`` → counted answers (live or catch-up) in the tab."""
         from participation_weight import count_student_answered_opportunities
 
+        from participation_real_students import exclude_participation_answer_student_ids
+
         counts: dict[str, int] = {}
         meta = self.participation_session_meta(class_id)
-        test_ids = sorted(set(self.test_student_ids(class_id)))
+        test_ids = sorted(exclude_participation_answer_student_ids(class_id, self))
         exclude = ",".join("?" * len(test_ids)) if test_ids else ""
         for sid_str, info in meta.items():
             run_key = str(info.get("run_key") or "")
@@ -31844,9 +31859,11 @@ class SchoolDB(LovesDB):
         """Teacher-only per-module participation column for the roster/gradebook."""
         from participation import summary
 
+        from participation_real_students import exclude_participation_answer_student_ids
+
         offered, answered = self._participation_counts(class_id)
         modules = sorted(offered)
-        test_ids = set(self.test_student_ids(class_id))
+        excluded_ids = exclude_participation_answer_student_ids(class_id, self)
         students = self.game.conn.execute(
             """
             SELECT id FROM students
@@ -31857,7 +31874,7 @@ class SchoolDB(LovesDB):
         ).fetchall() if getattr(self, "game", None) is not None else []
         rows = []
         for stu in students:
-            if int(stu["id"]) in test_ids:
+            if int(stu["id"]) in excluded_ids:
                 continue
             cells = {}
             for mod in modules:
@@ -34080,15 +34097,21 @@ class SchoolDB(LovesDB):
                 ).fetchall()
             found = [int(row["student_id"]) for row in rows]
         if found:
-            return found
+            from participation_real_students import exclude_participation_answer_student_ids
+
+            excluded = exclude_participation_answer_student_ids(int(class_id), self)
+            return [sid for sid in found if sid not in excluded]
         try:
             state = self.game.game_state(int(class_id))
         except Exception:  # noqa: BLE001
             return []
+        from participation_real_students import exclude_participation_answer_student_ids
+
+        excluded = exclude_participation_answer_student_ids(int(class_id), self)
         return [
             int(row["id"])
             for row in (state.get("students") or [])
-            if row.get("present")
+            if row.get("present") and int(row["id"]) not in excluded
         ]
 
     def _qh_credit_key(self, payload: dict[str, Any], kind: str) -> str | None:
@@ -34162,9 +34185,15 @@ class SchoolDB(LovesDB):
                 """,
                 session_ids,
             ).fetchall()
+        from participation_real_students import exclude_participation_answer_student_ids
+
+        excluded = exclude_participation_answer_student_ids(int(class_id), self)
         session_modes: dict[int, str] = {}
         keys: dict[int, set[str]] = {}
         for row in rows:
+            sid = int(row["student_id"])
+            if sid in excluded:
+                continue
             try:
                 payload = json.loads(row["payload"] or "{}")
             except (TypeError, json.JSONDecodeError):
@@ -34188,7 +34217,6 @@ class SchoolDB(LovesDB):
             key = self._qh_credit_key(payload, str(row["kind"] or ""))
             if key is None:
                 continue
-            sid = int(row["student_id"])
             keys.setdefault(sid, set()).add(f"{int(row['prompt_id'])}:{key}")
         return {sid: len(seen) for sid, seen in keys.items()}
 
