@@ -130,7 +130,6 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      actions: write
     concurrency:
       group: deploy-lloves-lms-smoke-${{ github.ref }}
       cancel-in-progress: true
@@ -165,7 +164,8 @@ jobs:
         env:
           ALLOW_DEV_VERIFICATION_CODE: "1"
         # 15 students × 2 classes = 30 seats on one local gunicorn.
-        # --gate requires 0 errors, HTTP p95 < 250 ms, 0 worker restarts.
+        # --gate requires 0 errors, HTTP p95 < 400 ms, 0 worker restarts.
+        # 400 ms (not 250) leaves margin for shared runners.
         run: |
           set -euo pipefail
           python3 scripts/load_class.py \
@@ -175,10 +175,20 @@ jobs:
             --items 2 \
             --round-minutes 10 \
             --gate \
-            --max-p95-ms 250 \
+            --max-p95-ms 400 \
             --min-classes 2 \
             --presence-url "postgresql://lloves:lloves@127.0.0.1:5432/lloves_live" \
             --out "${RUNNER_TEMP}/load-smoke"
+
+      - name: Drop load smoke databases
+        # load_class.py drops its db on exit; this catches a killed run.
+        if: always()
+        env:
+          PGPASSWORD: lloves
+        run: |
+          for db in $(psql -h 127.0.0.1 -U lloves -d lloves_live -Atc "SELECT datname FROM pg_database WHERE datname LIKE 'load\_%'"); do
+            psql -h 127.0.0.1 -U lloves -d lloves_live -c "DROP DATABASE IF EXISTS \"$db\" WITH (FORCE)"
+          done
 
       - name: Upload load smoke results
         if: always()

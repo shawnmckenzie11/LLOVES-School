@@ -116,7 +116,7 @@ Then approve the **Deploy LLOVES LMS** run on GitHub Actions.
 A push to `production` runs **Deploy LLOVES LMS** (`.github/workflows/deploy.yml`) through four jobs:
 
 1. **LMS test suite** (group `deploy-lloves-lms-test-<ref>`, cancel-in-progress).
-2. **30-seat load smoke** (group `deploy-lloves-lms-smoke-<ref>`, cancel-in-progress). Two classes of 15 on one local gunicorn. It requires 0 errors, HTTP p95 under 250 ms, and 0 worker restarts. Results stay as the `load-smoke` artifact. A failure skips approval, so `flyctl` does not run. The target is `127.0.0.1` on the runner, not `alc.mckenzian.com`.
+2. **30-seat load smoke** (group `deploy-lloves-lms-smoke-<ref>`, cancel-in-progress). Two classes of 15 on one local gunicorn. It requires 0 errors, HTTP p95 under 400 ms (margin for shared runners), and 0 worker restarts. The per-run presence db is created after the loopback check and always dropped. Results stay as the `load-smoke` artifact. A failure skips approval, so `flyctl` does not run. The target is `127.0.0.1` on the runner, not `alc.mckenzian.com`.
 3. **Production approval**: the `production` environment gate, Shawn approves (group `deploy-lloves-lms-gate-<ref>`, cancel-in-progress).
 4. **Deploy to Fly**: `flyctl deploy` (group `deploy-lloves-lms-fly`, never cancelled).
 

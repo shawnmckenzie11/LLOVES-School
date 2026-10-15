@@ -719,16 +719,37 @@ def main() -> int:
         return 2
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    data = Path(tempfile.mkdtemp(prefix="load-class-"))
     # Fresh presence schema per run so attendees from old runs are not counted.
-    import psycopg  # noqa: PLC0415
+    # Loopback check first, then CREATE DATABASE; the db is dropped on exit.
     dbname = f"load_{int(time.time())}_{os.getpid()}"
-    with psycopg.connect(args.presence_url, autocommit=True) as conn:
-        conn.execute(f'CREATE DATABASE "{dbname}"')
     presence = args.presence_url.rsplit("/", 1)[0] + "/" + dbname
     if not presence_is_local(presence):
         print("refusing non-local presence database", file=sys.stderr)
         return 2
+    import psycopg  # noqa: PLC0415
+    with psycopg.connect(args.presence_url, autocommit=True) as conn:
+        conn.execute(f'CREATE DATABASE "{dbname}"')
+    try:
+        return _run(args, out, presence)
+    finally:
+        drop_presence_db(args.presence_url, dbname)
+
+
+def drop_presence_db(admin_url: str, dbname: str) -> None:
+    """Drop the per-run presence database. Never raises."""
+    if not dbname.startswith("load_") or not presence_is_local(admin_url):
+        return
+    try:
+        import psycopg  # noqa: PLC0415
+        with psycopg.connect(admin_url, autocommit=True) as conn:
+            conn.execute(f'DROP DATABASE IF EXISTS "{dbname}" WITH (FORCE)')
+    except Exception as exc:  # noqa: BLE001
+        print(f"could not drop presence db {dbname}: {exc}", file=sys.stderr)
+
+
+def _run(args: argparse.Namespace, out: Path, presence: str) -> int:
+    """Seed, boot gunicorn, drive load, and apply the gate. See ``main``."""
+    data = Path(tempfile.mkdtemp(prefix="load-class-"))
     fixtures = seed(data, args.students, presence, classes=args.classes, items=args.items)
     public = [
         {k: v for k, v in fx.items() if k not in ("students", "staff_cookie")}
