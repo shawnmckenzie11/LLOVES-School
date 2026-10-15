@@ -46,7 +46,8 @@ class FlyHealthCheckConfigTests(unittest.TestCase):
         self.assertEqual(check["grace_period"], cap.FLY_HEALTH_CHECK_GRACE_PERIOD)
         self.assertEqual(check["interval"], cap.FLY_HEALTH_CHECK_INTERVAL)
         self.assertEqual(check["timeout"], cap.FLY_HEALTH_CHECK_TIMEOUT)
-        self.assertEqual(check["grace_period"], "1s")
+        self.assertEqual(check["grace_period"], "10s")
+        self.assertEqual(check["timeout"], "5s")
         self.assertEqual(check["interval"], "5s")
 
     def test_check_does_not_add_a_machine_or_a_restart_probe(self) -> None:

@@ -74,9 +74,9 @@ kill_timeout = 35
   # listen socket opens before create_app() finishes. Same strings as
   # serve_capacity.FLY_HEALTH_CHECK_*.
   [[http_service.checks]]
-    grace_period = "1s"
+    grace_period = "10s"
     interval = "5s"
-    timeout = "2s"
+    timeout = "5s"
     method = "GET"
     path = "/health"
     protocol = "http"

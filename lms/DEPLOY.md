@@ -218,7 +218,7 @@ This does not add a machine, a larger VM, or a top-level `[checks]` block
 (those do not steer the proxy). It is not `http_service.machine_checks`
 (those run an extra ephemeral machine and can stop a deploy). `[[vm]]` stays
 one shared-cpu-1x / 1 GB machine, `min_machines_running` stays 1, and
-`lloves_data` still mounts on that one machine. `grace_period` is 1s and
+`lloves_data` still mounts on that one machine. `grace_period` is 10s, `timeout` is 5s, and
 `interval` is 5s (see `serve_capacity.FLY_HEALTH_CHECK_*`). There is no TCP
 check: the listen socket opens before workers finish `create_app()`.
 
