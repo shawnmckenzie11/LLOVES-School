@@ -57,7 +57,10 @@ export async function api(url, options = {}) {
     }
   }
   if (!response.ok || data.ok === false) {
-    throw new Error(data.error || `HTTP ${response.status}`);
+    const error = new Error(data.error || `HTTP ${response.status}`);
+    // Deck copy 409 carries needs_confirm. Callers key on the flag.
+    if (data.needs_confirm === true) error.needsConfirm = true;
+    throw error;
   }
   return data;
 }

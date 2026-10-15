@@ -9621,10 +9621,16 @@ class SchoolDB(LovesDB):
         found: list[dict[str, Any]] = []
         for row in rows:
             item = dict(row)
-            item["section_code"] = section_code(
-                str(item.get("offering_code") or item.get("course_code") or ""),
-                int(item.get("section_index") or 1),
-            )
+            # Display rank, not the stored index: archiving section 1
+            # renames MCF3M-2 to MCF3M. The raw index would keep saying -2.
+            code = str(item.get("offering_code") or item.get("course_code") or "")
+            try:
+                labeled = self.get_offering(int(item["offering_id"]))
+                item["section_code"] = str(labeled.get("section_code") or "")
+            except (KeyError, TypeError, ValueError):
+                item["section_code"] = section_code(
+                    code, int(item.get("section_index") or 1)
+                )
             found.append(item)
         return found
 
@@ -9648,7 +9654,7 @@ class SchoolDB(LovesDB):
 
         extras: list[dict[str, Any]] = []
         for other in self._deck_copy_sibling_classes(
-            int(class_id), int(teacher_user_id)
+            int(class_id), int(teacher_user_id), for_picker=True
         ):
             other_id = int(other["id"])
             section = str(other.get("section_code") or "")
@@ -9730,24 +9736,67 @@ class SchoolDB(LovesDB):
                 )
         return extras
 
-    def _deck_copy_sibling_classes(
-        self,
-        class_id: int,
-        teacher_user_id: int,
-    ) -> list[dict[str, Any]]:
-        """Return this teacher's other current sections of the same course.
+    def _deck_copy_hides_visitor_sections(
+        self, class_id: int, teacher_user_id: int
+    ) -> bool:
+        """Whether From should omit this user's own sections.
 
-        MCK-132 rule for the Set Class From list and for a cross-section
-        copy: same semester and ``ontario_code`` as the destination, not
-        archived, offering owned by ``teacher_user_id`` (no IT bypass), and
-        still passing ``teacher_owns_class`` (same tenant). Ordered by
-        ``section_index``. The destination class itself is left out.
+        IT can open another teacher's class. Their section stays out of
+        that class's From list. The copy itself is still allowed.
 
         Args:
             class_id: Destination class.
             teacher_user_id: Signed-in staff user.
+
+        Returns:
+            True when the destination offering belongs to someone else,
+            or the class has no offering.
         """
 
+        try:
+            dest = self.game.get_class(int(class_id))
+            dest_offering = (
+                self.get_offering(int(dest["offering_id"]))
+                if dest.get("offering_id")
+                else None
+            )
+        except KeyError:
+            dest_offering = None
+        if dest_offering is None:
+            return True
+        return int(dest_offering.get("teacher_user_id") or 0) != int(teacher_user_id)
+
+    def _deck_copy_sibling_classes(
+        self,
+        class_id: int,
+        teacher_user_id: int,
+        *,
+        for_picker: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Return this teacher's other current sections of the same course.
+
+        MCK-132 rule: same semester and ``ontario_code`` as the destination,
+        not archived, offering owned by ``teacher_user_id`` (no IT bypass
+        onto another teacher's sections), and still passing
+        ``teacher_owns_class`` (same tenant). Ordered by ``section_index``.
+        The destination class itself is left out.
+
+        The copy check uses this list, so IT can still copy one of their
+        own sections into another teacher's class. ``for_picker`` is the
+        Set Class From list: that list leaves the admin's own section out
+        while they are in someone else's class.
+
+        Args:
+            class_id: Destination class.
+            teacher_user_id: Signed-in staff user.
+            for_picker: When true, omit this user's sections if the
+                destination offering belongs to someone else.
+        """
+
+        if for_picker and self._deck_copy_hides_visitor_sections(
+            int(class_id), int(teacher_user_id)
+        ):
+            return []
         found: list[dict[str, Any]] = []
         for other in self._same_course_section_classes(
             int(class_id), teacher_user_id=int(teacher_user_id)
@@ -10083,7 +10132,7 @@ class SchoolDB(LovesDB):
         sources: list[dict[str, Any]] = []
         if teacher_user_id is not None:
             for other in self._deck_copy_sibling_classes(
-                int(class_id), int(teacher_user_id)
+                int(class_id), int(teacher_user_id), for_picker=True
             ):
                 other_id = int(other["id"])
                 sources.append(
@@ -10169,7 +10218,12 @@ class SchoolDB(LovesDB):
         source_class_id: int,
         teacher_user_id: int,
     ) -> None:
-        """Refuse a cross-section source outside the MCK-132 From list.
+        """Refuse a cross-section source this teacher does not own.
+
+        The allow-list is this teacher's own current sections of the
+        course, including when IT copies one of those sections into
+        another teacher's class. The From list is narrower: it omits
+        the admin's own section in that case.
 
         Args:
             class_id: Destination class.
@@ -10373,6 +10427,11 @@ class SchoolDB(LovesDB):
                     int(teacher_user_id), source_class
                 ):
                     raise PermissionError("You can't copy a deck from that class.")
+                # MCK-153: defence in depth behind the route 403. A non-IT
+                # teacher may only copy into a class they own; IT passes
+                # teacher_owns_class for any class in their tenant.
+                if not self.teacher_owns_class(int(teacher_user_id), int(class_id)):
+                    raise PermissionError("You can't copy a deck into that class.")
                 if self._course_code_for_class(source_class) != course:
                     raise ValueError("Choose a deck from this course.")
                 self._require_deck_copy_sibling(

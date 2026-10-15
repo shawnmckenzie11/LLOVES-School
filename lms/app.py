@@ -4684,6 +4684,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
 
         user = current_user()
         assert user is not None
+        if _positive_sqlite_id(class_id) is None:
+            return jsonify({"ok": False, "error": "Choose a deck from this course."}), 400
         if not school.teacher_owns_class(int(user["id"]), class_id):
             return jsonify({"ok": False, "error": "Forbidden"}), 403
         try:
@@ -4695,6 +4697,37 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         response = jsonify({"ok": True, **options})
         response.headers["Cache-Control"] = "no-store"
         return response
+
+    def _positive_sqlite_id(value: Any) -> int | None:
+        """Return ``value`` as a SQLite row id, or None when it will not fit.
+
+        SQLite integers are signed 64-bit. A larger Python int reaches the
+        driver as OverflowError, and the deck-seed routes would answer 500.
+        A float such as ``1.5`` is rejected whole; ``int(1.5)`` would
+        truncate it to ``1`` and copy the wrong class.
+
+        Args:
+            value: Path or JSON id.
+
+        Returns:
+            The id, or None when it is missing, not a whole integer, or
+            out of range.
+        """
+
+        if isinstance(value, bool) or isinstance(value, float) or value in (None, ""):
+            return None
+        if isinstance(value, str):
+            text = value.strip()
+            if not text.isascii() or not text.isdigit():
+                return None
+            number = int(text)
+        elif isinstance(value, int):
+            number = value
+        else:
+            return None
+        if number < 1 or number > 2**63 - 1:
+            return None
+        return number
 
     @app.route(
         "/api/staff/class/<int:class_id>/live-lessons/<module>/<slot>/deck-seed",
@@ -4719,6 +4752,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
 
         user = current_user()
         assert user is not None
+        if _positive_sqlite_id(class_id) is None:
+            return jsonify({"ok": False, "error": "Choose a deck from this course."}), 400
         if not school.teacher_owns_class(int(user["id"]), class_id):
             return jsonify({"ok": False, "error": "Forbidden"}), 403
         body = request.get_json(silent=True) or {}
@@ -4727,9 +4762,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             raw_source_class = body.get("sourceClassId")
         source_class_id = None
         if raw_source_class not in (None, ""):
-            try:
-                source_class_id = int(raw_source_class)
-            except (TypeError, ValueError):
+            source_class_id = _positive_sqlite_id(raw_source_class)
+            if source_class_id is None:
                 return jsonify({"ok": False, "error": "Choose a deck from this course."}), 400
         try:
             seeded = school.apply_class_deck_seed(

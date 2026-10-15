@@ -442,6 +442,8 @@ let deckCopyDeckChosen = false;
 /** @type {"idle"|"copying"|"nudge"|"error"} */
 let deckCopyPhase = "idle";
 let deckCopyError = "";
+/** True after the server answers 409 with needs_confirm. */
+let deckCopyNeedsConfirm = false;
 /** @type {{text: string}|null} Success line after Copy deck / Replace deck. */
 let deckCopyDone = null;
 
@@ -453,6 +455,7 @@ function resetDeckCopyState() {
   deckCopyDeckChosen = false;
   deckCopyPhase = "idle";
   deckCopyError = "";
+  deckCopyNeedsConfirm = false;
   deckCopyDone = null;
 }
 
@@ -464,6 +467,7 @@ function clearDeckCopyStatus() {
   if (deckCopyPhase !== "copying") {
     deckCopyPhase = "idle";
     deckCopyError = "";
+    deckCopyNeedsConfirm = false;
   }
 }
 
@@ -718,6 +722,7 @@ function currentDeckCopyState() {
     current: deckSeedCatalog?.current || {},
     phase: deckCopyPhase,
     error: deckCopyError,
+    needsConfirm: deckCopyNeedsConfirm,
     done: deckCopyDone,
   };
 }
@@ -802,13 +807,30 @@ async function copyDeckNow() {
       { method: "POST", body: JSON.stringify(body) }
     );
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err || "");
+    // needs_confirm, not the sentence: a matching message without the
+    // flag stays an error, and a flag with any wording opens Replace / Keep.
+    if (err && err.needsConfirm) {
+      deckCopyNeedsConfirm = true;
+      if (deckSeedCatalog) {
+        const current = deckSeedCatalog.current || {};
+        deckSeedCatalog.current = { ...current, available: true };
+      }
+      deckCopyPhase = "nudge";
+      deckCopyError = "";
+      hideError("#ap-overlay-error");
+      paintDeckCopyConfirm();
+      $("live-deck-copy-keep")?.focus();
+      return;
+    }
     deckCopyPhase = "error";
-    deckCopyError = err instanceof Error ? err.message : String(err || "");
+    deckCopyError = message;
     paintDeckCopyConfirm();
     $("live-deck-copy-go")?.focus();
     return;
   }
   deckCopyPhase = "idle";
+  deckCopyNeedsConfirm = false;
   deckCopyDone = {
     text: deckCopySuccessText({
       sourceSection: state.source?.sectionCode || "",

@@ -228,6 +228,22 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
         )
         self.assertNotIn(self.a3, {row["class_id"] for row in body["decks"]})
 
+    def test_section_labels_match_after_archive(self) -> None:
+        """Archiving section 1 renames the rest by active rank, in every list."""
+
+        self.school.archive_offering(int(self.off1["id"]))
+        renamed = self._options(self.a2)
+        codes = {row["class_id"]: row["section_code"] for row in renamed["sources"]}
+        self.assertEqual(codes[self.a2], "MCF3M")
+        self.assertEqual(codes[self.a3], "MCF3M-2")
+        sibling_labels = [
+            row["label"] for row in renamed["decks"] if row["class_id"] == self.a3
+        ]
+        self.assertTrue(sibling_labels)
+        self.assertTrue(all(label.startswith("MCF3M-2 · ") for label in sibling_labels))
+        own = next(row for row in renamed["sources"] if row["class_id"] == self.a2)
+        self.assertEqual(own["section_code"], renamed["sources"][-1]["section_code"])
+
     def test_sibling_view_lists_section_one_first(self) -> None:
         """From MCF3M-2, the siblings are MCF3M then MCF3M-3, then this class."""
 
@@ -256,6 +272,10 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
         on_teacher = self.school.deck_seed_options(self.a1, "M2", "C3", teacher_user_id=it_id)
         self.assertNotIn(self.a2, {row["class_id"] for row in on_teacher["sources"]})
         self.assertNotIn(self.a2, {row["class_id"] for row in on_teacher["decks"]})
+        # The admin's own section stays out of From while they are in A's class.
+        self.assertNotIn(it_class, {row["class_id"] for row in on_teacher["sources"]})
+        self.assertNotIn(it_class, {row["class_id"] for row in on_teacher["decks"]})
+        self.assertEqual([row["class_id"] for row in on_teacher["sources"]], [self.a1])
         before = _deck_table_snapshot(self.school, it_class)
         with self.assertRaises(PermissionError):
             self.school.apply_class_deck_seed(
@@ -264,6 +284,63 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
                 replace=True,
             )
         self.assertEqual(_deck_table_snapshot(self.school, it_class), before)
+
+    def test_admin_can_copy_own_section_into_another_teachers_class(self) -> None:
+        """From omits IT's section; copying that section into the class still works."""
+
+        it_user = self.school.register_staff("it-copy@gmail.com")
+        it_id = int(it_user["id"])
+        self.school.conn.execute("UPDATE users SET role = 'it' WHERE id = ?", (it_id,))
+        self.school.conn.commit()
+        it_off = self.school.assign_course(teacher_user_id=it_id, ontario_code="MCF3M")
+        it_class = self._make_class(it_off, it_id)
+        self._edit_first_question(it_class, "M2", "C3", "From the IT section")
+        source = self._deck(it_class, "M2", "C3")
+        options = self.school.deck_seed_options(
+            self.a1, "M2", "C3", teacher_user_id=it_id
+        )
+        self.assertNotIn(it_class, {row["class_id"] for row in options["sources"]})
+        self.assertNotIn(it_class, {row["class_id"] for row in options["decks"]})
+        self.assertEqual([row["class_id"] for row in options["sources"]], [self.a1])
+        copied = self.school.apply_class_deck_seed(
+            self.a1,
+            "M2",
+            "C3",
+            mode="course",
+            source_module="M2",
+            source_slot="C3",
+            source_class_id=it_class,
+            teacher_user_id=it_id,
+            require_replace_confirm=True,
+            replace=True,
+        )
+        self.assertEqual(copied["source_class_id"], it_class)
+        self.assertEqual(self._deck(self.a1, "M2", "C3"), source)
+        self.assertEqual(self._deck(it_class, "M2", "C3"), source)
+
+    def test_db_refuses_non_it_copy_into_another_teachers_class(self) -> None:
+        """Without the route 403, the DB still refuses a cross-teacher copy."""
+
+        other = self.school.register_staff("other-copy@gmail.com")
+        other_id = int(other["id"])
+        other_off = self.school.assign_course(teacher_user_id=other_id, ontario_code="MCF3M")
+        own_class = self._make_class(other_off, other_id)
+        self._edit_first_question(own_class, "M2", "C3", "From the other teacher")
+        before = self._deck(self.a1, "M2", "C3")
+        with self.assertRaises(PermissionError):
+            self.school.apply_class_deck_seed(
+                self.a1,
+                "M2",
+                "C3",
+                mode="course",
+                source_module="M2",
+                source_slot="C3",
+                source_class_id=own_class,
+                teacher_user_id=other_id,
+                require_replace_confirm=True,
+                replace=True,
+            )
+        self.assertEqual(self._deck(self.a1, "M2", "C3"), before)
 
     # --- ordering and defaults --------------------------------------------
 
@@ -686,6 +763,76 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
         self.assertGreaterEqual(calls["n"], 2)
         self.assertEqual(_deck_table_snapshot(self.school, self.a1), before_item)
 
+    def test_huge_ids_are_400_not_500(self) -> None:
+        """A source or class id past SQLite's integer range is 400."""
+
+        huge = "9" * 40
+        path = self.client.post(
+            f"/api/staff/class/{huge}/live-lessons/M2/C3/deck-seed",
+            json={"mode": "course", "source_module": "M1", "source_slot": "C1"},
+        )
+        self.assertEqual(path.status_code, 400, path.get_data(as_text=True)[:300])
+        body = self._seed(
+            self.a1,
+            "M2",
+            "C3",
+            {
+                "mode": "course",
+                "source_module": "M2",
+                "source_slot": "C3",
+                "source_class_id": huge,
+                "replace": True,
+            },
+        )
+        self.assertEqual(body.status_code, 400, body.get_json())
+        self.assertIn("course", body.get_json()["error"])
+        overflow = self._seed(
+            self.a1,
+            "M2",
+            "C3",
+            {
+                "mode": "course",
+                "source_module": "M2",
+                "source_slot": "C3",
+                "source_class_id": 2**63,
+                "replace": True,
+            },
+        )
+        self.assertEqual(overflow.status_code, 400, overflow.get_json())
+        options = self.client.get(
+            f"/api/staff/class/{huge}/live-lessons/M2/C3/deck-seed-options"
+        )
+        self.assertEqual(options.status_code, 400, options.get_data(as_text=True)[:300])
+        before = _deck_table_snapshot(self.school, self.a1)
+        fraction = self._seed(
+            self.a1,
+            "M2",
+            "C3",
+            {
+                "mode": "course",
+                "source_module": "M2",
+                "source_slot": "C3",
+                "source_class_id": 1.5,
+                "replace": True,
+            },
+        )
+        self.assertEqual(fraction.status_code, 400, fraction.get_json())
+        self.assertIn("course", fraction.get_json()["error"])
+        text_fraction = self._seed(
+            self.a1,
+            "M2",
+            "C3",
+            {
+                "mode": "course",
+                "source_module": "M2",
+                "source_slot": "C3",
+                "source_class_id": "1.5",
+                "replace": True,
+            },
+        )
+        self.assertEqual(text_fraction.status_code, 400, text_fraction.get_json())
+        self.assertEqual(_deck_table_snapshot(self.school, self.a1), before)
+
 
 HELPER_CASES = r"""
 import {
@@ -745,6 +892,18 @@ out.otherMode = deckCopyConfirmState({ ...base, mode: "current" });
 out.noDeck = deckCopyConfirmState({ ...base, deck: null });
 out.noDeckNudge = deckCopyConfirmState({ ...base, deck: null, phase: "nudge" });
 out.success = deckCopyConfirmState({ mode: "current", done: { text: deckCopySuccessText({ sourceSection: "MCR3U-2", deckName: "M2 C3", targetSection: "MCR3U", targetName: "M2 C3", count: 9 }) } });
+out.stuck409 = deckCopyConfirmState({
+  ...base,
+  current: { available: false, question_count: 0 },
+  phase: "nudge",
+  needsConfirm: true,
+});
+out.wordingOnly = deckCopyConfirmState({
+  ...base,
+  current: { available: false, question_count: 0 },
+  phase: "error",
+  error: "Replace the deck or keep current first.",
+});
 console.log(JSON.stringify(out));
 """
 
@@ -861,6 +1020,18 @@ class DeckCopyHelperTests(unittest.TestCase):
             self.got["success"]["text"],
             "✓ Copied MCR3U-2 · M2 C3 → MCR3U · M2 C3 (9 questions).",
         )
+        stuck = self.got["stuck409"]
+        self.assertTrue(stuck["replace"])
+        self.assertTrue(stuck["showKeep"])
+        self.assertEqual(stuck["goLabel"], "Replace deck")
+        self.assertTrue(stuck["holdsNext"])
+        self.assertEqual(stuck["variant"], "nudge")
+        self.assertEqual(stuck["text"], "Replace the deck or keep current first.")
+        wording = self.got["wordingOnly"]
+        self.assertFalse(wording["replace"])
+        self.assertFalse(wording["showKeep"])
+        self.assertEqual(wording["goLabel"], "Copy deck")
+        self.assertEqual(wording["text"], "Replace the deck or keep current first.")
         self.assertFalse(self.got["success"]["holdsNext"])
 
 
@@ -885,6 +1056,7 @@ document.createTextNode = (text) => ({ nodeValue: text });
 const flowCurrent = { 'M2/C3': { available: true, question_count: 7 }, 'M2/C1': { available: false, question_count: 0 } };
 const requests = [];
 const flowPosts = [];
+let flowConflict = false;
 globalThis.fetch = async (url, init = {}) => {
   const target = String(url);
   requests.push(target);
@@ -913,6 +1085,17 @@ globalThis.fetch = async (url, init = {}) => {
   } else if (/\/deck-seed$/.test(target)) {
     const body = JSON.parse(init.body || '{}');
     flowPosts.push(body);
+    if (flowConflict) {
+      flowConflict = false;
+      data = { ok: false, error: 'Replace the deck or keep current first.', needs_confirm: true };
+      const conflictText = JSON.stringify(data);
+      return {
+        ok: false, status: 409,
+        async text() { return conflictText; },
+        async json() { return data; },
+        headers: { get() { return 'application/json'; } },
+      };
+    }
     if (body.mode === 'course') flowCurrent['M2/C3'] = { available: true, question_count: 9 };
   }
   const text = JSON.stringify(data);
@@ -1002,6 +1185,21 @@ r.emptyView = mod.deckCopyView();
 flowPosts.length = 0;
 await mod.applyDeckSeedChoice();
 r.emptyNextPosts = flowPosts.slice();
+// Catalog still says M2 C1 is empty, but the server refuses the copy.
+flowConflict = true;
+flowPosts.length = 0;
+els['live-deck-copy-go'].dispatch('click');
+await settle();
+r.stuckView = mod.deckCopyView();
+r.stuckGo = els['live-deck-copy-go'].textContent;
+r.stuckKeepHidden = els['live-deck-copy-keep'].hidden;
+r.stuckFocus = lastFocus;
+r.stuckGoIsReplace = els['live-deck-copy-go'].classList.contains('is-replace');
+r.stuckPosts = flowPosts.slice();
+flowPosts.length = 0;
+els['live-deck-copy-go'].dispatch('click');
+await settle();
+r.stuckRetryPosts = flowPosts.slice();
 console.log(JSON.stringify(r));
 """
 
@@ -1142,6 +1340,42 @@ class SetClassDeckCopyFlowTests(unittest.TestCase):
                     "source_module": "M2",
                     "source_slot": "C1",
                     "source_class_id": "9",
+                }
+            ],
+        )
+
+    def test_refused_copy_on_empty_slot_offers_replace_or_keep(self) -> None:
+        """A 409 while the catalog says empty becomes Replace / Keep, then replace: true."""
+
+        r = self.r
+        self.assertEqual(
+            r["stuckPosts"],
+            [
+                {
+                    "mode": "course",
+                    "source_module": "M2",
+                    "source_slot": "C1",
+                    "source_class_id": "9",
+                }
+            ],
+        )
+        self.assertEqual(r["stuckView"]["variant"], "nudge")
+        self.assertEqual(r["stuckView"]["text"], "Replace the deck or keep current first.")
+        self.assertTrue(r["stuckView"]["showKeep"])
+        self.assertTrue(r["stuckView"]["replace"])
+        self.assertEqual(r["stuckGo"], "Replace deck")
+        self.assertFalse(r["stuckKeepHidden"])
+        self.assertEqual(r["stuckFocus"], "live-deck-copy-keep")
+        self.assertTrue(r["stuckGoIsReplace"])
+        self.assertEqual(
+            r["stuckRetryPosts"],
+            [
+                {
+                    "mode": "course",
+                    "source_module": "M2",
+                    "source_slot": "C1",
+                    "source_class_id": "9",
+                    "replace": True,
                 }
             ],
         )
