@@ -527,13 +527,35 @@ def shoot_mck220(
     return written
 
 
+def _ensure_real_participation_run_row(
+    con: sqlite3.Connection, class_id: int, run_key: str, ended_at: str
+) -> None:
+    """Insert a real, undiscarded ``participation_runs`` row when the shoot seed lacks one."""
+    exists = con.execute(
+        "SELECT 1 FROM participation_runs WHERE class_id = ? AND run_key = ? LIMIT 1",
+        (int(class_id), str(run_key)),
+    ).fetchone()
+    if exists is not None:
+        return
+    con.execute(
+        """
+        INSERT INTO participation_runs (
+            class_id, run_key, is_real, auto_is_real, discarded, ended_at
+        ) VALUES (?, ?, 1, 1, 0, ?)
+        """,
+        (int(class_id), str(run_key), ended_at),
+    )
+
+
 def prepare_mck207_pin_modal(path: Path) -> tuple[int, str, int]:
     """Ensure one open catch-up link and a student with default PIN (popup)."""
     class_id = shawn_class_id(path)
+    demo_run_key = "session:mck207:2026-10-13T09:00:00"
+    demo_ended = "2026-10-13T09:00:00"
     con = sqlite3.connect(path)
     try:
         row = con.execute(
-            "SELECT token FROM catchup_links WHERE class_id = ? ORDER BY id DESC LIMIT 1",
+            "SELECT token, run_key FROM catchup_links WHERE class_id = ? ORDER BY id DESC LIMIT 1",
             (class_id,),
         ).fetchone()
         if row is None:
@@ -543,13 +565,21 @@ def prepare_mck207_pin_modal(path: Path) -> tuple[int, str, int]:
                 INSERT INTO catchup_links (
                     token, class_id, run_key, live_module, live_slot, is_open,
                     created_at, updated_at
-                ) VALUES (?, ?, 'session:mck207:2026-10-13T09:00:00', 'M2', 'C1', 1,
-                    '2026-10-13T09:00:00', '2026-10-13T09:00:00')
+                ) VALUES (?, ?, ?, 'M2', 'C1', 1, ?, ?)
                 """,
-                (token, class_id),
+                (token, class_id, demo_run_key, demo_ended, demo_ended),
             )
+            _ensure_real_participation_run_row(con, class_id, demo_run_key, demo_ended)
         else:
             token = str(row[0])
+            run_key = str(row[1] or demo_run_key)
+            if token == "mck207demo" or run_key == demo_run_key:
+                _ensure_real_participation_run_row(
+                    con,
+                    class_id,
+                    run_key,
+                    demo_ended,
+                )
         sid = con.execute(
             "SELECT id FROM students WHERE class_id = ? ORDER BY id LIMIT 1",
             (class_id,),

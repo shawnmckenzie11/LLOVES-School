@@ -9720,7 +9720,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         link = school.get_catchup_link(token)
         if link is None:
             abort(404)
-        resolved = school.resolve_catchup_link(token) or link
+        resolved = school.resolve_catchup_link(token)
+        if resolved is None:
+            abort(404)
         want_course = school._course_code_for_class(int(resolved["class_id"])).upper()
         want_slug = catchup_lesson_slug(
             str(resolved.get("live_module") or ""), str(resolved.get("live_slot") or "")
@@ -9749,7 +9751,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         link = school.get_catchup_link(token)
         if link is None:
             abort(404)
-        resolved = school.resolve_catchup_link(token) or link
+        resolved = school.resolve_catchup_link(token)
+        if resolved is None:
+            abort(404)
         if request.method == "GET":
             dest = url_for(
                 "catchup_page_canonical",
