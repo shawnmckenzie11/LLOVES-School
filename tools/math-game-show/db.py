@@ -3348,6 +3348,7 @@ class GameShowDB:
         sort: str = "last",
         *,
         through_session_id: int | None = None,
+        return_dashboard: bool = True,
     ) -> dict[str, Any]:
         """Snapshot current TOTAL into a frozen column after the last class.
 
@@ -3360,9 +3361,13 @@ class GameShowDB:
             sort: Dashboard name order to return.
             through_session_id: When set, freeze through this session instead of
                 the newest column (MCK-230 module finish).
+            return_dashboard: When false, skip the dashboard reload. The
+                dashboard reload writes ``app_state.current_class_id``, so
+                batch scripts pass false (MCK-251).
 
         Returns:
-            Updated dashboard payload.
+            Updated dashboard payload, or ``{}`` when ``return_dashboard``
+            is false.
         """
         self.get_class(class_id)
         with self._lock:
@@ -3425,6 +3430,8 @@ class GameShowDB:
                     (sub_id, sid, pts),
                 )
             self.conn.commit()
+        if not return_dashboard:
+            return {}
         return self.dashboard(class_id, sort)
 
     def rename_subtotal(

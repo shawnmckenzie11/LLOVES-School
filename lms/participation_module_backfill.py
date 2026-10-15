@@ -151,6 +151,7 @@ def apply_participation_module_backfill(
             name=finish_module_subtotal_name(step.module),
             sort="az",
             through_session_id=int(step.through_session_id),
+            return_dashboard=False,
         )
         if _marks_row_exists(school, step.class_id, step.module):
             continue
@@ -206,7 +207,6 @@ def format_backfill_report(
     lines = [
         f"participation module backfill ({mode})",
         f"database: {database}",
-        "production: refused — Shawn approves a production run separately after a backup",
         (
             "before: "
             f"participation_module_marks={int(before.get('marks', 0))} "
