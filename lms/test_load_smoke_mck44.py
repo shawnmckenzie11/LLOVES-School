@@ -96,5 +96,36 @@ class LoadSmokeGateTests(unittest.TestCase):
             self.assertTrue(errors, overrides)
 
 
+class LoadSmokeOpsNotesTests(unittest.TestCase):
+    """MCK-44 follow-up: permissions, db lifecycle, p95 margin."""
+
+    def setUp(self) -> None:
+        self.wf = (REPO / ".github" / "workflows" / "deploy.yml").read_text()
+        self.src = (REPO / "scripts" / "load_class.py").read_text()
+
+    def test_no_actions_write(self) -> None:
+        self.assertNotIn("actions: write", self.wf)
+
+    def test_p95_margin_in_workflow(self) -> None:
+        self.assertIn("--max-p95-ms 400", self.wf)
+        self.assertNotIn("--max-p95-ms 250", self.wf)
+
+    def test_cleanup_step_always_runs(self) -> None:
+        i = self.wf.index("name: Drop load smoke databases")
+        self.assertIn("if: always()", self.wf[i:i + 200])
+
+    def test_local_check_before_create_and_drop_in_finally(self) -> None:
+        main = self.src[self.src.index("def main()"):]
+        self.assertLess(main.index("presence_is_local(presence)"),
+                        main.index("conn.execute(f'CREATE DATABASE"))
+        self.assertLess(main.index("finally:"), main.index("drop_presence_db(args.presence_url"))
+
+    def test_drop_refuses_non_local_or_foreign_db(self) -> None:
+        mod = _load()
+        # Returns without connecting: no psycopg call for these.
+        mod.drop_presence_db("postgresql://u:p@prod.example.com/x", "load_1")
+        mod.drop_presence_db("postgresql://u:p@127.0.0.1/x", "lloves_live")
+
+
 if __name__ == "__main__":
     unittest.main()
