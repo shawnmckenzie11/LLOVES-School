@@ -180,17 +180,27 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
             deck_url = str(latest["presentation_url"])
         elif deck and str(deck.get("presentation_url") or "").strip():
             deck_url = str(deck["presentation_url"])
+        portal_code = ""
+        if catchup and has_run:
+            portal_code = str(
+                catchup.get("portal_join_code") or catchup.get("token") or ""
+            ).strip()
+        session_code = (
+            str(latest.get("session_code") or "").strip() if latest else ""
+        )
+        join_code = portal_code or session_code
+        last_run_at = ""
+        if latest and str(latest.get("ended_at") or "").strip():
+            last_run_at = str(latest["ended_at"])
+        elif has_run and run_key:
+            last_run_at = school.ended_at_for_participation_run(cid, run_key)
         rows.append(
             {
                 "module": module,
                 "slot": slot,
                 "label": f"{module}{slot}",
-                "last_run_at": str(latest.get("ended_at") or "") if latest else "",
-                "join_code": (
-                    str(catchup.get("portal_join_code") or catchup.get("token") or "").strip()
-                    if catchup and has_run
-                    else ""
-                ),
+                "last_run_at": last_run_at,
+                "join_code": join_code if has_run else "",
                 "has_run": has_run,
                 "question_summary": _question_summary_text(summary) if questions else "—",
                 "summary": summary,
