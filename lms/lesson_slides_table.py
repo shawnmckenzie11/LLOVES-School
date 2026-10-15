@@ -102,6 +102,7 @@ def _question_summary_text(summary: dict[str, Any]) -> str:
 
 
 from lesson_slides_run_policy import display_ended_at_from_latest, effective_run_is_real
+from participation_real_students import exclude_participation_answer_student_ids
 
 
 def catchup_run_visible_for_staff(
@@ -158,7 +159,7 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
     latest_by_slot = {
         (str(r["live_module"]).upper(), str(r["live_slot"]).upper()): r for r in latest_rows
     }
-    test_ids = set(school.test_student_ids(cid))
+    test_ids = exclude_participation_answer_student_ids(cid, school)
 
     rows: list[dict[str, Any]] = []
     for lesson in lessons:

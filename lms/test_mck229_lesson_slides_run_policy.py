@@ -221,6 +221,59 @@ class RealStudentAnswerGateTests(LessonSlidesBackfillTests):
         self.assertEqual(report["inserted"] + report["updated"], 0)
 
 
+
+    def test_staff_preview_only_run_is_skipped(self) -> None:
+        """Staff preview seat answers do not qualify for backfill (MCK-229)."""
+        live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
+        sid = int(live["id"])
+        c = self.school.conn
+        run_key = str(
+            c.execute("SELECT run_key FROM live_class_sessions WHERE id = ?", (sid,)).fetchone()[0]
+        )
+        c.execute(
+            "UPDATE live_class_sessions SET teacher_state_json = ? WHERE id = ?",
+            (json.dumps({"live_module": "M3", "live_slot": "C3"}), sid),
+        )
+        now = "2026-10-14T14:29:00"
+        c.execute(
+            """
+            INSERT INTO participation_items (
+                class_id, run_key, live_module, live_slot, question_key, item_json,
+                prompt_kind, offered_at
+            ) VALUES (?, ?, 'M3', 'C3', 'item:q0', '{}', 'poll', ?)
+            """,
+            (int(self.class_id), run_key, now),
+        )
+        c.execute(
+            """
+            INSERT INTO participation_runs (
+                class_id, run_key, is_real, auto_is_real, discarded, ended_at
+            ) VALUES (?, ?, 1, 1, 0, NULL)
+            """,
+            (int(self.class_id), run_key),
+        )
+        staff_id = self.school.game._insert_student_row(
+            int(self.class_id),
+            canvas_id=f"staff-student:{int(self.class_id)}",
+            last_display="Staff",
+            first_name="Staff",
+            codename="Staff Preview",
+        )
+        self.school.game.conn.commit()
+        c.execute(
+            """
+            INSERT INTO participation_answers (
+                class_id, run_key, live_module, question_key, student_id, source,
+                answer_json, answered_at
+            ) VALUES (?, ?, 'M3', 'item:q0', ?, 'live', '{}', ?)
+            """,
+            (int(self.class_id), run_key, int(staff_id), now),
+        )
+        c.commit()
+        _, ok = run_qualifies_for_lesson_slides_latest(self.school, self.class_id, run_key)
+        self.assertFalse(ok)
+
+
 class CatchupCoalesceTests(LessonSlidesBackfillTests):
     """``list_catchup_links`` treats missing ``is_real`` as false, then recomputes."""
 

@@ -6953,6 +6953,36 @@ class LovesDB:
         return dict(row) if row else {}
 
 
+    def prune_live_result_snapshots(
+        self,
+        *,
+        days: int | None = None,
+        now: datetime | None = None,
+    ) -> int:
+        """Delete End-of-class snapshots older than the retention window.
+
+        Args:
+            days: Window in days. Default ``LIVE_RESULT_SNAPSHOT_RETENTION_DAYS``.
+            now: Reference time (tests). Default: local now.
+
+        Returns:
+            Rows deleted.
+        """
+        window = LIVE_RESULT_SNAPSHOT_RETENTION_DAYS if days is None else int(days)
+        if window <= 0:
+            return 0
+        ref = now or datetime.now()
+        cutoff = (ref - timedelta(days=window)).replace(microsecond=0).isoformat()
+        with self._lock:
+            cur = self.conn.execute(
+                "DELETE FROM live_result_snapshots WHERE snapshot_at < ?",
+                (cutoff,),
+            )
+            self.conn.commit()
+        return int(cur.rowcount or 0)
+
+
+
 # MCK-154 S2: stride between candidate prompt slots for one lifecycle row
 # when ``20000 + id`` still holds a removed row's prompt.
 LIVE_ITEM_PROMPT_SLIDE_STRIDE = 1_000_000
@@ -30215,34 +30245,6 @@ class SchoolDB(LovesDB):
             for row in rows
         }
 
-    def prune_live_result_snapshots(
-        self,
-        *,
-        days: int | None = None,
-        now: datetime | None = None,
-    ) -> int:
-        """Delete End-of-class snapshots older than the retention window.
-
-        Args:
-            days: Window in days. Default ``LIVE_RESULT_SNAPSHOT_RETENTION_DAYS``.
-            now: Reference time (tests). Default: local now.
-
-        Returns:
-            Rows deleted.
-        """
-        window = LIVE_RESULT_SNAPSHOT_RETENTION_DAYS if days is None else int(days)
-        if window <= 0:
-            return 0
-        ref = now or datetime.now()
-        cutoff = (ref - timedelta(days=window)).replace(microsecond=0).isoformat()
-        with self._lock:
-            cur = self.conn.execute(
-                "DELETE FROM live_result_snapshots WHERE snapshot_at < ?",
-                (cutoff,),
-            )
-            self.conn.commit()
-        return int(cur.rowcount or 0)
-
     # --- MCK-198: individual participation + catch-up --------------------
 
     def _capture_participation_unlocked(self, session_id: int) -> None:
@@ -30933,6 +30935,21 @@ class SchoolDB(LovesDB):
                 (int(student_id),),
             ).fetchone()
         return bool(row and int(row[0]))
+
+
+    def staff_student_ids(self, class_id: int) -> list[int]:
+        """Ids of staff preview roster rows (excluded from student-answer gates)."""
+        if getattr(self, "game", None) is None:
+            return []
+        with self.game._lock:
+            rows = self.game.conn.execute(
+                """
+                SELECT id FROM students
+                WHERE class_id = ? AND canvas_id GLOB 'staff-student:*'
+                """,
+                (int(class_id),),
+            ).fetchall()
+        return [int(r[0]) for r in rows]
 
     def ensure_class_test_student(self, class_id: int) -> dict[str, Any] | None:
         """Ensure exactly one Test Student exists on the class roster (MCK-229)."""
