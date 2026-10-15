@@ -10312,6 +10312,8 @@ class SchoolDB(LovesDB):
                     int(class_id), module_key, slot_key
                 ),
             }
+        # Fast path. The write transaction reads this again, including the
+        # join-stage exemption, so a slot that goes live mid-copy is refused.
         self._refuse_deck_copy_into_live_slot(int(class_id), module_key, slot_key)
         source_meta: dict[str, Any] | None = None
         source_m: str | None = None
@@ -10505,6 +10507,8 @@ class SchoolDB(LovesDB):
             replace: The teacher confirmed replacing the existing deck.
 
         Raises:
+            DeckCopyLiveConflict: The slot is live on this challenge when
+                the write lock is taken. Nothing is written.
             DeckReplaceNotConfirmed: The slot gained a deck and ``replace``
                 is false. Nothing is written.
         """
@@ -10586,9 +10590,15 @@ class SchoolDB(LovesDB):
             replace: The teacher confirmed replacing that deck.
 
         Raises:
+            DeckCopyLiveConflict: This slot went live after the earlier check.
+                The join-stage exemption is read again here.
             DeckReplaceNotConfirmed: The slot has a deck and ``replace`` is false.
         """
 
+        # Same transaction as the replace re-check. A slot that leaves join,
+        # or gains an active question, between the earlier look and this
+        # write is refused before any row changes.
+        self._refuse_deck_copy_into_live_slot(int(class_id), module_key, slot_key)
         if (
             require_replace_confirm
             and not replace

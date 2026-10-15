@@ -35,6 +35,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -47,7 +48,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
-from school_db import DeckReplaceNotConfirmed, SchoolDB  # noqa: E402
+from school_db import DeckCopyLiveConflict, DeckReplaceNotConfirmed, SchoolDB  # noqa: E402
 from test_deck_seed_sticky_mode import STAFF_AP_HARNESS  # noqa: E402
 
 NODE = shutil.which("node")
@@ -580,6 +581,110 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
         self.school.conn.commit()
         after_end = self._seed(self.a1, "M2", "C3", body)
         self.assertEqual(after_end.status_code, 200, after_end.get_json())
+
+    def test_slot_that_goes_live_mid_copy_is_refused(self) -> None:
+        """The write re-checks liveness, including a join that stops being join."""
+
+        session = self.school.start_live_class_session(
+            self.a1, self.tid, live_module="M2", live_slot="C3"
+        )
+        self.school.set_live_session_teacher_state(
+            int(session["id"]),
+            live_module="M2",
+            live_slot="C3",
+            class_set=True,
+            stage="join",
+        )
+        before = _deck_table_snapshot(self.school, self.a1)
+        real = SchoolDB._refuse_deck_copy_into_live_slot
+        calls = {"n": 0}
+
+        def leave_join(db, class_id, module, slot):
+            """Pass the first look, then leave join before the write re-check."""
+
+            calls["n"] += 1
+            if calls["n"] == 1:
+                real(db, class_id, module, slot)
+                db.set_live_session_teacher_state(
+                    int(session["id"]),
+                    live_module="M2",
+                    live_slot="C3",
+                    class_set=True,
+                    stage="round",
+                )
+                return None
+            return real(db, class_id, module, slot)
+
+        with patch.object(SchoolDB, "_refuse_deck_copy_into_live_slot", leave_join):
+            with self.assertRaises(DeckCopyLiveConflict):
+                self.school.apply_class_deck_seed(
+                    self.a1,
+                    "M2",
+                    "C3",
+                    mode="course",
+                    source_module="M2",
+                    source_slot="C1",
+                    source_class_id=self.a2,
+                    teacher_user_id=self.tid,
+                    require_replace_confirm=True,
+                    replace=True,
+                )
+        self.assertGreaterEqual(calls["n"], 2)
+        self.assertEqual(_deck_table_snapshot(self.school, self.a1), before)
+
+        self.school.conn.execute(
+            "UPDATE live_class_sessions SET status = 'ended' WHERE id = ?",
+            (int(session["id"]),),
+        )
+        self.school.conn.commit()
+        session = self.school.start_live_class_session(
+            self.a1, self.tid, live_module="M2", live_slot="C3"
+        )
+        self.school.set_live_session_teacher_state(
+            int(session["id"]),
+            live_module="M2",
+            live_slot="C3",
+            class_set=True,
+            stage="join",
+        )
+        before_item = _deck_table_snapshot(self.school, self.a1)
+        calls["n"] = 0
+
+        def activate_item(db, class_id, module, slot):
+            """Pass the join exemption, then publish a question before the write."""
+
+            calls["n"] += 1
+            if calls["n"] == 1:
+                real(db, class_id, module, slot)
+                db.conn.execute(
+                    """
+                    INSERT INTO live_session_items (
+                        live_session_id, placement_key, item_id, stage, kind,
+                        item_json, status, created_at, updated_at
+                    ) VALUES (?, 'mid-copy', 'q1', 'round', 'poll', '{}', 'active', ?, ?)
+                    """,
+                    (int(session["id"]), "2026-10-15T12:00:00", "2026-10-15T12:00:00"),
+                )
+                db.conn.commit()
+                return None
+            return real(db, class_id, module, slot)
+
+        with patch.object(SchoolDB, "_refuse_deck_copy_into_live_slot", activate_item):
+            with self.assertRaises(DeckCopyLiveConflict):
+                self.school.apply_class_deck_seed(
+                    self.a1,
+                    "M2",
+                    "C3",
+                    mode="course",
+                    source_module="M2",
+                    source_slot="C1",
+                    source_class_id=self.a2,
+                    teacher_user_id=self.tid,
+                    require_replace_confirm=True,
+                    replace=True,
+                )
+        self.assertGreaterEqual(calls["n"], 2)
+        self.assertEqual(_deck_table_snapshot(self.school, self.a1), before_item)
 
 
 HELPER_CASES = r"""
