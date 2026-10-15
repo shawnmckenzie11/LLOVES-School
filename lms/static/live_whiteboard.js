@@ -192,13 +192,14 @@ export function clearBoardRefreshCue(anchor) {
  *   onDelta?: (result: any) => void,
  *   isShown?: () => boolean,
  * }} opts
- * @returns {{ stop: () => void }}
+ * @returns {{ stop: () => void, kick: () => void }}
  */
 export function createBoardDeltaPoll(opts) {
   let timer = 0;
   let inFlight = false;
   let stopped = false;
   let delay = 0;
+  let kickRequested = false;
 
   /**
    * Arm the next poll. A stopped poll does not arm again.
@@ -221,6 +222,7 @@ export function createBoardDeltaPoll(opts) {
       return;
     }
     inFlight = true;
+    kickRequested = false;
     Promise.resolve()
       .then(() => opts.poll())
       .then((result) => {
@@ -244,7 +246,9 @@ export function createBoardDeltaPoll(opts) {
       })
       .finally(() => {
         inFlight = false;
-        if (!stopped) schedule();
+        if (stopped) return;
+        if (kickRequested) delay = 0;
+        schedule();
       });
   }
 
@@ -257,6 +261,20 @@ export function createBoardDeltaPoll(opts) {
       stopped = true;
       if (timer) window.clearTimeout(timer);
       timer = 0;
+    },
+    /**
+     * Fetch deltas now. A request already in flight runs once more when it finishes.
+     */
+    kick() {
+      if (stopped) return;
+      if (inFlight) {
+        kickRequested = true;
+        return;
+      }
+      if (timer) window.clearTimeout(timer);
+      timer = 0;
+      delay = 0;
+      run();
     },
   };
 }

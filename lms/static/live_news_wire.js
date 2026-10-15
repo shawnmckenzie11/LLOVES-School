@@ -86,6 +86,7 @@ const LIGHT_TYPES = new Set([
   "prompt",
   "response_landed",
   "flag_work",
+  "board_ink",
 ]);
 
 /**
@@ -253,6 +254,7 @@ export function connectLiveNewsWire(sessionId, handlers) {
       "prompt",
       "response_landed",
       "flag_work",
+      "board_ink",
       "busy",
       "ping",
     ];

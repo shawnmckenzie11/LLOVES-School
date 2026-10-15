@@ -58,6 +58,7 @@ NEWS_TYPES = frozenset(
         "prompt",
         "response_landed",
         "flag_work",
+        "board_ink",
         "busy",
         "ping",
     }
@@ -80,6 +81,8 @@ _FIELDS: dict[str, frozenset[str]] = {
     "flag_work": frozenset(
         {"type", "student_id", "team_id", "kind", "state_seq"}
     ),
+    # Board key only. No points, no names. Members fetch since-seq deltas.
+    "board_ink": frozenset({"type", "board_key"}),
     "busy": frozenset({"type", "retry"}),
     "ping": frozenset({"type"}),
 }
@@ -172,16 +175,22 @@ class NewsAudience:
         role: str,
         *,
         student_id: int | None = None,
+        read_keys: frozenset[str] | set[str] | None = None,
     ) -> None:
-        """Record the caller's role and optional roster id.
+        """Record the caller's role, roster id, and boards they may read.
+
+        ``read_keys`` is snapshotted when the stream opens. A team change
+        applies on the browser's next reconnect.
 
         Args:
             role: ``staff`` or ``student``.
             student_id: Roster id for a student stream. ``None`` for staff
                 and unmatched guests.
+            read_keys: Board keys this student may read. Staff ignore this.
         """
         self.role = role
         self.student_id = student_id
+        self.read_keys = frozenset(str(key) for key in (read_keys or ()))
 
 
 def reset_stream_budget() -> None:
@@ -286,6 +295,11 @@ def _clean_event(raw: dict[str, Any]) -> dict[str, Any] | None:
         event[key] = raw[key]
     if kind == "busy":
         event["retry"] = True
+    if kind == "board_ink":
+        key = str(event.get("board_key") or "").strip()[:80]
+        if not key:
+            return None
+        event["board_key"] = key
     return event
 
 
@@ -454,6 +468,7 @@ def reset_logs() -> None:
             log.close()
         except sqlite3.Error:
             pass
+    reset_ink_taps()
 
 
 def emit_session_news(
@@ -726,6 +741,46 @@ def emit_answer_landed(
     )
 
 
+# One tap per board per this many seconds. A stroke is many batches.
+INK_TAP_COALESCE_S = 0.25
+_ink_tap_lock = threading.Lock()
+_ink_tap_at: dict[tuple[int, str], float] = {}
+
+
+def reset_ink_taps() -> None:
+    """Drop the per-board coalesce clock. Tests call this between cases."""
+    with _ink_tap_lock:
+        _ink_tap_at.clear()
+
+
+def emit_board_ink(school: Any, session_id: int, board_key: str) -> None:
+    """Tell readers of one board that new ops are stored.
+
+    The postcard is the board key and nothing else. Strokes stay in
+    ``board_ops``. A burst of batches on the same board shares one tap.
+
+    Args:
+        school: SchoolDB. Only ``data_dir`` is read.
+        session_id: ``live_class_sessions.id``.
+        board_key: Board that just gained ops.
+    """
+    key = str(board_key or "").strip()[:80]
+    if not key:
+        return
+    sid = int(session_id)
+    now = time.monotonic()
+    with _ink_tap_lock:
+        if now - _ink_tap_at.get((sid, key), 0.0) < INK_TAP_COALESCE_S:
+            return
+        _ink_tap_at[(sid, key)] = now
+        if len(_ink_tap_at) > 4000:
+            cutoff = now - 30.0
+            stale = [item for item, stamp in _ink_tap_at.items() if stamp < cutoff]
+            for item in stale:
+                _ink_tap_at.pop(item, None)
+    emit_session_news(school, sid, [{"type": "board_ink", "board_key": key}])
+
+
 def prompt_event(prompt_id: Any, state_seq: int) -> dict[str, Any]:
     """Postcard naming the active prompt id and nothing of its stem.
 
@@ -764,13 +819,22 @@ def flag_work_event(kind: str, state_seq: int, **ids: Any) -> dict[str, Any]:
 def event_visible(event: dict[str, Any], audience: NewsAudience) -> bool:
     """Apply auth scope. Staff sees the board; students miss other people's self taps.
 
+    ``board_ink`` reaches only students whose stream was opened on that
+    board, plus staff when the ink is on the teacher board. Another
+    group's key is not delivered.
+
     Args:
         event: Stored postcard, including its SSE ``id``.
         audience: Caller holding this stream.
     """
+    kind = str(event.get("type") or "")
+    if kind == "board_ink":
+        key = str(event.get("board_key") or "")
+        if audience.role == "staff":
+            return key == "teacher"
+        return key in audience.read_keys
     if audience.role == "staff":
         return True
-    kind = str(event.get("type") or "")
     if kind == "flag_work":
         return False
     if kind == "response_landed" and event.get("scope") == "self":
@@ -906,10 +970,20 @@ def _audience_for(
     if int(ctx.get("live_session_id") or 0) != int(session_id):
         return None
     student_id = ctx.get("student_id")
-    return NewsAudience(
-        "student",
-        student_id=int(student_id) if student_id not in (None, "") else None,
-    )
+    sid = int(student_id) if student_id not in (None, "") else None
+    read_keys: frozenset[str] = frozenset()
+    if sid is not None:
+        try:
+            access = school.student_board_access(int(session_id), sid)
+            read_keys = frozenset(str(key) for key in (access.get("read") or ()))
+        except Exception:
+            logger.warning(
+                "live news board scope failed session=%s student=%s",
+                session_id,
+                sid,
+            )
+            read_keys = frozenset()
+    return NewsAudience("student", student_id=sid, read_keys=read_keys)
 
 
 def live_news_response(

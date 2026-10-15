@@ -2163,6 +2163,7 @@ class LovesDB:
 
         store = SqliteBoardOps(self.conn, self._lock)
         store.ensure_schema()
+        store.on_committed = self._tap_board_ink
         self.boards = store
         from engagement_events import SqliteEngagementEvents
 
@@ -2180,6 +2181,7 @@ class LovesDB:
 
         store = PostgresBoardOps(presence)
         store.ensure_schema()
+        store.on_committed = self._tap_board_ink
         self.boards = store
         from engagement_events import PostgresEngagementEvents
 
@@ -29602,6 +29604,48 @@ class SchoolDB(LovesDB):
         """
         key, gen = self._live_board_base_run_key(session_id)
         return self.board_generation_key(key, gen)
+
+    def _active_session_id_for_board_run(self, run_key: str) -> int | None:
+        """Active session that owns this board run key.
+
+        Generation 0 stores the bare run key. A Fresh board suffix
+        ``~g<n>`` maps back to that same row.
+
+        Args:
+            run_key: Value passed to the board store, base or ``~g<n>``.
+
+        Returns:
+            ``live_class_sessions.id``, or ``None`` when no active row matches.
+        """
+        token = str(run_key or "").strip()
+        if not token:
+            return None
+        base = token.split("~g", 1)[0]
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT id FROM live_class_sessions
+                WHERE run_key = ? AND status = 'active'
+                """,
+                (base,),
+            ).fetchone()
+        if row is None:
+            return None
+        return int(row["id"])
+
+    def _tap_board_ink(self, run_key: str, board_key: str) -> None:
+        """Notify readers after new ink commits. The write already succeeded.
+
+        Args:
+            run_key: Board generation key for this live run.
+            board_key: Board that gained ops.
+        """
+        from live_news_wire import emit_board_ink
+
+        session_id = self._active_session_id_for_board_run(run_key)
+        if session_id is None:
+            return
+        emit_board_ink(self, int(session_id), str(board_key))
 
     def live_board_generation_keys(self, session_id: int) -> list[str]:
         """Return every board key this run has used, oldest first.

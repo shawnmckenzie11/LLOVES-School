@@ -526,6 +526,69 @@ class BoardRouteTests(unittest.TestCase):
         row = self.school.game.find_student_by_codename(self.class_id, codename)
         return int(row["id"])
 
+    def test_ink_taps_only_that_groups_readers(self) -> None:
+        """A stroke posts one board_ink for that group, not the other group or staff."""
+        from live_news_wire import NewsAudience, event_visible, log_for, reset_ink_taps, reset_logs
+
+        reset_ink_taps()
+        tokens = self._publish_two_groups()
+        aspen = self._student(tokens["Aspen"])
+        aspen_id = self._student_id("Aspen")
+        birch_id = self._student_id("Birch")
+        cedar_id = self._student_id("Cedar")
+        drawn = aspen.post(
+            "/api/student/canvas-presence",
+            json={
+                "run_key": self.school.live_board_run_key(self.session_id),
+                "x": 0.2,
+                "y": 0.3,
+                "points": [[0.2, 0.3]],
+                "stroke_id": "aspen-tap",
+                "ended": True,
+                "client_batch_id": "aspen-tap-batch",
+            },
+        )
+        self.assertEqual(drawn.status_code, 200, drawn.get_json())
+        again = aspen.post(
+            "/api/student/canvas-presence",
+            json={
+                "run_key": self.school.live_board_run_key(self.session_id),
+                "x": 0.2,
+                "y": 0.3,
+                "points": [[0.2, 0.3]],
+                "stroke_id": "aspen-tap",
+                "ended": True,
+                "client_batch_id": "aspen-tap-batch",
+            },
+        )
+        self.assertEqual(again.status_code, 200, again.get_json())
+        try:
+            rows = [
+                row
+                for row in log_for(self.school.data_dir).since(self.session_id, 0)
+                if row.get("type") == "board_ink"
+            ]
+        finally:
+            reset_logs()
+        self.assertEqual(len(rows), 1, rows)
+        self.assertNotIn("points", json.dumps(rows))
+        self.assertNotIn("aspen", json.dumps(rows).lower())
+        aspen_keys = self.school.student_board_access(self.session_id, aspen_id)["read"]
+        birch_keys = self.school.student_board_access(self.session_id, birch_id)["read"]
+        cedar_keys = self.school.student_board_access(self.session_id, cedar_id)["read"]
+        self.assertTrue(
+            event_visible(rows[0], NewsAudience("student", student_id=aspen_id, read_keys=aspen_keys))
+        )
+        self.assertTrue(
+            event_visible(rows[0], NewsAudience("student", student_id=birch_id, read_keys=birch_keys))
+        )
+        self.assertFalse(
+            event_visible(rows[0], NewsAudience("student", student_id=cedar_id, read_keys=cedar_keys))
+        )
+        self.assertFalse(event_visible(rows[0], NewsAudience("staff")))
+        self.assertIn(rows[0]["board_key"], aspen_keys)
+        self.assertNotIn(rows[0]["board_key"], cedar_keys)
+
     def test_cross_team_and_teacher_cannot_read_another_groups_ops(self) -> None:
         """A student is limited to their team; staff get no group board."""
         tokens = self._publish_two_groups()
@@ -1055,6 +1118,10 @@ class BoardRouteTests(unittest.TestCase):
         self.assertIn("drop()", student)
         self.assertIn("drop()", staff)
         self.assertIn("hasStream()", wire)
+        self.assertIn("board_ink", wire)
+        self.assertIn('event.type === "board_ink"', student)
+        self.assertIn("kick()", wb)
+        self.assertNotIn("hasStream()", staff)
         self.assertIn("pg_advisory_xact_lock", presence)
         self.assertIn("pg_advisory_xact_lock", boards)
         self.assertIn("CREATE TABLE IF NOT EXISTS live_presence_sessions", presence)
