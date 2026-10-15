@@ -6961,7 +6961,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             if choice:
                 stored["choice"] = choice
             try:
-                school.submit_live_prompt_response(
+                stored_row = school.submit_live_prompt_response(
                     prompt_id,
                     int(student_id) if student_id not in (None, "") else None,
                     stored,
@@ -6969,7 +6969,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 )
             except (KeyError, ValueError) as exc:
                 return _json_error(exc)
-            recorded = school.record_meet_chain_pick(
+            replay = bool(
+                isinstance(stored_row, dict) and stored_row.pop("idempotent_replay", False)
+            )
+            recorded = None if replay else school.record_meet_chain_pick(
                 live_session_id,
                 participant_uuid=str((ctx or {}).get("participant_uuid") or ""),
                 student_id=int(student_id) if student_id not in (None, "") else None,
@@ -6993,7 +6996,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     else None,
                 ),
             }
-            if recorded is None and not choice:
+            if recorded is None and not choice and not replay:
                 return jsonify({"ok": False, "error": "Meet is not live."}), 409
             try:
                 teacher = school.live_session_teacher_state_payload(live_session_id)
@@ -7010,12 +7013,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 body["mc_tally"] = school.student_safe_tally(
                     live_session_id, target, tally, teacher
                 )
-            emit_answer_landed(
-                school,
-                live_session_id,
-                student_id=int(student_id) if student_id not in (None, "") else None,
-                count=prompt_response_count(school, prompt_id),
-            )
+            if not replay:
+                emit_answer_landed(
+                    school,
+                    live_session_id,
+                    student_id=int(student_id) if student_id not in (None, "") else None,
+                    count=prompt_response_count(school, prompt_id),
+                )
             return jsonify(body)
         try:
             saved = school.submit_live_prompt_response(
@@ -7026,6 +7030,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        replay = bool(isinstance(saved, dict) and saved.pop("idempotent_replay", False))
         my_response = {
             "response": saved.get("response") or {},
             "awarded_points": saved.get("awarded_points"),
@@ -7060,12 +7065,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             body["mc_tally"] = school.student_safe_tally(
                 live_session_id, target, tally, teacher
             )
-        emit_answer_landed(
-            school,
-            live_session_id,
-            student_id=int(student_id) if student_id not in (None, "") else None,
-            count=prompt_response_count(school, prompt_id),
-        )
+        if not replay:
+            emit_answer_landed(
+                school,
+                live_session_id,
+                student_id=int(student_id) if student_id not in (None, "") else None,
+                count=prompt_response_count(school, prompt_id),
+            )
         # MCK-176: students only ever see rank option aliases.
         body = school.alias_student_prompt_reply(prompt_id, body)
         return jsonify(body)
