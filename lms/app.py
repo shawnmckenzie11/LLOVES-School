@@ -8077,6 +8077,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "text_ride",
             "question_views",
             "page_id",
+            "whiteboard_always_show_names",
+            "whiteboard_projector_names",
         ):
             if key in body:
                 kwargs[key] = body.get(key)

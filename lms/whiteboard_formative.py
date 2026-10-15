@@ -79,6 +79,8 @@ def formative_board_members(
         sid = row.get("student_id")
         if sid in (None, ""):
             continue
+        if row.get("left_at"):
+            continue
         name = first_name_only(str(row.get("codename") or row.get("name") or sid))
         out.append(
             {

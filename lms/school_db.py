@@ -28977,7 +28977,7 @@ class SchoolDB(LovesDB):
             reply["canvas_view"] = delta.get("canvas_view")
 
         def _with_formative(payload: dict[str, Any]) -> dict[str, Any]:
-            meta = self._formative_board_meta(
+            meta = self._cached_formative_board_meta(
                 int(session_id),
                 board_key=str(board_key),
                 student_id=student_id,
@@ -29026,14 +29026,18 @@ class SchoolDB(LovesDB):
             return []
         class_id = int(session_row["class_id"])
         index = self.game.team_membership_index(class_id)
+        by_student = (
+            index.get("by_student")
+            if isinstance(index, dict)
+            else None
+        ) or {}
         with self._lock:
             rows = self.conn.execute(
                 """
-                SELECT student_id, codename, joined_at
+                SELECT student_id, codename, joined_at, left_at
                 FROM live_session_attendees
                 WHERE live_session_id = ?
                   AND student_id IS NOT NULL
-                  AND (left_at IS NULL OR left_at = '')
                 ORDER BY joined_at ASC, id ASC
                 """,
                 (int(session_id),),
@@ -29042,16 +29046,52 @@ class SchoolDB(LovesDB):
         for row in rows:
             sid = int(row["student_id"])
             if team_id not in (None, ""):
-                if int(index.get(sid) or -1) != int(team_id):
+                if int(by_student.get(sid) or -1) != int(team_id):
                     continue
             out.append(
                 {
                     "student_id": sid,
                     "codename": str(row["codename"] or ""),
                     "name": str(row["codename"] or ""),
+                    "left_at": row["left_at"],
                 }
             )
         return out
+
+    def _cached_formative_board_meta(
+        self,
+        session_id: int,
+        *,
+        board_key: str,
+        student_id: int | None,
+        as_teacher: bool,
+    ) -> dict[str, Any] | None:
+        """Formative meta for one board read, cached for the duration of one poll."""
+        cache = getattr(self, "_formative_board_meta_cache", None)
+        if cache is None:
+            cache = {}
+            self._formative_board_meta_cache = cache
+        teacher = self.live_session_teacher_state_payload(int(session_id))
+        state_seq = int(teacher.get("state_seq") or 0)
+        cache_key = (
+            int(session_id),
+            str(board_key),
+            int(student_id) if student_id not in (None, "") else None,
+            bool(as_teacher),
+            state_seq,
+        )
+        if cache_key in cache:
+            return cache[cache_key]
+        meta = self._formative_board_meta(
+            int(session_id),
+            board_key=str(board_key),
+            student_id=student_id,
+            as_teacher=as_teacher,
+        )
+        cache[cache_key] = meta
+        if len(cache) > 64:
+            cache.clear()
+        return meta
 
     def _formative_board_meta(
         self,

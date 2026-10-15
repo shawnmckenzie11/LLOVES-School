@@ -2341,6 +2341,7 @@ function adoptTeacherState(next) {
     });
     teacherBoard.refreshFormative?.();
   }
+  syncWhiteboardFormativeToggles();
   if (Number(teacherState.state_seq) !== prevSeq) {
     paintTeacherShell();
     paintResultsStrip();
@@ -12453,6 +12454,24 @@ function teacherSnapshotHasInk(view) {
 function syncTeacherBoardCollab() {
   if (!teacherBoard || typeof teacherBoard.setCollab !== "function") return;
   teacherBoard.setCollab(whiteboardCollabOn());
+  syncWhiteboardFormativeToggles();
+}
+
+/**
+ * Show formative name toggles during group whiteboard collab and mirror server state.
+ */
+function syncWhiteboardFormativeToggles() {
+  const host = $("live-whiteboard-formative-toggles");
+  const always = $("live-whiteboard-always-names");
+  const projector = $("live-whiteboard-projector-names");
+  if (!(host instanceof HTMLElement)) return;
+  host.hidden = !whiteboardCollabOn();
+  if (always instanceof HTMLInputElement) {
+    always.checked = Boolean(teacherState.whiteboard_always_show_names);
+  }
+  if (projector instanceof HTMLInputElement) {
+    projector.checked = Boolean(teacherState.whiteboard_projector_names);
+  }
 }
 
 /**
@@ -12767,7 +12786,7 @@ function bindEphemeralCanvas() {
     textBtn: $("live-canvas-text"),
     cursorLayer: $("live-canvas-cursors"),
     formative: {
-      enabled: true,
+      enabled: false,
       members: [],
       isTeacher: true,
       isPhone: false,
@@ -12806,6 +12825,19 @@ function bindEphemeralCanvas() {
     },
   });
   ensureTeacherBoardPoll();
+  const alwaysNames = $("live-whiteboard-always-names");
+  const projectorNames = $("live-whiteboard-projector-names");
+  if (alwaysNames instanceof HTMLInputElement) {
+    alwaysNames.addEventListener("change", () => {
+      patchTeacherState({ whiteboard_always_show_names: alwaysNames.checked });
+    });
+  }
+  if (projectorNames instanceof HTMLInputElement) {
+    projectorNames.addEventListener("change", () => {
+      patchTeacherState({ whiteboard_projector_names: projectorNames.checked });
+    });
+  }
+  syncWhiteboardFormativeToggles();
 }
 
 selectTrackMode("individual");

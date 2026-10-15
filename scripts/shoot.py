@@ -2087,9 +2087,11 @@ def prepare_mck218_group_whiteboard(path: Path) -> tuple[int, int, str]:
     teacher = school.get_user_by_email(staff_shawn_email(path))
     if teacher is None:
         raise SystemExit("Shawn staff user missing. Run with --seed first.")
-    active = school.get_active_live_session_for_class(class_id)
-    if active:
-        school.end_live_class_session(int(active["id"]))
+    _mck208_end_active_live(school, class_id)
+    try:
+        school.game.end_game(class_id)
+    except (KeyError, ValueError):
+        pass
     live = school.start_live_class_session(class_id, int(teacher["id"]))
     session_id = int(live["id"])
     maple = school.game.find_student_by_codename(class_id, "Maple")
@@ -2099,9 +2101,13 @@ def prepare_mck218_group_whiteboard(path: Path) -> tuple[int, int, str]:
     if cedar is None:
         school.game.add_student(class_id, codename="Cedar")
         cedar = school.game.find_student_by_codename(class_id, "Cedar")
-    assert cedar is not None
+    pine = school.game.find_student_by_codename(class_id, "Pine")
+    if pine is None:
+        school.game.add_student(class_id, codename="Pine")
+        pine = school.game.find_student_by_codename(class_id, "Pine")
+    assert cedar is not None and pine is not None
     school.game.begin_game(class_id)
-    for row in (maple, cedar):
+    for row in (maple, cedar, pine):
         school.join_live_class_session(
             session_id,
             int(row["id"]),
@@ -2109,12 +2115,13 @@ def prepare_mck218_group_whiteboard(path: Path) -> tuple[int, int, str]:
         )
     school.setup_live_session_groups(
         session_id,
-        n_teams=1,
+        n_teams=2,
         mode="manual",
-        present_ids=[int(maple["id"]), int(cedar["id"])],
+        present_ids=[int(maple["id"]), int(cedar["id"]), int(pine["id"])],
         assignments=[
             {"student_id": int(maple["id"]), "team_index": 0},
             {"student_id": int(cedar["id"]), "team_index": 0},
+            {"student_id": int(pine["id"]), "team_index": 1},
         ],
     )
     school.ensure_live_session_items(session_id)
@@ -2125,6 +2132,14 @@ def prepare_mck218_group_whiteboard(path: Path) -> tuple[int, int, str]:
     )
     school.publish_live_session_item(
         session_id, int(wb["id"]), publish_mode="group_shared"
+    )
+    school.set_live_session_teacher_state(
+        session_id,
+        class_set=True,
+        run_as_group=True,
+        groups_configured=True,
+        canvas_align="team",
+        active_tab="canvas",
     )
     team_id = school.student_team_id_for_class(class_id, int(maple["id"]))
     for owner, name, x in (
@@ -2174,6 +2189,7 @@ def shoot_mck218(base: str, out_dir: Path, path: Path, state_path: Path) -> list
         )
         staff = staff_ctx.new_page()
         staff.goto(staff_url, wait_until="domcontentloaded")
+        staff.locator('.live-content-tab[data-tab="canvas"]').click(timeout=15000)
         staff.locator("#live-canvas-stub").wait_for(state="visible", timeout=60000)
         box = staff.locator("#live-canvas-stub").bounding_box()
         if box:
@@ -2186,9 +2202,21 @@ def shoot_mck218(base: str, out_dir: Path, path: Path, state_path: Path) -> list
 
         student_ctx = browser.new_context(viewport={"width": 390, "height": 900})
         student = student_ctx.new_page()
-        student.goto(f"{origin}/student/home?v={visit_token}", wait_until="domcontentloaded")
-        student.wait_for_load_state("networkidle")
-        student.wait_for_timeout(2000)
+        student.goto(f"{origin}/student/s/{visit_token}", wait_until="domcontentloaded")
+        for _ in range(8):
+            if student.locator("#canvas-pane:not([hidden])").count():
+                break
+            if "/student/mood" in student.url:
+                student.locator('button[name="skip"]').click()
+            elif "/student/character" in student.url:
+                pick = student.locator('label:has(input[type="radio"])').first
+                if pick.count():
+                    pick.click()
+                student.locator('button[type="submit"]').click()
+            student.wait_for_timeout(1000)
+        student.locator("#canvas-pane:not([hidden])").wait_for(state="visible", timeout=90000)
+        student.locator("#student-canvas").wait_for(state="visible", timeout=30000)
+        student.wait_for_timeout(1500)
         student_path = out_dir / "mck218-student-390.png"
         student.screenshot(path=str(student_path), full_page=True)
         shots.append(student_path)

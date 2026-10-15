@@ -686,6 +686,16 @@ def student_required(f: Callable) -> Callable:
                     raise
                 # The visit-token check runs before the view's retry handler.
                 note_presence_blip(f"student gate path={request.path}")
+                if request.path.startswith("/api/student/board/"):
+                    response = jsonify(
+                        {
+                            "ok": False,
+                            "error": "Board is busy — try again.",
+                            "retry": True,
+                        }
+                    )
+                    response.headers["Retry-After"] = "2"
+                    return response, 503
                 if request.path.startswith("/api/"):
                     return jsonify(
                         {

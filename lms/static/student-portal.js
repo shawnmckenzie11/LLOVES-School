@@ -995,7 +995,7 @@ function bindStudentCanvas() {
     textBtn: document.getElementById("student-canvas-text"),
     cursorLayer: canvasCursors,
     formative: {
-      enabled: true,
+      enabled: false,
       members: [],
       isTeacher: false,
       isPhone: typeof window.matchMedia === "function" && window.matchMedia("(max-width: 480px)").matches,

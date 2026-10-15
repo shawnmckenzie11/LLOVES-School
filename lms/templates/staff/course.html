@@ -614,6 +614,10 @@
                 <p class="hint compact live-reopen-toast" id="live-canvas-reopen-toast" hidden role="status"></p>
                 <div class="live-group-setup-opts-host" data-group-setup-opts-host="canvas" hidden></div>
                 <p class="hint compact">Whiteboard lasts for this live class. Text stays until the class ends.</p>
+                <div class="wb-formative-toggles" id="live-whiteboard-formative-toggles" hidden>
+                  <label><input type="checkbox" id="live-whiteboard-always-names" /> Always show names</label>
+                  <label><input type="checkbox" id="live-whiteboard-projector-names" /> Names on projector</label>
+                </div>
                 <div class="live-canvas-toolbar" role="toolbar" aria-label="Whiteboard tools">
                   <button type="button" id="live-canvas-undo">Undo</button>
                   <button type="button" id="live-canvas-redo">Redo</button>
@@ -621,7 +625,7 @@
                   <button type="button" id="live-canvas-text" aria-pressed="false">Text</button>
                 </div>
                 <div class="live-canvas-stage">
-                  <canvas id="live-canvas-stub" class="live-canvas-stub" width="720" height="360" aria-label="Ephemeral whiteboard"></canvas>
+                  <canvas id="live-canvas-stub" class="live-canvas-stub" aria-label="Ephemeral whiteboard"></canvas>
                   <div id="live-canvas-cursors" class="canvas-cursors" aria-hidden="true"></div>
                 </div>
                 <p class="hint compact" id="live-canvas-ephemeral-flag">canvas_ephemeral: true</p>

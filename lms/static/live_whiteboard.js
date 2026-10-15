@@ -460,21 +460,24 @@ export function bindWhiteboard(canvas, opts = {}) {
   let reopen = null;
   let lastEditorOpenAt = 0;
   const lineWidth = opts.lineWidth || 2;
-  const formativeMode = Boolean(opts.formative?.enabled);
+  const hasFormativeShell = Boolean(opts.formative);
+  let formativeActive = Boolean(opts.formative?.enabled);
+  /** @returns {boolean} */
+  const isFormative = () => hasFormativeShell && formativeActive;
   const formativeTextWidthPx = Number(opts.formative?.textWidthPx) || 160;
   const stage = canvas.parentElement;
   /** @type {HTMLInputElement | HTMLTextAreaElement} */
-  const editor = formativeMode
+  const editor = hasFormativeShell
     ? document.createElement("textarea")
     : document.createElement("input");
-  if (!formativeMode) editor.type = "text";
-  editor.className = formativeMode
+  if (!hasFormativeShell) editor.type = "text";
+  editor.className = hasFormativeShell
     ? "canvas-text-editor wb-formative-text"
     : "canvas-text-editor";
   editor.maxLength = 240;
   editor.hidden = true;
   editor.setAttribute("aria-label", "Whiteboard text");
-  if (formativeMode) {
+  if (hasFormativeShell) {
     editor.style.width = `${formativeTextWidthPx}px`;
     editor.style.maxWidth = `${formativeTextWidthPx}px`;
     editor.style.resize = "none";
@@ -503,7 +506,7 @@ export function bindWhiteboard(canvas, opts = {}) {
     return map;
   };
   const strokeColor = (owner) => {
-    if (opts.formative?.enabled) {
+    if (isFormative()) {
       return colorForOwner(memberLookup(), String(owner || ownerNow()));
     }
     return opts.color || "#12202e";
@@ -633,7 +636,7 @@ export function bindWhiteboard(canvas, opts = {}) {
     const hard = String(body || "").split("\n");
     let row = 0;
     for (const chunk of hard) {
-      const lines = formativeMode ? wrapTextLines(context, chunk, maxWidth) : [chunk];
+      const lines = isFormative() ? wrapTextLines(context, chunk, maxWidth) : [chunk];
       for (const line of lines) {
         if (!line) continue;
         context.fillText(line, x, y + row * lineHeight);
@@ -651,7 +654,7 @@ export function bindWhiteboard(canvas, opts = {}) {
     for (const label of texts) {
       if (!label.text || label.id === editingId) continue;
       ctx.fillStyle = label.color || color;
-      if (formativeMode) {
+      if (isFormative()) {
         drawWrappedLabel(
           ctx,
           label.text,
@@ -664,7 +667,7 @@ export function bindWhiteboard(canvas, opts = {}) {
         ctx.fillText(label.text, label.x * logicalW, label.y * logicalH);
       }
     }
-    if (formativeMode && !editor.hidden) {
+    if (isFormative() && !editor.hidden) {
       const left = Number(editor.dataset.nx || "0") * logicalW;
       const top = Number(editor.dataset.ny || "0") * logicalH;
       const draft = String(editor.value || "");
@@ -676,7 +679,7 @@ export function bindWhiteboard(canvas, opts = {}) {
   };
 
   const layoutFormativeEditor = () => {
-    if (!formativeMode || editor.hidden) return;
+    if (!isFormative() || editor.hidden) return;
     editor.style.height = "auto";
     editor.style.height = `${editor.scrollHeight}px`;
   };
@@ -891,12 +894,12 @@ export function bindWhiteboard(canvas, opts = {}) {
     editor.removeAttribute("hidden");
     editor.style.left = `${nx * canvas.clientWidth}px`;
     editor.style.top = `${ny * canvas.clientHeight}px`;
-    if (formativeMode) layoutFormativeEditor();
+    if (isFormative()) layoutFormativeEditor();
     lastEditorOpenAt = performance.now();
     window.setTimeout(() => {
       if (editor.hidden) return;
       editor.focus();
-      if (!formativeMode) editor.select();
+      if (!isFormative()) editor.select();
     }, 0);
   };
 
@@ -979,7 +982,7 @@ export function bindWhiteboard(canvas, opts = {}) {
           owner: String(raw.owner || ""),
           points,
           color: strokeColor,
-          mine: false,
+          mine: Boolean(raw.mine) || String(raw.owner || "") === ownerNow(),
         };
         strokes.push(stroke);
         jobs.push({ stroke, from: 0 });
@@ -1032,12 +1035,12 @@ export function bindWhiteboard(canvas, opts = {}) {
   };
 
   editor.addEventListener("input", () => {
-    if (!formativeMode) return;
+    if (!isFormative()) return;
     layoutFormativeEditor();
     replayCommitted();
   });
   editor.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && formativeMode && event.shiftKey) {
+    if (event.key === "Enter" && isFormative() && event.shiftKey) {
       return;
     }
     if (event.key === "Enter") {
@@ -1161,11 +1164,11 @@ commitEditor();
   });
   opts.eraseBtn?.addEventListener("click", () => {
     if (!strokes.length) return;
-    const gone = opts.formative?.enabled
+    const gone = isFormative()
       ? strokes.filter((stroke) => stroke.mine)
       : strokes.slice();
     if (!gone.length) return;
-    strokes = opts.formative?.enabled
+    strokes = isFormative()
       ? strokes.filter((stroke) => !stroke.mine)
       : [];
     redoStack = [];
@@ -1257,7 +1260,7 @@ commitEditor();
           owner: String(op.owner || ""),
           points,
           color: String(op.color || color),
-          mine: false,
+          mine: Boolean(op.mine) || String(op.owner || "") === ownerNow(),
         });
         structural = true;
         continue;
@@ -1333,7 +1336,7 @@ commitEditor();
           owner: String(stroke.owner || ""),
           points,
           color: String(stroke.color || color),
-          mine: false,
+          mine: Boolean(stroke.mine) || String(stroke.owner || "") === ownerNow(),
         });
       }
       applyTexts({ texts: incoming.texts });
@@ -1385,7 +1388,8 @@ commitEditor();
   };
   /** @type {ReturnType<typeof wireFormativeWhiteboard> | null} */
   let formativeWire = null;
-  if (opts.formative?.enabled) {
+  const ensureFormativeWire = () => {
+    if (formativeWire || !hasFormativeShell) return formativeWire;
     formativeWire = wireFormativeWhiteboard(boardApi, {
       canvas,
       stage,
@@ -1398,15 +1402,32 @@ commitEditor();
       getInk: () => boardApi.getInk(),
       onEraseStroke: opts.formative.onEraseStroke,
     });
+    afterReplay = () => formativeWire?.refresh();
+    return formativeWire;
+  };
+  if (hasFormativeShell) {
     boardApi.setFormative = (patch) => {
-      if (!formativeWire || !patch || typeof patch !== "object") return;
-      if ("alwaysShowNames" in patch) formativeWire.setAlwaysShowNames(patch.alwaysShowNames);
-      if ("projectorShowNames" in patch) formativeWire.setProjectorNames(patch.projectorShowNames);
-      if (Array.isArray(patch.members)) formativeWire.setMembers(patch.members);
-      formativeWire.refresh();
+      if (!patch || typeof patch !== "object") return;
+      if (Array.isArray(patch.members)) {
+        opts.formative.members = patch.members;
+        formativeActive = patch.members.length > 0;
+      }
+      if ("alwaysShowNames" in patch) {
+        opts.formative.alwaysShowNames = Boolean(patch.alwaysShowNames);
+      }
+      if ("projectorShowNames" in patch) {
+        opts.formative.projectorShowNames = Boolean(patch.projectorShowNames);
+      }
+      if (!formativeActive) return;
+      const wire = ensureFormativeWire();
+      if (!wire) return;
+      if ("alwaysShowNames" in patch) wire.setAlwaysShowNames(patch.alwaysShowNames);
+      if ("projectorShowNames" in patch) wire.setProjectorNames(patch.projectorShowNames);
+      if (Array.isArray(patch.members)) wire.setMembers(patch.members);
+      wire.refresh();
     };
     boardApi.refreshFormative = () => formativeWire?.refresh();
-    afterReplay = () => formativeWire?.refresh();
+    if (formativeActive) ensureFormativeWire();
   }
   return boardApi;
 }
