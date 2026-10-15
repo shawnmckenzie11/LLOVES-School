@@ -32419,10 +32419,15 @@ class SchoolDB(LovesDB):
             ended = str(row["ended_at"] or row["starts_at"] or "")
             live_module = str(row["live_module"] or "")
             live_slot = str(row["live_slot"] or "")
+            try:
+                from set_class import is_open_office_slot
+            except ImportError:
+                from lms.set_class import is_open_office_slot
             meta[str(sid)] = {
                 "run_key": run_key,
                 "live_module": live_module,
                 "live_slot": live_slot,
+                "open_office": is_open_office_slot(live_slot),
                 "ended_at": ended,
                 "header_label": format_participation_session_header(
                     live_module, live_slot, ended
@@ -38471,6 +38476,7 @@ class SchoolDB(LovesDB):
                         class_id, int(col["id"])
                     )
                 col["header_label"] = label
+                col["open_office"] = bool(meta.get("open_office"))
             columns.append(col)
         cells = dict(dash.get("cells") or {})
         with self.game._lock:

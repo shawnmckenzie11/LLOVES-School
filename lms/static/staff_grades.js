@@ -264,7 +264,10 @@ function renderSheet(data) {
     }
     const meta = sessionMeta[String(column.id)] || {};
     const header = meta.header_label || column.header_label || "";
-    head += `<th>${escapeHtml(header)}</th>`;
+    const office = Boolean(meta.open_office || column.open_office);
+    head += office
+      ? `<th class="ap-office-header">${escapeHtml(header)}</th>`
+      : `<th>${escapeHtml(header)}</th>`;
   }
   head += `<th class="live-sub">SUBTOTAL</th><th class="total">TOTAL SCORE</th></tr>`;
 

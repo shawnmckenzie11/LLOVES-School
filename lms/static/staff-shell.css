@@ -714,6 +714,11 @@ body.staff-shell .ap-module-band th.ap-module-finish {
   font-weight: 600;
   vertical-align: bottom;
 }
+body.staff-shell table.sheet th.ap-office-header {
+  color: #64748b;
+  font-weight: 550;
+  background: #eef2f6;
+}
 body.staff-shell .ap-module-band th.ap-module-finish.done {
   color: #475569;
 }

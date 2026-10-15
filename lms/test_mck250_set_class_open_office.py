@@ -144,14 +144,19 @@ class SetClassOpenOfficeTests(unittest.TestCase):
         """Copying a course template leaves O-slot files behind."""
         src = Path(self.tmp.name) / "src"
         (src / "M3").mkdir(parents=True)
-        (src / "M3" / "C1.json").write_text("{}\n", encoding="utf-8")
-        (src / "M3" / "O1.json").write_text("{}\n", encoding="utf-8")
+        (src / "M3" / "C1.json").write_text('{"slot":"C1"}\n', encoding="utf-8")
+        (src / "M1" / "C2.json").parent.mkdir(parents=True, exist_ok=True)
+        (src / "M1" / "C2.json").write_text('{"slot":"C2"}\n', encoding="utf-8")
+        (src / "M3" / "O1.json").write_text('{"slot":"O1"}\n', encoding="utf-8")
+        (src / "M3" / "O2.json").write_text('{"slot":"O2"}\n', encoding="utf-8")
         (src / "M3" / "notes.txt").write_text("skip\n", encoding="utf-8")
         dest = Path(self.tmp.name) / "dest"
         copied = copy_course_live_template(src, dest)
-        self.assertEqual(copied, ["M3/C1.json"])
-        self.assertTrue((dest / "M3" / "C1.json").is_file())
+        self.assertEqual(copied, ["M1/C2.json", "M3/C1.json"])
+        self.assertEqual((dest / "M3" / "C1.json").read_text(encoding="utf-8"), '{"slot":"C1"}\n')
+        self.assertEqual((dest / "M1" / "C2.json").read_text(encoding="utf-8"), '{"slot":"C2"}\n')
         self.assertFalse((dest / "M3" / "O1.json").exists())
+        self.assertFalse((dest / "M3" / "O2.json").exists())
         with self.assertRaises(ValueError):
             write_live_lesson_playlist(
                 "MCF3M",
@@ -208,6 +213,83 @@ class SetClassOpenOfficeTests(unittest.TestCase):
         js = (LMS_DIR / "static" / "staff_lesson_slides.js").read_text(encoding="utf-8")
         self.assertIn("ls-not-in-template", js)
         self.assertIn("Not in template", js)
+
+    def _participation_column(self, module: str, slot: str) -> str:
+        """End one real run so Participation has a column for this slot."""
+        live = self.school.start_live_class_session(
+            self.class_id,
+            int(self.teacher["id"]),
+            live_module=module,
+            live_slot=slot,
+        )
+        session_id = int(live["id"])
+        run_key = str(
+            self.school.conn.execute(
+                "SELECT run_key FROM live_class_sessions WHERE id = ?",
+                (session_id,),
+            ).fetchone()[0]
+        )
+        now = "2026-10-15T18:00:00"
+        self.school.conn.execute(
+            """
+            INSERT INTO participation_items (
+                class_id, run_key, live_module, live_slot, question_key,
+                item_json, prompt_kind, offered_at
+            ) VALUES (?, ?, ?, ?, ?, '{}', 'poll', ?)
+            """,
+            (self.class_id, run_key, module, slot, f"item:{module}{slot}", now),
+        )
+        self.school.conn.commit()
+        self.assertTrue(
+            self.school.set_participation_run_real(
+                self.class_id, run_key, True, user_id=int(self.teacher["id"])
+            )
+        )
+        student = self.school.game.conn.execute(
+            "SELECT id FROM students WHERE class_id = ?",
+            (self.class_id,),
+        ).fetchone()
+        self.school.game.persist_end_class_column(
+            self.class_id,
+            [int(student["id"])],
+            {int(student["id"]): 1},
+            include_attendance=True,
+            include_participation=True,
+            run_key=run_key,
+            create_game=True,
+        )
+        self.school.end_live_class_session(session_id)
+        return run_key
+
+    def test_participation_open_office_column_is_muted(self) -> None:
+        """Open office is a Participation column whose header is muted."""
+        self._participation_column("M1", "C2")
+        self._participation_column("M3", "O1")
+        grid = self.school.participation_week_grid(self.class_id)
+        meta = {
+            str(row["live_slot"]).upper(): row
+            for row in (grid.get("session_meta") or {}).values()
+        }
+        self.assertIn("C2", meta)
+        self.assertIn("O1", meta)
+        self.assertFalse(meta["C2"]["open_office"])
+        self.assertTrue(meta["O1"]["open_office"])
+        self.assertIn("M3 O1", meta["O1"]["header_label"])
+        self.assertTrue(meta["C2"]["header_label"].startswith("M1C2"))
+        office_ids = {
+            sid for sid, row in (grid.get("session_meta") or {}).items() if row.get("open_office")
+        }
+        office_cols = [
+            col
+            for col in grid["columns"]
+            if col.get("kind") == "session" and str(col["id"]) in office_ids
+        ]
+        self.assertEqual(len(office_cols), 1)
+        self.assertTrue(office_cols[0]["open_office"])
+        js = (LMS_DIR / "static" / "staff_grades.js").read_text(encoding="utf-8")
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        self.assertIn("ap-office-header", js)
+        self.assertIn("th.ap-office-header", css)
 
 
 if __name__ == "__main__":
