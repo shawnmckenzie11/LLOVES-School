@@ -285,6 +285,39 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
             )
         self.assertEqual(_deck_table_snapshot(self.school, it_class), before)
 
+    def test_admin_can_copy_own_section_into_another_teachers_class(self) -> None:
+        """From omits IT's section; copying that section into the class still works."""
+
+        it_user = self.school.register_staff("it-copy@gmail.com")
+        it_id = int(it_user["id"])
+        self.school.conn.execute("UPDATE users SET role = 'it' WHERE id = ?", (it_id,))
+        self.school.conn.commit()
+        it_off = self.school.assign_course(teacher_user_id=it_id, ontario_code="MCF3M")
+        it_class = self._make_class(it_off, it_id)
+        self._edit_first_question(it_class, "M2", "C3", "From the IT section")
+        source = self._deck(it_class, "M2", "C3")
+        options = self.school.deck_seed_options(
+            self.a1, "M2", "C3", teacher_user_id=it_id
+        )
+        self.assertNotIn(it_class, {row["class_id"] for row in options["sources"]})
+        self.assertNotIn(it_class, {row["class_id"] for row in options["decks"]})
+        self.assertEqual([row["class_id"] for row in options["sources"]], [self.a1])
+        copied = self.school.apply_class_deck_seed(
+            self.a1,
+            "M2",
+            "C3",
+            mode="course",
+            source_module="M2",
+            source_slot="C3",
+            source_class_id=it_class,
+            teacher_user_id=it_id,
+            require_replace_confirm=True,
+            replace=True,
+        )
+        self.assertEqual(copied["source_class_id"], it_class)
+        self.assertEqual(self._deck(self.a1, "M2", "C3"), source)
+        self.assertEqual(self._deck(it_class, "M2", "C3"), source)
+
     # --- ordering and defaults --------------------------------------------
 
     def test_decks_sort_siblings_first_then_natural_module_slot(self) -> None:
@@ -742,6 +775,39 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
             },
         )
         self.assertEqual(overflow.status_code, 400, overflow.get_json())
+        options = self.client.get(
+            f"/api/staff/class/{huge}/live-lessons/M2/C3/deck-seed-options"
+        )
+        self.assertEqual(options.status_code, 400, options.get_data(as_text=True)[:300])
+        before = _deck_table_snapshot(self.school, self.a1)
+        fraction = self._seed(
+            self.a1,
+            "M2",
+            "C3",
+            {
+                "mode": "course",
+                "source_module": "M2",
+                "source_slot": "C3",
+                "source_class_id": 1.5,
+                "replace": True,
+            },
+        )
+        self.assertEqual(fraction.status_code, 400, fraction.get_json())
+        self.assertIn("course", fraction.get_json()["error"])
+        text_fraction = self._seed(
+            self.a1,
+            "M2",
+            "C3",
+            {
+                "mode": "course",
+                "source_module": "M2",
+                "source_slot": "C3",
+                "source_class_id": "1.5",
+                "replace": True,
+            },
+        )
+        self.assertEqual(text_fraction.status_code, 400, text_fraction.get_json())
+        self.assertEqual(_deck_table_snapshot(self.school, self.a1), before)
 
 
 HELPER_CASES = r"""
@@ -803,6 +869,12 @@ out.noDeck = deckCopyConfirmState({ ...base, deck: null });
 out.noDeckNudge = deckCopyConfirmState({ ...base, deck: null, phase: "nudge" });
 out.success = deckCopyConfirmState({ mode: "current", done: { text: deckCopySuccessText({ sourceSection: "MCR3U-2", deckName: "M2 C3", targetSection: "MCR3U", targetName: "M2 C3", count: 9 }) } });
 out.stuck409 = deckCopyConfirmState({
+  ...base,
+  current: { available: false, question_count: 0 },
+  phase: "nudge",
+  needsConfirm: true,
+});
+out.wordingOnly = deckCopyConfirmState({
   ...base,
   current: { available: false, question_count: 0 },
   phase: "error",
@@ -931,6 +1003,11 @@ class DeckCopyHelperTests(unittest.TestCase):
         self.assertTrue(stuck["holdsNext"])
         self.assertEqual(stuck["variant"], "nudge")
         self.assertEqual(stuck["text"], "Replace the deck or keep current first.")
+        wording = self.got["wordingOnly"]
+        self.assertFalse(wording["replace"])
+        self.assertFalse(wording["showKeep"])
+        self.assertEqual(wording["goLabel"], "Copy deck")
+        self.assertEqual(wording["text"], "Replace the deck or keep current first.")
         self.assertFalse(self.got["success"]["holdsNext"])
 
 

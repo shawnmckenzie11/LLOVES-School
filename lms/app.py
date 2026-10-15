@@ -4680,6 +4680,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
 
         user = current_user()
         assert user is not None
+        if _positive_sqlite_id(class_id) is None:
+            return jsonify({"ok": False, "error": "Choose a deck from this course."}), 400
         if not school.teacher_owns_class(int(user["id"]), class_id):
             return jsonify({"ok": False, "error": "Forbidden"}), 403
         try:
@@ -4696,20 +4698,28 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """Return ``value`` as a SQLite row id, or None when it will not fit.
 
         SQLite integers are signed 64-bit. A larger Python int reaches the
-        driver as OverflowError, and the deck-seed route would answer 500.
+        driver as OverflowError, and the deck-seed routes would answer 500.
+        A float such as ``1.5`` is rejected whole; ``int(1.5)`` would
+        truncate it to ``1`` and copy the wrong class.
 
         Args:
             value: Path or JSON id.
 
         Returns:
-            The id, or None when it is missing, not an integer, or out of range.
+            The id, or None when it is missing, not a whole integer, or
+            out of range.
         """
 
-        if isinstance(value, bool) or value in (None, ""):
+        if isinstance(value, bool) or isinstance(value, float) or value in (None, ""):
             return None
-        try:
-            number = int(value)
-        except (TypeError, ValueError, OverflowError):
+        if isinstance(value, str):
+            text = value.strip()
+            if not text.isascii() or not text.isdigit():
+                return None
+            number = int(text)
+        elif isinstance(value, int):
+            number = value
+        else:
             return None
         if number < 1 or number > 2**63 - 1:
             return None

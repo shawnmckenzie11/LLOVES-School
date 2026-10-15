@@ -9622,7 +9622,7 @@ class SchoolDB(LovesDB):
 
         extras: list[dict[str, Any]] = []
         for other in self._deck_copy_sibling_classes(
-            int(class_id), int(teacher_user_id)
+            int(class_id), int(teacher_user_id), for_picker=True
         ):
             other_id = int(other["id"])
             section = str(other.get("section_code") or "")
@@ -9704,27 +9704,23 @@ class SchoolDB(LovesDB):
                 )
         return extras
 
-    def _deck_copy_sibling_classes(
-        self,
-        class_id: int,
-        teacher_user_id: int,
-    ) -> list[dict[str, Any]]:
-        """Return this teacher's other current sections of the same course.
+    def _deck_copy_hides_visitor_sections(
+        self, class_id: int, teacher_user_id: int
+    ) -> bool:
+        """Whether From should omit this user's own sections.
 
-        MCK-132 rule for the Set Class From list and for a cross-section
-        copy: same semester and ``ontario_code`` as the destination, not
-        archived, offering owned by ``teacher_user_id`` (no IT bypass), and
-        still passing ``teacher_owns_class`` (same tenant). Ordered by
-        ``section_index``. The destination class itself is left out.
+        IT can open another teacher's class. Their section stays out of
+        that class's From list. The copy itself is still allowed.
 
         Args:
             class_id: Destination class.
             teacher_user_id: Signed-in staff user.
+
+        Returns:
+            True when the destination offering belongs to someone else,
+            or the class has no offering.
         """
 
-        # IT can open any class in the tenant. From still lists only the
-        # destination teacher's sections, so an admin's own section does
-        # not appear while they are in someone else's class.
         try:
             dest = self.game.get_class(int(class_id))
             dest_offering = (
@@ -9734,8 +9730,39 @@ class SchoolDB(LovesDB):
             )
         except KeyError:
             dest_offering = None
-        if dest_offering is None or int(dest_offering.get("teacher_user_id") or 0) != int(
-            teacher_user_id
+        if dest_offering is None:
+            return True
+        return int(dest_offering.get("teacher_user_id") or 0) != int(teacher_user_id)
+
+    def _deck_copy_sibling_classes(
+        self,
+        class_id: int,
+        teacher_user_id: int,
+        *,
+        for_picker: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Return this teacher's other current sections of the same course.
+
+        MCK-132 rule: same semester and ``ontario_code`` as the destination,
+        not archived, offering owned by ``teacher_user_id`` (no IT bypass
+        onto another teacher's sections), and still passing
+        ``teacher_owns_class`` (same tenant). Ordered by ``section_index``.
+        The destination class itself is left out.
+
+        The copy check uses this list, so IT can still copy one of their
+        own sections into another teacher's class. ``for_picker`` is the
+        Set Class From list: that list leaves the admin's own section out
+        while they are in someone else's class.
+
+        Args:
+            class_id: Destination class.
+            teacher_user_id: Signed-in staff user.
+            for_picker: When true, omit this user's sections if the
+                destination offering belongs to someone else.
+        """
+
+        if for_picker and self._deck_copy_hides_visitor_sections(
+            int(class_id), int(teacher_user_id)
         ):
             return []
         found: list[dict[str, Any]] = []
@@ -10073,7 +10100,7 @@ class SchoolDB(LovesDB):
         sources: list[dict[str, Any]] = []
         if teacher_user_id is not None:
             for other in self._deck_copy_sibling_classes(
-                int(class_id), int(teacher_user_id)
+                int(class_id), int(teacher_user_id), for_picker=True
             ):
                 other_id = int(other["id"])
                 sources.append(
@@ -10159,7 +10186,12 @@ class SchoolDB(LovesDB):
         source_class_id: int,
         teacher_user_id: int,
     ) -> None:
-        """Refuse a cross-section source outside the MCK-132 From list.
+        """Refuse a cross-section source this teacher does not own.
+
+        The allow-list is this teacher's own current sections of the
+        course, including when IT copies one of those sections into
+        another teacher's class. The From list is narrower: it omits
+        the admin's own section in that case.
 
         Args:
             class_id: Destination class.

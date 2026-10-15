@@ -425,6 +425,7 @@ export function deckCopyHelpText(state = {}) {
  *   current?: {available?: boolean, question_count?: number},
  *   phase?: "idle"|"copying"|"nudge"|"error",
  *   error?: string,
+ *   needsConfirm?: boolean,
  *   done?: {text?: string}|null,
  * }} state
  * @returns {{hidden: boolean, variant: string, route: string, text: string,
@@ -470,11 +471,9 @@ export function deckCopyConfirmState(state = {}) {
   const sourceSection = String(source.sectionCode || "");
   const route = `${sourceSection} · ${deck.name} → ${target.sectionCode || ""} · ${target.name || ""}.`; // copy: Wonder
   const current = state.current || {};
-  const errorText = phase === "error" ? String(state.error || "") : "";
-  // A 409 confirm while the catalog still says the slot is empty used to
-  // leave Copy deck with no Keep current, so the strip could not be left.
-  const confirmLine = "Replace the deck or keep current first."; // copy: Wonder
-  const replace = Boolean(current.available) || errorText === confirmLine;
+  // A 409 with needs_confirm, while the catalog still says the slot is
+  // empty, used to leave Copy deck with no Keep current.
+  const replace = Boolean(current.available) || Boolean(state.needsConfirm);
   const qs = questionCount(deck.count);
   let variant = replace ? "replace" : "info";
   let text = replace

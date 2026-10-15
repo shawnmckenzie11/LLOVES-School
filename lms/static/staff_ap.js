@@ -442,6 +442,8 @@ let deckCopyDeckChosen = false;
 /** @type {"idle"|"copying"|"nudge"|"error"} */
 let deckCopyPhase = "idle";
 let deckCopyError = "";
+/** True after the server answers 409 with needs_confirm. */
+let deckCopyNeedsConfirm = false;
 /** @type {{text: string}|null} Success line after Copy deck / Replace deck. */
 let deckCopyDone = null;
 
@@ -453,6 +455,7 @@ function resetDeckCopyState() {
   deckCopyDeckChosen = false;
   deckCopyPhase = "idle";
   deckCopyError = "";
+  deckCopyNeedsConfirm = false;
   deckCopyDone = null;
 }
 
@@ -464,6 +467,7 @@ function clearDeckCopyStatus() {
   if (deckCopyPhase !== "copying") {
     deckCopyPhase = "idle";
     deckCopyError = "";
+    deckCopyNeedsConfirm = false;
   }
 }
 
@@ -718,6 +722,7 @@ function currentDeckCopyState() {
     current: deckSeedCatalog?.current || {},
     phase: deckCopyPhase,
     error: deckCopyError,
+    needsConfirm: deckCopyNeedsConfirm,
     done: deckCopyDone,
   };
 }
@@ -745,18 +750,6 @@ function paintDeckCopyConfirm() {
     strip.setAttribute("data-variant", view.variant);
   }
   const text = $("live-deck-copy-text");
-  // The 409 confirm line stays a Replace / Keep strip. Without Keep, the
-  // red strip repeats the same refused copy and cannot be dismissed.
-  if (
-    !view.hidden &&
-    view.text === "Replace the deck or keep current first." &&
-    !view.showKeep
-  ) {
-    view.showKeep = true;
-    view.replace = true;
-    view.holdsNext = true;
-    view.goLabel = "Replace deck"; // copy: Wonder
-  }
   if (text) {
     const parts = [];
     if (view.route) {
@@ -815,9 +808,10 @@ async function copyDeckNow() {
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err || "");
-    // Server 409 while this row still thinks the slot is empty: show the
-    // replace strip (Keep can dismiss it) instead of a stuck error.
-    if (message === "Replace the deck or keep current first.") {
+    // needs_confirm, not the sentence: a matching message without the
+    // flag stays an error, and a flag with any wording opens Replace / Keep.
+    if (err && err.needsConfirm) {
+      deckCopyNeedsConfirm = true;
       if (deckSeedCatalog) {
         const current = deckSeedCatalog.current || {};
         deckSeedCatalog.current = { ...current, available: true };
@@ -836,6 +830,7 @@ async function copyDeckNow() {
     return;
   }
   deckCopyPhase = "idle";
+  deckCopyNeedsConfirm = false;
   deckCopyDone = {
     text: deckCopySuccessText({
       sourceSection: state.source?.sectionCode || "",
