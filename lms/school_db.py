@@ -2011,6 +2011,7 @@ class LovesDB:
             self._ensure_catchup_slot_unique()
             self._ensure_catchup_portal_join_code_column()
             self._ensure_library_schema()
+            self._ensure_question_editor_columns()
             self._ensure_module_bank_schema()
             self._ensure_archived_column()
             self._ensure_gradebook_schema()
@@ -3174,6 +3175,10 @@ class LovesDB:
                 title TEXT NOT NULL DEFAULT '',
                 payload_json TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL,
+                live_response_mode TEXT,
+                live_show_results INTEGER,
+                live_points REAL,
+                bank_scope TEXT,
                 UNIQUE(bank_id, import_key)
             );
 
@@ -3217,6 +3222,19 @@ class LovesDB:
                 ON module_items(outline_id, position);
             """
         )
+
+    def _ensure_question_editor_columns(self) -> None:
+        """Add MCK-254 question columns on databases created before this build.
+
+        Nullable columns only. A missing value keeps today's live behaviour
+        and the question stays visible on every module its bank is linked to.
+        """
+        try:
+            from live_defaults import ensure_question_editor_columns
+        except ImportError:
+            from lms.live_defaults import ensure_question_editor_columns
+
+        ensure_question_editor_columns(self.conn)
 
     def _ensure_module_bank_schema(self) -> None:
         """Create module-bank links, class playlist overlays, and question overlays."""
@@ -7942,6 +7960,76 @@ class SchoolDB(LovesDB):
         tagged = str(item.get("kind") or "").strip().lower()
         return bank_kind_visible(tagged, kind)
 
+    def _normalize_staff_extra_row(
+        self, row: Any, payload: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Turn a staff numeric or poll row into a search item.
+
+        Multiple choice and rank stay on their own normalizers. Polls are
+        only reached when the caller asked for staff types, so Import from
+        bank keeps them out.
+
+        Args:
+            row: Question sqlite row.
+            payload: Parsed ``payload_json``.
+        """
+        item_type = str(row["item_type"] or "").strip().lower()
+        kind = str(payload.get("type") or "").strip().lower()
+        if item_type == "numerical_question" or kind == "numeric":
+            qtype = "numeric"
+        elif kind == "poll":
+            qtype = "poll"
+        else:
+            return None
+        if item_type == "multiple_choice_question" and qtype != "numeric":
+            return None
+        text = str(payload.get("text") or payload.get("prompt") or "").strip()
+        if not text:
+            text = str(row["title"] or "").strip()
+        if not text:
+            return None
+        try:
+            from bank_question_types import bank_question_type
+        except ImportError:
+            from lms.bank_question_types import bank_question_type
+
+        points = payload.get("points_possible", payload.get("points"))
+        try:
+            points_value = float(points) if points not in (None, "") else 1.0
+        except (TypeError, ValueError):
+            points_value = 1.0
+        key = str(payload.get("correct_answer") or payload.get("key") or "").strip()
+        item = {
+            "type": "numeric" if qtype == "numeric" else "poll",
+            "text": text,
+            "prompt": text,
+            "options": list(payload.get("options") or []),
+            "correct_answer": key,
+            "key": key,
+            "points": points_value,
+            "question_id": int(row["id"]),
+            "source_question_id": int(row["id"]),
+            "bank_id": int(row["bank_id"]),
+            "source_bank_id": int(row["bank_id"]),
+            "bank_title": str(row["bank_title"] or ""),
+            "question_title": str(row["title"] or ""),
+            "edited_in_lms": False,
+            "tolerance": payload.get("tolerance"),
+            "tolerance_kind": payload.get("tolerance_kind") or "absolute",
+            "equation": str(payload.get("equation_latex") or payload.get("equation") or ""),
+            "equation_latex": str(
+                payload.get("equation_latex") or payload.get("equation") or ""
+            ),
+            "image_url": str(payload.get("image_url") or ""),
+        }
+        item["question_type"] = bank_question_type(
+            item, item_type=item_type, payload=payload
+        )
+        problem_kind = self._problem_kind_from_payload(payload)
+        if problem_kind:
+            item["kind"] = problem_kind
+        return item
+
     def search_module_bank_mcs(
         self,
         library_id: int,
@@ -7952,12 +8040,18 @@ class SchoolDB(LovesDB):
         class_id: int | None = None,
         kind: str | None = None,
         question_type: str | None = None,
+        scope_policy: str = "module",
+        staff_types: bool = False,
     ) -> dict[str, Any]:
         """Search normalized MCs scoped to confirmed module banks only.
 
         Rank items (``essay_question`` with payload ``type: rank``) are
         included too (MCK-169). Staff polls stored as ``essay_question``
-        stay out.
+        stay out unless ``staff_types`` is set (the question-bank grid).
+
+        A question with ``bank_scope`` set shows only on that module or on
+        Course Wide. A null scope stays on every module its bank is linked
+        to, which is how rows imported before MCK-254 behave.
 
         Args:
             library_id: ``content_libraries.id``.
@@ -7969,6 +8063,9 @@ class SchoolDB(LovesDB):
                 is Core Math: untagged and contest rows, not warmup or Custom.
             question_type: MCK-170 canonical type (``rank``, ``mc``, ...).
                 Empty keeps every type, as before.
+            scope_policy: ``module`` (this module) or ``course_only``
+                (questions explicitly saved as Course Wide).
+            staff_types: When true, also return staff numeric and poll rows.
 
         Returns:
             Dict with ``items``, ``total`` (importable MC count),
@@ -8000,23 +8097,11 @@ class SchoolDB(LovesDB):
             retag_module2_teaching_today(self, int(library_id))
         confirmed = self.list_module_bank_links(int(library_id), int(module_number))
         bank_ids = [int(row["bank_id"]) for row in confirmed]
-        if not bank_ids:
-            return {"items": [], "total": 0, "filtered": 0}
         needle = str(query or "").strip().lower()
         cap = max(1, min(int(limit), 500))
-        placeholders = ",".join("?" for _ in bank_ids)
-        params: list[Any] = [int(library_id), *bank_ids]
-        sql = f"""
-            SELECT q.id, q.bank_id, q.item_type, q.title, q.payload_json,
-                   b.title AS bank_title, b.import_key AS bank_import_key,
-                   o.stem_text, o.options_json, o.correct_answer, o.points
-            FROM questions q
-            JOIN question_banks b ON b.id = q.bank_id
-            LEFT JOIN library_question_overlays o
-                ON o.library_id = b.library_id AND o.question_id = q.id
-            WHERE b.library_id = ?
-              AND q.bank_id IN ({placeholders})
-              AND (
+        module_token = f"M{int(module_number)}"
+        policy = str(scope_policy or "module").strip().lower()
+        type_sql = """
                 q.item_type = 'multiple_choice_question'
                 OR (
                   q.item_type = 'essay_question'
@@ -8026,6 +8111,47 @@ class SchoolDB(LovesDB):
                     END
                   ) = 'rank'
                 )
+        """
+        if staff_types:
+            type_sql += """
+                OR q.item_type = 'numerical_question'
+                OR (
+                  q.item_type = 'essay_question'
+                  AND lower(
+                    CASE WHEN json_valid(q.payload_json)
+                         THEN json_extract(q.payload_json, '$.type')
+                    END
+                  ) = 'poll'
+                )
+            """
+        params: list[Any] = [int(library_id)]
+        if policy == "course_only":
+            scope_sql = "AND lower(COALESCE(q.bank_scope, '')) = 'course'"
+        elif bank_ids:
+            placeholders = ",".join("?" for _ in bank_ids)
+            params.extend(bank_ids)
+            params.append(module_token)
+            scope_sql = (
+                f"AND (q.bank_id IN ({placeholders}) "
+                "OR upper(COALESCE(q.bank_scope, '')) = ?)"
+            )
+        else:
+            params.append(module_token)
+            scope_sql = "AND upper(COALESCE(q.bank_scope, '')) = ?"
+        sql = f"""
+            SELECT q.id, q.bank_id, q.item_type, q.title, q.payload_json,
+                   q.live_response_mode, q.live_show_results, q.live_points,
+                   q.bank_scope,
+                   b.title AS bank_title, b.import_key AS bank_import_key,
+                   o.stem_text, o.options_json, o.correct_answer, o.points
+            FROM questions q
+            JOIN question_banks b ON b.id = q.bank_id
+            LEFT JOIN library_question_overlays o
+                ON o.library_id = b.library_id AND o.question_id = q.id
+            WHERE b.library_id = ?
+              {scope_sql}
+              AND (
+                {type_sql}
               )
             ORDER BY b.title, q.id
         """
@@ -8055,11 +8181,52 @@ class SchoolDB(LovesDB):
                 normalize_curriculum_open,
             )
 
+        try:
+            from live_defaults import defaults_from_row, scope_visible
+        except ImportError:
+            from lms.live_defaults import defaults_from_row, scope_visible
+
+        viewing_scope = "course" if policy == "course_only" else module_token
+
+        def _accept(normalized: dict[str, Any] | None) -> None:
+            """Attach live defaults and keep the row when it belongs on this tab."""
+            if not isinstance(normalized, dict):
+                return
+            stored = defaults_from_row(row)
+            if policy != "course_only" and not scope_visible(
+                stored.get("bank_scope"), viewing_scope
+            ):
+                return
+            normalized["bank_scope"] = stored.get("bank_scope")
+            normalized["live_response_mode"] = stored.get("live_response_mode")
+            normalized["live_show_results"] = stored.get("live_show_results")
+            normalized["live_points"] = stored.get("live_points")
+            equation = str(
+                payload.get("equation_latex") or payload.get("equation") or ""
+            ).strip()
+            if equation and not normalized.get("equation"):
+                normalized["equation"] = equation
+                normalized["equation_latex"] = equation
+            if payload.get("image_url") and not normalized.get("image_url"):
+                normalized["image_url"] = payload.get("image_url")
+            if payload.get("tolerance") is not None and "tolerance" not in normalized:
+                normalized["tolerance"] = payload.get("tolerance")
+                normalized["tolerance_kind"] = payload.get("tolerance_kind") or "absolute"
+            all_items.append(normalized)
+
         for row in rows:
             try:
                 payload = json.loads(row["payload_json"] or "{}")
             except json.JSONDecodeError:
                 payload = {}
+            if policy != "course_only" and not scope_visible(
+                row["bank_scope"], viewing_scope
+            ):
+                continue
+            extra = self._normalize_staff_extra_row(row, payload) if staff_types else None
+            if extra is not None:
+                _accept(extra)
+                continue
             if is_curriculum_open(payload):
                 normalized = normalize_curriculum_open(
                     question_id=int(row["id"]),
@@ -8076,7 +8243,7 @@ class SchoolDB(LovesDB):
                 normalized["question_type"] = bank_question_type(
                     normalized, item_type=str(row["item_type"] or ""), payload=payload
                 )
-                all_items.append(normalized)
+                _accept(normalized)
                 continue
             if is_bank_rank_payload(payload):
                 if payload.get("retired"):
@@ -8099,7 +8266,7 @@ class SchoolDB(LovesDB):
                 problem_kind = self._problem_kind_from_payload(payload)
                 if problem_kind:
                     normalized["kind"] = problem_kind
-                all_items.append(normalized)
+                _accept(normalized)
                 continue
             course_warmup = (
                 str(row["bank_import_key"] or "") == COURSE_WIDE_WARMUP_BANK_KEY
@@ -8118,7 +8285,7 @@ class SchoolDB(LovesDB):
                 normalized["question_type"] = bank_question_type(
                     normalized, item_type=str(row["item_type"] or ""), payload=payload
                 )
-                all_items.append(normalized)
+                _accept(normalized)
                 continue
             overlay = None
             if row["stem_text"] is not None:
@@ -8153,16 +8320,18 @@ class SchoolDB(LovesDB):
             normalized["question_type"] = bank_question_type(
                 normalized, item_type=str(row["item_type"] or ""), payload=payload
             )
-            all_items.append(normalized)
+            _accept(normalized)
         try:
             from bank_dedupe import select_canonical_questions
         except ImportError:
             from lms.bank_dedupe import select_canonical_questions
 
         all_items, _dropped = select_canonical_questions(all_items)
-        all_items = [
-            item for item in all_items if self._bank_mc_kind_visible(item, kind)
-        ]
+        kind_token = str(kind or "").strip().lower()
+        if kind_token not in {"any", "*"}:
+            all_items = [
+                item for item in all_items if self._bank_mc_kind_visible(item, kind)
+            ]
         total = len(all_items)
         if needle:
             filtered_items = [
@@ -8520,6 +8689,7 @@ class SchoolDB(LovesDB):
         class_id: int | None = None,
         kind: str | None = None,
         question_type: str | None = None,
+        staff_types: bool = False,
     ) -> dict[str, Any]:
         """Search importable MCs for one bank scope, deduped across modules.
 
@@ -8538,6 +8708,7 @@ class SchoolDB(LovesDB):
             kind: ``standard``, ``contest``, or ``warmup``. Empty keeps
                 process picks and drops warmup-tagged icebreakers.
             question_type: MCK-170 canonical type; empty keeps every type.
+            staff_types: When true, staff numeric and poll rows are included.
 
         Returns:
             Dict with ``items``, ``total``, ``filtered``, and ``type_counts``.
@@ -8563,6 +8734,7 @@ class SchoolDB(LovesDB):
                 class_id=class_id,
                 kind=kind,
                 question_type=question_type,
+                staff_types=staff_types,
             )
         merged: dict[int, dict[str, Any]] = {}
         for number in numbers:
@@ -8573,8 +8745,25 @@ class SchoolDB(LovesDB):
                 limit=500,
                 class_id=class_id,
                 kind=kind,
+                staff_types=staff_types,
             )
             for item in chunk.get("items") or []:
+                question_id = int(item.get("question_id") or 0)
+                if question_id and question_id not in merged:
+                    merged[question_id] = item
+        if token in {"course", "course-wide", "coursewide", "all"}:
+            # Explicit Course Wide rows are hidden from each module search.
+            course_only = self.search_module_bank_mcs(
+                int(library_id),
+                1,
+                "",
+                limit=500,
+                class_id=class_id,
+                kind=kind,
+                scope_policy="course_only",
+                staff_types=staff_types,
+            )
+            for item in course_only.get("items") or []:
                 question_id = int(item.get("question_id") or 0)
                 if question_id and question_id not in merged:
                     merged[question_id] = item
@@ -12172,6 +12361,7 @@ class SchoolDB(LovesDB):
         *,
         title: str,
         payload: dict[str, Any],
+        item_type: str | None = None,
     ) -> None:
         """Replace payload JSON for a staff-authored question.
 
@@ -12180,6 +12370,7 @@ class SchoolDB(LovesDB):
             question_id: ``questions.id``.
             title: Updated short title.
             payload: Replacement ``payload_json`` object.
+            item_type: When set, also replace ``questions.item_type``.
         """
         with self._lock:
             row = self.conn.execute(
@@ -12193,19 +12384,157 @@ class SchoolDB(LovesDB):
             ).fetchone()
             if row is None:
                 raise KeyError(f"question {question_id}")
-            self.conn.execute(
+            if item_type is None:
+                self.conn.execute(
+                    """
+                    UPDATE questions
+                    SET title = ?, payload_json = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        str(title or "Question")[:120],
+                        json.dumps(payload if isinstance(payload, dict) else {}),
+                        int(question_id),
+                    ),
+                )
+            else:
+                self.conn.execute(
+                    """
+                    UPDATE questions
+                    SET title = ?, payload_json = ?, item_type = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        str(title or "Question")[:120],
+                        json.dumps(payload if isinstance(payload, dict) else {}),
+                        str(item_type),
+                        int(question_id),
+                    ),
+                )
+            self.conn.commit()
+
+    def set_question_live_defaults(
+        self,
+        library_id: int,
+        question_id: int,
+        defaults: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Write only the live-default fields present in ``defaults``.
+
+        Omitted keys stay as they are. ``None`` clears a stored default so
+        the question returns to today's live behaviour.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            question_id: ``questions.id``.
+            defaults: Parsed live-default keys.
+
+        Returns:
+            The stored defaults after the write.
+        """
+        assignments: list[str] = []
+        params: list[Any] = []
+        if "live_response_mode" in defaults:
+            mode = defaults.get("live_response_mode")
+            if mode not in (None, "individual", "group"):
+                raise ValueError("live_response_mode must be individual or group")
+            assignments.append("live_response_mode = ?")
+            params.append(mode)
+        if "live_show_results" in defaults:
+            show = defaults.get("live_show_results")
+            assignments.append("live_show_results = ?")
+            params.append(None if show is None else (1 if show else 0))
+        if "live_points" in defaults:
+            points = defaults.get("live_points")
+            assignments.append("live_points = ?")
+            params.append(None if points is None else float(points))
+        if not assignments:
+            return self.question_live_defaults(int(library_id), int(question_id))
+        params.extend([int(question_id), int(library_id)])
+        with self._lock:
+            cur = self.conn.execute(
+                f"""
+                UPDATE questions
+                SET {", ".join(assignments)}
+                WHERE id = ?
+                  AND bank_id IN (
+                    SELECT id FROM question_banks WHERE library_id = ?
+                  )
+                """,
+                params,
+            )
+            if cur.rowcount == 0:
+                raise KeyError(f"question {question_id}")
+            self.conn.commit()
+        return self.question_live_defaults(int(library_id), int(question_id))
+
+    def set_question_bank_scope(
+        self, library_id: int, question_id: int, bank_scope: str
+    ) -> str:
+        """Pin one question to a module tab or Course Wide.
+
+        A blank scope is stored as NULL so the question stays visible on
+        every module its bank is already linked to.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            question_id: ``questions.id``.
+            bank_scope: ``M1``–``M8``, ``course``, or blank.
+
+        Returns:
+            The stored scope, or ``""`` when cleared.
+        """
+        try:
+            from live_defaults import normalize_scope_token
+        except ImportError:
+            from lms.live_defaults import normalize_scope_token
+
+        token = normalize_scope_token(bank_scope)
+        with self._lock:
+            cur = self.conn.execute(
                 """
                 UPDATE questions
-                SET title = ?, payload_json = ?
+                SET bank_scope = ?
                 WHERE id = ?
+                  AND bank_id IN (
+                    SELECT id FROM question_banks WHERE library_id = ?
+                  )
                 """,
-                (
-                    str(title or "Question")[:120],
-                    json.dumps(payload if isinstance(payload, dict) else {}),
-                    int(question_id),
-                ),
+                (token or None, int(question_id), int(library_id)),
             )
+            if cur.rowcount == 0:
+                raise KeyError(f"question {question_id}")
             self.conn.commit()
+        return token
+
+    def question_live_defaults(
+        self, library_id: int, question_id: int
+    ) -> dict[str, Any]:
+        """Return stored live defaults for one question.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            question_id: ``questions.id``.
+        """
+        try:
+            from live_defaults import defaults_from_row
+        except ImportError:
+            from lms.live_defaults import defaults_from_row
+
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT q.live_response_mode, q.live_show_results, q.live_points,
+                       q.bank_scope
+                FROM questions q
+                JOIN question_banks b ON b.id = q.bank_id
+                WHERE q.id = ? AND b.library_id = ?
+                """,
+                (int(question_id), int(library_id)),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"question {question_id}")
+        return defaults_from_row(row)
 
     def delete_library_bank_question(
         self, library_id: int, bank_id: int, question_id: int
@@ -12296,6 +12625,8 @@ class SchoolDB(LovesDB):
             row = self.conn.execute(
                 """
                 SELECT q.id, q.bank_id, q.item_type, q.title, q.payload_json,
+                       q.live_response_mode, q.live_show_results, q.live_points,
+                       q.bank_scope,
                        b.title AS bank_title, b.library_id,
                        b.import_key AS bank_import_key,
                        o.stem_text, o.options_json, o.correct_answer, o.points
@@ -12452,6 +12783,14 @@ class SchoolDB(LovesDB):
                 # it until Publish. Opinion ranks keep today's default.
                 item_payload["group_rank_mode"] = RANK_IMPORT_GROUP_MODE
                 item_payload["import_group_preset"] = RANK_IMPORT_GROUP_PRESET
+            try:
+                from live_defaults import defaults_from_row, stamp_launch_defaults
+            except ImportError:
+                from lms.live_defaults import defaults_from_row, stamp_launch_defaults
+
+            # MCK-254: a stored live default wins over the rank import preset.
+            # Null columns leave that preset for ensure_live_session_items.
+            stamp_launch_defaults(item_payload, defaults_from_row(row))
             # MCK-163: New chip keys on the minted run, not the session id.
             # Quit deletes the session and the next Start can reuse that id.
             run_key = self._active_live_run_key_for_class(int(class_id))
@@ -12664,6 +13003,32 @@ class SchoolDB(LovesDB):
             return [int(parsed)]
         return [int(current_module_number)]
 
+    @staticmethod
+    def _pinned_bank_scope(bank_scope: str, current_module: str) -> str:
+        """Column token for a new bank row, or blank to leave scope null.
+
+        ``module`` pins the question to the lesson's module so it does not
+        show on every module the staff bank is linked to. Blank stays null.
+
+        Args:
+            bank_scope: Staff Bank scope value.
+            current_module: Module token such as ``M2``.
+        """
+        try:
+            from live_defaults import normalize_scope_token
+        except ImportError:
+            from lms.live_defaults import normalize_scope_token
+
+        token = str(bank_scope or "").strip().lower()
+        if token in {"", "none"}:
+            return ""
+        if token in {"module", "this", "current"}:
+            return str(current_module or "M1").strip().upper() or "M1"
+        try:
+            return normalize_scope_token(bank_scope)
+        except ValueError:
+            return str(current_module or "M1").strip().upper() or "M1"
+
     def live_question_image_path(
         self, class_id: int, filename: str
     ) -> Path | None:
@@ -12754,6 +13119,7 @@ class SchoolDB(LovesDB):
         library_id: int | None = None,
         extra_item: dict[str, Any] | None = None,
         rank_key: list[Any] | None = None,
+        live_defaults: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Add one staff-authored question to the current class overlay page.
 
@@ -12787,6 +13153,10 @@ class SchoolDB(LovesDB):
             rank_key: MCK-172. Optional rank answer order: option ids or
                 zero-based indices, a permutation of the options. Stored as
                 ``rank_key`` (option ids); students never receive it.
+            live_defaults: MCK-254. Keys actually set in the editor
+                (``live_response_mode``, ``live_show_results``, ``live_points``).
+                Omitted keys are not written. Applied to the live item and,
+                when saving to the bank, to the question row.
 
         Returns:
             Inserted placement row including parsed ``item`` payload.
@@ -12911,6 +13281,13 @@ class SchoolDB(LovesDB):
         run_key = self._active_live_run_key_for_class(int(class_id))
         if run_key:
             item_payload["added_live_run_key"] = run_key
+        if live_defaults:
+            try:
+                from live_defaults import stamp_launch_defaults
+            except ImportError:
+                from lms.live_defaults import stamp_launch_defaults
+
+            stamp_launch_defaults(item_payload, live_defaults)
         source_question_id = None
         if save_to_bank:
             if library_id in (None, ""):
@@ -12929,6 +13306,15 @@ class SchoolDB(LovesDB):
                 bank_scope, int(module_number)
             ):
                 self._ensure_module_bank_link(int(library_id), number, bank_id)
+            pinned = self._pinned_bank_scope(bank_scope, module_key)
+            if pinned:
+                self.set_question_bank_scope(
+                    int(library_id), int(source_question_id), pinned
+                )
+            if live_defaults:
+                self.set_question_live_defaults(
+                    int(library_id), int(source_question_id), live_defaults
+                )
             item_payload["source_question_id"] = source_question_id
             item_payload["import_source"] = "module_bank"
 
@@ -15662,6 +16048,26 @@ class SchoolDB(LovesDB):
                         "publish_mode": "group_submit",
                         "response_mode": "group_submit",
                     }
+                live_mode = str(question.get("live_response_mode") or "").strip().lower()
+                if live_mode == "group":
+                    # MCK-254: an explicit Group default wins, including over
+                    # the rank import preset above.
+                    default_publish = "group_submit"
+                    response_mode = "group_submit"
+                    question = {
+                        **question,
+                        "publish_mode": "group_submit",
+                        "response_mode": "group_submit",
+                    }
+                elif live_mode == "individual":
+                    default_publish = "individual"
+                    response_mode = "individual"
+                    question = {
+                        **dict(question),
+                        "publish_mode": "individual",
+                        "response_mode": "individual",
+                    }
+                    question.pop("import_group_preset", None)
                 prompt = prompt_by_item.get(item_id) or prompt_by_item.get(
                     self._live_item_alias(item_id)
                 )
@@ -15736,6 +16142,9 @@ class SchoolDB(LovesDB):
                     if retargeted is not None:
                         saved = retargeted
                 show_live_results = 1
+                if question.get("live_show_results") is not None:
+                    show_live_results = 1 if question.get("live_show_results") else 0
+                    question["show_live_results"] = bool(show_live_results)
                 save_to_card = 1 if question.get("save_to_card") else 0
                 if saved is not None:
                     question = self._overlay_saved_teacher_settings(question, saved)

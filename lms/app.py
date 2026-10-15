@@ -166,6 +166,7 @@ from bank_dedupe import apply_visible_bank_question_counts  # noqa: E402
 from bank_edit import (  # noqa: E402
     EMPTY_BANKS_MESSAGE,
     WONDER_COPY,
+    apply_question_bank_bulk,
     apply_staff_question_patch,
     create_staff_bank_question,
     delete_staff_bank_question,
@@ -640,6 +641,26 @@ def _discard_unpacked(unpacked: Path) -> None:
             shutil.rmtree(unpacked, ignore_errors=True)
     except OSError:
         logger.warning("Could not remove unpacked tree %s", unpacked)
+
+
+def _live_defaults_from_body(body: dict) -> dict | None:
+    """Return live-default keys present on an Add New body, or None.
+
+    Omitted keys stay out so a question added without touching Live defaults
+    keeps today's launch behaviour.
+
+    Args:
+        body: JSON body from the add-question route.
+    """
+    try:
+        from live_defaults import parse_live_defaults
+    except ImportError:
+        from lms.live_defaults import parse_live_defaults
+
+    if not isinstance(body, dict):
+        return None
+    parsed = parse_live_defaults(body)
+    return parsed or None
 
 
 def _ready_library(school, cls: dict) -> tuple[int | None, str | None]:
@@ -4426,6 +4447,34 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         return jsonify({"ok": True})
 
     @app.route(
+        "/api/staff/class/<int:class_id>/question-bank/bulk",
+        methods=["POST"],
+    )
+    @staff_required
+    def staff_question_bank_bulk(class_id: int):
+        """Move selected bank questions or set their Kind."""
+        user = current_user()
+        assert user is not None
+        if not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden"}), 403
+        cls = school.enrich_class(school.game.get_class(class_id))
+        library_id, error = _ready_library(school, cls)
+        if not library_id:
+            return jsonify({"ok": False, "error": error or "No module pack"}), 404
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            result = apply_question_bank_bulk(
+                school, library_id=int(library_id), body=body
+            )
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except KeyError:
+            return jsonify({"ok": False, "error": "Question not found"}), 404
+        return jsonify({"ok": True, **result})
+
+    @app.route(
         "/api/staff/class/<int:class_id>/live-bank/questions",
         methods=["POST"],
     )
@@ -4567,6 +4616,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         question_type = parse_type_filter(request.args.get("type"))
         if question_type is None:
             return jsonify({"ok": False, "error": "unknown question type"}), 400
+        staff_types = str(request.args.get("staff_types") or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }
+        placement = str(request.args.get("placement") or "").strip().lower()
         scope_arg = str(
             request.args.get("bank_scope") or request.args.get("bankScope") or ""
         ).strip().lower()
@@ -4584,6 +4639,35 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         library_id, error = _ready_library(school, cls)
         if not library_id:
             return jsonify({"ok": False, "error": error or "No module pack"}), 404
+        if course_scope and placement == "course":
+            result = school.search_module_bank_mcs(
+                int(library_id),
+                1,
+                query,
+                class_id=int(class_id),
+                kind=kind,
+                question_type=question_type,
+                scope_policy="course_only",
+                staff_types=staff_types,
+            )
+            items = result.get("items") or []
+            return jsonify(
+                {
+                    "ok": True,
+                    "module": "COURSE",
+                    "bank_scope": "course",
+                    "module_number": None,
+                    "library_id": int(library_id),
+                    "query": query,
+                    "kind": kind,
+                    "type": question_type,
+                    "count": len(items),
+                    "total": int(result.get("total") or 0),
+                    "filtered": int(result.get("filtered") or 0),
+                    "type_counts": result.get("type_counts") or [],
+                    "items": items,
+                }
+            )
         if course_scope:
             result = school.search_bank_scope_mcs(
                 int(library_id),
@@ -4593,6 +4677,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 class_id=int(class_id),
                 kind=kind,
                 question_type=question_type,
+                staff_types=staff_types,
             )
             items = result.get("items") or []
             return jsonify(
@@ -4619,6 +4704,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             class_id=int(class_id),
             kind=kind,
             question_type=question_type,
+            staff_types=staff_types,
         )
         items = result.get("items") or []
         return jsonify(
@@ -5055,6 +5141,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 bank_kind=str(body.get("bank_kind") or body.get("bankKind") or ""),
                 library_id=int(library_id) if library_id else None,
                 rank_key=body.get("rank_key", body.get("rankKey")),
+                live_defaults=_live_defaults_from_body(body),
                 extra_item={
                     key: body[key]
                     for key in (

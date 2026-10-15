@@ -46,6 +46,7 @@ class BankKindLabelTests(unittest.TestCase):
     def test_staff_kind_labels_in_ui(self) -> None:
         """Question Bank, Import picker, Add New, and IT Kind show the new names."""
         course = (LMS_DIR / "templates" / "staff" / "course.html").read_text(encoding="utf-8")
+        course += (LMS_DIR / "templates" / "partials" / "question_editor.html").read_text(encoding="utf-8")
         picker = (LMS_DIR / "static" / "bank_mc_picker.js").read_text(encoding="utf-8")
         banks = (LMS_DIR / "static" / "course_question_banks.js").read_text(encoding="utf-8")
         staff = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")

@@ -314,15 +314,14 @@ class AnswerOrderAuthorUiTests(unittest.TestCase):
     """Add New: optional "Answer order" drag list under the rank options."""
 
     def test_author_ui_wiring(self) -> None:
-        course = (LMS_DIR / "templates" / "staff" / "course.html").read_text(encoding="utf-8")
-        staff = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        course = (LMS_DIR / "templates" / "partials" / "question_editor.html").read_text(encoding="utf-8")
+        editor = (LMS_DIR / "static" / "question_editor.js").read_text(encoding="utf-8")
         self.assertIn('id="live-add-q-rank-key-on"> Answer order</label>', course)
         self.assertIn(">Drag the items into the right order.</p>", course)
         self.assertNotIn("no answer key</p>", course)
-        submit = staff.split("async function submitAddQuestion()")[1].split("\n}\n")[0]
-        self.assertIn("rankKeyForSubmit(body.options)", submit)
-        self.assertIn("if (rankKey) body.rank_key = rankKey;", submit)
-        unset = turns_base._function_source(staff, "rankKeyForSubmit")
+        self.assertIn("rankKeyForSubmit(body.options)", editor)
+        self.assertIn("body.rank_key = rankKey", editor)
+        unset = turns_base._function_source(editor, "rankKeyForSubmit")
         self.assertIn("!on.checked) return null", unset)
 
 

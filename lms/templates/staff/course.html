@@ -87,7 +87,7 @@
     </div>
     <script type="module" src="/static/course_catalog.js"></script>
     {% elif tab == 'question-banks' %}
-    <div class="layout bank-browser live-bank-browser" id="catalog-root"
+    <div class="qbank-page bank-browser live-bank-browser" id="catalog-root"
          data-class-id="{{ cls.id }}"
          data-kind="question-banks"
          data-live-bank="1"
@@ -98,8 +98,27 @@
          data-remove-from-bank="{{ bank_copy.remove_from_bank }}"
          data-edited-in-lms="{{ bank_copy.edited_in_lms }}"
          data-save-toast="{{ bank_copy.save_toast }}">
+      <header class="qbank-head">
+        <div class="qbank-head-row">
+          <h1 class="qbank-title">Question bank</h1>
+          <p class="hint" id="qbank-summary"></p>
+          <button type="button" id="qbank-add">+ Add question</button>
+        </div>
+        <div class="qbank-tabs" role="tablist" aria-label="Module">
+          <button type="button" role="tab" data-bank-tab="all" data-tab-label="All">All</button>
+          <button type="button" role="tab" data-bank-tab="M1" data-tab-label="M1" class="is-on" aria-selected="true">M1</button>
+          <button type="button" role="tab" data-bank-tab="M2" data-tab-label="M2">M2</button>
+          <button type="button" role="tab" data-bank-tab="M3" data-tab-label="M3">M3</button>
+          <button type="button" role="tab" data-bank-tab="M4" data-tab-label="M4">M4</button>
+          <button type="button" role="tab" data-bank-tab="M5" data-tab-label="M5">M5</button>
+          <button type="button" role="tab" data-bank-tab="M6" data-tab-label="M6">M6</button>
+          <button type="button" role="tab" data-bank-tab="M7" data-tab-label="M7">M7</button>
+          <button type="button" role="tab" data-bank-tab="M8" data-tab-label="M8">M8</button>
+          <button type="button" role="tab" data-bank-tab="course" data-tab-label="Course Wide">Course Wide</button>
+        </div>
+      </header>
       <div class="live-bank-toolbar">
-        <label class="live-bank-field" for="live-bank-scope">Bank scope
+        <label class="live-bank-field qbank-scope-sync" for="live-bank-scope">Bank scope
           <select id="live-bank-scope" aria-label="Bank scope">
             <option value="M1" selected>Module 1</option>
             <option value="M2">Module 2</option>
@@ -112,6 +131,9 @@
             <option value="course">Course Wide</option>
           </select>
         </label>
+        <label class="live-bank-field live-bank-search" for="live-bank-search">Search
+          <input id="live-bank-search" type="search" placeholder="Search stem or option text" autocomplete="off">
+        </label>
         <label class="live-bank-field" for="live-bank-kind">Kind
           <select id="live-bank-kind" aria-label="Kind">
             {% if course_simple %}<option value="" selected>Course</option>{% else %}<option value="" selected>Core Math</option>{% endif %}
@@ -120,22 +142,22 @@
             <option value="warmup">Warmup</option>
           </select>
         </label>
-        <label class="live-bank-field live-bank-search" for="live-bank-search">Search
-          <input id="live-bank-search" type="search" placeholder="Stem or option text" autocomplete="off">
-        </label>
-        <div class="live-bank-mode" role="group" aria-label="Browse or edit">
-          <button type="button" id="live-bank-browse" data-live-bank-mode="browse" data-bank-done aria-pressed="true">Browse</button>
-          <button type="button" id="live-bank-edit" data-live-bank-mode="edit" data-bank-edit aria-pressed="false" aria-label="Edit bank">Edit</button>
-        </div>
         <div id="live-bank-types" data-bank-type-chips></div>
-        <p class="hint compact live-bank-note">Same live bank as Run Live Class Import and Add New. {{ 'Course' if course_simple else 'Core Math' }} hides warmup and Custom.</p>
+        <label class="live-bank-field" for="live-bank-sort">Sort
+          <select id="live-bank-sort" aria-label="Sort">
+            <option value="bank" selected>Bank order</option>
+            <option value="edited">Recently edited</option>
+            <option value="type">Type</option>
+          </select>
+        </label>
       </div>
-      <aside class="card module-nav-pane">
-        <div id="catalog-list">Loading live bank…</div>
-      </aside>
-      <section class="card bank-detail" id="bank-detail">
-        <p class="hint">{{ bank_copy.empty_banks }}</p>
-      </section>
+      <div id="catalog-list" class="qbank-grid">Loading live bank…</div>
+    </div>
+    <div id="qbank-bulk" class="qbank-bulk" hidden>
+      <strong id="qbank-bulk-count">0 selected</strong>
+      <button type="button" class="secondary" id="qbank-bulk-move">Move to module</button>
+      <button type="button" class="secondary" id="qbank-bulk-kind">Set kind</button>
+      <button type="button" class="danger" id="qbank-bulk-remove">Remove</button>
     </div>
     <p id="bank-toast" class="bank-toast" hidden role="status"></p>
     <dialog id="bank-remove-dialog" class="bank-remove-dialog" aria-labelledby="bank-remove-title">
@@ -147,6 +169,46 @@
         </div>
       </form>
     </dialog>
+    <dialog id="qbank-move-dialog" class="bank-remove-dialog" aria-labelledby="qbank-move-title">
+      <form id="qbank-move-form" class="bank-remove-card">
+        <h2 id="qbank-move-title">Move to module</h2>
+        <label class="live-bank-field" for="qbank-move-scope">Module
+          <select id="qbank-move-scope">
+            <option value="M1">Module 1</option>
+            <option value="M2">Module 2</option>
+            <option value="M3">Module 3</option>
+            <option value="M4">Module 4</option>
+            <option value="M5">Module 5</option>
+            <option value="M6">Module 6</option>
+            <option value="M7">Module 7</option>
+            <option value="M8">Module 8</option>
+            <option value="course">Course Wide</option>
+          </select>
+        </label>
+        <div class="row-actions">
+          <button type="button" class="secondary" onclick="this.closest('dialog').close()">Cancel</button>
+          <button type="submit">Move</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="qbank-kind-dialog" class="bank-remove-dialog" aria-labelledby="qbank-kind-title">
+      <form id="qbank-kind-form" class="bank-remove-card">
+        <h2 id="qbank-kind-title">Set kind</h2>
+        <label class="live-bank-field" for="qbank-kind-value">Kind
+          <select id="qbank-kind-value">
+            {% if course_simple %}<option value="">Course</option>{% else %}<option value="">Core Math</option>{% endif %}
+            <option value="standard">Custom</option>
+            <option value="contest">Contest</option>
+            <option value="warmup">Warmup</option>
+          </select>
+        </label>
+        <div class="row-actions">
+          <button type="button" class="secondary" onclick="this.closest('dialog').close()">Cancel</button>
+          <button type="submit">Set kind</button>
+        </div>
+      </form>
+    </dialog>
+    {% include "partials/question_editor.html" %}
     <script type="module" src="/static/course_question_banks.js"></script>
     {% elif tab == 'syllabus' %}
     <p class="hint">Click-to-place editor only (no sequential packer). Calendar is locked from Admin.</p>
@@ -707,131 +769,7 @@
     </dialog>
     <!-- MCK-185 "Score teams" (body painted by staff_ap.js; teacher only). -->
     <dialog id="rank-score-dialog" class="live-responses-dialog rank-score-dialog" aria-labelledby="rank-score-title"></dialog>
-    <dialog id="live-add-question-dialog" class="live-relocate-dialog" aria-labelledby="live-add-question-title">
-      <form id="live-add-question-form" class="live-relocate-dialog-card live-add-question-card">
-        <header class="live-relocate-head">
-          <h2 id="live-add-question-title" class="live-pane-title">Add New question</h2>
-          <button type="button" class="secondary live-q-btn" data-live-add-question-close aria-label="Close">Close</button>
-        </header>
-        <div class="live-add-q-body">
-          <fieldset class="live-add-q-type live-add-q-side live-add-type-chips">
-            <legend class="live-relocate-move-field">Type</legend>
-            <div class="live-add-type-chip-row" role="radiogroup" aria-label="Type">
-              <label class="live-add-type-chip">
-                <input type="radio" name="live-add-q-type" value="mc" checked>
-                <span>mc</span>
-              </label>
-              <label class="live-add-type-chip">
-                <input type="radio" name="live-add-q-type" value="numeric">
-                <span>numeric</span>
-              </label>
-              <label class="live-add-type-chip">
-                <input type="radio" name="live-add-q-type" value="poll">
-                <span>poll</span>
-              </label>
-              <label class="live-add-type-chip">
-                <input type="radio" name="live-add-q-type" value="rank">
-                <span>Rank</span>
-              </label>
-            </div>
-          </fieldset>
-          <label class="live-add-q-kind live-add-q-side" for="live-add-q-bank-kind">Kind
-            <select id="live-add-q-bank-kind" aria-label="Kind">
-              {% if course_simple %}<option value="" selected>Course</option>{% else %}<option value="" selected>Core Math</option>{% endif %}
-              <option value="standard">Custom</option>
-              <option value="contest">Contest</option>
-              <option value="warmup">Warmup</option>
-            </select>
-          </label>
-          <div class="live-add-q-stem live-add-q-main">
-            <label class="live-relocate-move-field" for="live-add-q-text">Question text</label>
-            <textarea id="live-add-q-text" rows="3" maxlength="2000" required></textarea>
-          </div>
-          <fieldset class="live-add-q-equation-block live-add-q-main">
-            <legend class="live-relocate-move-field">Equation (optional, shown below the question)</legend>
-            <p class="hint compact">Separate from the question text. Insert LaTeX, then check the preview.</p>
-            <div class="live-add-q-eq-toolbar" role="group" aria-label="Equation shortcuts">
-              <button type="button" class="secondary live-q-btn" data-eq-insert="\frac{a}{b}">frac</button>
-              <button type="button" class="secondary live-q-btn" data-eq-insert="\sqrt{}">sqrt</button>
-              <button type="button" class="secondary live-q-btn" data-eq-insert="^{}">^</button>
-              <button type="button" class="secondary live-q-btn" data-eq-insert="_{}">_</button>
-            </div>
-            <label class="live-relocate-move-field" for="live-add-q-equation">LaTeX</label>
-            <textarea id="live-add-q-equation" rows="2" maxlength="1000" placeholder="e.g. y = x^2"></textarea>
-            <p class="live-relocate-move-field">Preview</p>
-            <div id="live-add-q-equation-preview" class="live-add-q-equation-preview" aria-live="polite"></div>
-          </fieldset>
-          <div class="live-add-q-fields live-add-q-side">
-            <div id="live-add-q-mc-fields" class="live-add-q-type-fields">
-              <p class="live-relocate-section-label">Four options — mark the correct one</p>
-              <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="0" checked> <input id="live-add-q-opt-0" type="text" maxlength="240" placeholder="A"></label>
-              <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="1"> <input id="live-add-q-opt-1" type="text" maxlength="240" placeholder="B"></label>
-              <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="2"> <input id="live-add-q-opt-2" type="text" maxlength="240" placeholder="C"></label>
-              <label class="live-add-q-option"><input type="radio" name="live-add-q-key" value="3"> <input id="live-add-q-opt-3" type="text" maxlength="240" placeholder="D"></label>
-            </div>
-            <div id="live-add-q-rank-fields" class="live-add-q-type-fields" hidden>
-              <p class="live-relocate-section-label">Options — 3 to 6</p>
-              <div id="live-add-q-rank-list">
-                <label class="live-add-rank-row"><input id="live-add-q-rank-0" type="text" maxlength="240" placeholder="Option 1"><button type="button" class="secondary live-q-btn" data-rank-remove aria-label="Remove option">×</button></label>
-                <label class="live-add-rank-row"><input id="live-add-q-rank-1" type="text" maxlength="240" placeholder="Option 2"><button type="button" class="secondary live-q-btn" data-rank-remove aria-label="Remove option">×</button></label>
-                <label class="live-add-rank-row"><input id="live-add-q-rank-2" type="text" maxlength="240" placeholder="Option 3"><button type="button" class="secondary live-q-btn" data-rank-remove aria-label="Remove option">×</button></label>
-                <label class="live-add-rank-row" hidden><input id="live-add-q-rank-3" type="text" maxlength="240" placeholder="Option 4"><button type="button" class="secondary live-q-btn" data-rank-remove aria-label="Remove option">×</button></label>
-                <label class="live-add-rank-row" hidden><input id="live-add-q-rank-4" type="text" maxlength="240" placeholder="Option 5"><button type="button" class="secondary live-q-btn" data-rank-remove aria-label="Remove option">×</button></label>
-                <label class="live-add-rank-row" hidden><input id="live-add-q-rank-5" type="text" maxlength="240" placeholder="Option 6"><button type="button" class="secondary live-q-btn" data-rank-remove aria-label="Remove option">×</button></label>
-              </div>
-              <button type="button" class="secondary live-q-btn" id="live-add-q-rank-add">Add option</button>
-              <label class="live-add-rank-key-toggle"><input type="checkbox" id="live-add-q-rank-key-on"> Answer order</label>
-              <div id="live-add-q-rank-key" class="live-add-rank-key" hidden>
-                <p class="hint compact" id="live-add-q-rank-key-help">Drag the items into the right order.</p>
-                <ol id="live-add-q-rank-key-list" class="live-add-rank-key-list" aria-label="Answer order" aria-describedby="live-add-q-rank-key-help"></ol>
-              </div>
-            </div>
-            <div id="live-add-q-numeric-fields" class="live-add-q-type-fields" hidden>
-              <label class="live-relocate-move-field" for="live-add-q-numeric-answer">Correct answer</label>
-              <input id="live-add-q-numeric-answer" type="text" inputmode="decimal">
-              <div class="live-add-q-tolerance-row">
-                <label class="live-relocate-move-field" for="live-add-q-tolerance">Error margin</label>
-                <input id="live-add-q-tolerance" type="text" inputmode="decimal" value="0">
-                <select id="live-add-q-tolerance-kind" aria-label="Tolerance kind">
-                  <option value="absolute">Absolute</option>
-                  <option value="percent">Percent</option>
-                </select>
-              </div>
-            </div>
-          </div>
-          <div class="live-add-q-image live-add-q-main">
-            <label class="live-relocate-move-field" for="live-add-q-image">Image (optional)</label>
-            <input id="live-add-q-image" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
-          </div>
-          <div class="live-add-q-save live-add-q-side">
-            <label class="live-add-q-bank">
-              <input id="live-add-q-save-bank" type="checkbox"> Save to bank
-            </label>
-            <label id="live-add-q-bank-scope" class="live-add-q-bank-scope" for="live-add-q-bank-scope-select" hidden>
-              <span class="live-relocate-move-field">Bank scope</span>
-              <select id="live-add-q-bank-scope-select" disabled>
-                <option value="M1">Module 1</option>
-                <option value="M2">Module 2</option>
-                <option value="M3">Module 3</option>
-                <option value="M4">Module 4</option>
-                <option value="M5">Module 5</option>
-                <option value="M6">Module 6</option>
-                <option value="M7">Module 7</option>
-                <option value="M8">Module 8</option>
-                <option value="course">Course Wide</option>
-              </select>
-            </label>
-            <p id="live-add-q-bank-scope-hint" class="hint compact" hidden>Using Module 1 — set live module if wrong.</p>
-          </div>
-        </div>
-        <div class="live-add-q-footer">
-          <p id="live-add-q-error" class="error compact" hidden></p>
-          <div class="live-relocate-move-row">
-            <button type="submit" class="live-q-btn" id="live-add-q-submit">Add to this page</button>
-          </div>
-        </div>
-      </form>
-    </dialog>
+    {% include "partials/question_editor.html" %}
     <dialog id="live-relocate-dialog" class="live-relocate-dialog" aria-labelledby="live-relocate-title">
       <div class="live-relocate-dialog-card">
         <header class="live-relocate-head">

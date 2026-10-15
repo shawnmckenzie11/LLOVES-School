@@ -8610,3 +8610,158 @@ body.staff-shell .finish-module-primary {
   color: #fff;
   border: 1px solid #1d4ed8;
 }
+
+/* MCK-254 question bank cards and the shared editor chrome. */
+body.staff-shell .live-add-q-nav {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+body.staff-shell .live-add-q-defaults {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.7rem;
+  align-items: center;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+body.staff-shell .live-add-q-defaults label {
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+  font-weight: 650;
+}
+body.staff-shell .live-add-q-points-label input {
+  width: 3.2rem;
+}
+body.staff-shell .live-add-q-footer-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+}
+body.staff-shell .qbank-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #f7f9fb;
+}
+body.staff-shell .qbank-head {
+  background: #fff;
+  border-bottom: 1px solid #d5dde6;
+  padding: 0.7rem 1.1rem 0;
+}
+body.staff-shell .qbank-head-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-bottom: 0.35rem;
+}
+body.staff-shell .qbank-title {
+  margin: 0;
+  font-size: 1.15rem;
+}
+body.staff-shell .qbank-head-row #qbank-add {
+  margin-left: auto;
+}
+body.staff-shell .qbank-tabs {
+  display: flex;
+  gap: 0.15rem;
+  overflow-x: auto;
+}
+body.staff-shell .qbank-tabs button {
+  background: transparent;
+  color: #12202e;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  padding: 0.45rem 0.7rem;
+  font-weight: 600;
+}
+body.staff-shell .qbank-tabs button.is-on {
+  border-bottom-color: #12202e;
+  font-weight: 750;
+}
+body.staff-shell .qbank-page .live-bank-toolbar {
+  background: #fff;
+  border-bottom: 1px solid #d5dde6;
+  padding: 0.65rem 1.1rem;
+  align-items: center;
+}
+body.staff-shell .qbank-scope-sync {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+body.staff-shell .qbank-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding: 0.9rem 1.1rem 4.5rem;
+  align-content: start;
+}
+body.staff-shell .qbank-card {
+  background: #fff;
+  border: 1px solid #d5dde6;
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-height: 7.5rem;
+  cursor: pointer;
+  text-align: left;
+}
+body.staff-shell .qbank-card-head {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+body.staff-shell .qbank-kind,
+body.staff-shell .qbank-points,
+body.staff-shell .qbank-key {
+  color: #475569;
+  font-size: 0.78rem;
+  margin: 0;
+}
+body.staff-shell .qbank-points {
+  margin-left: auto;
+}
+body.staff-shell .qbank-stem {
+  font-size: 0.9rem;
+}
+body.staff-shell .qbank-type-mc { background: #dbeafe; color: #1e40af; }
+body.staff-shell .qbank-type-num { background: #dcfce7; color: #166534; }
+body.staff-shell .qbank-type-rank { background: #fef3c7; color: #92400e; }
+body.staff-shell .qbank-type-poll { background: #f3e8ff; color: #6b21a8; }
+body.staff-shell .qbank-edited { background: #fef9c3; color: #854d0e; }
+body.staff-shell .qbank-empty,
+body.staff-shell .qbank-empty-card {
+  grid-column: 1 / -1;
+  background: #fff;
+  border: 1px solid #d5dde6;
+  border-radius: 10px;
+  padding: 1.4rem;
+}
+body.staff-shell .qbank-bulk {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.55rem 1.1rem;
+  background: #12202e;
+  color: #fff;
+}
+body.staff-shell .qbank-bulk strong {
+  margin-right: auto;
+}
+body.staff-shell #live-add-question-note {
+  font-weight: 450;
+  margin-left: 0.25rem;
+}

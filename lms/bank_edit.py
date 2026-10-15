@@ -481,6 +481,322 @@ def payload_is_rank(payload: Any) -> bool:
     return isinstance(payload, dict) and str(payload.get("type") or "").strip().lower() == "rank"
 
 
+def _editor_kind(body: dict[str, Any], stored: dict[str, Any]) -> str:
+    """Return the editor type token, defaulting to the stored payload type."""
+    raw = str(body.get("type") or body.get("question_type") or stored.get("type") or "mc")
+    kind = raw.strip().lower()
+    if kind in {"multiple_choice", "multiple_choice_question"}:
+        return "mc"
+    if kind in {"numerical", "numerical_question"}:
+        return "numeric"
+    return kind or "mc"
+
+
+def _apply_editor_kind(payload: dict[str, Any], raw: Any) -> None:
+    """Store Kind, and move a warmup/custom/contest tag when the teacher changes it.
+
+    Rank payloads keep ``kind=rank``. Core Math clears a bank-kind tag.
+
+    Args:
+        payload: Question payload updated in place.
+        raw: Staff Kind choice from the editor or bulk bar.
+    """
+    try:
+        from bank_kinds import apply_stored_bank_kind, storage_bank_kind
+    except ImportError:
+        from lms.bank_kinds import apply_stored_bank_kind, storage_bank_kind
+
+    apply_stored_bank_kind(payload, raw)
+    current = str(payload.get("kind") or "").strip().lower()
+    if current not in {"warmup", "contest", "standard"}:
+        return
+    token = storage_bank_kind(raw)
+    if token:
+        payload["kind"] = token
+    else:
+        payload.pop("kind", None)
+
+
+def _equation_from_body(school: Any, body: dict[str, Any]) -> str:
+    """Return stripped equation TeX from an editor body."""
+    raw = body.get("equation", body.get("equation_latex"))
+    if raw in (None,):
+        return ""
+    strip = getattr(school, "strip_equation_latex", None)
+    if callable(strip):
+        return str(strip(raw) or "")
+    return str(raw or "").strip().strip("$").strip()
+
+
+def apply_question_editor_save(
+    school: Any,
+    *,
+    library_id: int,
+    bank_id: int,
+    question_id: int,
+    body: dict[str, Any],
+    class_id: int | None = None,
+) -> dict[str, Any]:
+    """Save the shared question editor, including rank rows and live defaults.
+
+    The legacy ``stem_text`` PATCH still rejects rank. This path runs only
+    when the body sets ``from_editor``. Omitted live-default and scope keys
+    are left unchanged so a stem edit does not pin today's implied settings.
+
+    Args:
+        school: School database.
+        library_id: ``content_libraries.id``.
+        bank_id: ``question_banks.id``.
+        question_id: ``questions.id``.
+        body: Editor JSON body.
+        class_id: Class id for image URL resolution.
+    """
+    try:
+        from live_defaults import parse_live_defaults
+        from live_rank import build_rank_options, minted_rank_key, parse_rank_key
+    except ImportError:
+        from lms.live_defaults import parse_live_defaults
+        from lms.live_rank import build_rank_options, minted_rank_key, parse_rank_key
+
+    row = school.get_library_question(int(library_id), int(question_id))
+    if row is None or int(row["bank_id"]) != int(bank_id):
+        raise KeyError(f"question {question_id}")
+    stored = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+    kind = _editor_kind(body, stored)
+    if kind not in {"mc", "numeric", "poll", "rank"}:
+        raise ValueError("type must be mc, numeric, poll, or rank")
+    stem_html, stem_plain = _stem_from_body(
+        body, class_id=class_id, school=school, library_id=int(library_id)
+    )
+    payload = dict(stored)
+    payload["text"] = stem_plain
+    payload["prompt"] = stem_plain
+    payload["stem_html"] = stem_html
+    payload["type"] = kind
+    equation = _equation_from_body(school, body)
+    if "equation" in body or "equation_latex" in body:
+        if equation:
+            payload["equation"] = equation
+            payload["equation_latex"] = equation
+        else:
+            payload.pop("equation", None)
+            payload.pop("equation_latex", None)
+    if "image_url" in body or "imageUrl" in body:
+        image = str(body.get("image_url") or body.get("imageUrl") or "").strip()
+        if image:
+            payload["image_url"] = image
+        else:
+            payload.pop("image_url", None)
+    if "bank_kind" in body or "bankKind" in body:
+        _apply_editor_kind(payload, body.get("bank_kind", body.get("bankKind")))
+    warmup = payload_is_warmup(payload)
+    item_type: str | None = None
+    if kind == "rank":
+        existing = payload.get("rank_options") if isinstance(payload.get("rank_options"), list) else []
+        incoming = body.get("rank_options") or body.get("options") or []
+        merged: list[Any] = []
+        if isinstance(incoming, list):
+            for index, item in enumerate(incoming):
+                if isinstance(item, dict) and (item.get("id") or item.get("label") or item.get("text")):
+                    merged.append(item)
+                    continue
+                label = str(item or "").strip()
+                prior = existing[index] if index < len(existing) and isinstance(existing[index], dict) else {}
+                merged.append({"id": str(prior.get("id") or ""), "label": label})
+        rank_options = build_rank_options(merged, mint=False)
+        labels = [opt["label"] for opt in rank_options]
+        payload["rank_options"] = rank_options
+        payload["options"] = labels
+        payload["choices"] = labels
+        payload["kind"] = "rank"
+        answer = parse_rank_key(
+            minted_rank_key(body.get("rank_key", body.get("rankKey")), rank_options),
+            rank_options,
+        )
+        if "rank_key" in body or "rankKey" in body:
+            if answer:
+                payload["rank_key"] = answer
+            else:
+                payload.pop("rank_key", None)
+        payload.pop("key", None)
+        payload.pop("correct_answer", None)
+        item_type = "essay_question"
+    elif kind == "numeric":
+        key = str(body.get("correct_answer") or body.get("correctAnswer") or "").strip()
+        if not key:
+            raise ValueError("correct answer required")
+        try:
+            float(key)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("correct answer must be a number") from exc
+        kind_token = str(body.get("tolerance_kind") or body.get("toleranceKind") or "absolute").strip().lower()
+        if kind_token not in {"absolute", "percent"}:
+            raise ValueError("tolerance_kind must be absolute or percent")
+        try:
+            window = float(0 if body.get("tolerance") in (None, "") else body.get("tolerance"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("tolerance must be a number") from exc
+        if window < 0:
+            raise ValueError("tolerance cannot be negative")
+        payload["correct_answer"] = key
+        payload["key"] = key
+        payload["tolerance"] = window
+        payload["tolerance_kind"] = kind_token
+        payload["options"] = []
+        payload["choices"] = []
+        item_type = "numerical_question"
+        school.upsert_library_question_overlay(
+            int(library_id),
+            int(question_id),
+            stem_text=stem_plain,
+            options=[],
+            correct_answer=key,
+            points=None,
+        )
+    elif kind == "poll":
+        payload["options"] = []
+        payload["choices"] = []
+        payload.pop("key", None)
+        payload.pop("correct_answer", None)
+        item_type = "essay_question"
+        school.upsert_library_question_overlay(
+            int(library_id),
+            int(question_id),
+            stem_text=stem_plain,
+            options=[],
+            correct_answer="",
+            points=None,
+        )
+    else:
+        options = _parse_options(body)
+        if len(options) < 2 and not (warmup and not options):
+            raise ValueError("at least two options required")
+        write = dict(body)
+        if "correct_index" in body or "correctIndex" in body:
+            try:
+                write["correct_answer"] = _choice_letter(
+                    int(body.get("correct_index", body.get("correctIndex")))
+                )
+            except (TypeError, ValueError):
+                write["correct_answer"] = ""
+        correct = "" if warmup else _parse_correct_answer(write, options)
+        if not correct and not warmup:
+            raise ValueError("correct_answer required")
+        choices = [
+            {
+                "id": _choice_letter(index),
+                "html": sanitize_bank_html(
+                    option,
+                    class_id=class_id,
+                    school=school,
+                    library_id=int(library_id),
+                ),
+                "correct": (not warmup) and _choice_letter(index) == correct,
+            }
+            for index, option in enumerate(options)
+        ]
+        payload["choices"] = choices
+        payload["options"] = options
+        if warmup:
+            payload.pop("key", None)
+            payload.pop("correct_answer", None)
+        else:
+            payload["key"] = correct
+            payload["correct_answer"] = correct
+        if str(row.get("item_type") or "") not in MC_ITEM_TYPES:
+            item_type = "multiple_choice_question"
+        school.upsert_library_question_overlay(
+            int(library_id),
+            int(question_id),
+            stem_text=stem_plain,
+            options=options,
+            correct_answer="" if warmup else correct,
+            points=None,
+        )
+    school.update_library_question_payload(
+        int(library_id),
+        int(question_id),
+        title=title_for_question_patch(
+            stored_title=str(row.get("title") or ""),
+            stem_plain=stem_plain,
+            payload=stored,
+        ),
+        payload=payload,
+        item_type=item_type,
+    )
+    if "bank_scope" in body or "bankScope" in body:
+        school.set_question_bank_scope(
+            int(library_id),
+            int(question_id),
+            str(body.get("bank_scope", body.get("bankScope")) or ""),
+        )
+    defaults = parse_live_defaults(body)
+    if defaults:
+        school.set_question_live_defaults(int(library_id), int(question_id), defaults)
+    saved = serialize_staff_question(
+        school.get_library_question(int(library_id), int(question_id)) or row,
+        school.get_library_question_overlay(int(library_id), int(question_id)),
+        class_id=class_id,
+        school=school,
+        library_id=int(library_id),
+    )
+    saved.update(school.question_live_defaults(int(library_id), int(question_id)))
+    return saved
+
+
+def apply_question_bank_bulk(
+    school: Any,
+    *,
+    library_id: int,
+    body: dict[str, Any],
+) -> dict[str, Any]:
+    """Move questions to a module tab or set their Kind.
+
+    Move writes ``questions.bank_scope`` only. It does not link the whole
+    bank, so siblings with a blank scope stay where they are.
+
+    Args:
+        school: School database.
+        library_id: ``content_libraries.id``.
+        body: ``action`` of ``move`` or ``kind``, plus ``questions``.
+    """
+    action = str(body.get("action") or "").strip().lower()
+    rows = body.get("questions") or []
+    if action not in {"move", "kind"}:
+        raise ValueError("action must be move or kind")
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("questions required")
+    updated = 0
+    for item in rows:
+        if not isinstance(item, dict):
+            raise ValueError("questions must be objects")
+        try:
+            bank_id = int(item.get("bank_id") or item.get("bankId"))
+            question_id = int(item.get("question_id") or item.get("questionId") or item.get("id"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("question id required") from exc
+        row = school.get_library_question(int(library_id), question_id)
+        if row is None or int(row["bank_id"]) != bank_id:
+            raise KeyError(f"question {question_id}")
+        if action == "move":
+            school.set_question_bank_scope(
+                int(library_id),
+                question_id,
+                str(body.get("bank_scope") or body.get("bankScope") or ""),
+            )
+        else:
+            payload = dict(row.get("payload") or {})
+            _apply_editor_kind(payload, body.get("bank_kind", body.get("bankKind")))
+            school.update_library_question_payload(
+                int(library_id),
+                question_id,
+                title=str(row.get("title") or "Question"),
+                payload=payload,
+            )
+        updated += 1
+    return {"updated": updated, "action": action}
+
+
 def apply_staff_question_patch(
     school: Any,
     *,
@@ -503,6 +819,15 @@ def apply_staff_question_patch(
         body: JSON PATCH body.
         class_id: Class id for image URL resolution.
     """
+    if body.get("from_editor") or body.get("fromEditor"):
+        return apply_question_editor_save(
+            school,
+            library_id=int(library_id),
+            bank_id=int(bank_id),
+            question_id=int(question_id),
+            body=body,
+            class_id=class_id,
+        )
     row = school.get_library_question(int(library_id), int(question_id))
     if row is None or int(row["bank_id"]) != int(bank_id):
         raise KeyError(f"question {question_id}")
