@@ -2253,5 +2253,21 @@ process.exit(0);
 
 
 
+class BareLovesDbTests(unittest.TestCase):
+    """Content-store code opens ``LovesDB`` with no live session."""
+
+    def test_bare_loves_db_opens_without_an_ink_tap(self) -> None:
+        """Wiring the tap on ``LovesDB`` raises; the school facade owns it."""
+        from school_db import LovesDB
+
+        root = tempfile.TemporaryDirectory()
+        db = LovesDB(Path(root.name) / "lloves.sqlite")
+        try:
+            self.assertIsNone(db.boards.on_committed)
+        finally:
+            db.close()
+            root.cleanup()
+
+
 if __name__ == "__main__":
     unittest.main()

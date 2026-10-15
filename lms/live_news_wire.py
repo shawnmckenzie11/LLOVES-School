@@ -179,8 +179,9 @@ class NewsAudience:
     ) -> None:
         """Record the caller's role, roster id, and boards they may read.
 
-        ``read_keys`` is snapshotted when the stream opens. A team change
-        applies on the browser's next reconnect.
+        ``read_keys`` starts as the boards visible when the stream opens.
+        A ``board_ink`` postcard reloads them before it is filtered, so a
+        team change applies on the next tap instead of the next reconnect.
 
         Args:
             role: ``staff`` or ``student``.
@@ -264,6 +265,17 @@ def _connect(path: Path) -> sqlite3.Connection:
                 """
                 CREATE INDEX IF NOT EXISTS live_news_session_id
                 ON live_news_events(session_id, id)
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS board_ink_coalesce (
+                    session_id INTEGER NOT NULL,
+                    board_key TEXT NOT NULL,
+                    window_ends_at REAL NOT NULL,
+                    trail_due INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (session_id, board_key)
+                )
                 """
             )
             conn.commit()
@@ -438,6 +450,110 @@ class LiveNewsLog:
             out.append(payload)
         return out
 
+    def claim_board_ink(
+        self,
+        session_id: int,
+        board_key: str,
+        now: float,
+        window_s: float,
+    ) -> tuple[str, float]:
+        """Claim the shared tap for one board. Every worker sees the same row.
+
+        The first batch in a window is ``lead``. Later batches in that
+        window are ``trail`` and share one trailing tap when the window ends.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            board_key: Board that just stored ops.
+            now: Wall clock seconds. Shared across processes on this machine.
+            window_s: How long one lead covers a burst.
+
+        Returns:
+            ``("lead", 0)`` when the caller should emit now, or
+            ``("trail", window_ends_at)`` when a trailing tap is due then.
+        """
+        sid = int(session_id)
+        key = str(board_key)
+        ends = float(now) + float(window_s)
+        with self._lock:
+            self._begin_immediate()
+            row = self._conn.execute(
+                """
+                SELECT window_ends_at FROM board_ink_coalesce
+                WHERE session_id = ? AND board_key = ?
+                """,
+                (sid, key),
+            ).fetchone()
+            if row is None or float(row["window_ends_at"]) <= float(now):
+                self._conn.execute(
+                    """
+                    INSERT INTO board_ink_coalesce (
+                        session_id, board_key, window_ends_at, trail_due
+                    ) VALUES (?, ?, ?, 0)
+                    ON CONFLICT(session_id, board_key) DO UPDATE SET
+                        window_ends_at = excluded.window_ends_at,
+                        trail_due = 0
+                    """,
+                    (sid, key, ends),
+                )
+                self._conn.commit()
+                return "lead", 0.0
+            window_ends = float(row["window_ends_at"])
+            self._conn.execute(
+                """
+                UPDATE board_ink_coalesce
+                SET trail_due = 1
+                WHERE session_id = ? AND board_key = ?
+                """,
+                (sid, key),
+            )
+            self._conn.commit()
+            return "trail", window_ends
+
+    def claim_board_ink_trail(self, session_id: int, board_key: str, now: float) -> bool:
+        """Take the one trailing tap for a burst, if it is still due.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            board_key: Board the burst was written on.
+            now: Wall clock seconds. A little early is allowed for timer slack.
+
+        Returns:
+            True when this caller should emit the trailing postcard.
+        """
+        sid = int(session_id)
+        key = str(board_key)
+        with self._lock:
+            self._begin_immediate()
+            cursor = self._conn.execute(
+                """
+                UPDATE board_ink_coalesce
+                SET trail_due = 0, window_ends_at = ?
+                WHERE session_id = ? AND board_key = ?
+                  AND trail_due = 1 AND window_ends_at <= ?
+                """,
+                (float(now), sid, key, float(now) + 0.02),
+            )
+            self._conn.commit()
+            return int(cursor.rowcount or 0) == 1
+
+    def clear_ink_coalesce(self) -> None:
+        """Drop shared tap rows. Tests call this between cases."""
+        with self._lock:
+            self._conn.execute("DELETE FROM board_ink_coalesce")
+            self._conn.commit()
+
+    def _begin_immediate(self) -> None:
+        """Start a write transaction that waits for other workers.
+
+        A leftover read transaction is committed first so ``BEGIN`` can run.
+        """
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+        except sqlite3.OperationalError:
+            self._conn.commit()
+            self._conn.execute("BEGIN IMMEDIATE")
+
 
 _logs: dict[str, LiveNewsLog] = {}
 _logs_lock = threading.Lock()
@@ -460,6 +576,7 @@ def log_for(data_dir: Path | str) -> LiveNewsLog:
 
 def reset_logs() -> None:
     """Close cached tapes. Tests call this so temp dirs can disappear."""
+    reset_ink_taps()
     with _logs_lock:
         logs = list(_logs.values())
         _logs.clear()
@@ -468,7 +585,6 @@ def reset_logs() -> None:
             log.close()
         except sqlite3.Error:
             pass
-    reset_ink_taps()
 
 
 def emit_session_news(
@@ -741,23 +857,93 @@ def emit_answer_landed(
     )
 
 
-# One tap per board per this many seconds. A stroke is many batches.
+# One lead tap covers a burst this long. The clock is a row in the news
+# tape, so the four gunicorn workers share it.
 INK_TAP_COALESCE_S = 0.25
-_ink_tap_lock = threading.Lock()
-_ink_tap_at: dict[tuple[int, str], float] = {}
+_trail_lock = threading.Lock()
+_trail_timers: dict[tuple[str, int, str], threading.Timer] = {}
 
 
 def reset_ink_taps() -> None:
-    """Drop the per-board coalesce clock. Tests call this between cases."""
-    with _ink_tap_lock:
-        _ink_tap_at.clear()
+    """Cancel trailing taps and clear the shared coalesce rows.
+
+    Tests call this between cases. Open tapes are cleared; a timer that
+    fires later finds nothing to claim.
+    """
+    with _trail_lock:
+        timers = list(_trail_timers.values())
+        _trail_timers.clear()
+    for timer in timers:
+        timer.cancel()
+    with _logs_lock:
+        logs = list(_logs.values())
+    for log in logs:
+        try:
+            log.clear_ink_coalesce()
+        except sqlite3.Error:
+            pass
+
+
+def _schedule_board_ink_trail(
+    school: Any,
+    session_id: int,
+    board_key: str,
+    ready_at: float,
+) -> None:
+    """Emit one trailing tap at ``ready_at`` if this process wins the claim.
+
+    Other workers may schedule the same moment. The shared row lets one
+    of them send the postcard.
+
+    Args:
+        school: SchoolDB. Only ``data_dir`` is read.
+        session_id: ``live_class_sessions.id``.
+        board_key: Board the burst belongs to.
+        ready_at: Wall-clock second when the coalesce window ends.
+    """
+    data_dir = str(getattr(school, "data_dir", "") or "")
+    token = (data_dir, int(session_id), str(board_key))
+    delay = max(0.0, float(ready_at) - time.time())
+
+    def fire() -> None:
+        """Claim the trail and emit it. A lost claim stays quiet."""
+        with _trail_lock:
+            current = _trail_timers.get(token)
+            if current is timer:
+                _trail_timers.pop(token, None)
+        try:
+            if log_for(data_dir).claim_board_ink_trail(
+                int(session_id), str(board_key), time.time()
+            ):
+                emit_session_news(
+                    school,
+                    int(session_id),
+                    [{"type": "board_ink", "board_key": str(board_key)}],
+                )
+        except Exception:
+            logger.warning(
+                "board ink trail failed session=%s",
+                session_id,
+                exc_info=True,
+            )
+
+    with _trail_lock:
+        existing = _trail_timers.get(token)
+        if existing is not None and existing.is_alive():
+            return
+        timer = threading.Timer(delay, fire)
+        timer.daemon = True
+        _trail_timers[token] = timer
+        timer.start()
 
 
 def emit_board_ink(school: Any, session_id: int, board_key: str) -> None:
     """Tell readers of one board that new ops are stored.
 
     The postcard is the board key and nothing else. Strokes stay in
-    ``board_ops``. A burst of batches on the same board shares one tap.
+    ``board_ops``. Workers share one clock per board: the first batch in
+    a short window taps immediately, and one trailing tap follows the
+    window when more batches landed.
 
     Args:
         school: SchoolDB. Only ``data_dir`` is read.
@@ -768,16 +954,16 @@ def emit_board_ink(school: Any, session_id: int, board_key: str) -> None:
     if not key:
         return
     sid = int(session_id)
-    now = time.monotonic()
-    with _ink_tap_lock:
-        if now - _ink_tap_at.get((sid, key), 0.0) < INK_TAP_COALESCE_S:
-            return
-        _ink_tap_at[(sid, key)] = now
-        if len(_ink_tap_at) > 4000:
-            cutoff = now - 30.0
-            stale = [item for item, stamp in _ink_tap_at.items() if stamp < cutoff]
-            for item in stale:
-                _ink_tap_at.pop(item, None)
+    try:
+        kind, ready_at = log_for(school.data_dir).claim_board_ink(
+            sid, key, time.time(), INK_TAP_COALESCE_S
+        )
+    except Exception:
+        logger.warning("board ink claim failed session=%s", sid, exc_info=True)
+        return
+    if kind == "trail":
+        _schedule_board_ink_trail(school, sid, key, ready_at)
+        return
     emit_session_news(school, sid, [{"type": "board_ink", "board_key": key}])
 
 
@@ -896,6 +1082,34 @@ def parse_last_event_id(header: str | None, arg: str | None) -> int:
     return max(0, _as_int(raw, 0))
 
 
+def _sync_board_read_keys(
+    school: Any,
+    session_id: int,
+    audience: NewsAudience,
+) -> None:
+    """Reload the boards a student may read before a ``board_ink`` is filtered.
+
+    A lookup failure keeps the keys already on the stream. Staff are unchanged.
+
+    Args:
+        school: SchoolDB.
+        session_id: ``live_class_sessions.id``.
+        audience: Caller holding this stream.
+    """
+    if audience.role != "student" or audience.student_id is None:
+        return
+    try:
+        access = school.student_board_access(int(session_id), int(audience.student_id))
+        keys = access.get("read") if isinstance(access, dict) else ()
+        audience.read_keys = frozenset(str(key) for key in (keys or ()))
+    except Exception:
+        logger.warning(
+            "live news board scope failed session=%s student=%s",
+            session_id,
+            audience.student_id,
+        )
+
+
 def iter_sse(
     log: LiveNewsLog,
     session_id: int,
@@ -905,6 +1119,7 @@ def iter_sse(
     hello_seq: int,
     hold_s: float,
     poll_s: float = STREAM_POLL_S,
+    school: Any = None,
 ) -> Iterator[str]:
     """Yield hello, a resume tail, live appends, and a ping. Then stop.
 
@@ -921,6 +1136,7 @@ def iter_sse(
         hold_s: How long to tail before ending the response.
         poll_s: Sqlite tail interval, for events written by another worker.
             Also how soon a SIGTERM ends the hold.
+        school: SchoolDB. Used to refresh board read keys on ``board_ink``.
     """
     cursor = int(after_id)
     yield format_sse(
@@ -934,8 +1150,16 @@ def iter_sse(
     deadline = time.monotonic() + max(0.0, float(hold_s))
     while True:
         batch = log.since(session_id, cursor)
+        refreshed = False
         for event in batch:
             cursor = max(cursor, _as_int(event.get("id"), cursor))
+            if (
+                not refreshed
+                and school is not None
+                and str(event.get("type") or "") == "board_ink"
+            ):
+                _sync_board_read_keys(school, int(session_id), audience)
+                refreshed = True
             if not event_visible(event, audience):
                 continue
             yield format_sse(event, event_id=cursor)
@@ -1046,6 +1270,7 @@ def live_news_response(
                 after_id=after_id,
                 hello_seq=hello_seq,
                 hold_s=hold_s,
+                school=school,
             )
         finally:
             _release_stream()

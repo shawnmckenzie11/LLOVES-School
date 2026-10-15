@@ -18,6 +18,15 @@ export const PRESENCE_FLUSH_MS = 80;
 export const BOARD_DELTA_POLL_MS = 1750;
 
 /**
+ * Wait out the server's coalesce window before one board read, so the
+ * trailing tap is included and a burst does not fetch twice.
+ */
+export const BOARD_INK_DEBOUNCE_MS = 280;
+
+/** Spread that one read so a group does not hit the board together. */
+export const BOARD_INK_JITTER_MS = 80;
+
+/**
  * Ops whose sequence is strictly above the caller's cursor.
  *
  * @param {any[] | null | undefined} ops
@@ -196,10 +205,13 @@ export function clearBoardRefreshCue(anchor) {
  */
 export function createBoardDeltaPoll(opts) {
   let timer = 0;
+  let kickTimer = 0;
   let inFlight = false;
   let stopped = false;
   let delay = 0;
-  let kickRequested = false;
+  let nextSlotAt = Date.now();
+  let pulled = false;
+  let kickAfter = false;
 
   /**
    * Arm the next poll. A stopped poll does not arm again.
@@ -207,13 +219,14 @@ export function createBoardDeltaPoll(opts) {
   function schedule() {
     if (stopped) return;
     if (timer) window.clearTimeout(timer);
-    timer = window.setTimeout(run, delay);
+    timer = window.setTimeout(() => run(false), delay);
   }
 
   /**
    * One poll. A hidden board waits. A shown board always reads.
+   * @param {boolean} fromKick True when this read replaces the upcoming slot.
    */
-  function run() {
+  function run(fromKick) {
     timer = 0;
     if (stopped || inFlight) return;
     if (typeof opts.isShown === "function" && !opts.isShown()) {
@@ -222,7 +235,7 @@ export function createBoardDeltaPoll(opts) {
       return;
     }
     inFlight = true;
-    kickRequested = false;
+    if (fromKick) pulled = true;
     Promise.resolve()
       .then(() => opts.poll())
       .then((result) => {
@@ -238,7 +251,7 @@ export function createBoardDeltaPoll(opts) {
           delay = Math.min(Math.max(delay, BOARD_DELTA_POLL_MS) * 2, 8000);
           return;
         }
-        delay = BOARD_DELTA_POLL_MS;
+        delay = 0;
         if (result && typeof opts.onDelta === "function") opts.onDelta(result);
       })
       .catch(() => {
@@ -247,9 +260,54 @@ export function createBoardDeltaPoll(opts) {
       .finally(() => {
         inFlight = false;
         if (stopped) return;
-        if (kickRequested) delay = 0;
+        if (delay > BOARD_DELTA_POLL_MS) {
+          schedule();
+          return;
+        }
+        const now = Date.now();
+        if (!fromKick) {
+          while (nextSlotAt <= now) nextSlotAt += BOARD_DELTA_POLL_MS;
+          pulled = false;
+        } else if (nextSlotAt > now) {
+          nextSlotAt += BOARD_DELTA_POLL_MS;
+        }
+        if (kickAfter && !pulled) {
+          kickAfter = false;
+          armKick();
+          return;
+        }
+        kickAfter = false;
+        delay = Math.max(0, nextSlotAt - Date.now());
         schedule();
       });
+  }
+
+  /**
+   * Pull the next grid slot forward once. Later taps in the gap share it.
+   */
+  function armKick() {
+    if (stopped || kickTimer || pulled) return;
+    if (inFlight) {
+      kickAfter = true;
+      return;
+    }
+    if (nextSlotAt - Date.now() <= BOARD_INK_DEBOUNCE_MS + BOARD_INK_JITTER_MS) {
+      return;
+    }
+    const wait =
+      BOARD_INK_DEBOUNCE_MS +
+      Math.floor(Math.random() * (BOARD_INK_JITTER_MS + 1));
+    if (timer) window.clearTimeout(timer);
+    timer = 0;
+    kickTimer = window.setTimeout(() => {
+      kickTimer = 0;
+      if (stopped) return;
+      if (inFlight) {
+        if (!pulled) kickAfter = true;
+        return;
+      }
+      run(true);
+    }, wait);
   }
 
   schedule();
@@ -261,20 +319,16 @@ export function createBoardDeltaPoll(opts) {
       stopped = true;
       if (timer) window.clearTimeout(timer);
       timer = 0;
+      if (kickTimer) window.clearTimeout(kickTimer);
+      kickTimer = 0;
     },
     /**
-     * Fetch deltas now. A request already in flight runs once more when it finishes.
+     * Pull the next board read forward once per poll gap.
+     * A burst, including the trailing tap, shares that one read.
      */
     kick() {
       if (stopped) return;
-      if (inFlight) {
-        kickRequested = true;
-        return;
-      }
-      if (timer) window.clearTimeout(timer);
-      timer = 0;
-      delay = 0;
-      run();
+      armKick();
     },
   };
 }

@@ -2163,7 +2163,6 @@ class LovesDB:
 
         store = SqliteBoardOps(self.conn, self._lock)
         store.ensure_schema()
-        store.on_committed = self._tap_board_ink
         self.boards = store
         from engagement_events import SqliteEngagementEvents
 
@@ -2181,7 +2180,6 @@ class LovesDB:
 
         store = PostgresBoardOps(presence)
         store.ensure_schema()
-        store.on_committed = self._tap_board_ink
         self.boards = store
         from engagement_events import PostgresEngagementEvents
 
@@ -29604,6 +29602,35 @@ class SchoolDB(LovesDB):
         """
         key, gen = self._live_board_base_run_key(session_id)
         return self.board_generation_key(key, gen)
+
+    def _install_sqlite_board_ops(self) -> None:
+        """Install sqlite board ops, then the group ink tap.
+
+        ``LovesDB`` opens the tables for content-store tests and must not
+        look up ``_tap_board_ink``. Only this facade has a live session.
+        """
+        super()._install_sqlite_board_ops()
+        self._wire_board_ink_tap()
+
+    def _install_postgres_board_ops(self, presence: Any) -> None:
+        """Install Postgres board ops, then the group ink tap.
+
+        Args:
+            presence: Attached ``LivePresenceStore``.
+        """
+        super()._install_postgres_board_ops(presence)
+        self._wire_board_ink_tap()
+
+    def _wire_board_ink_tap(self) -> None:
+        """Point the board store at this school's ink tap.
+
+        Replacing the store (sqlite, then Postgres) wires the new one.
+        A bare ``LovesDB`` leaves ``on_committed`` unset.
+        """
+        boards = getattr(self, "boards", None)
+        if boards is None:
+            return
+        boards.on_committed = self._tap_board_ink
 
     def _active_session_id_for_board_run(self, run_key: str) -> int | None:
         """Active session that owns this board run key.
