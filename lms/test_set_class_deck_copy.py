@@ -35,6 +35,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 LMS_DIR = Path(__file__).resolve().parent
@@ -445,6 +446,81 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
         self.assertIn("Edited on the copy", self._deck(self.a1, "M2", "C3")[0][1])
         self.assertEqual(self._deck(self.a2, "M2", "C3"), source_deck)
         self.assertEqual(_deck_table_snapshot(self.school, self.a2), source_tables)
+
+    def test_concurrent_copies_one_success_and_clean_409s(self) -> None:
+        """Eight copies at once into one slot: one 200, the rest 409, never 500.
+
+        Separate app instances are separate SQLite connections, the way
+        gunicorn workers race. The overwrite check and the write share one
+        ``BEGIN IMMEDIATE`` (MCK-150).
+        """
+
+        root = Path(self.tmp.name)
+        cookie = self.client.get_cookie("session")
+        self.assertIsNotNone(cookie)
+        workers = [
+            create_app(db_path=root / "lloves.sqlite", data_dir=root, testing=True)
+            for _ in range(8)
+        ]
+        url = f"/api/staff/class/{self.a1}/live-lessons/M2/C1/deck-seed"
+        body = {
+            "mode": "course",
+            "source_module": "M2",
+            "source_slot": "C1",
+            "source_class_id": self.a2,
+        }
+        source = self._deck(self.a2, "M2", "C1")
+        self.assertTrue(source)
+
+        def once(index: int):
+            """POST one copy from one worker connection."""
+
+            client = workers[index].test_client()
+            client.set_cookie("session", cookie.value, domain=cookie.domain)
+            rv = client.post(url, json=body)
+            payload = rv.get_json(silent=True) or {}
+            return rv.status_code, payload.get("needs_confirm"), payload.get("error")
+
+        try:
+            # A slot that already has a deck: every copy is a clean 409.
+            occupied = _deck_table_snapshot(self.school, self.a1)
+            self.assertTrue(self.school.class_has_current_live_deck(self.a1, "M2", "C3"))
+            c3_url = f"/api/staff/class/{self.a1}/live-lessons/M2/C3/deck-seed"
+            c3_body = {
+                "mode": "course",
+                "source_module": "M2",
+                "source_slot": "C3",
+                "source_class_id": self.a2,
+            }
+
+            def once_c3(index: int):
+                """POST a copy into the occupied M2 C3 slot."""
+
+                client = workers[index].test_client()
+                client.set_cookie("session", cookie.value, domain=cookie.domain)
+                rv = client.post(c3_url, json=c3_body)
+                return rv.status_code
+
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                held_codes = list(pool.map(once_c3, range(8)))
+            self.assertEqual(held_codes, [409] * 8, held_codes)
+            self.assertEqual(_deck_table_snapshot(self.school, self.a1), occupied)
+
+            for _round in range(8):
+                self.school.apply_class_deck_seed(self.a1, "M2", "C1", mode="blank")
+                self.assertFalse(
+                    self.school.class_has_current_live_deck(self.a1, "M2", "C1")
+                )
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    raced = list(pool.map(once, range(8)))
+                codes = sorted(code for code, _confirm, _err in raced)
+                self.assertEqual(codes, [200] + [409] * 7, raced)
+                confirms = [flag for code, flag, _err in raced if code == 409]
+                self.assertTrue(all(confirms), raced)
+                self.assertEqual(self._deck(self.a1, "M2", "C1"), source)
+        finally:
+            for app in workers:
+                app.config["SCHOOL_DB"].close()
 
 
 HELPER_CASES = r"""
