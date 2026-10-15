@@ -920,8 +920,10 @@ function studentPresenceQueue() {
         typeof bindStudentCanvas.applyDelta === "function"
       ) {
         bindStudentCanvas.applyDelta({ ops_since: teamOps, teacher_ops: teacherOps });
+        applyStudentBoardFormative(data.formative);
         return;
       }
+      applyStudentBoardFormative(data.formative);
       const view = data?.canvas_view || data?.canvas_sync;
       if (view && typeof bindStudentCanvas.importRemote === "function") {
         bindStudentCanvas.importRemote(view, studentPresenceCollab);
@@ -1256,6 +1258,7 @@ function ensureStudentBoardPoll() {
         if (typeof bindStudentCanvas.applyDelta === "function") {
           bindStudentCanvas.applyDelta(data);
         }
+        applyStudentBoardFormative(data.formative);
         return;
       }
       const teamOps = opsAboveCursor(data.ops || data.ops_since, studentBoardSince);
@@ -1269,6 +1272,7 @@ function ensureStudentBoardPoll() {
           teacher_ops: teacherOps,
         });
       }
+      applyStudentBoardFormative(data.formative);
     },
   });
 }

@@ -2107,6 +2107,7 @@ def prepare_mck218_group_whiteboard(path: Path) -> tuple[int, int, str]:
         pine = school.game.find_student_by_codename(class_id, "Pine")
     assert cedar is not None and pine is not None
     school.game.begin_game(class_id)
+    school.game.clear_team_lock(class_id)
     for row in (maple, cedar, pine):
         school.join_live_class_session(
             session_id,
@@ -2203,7 +2204,8 @@ def shoot_mck218(base: str, out_dir: Path, path: Path, state_path: Path) -> list
         student_ctx = browser.new_context(viewport={"width": 390, "height": 900})
         student = student_ctx.new_page()
         student.goto(f"{origin}/student/s/{visit_token}", wait_until="domcontentloaded")
-        for _ in range(8):
+        for _ in range(12):
+            _mck215_dismiss_catchup_pin(student)
             if student.locator("#canvas-pane:not([hidden])").count():
                 break
             if "/student/mood" in student.url:
@@ -2214,8 +2216,18 @@ def shoot_mck218(base: str, out_dir: Path, path: Path, state_path: Path) -> list
                     pick.click()
                 student.locator('button[type="submit"]').click()
             student.wait_for_timeout(1000)
+        _mck215_dismiss_catchup_pin(student)
         student.locator("#canvas-pane:not([hidden])").wait_for(state="visible", timeout=90000)
         student.locator("#student-canvas").wait_for(state="visible", timeout=30000)
+        student.evaluate(
+            """() => {
+              const canvas = document.getElementById('student-canvas');
+              const stage = canvas && canvas.closest('.live-canvas-stage');
+              if (canvas && stage) {
+                window.dispatchEvent(new Event('resize'));
+              }
+            }"""
+        )
         student.wait_for_timeout(1500)
         student_path = out_dir / "mck218-student-390.png"
         student.screenshot(path=str(student_path), full_page=True)

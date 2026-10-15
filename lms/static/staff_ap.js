@@ -12642,6 +12642,7 @@ function ensureTeacherBoardPoll() {
       if (fresh.length && teacherBoard && typeof teacherBoard.applyDelta === "function") {
         teacherBoard.applyDelta({ ops_since: fresh });
       }
+      applyTeacherBoardFormative(data.formative);
     },
   });
 }

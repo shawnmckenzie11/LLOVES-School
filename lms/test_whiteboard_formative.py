@@ -199,6 +199,79 @@ class FormativeIntegrationTests(unittest.TestCase):
         self.assertEqual(after[0]["color"], maple_color)
         self.assertEqual(after[0]["slot"], 0)
 
+    def test_member_slot_stable_when_middle_joiner_leaves(self) -> None:
+        """Middle join order keeps later slot colours when they leave."""
+        game_id = int(self.school.game.game_state(self.class_id)["game"]["id"])
+        self.school.conn.execute(
+            """
+            UPDATE game_memberships
+            SET team_id = ?
+            WHERE game_id = ? AND student_id = ?
+            """,
+            (self.team_id, game_id, self.pine_id),
+        )
+        self.school.conn.commit()
+        self.school.game._team_index_cache.pop(int(self.class_id), None)
+        before = formative_board_members(self.school, self.session_id, self.team_id)
+        self.assertEqual(len(before), 3)
+        pine_color = next(m["color"] for m in before if m["id"] == str(self.pine_id))
+        pine_slot = next(m["slot"] for m in before if m["id"] == str(self.pine_id))
+        self.assertEqual(pine_slot, 2)
+        self.school.conn.execute(
+            """
+            UPDATE live_session_attendees
+            SET left_at = '2026-10-15T12:05:00'
+            WHERE live_session_id = ? AND student_id = ?
+            """,
+            (self.session_id, self.cedar_id),
+        )
+        self.school.conn.commit()
+        after = formative_board_members(self.school, self.session_id, self.team_id)
+        self.assertEqual(len(after), 2)
+        pine_after = next(m for m in after if m["id"] == str(self.pine_id))
+        self.assertEqual(pine_after["slot"], 2)
+        self.assertEqual(pine_after["color"], pine_color)
+
+    def test_formative_meta_on_incremental_board_poll(self) -> None:
+        """Board polls attach formative meta even when no snapshot is sent."""
+        access = self.school.student_board_access(self.session_id, self.maple_id)
+        board_key = str(access["collab_key"])
+        first = self.school.read_board(
+            self.session_id,
+            board_key,
+            0,
+            student_id=self.maple_id,
+            teacher_since=0,
+        )
+        self.assertIn("formative", first)
+        members = (first.get("formative") or {}).get("members") or []
+        self.assertGreaterEqual(len(members), 2)
+        seq = int(first.get("board_seq") or 0)
+        inc = self.school.read_board(
+            self.session_id,
+            board_key,
+            seq,
+            student_id=self.maple_id,
+            teacher_since=int(first.get("teacher_board_seq") or 0),
+        )
+        self.assertFalse(inc.get("snapshot"))
+        self.assertIn("formative", inc)
+        inc_ids = {str(m.get("id")) for m in (inc["formative"].get("members") or [])}
+        self.assertIn(str(self.maple_id), inc_ids)
+        self.assertIn(str(self.cedar_id), inc_ids)
+        self.school.mark_live_session_attendee_left(
+            self.session_id, student_id=self.cedar_id
+        )
+        inc2 = self.school.read_board(
+            self.session_id,
+            board_key,
+            seq,
+            student_id=self.maple_id,
+            teacher_since=int(first.get("teacher_board_seq") or 0),
+        )
+        left_ids = {str(m.get("id")) for m in (inc2["formative"].get("members") or [])}
+        self.assertNotIn(str(self.cedar_id), left_ids)
+
     def test_student_board_visit_gate_unavailable_is_503(self) -> None:
         """Board reads return 503 when the visit-token presence gate is down."""
 

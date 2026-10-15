@@ -29058,6 +29058,45 @@ class SchoolDB(LovesDB):
             )
         return out
 
+    def _formative_membership_sig(
+        self,
+        session_id: int,
+        *,
+        board_key: str,
+        student_id: int | None,
+        as_teacher: bool,
+    ) -> str:
+        """Fingerprint team roster rows for formative meta caching.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            board_key: Board key being read.
+            student_id: Viewer roster id when a student.
+            as_teacher: Staff viewer.
+
+        Returns:
+            Stable string that changes when join order or ``left_at`` changes.
+        """
+        team_id: int | None = None
+        key = str(board_key or "")
+        if key.startswith("team:"):
+            try:
+                team_id = int(key.split(":", 1)[1])
+            except (TypeError, ValueError):
+                team_id = None
+        elif student_id not in (None, ""):
+            class_row = self.get_live_session(int(session_id))
+            if class_row:
+                team_id = self.student_team_id_for_class(
+                    int(class_row["class_id"]), int(student_id)
+                )
+        if team_id is None:
+            return ""
+        rows = self.list_live_session_team_members(int(session_id), team_id)
+        return "|".join(
+            f"{row.get('student_id')}:{row.get('left_at') or ''}" for row in rows
+        )
+
     def _cached_formative_board_meta(
         self,
         session_id: int,
@@ -29073,12 +29112,19 @@ class SchoolDB(LovesDB):
             self._formative_board_meta_cache = cache
         teacher = self.live_session_teacher_state_payload(int(session_id))
         state_seq = int(teacher.get("state_seq") or 0)
+        membership_sig = self._formative_membership_sig(
+            int(session_id),
+            board_key=str(board_key),
+            student_id=student_id,
+            as_teacher=as_teacher,
+        )
         cache_key = (
             int(session_id),
             str(board_key),
             int(student_id) if student_id not in (None, "") else None,
             bool(as_teacher),
             state_seq,
+            membership_sig,
         )
         if cache_key in cache:
             return cache[cache_key]
