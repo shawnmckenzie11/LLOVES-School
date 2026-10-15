@@ -128,6 +128,7 @@ from live_news_wire import (  # noqa: E402
     emit_session_news,
     events_for_teacher_patch,
     flag_work_event,
+    install_stream_shutdown_hook,
     live_news_response,
     prompt_event,
     prompt_response_count,
@@ -1426,6 +1427,9 @@ def create_app(
         return _poll_shed_response()
 
     maybe_arm_worker_warmup(testing=testing)
+    # After gunicorn init_signals. Ends 25 s LiveNewsWire holds on SIGTERM
+    # so the deploy drain can release the volume. No-op outside gunicorn.
+    install_stream_shutdown_hook()
     from cli import register_cli
 
     register_cli(app)
