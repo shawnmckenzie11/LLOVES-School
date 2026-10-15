@@ -74,3 +74,15 @@ if (moreBtn && root) {
   moreBtn.dataset.offline = root.dataset.offline || "No connection. Retry.";
   moreBtn.addEventListener("click", loadMore);
 }
+
+// MCK-42: "Not you?" signs this student out. Clear the device's unsent-answer
+// outbox now too, in case the landing page resumes elsewhere.
+document.querySelectorAll(".cl-not-you").forEach((link) => {
+  link.addEventListener("click", () => {
+    try {
+      window.localStorage.removeItem("lloves-unsent-answers");
+    } catch (_err) {
+      /* storage blocked */
+    }
+  });
+});

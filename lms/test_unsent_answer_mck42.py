@@ -203,6 +203,16 @@ class UnsentAnswerServerTests(backend.LiveBackendStateTests):
         self.assertEqual(len(self._rows(prompt_id)), 1)
         self.assertEqual(json.loads(self._rows(prompt_id)[0]["response_json"])["choice"], "A")
 
+    def test_sign_out_redirect_tells_the_page_to_clear_the_outbox(self) -> None:
+        """Catch-up sign-out lands with signed_out=1; landing loads the clearer."""
+        client = self.app.test_client()
+        rv = client.get("/student/catchup/sign-out")
+        self.assertEqual(rv.status_code, 302)
+        self.assertIn("signed_out=1", rv.headers.get("Location", ""))
+        landing = client.get("/?signed_out=1")
+        self.assertEqual(landing.status_code, 200)
+        self.assertIn("/static/unsent_signout.js", landing.get_data(as_text=True))
+
 
 class UnsentAnswerClientTests(unittest.TestCase):
     """The browser keeps one answer per student and does not resend a closed one."""
@@ -252,8 +262,9 @@ const store = memory();
 const maple = { studentId: 4, visitToken: "visit-maple" };
 const aspen = { studentId: 9, visitToken: "visit-aspen" };
 if (unsentStudentKey(maple) !== "s:4") throw new Error("roster id should win");
-if (unsentStudentKey({ visitToken: "visit-maple" }) !== "v:visit-maple") {
-  throw new Error("visit token is the guest key");
+const guestKey = unsentStudentKey({ visitToken: "visit-maple" });
+if (!guestKey.startsWith("v:h") || guestKey.includes("visit-maple")) {
+  throw new Error("guest key is a hash of the visit token");
 }
 rememberUnsentAnswer(store, {
   studentKey: unsentStudentKey({ visitToken: "visit-maple" }),
@@ -352,6 +363,100 @@ console.log("ok");
         )
         self.assertEqual(done.returncode, 0, done.stderr or done.stdout)
         self.assertIn("ok", done.stdout)
+
+    def _node(self, script: str) -> None:
+        """Run an ES module snippet from lms/ and expect it to print ok."""
+        done = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=LMS_DIR,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr or done.stdout)
+        self.assertIn("ok", done.stdout)
+
+    def test_ttl_and_session_prune(self) -> None:
+        """Old, other-session and ended-session rows (closed notes too) are dropped."""
+        self._node(r"""
+import { UNSENT_ANSWER_TTL_MS, listUnsentAnswers, markUnsentClosed,
+  pruneUnsentAnswers, rememberUnsentAnswer } from "./static/unsent_answer.js";
+const data = new Map();
+const store = { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, String(v)),
+  removeItem: (k) => data.delete(k) };
+const me = { studentId: 4, visitToken: "visit-maple" };
+const now = 10_000_000_000;
+if (UNSENT_ANSWER_TTL_MS > 2 * 60 * 60 * 1000) throw new Error("ttl must be short");
+rememberUnsentAnswer(store, { ...me, promptId: 1, sessionId: 8, savedAt: now - UNSENT_ANSWER_TTL_MS - 1 });
+markUnsentClosed(store, { ...me, promptId: 2, sessionId: 8, savedAt: now - UNSENT_ANSWER_TTL_MS - 5 });
+rememberUnsentAnswer(store, { ...me, promptId: 3, sessionId: 8, savedAt: now - 1000 });
+rememberUnsentAnswer(store, { ...me, promptId: 4, sessionId: 7, savedAt: now - 1000 });
+const removed = pruneUnsentAnswers(store, { now, liveSessionId: 8 });
+const left = listUnsentAnswers(store, me, { includeHeld: true }).map((r) => r.promptId);
+if (removed !== 3 || left.join() !== "3") throw new Error("prune kept " + left.join());
+pruneUnsentAnswers(store, { now, liveSessionId: 8, sessionEnded: true });
+if (listUnsentAnswers(store, me, { includeHeld: true }).length) throw new Error("ended session keeps rows");
+rememberUnsentAnswer(store, { ...me, promptId: 5, sessionId: 8, savedAt: now });
+if (pruneUnsentAnswers(store, { now: now + 1000 }) !== 0) throw new Error("fresh row pruned on load");
+console.log("ok");
+""")
+
+    def test_clear_on_sign_out(self) -> None:
+        """clearUnsentAnswers empties storage; sign-out pages clear the key."""
+        self._node(r"""
+import { clearUnsentAnswers, listUnsentAnswers, rememberUnsentAnswer,
+  UNSENT_ANSWER_STORE_KEY } from "./static/unsent_answer.js";
+const data = new Map();
+const store = { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, String(v)),
+  removeItem: (k) => data.delete(k) };
+const refusing = { getItem: () => null, setItem: () => { throw new Error("full"); } };
+rememberUnsentAnswer(store, { studentId: 4, promptId: 1, sessionId: 8 });
+rememberUnsentAnswer(refusing, { studentId: 4, promptId: 2, sessionId: 8 });
+clearUnsentAnswers(store);
+if (data.has(UNSENT_ANSWER_STORE_KEY)) throw new Error("key survives sign-out");
+if (listUnsentAnswers(store, { studentId: 4 }, { includeHeld: true }).length) {
+  throw new Error("memory fallback survives sign-out");
+}
+console.log("ok");
+""")
+        signout = (LMS_DIR / "static" / "unsent_signout.js").read_text(encoding="utf-8")
+        self.assertIn('"lloves-unsent-answers"', signout)
+        self.assertIn('params.get("signed_out") !== "1"', signout)
+        landing = (LMS_DIR / "static" / "catchup_landing.js").read_text(encoding="utf-8")
+        self.assertIn(".cl-not-you", landing)
+        self.assertIn('removeItem("lloves-unsent-answers")', landing)
+        portal = PORTAL_JS.read_text(encoding="utf-8")
+        self.assertIn("pruneUnsentOutbox(null);", portal)
+        flush = portal.split("async function flushUnsentAnswersNow()", 1)[1][:1800]
+        self.assertGreaterEqual(flush.count("pruneUnsentOutbox(lastStudentPayload)"), 2)
+        self.assertIn("noteUnsentOwner(lastStudentPayload)", flush)
+
+    def test_visit_token_is_not_persisted(self) -> None:
+        """Storage holds a hashed visit key only; guests still match their own rows."""
+        self._node(r"""
+import { listUnsentAnswers, pruneUnsentAnswers, rememberUnsentAnswer, unsentStudentKey,
+  UNSENT_ANSWER_STORE_KEY } from "./static/unsent_answer.js";
+const data = new Map();
+const store = { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, String(v)),
+  removeItem: (k) => data.delete(k) };
+const token = "visit-secret-abc123";
+rememberUnsentAnswer(store, { visitToken: token, studentKey: "v:" + token, promptId: 9, sessionId: 8 });
+const raw = data.get(UNSENT_ANSWER_STORE_KEY) || "";
+if (raw.includes(token)) throw new Error("raw visit token persisted: " + raw);
+if (unsentStudentKey({ visitToken: token }).includes(token)) throw new Error("key leaks token");
+if (listUnsentAnswers(store, { visitToken: token }).length !== 1) throw new Error("guest lost own row");
+if (listUnsentAnswers(store, { visitToken: "visit-other" }).length !== 0) throw new Error("cross guest");
+data.set(UNSENT_ANSWER_STORE_KEY, JSON.stringify({ old: { studentKey: "v:x", visitToken: "x",
+  promptId: 1, savedAt: Date.now() } }));
+pruneUnsentAnswers(store);
+if ((data.get(UNSENT_ANSWER_STORE_KEY) || "").includes('"x"')) throw new Error("legacy token row kept");
+console.log("ok");
+""")
+        portal = PORTAL_JS.read_text(encoding="utf-8")
+        post = portal.split("async function postOneUnsent(row)", 1)[1][:600]
+        self.assertIn("visitFetchInit(", post)
+        self.assertNotIn("row.visitToken", portal)
 
 
 def load_tests(

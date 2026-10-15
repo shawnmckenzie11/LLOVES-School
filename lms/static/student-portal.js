@@ -82,9 +82,11 @@ import {
 import {
   UNSENT_ANSWER_COPY,
   classifyUnsentFailure,
+  clearUnsentAnswers,
   forgetUnsentAnswer,
   listUnsentAnswers,
   markUnsentClosed,
+  pruneUnsentAnswers,
   rememberUnsentAnswer,
   unsentResendDecision,
   unsentStudentKey,
@@ -216,6 +218,38 @@ function unsentStore() {
     return null;
   }
 }
+
+/**
+ * Drop stale outbox rows (TTL, other or ended session). Safe to call often.
+ * @param {any} [payload] Latest /state body; null on load prunes by TTL only.
+ */
+function pruneUnsentOutbox(payload) {
+  try {
+    pruneUnsentAnswers(unsentStore(), {
+      liveSessionId: payload?.live_session_id,
+      sessionEnded: Boolean(payload && (payload.status === "ended" || payload.celebrate)),
+    });
+  } catch (err) {
+    window.llovesSentryReport?.(err, "unsent-answer-prune");
+  }
+}
+
+/** Roster id the outbox last saw. A different student on this tab clears it. */
+let unsentOwnerStudentId = 0;
+
+/**
+ * Clear the outbox when this tab now belongs to a different student.
+ * @param {any} payload
+ */
+function noteUnsentOwner(payload) {
+  const id = Number(payload?.me?.id) || 0;
+  if (!id) return;
+  if (unsentOwnerStudentId && unsentOwnerStudentId !== id) clearUnsentAnswers(unsentStore());
+  unsentOwnerStudentId = id;
+}
+
+// On load: TTL and legacy raw-token rows go before anything reads them.
+pruneUnsentOutbox(null);
 
 /**
  * Person key for the outbox: roster id, else this tab's visit token.
@@ -412,6 +446,8 @@ async function flushUnsentAnswers() {
 async function flushUnsentAnswersNow() {
   if (typeof navigator !== "undefined" && navigator.onLine === false) return;
   if (studentOutageStartedAt) return;
+  noteUnsentOwner(lastStudentPayload);
+  pruneUnsentOutbox(lastStudentPayload);
   const identity = currentUnsentIdentity();
   const rows = listUnsentAnswers(unsentStore(), identity);
   let changed = false;
@@ -430,6 +466,7 @@ async function flushUnsentAnswersNow() {
     else forgetUnsentAnswer(unsentStore(), row);
     changed = true;
   }
+  pruneUnsentOutbox(lastStudentPayload);
   if (!changed || !lastStudentPayload) return;
   try {
     hydrateUnsentDrafts();

@@ -12,6 +12,9 @@ export const UNSENT_ANSWER_COPY = "Saved, will send when you're back online";
 /** localStorage key for the outbox map. */
 export const UNSENT_ANSWER_STORE_KEY = "lloves-unsent-answers";
 
+/** Unsent answers older than this are dropped (shared classroom devices). */
+export const UNSENT_ANSWER_TTL_MS = 2 * 60 * 60 * 1000;
+
 /** Same-tab fallback when localStorage refuses the write. */
 const memoryFallback = new Map();
 
@@ -23,9 +26,28 @@ const memoryFallback = new Map();
 export function unsentStudentKey(identity = {}) {
   const studentId = Number(identity.studentId);
   if (Number.isFinite(studentId) && studentId > 0) return `s:${studentId}`;
-  const visitToken = String(identity.visitToken || "").trim();
-  if (visitToken) return `v:${visitToken}`;
+  const visitKey = unsentVisitKey(identity.visitToken);
+  if (visitKey) return `v:${visitKey}`;
   return "";
+}
+
+/**
+ * One-way tag for a visit token so the raw token is never written to storage.
+ * FNV-1a 64-bit (two 32-bit lanes); enough to tell visits apart on one device.
+ * @param {unknown} visitToken
+ * @returns {string} Empty when there is no token.
+ */
+export function unsentVisitKey(visitToken) {
+  const text = String(visitToken || "").trim();
+  if (!text) return "";
+  let a = 0x811c9dc5;
+  let b = 0x01000193 ^ text.length;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193) >>> 0;
+    b = Math.imul(b ^ c ^ (a >>> 7), 0x5bd1e995) >>> 0;
+  }
+  return `h${a.toString(16).padStart(8, "0")}${b.toString(16).padStart(8, "0")}`;
 }
 
 /**
@@ -85,8 +107,8 @@ function sameUnsentStudent(left, right) {
   const leftId = Number(left?.studentId) || 0;
   const rightId = Number(right?.studentId) || 0;
   if (leftId && rightId && leftId === rightId) return true;
-  const leftVisit = String(left?.visitToken || "").trim();
-  const rightVisit = String(right?.visitToken || "").trim();
+  const leftVisit = String(left?.visitKey || "") || unsentVisitKey(left?.visitToken);
+  const rightVisit = String(right?.visitKey || "") || unsentVisitKey(right?.visitToken);
   if (leftVisit && rightVisit && leftVisit === rightVisit) return true;
   const leftKey = String(left?.studentKey || "");
   const rightKey = String(right?.studentKey || "");
@@ -100,7 +122,8 @@ function sameUnsentStudent(left, right) {
  * @returns {any|null} The stored record, or null when it cannot be keyed.
  */
 export function rememberUnsentAnswer(store, record) {
-  const studentKey = String(record?.studentKey || "");
+  const studentKey =
+    unsentStudentKey(record || {}) || String(record?.studentKey || "");
   const promptId = Number(record?.promptId) || 0;
   if (!studentKey || !promptId) return null;
   const response =
@@ -108,7 +131,8 @@ export function rememberUnsentAnswer(store, record) {
   const stored = {
     studentKey,
     studentId: Number(record.studentId) || 0,
-    visitToken: String(record.visitToken || "").trim(),
+    // Never the raw per-visit token: resend re-reads it from the page.
+    visitKey: String(record.visitKey || "") || unsentVisitKey(record.visitToken),
     promptId,
     itemId: Number(record.itemId) || 0,
     sessionId: Number(record.sessionId) || 0,
@@ -165,6 +189,55 @@ export function markUnsentClosed(store, record) {
 }
 
 /**
+ * Drop stale rows: older than the TTL, from another live session, or from an
+ * older build that stored the raw visit token. Run on load and after a flush.
+ * @param {Storage|null|undefined} store
+ * @param {{now?: number, ttlMs?: number, liveSessionId?: unknown, sessionEnded?: boolean}} [opts]
+ * @returns {number} Rows removed.
+ */
+export function pruneUnsentAnswers(store, opts = {}) {
+  const now = Number(opts.now) || Date.now();
+  const ttlMs = Number(opts.ttlMs) || UNSENT_ANSWER_TTL_MS;
+  const liveSession = Number(opts.liveSessionId) || 0;
+  const all = readUnsentStore(store);
+  let removed = 0;
+  Object.entries(all).forEach(([key, row]) => {
+    const savedAt = Number(row?.savedAt) || 0;
+    const sessionId = Number(row?.sessionId) || 0;
+    const stale =
+      !row ||
+      typeof row !== "object" ||
+      !savedAt ||
+      savedAt > now + 60 * 1000 ||
+      now - savedAt > ttlMs ||
+      Object.prototype.hasOwnProperty.call(row, "visitToken") ||
+      (liveSession && sessionId && sessionId !== liveSession) ||
+      (opts.sessionEnded && (!liveSession || sessionId === liveSession || !sessionId));
+    if (!stale) return;
+    delete all[key];
+    memoryFallback.delete(key);
+    removed += 1;
+  });
+  if (removed) writeUnsentStore(store, all);
+  return removed;
+}
+
+/**
+ * Remove every unsent answer on this device (sign-out / student switch).
+ * @param {Storage|null|undefined} store
+ */
+export function clearUnsentAnswers(store) {
+  memoryFallback.clear();
+  if (!store) return;
+  try {
+    if (typeof store.removeItem === "function") store.removeItem(UNSENT_ANSWER_STORE_KEY);
+    else writeUnsentStore(store, {});
+  } catch (_err) {
+    /* storage blocked: nothing persisted to clear */
+  }
+}
+
+/**
  * Rows for this person. ``includeHeld`` keeps answers we will not send.
  * @param {Storage|null|undefined} store
  * @param {{studentId?: unknown, visitToken?: unknown}} identity
@@ -175,9 +248,9 @@ export function listUnsentAnswers(store, identity = {}, opts = {}) {
   const probe = {
     studentKey: unsentStudentKey(identity),
     studentId: Number(identity.studentId) || 0,
-    visitToken: String(identity.visitToken || "").trim(),
+    visitKey: unsentVisitKey(identity.visitToken),
   };
-  if (!probe.studentKey && !probe.studentId && !probe.visitToken) return [];
+  if (!probe.studentKey && !probe.studentId && !probe.visitKey) return [];
   return Object.values(readUnsentStore(store)).filter((row) => {
     if (!opts.includeHeld && row?.doNotSend) return false;
     return sameUnsentStudent(row, probe);
