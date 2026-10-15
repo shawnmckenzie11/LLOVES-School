@@ -31265,7 +31265,7 @@ class SchoolDB(LovesDB):
                 (code,),
             ).fetchone()
         if row is not None:
-            return self.resolve_catchup_link(str(row["token"])) or dict(row)
+            return self.resolve_catchup_link(str(row["token"]))
         decoded = decode_portal_join_code(code)
         if decoded is None:
             return None
@@ -31302,7 +31302,7 @@ class SchoolDB(LovesDB):
                 link["portal_join_code"] = portal
         if str(link.get("portal_join_code") or "").upper() != code:
             return None
-        return self.resolve_catchup_link(str(link["token"])) or link
+        return self.resolve_catchup_link(str(link["token"]))
 
     def resolve_catchup_link(self, token: str) -> dict[str, Any] | None:
         """Resolve a catch-up token to the latest real run for that lesson slot."""
@@ -31310,24 +31310,25 @@ class SchoolDB(LovesDB):
         if link is None:
             return None
         cid = int(link["class_id"])
-        mod = str(link.get("live_module") or "")
-        slot = str(link.get("live_slot") or "")
-        with self._lock:
-            row = self.conn.execute(
-                """
-                SELECT c.* FROM catchup_links c
-                INNER JOIN participation_runs r
-                    ON r.class_id = c.class_id AND r.run_key = c.run_key
-                WHERE c.class_id = ? AND c.live_module = ? AND c.live_slot = ?
-                  AND r.is_real = 1 AND r.discarded = 0
-                ORDER BY c.updated_at DESC, c.id DESC
-                LIMIT 1
-                """,
-                (cid, mod, slot),
-            ).fetchone()
-        if row is None:
-            return link
-        return dict(row)
+        mod = str(link.get("live_module") or "").upper()
+        slot = str(link.get("live_slot") or "").upper()
+        slot_links = [
+            row
+            for row in self.list_catchup_links(cid)
+            if str(row.get("live_module") or "").upper() == mod
+            and str(row.get("live_slot") or "").upper() == slot
+        ]
+        if not slot_links:
+            return None
+        slot_links.sort(
+            key=lambda row: (
+                self.ended_at_for_participation_run(cid, str(row.get("run_key") or "")),
+                str(row.get("created_at") or ""),
+            ),
+            reverse=True,
+        )
+        best_token = str(slot_links[0]["token"])
+        return self.get_catchup_link(best_token) or slot_links[0]
 
     TEST_STUDENT_CODENAME = "Test Student"
 
@@ -32560,9 +32561,10 @@ class SchoolDB(LovesDB):
             run_key = str(item.get("run_key") or "").strip()
             if not run_key:
                 continue
-            if str(item.get("participation_run_key") or "").strip():
-                if not effective_run_is_real(self, cid, run_key):
-                    continue
+            if not str(item.get("participation_run_key") or "").strip():
+                continue
+            if not effective_run_is_real(self, cid, run_key):
+                continue
             item.pop("participation_run_key", None)
             out.append(item)
         return out
