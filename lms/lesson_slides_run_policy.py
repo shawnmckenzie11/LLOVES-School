@@ -13,7 +13,10 @@ from live_class_run import (
     parse_ended_at,
     schedule_from_row,
 )
-from participation_real_students import exclude_test_student_ids, run_has_real_student_answer
+from participation_real_students import (
+    exclude_participation_answer_student_ids,
+    run_has_real_student_answer,
+)
 
 
 class _RunPolicySchool(Protocol):
@@ -62,10 +65,15 @@ def participation_run_row(
     return dict(row) if row is not None else None
 
 
-def run_start_instant_for_ranking(
+def run_start_for_schedule_window(
     school: _RunPolicySchool, class_id: int, run_key: str
 ) -> datetime | None:
-    """Best-effort run start for real/test window checks (not ranking)."""
+    """Best-effort run start for scheduled real/test window checks.
+
+    Prefers ``live_class_sessions.started_at``. When that is missing, falls back
+    to the earliest ``participation_items.offered_at``, which can misclassify a
+    run whose first question was offered late relative to the real class start.
+    """
     cid = int(class_id)
     key = str(run_key or "").strip()
     if not key:
@@ -169,7 +177,7 @@ def effective_run_is_real(
             pass  # unset or test — recompute below
         elif stored_real == auto_real:
             return bool(stored_real)
-    start_dt = run_start_instant_for_ranking(school, class_id, run_key)
+    start_dt = run_start_for_schedule_window(school, class_id, run_key)
     if start_dt is None:
         instant = end_instant or run_end_instant_for_ranking(school, class_id, run_key)
         start_dt = instant.value if instant is not None else None
@@ -194,9 +202,9 @@ def run_qualifies_for_lesson_slides_latest(
         return None, False
     if not effective_run_is_real(school, class_id, run_key, end_instant=instant):
         return instant, False
-    test_ids = exclude_test_student_ids(class_id, school)
+    excluded = exclude_participation_answer_student_ids(class_id, school)
     if not run_has_real_student_answer(
-        school, class_id, run_key, test_student_ids=test_ids
+        school, class_id, run_key, excluded_student_ids=excluded
     ):
         return instant, False
     return instant, True

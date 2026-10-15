@@ -26,10 +26,10 @@ class LessonSlidesBackfillTests(RealVsTestFlowTests):
 
     def _ensure_real_student_answer(self, run_key: str, module: str, slot: str, answered_at: str) -> None:
         """Backfill requires at least one non–Test Student participation answer."""
-        from participation_real_students import exclude_test_student_ids
+        from participation_real_students import exclude_participation_answer_student_ids
 
         c = self.school.conn
-        test_ids = exclude_test_student_ids(int(self.class_id), self.school)
+        test_ids = exclude_participation_answer_student_ids(int(self.class_id), self.school)
         roster = list(getattr(self, "students", None) or [])
         if not roster:
             roster = [

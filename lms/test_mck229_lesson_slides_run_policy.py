@@ -221,6 +221,7 @@ class RealStudentAnswerGateTests(LessonSlidesBackfillTests):
         self.assertEqual(report["inserted"] + report["updated"], 0)
 
 
+
 class CatchupCoalesceTests(LessonSlidesBackfillTests):
     """``list_catchup_links`` treats missing ``is_real`` as false, then recomputes."""
 
