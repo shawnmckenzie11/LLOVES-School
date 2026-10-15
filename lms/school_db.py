@@ -1920,6 +1920,15 @@ class DeckReplaceNotConfirmed(ValueError):
     """
 
 
+class DeckCopyLiveConflict(ValueError):
+    """MCK-151: a deck copy would swap the deck of a class live on this slot.
+
+    Set Class answers 409 with a teacher-facing message. Nothing is written.
+    A session still on the join stage (Set Class, before a question is up)
+    may seed the deck.
+    """
+
+
 def section_code(ontario_code: str, section_index: Any = 1) -> str:
     """Return the teacher-facing code for one section of a course.
 
@@ -10163,6 +10172,56 @@ class SchoolDB(LovesDB):
             raise ValueError("That section is archived. Choose a current section.")
         raise ValueError("Choose a current section of this course.")
 
+    def _refuse_deck_copy_into_live_slot(
+        self, class_id: int, module: str, slot: str
+    ) -> None:
+        """Refuse a deck copy into the slot a class is live on (MCK-151).
+
+        Copying over the deck that is on screen drops the current question
+        and turns late answers into conflicts. Set Class may still seed the
+        deck while the session is on the join stage and no question is
+        active. A live session on a different module or slot is left alone.
+
+        Args:
+            class_id: Destination class.
+            module: Destination module token.
+            slot: Destination challenge token.
+
+        Raises:
+            DeckCopyLiveConflict: This slot is the one being taught.
+        """
+
+        active = self.get_active_live_session_for_class(int(class_id))
+        if active is None:
+            return
+        try:
+            teacher = self.live_session_teacher_state_payload(int(active["id"]))
+        except KeyError:
+            return
+        if str(teacher.get("live_module") or "").upper() != str(module).upper():
+            return
+        if str(teacher.get("live_slot") or "").upper() != str(slot).upper():
+            return
+        stage = str(teacher.get("stage") or "join").strip().lower() or "join"
+        if stage == "join":
+            with self._lock:
+                active_item = self.conn.execute(
+                    """
+                    SELECT 1 FROM live_session_items
+                    WHERE live_session_id = ? AND status = 'active'
+                    LIMIT 1
+                    """,
+                    (int(active["id"]),),
+                ).fetchone()
+            if active_item is None:
+                return
+        module_key = str(module).upper()
+        slot_key = str(slot).upper()
+        raise DeckCopyLiveConflict(
+            f"{module_key} {slot_key} is live right now. "
+            "End the live class before copying a deck into this slot."
+        )
+
     def apply_class_deck_seed(
         self,
         class_id: int,
@@ -10221,6 +10280,8 @@ class SchoolDB(LovesDB):
                 manage, or (MCK-132) a section owned by someone else.
             DeckReplaceNotConfirmed: ``require_replace_confirm`` is set, the
                 slot has a deck, and ``replace`` is false. Nothing is written.
+            DeckCopyLiveConflict: This slot is the one a live class is
+                teaching. Nothing is written.
         """
 
         module_key, slot_key = self._require_live_lesson_token(module, slot)
@@ -10251,6 +10312,9 @@ class SchoolDB(LovesDB):
                     int(class_id), module_key, slot_key
                 ),
             }
+        # Fast path. The write transaction reads this again, including the
+        # join-stage exemption, so a slot that goes live mid-copy is refused.
+        self._refuse_deck_copy_into_live_slot(int(class_id), module_key, slot_key)
         source_meta: dict[str, Any] | None = None
         source_m: str | None = None
         source_s: str | None = None
@@ -10443,6 +10507,8 @@ class SchoolDB(LovesDB):
             replace: The teacher confirmed replacing the existing deck.
 
         Raises:
+            DeckCopyLiveConflict: The slot is live on this challenge when
+                the write lock is taken. Nothing is written.
             DeckReplaceNotConfirmed: The slot gained a deck and ``replace``
                 is false. Nothing is written.
         """
@@ -10524,9 +10590,15 @@ class SchoolDB(LovesDB):
             replace: The teacher confirmed replacing that deck.
 
         Raises:
+            DeckCopyLiveConflict: This slot went live after the earlier check.
+                The join-stage exemption is read again here.
             DeckReplaceNotConfirmed: The slot has a deck and ``replace`` is false.
         """
 
+        # Same transaction as the replace re-check. A slot that leaves join,
+        # or gains an active question, between the earlier look and this
+        # write is refused before any row changes.
+        self._refuse_deck_copy_into_live_slot(int(class_id), module_key, slot_key)
         if (
             require_replace_confirm
             and not replace
