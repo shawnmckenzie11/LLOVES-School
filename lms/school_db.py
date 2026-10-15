@@ -9589,10 +9589,16 @@ class SchoolDB(LovesDB):
         found: list[dict[str, Any]] = []
         for row in rows:
             item = dict(row)
-            item["section_code"] = section_code(
-                str(item.get("offering_code") or item.get("course_code") or ""),
-                int(item.get("section_index") or 1),
-            )
+            # Display rank, not the stored index: archiving section 1
+            # renames MCF3M-2 to MCF3M. The raw index would keep saying -2.
+            code = str(item.get("offering_code") or item.get("course_code") or "")
+            try:
+                labeled = self.get_offering(int(item["offering_id"]))
+                item["section_code"] = str(labeled.get("section_code") or "")
+            except (KeyError, TypeError, ValueError):
+                item["section_code"] = section_code(
+                    code, int(item.get("section_index") or 1)
+                )
             found.append(item)
         return found
 
@@ -9716,6 +9722,22 @@ class SchoolDB(LovesDB):
             teacher_user_id: Signed-in staff user.
         """
 
+        # IT can open any class in the tenant. From still lists only the
+        # destination teacher's sections, so an admin's own section does
+        # not appear while they are in someone else's class.
+        try:
+            dest = self.game.get_class(int(class_id))
+            dest_offering = (
+                self.get_offering(int(dest["offering_id"]))
+                if dest.get("offering_id")
+                else None
+            )
+        except KeyError:
+            dest_offering = None
+        if dest_offering is None or int(dest_offering.get("teacher_user_id") or 0) != int(
+            teacher_user_id
+        ):
+            return []
         found: list[dict[str, Any]] = []
         for other in self._same_course_section_classes(
             int(class_id), teacher_user_id=int(teacher_user_id)

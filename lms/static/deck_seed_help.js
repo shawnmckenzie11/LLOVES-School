@@ -470,7 +470,11 @@ export function deckCopyConfirmState(state = {}) {
   const sourceSection = String(source.sectionCode || "");
   const route = `${sourceSection} · ${deck.name} → ${target.sectionCode || ""} · ${target.name || ""}.`; // copy: Wonder
   const current = state.current || {};
-  const replace = Boolean(current.available);
+  const errorText = phase === "error" ? String(state.error || "") : "";
+  // A 409 confirm while the catalog still says the slot is empty used to
+  // leave Copy deck with no Keep current, so the strip could not be left.
+  const confirmLine = "Replace the deck or keep current first."; // copy: Wonder
+  const replace = Boolean(current.available) || errorText === confirmLine;
   const qs = questionCount(deck.count);
   let variant = replace ? "replace" : "info";
   let text = replace

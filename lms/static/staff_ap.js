@@ -745,6 +745,18 @@ function paintDeckCopyConfirm() {
     strip.setAttribute("data-variant", view.variant);
   }
   const text = $("live-deck-copy-text");
+  // The 409 confirm line stays a Replace / Keep strip. Without Keep, the
+  // red strip repeats the same refused copy and cannot be dismissed.
+  if (
+    !view.hidden &&
+    view.text === "Replace the deck or keep current first." &&
+    !view.showKeep
+  ) {
+    view.showKeep = true;
+    view.replace = true;
+    view.holdsNext = true;
+    view.goLabel = "Replace deck"; // copy: Wonder
+  }
   if (text) {
     const parts = [];
     if (view.route) {
@@ -802,8 +814,23 @@ async function copyDeckNow() {
       { method: "POST", body: JSON.stringify(body) }
     );
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err || "");
+    // Server 409 while this row still thinks the slot is empty: show the
+    // replace strip (Keep can dismiss it) instead of a stuck error.
+    if (message === "Replace the deck or keep current first.") {
+      if (deckSeedCatalog) {
+        const current = deckSeedCatalog.current || {};
+        deckSeedCatalog.current = { ...current, available: true };
+      }
+      deckCopyPhase = "nudge";
+      deckCopyError = "";
+      hideError("#ap-overlay-error");
+      paintDeckCopyConfirm();
+      $("live-deck-copy-keep")?.focus();
+      return;
+    }
     deckCopyPhase = "error";
-    deckCopyError = err instanceof Error ? err.message : String(err || "");
+    deckCopyError = message;
     paintDeckCopyConfirm();
     $("live-deck-copy-go")?.focus();
     return;
