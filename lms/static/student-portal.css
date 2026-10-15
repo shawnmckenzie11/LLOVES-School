@@ -3386,6 +3386,7 @@ dialog.student-pin-dialog::backdrop {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  color: #0f172a;
 }
 .team-draw-step4-banner {
   margin: 0;
