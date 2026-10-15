@@ -9233,6 +9233,17 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         return jsonify({"ok": True, **school.class_participation(class_id),
                         "catchup_links": _catchup_links_payload(class_id)})
 
+    @app.route("/api/classes/<int:class_id>/participation/start-check")
+    @login_required
+    def api_participation_start_check(class_id: int):
+        """Whether Run Live Class should ask to finish the open module."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        selected = str(request.args.get("module") or "").strip()
+        prompt = school.participation_start_prompt(class_id, selected)
+        return jsonify({"ok": True, "prompt": prompt})
+
     @app.route("/api/classes/<int:class_id>/participation/modules/<module>/complete", methods=["POST"])
     @login_required
     def api_mark_module_complete(class_id: int, module: str):

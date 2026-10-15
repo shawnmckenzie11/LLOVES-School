@@ -8604,10 +8604,92 @@ async function applyValidateDateChoice(opts = {}) {
     return;
   }
   if (root?.dataset.apView === "live") {
-    await proceedRunLiveBegin(iso, { reservedWin: opts.reservedWin || null });
+    await continueRunLiveAfterPrompt(iso, opts);
     return;
   }
   showPanel("gamify");
+}
+
+/**
+ * Close a scoreboard window reserved before Set Class continues.
+ * @param {Window|null|undefined} reservedWin
+ */
+function closeReservedLiveWindow(reservedWin) {
+  if (reservedWin && !reservedWin.closed) {
+    try {
+      reservedWin.close();
+    } catch (_err) {
+      /* ignore */
+    }
+  }
+}
+
+/**
+ * Prompt when Set Class would start a module after the open one.
+ * @returns {Promise<{action: "cancel"|"start"|"finish", module: string}>}
+ */
+/**
+ * Ask before starting a later module, then begin Run Live Class.
+ * Cancel stays on Set Class. Finish logs the open module, then begins.
+ * @param {string} iso Meeting date already validated.
+ * @param {{ reservedWin?: Window|null }} [opts]
+ * @returns {Promise<void>}
+ */
+async function continueRunLiveAfterPrompt(iso, opts = {}) {
+  let choice;
+  try {
+    choice = await unfinishedModuleChoice();
+  } catch (err) {
+    closeReservedLiveWindow(opts.reservedWin);
+    throw err;
+  }
+  if (choice.action === "cancel") {
+    closeReservedLiveWindow(opts.reservedWin);
+    return;
+  }
+  if (choice.action === "finish" && choice.module) {
+    await api(
+      `/api/classes/${classId}/participation/modules/${encodeURIComponent(choice.module)}/finish`,
+      { method: "POST", body: JSON.stringify({ sort: "az" }) }
+    );
+  }
+  await proceedRunLiveBegin(iso, { reservedWin: opts.reservedWin || null });
+}
+
+async function unfinishedModuleChoice() {
+  const pack = selectedSetClassPack();
+  const payload = await api(
+    `/api/classes/${classId}/participation/start-check?module=${encodeURIComponent(pack.module)}`
+  );
+  const prompt = payload?.prompt;
+  if (!prompt || !prompt.module) return { action: "start", module: "" };
+  const action = await openFinishModuleDialog(prompt);
+  return { action, module: String(prompt.module || "") };
+}
+
+/**
+ * Show the approved finish-module dialog and resolve the button the teacher picked.
+ * @param {{title?: string, body?: string, finish_label?: string}} prompt
+ * @returns {Promise<"cancel"|"start"|"finish">}
+ */
+function openFinishModuleDialog(prompt) {
+  const dialog = $("finish-module-dialog");
+  const title = $("finish-module-title");
+  const body = $("finish-module-body");
+  const go = $("finish-module-go");
+  if (!(dialog instanceof HTMLDialogElement)) return Promise.resolve("start");
+  if (title) title.textContent = String(prompt.title || "");
+  if (body) body.textContent = String(prompt.body || "");
+  if (go) go.textContent = String(prompt.finish_label || "Finish and start");
+  return new Promise((resolve) => {
+    const onClose = () => {
+      dialog.removeEventListener("close", onClose);
+      const value = String(dialog.returnValue || "cancel");
+      resolve(value === "finish" || value === "start" ? value : "cancel");
+    };
+    dialog.addEventListener("close", onClose);
+    dialog.showModal();
+  });
 }
 
 /**
@@ -8719,7 +8801,7 @@ export async function openRunLiveClass() {
         gridSelectedIso($("ap-day-grid")) ||
         $("ap-valid-date")?.value ||
         decision.iso;
-      await proceedRunLiveBegin(iso, {
+      await continueRunLiveAfterPrompt(iso, {
         reservedWin: actionOpts.reservedWin || null,
       });
     };
@@ -11810,7 +11892,7 @@ $("live-stage-prev")?.addEventListener("click", () => {
 });
 $("live-stage-next")?.addEventListener("click", () => {
   if (setupPhase) {
-    applyValidateDateChoice();
+    applyValidateDateChoice().catch((err) => showError("#ap-overlay-error", err));
     return;
   }
   advanceLivePage(1);
