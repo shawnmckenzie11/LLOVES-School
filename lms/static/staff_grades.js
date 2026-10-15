@@ -118,19 +118,42 @@ function sessionOpportunities(deckItems, liveAnsweredKeys) {
   return total;
 }
 
-/** MC prompt / item types that weigh 1 (mirrors lms/participation_weight.py). */
-const MC_KINDS = new Set(["mc", "multiple_choice", "multiple_choice_question"]);
+/** Counted prompt kinds (mirrors lms/participation_weight.py). */
+const COUNTED_PROMPT_KINDS = new Set([
+  "mc",
+  "multiple_choice",
+  "multiple_choice_question",
+  "poll",
+  "numeric",
+  "number",
+  "rank",
+  "ranking",
+  "text",
+  "short_answer",
+  "open",
+]);
+const COUNTED_JSON_TYPES = new Set([
+  "mc",
+  "multiple_choice",
+  "multiple_choice_question",
+  "numeric",
+  "number",
+  "rank",
+  "ranking",
+  "text",
+  "short_answer",
+]);
 
 /**
  * @param {string} promptKind
  * @param {object|null|undefined} payload
  * @returns {boolean}
  */
-function itemIsMultipleChoice(promptKind, payload) {
+function itemCountsForParticipation(promptKind, payload) {
   const kind = String(promptKind || "").toLowerCase();
-  if (MC_KINDS.has(kind)) return true;
+  if (COUNTED_PROMPT_KINDS.has(kind)) return true;
   const qtype = String(payload?.type || payload?.question_type || "").toLowerCase();
-  return MC_KINDS.has(qtype) || qtype === "multiple_choice";
+  return COUNTED_JSON_TYPES.has(qtype);
 }
 
 /**
@@ -146,7 +169,11 @@ function participationWeight(row) {
       payload = {};
     }
   }
-  return itemIsMultipleChoice(row.prompt_kind, payload) ? 1 : 0;
+  const mode = String(row.publish_mode || "individual").toLowerCase();
+  if (mode !== "individual" && mode !== "group_consensus" && mode !== "group_shared") {
+    return 0;
+  }
+  return itemCountsForParticipation(row.prompt_kind, payload) ? 1 : 0;
 }
 
 /**
@@ -197,14 +224,18 @@ function legacyCap(endedAt) {
  */
 function cellScore(data, sessionId, studentId, meta) {
   const opportunities = sessionOpportunities(meta?.deck_items, meta?.live_answered_keys);
+  const cell = data.cells?.[`${sessionId}:${studentId}`] || {};
+  const groupPoints = numericPoints(cell.points);
+  const individualKey = `${sessionId}:${studentId}`;
+  const individualAnswered = numericPoints(data.individual_cells?.[individualKey] || 0);
   let score = 0;
-  if (includeGroup) {
-    const cell = data.cells?.[`${sessionId}:${studentId}`] || {};
-    score += numericPoints(cell.points);
-  }
-  if (includeIndividual) {
-    const key = `${sessionId}:${studentId}`;
-    score += numericPoints(data.individual_cells?.[key] || 0);
+  if (displayMode === "points") {
+    if (includeGroup) score += groupPoints;
+    if (includeIndividual) score += individualAnswered;
+  } else if (includeIndividual) {
+    score = individualAnswered;
+  } else if (includeGroup) {
+    score = groupPoints;
   }
   return { score, opportunities, ended_at: String(meta?.ended_at || "") };
 }
@@ -231,7 +262,9 @@ function renderSheet(data) {
       head += `<th class="subtotal-col">${escapeHtml(column.name || column.header_label)}</th>`;
       continue;
     }
-    head += `<th>${escapeHtml(column.header_label || "")}</th>`;
+    const meta = sessionMeta[String(column.id)] || {};
+    const header = meta.header_label || column.header_label || "";
+    head += `<th>${escapeHtml(header)}</th>`;
   }
   head += `<th class="live-sub">SUBTOTAL</th><th class="total">TOTAL SCORE</th></tr>`;
 

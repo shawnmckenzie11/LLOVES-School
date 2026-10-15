@@ -1,9 +1,10 @@
 """MCK-230: shared participation opportunity weights for Lesson Slides decks.
 
-Each multiple-choice question (individual or group) counts as one opportunity
-when it collected at least one live-class student response; catch-up answers
-do not add opportunities. Other question types count as zero. Lesson Slides
-and Attendance & Participation both import this module so denominators stay aligned.
+Each counted question type (MC, numeric, text, rank, and equivalents) counts as
+one opportunity when it collected at least one live-class student response from
+a real (non–Test Student) student; catch-up answers never add opportunities.
+Lesson Slides and Attendance & Participation both import this module so
+numerators and denominators stay aligned.
 """
 
 from __future__ import annotations
@@ -17,6 +18,31 @@ from typing import Any
 LEGACY_PERCENT_CAP_BEFORE = date(2026, 10, 14)
 
 _MC_KINDS = frozenset({"mc", "multiple_choice", "multiple_choice_question"})
+_COUNTED_PROMPT_KINDS = frozenset(
+    {
+        *_MC_KINDS,
+        "poll",
+        "numeric",
+        "number",
+        "rank",
+        "ranking",
+        "text",
+        "short_answer",
+        "open",
+    }
+)
+_COUNTED_JSON_TYPES = frozenset(
+    {
+        *_MC_KINDS,
+        "numeric",
+        "number",
+        "rank",
+        "ranking",
+        "text",
+        "short_answer",
+        "multiple_choice",
+    }
+)
 _GROUP_PUBLISH = frozenset({"group_consensus", "group_shared"})
 
 
@@ -44,17 +70,27 @@ def item_is_multiple_choice(prompt_kind: str, item_json: Any = None) -> bool:
     return False
 
 
+def item_counts_for_participation(prompt_kind: str, item_json: Any = None) -> bool:
+    """True when a deck row counts toward Participation numerators/denominators."""
+    kind = str(prompt_kind or "").strip().lower()
+    if kind in _COUNTED_PROMPT_KINDS:
+        return True
+    payload = _parse_item_json(item_json)
+    qtype = str(payload.get("type") or payload.get("question_type") or "").strip().lower()
+    return qtype in _COUNTED_JSON_TYPES
+
+
 def item_participation_weight(
     prompt_kind: str,
     *,
     publish_mode: str = "individual",
     item_json: Any = None,
 ) -> int:
-    """Return 1 for MC questions, else 0 (individual or group publish modes)."""
+    """Return 1 for counted question types, else 0 (individual or group publish)."""
     mode = str(publish_mode or "individual").strip().lower()
     if mode not in {"individual", *_GROUP_PUBLISH}:
         return 0
-    return 1 if item_is_multiple_choice(prompt_kind, item_json) else 0
+    return 1 if item_counts_for_participation(prompt_kind, item_json=item_json) else 0
 
 
 def participation_question_key(row: dict[str, Any]) -> str:
@@ -85,11 +121,12 @@ def count_participation_opportunities(
     include_group: bool,
     live_answered_keys: frozenset[str] | None = None,
 ) -> int:
-    """Sum deck weights for in-scope items that had live student responses.
+    """Sum in-scope counted questions that had live student responses.
 
-    When ``live_answered_keys`` is omitted, every in-scope MC item counts (unit
-    tests for deck shape only). Callers computing teacher denominators must pass
-    the set of ``question_key`` values with at least one ``source='live'`` answer.
+    When ``live_answered_keys`` is omitted, every in-scope counted item counts
+    (unit tests for deck shape only). Teacher denominators must pass the set of
+    ``question_key`` values with at least one ``source='live'`` answer from a
+    real student on a real run.
     """
     total = 0
     for row in items:
@@ -99,8 +136,8 @@ def count_participation_opportunities(
             include_group=include_group,
         ):
             continue
+        qkey = participation_question_key(row)
         if live_answered_keys is not None:
-            qkey = participation_question_key(row)
             if not qkey or qkey not in live_answered_keys:
                 continue
         total += item_participation_weight(
@@ -108,6 +145,45 @@ def count_participation_opportunities(
             publish_mode=str(row.get("publish_mode") or "individual"),
             item_json=row.get("item_json"),
         )
+    return total
+
+
+def count_student_answered_opportunities(
+    deck_items: list[dict[str, Any]],
+    answered_keys: set[str] | frozenset[str],
+    *,
+    include_individual: bool,
+    include_group: bool,
+    counted_live_keys: frozenset[str] | None = None,
+) -> int:
+    """Distinct questions a student answered (live or catch-up) that count."""
+    allowed = counted_live_keys if counted_live_keys is not None else answered_keys
+    total = 0
+    seen: set[str] = set()
+    deck_by_key = {participation_question_key(row): row for row in deck_items}
+    for qkey in answered_keys:
+        key = str(qkey or "").strip()
+        if not key or key not in allowed or key in seen:
+            continue
+        row = deck_by_key.get(key)
+        if row is None:
+            total += 1
+            seen.add(key)
+            continue
+        if not item_matches_scope(
+            str(row.get("publish_mode") or "individual"),
+            include_individual=include_individual,
+            include_group=include_group,
+        ):
+            continue
+        if item_participation_weight(
+            str(row.get("prompt_kind") or ""),
+            publish_mode=str(row.get("publish_mode") or "individual"),
+            item_json=row.get("item_json"),
+        ) <= 0:
+            continue
+        seen.add(key)
+        total += 1
     return total
 
 

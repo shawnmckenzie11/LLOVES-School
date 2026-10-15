@@ -7,6 +7,7 @@ import unittest
 
 from participation_weight import (
     count_participation_opportunities,
+    item_counts_for_participation,
     item_is_multiple_choice,
     item_participation_weight,
 )
@@ -31,10 +32,14 @@ class ParticipationWeightTests(unittest.TestCase):
             1,
         )
 
-    def test_non_mc_is_zero(self) -> None:
-        """Rank and numeric types do not add opportunities."""
-        self.assertEqual(item_participation_weight("rank"), 0)
-        self.assertEqual(item_participation_weight("numeric"), 0)
+    def test_rank_numeric_text_count(self) -> None:
+        """Rank, numeric, and text types count like MC for Participation."""
+        self.assertTrue(item_counts_for_participation("rank"))
+        self.assertEqual(item_participation_weight("numeric"), 1)
+        self.assertEqual(
+            item_participation_weight("poll", item_json={"type": "text"}),
+            1,
+        )
 
     def test_scope_filter_sums_weights(self) -> None:
         """Checkbox scope limits which deck rows count toward the denominator."""
@@ -43,23 +48,31 @@ class ParticipationWeightTests(unittest.TestCase):
                 "prompt_kind": "mc",
                 "publish_mode": "individual",
                 "item_json": {"type": "mc"},
+                "question_key": "item:a",
             },
             {
-                "prompt_kind": "mc",
+                "prompt_kind": "rank",
                 "publish_mode": "group_consensus",
-                "item_json": {"type": "mc"},
+                "item_json": {"type": "rank"},
+                "question_key": "item:b",
             },
-            {"prompt_kind": "rank", "publish_mode": "individual"},
+            {"prompt_kind": "slide", "publish_mode": "individual", "question_key": "item:c"},
         ]
         self.assertEqual(
             count_participation_opportunities(
-                items, include_individual=True, include_group=False
+                items,
+                include_individual=True,
+                include_group=False,
+                live_answered_keys=frozenset({"item:a", "item:c"}),
             ),
             1,
         )
         self.assertEqual(
             count_participation_opportunities(
-                items, include_individual=True, include_group=True
+                items,
+                include_individual=True,
+                include_group=True,
+                live_answered_keys=frozenset({"item:a", "item:b"}),
             ),
             2,
         )
