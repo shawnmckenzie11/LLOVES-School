@@ -197,20 +197,31 @@ def normalize_scope_token(raw: Any) -> str:
     raise ValueError("bank_scope must be M1–M8 or course")
 
 
-def scope_visible(stored: Any, viewing: str) -> bool:
+def scope_visible(
+    stored: Any, viewing: str, *, include_course_on_module: bool = True
+) -> bool:
     """Return whether a question with ``stored`` scope shows on ``viewing``.
 
     A blank stored scope stays visible wherever the bank is linked, which
-    is today's behaviour. A set scope shows only on that tab.
+    is today's behaviour. A module pin shows only on that module. Course
+    Wide stays importable from every module picker; the bank's module tabs
+    pass ``include_course_on_module=False`` so those cards stay on Course Wide.
 
     Args:
         stored: ``questions.bank_scope``, or blank.
         viewing: ``M1``–``M8`` or ``course``.
+        include_course_on_module: When false, a ``course`` pin is hidden
+            from a module view. Import leaves this on.
     """
     token = str(stored or "").strip()
     if not token:
         return True
+    if token.lower() == "course":
+        view = str(viewing or "").strip().lower()
+        if view in {"course", "course-wide", "coursewide"}:
+            return True
+        return bool(include_course_on_module)
     view = str(viewing or "").strip().lower()
     if view in {"course", "course-wide", "coursewide"}:
-        return token.lower() == "course"
+        return False
     return token.upper() == str(viewing or "").strip().upper()

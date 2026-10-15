@@ -8617,6 +8617,13 @@ body.staff-shell .live-add-q-nav {
   gap: 0.35rem;
   align-items: center;
 }
+/* button { display: inline-block } beats the hidden attribute. */
+body.staff-shell .live-add-q-nav > [hidden],
+body.staff-shell #live-add-q-remove[hidden],
+body.staff-shell #live-add-question-note[hidden],
+body.staff-shell .qbank-bulk[hidden] {
+  display: none !important;
+}
 body.staff-shell .live-add-q-defaults {
   display: flex;
   flex-wrap: wrap;

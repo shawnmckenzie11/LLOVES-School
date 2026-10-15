@@ -4705,6 +4705,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             kind=kind,
             question_type=question_type,
             staff_types=staff_types,
+            include_course_placed=placement != "module",
         )
         items = result.get("items") or []
         return jsonify(

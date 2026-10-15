@@ -174,11 +174,17 @@ function renderGrid() {
   const rows = sortItems(items);
   const query = String(searchEl instanceof HTMLInputElement ? searchEl.value : "").trim();
   const qtype = typeChips ? typeChips.value() : "";
-  const filtered = Boolean(query || qtype || (kindEl instanceof HTMLSelectElement && kindEl.value));
+  const kindSet = kindEl instanceof HTMLSelectElement && Boolean(kindEl.value);
+  const tabTotal = Number(tabCounts[activeTab] ?? 0);
+  const courseHasQuestions = Object.values(tabCounts).some((count) => Number(count) > 0);
+  const filtered = Boolean(query || qtype || kindSet || (tabTotal > 0 && !rows.length));
   if (!rows.length) {
+    const emptyCard = courseHasQuestions
+      ? `<article class="qbank-empty-card"><p>No questions in this module yet.</p><button type="button" id="qbank-empty-add">+ Add question</button></article>`
+      : `<article class="qbank-empty-card"><p>${escapeHtml(EMPTY_BANKS)}</p><button type="button" id="qbank-empty-add">+ Add question</button></article>`;
     list.innerHTML = filtered
       ? `<p class="qbank-empty">No questions match these filters. <button type="button" id="qbank-clear-filters">Clear filters</button></p>`
-      : `<article class="qbank-empty-card"><p>${escapeHtml(EMPTY_BANKS)}</p><button type="button" id="qbank-empty-add">+ Add question</button></article>`;
+      : emptyCard;
     document.getElementById("qbank-clear-filters")?.addEventListener("click", clearFilters);
     document.getElementById("qbank-empty-add")?.addEventListener("click", () => openAdd());
     paintBulk();
@@ -270,6 +276,7 @@ async function loadLiveBank() {
   if (kind) params.set("kind", kind);
   if (qtype) params.set("type", qtype);
   if (activeTab === "course") params.set("placement", "course");
+  else if (activeTab !== "all") params.set("placement", "module");
   const suffix = params.toString() ? `?${params.toString()}` : "";
   list.setAttribute("aria-busy", "true");
   try {
@@ -304,6 +311,7 @@ async function loadTabCounts() {
     params.set("staff_types", "1");
     params.set("kind", "any");
     if (tab === "course") params.set("placement", "course");
+    else if (tab !== "all") params.set("placement", "module");
     const payload = await api(
       `/api/staff/class/${classId}/module-banks/${encodeURIComponent(scope)}/mc-search?${params.toString()}`
     );

@@ -8042,6 +8042,7 @@ class SchoolDB(LovesDB):
         question_type: str | None = None,
         scope_policy: str = "module",
         staff_types: bool = False,
+        include_course_placed: bool = True,
     ) -> dict[str, Any]:
         """Search normalized MCs scoped to confirmed module banks only.
 
@@ -8049,8 +8050,9 @@ class SchoolDB(LovesDB):
         included too (MCK-169). Staff polls stored as ``essay_question``
         stay out unless ``staff_types`` is set (the question-bank grid).
 
-        A question with ``bank_scope`` set shows only on that module or on
-        Course Wide. A null scope stays on every module its bank is linked
+        A module pin shows only on that module. A Course Wide pin stays
+        importable from every linked module, and the bank's module tabs
+        hide it. A null scope stays on every module its bank is linked
         to, which is how rows imported before MCK-254 behave.
 
         Args:
@@ -8066,6 +8068,9 @@ class SchoolDB(LovesDB):
             scope_policy: ``module`` (this module) or ``course_only``
                 (questions explicitly saved as Course Wide).
             staff_types: When true, also return staff numeric and poll rows.
+            include_course_placed: When false, hide questions pinned to
+                Course Wide. Import keeps them so a course-wide save is
+                still found from another module.
 
         Returns:
             Dict with ``items``, ``total`` (importable MC count),
@@ -8126,7 +8131,19 @@ class SchoolDB(LovesDB):
             """
         params: list[Any] = [int(library_id)]
         if policy == "course_only":
-            scope_sql = "AND lower(COALESCE(q.bank_scope, '')) = 'course'"
+            # Column pin wins. Older Course Wide rows only store the scope
+            # inside payload_json, and a later module pin must take them off
+            # this tab.
+            scope_sql = """
+                AND (
+                  lower(COALESCE(q.bank_scope, '')) = 'course'
+                  OR (
+                    q.bank_scope IS NULL
+                    AND json_valid(q.payload_json)
+                    AND lower(COALESCE(json_extract(q.payload_json, '$.bank_scope'), '')) = 'course'
+                  )
+                )
+            """
         elif bank_ids:
             placeholders = ",".join("?" for _ in bank_ids)
             params.extend(bank_ids)
@@ -8194,10 +8211,14 @@ class SchoolDB(LovesDB):
                 return
             stored = defaults_from_row(row)
             if policy != "course_only" and not scope_visible(
-                stored.get("bank_scope"), viewing_scope
+                stored.get("bank_scope"),
+                viewing_scope,
+                include_course_on_module=include_course_placed,
             ):
                 return
-            normalized["bank_scope"] = stored.get("bank_scope")
+            pinned_scope = str(stored.get("bank_scope") or "").strip()
+            if pinned_scope:
+                normalized["bank_scope"] = pinned_scope
             normalized["live_response_mode"] = stored.get("live_response_mode")
             normalized["live_show_results"] = stored.get("live_show_results")
             normalized["live_points"] = stored.get("live_points")
@@ -8220,7 +8241,9 @@ class SchoolDB(LovesDB):
             except json.JSONDecodeError:
                 payload = {}
             if policy != "course_only" and not scope_visible(
-                row["bank_scope"], viewing_scope
+                row["bank_scope"],
+                viewing_scope,
+                include_course_on_module=include_course_placed,
             ):
                 continue
             extra = self._normalize_staff_extra_row(row, payload) if staff_types else None
