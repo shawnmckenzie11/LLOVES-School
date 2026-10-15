@@ -240,6 +240,7 @@ class CatchupCoalesceTests(LessonSlidesBackfillTests):
             """,
             (int(self.class_id), run_key),
         )
+        _set_run_started_at(self.school, self.class_id, run_key, "2026-10-14T13:15:00")
         self.school.conn.commit()
         links = self.school.list_catchup_links(self.class_id)
         self.assertEqual(len(links), 1)
