@@ -441,13 +441,22 @@ def _clean_round_flags(raw: Any) -> dict[str, bool]:
 
 
 def normalize_live_slot(raw: Any) -> str:
-    """Return ``C1``, ``C2``, or ``C3``. Empty/unknown falls back to C1.
+    """Return a live-class or open-office slot.
+
+    Live class is ``C1``–``C4``. Open office is ``O1``, ``O2``, … and is
+    kept as stored. Empty or unknown values fall back to C1.
 
     Args:
         raw: Posted or stored slot / challenge id.
     """
     text = str(raw or "").strip().upper()
     if text in LIVE_SLOTS:
+        return text
+    try:
+        from set_class import is_open_office_slot
+    except ImportError:
+        from lms.set_class import is_open_office_slot
+    if is_open_office_slot(text):
         return text
     return DEFAULT_LIVE_SLOT
 
