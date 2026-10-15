@@ -31589,7 +31589,7 @@ class SchoolDB(LovesDB):
                     keys,
                     include_individual=True,
                     include_group=False,
-                    counted_live_keys=None,
+                    counted_live_keys=counted_keys,
                 )
         return counts
 

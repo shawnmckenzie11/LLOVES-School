@@ -203,7 +203,9 @@ class Mck230LiveDenominatorTests(Base):
         self.assertEqual(participation_fraction(cell["answered"], m4["offered"]), f"{cell['answered']}/3")
 
     def test_catchup_answers_credit_session_numerator(self) -> None:
-        run_key = self.run_class("M5", "C1", 2, 0, {self.students[0]: 1})
+        run_key = self.run_class(
+            "M5", "C1", 2, 0, {self.students[0]: 1, self.students[1]: 2}
+        )
         self._wire_participation_column(run_key, 1)
         link = self.school.list_catchup_links(self.class_id)[0]
         self.assertTrue(
@@ -217,6 +219,32 @@ class Mck230LiveDenominatorTests(Base):
         )
         cells = self.school.participation_individual_session_cells(self.class_id)
         self.assertEqual(cells.get(f"{session_id}:{self.students[0]}"), 2)
+
+
+    def test_catchup_on_question_without_live_answers_does_not_credit(self) -> None:
+        """Catch-up only counts toward questions already in the live denominator."""
+        run_key = self.run_class("M5C", "C1", 2, 0, {self.students[0]: 1})
+        self._wire_participation_column(run_key, 1)
+        meta = self.school.participation_session_meta(self.class_id)
+        session_id = next(
+            sid for sid, info in meta.items() if info.get("run_key") == run_key
+        )
+        live_keys = meta[session_id].get("live_answered_keys") or []
+        self.assertEqual(len(live_keys), 1)
+        link = self.school.list_catchup_links(self.class_id)[0]
+        self.assertTrue(
+            self.school.submit_catchup_answer(
+                link["token"], self.students[0], "item:M5C-q1", "x"
+            )
+        )
+        cells = self.school.participation_individual_session_cells(self.class_id)
+        answered = cells.get(f"{session_id}:{self.students[0]}")
+        offered = self.school.participation_run_offered(
+            self.class_id, run_key, include_individual=True, include_group=False
+        )
+        self.assertEqual(answered, 1)
+        self.assertEqual(offered, 1)
+        self.assertLessEqual(answered, offered)
 
     def test_rank_question_counts_in_module_denominator(self) -> None:
         run_key = self.run_class("M5B", "C1", 1, 0, {self.students[0]: 1})
