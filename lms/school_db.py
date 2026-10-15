@@ -10351,6 +10351,11 @@ class SchoolDB(LovesDB):
             pages=default_math_pages() if choice == "blank" else pages,
             media=None if choice == "blank" else media,
             team_challenge=None if choice == "blank" else challenge,
+            # MCK-150: the 409 re-check shares the write transaction.
+            require_replace_confirm=bool(
+                require_replace_confirm and choice == "course"
+            ),
+            replace=bool(replace),
         )
         self._sync_playlist_change(int(class_id), module_key, slot_key)
         if choice == "blank":
@@ -10412,10 +10417,15 @@ class SchoolDB(LovesDB):
         pages: list[Any],
         media: dict[str, Any] | None,
         team_challenge: dict[str, Any] | None,
+        require_replace_confirm: bool = False,
+        replace: bool = False,
     ) -> None:
         """Replace one challenge's working copy with a seed snapshot.
 
         Deletes destination overlay rows only. Source rows are not updated.
+        The overwrite check and the writes share one ``BEGIN IMMEDIATE``
+        (MCK-150), so concurrent copies into one slot resolve as one success
+        and clean 409s instead of a unique-key 500.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -10428,6 +10438,13 @@ class SchoolDB(LovesDB):
             pages: Page list to mirror with overlay rows.
             media: Media dict stored on the seed row.
             team_challenge: Team-challenge copy stored on the seed row.
+            require_replace_confirm: Re-check for an existing deck inside
+                the write transaction and refuse unless ``replace``.
+            replace: The teacher confirmed replacing the existing deck.
+
+        Raises:
+            DeckReplaceNotConfirmed: The slot gained a deck and ``replace``
+                is false. Nothing is written.
         """
 
         module_key = str(module or "").upper()
@@ -10441,163 +10458,236 @@ class SchoolDB(LovesDB):
         )
         page_rows = [] if mode == "blank" else self._deck_page_overlay_rows(pages)
         with self._lock:
-            params = (int(class_id), module_key, slot_key)
-            self.conn.execute(
-                """
-                DELETE FROM class_live_playlist_placements
-                WHERE class_id = ? AND module = ? AND slot = ?
-                """,
-                params,
-            )
-            self.conn.execute(
-                """
-                DELETE FROM class_live_playlist_item_overrides
-                WHERE class_id = ? AND module = ? AND slot = ?
-                """,
-                params,
-            )
-            self.conn.execute(
-                """
-                DELETE FROM class_live_playlist_pages
-                WHERE class_id = ? AND module = ? AND slot = ?
-                """,
-                params,
-            )
-            self.conn.execute(
-                """
-                DELETE FROM class_live_media_overlays
-                WHERE class_id = ? AND module = ? AND slot = ?
-                """,
-                params,
-            )
-            for index, payload in enumerate(questions, start=1):
-                item_id = str(payload.get("id") or "").strip()
-                placement_key = (
-                    f"deck-copy:{int(class_id)}:{module_key}{slot_key}:{index}:{item_id}"
+            if self.conn.in_transaction:
+                self.conn.execute("COMMIT")
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self._replace_class_deck_working_copy_locked(
+                    int(class_id),
+                    module_key,
+                    slot_key,
+                    mode=mode,
+                    source_module=source_module,
+                    source_slot=source_slot,
+                    questions=questions,
+                    page_rows=page_rows,
+                    media=media,
+                    media_blob=media_blob,
+                    challenge_blob=challenge_blob,
+                    stamp=stamp,
+                    require_replace_confirm=require_replace_confirm,
+                    replace=replace,
                 )
-                stage = str(payload.get("stage") or "round").strip().lower() or "round"
-                try:
-                    page_number = int(payload.get("page_number") or index)
-                except (TypeError, ValueError):
-                    page_number = index
-                try:
-                    sort_order = int(payload.get("order") or index)
-                except (TypeError, ValueError):
-                    sort_order = index
-                self.conn.execute(
-                    """
-                    INSERT INTO class_live_playlist_placements (
-                        class_id, module, slot, page_number, stage, sort_order,
-                        placement_key, item_id, item_json, source_question_id,
-                        created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
-                    """,
-                    (
-                        int(class_id),
-                        module_key,
-                        slot_key,
-                        page_number,
-                        stage,
-                        sort_order,
-                        placement_key,
-                        item_id,
-                        json.dumps(payload),
-                        stamp,
-                    ),
-                )
-            for row in page_rows:
-                self.conn.execute(
-                    """
-                    INSERT INTO class_live_playlist_pages (
-                        class_id, module, slot, page_id, name, stage,
-                        page_number, insert_after_page_id, removed,
-                        created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        int(class_id),
-                        module_key,
-                        slot_key,
-                        row["page_id"],
-                        row["name"],
-                        row["stage"],
-                        row["page_number"],
-                        row["insert_after"],
-                        int(row["removed"]),
-                        stamp,
-                        stamp,
-                    ),
-                )
-            if mode == "blank":
-                for ride_id in ("minds_on", "teams-spark", "meet-team"):
-                    self.conn.execute(
-                        """
-                        INSERT INTO class_live_playlist_item_overrides (
-                            class_id, module, slot, item_id, removed,
-                            page_number, stage, sort_order, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, 1, NULL, NULL, NULL, ?, ?)
-                        """,
-                        (
-                            int(class_id),
-                            module_key,
-                            slot_key,
-                            ride_id,
-                            stamp,
-                            stamp,
-                        ),
-                    )
-            if isinstance(media, dict) and (
-                str(media.get("stem") or "").strip()
-                or str(media.get("caption") or "").strip()
-            ):
-                self.conn.execute(
-                    """
-                    INSERT INTO class_live_media_overlays (
-                        class_id, module, slot, stem, caption, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        int(class_id),
-                        module_key,
-                        slot_key,
-                        str(media.get("stem") or ""),
-                        str(media.get("caption") or ""),
-                        stamp,
-                        stamp,
-                    ),
-                )
+                self.conn.execute("COMMIT")
+            except BaseException:
+                if self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                raise
+        self.invalidate_live_metadata_cache(
+            class_id=int(class_id), module=module_key, slot=slot_key
+        )
+
+    def _replace_class_deck_working_copy_locked(
+        self,
+        class_id: int,
+        module_key: str,
+        slot_key: str,
+        *,
+        mode: str,
+        source_module: str | None,
+        source_slot: str | None,
+        questions: list[dict[str, Any]],
+        page_rows: list[dict[str, Any]],
+        media: dict[str, Any] | None,
+        media_blob: str | None,
+        challenge_blob: str | None,
+        stamp: str,
+        require_replace_confirm: bool,
+        replace: bool,
+    ) -> None:
+        """Write one deck snapshot. Caller holds the lock and a transaction.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module_key: Destination module.
+            slot_key: Destination challenge.
+            mode: ``previous``, ``course``, or ``blank``.
+            source_module: Copied module, or None for blank.
+            source_slot: Copied challenge, or None for blank.
+            questions: Snapshot questions to insert as placements.
+            page_rows: Page overlay rows already built for this snapshot.
+            media: Media dict, used to decide whether a media row is stored.
+            media_blob: JSON media stored on the seed row.
+            challenge_blob: JSON team challenge stored on the seed row.
+            stamp: ``created_at`` / ``updated_at`` value.
+            require_replace_confirm: Refuse when the slot already has a deck.
+            replace: The teacher confirmed replacing that deck.
+
+        Raises:
+            DeckReplaceNotConfirmed: The slot has a deck and ``replace`` is false.
+        """
+
+        if (
+            require_replace_confirm
+            and not replace
+            and self.class_has_current_live_deck(int(class_id), module_key, slot_key)
+        ):
+            raise DeckReplaceNotConfirmed(
+                "Replace the deck or keep current first."
+            )
+        params = (int(class_id), module_key, slot_key)
+        self.conn.execute(
+            """
+            DELETE FROM class_live_playlist_placements
+            WHERE class_id = ? AND module = ? AND slot = ?
+            """,
+            params,
+        )
+        self.conn.execute(
+            """
+            DELETE FROM class_live_playlist_item_overrides
+            WHERE class_id = ? AND module = ? AND slot = ?
+            """,
+            params,
+        )
+        self.conn.execute(
+            """
+            DELETE FROM class_live_playlist_pages
+            WHERE class_id = ? AND module = ? AND slot = ?
+            """,
+            params,
+        )
+        self.conn.execute(
+            """
+            DELETE FROM class_live_media_overlays
+            WHERE class_id = ? AND module = ? AND slot = ?
+            """,
+            params,
+        )
+        for index, payload in enumerate(questions, start=1):
+            item_id = str(payload.get("id") or "").strip()
+            placement_key = (
+                f"deck-copy:{int(class_id)}:{module_key}{slot_key}:{index}:{item_id}"
+            )
+            stage = str(payload.get("stage") or "round").strip().lower() or "round"
+            try:
+                page_number = int(payload.get("page_number") or index)
+            except (TypeError, ValueError):
+                page_number = index
+            try:
+                sort_order = int(payload.get("order") or index)
+            except (TypeError, ValueError):
+                sort_order = index
             self.conn.execute(
                 """
-                INSERT INTO class_live_deck_seeds (
-                    class_id, module, slot, mode, source_module, source_slot,
-                    suppress_authored, media_json, team_challenge_json,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
-                ON CONFLICT(class_id, module, slot) DO UPDATE SET
-                    mode = excluded.mode,
-                    source_module = excluded.source_module,
-                    source_slot = excluded.source_slot,
-                    suppress_authored = 1,
-                    media_json = excluded.media_json,
-                    team_challenge_json = excluded.team_challenge_json,
-                    updated_at = excluded.updated_at
+                INSERT INTO class_live_playlist_placements (
+                    class_id, module, slot, page_number, stage, sort_order,
+                    placement_key, item_id, item_json, source_question_id,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
                 """,
                 (
                     int(class_id),
                     module_key,
                     slot_key,
-                    mode,
-                    source_module,
-                    source_slot,
-                    media_blob,
-                    challenge_blob,
+                    page_number,
+                    stage,
+                    sort_order,
+                    placement_key,
+                    item_id,
+                    json.dumps(payload),
+                    stamp,
+                ),
+            )
+        for row in page_rows:
+            self.conn.execute(
+                """
+                INSERT INTO class_live_playlist_pages (
+                    class_id, module, slot, page_id, name, stage,
+                    page_number, insert_after_page_id, removed,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(class_id),
+                    module_key,
+                    slot_key,
+                    row["page_id"],
+                    row["name"],
+                    row["stage"],
+                    row["page_number"],
+                    row["insert_after"],
+                    int(row["removed"]),
                     stamp,
                     stamp,
                 ),
             )
-            self.conn.commit()
-        self.invalidate_live_metadata_cache(
-            class_id=int(class_id), module=module_key, slot=slot_key
+        if mode == "blank":
+            for ride_id in ("minds_on", "teams-spark", "meet-team"):
+                self.conn.execute(
+                    """
+                    INSERT INTO class_live_playlist_item_overrides (
+                        class_id, module, slot, item_id, removed,
+                        page_number, stage, sort_order, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, 1, NULL, NULL, NULL, ?, ?)
+                    """,
+                    (
+                        int(class_id),
+                        module_key,
+                        slot_key,
+                        ride_id,
+                        stamp,
+                        stamp,
+                    ),
+                )
+        if isinstance(media, dict) and (
+            str(media.get("stem") or "").strip()
+            or str(media.get("caption") or "").strip()
+        ):
+            self.conn.execute(
+                """
+                INSERT INTO class_live_media_overlays (
+                    class_id, module, slot, stem, caption, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(class_id),
+                    module_key,
+                    slot_key,
+                    str(media.get("stem") or ""),
+                    str(media.get("caption") or ""),
+                    stamp,
+                    stamp,
+                ),
+            )
+        self.conn.execute(
+            """
+            INSERT INTO class_live_deck_seeds (
+                class_id, module, slot, mode, source_module, source_slot,
+                suppress_authored, media_json, team_challenge_json,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+            ON CONFLICT(class_id, module, slot) DO UPDATE SET
+                mode = excluded.mode,
+                source_module = excluded.source_module,
+                source_slot = excluded.source_slot,
+                suppress_authored = 1,
+                media_json = excluded.media_json,
+                team_challenge_json = excluded.team_challenge_json,
+                updated_at = excluded.updated_at
+            """,
+            (
+                int(class_id),
+                module_key,
+                slot_key,
+                mode,
+                source_module,
+                source_slot,
+                media_blob,
+                challenge_blob,
+                stamp,
+                stamp,
+            ),
         )
 
     @staticmethod
