@@ -29664,6 +29664,77 @@ class SchoolDB(LovesDB):
         key, gen = self._live_board_base_run_key(session_id)
         return self.board_generation_key(key, gen)
 
+    def _install_sqlite_board_ops(self) -> None:
+        """Install sqlite board ops, then the group ink tap.
+
+        ``LovesDB`` opens the tables for content-store tests and must not
+        look up ``_tap_board_ink``. Only this facade has a live session.
+        """
+        super()._install_sqlite_board_ops()
+        self._wire_board_ink_tap()
+
+    def _install_postgres_board_ops(self, presence: Any) -> None:
+        """Install Postgres board ops, then the group ink tap.
+
+        Args:
+            presence: Attached ``LivePresenceStore``.
+        """
+        super()._install_postgres_board_ops(presence)
+        self._wire_board_ink_tap()
+
+    def _wire_board_ink_tap(self) -> None:
+        """Point the board store at this school's ink tap.
+
+        Replacing the store (sqlite, then Postgres) wires the new one.
+        A bare ``LovesDB`` leaves ``on_committed`` unset.
+        """
+        boards = getattr(self, "boards", None)
+        if boards is None:
+            return
+        boards.on_committed = self._tap_board_ink
+
+    def _active_session_id_for_board_run(self, run_key: str) -> int | None:
+        """Active session that owns this board run key.
+
+        Generation 0 stores the bare run key. A Fresh board suffix
+        ``~g<n>`` maps back to that same row.
+
+        Args:
+            run_key: Value passed to the board store, base or ``~g<n>``.
+
+        Returns:
+            ``live_class_sessions.id``, or ``None`` when no active row matches.
+        """
+        token = str(run_key or "").strip()
+        if not token:
+            return None
+        base = token.split("~g", 1)[0]
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT id FROM live_class_sessions
+                WHERE run_key = ? AND status = 'active'
+                """,
+                (base,),
+            ).fetchone()
+        if row is None:
+            return None
+        return int(row["id"])
+
+    def _tap_board_ink(self, run_key: str, board_key: str) -> None:
+        """Notify readers after new ink commits. The write already succeeded.
+
+        Args:
+            run_key: Board generation key for this live run.
+            board_key: Board that gained ops.
+        """
+        from live_news_wire import emit_board_ink
+
+        session_id = self._active_session_id_for_board_run(run_key)
+        if session_id is None:
+            return
+        emit_board_ink(self, int(session_id), str(board_key))
+
     def live_board_generation_keys(self, session_id: int) -> list[str]:
         """Return every board key this run has used, oldest first.
 

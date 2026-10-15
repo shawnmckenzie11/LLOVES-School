@@ -46,6 +46,15 @@ if (newsWantsLightFetch({ type: "ping" }) || newsWantsLightFetch({ type: "hello"
 if (!newsWantsLightFetch({ type: "stage", state_seq: 2 })) {
   fail("stage is a light fetch");
 }
+if (!newsWantsLightFetch({ type: "board_ink", board_key: "team:1" })) {
+  fail("board_ink is a light fetch");
+}
+if (isStaleNews({ type: "board_ink", board_key: "team:1" }, 9)) {
+  fail("board_ink has no seq to go stale");
+}
+if (newsPaintsBoardInPlace({ type: "board_ink", board_key: "team:1" })) {
+  fail("board_ink is not a submitter-log paint");
+}
 if (!newsPaintsBoardInPlace({ type: "response_landed" })) {
   fail("response_landed paints the board in place");
 }

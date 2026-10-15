@@ -1463,6 +1463,17 @@ function failedBoardFetchCue() {
   return undefined;
 }
 
+/**
+ * Fetch teammate ink now. A ``board_ink`` tap calls this so a watching
+ * tab does not wait for the next poll.
+ */
+function kickStudentBoardDelta() {
+  ensureStudentBoardPoll();
+  if (studentBoardPoll && typeof studentBoardPoll.kick === "function") {
+    studentBoardPoll.kick();
+  }
+}
+
 function ensureStudentBoardPoll() {
   if (studentBoardPoll) return;
   studentBoardPoll = createBoardDeltaPoll({
@@ -5450,7 +5461,11 @@ function ensureStudentNewsWire(sessionId) {
   if (studentNewsWire && studentNewsWire.sessionId === sid) return;
   if (studentNewsWire) studentNewsWire.stop();
   studentNewsWire = connectLiveNewsWire(sid, {
-    onNews() {
+    onNews(event) {
+      if (event && event.type === "board_ink") {
+        kickStudentBoardDelta();
+        return;
+      }
       studentNewsFetch = true;
       void tick();
     },

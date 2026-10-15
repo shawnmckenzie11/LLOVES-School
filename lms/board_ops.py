@@ -14,11 +14,14 @@ lock and ignores a duplicate-table race so four workers can boot together.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 import threading
 from datetime import datetime
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 from live_canvas import (
     MAX_POINTS,
@@ -540,7 +543,10 @@ class _BoardStore:
     """Shared append, read, and fold logic for sqlite and Postgres.
 
     Subclasses open the transaction and run ``ensure_schema``.
+    ``on_committed`` runs after a transaction that stored new ops.
     """
+
+    on_committed: Callable[[str, str], None] | None = None
 
     def append_ink(
         self,
@@ -976,7 +982,7 @@ class _BoardStore:
             was already stored.
         """
         try:
-            return self._transaction(work)
+            result = self._transaction(work)
         except Exception as exc:
             if not _is_integrity(exc) or not client_batch_id:
                 raise
@@ -985,6 +991,31 @@ class _BoardStore:
                 raise
             existing["duplicate"] = True
             return existing
+        self._notify_committed(run_key, board_key, result)
+        return result
+
+    def _notify_committed(
+        self,
+        run_key: str,
+        board_key: str,
+        result: dict[str, Any],
+    ) -> None:
+        """Tap listeners after new ops commit. Duplicates and empty batches do not.
+
+        Args:
+            run_key: Key minted when this live run started.
+            board_key: Board the batch was aimed at.
+            result: Append result. ``duplicate`` and empty ``ops`` are quiet.
+        """
+        if not isinstance(result, dict) or result.get("duplicate") or not result.get("ops"):
+            return
+        callback = self.on_committed
+        if callback is None:
+            return
+        try:
+            callback(str(run_key), str(result.get("board_key") or board_key))
+        except Exception:
+            logger.warning("board ink tap failed", exc_info=True)
 
     def _read_batch(
         self,

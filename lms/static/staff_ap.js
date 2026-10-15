@@ -7484,6 +7484,12 @@ function startStaffNewsWire(sessionId) {
   if (staffNewsWire) staffNewsWire.stop();
   staffNewsWire = connectLiveNewsWire(sid, {
     onNews(event) {
+      if (event && event.type === "board_ink") {
+        if (teacherBoardPoll && typeof teacherBoardPoll.kick === "function") {
+          teacherBoardPoll.kick();
+        }
+        return;
+      }
       staffNewsFetch = true;
       const board = newsPaintsBoardInPlace(event);
       void pollLiveSessionAttendees({ fromNews: true, board: board });

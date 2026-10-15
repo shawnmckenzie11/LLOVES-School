@@ -29,13 +29,16 @@ from live_news_wire import (  # noqa: E402
     LiveNewsLog,
     NewsAudience,
     _acquire_stream,
+    _sync_board_read_keys,
     chain_sigterm,
     clear_stream_shutdown,
+    emit_board_ink,
     emit_session_news,
     event_visible,
     events_for_teacher_patch,
     install_stream_shutdown_hook,
     iter_sse,
+    log_for,
     news_db_path,
     reset_logs,
     reset_stream_budget,
@@ -128,6 +131,68 @@ class LiveNewsLogTests(unittest.TestCase):
         blob = json.dumps(events)
         self.assertNotIn("stem", blob)
         self.assertNotIn("<", blob)
+
+    def test_ink_clock_is_shared_across_connections(self) -> None:
+        """A second worker's connection does not send another lead tap."""
+        other = LiveNewsLog(self.log.path)
+        try:
+            kind, _ends = self.log.claim_board_ink(4, "team:1", 1_000.0, 0.25)
+            self.assertEqual(kind, "lead")
+            kind2, ends2 = other.claim_board_ink(4, "team:1", 1_000.1, 0.25)
+            self.assertEqual(kind2, "trail")
+            self.assertGreater(ends2, 1_000.1)
+            self.assertFalse(other.claim_board_ink_trail(4, "team:1", ends2 - 0.1))
+            self.assertTrue(self.log.claim_board_ink_trail(4, "team:1", ends2))
+            self.assertFalse(other.claim_board_ink_trail(4, "team:1", ends2))
+        finally:
+            other.close()
+
+    def test_burst_sends_one_trailing_tap(self) -> None:
+        """The lead tap is immediate. One more tap follows the window."""
+
+        class _School:
+            data_dir = self.tmp.name
+
+        emit_board_ink(_School(), 8, "team:2")
+        emit_board_ink(_School(), 8, "team:2")
+        tape = log_for(self.tmp.name)
+        mid = [
+            row
+            for row in tape.since(8, 0)
+            if row.get("type") == "board_ink"
+        ]
+        self.assertEqual(len(mid), 1, mid)
+        time.sleep(0.6)
+        later = [
+            row
+            for row in tape.since(8, 0)
+            if row.get("type") == "board_ink"
+        ]
+        self.assertEqual(len(later), 2, later)
+
+    def test_board_ink_reloads_read_keys(self) -> None:
+        """A team change is visible on the next ink tap, not the next reconnect."""
+        audience = NewsAudience("student", student_id=3, read_keys=["team:1"])
+
+        class _School:
+            def student_board_access(self, session_id: int, student_id: int) -> dict:
+                return {"read": ["team:9"]}
+
+        _sync_board_read_keys(_School(), 1, audience)
+        self.assertEqual(audience.read_keys, frozenset({"team:9"}))
+        self.assertTrue(
+            event_visible(
+                {"type": "board_ink", "board_key": "team:9"},
+                audience,
+            )
+        )
+
+        class _Down:
+            def student_board_access(self, session_id: int, student_id: int) -> dict:
+                raise RuntimeError("down")
+
+        _sync_board_read_keys(_Down(), 1, audience)
+        self.assertIn("team:9", audience.read_keys)
 
 
 class StreamShutdownTests(unittest.TestCase):
