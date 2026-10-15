@@ -12,16 +12,41 @@ let activeFilter = "all";
  * @param {string} iso
  * @returns {string}
  */
-function formatRunTime(iso) {
+/**
+ * Parse stored lesson run timestamps (naive UTC ISO) for display.
+ * @param {string} iso
+ * @returns {Date|null}
+ */
+function parseStoredUtcIso(iso) {
   const text = String(iso || "").trim();
-  if (!text) return "—";
-  const date = new Date(text);
-  if (Number.isNaN(date.getTime())) return text;
-  return date.toLocaleString(undefined, {
+  if (!text) return null;
+  let normalized = text;
+  if (normalized.endsWith("Z")) {
+    normalized = text;
+  } else if (!/[+-]\d{2}:\d{2}$/.test(normalized)) {
+    normalized = `${normalized}Z`;
+  }
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * Show last-run time in America/Toronto (storage stays naive UTC).
+ * @param {string} iso
+ * @returns {string}
+ */
+function formatRunTime(iso) {
+  const date = parseStoredUtcIso(iso);
+  if (!date) {
+    const text = String(iso || "").trim();
+    return text || "—";
+  }
+  return date.toLocaleString("en-CA", {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone: "America/Toronto",
   });
 }
 
