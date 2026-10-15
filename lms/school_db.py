@@ -3463,6 +3463,10 @@ class LovesDB:
             )
         if "ended_at" not in cols:
             self.conn.execute("ALTER TABLE participation_runs ADD COLUMN ended_at TEXT")
+        if "teacher_kind_set" not in cols:
+            self.conn.execute(
+                "ALTER TABLE participation_runs ADD COLUMN teacher_kind_set INTEGER NOT NULL DEFAULT 0"
+            )
 
     def _ensure_catchup_slot_unique(self) -> None:
         """One shared catch-up link row per class lesson slot (MCK-207)."""
@@ -6051,6 +6055,95 @@ class LovesDB:
         row = self.get_lesson_slide_deck(class_id, module_number, live_index)
         assert row is not None
         return row
+
+    def list_lesson_slides_latest(self, class_id: int) -> list[dict[str, Any]]:
+        """Rows from ``lesson_slides_latest`` for one class."""
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT * FROM lesson_slides_latest
+                WHERE class_id = ?
+                ORDER BY live_module, live_slot
+                """,
+                (int(class_id),),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            try:
+                item["questions"] = json.loads(item.pop("questions_json") or "[]")
+            except (TypeError, ValueError):
+                item["questions"] = []
+            out.append(item)
+        return out
+
+    def live_class_start_schedule_for_class(self, class_id: int) -> dict[str, str] | None:
+        """Scheduled live days and start time label for End Live defaults."""
+        from end_live_run_mode import LiveClassStartSchedule
+
+        if getattr(self, "game", None) is None:
+            return None
+        row = self.game.conn.execute(
+            "SELECT offering_id, days, time FROM classes WHERE id = ?",
+            (int(class_id),),
+        ).fetchone()
+        if row is None:
+            return None
+        offering = None
+        oid = row["offering_id"]
+        if oid not in (None, ""):
+            try:
+                offering = self.get_offering(int(oid))
+            except KeyError:
+                offering = None
+        days = ""
+        start = ""
+        if offering:
+            days = str((offering.get("live_days") or row["days"] or "")).strip()
+            start = str((offering.get("live_time") or row["time"] or "")).strip()
+        else:
+            days = str(row["days"] or "").strip()
+            start = str(row["time"] or "").strip()
+        if not days or not start:
+            course_defaults: dict[str, Any] = {}
+            code = ""
+            if offering:
+                code = str(offering.get("ontario_code") or "")
+            else:
+                crow = self.game.conn.execute(
+                    "SELECT course_code FROM classes WHERE id = ?", (int(class_id),)
+                ).fetchone()
+                if crow is not None:
+                    code = str(crow["course_code"] or "")
+            if code:
+                course_defaults = self.get_ontario_course(code) or {}
+            if not days:
+                days = str(course_defaults.get("live_class_days") or "").strip()
+            if not start:
+                start = str(course_defaults.get("live_class_time") or "").strip()
+        if not days or not start:
+            return None
+        sched = LiveClassStartSchedule(days_key=days, start_time_label=start)
+        return {"live_days": sched.days_key, "live_time": sched.start_time_label}
+
+    def default_end_live_run_mode_for_class(
+        self, class_id: int, started_at: str
+    ) -> str:
+        """``live`` or ``test`` default for the End Live Class toggle (MCK-233)."""
+        from end_live_run_mode import (
+            LiveClassStartSchedule,
+            default_end_live_run_mode,
+            parse_session_started_at,
+        )
+
+        row = self.live_class_start_schedule_for_class(int(class_id))
+        if row is None:
+            return "test"
+        sched = LiveClassStartSchedule(
+            days_key=str(row["live_days"]),
+            start_time_label=str(row["live_time"]),
+        )
+        return default_end_live_run_mode(parse_session_started_at(str(started_at or "")), sched)
 
     def store_google_api_token(
         self,
@@ -30262,7 +30355,9 @@ class SchoolDB(LovesDB):
 
     # --- MCK-198: individual participation + catch-up --------------------
 
-    def _capture_participation_unlocked(self, session_id: int) -> None:
+    def _capture_participation_unlocked(
+        self, session_id: int, *, live_run: bool = True
+    ) -> None:
         """At End: keep offered individual items, live answers, one catch-up link.
 
         Each item keeps the payload students saw (the prompt's, else the
@@ -30272,6 +30367,9 @@ class SchoolDB(LovesDB):
         Caller holds ``self._lock`` inside the End transaction. Group items
         (``publish_mode``/``response_mode`` not individual) are skipped, so
         group questions never enter the participation math.
+
+        When ``live_run`` is False (MCK-233 Test toggle), skip participation,
+        catch-up, and Lesson Slides for this run.
         """
         sid = int(session_id)
         session = self.conn.execute(
@@ -30293,6 +30391,53 @@ class SchoolDB(LovesDB):
         slot = str(teacher.get("live_slot") or "")
         class_id = int(session["class_id"])
         now = _now()
+        ended_at = str(session["ended_at"] if "ended_at" in keys and session["ended_at"] else now)
+        if not live_run:
+            self.conn.execute(
+                """
+                INSERT OR IGNORE INTO participation_items (
+                    class_id, run_key, live_module, live_slot, question_key, item_json,
+                    prompt_kind, offered_at
+                )
+                SELECT ?, ?, ?, ?, 'item:' || i.placement_key,
+                       CASE WHEN TRIM(COALESCE(pr.payload, '')) NOT IN ('', '{}')
+                            THEN pr.payload ELSE i.item_json END,
+                       COALESCE(pr.kind, ''), COALESCE(i.published_at, ?)
+                FROM live_session_items i
+                LEFT JOIN live_session_prompts pr ON pr.id = i.prompt_id
+                WHERE i.live_session_id = ? AND i.published_at IS NOT NULL
+                  AND i.publish_mode = 'individual' AND i.response_mode = 'individual'
+                  AND EXISTS (
+                    SELECT 1 FROM live_session_responses r
+                    WHERE r.prompt_id = i.prompt_id AND r.student_id IS NOT NULL
+                  )
+                """,
+                (class_id, run_key, module, slot, now, sid),
+            )
+            self.conn.execute(
+                """
+                INSERT OR IGNORE INTO participation_answers (
+                    class_id, run_key, live_module, question_key, student_id, source,
+                    answer_json, answered_at
+                )
+                SELECT ?, ?, ?, 'item:' || i.placement_key, r.student_id, 'live',
+                       '{}', r.updated_at
+                FROM live_session_responses r
+                INNER JOIN live_session_items i ON i.prompt_id = r.prompt_id
+                WHERE i.live_session_id = ? AND r.student_id IS NOT NULL
+                  AND i.publish_mode = 'individual' AND i.response_mode = 'individual'
+                """,
+                (class_id, run_key, module, sid),
+            )
+            self._upsert_participation_run_kind_unlocked(
+                class_id,
+                run_key,
+                is_real=False,
+                auto_is_real=False,
+                ended_at=ended_at,
+            )
+            return
+        session_code = str(session["session_code"] or "") if "session_code" in keys else ""
         self.conn.execute(
             """
             INSERT OR IGNORE INTO participation_items (
@@ -30307,6 +30452,7 @@ class SchoolDB(LovesDB):
             LEFT JOIN live_session_prompts pr ON pr.id = i.prompt_id
             WHERE i.live_session_id = ? AND i.published_at IS NOT NULL
               AND i.publish_mode = 'individual' AND i.response_mode = 'individual'
+
             """,
             (class_id, run_key, module, slot, now, sid),
         )
@@ -30329,13 +30475,25 @@ class SchoolDB(LovesDB):
             "SELECT 1 FROM participation_items WHERE class_id = ? AND run_key = ? LIMIT 1",
             (class_id, run_key),
         ).fetchone()
+        answered = self.conn.execute(
+            "SELECT 1 FROM participation_answers WHERE class_id = ? AND run_key = ? LIMIT 1",
+            (class_id, run_key),
+        ).fetchone()
         ended_at = str(session["ended_at"] if "ended_at" in keys and session["ended_at"] else now)
         is_real = self._classify_and_record_participation_run(
             class_id,
             run_key,
             ended_at=ended_at,
         )
-        if offered is not None and is_real:
+        if live_run:
+            is_real = self._upsert_participation_run_kind_unlocked(
+                class_id,
+                run_key,
+                is_real=True,
+                auto_is_real=True,
+                ended_at=ended_at,
+            )
+        if offered is not None and answered is not None and is_real:
             self._upsert_real_catchup_link_unlocked(
                 class_id, run_key, module, slot, now=now
             )
@@ -30595,6 +30753,43 @@ class SchoolDB(LovesDB):
             "run_link": dict(run_link) if run_link is not None else None,
         }
 
+    def participation_run_counts_as_real(self, class_id: int, run_key: str) -> bool:
+        """Whether a run counts as real for catch-up and lesson slides.
+
+        Stored ``participation_runs.is_real`` wins when present. With no row,
+        classify from the offering bell-end schedule and run ``ended_at`` (test
+        when unknown or outside the window).
+        """
+        return self.preview_participation_run_real(
+            int(class_id), run_key=str(run_key or "").strip()
+        )
+
+    def ensure_participation_run_kind(
+        self,
+        class_id: int,
+        run_key: str,
+        *,
+        is_real: bool = True,
+    ) -> bool:
+        """Insert ``participation_runs`` when missing; never overwrite an existing row."""
+        key = str(run_key or "").strip()
+        if not key:
+            return False
+        cid = int(class_id)
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT is_real FROM participation_runs
+                WHERE class_id = ? AND run_key = ?
+                """,
+                (cid, key),
+            ).fetchone()
+            if row is not None:
+                return bool(int(row["is_real"] or 0))
+            return self._upsert_participation_run_kind_unlocked(
+                cid, key, is_real=is_real, auto_is_real=is_real
+            )
+
     def _classify_and_record_participation_run(
         self,
         class_id: int,
@@ -30605,19 +30800,40 @@ class SchoolDB(LovesDB):
         """Classify one ended run and return whether it counts as a real class."""
         from live_class_run import classify_run_end, parse_ended_at, schedule_from_row
 
-        sched_row = self.live_class_schedule_for_class(int(class_id))
+        cid = int(class_id)
+        key = str(run_key or "").strip()
+        existing_row = self.conn.execute(
+            """
+            SELECT is_real, teacher_kind_set FROM participation_runs
+            WHERE class_id = ? AND run_key = ?
+            """,
+            (cid, key),
+        ).fetchone()
+        sched_row = self.live_class_schedule_for_class(cid)
         if sched_row is None or not str(sched_row.get("live_end_time") or "").strip():
-            return False
-        sched = schedule_from_row(
-            live_days=sched_row["live_days"],
-            live_end_time=sched_row["live_end_time"],
-        )
-        auto_real = bool(
-            sched and classify_run_end(parse_ended_at(ended_at), sched)
-        )
+            auto_real = False
+        else:
+            sched = schedule_from_row(
+                live_days=sched_row["live_days"],
+                live_end_time=sched_row["live_end_time"],
+            )
+            auto_real = bool(
+                sched and classify_run_end(parse_ended_at(str(ended_at or "")), sched)
+            )
+        if existing_row is not None:
+            teacher_set = bool(int(existing_row["teacher_kind_set"] or 0))
+            if teacher_set:
+                return self._upsert_participation_run_kind_unlocked(
+                    cid,
+                    key,
+                    is_real=bool(int(existing_row["is_real"] or 0)),
+                    auto_is_real=auto_real,
+                    ended_at=str(ended_at or ""),
+                )
+            return bool(int(existing_row["is_real"] or 0))
         return self._upsert_participation_run_kind_unlocked(
-            int(class_id),
-            str(run_key),
+            cid,
+            key,
             is_real=auto_real,
             auto_is_real=auto_real,
             ended_at=str(ended_at or ""),
@@ -30644,29 +30860,29 @@ class SchoolDB(LovesDB):
             """
             INSERT INTO participation_runs (
                 class_id, run_key, is_real, auto_is_real, discarded, discarded_at, discarded_by,
-                ended_at
-            ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)
+                ended_at, teacher_kind_set
+            ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 0)
             ON CONFLICT(class_id, run_key) DO UPDATE SET
                 auto_is_real = excluded.auto_is_real,
                 is_real = CASE
-                    WHEN participation_runs.is_real != participation_runs.auto_is_real
+                    WHEN participation_runs.teacher_kind_set = 1
                     THEN participation_runs.is_real
                     ELSE excluded.is_real
                 END,
                 discarded = CASE
-                    WHEN participation_runs.is_real != participation_runs.auto_is_real
+                    WHEN participation_runs.teacher_kind_set = 1
                     THEN participation_runs.discarded
                     ELSE excluded.discarded
                 END,
                 discarded_at = CASE
-                    WHEN participation_runs.is_real != participation_runs.auto_is_real
+                    WHEN participation_runs.teacher_kind_set = 1
                     THEN participation_runs.discarded_at
                     WHEN excluded.discarded = 1
                     THEN COALESCE(participation_runs.discarded_at, excluded.discarded_at)
                     ELSE NULL
                 END,
                 discarded_by = CASE
-                    WHEN participation_runs.is_real != participation_runs.auto_is_real
+                    WHEN participation_runs.teacher_kind_set = 1
                     THEN participation_runs.discarded_by
                     WHEN excluded.discarded = 1
                     THEN participation_runs.discarded_by
@@ -30693,7 +30909,82 @@ class SchoolDB(LovesDB):
                 ended,
             ),
         )
-        return bool(is_real)
+        row = self.conn.execute(
+            """
+            SELECT is_real FROM participation_runs
+            WHERE class_id = ? AND run_key = ?
+            """,
+            (int(class_id), key),
+        ).fetchone()
+        return bool(int(row["is_real"] or 0)) if row is not None else bool(is_real)
+
+    def _participation_run_anchor_unlocked(
+        self, class_id: int, run_key: str
+    ) -> dict[str, str] | None:
+        """Return module/slot when this class has items, snapshot, or session for the run."""
+        cid = int(class_id)
+        key = str(run_key or "").strip()
+        if not key:
+            return None
+        row = self.conn.execute(
+            """
+            SELECT live_module, live_slot FROM participation_items
+            WHERE class_id = ? AND run_key = ? LIMIT 1
+            """,
+            (cid, key),
+        ).fetchone()
+        if row is not None:
+            return {
+                "live_module": str(row["live_module"] or ""),
+                "live_slot": str(row["live_slot"] or ""),
+            }
+        snap = self.conn.execute(
+            """
+            SELECT live_module, live_slot FROM live_result_snapshots
+            WHERE class_id = ? AND run_key = ?
+            LIMIT 1
+            """,
+            (cid, key),
+        ).fetchone()
+        if snap is not None:
+            return {
+                "live_module": str(snap["live_module"] or ""),
+                "live_slot": str(snap["live_slot"] or ""),
+            }
+        sess = self.conn.execute(
+            """
+            SELECT teacher_state_json FROM live_class_sessions
+            WHERE class_id = ? AND run_key = ?
+            ORDER BY id DESC LIMIT 1
+            """,
+            (cid, key),
+        ).fetchone()
+        if sess is None:
+            return None
+        module = ""
+        slot = ""
+        try:
+            state = json.loads(sess["teacher_state_json"] or "{}")
+        except (TypeError, ValueError):
+            state = {}
+        if isinstance(state, dict):
+            module = str(state.get("live_module") or "")
+            slot = str(state.get("live_slot") or "")
+        return {"live_module": module, "live_slot": slot}
+
+    def _participation_run_has_items_unlocked(self, class_id: int, run_key: str) -> bool:
+        """True when participation_items exist for this class run."""
+        key = str(run_key or "").strip()
+        if not key:
+            return False
+        row = self.conn.execute(
+            """
+            SELECT 1 FROM participation_items
+            WHERE class_id = ? AND run_key = ? LIMIT 1
+            """,
+            (int(class_id), key),
+        ).fetchone()
+        return row is not None
 
     def set_participation_run_real(
         self,
@@ -30709,17 +31000,11 @@ class SchoolDB(LovesDB):
             return False
         cid = int(class_id)
         with self._lock:
-            row = self.conn.execute(
-                """
-                SELECT live_module, live_slot FROM participation_items
-                WHERE class_id = ? AND run_key = ? LIMIT 1
-                """,
-                (cid, key),
-            ).fetchone()
-            if row is None:
+            anchor = self._participation_run_anchor_unlocked(cid, key)
+            if anchor is None:
                 return False
-            module = str(row["live_module"] or "")
-            slot = str(row["live_slot"] or "")
+            module = str(anchor.get("live_module") or "")
+            slot = str(anchor.get("live_slot") or "")
             auto_row = self.conn.execute(
                 "SELECT auto_is_real FROM participation_runs WHERE class_id = ? AND run_key = ?",
                 (cid, key),
@@ -30730,13 +31015,15 @@ class SchoolDB(LovesDB):
             self.conn.execute(
                 """
                 INSERT INTO participation_runs (
-                    class_id, run_key, is_real, auto_is_real, discarded, discarded_at, discarded_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    class_id, run_key, is_real, auto_is_real, discarded, discarded_at,
+                    discarded_by, teacher_kind_set
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 1)
                 ON CONFLICT(class_id, run_key) DO UPDATE SET
                     is_real = excluded.is_real,
                     discarded = excluded.discarded,
                     discarded_at = excluded.discarded_at,
-                    discarded_by = excluded.discarded_by
+                    discarded_by = excluded.discarded_by,
+                    teacher_kind_set = 1
                 """,
                 (
                     cid,
@@ -30748,15 +31035,22 @@ class SchoolDB(LovesDB):
                     user_id if discarded else None,
                 ),
             )
-            if is_real:
+            if (
+                is_real
+                and module
+                and slot
+                and self._participation_run_has_items_unlocked(cid, key)
+            ):
                 self._upsert_real_catchup_link_unlocked(cid, key, module, slot, now=now)
-            else:
+            elif not is_real:
                 self.conn.execute(
                     "DELETE FROM catchup_links WHERE class_id = ? AND run_key = ?",
                     (cid, key),
                 )
             if self.conn.in_transaction:
                 self.conn.commit()
+        return True
+
         return True
 
     def participation_run_kind(self, class_id: int, run_key: str) -> dict[str, Any] | None:
@@ -30794,6 +31088,8 @@ class SchoolDB(LovesDB):
 
         cid = int(class_id)
         key = str(run_key or "").strip()
+        if not self._participation_run_has_items_unlocked(cid, key):
+            return
         mod = str(module or "")
         sl = str(slot or "")
         existing = self.conn.execute(
@@ -32912,12 +33208,15 @@ class SchoolDB(LovesDB):
         return {"items": items, "answers": answers}
 
     def classify_participation_run(
-        self, class_id: int, run_key: str, *, ended_at: str
+        self, class_id: int, run_key: str, *, ended_at: str = ""
     ) -> bool:
         """Classify one run and persist ``participation_runs`` (caller may hold no lock)."""
+        at = str(ended_at or "").strip()
+        if not at:
+            at = self.ended_at_for_participation_run(int(class_id), str(run_key))
         with self._lock:
             return self._classify_and_record_participation_run(
-                int(class_id), str(run_key), ended_at=str(ended_at or "")
+                int(class_id), str(run_key), ended_at=at
             )
 
     def ended_at_for_participation_run(self, class_id: int, run_key: str) -> str:
@@ -32949,18 +33248,28 @@ class SchoolDB(LovesDB):
             return str(snap["snapshot_at"])
         return ""
 
-    def preview_participation_run_real(self, class_id: int, *, ended_at: str) -> bool:
-        """Return whether ``ended_at`` would classify as a real class for this offering."""
+    def preview_participation_run_real(
+        self, class_id: int, *, ended_at: str = "", run_key: str = ""
+    ) -> bool:
+        """Return whether a run counts as real for backfill/repair preview."""
+        cid = int(class_id)
+        key = str(run_key or "").strip()
+        kind = self.participation_run_kind(cid, key) if key else None
+        if kind is not None:
+            return bool(kind.get("is_real"))
+        at = str(ended_at or "").strip()
+        if key and not at:
+            at = self.ended_at_for_participation_run(cid, key)
+        if not at:
+            return False
         from live_class_run import classify_run_end, parse_ended_at, schedule_from_row
 
-        sched_row = self.require_live_class_schedule_for_class(int(class_id))
+        sched_row = self.require_live_class_schedule_for_class(cid)
         sched = schedule_from_row(
             live_days=sched_row["live_days"],
             live_end_time=sched_row["live_end_time"],
         )
-        return bool(
-            sched and classify_run_end(parse_ended_at(str(ended_at or "")), sched)
-        )
+        return bool(sched and classify_run_end(parse_ended_at(at), sched))
 
     def catchup_link_for_slot(
         self, class_id: int, live_module: str, live_slot: str
@@ -33537,11 +33846,17 @@ class SchoolDB(LovesDB):
                 self.conn.commit()
         return True
 
-    def cleanup_live_session_response_data(self, session_id: int) -> None:
+    def cleanup_live_session_response_data(
+        self, session_id: int, *, live_run: bool = True
+    ) -> None:
         """Delete ephemeral individual votes, group responses, and board ops.
 
         Every answer is first copied to ``live_result_snapshots`` in the
         same transaction (MCK-45), so End leaves a results record.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            live_run: When False, skip Live-run persistence (MCK-233 Test toggle).
         """
 
         self.purge_board_ops(int(session_id))
@@ -33567,7 +33882,9 @@ class SchoolDB(LovesDB):
                 self.conn.execute("SAVEPOINT participation_capture")
                 captured = True
                 try:
-                    self._capture_participation_unlocked(int(session_id))
+                    self._capture_participation_unlocked(
+                        int(session_id), live_run=bool(live_run)
+                    )
                 except Exception:  # noqa: BLE001
                     captured = False
                     self.conn.execute("ROLLBACK TO participation_capture")
@@ -34777,6 +35094,8 @@ class SchoolDB(LovesDB):
         self,
         class_id: int,
         winner: dict[str, Any] | None = None,
+        *,
+        live_run: bool = True,
     ) -> dict[str, Any]:
         """End the live SID for staff but keep student celebration + feedback.
 
@@ -34809,7 +35128,7 @@ class SchoolDB(LovesDB):
             "players": list((snap or {}).get("players") or []),
         }
         self._write_teacher_state(session_id, payload)
-        self.cleanup_live_session_response_data(session_id)
+        self.cleanup_live_session_response_data(session_id, live_run=live_run)
         now = _now()
         with self._lock:
             self.conn.execute(
@@ -34826,6 +35145,7 @@ class SchoolDB(LovesDB):
             "class_id": int(class_id),
             "celebrating": True,
             "session_id": session_id,
+            "live_run": bool(live_run),
         }
 
     def student_end_class_overlay(
@@ -34953,6 +35273,7 @@ class SchoolDB(LovesDB):
         save_participation: bool = True,
         celebrate: bool | None = None,
         run_key: str | None = None,
+        live_run: bool | None = None,
     ) -> dict[str, Any]:
         """End Live Class (keep student celebration) or Quit (wipe).
 
@@ -34972,10 +35293,33 @@ class SchoolDB(LovesDB):
                 it). When that run is no longer the class's active run, a
                 concurrent End already closed it, so this one does nothing
                 (MCK-72 follow-up: a late End used to begin a new column).
+            live_run: Teacher chose Live on the End dialog (MCK-233); Test skips A&P.
+                When omitted, follow the schedule-window default for the active run.
 
         Returns:
             Celebration payload or wipe payload, or ``already_ended``.
         """
+        resolved_live = live_run
+        if resolved_live is None:
+            with self._lock:
+                active_row = self.conn.execute(
+                    """
+                    SELECT started_at FROM live_class_sessions
+                    WHERE class_id = ? AND status = 'active'
+                    ORDER BY id DESC LIMIT 1
+                    """,
+                    (int(class_id),),
+                ).fetchone()
+            if active_row is not None:
+                mode = self.default_end_live_run_mode_for_class(
+                    int(class_id), str(active_row["started_at"] or "")
+                )
+                resolved_live = mode == "live"
+            else:
+                resolved_live = True
+        if not resolved_live:
+            save_attendance = False
+            save_participation = False
         active_key = self._live_class_run_key(int(class_id))
         expected = str(run_key or "").strip()
         if expected and active_key != expected:
@@ -35050,7 +35394,7 @@ class SchoolDB(LovesDB):
         if celebrate:
             result = retry_if_db_locked(
                 lambda: self.close_live_class_for_celebration(
-                    int(class_id), winner=winner
+                    int(class_id), winner=winner, live_run=bool(resolved_live)
                 )
             )
         else:

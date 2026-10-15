@@ -267,6 +267,33 @@ class ProdFixtureBase(Base):
             "0dae", "mcf3m", "M2", "C3", test_utc, link_token="tok-0dae", link_closed=True
         )
         self._insert_snapshot("2af3", "mcf3m", "M2", "C4", real_utc_mcf)
+        self._seed_teacher_marked_test_runs()
+
+    def _class_key_for_suffix(self, suffix: str) -> str:
+        if suffix in ("9a20", "8312"):
+            return "class_10"
+        if suffix in ("1b01", "7e0c", "4373", "3b4b", "a5d4", "7656"):
+            return "class_9"
+        return "mcf3m"
+
+    def _seed_teacher_marked_test_runs(self) -> None:
+        """MCK-233: only teacher-flagged runs stay test during repair/backfill."""
+        for suffix, (_mod, _slot, kind) in PROD_RUN_SCOPES.items():
+            if kind != "test":
+                continue
+            cid = self.class_ids[self._class_key_for_suffix(suffix)]
+            run_key = f"prod-{suffix}-run"
+            self.school.conn.execute(
+                """
+                INSERT INTO participation_runs (
+                    class_id, run_key, is_real, auto_is_real, discarded
+                ) VALUES (?, ?, 0, 0, 1)
+                ON CONFLICT(class_id, run_key) DO UPDATE SET
+                    is_real = 0, auto_is_real = 0, discarded = 1
+                """,
+                (cid, run_key),
+            )
+        self.school.conn.commit()
 
     def _wipe_live_sessions(self) -> None:
         self.school.conn.execute("DELETE FROM live_class_sessions")
@@ -328,11 +355,11 @@ class RunKeyRepairTests(ProdFixtureBase):
         self.assertEqual(len(after), 1)
         self.assertIn("9a20", after[0]["run_key"])
 
-    def test_repair_8312_marks_test_on_class_10(self) -> None:
+    def test_repair_8312_respects_teacher_test_flag_on_class_10(self) -> None:
         cid = self.class_ids["class_10"]
         report = repair_catchup(self.school, run_targets=[(cid, "8312")], apply=True)
         actions = "\n".join(r.action for r in report.runs).lower()
-        self.assertIn("test", actions)
+        self.assertIn("skip participation", actions)
         still_closed = int(
             self.school.conn.execute(
                 "SELECT is_open FROM catchup_links WHERE id = 5"
@@ -350,6 +377,82 @@ class RunKeyRepairTests(ProdFixtureBase):
         assert kind is not None
         self.assertFalse(kind["is_real"])
 
+
+    def test_prod_uuid_prefix_runs_without_row_stay_test(self) -> None:
+        """MCK-233: missing participation_runs row is test unless bell-end says real."""
+        self._sync_offering_ends()
+        cid = self.class_ids["class_9"]
+        outside = "2026-10-20T22:00:00"
+        for prefix in ("02fa734e", "0726b586", "7656bb5e", "ad5b7cba"):
+            run_key = f"{prefix}-0000-4000-8000-000000000000"
+            self.school.conn.execute(
+                "DELETE FROM participation_runs WHERE class_id = ? AND run_key = ?",
+                (cid, run_key),
+            )
+            self._insert_snapshot(
+                prefix[:4],
+                "class_9",
+                "M2",
+                "C3",
+                outside,
+                with_answers=False,
+            )
+            self.school.conn.execute(
+                "UPDATE live_result_snapshots SET run_key = ? WHERE class_id = ? AND run_key LIKE ?",
+                (run_key, cid, f"prod-{prefix[:4]}-run"),
+            )
+            self.school.conn.commit()
+            self.assertFalse(
+                self.school.preview_participation_run_real(
+                    cid, ended_at=outside, run_key=run_key
+                ),
+                prefix,
+            )
+
+
+    def test_prod_uuid_prefix_apply_stays_test_no_catchup_link(self) -> None:
+        """Apply path must match dry-run: no row + outside bell-end stays test (no link)."""
+        self._sync_offering_ends()
+        cid = self.class_ids["class_9"]
+        outside = "2026-10-20T22:00:00"
+        for prefix in ("02fa734e", "0726b586", "7656bb5e", "ad5b7cba"):
+            run_key = f"{prefix}-0000-4000-8000-000000000000"
+            self.school.conn.execute(
+                "DELETE FROM catchup_links WHERE class_id = ? AND run_key = ?",
+                (cid, run_key),
+            )
+            self.school.conn.execute(
+                "DELETE FROM participation_runs WHERE class_id = ? AND run_key = ?",
+                (cid, run_key),
+            )
+            self.school.conn.execute(
+                "DELETE FROM live_result_snapshots WHERE class_id = ? AND run_key = ?",
+                (cid, run_key),
+            )
+            self.school.conn.commit()
+            self._insert_snapshot(
+                prefix[:4],
+                "class_9",
+                "M2",
+                "C3",
+                outside,
+                with_answers=True,
+            )
+            self.school.conn.execute(
+                "UPDATE live_result_snapshots SET run_key = ? WHERE class_id = ? AND run_key LIKE ?",
+                (run_key, cid, f"prod-{prefix[:4]}-run"),
+            )
+            self.school.conn.commit()
+            repair_catchup(self.school, run_targets=[(cid, prefix)], apply=True)
+            kind = self.school.participation_run_kind(cid, run_key)
+            assert kind is not None, prefix
+            self.assertFalse(kind["is_real"], prefix)
+            link = self.school.conn.execute(
+                "SELECT id FROM catchup_links WHERE class_id = ? AND run_key = ?",
+                (cid, run_key),
+            ).fetchone()
+            self.assertIsNone(link, prefix)
+
     def test_prod_fixture_dry_run_all_scopes(self) -> None:
         targets: list[tuple[int, str]] = []
         for suffix in PROD_RUN_SCOPES:
@@ -366,7 +469,7 @@ class RunKeyRepairTests(ProdFixtureBase):
             self.assertTrue(rows, suffix)
             actions = " ".join(r.action for r in rows)
             if kind == "test":
-                self.assertRegex(actions, r"test|skip")
+                self.assertRegex(actions, r"skip participation|test")
             else:
                 self.assertRegex(actions, r"real|mint|reopen|participation")
 

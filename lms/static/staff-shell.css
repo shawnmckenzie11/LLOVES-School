@@ -5391,6 +5391,31 @@ body.staff-shell .end-live-option span {
   min-width: 0;
   align-self: baseline;
 }
+body.staff-shell .end-live-run-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin: 0;
+  padding: 0.35rem 0 0;
+  border: none;
+}
+body.staff-shell .end-live-run-mode-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #475569;
+  margin-right: 0.25rem;
+}
+body.staff-shell .end-live-run-mode-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+body.staff-shell .end-live-run-mode-option input {
+  margin: 0;
+}
 body.staff-shell .end-live-dialog-actions {
   display: flex;
   flex-wrap: nowrap;

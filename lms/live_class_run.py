@@ -1,9 +1,8 @@
-"""Classify ended live runs as real class vs test (MCK-207).
+"""Scheduled class window helpers (legacy MCK-207).
 
-Real runs end on a scheduled live-class day (from the course/offering
-schedule) within a window around the scheduled *end* time in
-``America/Toronto``. Only the slack around that end time lives in
-``config/live_class_run.json``; days and end times come from the database.
+MCK-233: Test vs Live is chosen on the End Live Class dialog (schedule
+only suggests the default). These helpers remain for tests and legacy
+end-window utilities; production no longer auto-discards runs by time.
 """
 
 from __future__ import annotations

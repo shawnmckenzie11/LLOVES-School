@@ -16,6 +16,7 @@ sys.path.insert(0, str(LMS_DIR.parent))
 os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
+from app import create_app  # noqa: E402
 from catchup_landing import (  # noqa: E402
     COPY_PICK_TITLE,
     COPY_TIER_DONE,
@@ -65,7 +66,7 @@ class CatchupLandingFlowTests(Base):
             live_time="9:15am",
             live_end_time="10:30am",
         )
-        self.run_class("M1", "C1", individual=3, group=0, answers={self.students[0]: 2})
+        self.run_class("M1", "C1", individual=3, group=0, answers={self.students[0]: 2, self.students[1]: 3})
         self.link = self.school.list_catchup_links(self.class_id)[0]
         self.portal_code = str(self.link.get("portal_join_code") or "").strip()
         if not self.portal_code:
@@ -167,6 +168,17 @@ class CatchupLandingFlowTests(Base):
         self.assertEqual(rv.status_code, 200)
         self.assertIn(COPY_LIVE_JOINING, rv.get_data(as_text=True))
         self.school.end_live_class_session(int(live["id"]))
+
+
+
+
+class CatchupLandingRouteTests(unittest.TestCase):
+    """MCK-319: student catch-up landing API stays registered on main."""
+
+    def test_catchup_landing_api_route_registered(self) -> None:
+        app = create_app()
+        rules = {rule.rule for rule in app.url_map.iter_rules()}
+        self.assertIn("/api/student/catchup-landing", rules)
 
 
 if __name__ == "__main__":
