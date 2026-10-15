@@ -140,8 +140,8 @@ def _plan_real_run_link(
         action = "mint open link"
         detail = "new token"
         if apply:
-            token = school.mint_open_catchup_link(cid, key, mod, sl)
-            detail = f"token={token[:8]}…"
+            school.mint_open_catchup_link(cid, key, mod, sl)
+            detail = "minted"
         else:
             action = f"would {action}"
         return BackfillRunReport(
@@ -189,10 +189,10 @@ def _plan_real_run_link(
     action = "discard test link; mint open link"
     detail = f"discard link_id={link_id}; new token"
     if apply:
-        token = school.mint_open_catchup_link(
+        school.mint_open_catchup_link(
             cid, key, mod, sl, discard_slot_link_id=link_id
         )
-        detail = f"discard link_id={link_id}; token={token[:8]}…"
+        detail = f"discard link_id={link_id}"
     else:
         action = f"would {action}"
     return BackfillRunReport(

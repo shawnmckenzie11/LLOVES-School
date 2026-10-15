@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import os
@@ -288,7 +289,7 @@ class ProdMigrationFixture(unittest.TestCase):
         self._insert_snapshot("4373", c10, "M2", "C4", real_1155, link_id=7, link_closed=True)
         self._insert_snapshot("3b4b", c9, "M2", "C3", test_utc, is_test_rehearsal=True)
         self._insert_snapshot("a5d4", c9, "M2", "C1", test_utc, is_test_rehearsal=True)
-        self._insert_snapshot("7656", c9, "M2", "C5", real_1030, link_id=2, link_token="good-link-2")
+        self._insert_snapshot("7656", c9, "M2", "C1", test_utc, is_test_rehearsal=True)
         self._insert_snapshot("d20a", c8, "M2", "C3", real_mcf)
         self._insert_snapshot(
             "0dae", c8, "M2", "C3", test_utc, link_id=9, link_closed=True, link_token="tok-0dae", is_test_rehearsal=True)
@@ -302,21 +303,104 @@ class ProdMigrationFixture(unittest.TestCase):
             """,
             (real_1030, real_1030),
         )
+        self.school.conn.execute(
+            """
+            INSERT INTO catchup_links (
+                id, token, class_id, run_key, live_module, live_slot, is_open,
+                created_at, updated_at
+            ) VALUES (2, 'good-link-2', 9, 'prod-protected-2', 'M2', 'C5', 1, ?, ?)
+            """,
+            (real_1030, real_1030),
+        )
         self.school.conn.commit()
 
 
 class MigrationApplyTests(ProdMigrationFixture):
+    def test_fixture_matches_prod_slots(self) -> None:
+        """4373 is class 10; 7656 is an M2 C1 test; links 6, 7, 8, and 10 exist."""
+
+        snaps = self.school.conn.execute(
+            """
+            SELECT class_id, live_module, live_slot, run_key
+            FROM live_result_snapshots
+            WHERE run_key IN ('prod-4373-run', 'prod-7656-run')
+            """
+        ).fetchall()
+        by_key = {str(row[3]): row for row in snaps}
+        row_4373 = by_key["prod-4373-run"]
+        self.assertEqual(int(row_4373[0]), 10)
+        self.assertEqual(str(row_4373[1]), "M2")
+        self.assertEqual(str(row_4373[2]), "C4")
+        row_7656 = by_key["prod-7656-run"]
+        self.assertEqual(int(row_7656[0]), 9)
+        self.assertEqual(str(row_7656[1]), "M2")
+        self.assertEqual(str(row_7656[2]), "C1")
+        kind = self.school.conn.execute(
+            "SELECT is_real FROM participation_runs WHERE run_key = 'prod-7656-run'"
+        ).fetchone()
+        self.assertIsNotNone(kind)
+        self.assertEqual(int(kind[0]), 0)
+        link_ids = {
+            int(row[0])
+            for row in self.school.conn.execute("SELECT id FROM catchup_links").fetchall()
+        }
+        self.assertTrue({6, 7, 8, 10}.issubset(link_ids))
+        protected = self.school.conn.execute(
+            "SELECT run_key FROM catchup_links WHERE id = 2"
+        ).fetchone()
+        self.assertIsNotNone(protected)
+        self.assertNotIn("7656", str(protected[0]))
+
     def test_eligible_and_plan_matches(self) -> None:
+        """plan() previews only. Offering ends are filled by the real sync first."""
+
         self.assertTrue(prod_catchup_migration_eligible(self.school))
-        plans = self.school.plan_sync_offering_live_schedules(offering_ids=[12])
-        self.assertEqual(len(plans), 1)
-        self.assertEqual(plans[0]["live_end_time"], "11:55am")
+        plans = self.school.plan_sync_offering_live_schedules(
+            offering_ids=list(migration.OFFERING_IDS)
+        )
+        self.assertTrue(plans)
+        self.assertEqual(
+            next(row["live_end_time"] for row in plans if int(row["offering_id"]) == 12),
+            "11:55am",
+        )
+        self.school.apply_sync_offering_live_schedules(plans)
+        before_links = [
+            tuple(row)
+            for row in self.school.conn.execute(
+                "SELECT id, token, run_key, is_open FROM catchup_links ORDER BY id"
+            ).fetchall()
+        ]
         with self.school._lock:
-            self.school.conn.execute("BEGIN")
-            _, applied = plan_mck210_migration(self.school)
-            self.school.conn.execute("ROLLBACK")
-        self.assertFalse(applied.dry_run)
-        self.assertGreater(len(applied.runs), 0)
+            _, preview = plan_mck210_migration(self.school)
+        after_links = [
+            tuple(row)
+            for row in self.school.conn.execute(
+                "SELECT id, token, run_key, is_open FROM catchup_links ORDER BY id"
+            ).fetchall()
+        ]
+        self.assertEqual(after_links, before_links)
+        self.assertTrue(preview.dry_run)
+        source = inspect.getsource(plan_mck210_migration)
+        self.assertNotIn("apply=True", source)
+        self.assertNotIn("apply_sync_offering_live_schedules", source)
+        link5 = self.school.conn.execute(
+            "SELECT is_open FROM catchup_links WHERE id = 5"
+        ).fetchone()
+        self.assertEqual(int(link5[0]), 0)
+
+    def test_apply_log_omits_token_prefix(self) -> None:
+        """The boot apply log must not print the first characters of a new token."""
+
+        logging.disable(logging.NOTSET)
+        try:
+            with self.assertLogs("mck210_catchup_migration", level="WARNING") as logs:
+                result = run_mck210_catchup_migration_if_needed(self.school)
+        finally:
+            logging.disable(logging.WARNING)
+        self.assertEqual(result["status"], "applied")
+        blob = "\n".join(logs.output)
+        self.assertIn("minted", blob)
+        self.assertNotIn("token=", blob)
 
     def test_apply_idempotent(self) -> None:
         first = run_mck210_catchup_migration_if_needed(self.school)

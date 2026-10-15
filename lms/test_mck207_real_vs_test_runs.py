@@ -260,6 +260,94 @@ class RealVsTestFlowTests(Base):
             )
         self.assertTrue(self.school.participation_run_kind(self.class_id, run_key)["is_real"])
 
+    def _participation_run_row(self, run_key: str) -> tuple:
+        """Return the stored kind and end columns for one run."""
+
+        row = self.school.conn.execute(
+            """
+            SELECT is_real, auto_is_real, ended_at, teacher_kind_set
+            FROM participation_runs
+            WHERE class_id = ? AND run_key = ?
+            """,
+            (self.class_id, run_key),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        return (int(row[0]), int(row[1]), str(row[2] or ""), int(row[3]))
+
+    def test_ended_at_is_set_once(self) -> None:
+        """A later end time must not replace a recorded participation end."""
+
+        run_key = self.run_class("M1", "C1", 1, 0, {self.students[0]: 1})
+        with self.school._lock:
+            self.school.conn.execute(
+                """
+                UPDATE participation_runs
+                SET ended_at = '2026-10-14T14:00:00'
+                WHERE class_id = ? AND run_key = ?
+                """,
+                (self.class_id, run_key),
+            )
+            self.school.conn.commit()
+            self.school._upsert_participation_run_kind_unlocked(
+                self.class_id,
+                run_key,
+                is_real=True,
+                auto_is_real=True,
+                ended_at="2026-10-14T18:00:00",
+            )
+        self.assertEqual(
+            self._participation_run_row(run_key)[2], "2026-10-14T14:00:00"
+        )
+
+    def test_blank_ended_at_still_fills(self) -> None:
+        """The first recorded end still writes when the column is blank."""
+
+        run_key = self.run_class("M1", "C2", 1, 0, {self.students[0]: 1})
+        with self.school._lock:
+            self.school.conn.execute(
+                """
+                UPDATE participation_runs
+                SET ended_at = ''
+                WHERE class_id = ? AND run_key = ?
+                """,
+                (self.class_id, run_key),
+            )
+            self.school.conn.commit()
+            self.school._upsert_participation_run_kind_unlocked(
+                self.class_id,
+                run_key,
+                is_real=True,
+                auto_is_real=True,
+                ended_at="2026-10-14T18:00:00",
+            )
+        self.assertEqual(
+            self._participation_run_row(run_key)[2], "2026-10-14T18:00:00"
+        )
+
+    def test_teacher_kind_set_is_not_reclassified(self) -> None:
+        """teacher_kind_set=1 keeps is_real, auto_is_real, and ended_at."""
+
+        run_key = self.run_class("M1", "C3", 1, 0, {self.students[0]: 1})
+        self.assertTrue(
+            self.school.set_participation_run_real(
+                self.class_id, run_key, False, user_id=int(self.teacher["id"])
+            )
+        )
+        before = self._participation_run_row(run_key)
+        self.assertEqual(before[3], 1)
+        self.school.classify_participation_run(
+            self.class_id, run_key, ended_at="2026-10-14T19:00:00"
+        )
+        with self.school._lock:
+            self.school._upsert_participation_run_kind_unlocked(
+                self.class_id,
+                run_key,
+                is_real=True,
+                auto_is_real=True,
+                ended_at="2026-10-14T19:00:00",
+            )
+        self.assertEqual(self._participation_run_row(run_key), before)
+
     def test_class_kind_api_404_without_run_anchor(self) -> None:
         """Unknown or foreign run keys must not create participation_runs rows."""
         staff = self.app.test_client()
