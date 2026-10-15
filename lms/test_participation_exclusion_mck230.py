@@ -20,15 +20,16 @@ from participation_exclusion import (  # noqa: E402
 class ParticipationExclusionTests(unittest.TestCase):
     """Test-run SQL fragment and tab eligibility."""
 
-    def test_sql_fragment_mentions_discarded_and_is_real(self) -> None:
+    def test_sql_fragment_requires_real_undiscarded_row(self) -> None:
         frag = sql_exclude_non_counted_participation_run("p.class_id", "p.run_key")
-        self.assertIn("discarded = 1", frag)
-        self.assertIn("is_real = 0", frag)
+        self.assertIn("EXISTS", frag)
+        self.assertIn("discarded = 0", frag)
+        self.assertIn("is_real = 1", frag)
 
     def test_counts_in_tab_requires_real_undiscarded(self) -> None:
         self.assertTrue(participation_run_counts_in_tab({"is_real": True, "discarded": False}))
         self.assertFalse(participation_run_counts_in_tab({"is_real": False, "discarded": True}))
-        self.assertTrue(participation_run_counts_in_tab(None))
+        self.assertFalse(participation_run_counts_in_tab(None))
 
     def test_exclude_participation_answer_student_ids_is_callable(self) -> None:
         self.assertIsInstance(exclude_participation_answer_student_ids, type(lambda: None))

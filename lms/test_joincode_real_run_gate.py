@@ -126,6 +126,53 @@ class JoinCodeRealRunGateTests(RealVsTestFlowTests):
         self.assertNotIn(test_token, other_tokens)
         self.assertEqual(total, 0)
 
+    def test_direct_catchup_legacy_url_404_for_test_run(self) -> None:
+        test_key = self._end_run("M6", "C1", ended_iso="2026-10-18T15:00:00", live_run=False)
+        token = self._insert_catchup_row(
+            module="M6",
+            slot="C1",
+            run_key=test_key,
+            portal_code=mint_portal_join_code("MCR3U", "M6", "C1"),
+        )
+        client = self.app.test_client()
+        rv = client.get(f"/catchup/{token}", follow_redirects=False)
+        self.assertEqual(rv.status_code, 404)
+
+    def test_direct_catchup_canonical_url_404_without_real_run(self) -> None:
+        ghost_key = uuid.uuid4().hex
+        token = self._insert_catchup_row(
+            module="M7",
+            slot="C1",
+            run_key=ghost_key,
+            portal_code=mint_portal_join_code("MCR3U", "M7", "C1"),
+        )
+        client = self.app.test_client()
+        rv = client.get(
+            f"/catchup/MCR3U/m7-c1/{token}",
+            follow_redirects=False,
+        )
+        self.assertEqual(rv.status_code, 404)
+
+    def test_direct_catchup_url_works_for_real_run(self) -> None:
+        self._end_run("M8", "C1", ended_iso="2026-10-14T14:30:00", live_run=True)
+        token = str(self.school.list_catchup_links(self.class_id)[-1]["token"])
+        client = self.app.test_client()
+        rv = client.get(f"/catchup/{token}", follow_redirects=False)
+        self.assertEqual(rv.status_code, 302)
+        self.assertIn(f"/catchup/MCR3U/m8-c1/{token}", rv.headers.get("Location") or "")
+
+    def test_direct_catchup_url_404_for_discarded_run(self) -> None:
+        run_key = self._end_run("M9", "C1", ended_iso="2026-10-14T14:30:00", live_run=True)
+        token = str(self.school.list_catchup_links(self.class_id)[-1]["token"])
+        self.assertTrue(
+            self.school.set_participation_run_discarded(
+                self.class_id, run_key, True, user_id=int(self.teacher["id"])
+            )
+        )
+        client = self.app.test_client()
+        rv = client.get(f"/catchup/{token}", follow_redirects=False)
+        self.assertEqual(rv.status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

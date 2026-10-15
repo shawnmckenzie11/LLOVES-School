@@ -50,16 +50,16 @@ def sql_exclude_non_counted_participation_run(
         ``AND NOT EXISTS (...)`` suitable to append to a ``WHERE`` clause.
     """
     return (
-        f" AND NOT EXISTS (SELECT 1 FROM participation_runs {alias} "
+        f" AND EXISTS (SELECT 1 FROM participation_runs {alias} "
         f"WHERE {alias}.class_id = {class_id_expr} AND {alias}.run_key = {run_key_expr} "
-        f"AND ({alias}.discarded = 1 OR {alias}.is_real = 0))"
+        f"AND {alias}.discarded = 0 AND {alias}.is_real = 1)"
     )
 
 
 def participation_run_counts_in_tab(kind: dict[str, Any] | None) -> bool:
     """True when a run should appear in Participation tab columns and rollups."""
     if kind is None:
-        return True
+        return False
     return bool(kind.get("is_real")) and not bool(kind.get("discarded"))
 
 
