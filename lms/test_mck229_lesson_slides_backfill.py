@@ -23,6 +23,39 @@ from test_mck207_real_vs_test_runs import RealVsTestFlowTests  # noqa: E402
 class LessonSlidesBackfillTests(RealVsTestFlowTests):
     """Backfill and UI fallback when ``lesson_slides_latest`` is empty."""
 
+
+    def _ensure_real_student_answer(self, run_key: str, module: str, slot: str, answered_at: str) -> None:
+        """Backfill requires at least one non–Test Student participation answer."""
+        from participation_real_students import exclude_test_student_ids
+
+        c = self.school.conn
+        test_ids = exclude_test_student_ids(int(self.class_id), self.school)
+        student_id = None
+        for sid in self.students:
+            if int(sid) not in test_ids:
+                student_id = int(sid)
+                break
+        if student_id is None:
+            student_id = int(self.students[0])
+        item = c.execute(
+            """
+            SELECT question_key FROM participation_items
+            WHERE class_id = ? AND run_key = ? LIMIT 1
+            """,
+            (int(self.class_id), str(run_key)),
+        ).fetchone()
+        qkey = str(item[0] if item else "item:q0")
+        c.execute(
+            """
+            INSERT OR IGNORE INTO participation_answers (
+                class_id, run_key, live_module, question_key, student_id, source,
+                answer_json, answered_at
+            ) VALUES (?, ?, ?, ?, ?, 'live', '{}', ?)
+            """,
+            (int(self.class_id), str(run_key), module, qkey, student_id, answered_at),
+        )
+        c.commit()
+
     def _ended_real_run_keep_session(
         self,
         module: str,
@@ -71,6 +104,7 @@ class LessonSlidesBackfillTests(RealVsTestFlowTests):
             or ""
         )
         self.school.cleanup_live_session_response_data(sid)
+        LessonSlidesBackfillTests._ensure_real_student_answer(self, key, module, slot, now)
         c.execute("DELETE FROM lesson_slides_latest WHERE class_id = ?", (int(self.class_id),))
         c.commit()
         return key

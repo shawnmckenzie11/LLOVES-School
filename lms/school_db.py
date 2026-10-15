@@ -3434,6 +3434,18 @@ class LovesDB:
             );
             """
         )
+        cols_ls = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(lesson_slides_latest)")
+        }
+        if "ended_at_inferred" not in cols_ls:
+            self.conn.execute(
+                "ALTER TABLE lesson_slides_latest ADD COLUMN ended_at_inferred INTEGER NOT NULL DEFAULT 0"
+            )
+        if "inferred_ended_at" not in cols_ls:
+            self.conn.execute(
+                "ALTER TABLE lesson_slides_latest ADD COLUMN inferred_ended_at TEXT NOT NULL DEFAULT ''"
+            )
 
     def _ensure_participation_run_kind_columns(self) -> None:
         """``is_real`` / ``auto_is_real`` on ``participation_runs`` (MCK-207)."""
@@ -3451,13 +3463,6 @@ class LovesDB:
             )
         if "ended_at" not in cols:
             self.conn.execute("ALTER TABLE participation_runs ADD COLUMN ended_at TEXT")
-
-    def _backfill_participation_runs_ended_at_unlocked(self) -> int:
-        """Set ``participation_runs.ended_at`` from snapshots or offered items (MCK-229)."""
-        from lesson_slides_backfill import _BACKFILL_PARTICIPATION_RUN_ENDED_AT_SQL
-
-        cur = self.conn.execute(_BACKFILL_PARTICIPATION_RUN_ENDED_AT_SQL)
-        return int(cur.rowcount if cur.rowcount is not None else 0)
 
     def _ensure_catchup_slot_unique(self) -> None:
         """One shared catch-up link row per class lesson slot (MCK-207)."""
@@ -30325,6 +30330,8 @@ class SchoolDB(LovesDB):
                 slot=slot,
                 ended_at=ended_at,
                 session_code=str(session["session_code"] or ""),
+                ended_at_inferred=False,
+                inferred_ended_at="",
             )
 
     def live_class_schedule_for_class(
@@ -30360,11 +30367,20 @@ class SchoolDB(LovesDB):
                 days = str(course_defaults.get("live_class_days") or "").strip()
             if not end and not offering_end_required:
                 end = str(course_defaults.get("live_class_end_time") or "").strip()
+            start = str((offering.get("live_time") or row["time"] or "")).strip()
+            if not start:
+                start = str(
+                    course_defaults.get("live_class_time")
+                    or course_defaults.get("live_time")
+                    or ""
+                ).strip()
             sched = schedule_from_row(
                 live_days=days,
                 live_end_time=end,
+                live_time=start,
                 fallback_days=days,
                 fallback_end="",
+                fallback_start=start,
             )
         else:
             crow = self.game.conn.execute(
@@ -30375,15 +30391,27 @@ class SchoolDB(LovesDB):
                 course_defaults = (
                     self.get_ontario_course(str(crow["course_code"] or "")) or {}
                 )
+            start = str(row["time"] or "").strip() or str(
+                course_defaults.get("live_class_time") or course_defaults.get("live_time") or ""
+            ).strip()
             sched = schedule_from_row(
                 live_days=str(row["days"] or "").strip(),
                 live_end_time="",
+                live_time=start,
                 fallback_days=str(course_defaults.get("live_class_days") or "").strip(),
                 fallback_end=str(course_defaults.get("live_class_end_time") or "").strip(),
+                fallback_start=start,
             )
         if sched is None or not str(sched.end_time_label or "").strip():
             return None
-        return {"live_days": sched.days_key, "live_end_time": sched.end_time_label}
+        start_label = str(sched.start_time_label or "").strip()
+        if not start_label:
+            start_label = str(row["time"] or "").strip()
+        return {
+            "live_days": sched.days_key,
+            "live_end_time": sched.end_time_label,
+            "live_time": start_label,
+        }
 
     def require_live_class_schedule_for_class(self, class_id: int) -> dict[str, str]:
         """Return schedule or raise when ``live_end_time`` is missing (MCK-210)."""
@@ -31033,6 +31061,8 @@ class SchoolDB(LovesDB):
         slot: str,
         ended_at: str,
         session_code: str,
+        ended_at_inferred: bool = False,
+        inferred_ended_at: str = "",
     ) -> None:
         """Replace the Lesson Slides ground-truth row for one live class slot."""
         from lesson_slides_table import _bank_question_id, _stem, _type_label
@@ -31109,12 +31139,15 @@ class SchoolDB(LovesDB):
             """
             INSERT INTO lesson_slides_latest (
                 class_id, live_module, live_slot, run_key, session_code, ended_at,
+                ended_at_inferred, inferred_ended_at,
                 presentation_url, questions_json, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(class_id, live_module, live_slot) DO UPDATE SET
                 run_key = excluded.run_key,
                 session_code = excluded.session_code,
                 ended_at = excluded.ended_at,
+                ended_at_inferred = excluded.ended_at_inferred,
+                inferred_ended_at = excluded.inferred_ended_at,
                 presentation_url = excluded.presentation_url,
                 questions_json = excluded.questions_json,
                 updated_at = excluded.updated_at
@@ -31126,6 +31159,8 @@ class SchoolDB(LovesDB):
                 str(run_key),
                 str(session_code or ""),
                 str(ended_at or now),
+                1 if ended_at_inferred else 0,
+                str(inferred_ended_at or ""),
                 presentation_url,
                 json.dumps(questions),
                 now,
@@ -31896,28 +31931,38 @@ class SchoolDB(LovesDB):
         }
 
     def list_catchup_links(self, class_id: int) -> list[dict[str, Any]]:
+        from lesson_slides_run_policy import effective_run_is_real
+
         with self._lock:
             rows = self.conn.execute(
                 """
                 SELECT c.class_id, c.token, c.run_key, c.live_module, c.live_slot, c.is_open,
                        c.created_at, c.portal_join_code,
                        COALESCE(r.discarded, 0) AS discarded,
-                       COALESCE(r.is_real, 0) AS is_real
+                       COALESCE(r.is_real, 0) AS is_real,
+                       r.run_key AS participation_run_key
                 FROM catchup_links c
                 LEFT JOIN participation_runs r
                     ON r.class_id = c.class_id AND r.run_key = c.run_key
                 WHERE c.class_id = ?
-                  AND COALESCE(r.is_real, 1) = 1
                   AND COALESCE(r.discarded, 0) = 0
                 ORDER BY c.id
                 """,
                 (int(class_id),),
             ).fetchall()
         out = []
+        cid = int(class_id)
         for row in rows:
             item = dict(row)
             item["discarded"] = bool(int(item.get("discarded") or 0))
             item["is_real"] = bool(int(item.get("is_real") or 0))
+            run_key = str(item.get("run_key") or "").strip()
+            if not run_key:
+                continue
+            if str(item.get("participation_run_key") or "").strip():
+                if not effective_run_is_real(self, cid, run_key):
+                    continue
+            item.pop("participation_run_key", None)
             out.append(item)
         return out
 
