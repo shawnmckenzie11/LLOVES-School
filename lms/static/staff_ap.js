@@ -182,6 +182,11 @@ let gamePointsVer = null;
 /** @type {Record<string, number>} */
 let sessionCareerTotals = {};
 let liveSessionId = Number(root?.dataset.liveSessionId || 0) || 0;
+/**
+ * MCK-163: the New chip compares this minted run key, never the session id.
+ * Quit deletes the session row and the next Start can reuse that sqlite id.
+ */
+let liveRunKey = String(root?.dataset.liveRunKey || "").trim();
 let joinBillboardCopyTimer = null;
 let sessionPollTimer = null;
 let sessionPollMs = 0;
@@ -4403,11 +4408,20 @@ function deckQuestionRows() {
         (server && (server.text || server.item?.text)) ||
         question.text ||
         question.prompt,
+      // MCK-163 LOW-1: lifecycle status wins after Publish, before reload.
+      status: lifecycle?.status || (server || question).status || "inactive",
     });
   }
 
   for (const card of serverCards) {
-    pushRow({ ...card, item: card.item || card });
+    const token = String(card.id || card.item_id || "").trim();
+    const lifecycle =
+      lifecycleByItemId.get(token) || lifecycleByItemId.get(liveItemAlias(token));
+    pushRow({
+      ...card,
+      item: card.item || card,
+      status: lifecycle?.status || card.status || "inactive",
+    });
   }
   const joinCard = joinPromptCardRow();
   if (joinCard) pushRow(joinCard);
@@ -4938,11 +4952,11 @@ function liveQuestionControlStrip(parts) {
  * for Publish. Teacher-only; the server strips the marker for students.
  */
 function liveQuestionAddedThisClass(item, card, status) {
-  const sessionId = Number(liveSessionId || readLiveSessionId()) || 0;
-  const addedIn = Number(
-    item?.added_live_session_id ?? card?.added_live_session_id ?? 0
-  );
-  return Boolean(sessionId) && addedIn === sessionId && status === "inactive";
+  const runKey = String(liveRunKey || root?.dataset.liveRunKey || "").trim();
+  const addedIn = String(
+    item?.added_live_run_key ?? card?.added_live_run_key ?? ""
+  ).trim();
+  return Boolean(runKey) && addedIn === runKey && status === "inactive";
 }
 
 /**
@@ -5045,7 +5059,9 @@ function paintLiveQuestionCards() {
             : "";
       const promptId = Number(card.prompt_id) || 0;
       const liveItemId = Number(card.live_item_id || card.id) || 0;
-      const status = String(card.status || "inactive").toLowerCase();
+      const status = String(
+        lifecycle?.status || card.status || "inactive"
+      ).toLowerCase();
       const newChip = liveQuestionAddedThisClass(item, card, status)
         ? `<span class="live-question-new-chip">New</span>`
         : "";
@@ -5496,6 +5512,17 @@ function adoptLiveItem(item) {
   const index = lastLiveItems.findIndex((row) => Number(row.id) === Number(item.id));
   if (index >= 0) lastLiveItems[index] = item;
   else lastLiveItems.push(item);
+  // MCK-163 LOW-1: stamp Publish onto the cached card so New drops now.
+  const token = String(item.item_id || "").trim();
+  if (!token || !Array.isArray(lastQuestionCards)) return;
+  const alias = liveItemAlias(token);
+  const nextStatus = String(item.status || "").trim();
+  if (!nextStatus) return;
+  lastQuestionCards = lastQuestionCards.map((card) => {
+    const cardToken = String(card?.item_id || card?.id || "").trim();
+    if (cardToken !== token && liveItemAlias(cardToken) !== alias) return card;
+    return { ...card, status: nextStatus, live_item_id: item.id };
+  });
 }
 
 /**
@@ -6568,6 +6595,8 @@ async function cancelOverlay() {
   resetGamePointsVer();
   stopLiveSessionPolling();
   liveSessionId = 0;
+  liveRunKey = "";
+  if (root) root.dataset.liveRunKey = "";
   sessionPresentIds = new Set();
   sessionLateIds = new Set();
   closeOverlay();
@@ -6583,6 +6612,18 @@ function readLiveSessionId() {
   if (Number.isFinite(fromData) && fromData > 0) return fromData;
   const fromQuery = Number(new URLSearchParams(location.search).get("live_session_id") || 0);
   return Number.isFinite(fromQuery) && fromQuery > 0 ? fromQuery : 0;
+}
+
+/**
+ * Remember the minted live run key for the New chip.
+ * A blank value is ignored so a light poll cannot clear a known run.
+ * @param {unknown} raw
+ */
+function noteLiveRunKey(raw) {
+  const key = String(raw || "").trim();
+  if (!key) return;
+  liveRunKey = key;
+  if (root) root.dataset.liveRunKey = key;
 }
 
 /**
@@ -7127,6 +7168,7 @@ async function pollLiveSessionAttendees(opts = {}) {
       return;
     }
     paintJoinBillboard(joinCodeFromPayload(payload));
+    noteLiveRunKey(payload?.session?.run_key);
     if (payload?.teacher_state) adoptTeacherState(payload.teacher_state);
     if (payload?.canvas_sync) paintTeacherCanvas(payload.canvas_sync, { source: "poll" });
     if (Array.isArray(payload?.class_list)) adoptClassListRows(payload.class_list);
@@ -8291,6 +8333,7 @@ async function ensureLiveSessionMinted(opts = {}) {
       }),
     });
     liveSessionId = Number(res.live_session_id || res.live_session?.id || 0);
+    noteLiveRunKey(res.live_session?.run_key);
     if (root && liveSessionId) {
       root.dataset.liveSessionId = String(liveSessionId);
     }
@@ -11189,6 +11232,8 @@ async function endGame() {
   resetGamePointsVer();
   stopLiveSessionPolling();
   liveSessionId = 0;
+  liveRunKey = "";
+  if (root) root.dataset.liveRunKey = "";
   sessionPresentIds = new Set();
   sessionLateIds = new Set();
   closeOverlay();

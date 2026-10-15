@@ -165,6 +165,7 @@
          data-take="{{ '1' if take_attendance or not live_step else '0' }}"
          data-participate="{{ '1' if log_participation or live_step == 'gamify' else '0' }}"
          data-live-session-id="{{ live_session_id or '' }}"
+         data-live-run-key="{{ live_run_key or '' }}"
          data-live-code="{{ live_session_code or '' }}"
          data-live-step="{{ live_step or '' }}"
          data-run="{{ '1' if run_live else '0' }}"
