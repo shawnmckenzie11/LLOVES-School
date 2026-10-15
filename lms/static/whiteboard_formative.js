@@ -153,8 +153,22 @@ export function wireFormativeWhiteboard(boardApi, opts) {
   /**
    * @param {any[]} items
    */
+  function syncChipLayerToCanvas() {
+    if (!(stage instanceof HTMLElement)) return;
+    const stageRect = stage.getBoundingClientRect();
+    const rect = canvas.getBoundingClientRect();
+    chipLayer.style.position = "absolute";
+    chipLayer.style.left = `${rect.left - stageRect.left}px`;
+    chipLayer.style.top = `${rect.top - stageRect.top}px`;
+    chipLayer.style.width = `${rect.width}px`;
+    chipLayer.style.height = `${rect.height}px`;
+    chipLayer.style.right = "auto";
+    chipLayer.style.bottom = "auto";
+  }
+
   function paintChips(items) {
     chipLayer.innerHTML = "";
+    syncChipLayerToCanvas();
     const rect = canvas.getBoundingClientRect();
     const lw = Number(canvas.dataset.logicalWidth) || canvas.width;
     const lh = Number(canvas.dataset.logicalHeight) || canvas.height;

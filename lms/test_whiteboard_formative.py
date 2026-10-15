@@ -19,6 +19,7 @@ from live_presence import LivePresenceUnavailable  # noqa: E402
 from whiteboard_formative import (  # noqa: E402
     FORMATIVE_MEMBER_PALETTE,
     formative_board_members,
+    formative_session_slot_map,
     formative_whiteboard_enabled,
     member_color,
     first_name_only,
@@ -291,6 +292,81 @@ class FormativeIntegrationTests(unittest.TestCase):
         self.assertEqual(rv.status_code, 503)
         self.assertEqual(rv.headers.get("Retry-After"), "2")
         self.assertTrue((rv.get_json() or {}).get("retry"))
+
+
+
+    def test_formative_colour_matches_session_slot_on_each_team(self) -> None:
+        """One join-order palette for teacher legend and every team board."""
+        slots = formative_session_slot_map(self.school, self.session_id)
+        pine_slot = slots[self.pine_id]
+        team0 = formative_board_members(self.school, self.session_id, self.team_id)
+        team1 = self.school.student_team_id_for_class(self.class_id, self.pine_id)
+        team1_members = formative_board_members(self.school, self.session_id, team1)
+        all_members = formative_board_members(self.school, self.session_id, None)
+        pine_team1 = next(m for m in team1_members if m["id"] == str(self.pine_id))
+        pine_all = next(m for m in all_members if m["id"] == str(self.pine_id))
+        self.assertEqual(pine_team1["color"], pine_all["color"])
+        self.assertEqual(pine_team1["slot"], pine_slot)
+        self.assertEqual(pine_team1["color"], member_color(pine_slot))
+
+    def test_teacher_board_formative_drops_departed_student(self) -> None:
+        """Teacher board polls refresh legend membership when someone leaves."""
+        before = self.school.read_board(
+            self.session_id,
+            "teacher",
+            0,
+            as_teacher=True,
+        )
+        self.assertIn("formative", before)
+        ids_before = {m["id"] for m in (before["formative"].get("members") or [])}
+        self.assertIn(str(self.cedar_id), ids_before)
+        self.school.mark_live_session_attendee_left(
+            self.session_id, student_id=self.cedar_id
+        )
+        after = self.school.read_board(
+            self.session_id,
+            "teacher",
+            int(before.get("board_seq") or 0),
+            as_teacher=True,
+        )
+        ids_after = {m["id"] for m in (after["formative"].get("members") or [])}
+        self.assertNotIn(str(self.cedar_id), ids_after)
+
+    def test_mid_board_joiner_can_poll_team_board(self) -> None:
+        """A student who joins after ink exists can read the board with a visit token."""
+        self.school.conn.execute(
+            """
+            DELETE FROM live_session_attendees
+            WHERE live_session_id = ? AND student_id = ?
+            """,
+            (self.session_id, self.pine_id),
+        )
+        self.school.conn.commit()
+        self.school.apply_live_canvas_presence(
+            self.session_id,
+            owner=str(self.maple_id),
+            name="Maple",
+            team_id=self.team_id,
+            x=0.2,
+            y=0.2,
+            stroke_id="mid-join-line",
+            point=[0.2, 0.2],
+            as_teacher=False,
+        )
+        joined = self.school.join_live_class_session(
+            self.session_id, self.pine_id, codename="Pine"
+        )
+        token = str((joined.get("attendee") or {}).get("visit_token") or "")
+        self.assertTrue(token)
+        late = self.app.test_client()
+        rv = late.get(
+            "/api/student/board/mine?since=0&teacher_since=0",
+            headers={"X-Student-Visit-Token": token},
+        )
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True)[:400])
+        body = rv.get_json() or {}
+        self.assertIn("formative", body)
+        self.assertIn(str(self.pine_id), {m["id"] for m in body["formative"].get("members") or []})
 
     def test_formative_erase_rejects_other_students_stroke(self) -> None:
         """stroke_remove is refused when the stroke belongs to a teammate."""

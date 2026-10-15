@@ -3361,6 +3361,17 @@ dialog.student-pin-dialog::backdrop {
   min-height: min(48vh, 420px);
   width: 100%;
 }
+.canvas-pane.is-group-whiteboard .live-canvas-stage {
+  min-height: min(62vh, 520px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.canvas-pane.is-group-whiteboard .student-canvas {
+  flex: 1 1 auto;
+  min-height: min(48vh, 420px);
+  width: 100%;
+}
 .canvas-pane.is-team-draw.is-mystery-rule .live-canvas-stage {
   min-height: min(68vh, 560px);
 }
