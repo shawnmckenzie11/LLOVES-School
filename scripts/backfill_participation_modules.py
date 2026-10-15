@@ -7,20 +7,23 @@ module's last session) and one participation mark. Modules that already
 have either are skipped, so a second run does not create
 ``Finish Module 1 2``.
 
-Dry-run is the default: the plan and the before/after counts are
-printed, and nothing is written. ``--apply`` writes to a local database.
-``--dry-run`` is the same as the default.
+Dry-run is the default everywhere, production included: the full plan
+and a summary are printed, and nothing is written. Only ``--apply``
+writes. ``--dry-run`` wins over ``--apply``.
 
-This script refuses production (Fly, ``FLASK_ENV=production``, a data
-dir on ``/data``, or a database on the ``/data`` volume), including a
-dry-run, before it opens the database. Shawn approves a production run
-separately, after a backup. There is no override flag here.
+Production (Fly, ``FLASK_ENV=production``, a data dir on ``/data``, or a
+database on the ``/data`` volume) is refused before the database is
+opened unless both ``--production`` and ``--confirm MCK-251`` are passed.
+
+``app_state.current_class_id`` is never written. It is read before and
+after; if it changed, the script exits 3.
 
 Usage::
 
-    python3 scripts/backfill_participation_modules.py
-    python3 scripts/backfill_participation_modules.py --db lms/data/lloves.sqlite
+    python3 scripts/backfill_participation_modules.py --db /tmp/local.sqlite
     python3 scripts/backfill_participation_modules.py --apply --db /tmp/local.sqlite
+    python3 scripts/backfill_participation_modules.py --production --confirm MCK-251
+    python3 scripts/backfill_participation_modules.py --production --confirm MCK-251 --apply
 """
 
 from __future__ import annotations
@@ -71,6 +74,11 @@ def refusal_reason(db_path: Path | None) -> str | None:
     return None
 
 
+CONFIRM_TOKEN = "MCK-251"
+EXIT_REFUSED = 2
+EXIT_CURRENT_CLASS_CHANGED = 3
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments.
 
@@ -78,51 +86,112 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         argv: Argument vector excluding the program name.
 
     Returns:
-        Namespace with ``apply``, ``dry_run``, and ``db``.
+        Namespace with ``apply``, ``dry_run``, ``db``, ``production``,
+        and ``confirm``.
     """
     parser = argparse.ArgumentParser(
         description=(
             "Finish past participation modules for current live courses. "
-            "Dry-run by default. Refuses production."
+            "Dry-run by default. Production needs --production --confirm MCK-251."
         )
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print the plan and before/after counts. This is the default.",
+        help="Print the plan and summary. This is the default.",
     )
     parser.add_argument(
         "--apply",
         action="store_true",
-        help="Write the plan to the local database. Ignored when --dry-run is also set.",
+        help="Write the plan. Ignored when --dry-run is also set.",
     )
     parser.add_argument(
         "--db",
         type=Path,
         default=None,
-        help="Sqlite path. Default is the local LMS database.",
+        help="Sqlite path. Default is the LMS database.",
+    )
+    parser.add_argument(
+        "--production",
+        action="store_true",
+        help="Allow a production target. Needs --confirm MCK-251 too.",
+    )
+    parser.add_argument(
+        "--confirm",
+        default=None,
+        help="Must be MCK-251 together with --production.",
     )
     return parser.parse_args(argv)
 
 
+def production_gate(args: argparse.Namespace, reason: str | None) -> str | None:
+    """Return a refusal message, or ``None`` when the run may continue.
+
+    Args:
+        args: Parsed CLI arguments.
+        reason: Output of :func:`refusal_reason`.
+
+    Returns:
+        A message for stderr, or ``None``.
+    """
+    has_flag = bool(args.production)
+    has_confirm = args.confirm is not None
+    if has_flag != has_confirm:
+        return (
+            "Refusing: --production and --confirm MCK-251 must be passed together."
+        )
+    if has_confirm and str(args.confirm) != CONFIRM_TOKEN:
+        return f"Refusing: --confirm must be exactly {CONFIRM_TOKEN}."
+    if reason and not has_flag:
+        return (
+            f"Refusing to run against production ({reason}). "
+            "Nothing was opened or written. To run on production, pass "
+            f"--production --confirm {CONFIRM_TOKEN} (dry-run unless --apply)."
+        )
+    return None
+
+
+def read_current_class_id(school) -> str | None:
+    """Raw ``app_state.current_class_id`` value, or ``None`` when unset."""
+    row = school.game.conn.execute(
+        "SELECT value FROM app_state WHERE key = 'current_class_id'"
+    ).fetchone()
+    return None if row is None else str(row["value"])
+
+
+def format_plan(plan) -> list[str]:
+    """Every planned step: class, sessions, mark, and subtotal."""
+    from participation_module_backfill import finish_module_subtotal_name
+
+    lines = ["plan:"]
+    for step in plan:
+        writes = step.action == "finish"
+        subtotal = finish_module_subtotal_name(step.module) if writes else "-"
+        lines.append(
+            f"  class {step.class_id} {step.course} s{step.section} {step.module}: "
+            f"{step.action}; sessions={step.classes} "
+            f"through_session={step.through_session_id}; "
+            f"mark={'write' if writes else '-'}; subtotal={subtotal}"
+        )
+    return lines
+
+
 def main(argv: list[str] | None = None) -> int:
-    """Run the backfill, or refuse when the target looks like production.
+    """Run the backfill, gated for production.
 
     Args:
         argv: Argument vector excluding the program name.
 
     Returns:
-        ``0`` after a local dry-run or apply, ``2`` when production is refused.
+        ``0`` on success, ``2`` when refused, ``3`` when
+        ``app_state.current_class_id`` changed.
     """
     args = _parse_args(argv)
     reason = refusal_reason(args.db)
-    if reason:
-        print(
-            "Refusing to run against production "
-            f"({reason}). Shawn approves the production run separately after a backup.",
-            file=sys.stderr,
-        )
-        return 2
+    refusal = production_gate(args, reason)
+    if refusal:
+        print(refusal, file=sys.stderr)
+        return EXIT_REFUSED
     from app import create_app
     from participation_module_backfill import (
         apply_participation_module_backfill,
@@ -137,14 +206,20 @@ def main(argv: list[str] | None = None) -> int:
         kwargs["data_dir"] = args.db.parent
     app = create_app(**kwargs)
     school = app.config["SCHOOL_DB"]
+    write = bool(args.apply) and not bool(args.dry_run)
     try:
         database = str(school.game.db_path)
+        current_before = read_current_class_id(school)
         before = backfill_counts(school)
         plan = plan_participation_module_backfill(school)
-        write = bool(args.apply) and not bool(args.dry_run)
+        print(f"target: {'PRODUCTION (' + reason + ')' if reason else 'local'}")
+        print(f"mode: {'APPLY' if write else 'DRY RUN (no writes; pass --apply to write)'}")
+        for line in format_plan(plan):
+            print(line)
         if write:
             apply_participation_module_backfill(school, plan)
         after = backfill_counts(school)
+        current_after = read_current_class_id(school)
         for line in format_backfill_report(
             plan,
             dry_run=not write,
@@ -153,6 +228,24 @@ def main(argv: list[str] | None = None) -> int:
             after=after,
         ):
             print(line)
+        finishes = sum(1 for step in plan if step.action == "finish")
+        print(
+            "summary: "
+            f"classes={len({step.class_id for step in plan})} "
+            f"planned_finishes={finishes} "
+            f"marks_changed={after['marks'] - before['marks']} "
+            f"subtotals_changed={after['finish_subtotals'] - before['finish_subtotals']} "
+            f"current_class_id={current_before}->{current_after} "
+            f"{'APPLIED' if write else 'DRY RUN, nothing written'}"
+        )
+        if current_after != current_before:
+            print(
+                "ERROR: app_state.current_class_id changed "
+                f"({current_before} -> {current_after}). This script must never "
+                "write it. Restore it before anyone opens the gradebook.",
+                file=sys.stderr,
+            )
+            return EXIT_CURRENT_CLASS_CHANGED
     finally:
         school.close()
     return 0

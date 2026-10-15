@@ -386,5 +386,138 @@ class BackfillScriptTests(unittest.TestCase):
             self.assertTrue(db.exists())
 
 
+class SafeProdScriptTests(Base):
+    """MCK-251 prod opt-in: refuse by default, dry-run writes nothing,
+    apply leaves current_class_id alone, and a second apply is a no-op."""
+
+    _wire = BackfillTests._wire
+
+    def _seed(self) -> None:
+        """Two finished-able modules plus a current one, and a pinned current class."""
+        runs = [
+            self.run_class("M1", "C1", 1, 0, {self.students[0]: 1},
+                           ended_iso="2026-10-05T16:00:00", wipe=False),
+            self.run_class("M2", "C1", 1, 0, {self.students[0]: 1},
+                           ended_iso="2026-10-07T16:00:00", wipe=False),
+            self.run_class("M3", "C1", 1, 0, {self.students[0]: 1},
+                           ended_iso="2026-10-12T16:00:00", wipe=False),
+        ]
+        for run in runs:
+            self._wire(run, 1)
+        self.pinned = str(self.class_id + 4242)
+        g = self.school.game.conn
+        g.execute(
+            "INSERT INTO app_state (key, value) VALUES ('current_class_id', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (self.pinned,),
+        )
+        g.commit()
+        self.school.conn.commit()
+
+    def _run(self, argv: list[str], *, prod: str | None = None) -> tuple[int, str, str]:
+        import backfill_participation_modules as script
+
+        out, err = io.StringIO(), io.StringIO()
+        env = {"FLY_APP_NAME": "", "FLASK_ENV": "development", "LLOVES_DATA_DIR": "",
+               "DATA_DIR": "", "LLOVES_DB": "", "LOCAL_DEV_LOGIN": ""}
+        with mock.patch.dict(os.environ, env, clear=False), \
+                mock.patch.object(script, "refusal_reason", return_value=prod), \
+                mock.patch("sys.stdout", out), mock.patch("sys.stderr", err):
+            code = script.main(argv)
+        return code, out.getvalue(), err.getvalue()
+
+    def _db(self) -> str:
+        return str(Path(self.tmp.name) / "lloves.sqlite")
+
+    def _dump(self) -> list[str]:
+        """Logical dump of every sqlite file in the temp data dir."""
+        import sqlite3
+
+        lines: list[str] = []
+        for path in sorted(Path(self.tmp.name).rglob("*.sqlite*")):
+            if path.suffix in {".sqlite-wal", ".sqlite-shm"} or path.name.endswith(("-wal", "-shm")):
+                continue
+            conn = sqlite3.connect(str(path))
+            try:
+                lines.append(f"== {path.name}")
+                lines.extend(conn.iterdump())
+            finally:
+                conn.close()
+        return lines
+
+    def _current(self) -> str | None:
+        row = self.school.game.conn.execute(
+            "SELECT value FROM app_state WHERE key = 'current_class_id'"
+        ).fetchone()
+        return None if row is None else str(row["value"])
+
+    def test_refuses_without_both_flags(self) -> None:
+        prod = "database is on the production volume (/data/lloves.sqlite)"
+        for argv in (
+            [],
+            ["--apply"],
+            ["--production"],
+            ["--confirm", "MCK-251"],
+            ["--production", "--confirm", "nope"],
+            ["--production", "--apply"],
+        ):
+            with self.subTest(argv=argv):
+                with mock.patch("app.create_app") as opened:
+                    code, out, err = self._run(argv + ["--db", self._db()], prod=prod)
+                self.assertEqual(code, 2)
+                self.assertIn("Refusing", err)
+                self.assertIn("MCK-251", err)
+                opened.assert_not_called()
+        code, _, err = self._run(["--production", "--db", self._db()], prod=None)
+        self.assertEqual(code, 2)
+        self.assertIn("must be passed together", err)
+
+    def test_prod_dry_run_writes_nothing(self) -> None:
+        self._seed()
+        before = self._dump()
+        prod = "database is on the production volume (/data/lloves.sqlite)"
+        code, out, _ = self._run(
+            ["--production", "--confirm", "MCK-251", "--db", self._db()], prod=prod)
+        self.assertEqual(code, 0)
+        self.assertIn("target: PRODUCTION", out)
+        self.assertIn("DRY RUN", out)
+        self.assertIn("plan:", out)
+        self.assertIn("subtotal=Finish Module 1", out)
+        self.assertIn("summary: ", out)
+        self.assertIn("marks_changed=0 subtotals_changed=0", out)
+        self.assertEqual(self._dump(), before)
+
+    def test_apply_keeps_current_class_and_second_apply_changes_nothing(self) -> None:
+        self._seed()
+        prod = "database is on the production volume (/data/lloves.sqlite)"
+        argv = ["--production", "--confirm", "MCK-251", "--apply", "--db", self._db()]
+        code, out, err = self._run(argv, prod=prod)
+        self.assertEqual(code, 0, err)
+        self.assertIn("marks_changed=2 subtotals_changed=2", out)
+        self.assertEqual(self._current(), self.pinned)
+        after_first = self._dump()
+        code, out, err = self._run(argv, prod=prod)
+        self.assertEqual(code, 0, err)
+        self.assertIn("planned_finishes=0", out)
+        self.assertIn("marks_changed=0 subtotals_changed=0", out)
+        self.assertEqual(self._current(), self.pinned)
+        self.assertEqual(self._dump(), after_first)
+
+    def test_changed_current_class_exits_loudly(self) -> None:
+        import participation_module_backfill as mod
+
+        self._seed()
+        real = mod.apply_participation_module_backfill
+
+        def clobber(school, plan=None):
+            school.game.set_current_class(self.class_id)
+            return real(school, plan)
+
+        with mock.patch.object(mod, "apply_participation_module_backfill", clobber):
+            code, _, err = self._run(["--apply", "--db", self._db()])
+        self.assertEqual(code, 3)
+        self.assertIn("current_class_id changed", err)
+
+
 if __name__ == "__main__":
     unittest.main()
