@@ -4249,7 +4249,13 @@ class LovesDB:
         self._seed_slides_drive_defaults()
 
     def _seed_live_class_schedules(self) -> None:
-        """Apply ``seeds/live_class_schedules.json`` to catalog + offerings (MCK-207)."""
+        """Fill blank catalog and offering schedule columns from the seed file.
+
+        A value someone already saved stays. Each column is written only when
+        ``TRIM(COALESCE(col, '')) = ''``, the same empty check as
+        ``apply_sync_offering_live_schedules``. Boot calls this on every
+        start, so a hand-set end time must survive.
+        """
         path = Path(__file__).resolve().parent / "seeds" / "live_class_schedules.json"
         if not path.is_file():
             return
@@ -4270,9 +4276,21 @@ class LovesDB:
                     self.conn.execute(
                         """
                         UPDATE ontario_courses
-                        SET live_class_days = COALESCE(?, live_class_days),
-                            live_class_end_time = COALESCE(?, live_class_end_time)
+                        SET live_class_days = CASE
+                                WHEN TRIM(COALESCE(live_class_days, '')) = ''
+                                THEN COALESCE(?, live_class_days)
+                                ELSE live_class_days
+                            END,
+                            live_class_end_time = CASE
+                                WHEN TRIM(COALESCE(live_class_end_time, '')) = ''
+                                THEN COALESCE(?, live_class_end_time)
+                                ELSE live_class_end_time
+                            END
                         WHERE UPPER(code) = UPPER(?)
+                          AND (
+                              TRIM(COALESCE(live_class_days, '')) = ''
+                              OR TRIM(COALESCE(live_class_end_time, '')) = ''
+                          )
                         """,
                         (days or None, end or None, str(code)),
                     )
@@ -4292,9 +4310,21 @@ class LovesDB:
                     self.conn.execute(
                         """
                         UPDATE course_offerings
-                        SET live_days = COALESCE(?, live_days),
-                            live_end_time = COALESCE(?, live_end_time)
+                        SET live_days = CASE
+                                WHEN TRIM(COALESCE(live_days, '')) = ''
+                                THEN COALESCE(?, live_days)
+                                ELSE live_days
+                            END,
+                            live_end_time = CASE
+                                WHEN TRIM(COALESCE(live_end_time, '')) = ''
+                                THEN COALESCE(?, live_end_time)
+                                ELSE live_end_time
+                            END
                         WHERE UPPER(ontario_code) = ? AND COALESCE(section_index, 1) = ?
+                          AND (
+                              TRIM(COALESCE(live_days, '')) = ''
+                              OR TRIM(COALESCE(live_end_time, '')) = ''
+                          )
                         """,
                         (days or None, end or None, code, index),
                     )
@@ -31091,15 +31121,9 @@ class SchoolDB(LovesDB):
                 sched and classify_run_end(parse_ended_at(str(ended_at or "")), sched)
             )
         if existing_row is not None:
-            teacher_set = bool(int(existing_row["teacher_kind_set"] or 0))
-            if teacher_set:
-                return self._upsert_participation_run_kind_unlocked(
-                    cid,
-                    key,
-                    is_real=bool(int(existing_row["is_real"] or 0)),
-                    auto_is_real=auto_real,
-                    ended_at=str(ended_at or ""),
-                )
+            # An existing row keeps its stored kind. When the teacher has
+            # already chosen (teacher_kind_set=1) this returns without
+            # writing a new auto kind or a new end time.
             return bool(int(existing_row["is_real"] or 0))
         return self._upsert_participation_run_kind_unlocked(
             cid,
@@ -31133,7 +31157,11 @@ class SchoolDB(LovesDB):
                 ended_at, teacher_kind_set
             ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 0)
             ON CONFLICT(class_id, run_key) DO UPDATE SET
-                auto_is_real = excluded.auto_is_real,
+                auto_is_real = CASE
+                    WHEN participation_runs.teacher_kind_set = 1
+                    THEN participation_runs.auto_is_real
+                    ELSE excluded.auto_is_real
+                END,
                 is_real = CASE
                     WHEN participation_runs.teacher_kind_set = 1
                     THEN participation_runs.is_real
@@ -31163,7 +31191,6 @@ class SchoolDB(LovesDB):
                          AND (
                              participation_runs.ended_at IS NULL
                              OR TRIM(participation_runs.ended_at) = ''
-                             OR excluded.ended_at > participation_runs.ended_at
                          )
                     THEN excluded.ended_at
                     ELSE participation_runs.ended_at

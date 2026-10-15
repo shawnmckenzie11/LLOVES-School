@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -16,6 +18,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from school_db import SchoolDB  # noqa: E402
 from catchup_backfill import repair_catchup  # noqa: E402
 from catchup_schedule import CatchupScheduleError, schedule_defaults_for_offering  # noqa: E402
 from cli import register_cli  # noqa: E402
@@ -489,6 +492,139 @@ class _FakeSchool:
 
     def resolve_snapshot_run_key(self, class_id: int, run_key_match: str) -> str:
         raise ValueError("no snapshots")
+
+
+class ScheduleSeedEmptyOnlyTests(unittest.TestCase):
+    """Boot seed fills blank schedule columns and leaves saved ends alone."""
+
+    def setUp(self) -> None:
+        """One teacher and two MCR3U sections on a fresh database."""
+
+        logging.disable(logging.WARNING)
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.app = create_app(db_path=root / "lloves.sqlite", data_dir=root, testing=True)
+        self.school = self.app.config["SCHOOL_DB"]
+        self.school.activate_from_semester_json()
+        self.teacher = self.school.register_staff("teacher@gmail.com")
+        self.hand = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]), ontario_code="MCR3U", new_section=True
+        )
+        self.empty = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]), ontario_code="MCR3U", new_section=True
+        )
+        self.school.conn.execute(
+            "UPDATE course_offerings SET section_index = 5, live_days = 'T/Th', live_end_time = '4:00pm' WHERE id = ?",
+            (int(self.hand["id"]),),
+        )
+        self.school.conn.execute(
+            "UPDATE course_offerings SET section_index = 2, live_days = '', live_end_time = '' WHERE id = ?",
+            (int(self.empty["id"]),),
+        )
+        self.school.conn.execute(
+            """
+            UPDATE ontario_courses
+            SET live_class_days = 'T/Th', live_class_end_time = '4:00pm'
+            WHERE UPPER(code) = 'MCR3U'
+            """
+        )
+        self.school.conn.execute(
+            """
+            UPDATE ontario_courses
+            SET live_class_days = '', live_class_end_time = ''
+            WHERE UPPER(code) = 'MCF3M'
+            """
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO participation_runs (
+                class_id, run_key, is_real, auto_is_real, discarded, ended_at, teacher_kind_set
+            ) VALUES (1, 'seed-must-not-touch', 1, 1, 0, '2026-10-01T14:00:00', 1)
+            """
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO live_class_sessions (
+                class_id, offering_id, teacher_user_id, session_code, status,
+                started_at, ended_at, run_key
+            ) VALUES (1, ?, ?, 'SEED', 'ended', '2026-10-01T12:00:00', '2026-10-01T14:00:00', 'seed-session')
+            """,
+            (int(self.hand["id"]), int(self.teacher["id"])),
+        )
+        self.school.conn.commit()
+
+    def tearDown(self) -> None:
+        """Close sqlite and remove the temp directory."""
+
+        logging.disable(logging.NOTSET)
+        self.school.close()
+        self.tmp.cleanup()
+
+    def test_seed_source_does_not_name_run_tables(self) -> None:
+        """The seed function must not mention run or session tables."""
+
+        source = inspect.getsource(SchoolDB._seed_live_class_schedules)
+        self.assertNotIn("participation_runs", source)
+        self.assertNotIn("live_class_sessions", source)
+        self.assertIn("TRIM(COALESCE(live_end_time, '')) = ''", source)
+        self.assertIn("TRIM(COALESCE(live_class_end_time, '')) = ''", source)
+
+    def test_seed_fills_blank_columns_and_keeps_hand_set_ends(self) -> None:
+        """A saved end stays; a blank end takes the seed; run rows stay put."""
+
+        before_runs = [
+            tuple(row)
+            for row in self.school.conn.execute(
+                "SELECT * FROM participation_runs ORDER BY class_id, run_key"
+            ).fetchall()
+        ]
+        before_sessions = [
+            tuple(row)
+            for row in self.school.conn.execute(
+                "SELECT * FROM live_class_sessions ORDER BY id"
+            ).fetchall()
+        ]
+        self.assertTrue(before_runs)
+        self.assertTrue(before_sessions)
+        self.school._seed_live_class_schedules()
+        hand = self.school.conn.execute(
+            "SELECT live_days, live_end_time FROM course_offerings WHERE id = ?",
+            (int(self.hand["id"]),),
+        ).fetchone()
+        self.assertEqual(str(hand[0]), "T/Th")
+        self.assertEqual(str(hand[1]), "4:00pm")
+        empty = self.school.conn.execute(
+            "SELECT live_days, live_end_time FROM course_offerings WHERE id = ?",
+            (int(self.empty["id"]),),
+        ).fetchone()
+        self.assertEqual(str(empty[0]), "M/W/F")
+        self.assertEqual(str(empty[1]), "11:55am")
+        catalog = {
+            str(row[0]).upper(): (str(row[1]), str(row[2]))
+            for row in self.school.conn.execute(
+                """
+                SELECT code, live_class_days, live_class_end_time
+                FROM ontario_courses
+                WHERE UPPER(code) IN ('MCR3U', 'MCF3M')
+                """
+            ).fetchall()
+        }
+        self.assertEqual(catalog["MCR3U"], ("T/Th", "4:00pm"))
+        self.assertEqual(catalog["MCF3M"], ("M/W/F", "3:15pm"))
+        after_runs = [
+            tuple(row)
+            for row in self.school.conn.execute(
+                "SELECT * FROM participation_runs ORDER BY class_id, run_key"
+            ).fetchall()
+        ]
+        after_sessions = [
+            tuple(row)
+            for row in self.school.conn.execute(
+                "SELECT * FROM live_class_sessions ORDER BY id"
+            ).fetchall()
+        ]
+        self.assertEqual(after_runs, before_runs)
+        self.assertEqual(after_sessions, before_sessions)
 
 
 class RepairCliTests(unittest.TestCase):

@@ -343,14 +343,13 @@ def validate_mck210_repair_plan(report: RepairReport) -> tuple[bool, str]:
 
 
 def plan_mck210_migration(school: Any) -> tuple[list[dict[str, Any]], RepairReport]:
-    """Offering sync + sequential catch-up repair preview/apply (caller holds lock).
+    """Preview offering sync and catch-up repair. Does not write.
 
-    Each run is dry-run validated against the ops table, then applied before the
-    next target so link discard/mint ordering matches production migration.
+    Production apply stays in ``run_mck210_catchup_migration_if_needed``.
+    Offering end times must already be filled or the repair preview will
+    not match the ops table. The returned report is always ``dry_run``.
     """
     plans = school.plan_sync_offering_live_schedules(offering_ids=list(OFFERING_IDS))
-    if plans:
-        school.apply_sync_offering_live_schedules(plans)
     combined: list = []
     for class_id, suffix in MIGRATION_RUN_ORDER:
         spec = EXPECTED_BY_KEY[(int(class_id), str(suffix))]
@@ -360,11 +359,8 @@ def plan_mck210_migration(school: Any) -> tuple[list[dict[str, Any]], RepairRepo
         ok, reason = validate_mck210_single_run(preview, spec)
         if not ok:
             return plans, RepairReport(dry_run=True, runs=combined)
-        step = repair_catchup(
-            school, run_targets=[(int(class_id), str(suffix))], apply=True
-        )
-        combined.extend(step.runs)
-    return plans, RepairReport(dry_run=False, runs=combined)
+        combined.extend(preview.runs)
+    return plans, RepairReport(dry_run=True, runs=combined)
 
 
 def run_mck210_catchup_migration_if_needed(school: Any) -> dict[str, Any] | None:
