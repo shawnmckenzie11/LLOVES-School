@@ -94,6 +94,7 @@ from local_dev_seed import (  # noqa: E402
 )
 from school_db import (  # noqa: E402
     STAFF_2FA_MODE_LABELS,
+    DeckCopyLiveConflict,
     DeckReplaceNotConfirmed,
     GroupAnswerLocked,
     RankAgreeConflict,
@@ -4707,6 +4708,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         current (non-archived) sections of the same course, admins
         included. A ``course`` copy onto a slot that already has a deck
         needs ``replace: true``; otherwise 409 with ``needs_confirm``.
+        MCK-151: copying into the slot a live class is teaching is 409.
         """
 
         user = current_user()
@@ -4741,6 +4743,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         except KeyError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 404
+        except DeckCopyLiveConflict as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 409
         except DeckReplaceNotConfirmed as exc:
             return jsonify({"ok": False, "error": str(exc), "needs_confirm": True}), 409
         except ValueError as exc:

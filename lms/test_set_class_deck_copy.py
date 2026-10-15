@@ -522,6 +522,65 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
             for app in workers:
                 app.config["SCHOOL_DB"].close()
 
+    def test_refuses_copy_into_the_slot_being_taught(self) -> None:
+        """A live class on this slot refuses the copy; join and other slots do not."""
+
+        session = self.school.start_live_class_session(
+            self.a1, self.tid, live_module="M2", live_slot="C3"
+        )
+        self.school.set_live_session_teacher_state(
+            int(session["id"]),
+            live_module="M2",
+            live_slot="C3",
+            class_set=True,
+            stage="join",
+        )
+        body = {
+            "mode": "course",
+            "source_module": "M2",
+            "source_slot": "C1",
+            "source_class_id": self.a2,
+            "replace": True,
+        }
+        # Set Class still seeds while the session is on the join stage.
+        seeded = self._seed(self.a1, "M2", "C3", body)
+        self.assertEqual(seeded.status_code, 200, seeded.get_json())
+        self.school.set_live_session_teacher_state(
+            int(session["id"]),
+            live_module="M2",
+            live_slot="C3",
+            class_set=True,
+            stage="round",
+        )
+        before = _deck_table_snapshot(self.school, self.a1)
+        refused = self._seed(self.a1, "M2", "C3", body)
+        self.assertEqual(refused.status_code, 409, refused.get_json())
+        self.assertNotIn("needs_confirm", refused.get_json())
+        self.assertIn("End the live class", refused.get_json()["error"])
+        self.assertIn("M2 C3", refused.get_json()["error"])
+        self.assertEqual(_deck_table_snapshot(self.school, self.a1), before)
+        # A different slot is not the one on screen.
+        self.school.apply_class_deck_seed(self.a1, "M2", "C1", mode="blank")
+        other_slot = self._seed(
+            self.a1,
+            "M2",
+            "C1",
+            {
+                "mode": "course",
+                "source_module": "M2",
+                "source_slot": "C1",
+                "source_class_id": self.a2,
+            },
+        )
+        self.assertEqual(other_slot.status_code, 200, other_slot.get_json())
+        self.school.conn.execute(
+            "UPDATE live_class_sessions SET status = 'ended' WHERE id = ?",
+            (int(session["id"]),),
+        )
+        self.school.conn.commit()
+        after_end = self._seed(self.a1, "M2", "C3", body)
+        self.assertEqual(after_end.status_code, 200, after_end.get_json())
+
 
 HELPER_CASES = r"""
 import {
