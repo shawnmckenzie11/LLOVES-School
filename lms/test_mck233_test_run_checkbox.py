@@ -122,19 +122,29 @@ class EndLiveToggleTests(Base):
             "SELECT COUNT(*) FROM participation_items WHERE class_id = ? AND run_key = ?",
             (self.class_id, run_key),
         ).fetchone()[0]
-        self.assertEqual(int(item_count), 1)
+        self.assertEqual(int(item_count), 2)
         latest = self.school.list_lesson_slides_latest(self.class_id)
         self.assertEqual(len(latest), 1)
         questions = latest[0]["questions"]
         self.assertEqual(len(questions), 2)
         in_catchup = [q for q in questions if q.get("in_catchup")]
-        self.assertEqual(len(in_catchup), 1)
-        self.assertEqual(in_catchup[0]["question_key"], "item:q0")
+        self.assertEqual(len(in_catchup), 2)
+        self.assertEqual(
+            {q["question_key"] for q in in_catchup},
+            {"item:q0", "item:q1"},
+        )
         unanswered_student = self.students[1] if len(self.students) > 1 else self.students[0]
         qs = self.school.catchup_questions(links[0]["token"], unanswered_student)
-        self.assertEqual(len(qs), 1)
-        self.assertEqual(qs[0]["question_key"], "item:q0")
-        self.assertFalse(self.school.catchup_questions(links[0]["token"], self.students[0]))
+        self.assertEqual(len(qs), 2)
+        self.assertEqual(
+            {q["question_key"] for q in qs},
+            {"item:q0", "item:q1"},
+        )
+        qs_answered_live = self.school.catchup_questions(
+            links[0]["token"], self.students[0]
+        )
+        self.assertEqual(len(qs_answered_live), 1)
+        self.assertEqual(qs_answered_live[0]["question_key"], "item:q1")
 
     def test_test_run_skips_participation_and_catchup(self) -> None:
         started = datetime(2026, 10, 14, 9, 20, tzinfo=TORONTO).replace(microsecond=0).isoformat()

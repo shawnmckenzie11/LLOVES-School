@@ -313,7 +313,7 @@ class Mck230LiveDenominatorTests(Base):
     def test_test_run_session_omitted_from_participation_grid(self) -> None:
         real_key = self.run_class("M6", "C1", 1, 0, {self.students[0]: 1})
         self._wire_participation_column(real_key, 1)
-        test_key = self.run_class("M6", "C2", 2, 0, {}, ended_iso="2026-10-20T15:00:00")
+        test_key = self.run_class("M6", "C2", 2, 0, {}, ended_iso="2026-10-20T15:00:00", live_run=False)
         self._wire_participation_column(test_key, 1)
         self.school.set_participation_run_real(self.class_id, test_key, False, user_id=1)
         meta = self.school.participation_session_meta(self.class_id)

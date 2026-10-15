@@ -1996,8 +1996,8 @@ def main(argv: list[str] | None = None) -> int:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck222(args.base, out, path, widths))
         if args.scenario == "mck233-end-live":
+            widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck233_end_live_dialog(args.base, state, out, path, widths))
-            return 0
         if args.scenario == "mck219":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck219(args.base, state, out, widths))

@@ -30448,10 +30448,7 @@ class SchoolDB(LovesDB):
             LEFT JOIN live_session_prompts pr ON pr.id = i.prompt_id
             WHERE i.live_session_id = ? AND i.published_at IS NOT NULL
               AND i.publish_mode = 'individual' AND i.response_mode = 'individual'
-              AND EXISTS (
-                SELECT 1 FROM live_session_responses r
-                WHERE r.prompt_id = i.prompt_id AND r.student_id IS NOT NULL
-              )
+
             """,
             (class_id, run_key, module, slot, now, sid),
         )
@@ -30474,15 +30471,25 @@ class SchoolDB(LovesDB):
             "SELECT 1 FROM participation_items WHERE class_id = ? AND run_key = ? LIMIT 1",
             (class_id, run_key),
         ).fetchone()
+        answered = self.conn.execute(
+            "SELECT 1 FROM participation_answers WHERE class_id = ? AND run_key = ? LIMIT 1",
+            (class_id, run_key),
+        ).fetchone()
         ended_at = str(session["ended_at"] if "ended_at" in keys and session["ended_at"] else now)
-        is_real = self._upsert_participation_run_kind_unlocked(
+        is_real = self._classify_and_record_participation_run(
             class_id,
             run_key,
-            is_real=True,
-            auto_is_real=True,
             ended_at=ended_at,
         )
-        if offered is not None and is_real:
+        if live_run:
+            is_real = self._upsert_participation_run_kind_unlocked(
+                class_id,
+                run_key,
+                is_real=True,
+                auto_is_real=True,
+                ended_at=ended_at,
+            )
+        if offered is not None and answered is not None and is_real:
             self._upsert_real_catchup_link_unlocked(
                 class_id, run_key, module, slot, now=now
             )
@@ -30913,10 +30920,40 @@ class SchoolDB(LovesDB):
                 """,
                 (cid, key),
             ).fetchone()
-            if row is None:
-                return False
-            module = str(row["live_module"] or "")
-            slot = str(row["live_slot"] or "")
+            if row is not None:
+                module = str(row["live_module"] or "")
+                slot = str(row["live_slot"] or "")
+            else:
+                snap = self.conn.execute(
+                    """
+                    SELECT live_module, live_slot FROM live_result_snapshots
+                    WHERE class_id = ? AND run_key = ?
+                    LIMIT 1
+                    """,
+                    (cid, key),
+                ).fetchone()
+                if snap is not None:
+                    module = str(snap["live_module"] or "")
+                    slot = str(snap["live_slot"] or "")
+                else:
+                    sess = self.conn.execute(
+                        """
+                        SELECT teacher_state_json FROM live_class_sessions
+                        WHERE class_id = ? AND run_key = ?
+                        ORDER BY id DESC LIMIT 1
+                        """,
+                        (cid, key),
+                    ).fetchone()
+                    module = ""
+                    slot = ""
+                    if sess is not None:
+                        try:
+                            state = json.loads(sess["teacher_state_json"] or "{}")
+                        except (TypeError, ValueError):
+                            state = {}
+                        if isinstance(state, dict):
+                            module = str(state.get("live_module") or "")
+                            slot = str(state.get("live_slot") or "")
             auto_row = self.conn.execute(
                 "SELECT auto_is_real FROM participation_runs WHERE class_id = ? AND run_key = ?",
                 (cid, key),
@@ -30945,9 +30982,9 @@ class SchoolDB(LovesDB):
                     user_id if discarded else None,
                 ),
             )
-            if is_real:
+            if is_real and module and slot:
                 self._upsert_real_catchup_link_unlocked(cid, key, module, slot, now=now)
-            else:
+            elif not is_real:
                 self.conn.execute(
                     "DELETE FROM catchup_links WHERE class_id = ? AND run_key = ?",
                     (cid, key),

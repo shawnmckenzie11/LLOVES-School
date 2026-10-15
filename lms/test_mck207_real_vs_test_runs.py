@@ -197,5 +197,20 @@ class RealVsTestFlowTests(Base):
         self.assertFalse(self.school.list_catchup_links(self.class_id))
 
 
+    def test_manual_test_flip_survives_classify_real(self) -> None:
+        """Teacher test toggle must persist when backfill classify would be real."""
+        run_key = self.run_class("M1", "C1", 1, 0, {self.students[0]: 1})
+        self.assertTrue(
+            self.school.set_participation_run_real(
+                self.class_id, run_key, False, user_id=int(self.teacher["id"])
+            )
+        )
+        ended = self.school.ended_at_for_participation_run(self.class_id, run_key)
+        self.school.classify_participation_run(self.class_id, run_key, ended_at=ended)
+        kind = self.school.participation_run_kind(self.class_id, run_key)
+        assert kind is not None
+        self.assertFalse(kind["is_real"])
+
+
 if __name__ == "__main__":
     unittest.main()

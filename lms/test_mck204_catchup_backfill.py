@@ -174,6 +174,68 @@ class BackfillTests(Base):
         self.assertFalse(self.school.list_catchup_links(self.class_id))
 
 
+    def test_sync_catchup_scope_apply_no_row_stays_test_no_link(self) -> None:
+        """Apply sync must not mint links for outside-window runs with no kind row."""
+        from catchup_backfill import sync_catchup_scope
+
+        outside = "2026-10-20T22:00:00"
+        run_key = "0726b586-0000-4000-8000-000000000000"
+        self.school.conn.execute(
+            "DELETE FROM participation_runs WHERE class_id = ? AND run_key = ?",
+            (self.class_id, run_key),
+        )
+        self.school.conn.execute(
+            "DELETE FROM catchup_links WHERE class_id = ? AND run_key = ?",
+            (self.class_id, run_key),
+        )
+        sid = self.school.conn.execute(
+            """
+            INSERT INTO live_class_sessions (
+                class_id, offering_id, teacher_user_id, session_code, status,
+                started_at, ended_at, run_key, teacher_state_json
+            ) VALUES (?, ?, ?, 'TSCOPE', 'ended', '2026-10-01T12:00:00', ?, ?, ?)
+            """,
+            (
+                self.class_id,
+                int(self.school.game.conn.execute("SELECT offering_id FROM classes WHERE id = ?", (self.class_id,)).fetchone()[0]),
+                int(self.teacher["id"]),
+                outside,
+                run_key,
+                '{"live_module":"M2","live_slot":"C3"}',
+            ),
+        ).lastrowid
+        self.school.conn.execute(
+            """
+            INSERT INTO live_result_snapshots (
+                live_session_id, class_id, session_code, run_key,
+                live_module, live_slot, source, question_key, question_json,
+                student_id, participant_uuid, codename, team_id,
+                answer_json, awarded_points, answered_at, snapshot_at
+            ) VALUES (?, ?, 'P', ?, 'M2', 'C3', 'prompt', 'item:q', '{}', ?, NULL, '', NULL,
+                      '{}', NULL, ?, ?)
+            """,
+            (sid, self.class_id, run_key, self.students[0], outside, outside),
+        )
+        self.school.conn.commit()
+        reports, _skipped = sync_catchup_scope(
+            self.school,
+            course="MCR3U",
+            module="M2",
+            slot="C3",
+            apply=True,
+        )
+        rows = [r for r in reports if run_key[:8] in r.run_key]
+        self.assertTrue(rows)
+        kind = self.school.participation_run_kind(self.class_id, run_key)
+        assert kind is not None
+        self.assertFalse(kind["is_real"])
+        link = self.school.conn.execute(
+            "SELECT id FROM catchup_links WHERE class_id = ? AND run_key = ?",
+            (self.class_id, run_key),
+        ).fetchone()
+        self.assertIsNone(link)
+
+
 class DefaultPinDbTests(Base):
     def test_unique_pins_and_no_regeneration(self) -> None:
         secret = "test-secret-mck204"
@@ -275,6 +337,7 @@ class CatchupWithDefaultPinTests(Base):
         ).get_data(as_text=True)
         self.assertIn("Default catch-up PINs", page)
         self.assertIn(SLIP_TEMPLATE.format(pin=self.default_pin), page)
+
 
 
 if __name__ == "__main__":
