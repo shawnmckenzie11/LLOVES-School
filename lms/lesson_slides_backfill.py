@@ -46,6 +46,32 @@ ORDER BY class_id, live_module, live_slot, run_key
 """
 
 
+
+
+def _session_code_for_backfill(
+    school: _LessonSlidesBackfillSchool, class_id: int, module: str, slot: str, run_key: str
+) -> str:
+    """Keep an existing session code when backfill replaces a row."""
+    row = school.conn.execute(
+        """
+        SELECT session_code FROM lesson_slides_latest
+        WHERE class_id = ? AND live_module = ? AND live_slot = ?
+        """,
+        (int(class_id), str(module), str(slot)),
+    ).fetchone()
+    code = str((dict(row) if row is not None else {}).get("session_code") or "").strip()
+    if code:
+        return code
+    sess = school.conn.execute(
+        """
+        SELECT session_code FROM live_class_sessions
+        WHERE class_id = ? AND run_key = ? AND TRIM(COALESCE(session_code, '')) <> ''
+        ORDER BY id DESC LIMIT 1
+        """,
+        (int(class_id), str(run_key)),
+    ).fetchone()
+    return str((dict(sess) if sess is not None else {}).get("session_code") or "").strip()
+
 def _existing_display_instant(
     school: _LessonSlidesBackfillSchool, class_id: int, module: str, slot: str
 ) -> RunEndInstant | None:
@@ -115,6 +141,7 @@ def backfill_lesson_slides_latest(school: _LessonSlidesBackfillSchool) -> dict[s
                 skipped += 1
                 continue
             had_row = existing_instant is not None
+            session_code = _session_code_for_backfill(school, cid, mod, sl, best_key)
             if best_instant.inferred:
                 school._upsert_lesson_slides_latest_unlocked(
                     None,
@@ -123,7 +150,7 @@ def backfill_lesson_slides_latest(school: _LessonSlidesBackfillSchool) -> dict[s
                     module=mod,
                     slot=sl,
                     ended_at="",
-                    session_code="",
+                    session_code=session_code,
                     ended_at_inferred=True,
                     inferred_ended_at=best_instant.iso,
                 )
@@ -135,7 +162,7 @@ def backfill_lesson_slides_latest(school: _LessonSlidesBackfillSchool) -> dict[s
                     module=mod,
                     slot=sl,
                     ended_at=best_instant.iso,
-                    session_code="",
+                    session_code=session_code,
                     ended_at_inferred=False,
                     inferred_ended_at="",
                 )

@@ -353,6 +353,14 @@ class LessonSlidesBackfillPostgresPresenceTests(LessonSlidesBackfillTests):
             teacher_user_id=int(self.teacher["id"]),
         )
         self.class_id = int(created["id"] if isinstance(created, dict) else created)
+        g = self.school.game.conn
+        self.students = [
+            int(r[0])
+            for r in g.execute(
+                "SELECT id FROM students WHERE class_id = ? ORDER BY id",
+                (self.class_id,),
+            ).fetchall()
+        ]
 
     def tearDown(self) -> None:
         self.school.close()

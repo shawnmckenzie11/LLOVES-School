@@ -62,6 +62,39 @@ def participation_run_row(
     return dict(row) if row is not None else None
 
 
+def run_start_instant_for_ranking(
+    school: _RunPolicySchool, class_id: int, run_key: str
+) -> datetime | None:
+    """Best-effort run start for real/test window checks (not ranking)."""
+    cid = int(class_id)
+    key = str(run_key or "").strip()
+    if not key:
+        return None
+    sess = school.conn.execute(
+        """
+        SELECT MIN(started_at) AS started_at
+        FROM live_class_sessions
+        WHERE class_id = ? AND run_key = ?
+        """,
+        (cid, key),
+    ).fetchone()
+    started = str((dict(sess) if sess is not None else {}).get("started_at") or "").strip()
+    if started:
+        return parse_ended_at(started)
+    offered = school.conn.execute(
+        """
+        SELECT MIN(offered_at) AS offered_at
+        FROM participation_items
+        WHERE class_id = ? AND run_key = ?
+        """,
+        (cid, key),
+    ).fetchone()
+    off = str((dict(offered) if offered is not None else {}).get("offered_at") or "").strip()
+    if off:
+        return parse_ended_at(off)
+    return None
+
+
 def teacher_overrode_run_kind(row: dict[str, Any] | None) -> bool:
     """True when a teacher toggle diverged from auto classification (MCK-207)."""
     if row is None:
@@ -136,14 +169,17 @@ def effective_run_is_real(
             pass  # unset or test — recompute below
         elif stored_real == auto_real:
             return bool(stored_real)
-    instant = end_instant or run_end_instant_for_ranking(school, class_id, run_key)
-    if instant is None:
+    start_dt = run_start_instant_for_ranking(school, class_id, run_key)
+    if start_dt is None:
+        instant = end_instant or run_end_instant_for_ranking(school, class_id, run_key)
+        start_dt = instant.value if instant is not None else None
+    if start_dt is None:
         return bool(int((row or {}).get("is_real") or 0))
     sched = schedule_for_class(school, class_id)
     if sched is None or not str(sched.start_time_label or "").strip():
         return bool(int((row or {}).get("is_real") or 0))
     return classify_run_start(
-        instant.value,
+        start_dt,
         sched,
         window=load_real_class_start_window(),
     )

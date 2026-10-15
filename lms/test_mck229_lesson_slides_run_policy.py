@@ -30,6 +30,20 @@ from live_class_run import parse_ended_at  # noqa: E402
 from test_mck229_lesson_slides_backfill import LessonSlidesBackfillTests  # noqa: E402
 
 
+
+
+def _set_run_started_at(school, class_id: int, run_key: str, started_iso: str) -> None:
+    """Align session start with schedule-window tests (real/test uses start time)."""
+    school.conn.execute(
+        """
+        UPDATE live_class_sessions SET started_at = ?
+        WHERE class_id = ? AND run_key = ?
+        """,
+        (started_iso, int(class_id), str(run_key)),
+    )
+    school.conn.commit()
+
+
 class RunPolicyScheduleTests(LessonSlidesBackfillTests):
     """Recompute real/test from scheduled start window (not stored ``is_real`` alone)."""
 
@@ -49,6 +63,7 @@ class RunPolicyScheduleTests(LessonSlidesBackfillTests):
             """,
             (int(self.class_id), run_key),
         )
+        _set_run_started_at(self.school, self.class_id, run_key, "2026-10-14T13:15:00")
         self.school.conn.commit()
         self.assertTrue(effective_run_is_real(self.school, self.class_id, run_key))
 
@@ -68,6 +83,7 @@ class RunPolicyScheduleTests(LessonSlidesBackfillTests):
             """,
             (int(self.class_id), run_key),
         )
+        _set_run_started_at(self.school, self.class_id, run_key, "2026-10-20T13:15:00")
         self.school.conn.commit()
         self.assertFalse(effective_run_is_real(self.school, self.class_id, run_key))
 

@@ -104,6 +104,21 @@ def _question_summary_text(summary: dict[str, Any]) -> str:
 from lesson_slides_run_policy import display_ended_at_from_latest, effective_run_is_real
 
 
+def catchup_run_visible_for_staff(
+    school: Any, class_id: int, catchup: dict[str, Any] | None
+) -> bool:
+    """Staff Lesson Slides: only surface catch-up runs that are real and not discarded."""
+    if not catchup:
+        return False
+    if bool(catchup.get("discarded")):
+        return False
+    run_key = str(catchup.get("run_key") or "").strip()
+    if not run_key:
+        return False
+    return effective_run_is_real(school, int(class_id), run_key)
+
+
+
 def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
     """Build the Lesson Slides table payload for one class.
 
@@ -167,12 +182,7 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
         run_key = ""
         if latest and str(latest.get("run_key") or "").strip():
             run_key = str(latest["run_key"])
-        elif (
-            catchup
-            and str(catchup.get("run_key") or "").strip()
-            and not bool(catchup.get("discarded"))
-            and effective_run_is_real(school, cid, str(catchup.get("run_key") or ""))
-        ):
+        elif catchup_run_visible_for_staff(school, cid, catchup):
             run_key = str(catchup["run_key"])
         has_run = bool(run_key)
         catchup_url = ""
