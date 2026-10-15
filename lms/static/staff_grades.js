@@ -197,14 +197,25 @@ function legacyCap(endedAt) {
  */
 function cellScore(data, sessionId, studentId, meta) {
   const opportunities = sessionOpportunities(meta?.deck_items, meta?.live_answered_keys);
+  const cell = data.cells?.[`${sessionId}:${studentId}`] || {};
+  const groupPoints = numericPoints(cell.points);
+  const individualKey = `${sessionId}:${studentId}`;
+  const individualAnswered = numericPoints(data.individual_cells?.[individualKey] || 0);
   let score = 0;
-  if (includeGroup) {
-    const cell = data.cells?.[`${sessionId}:${studentId}`] || {};
-    score += numericPoints(cell.points);
-  }
-  if (includeIndividual) {
-    const key = `${sessionId}:${studentId}`;
-    score += numericPoints(data.individual_cells?.[key] || 0);
+  if (displayMode === "points") {
+    if (includeGroup) score += groupPoints;
+    if (includeIndividual) score += individualAnswered;
+  } else {
+    if (includeIndividual && includeGroup) {
+      score = Math.max(individualAnswered, includeGroup ? groupPoints : 0);
+    } else if (includeIndividual) {
+      score = individualAnswered;
+    } else if (includeGroup) {
+      score = groupPoints;
+    }
+    if (opportunities > 0) {
+      score = Math.min(score, opportunities);
+    }
   }
   return { score, opportunities, ended_at: String(meta?.ended_at || "") };
 }
@@ -231,7 +242,9 @@ function renderSheet(data) {
       head += `<th class="subtotal-col">${escapeHtml(column.name || column.header_label)}</th>`;
       continue;
     }
-    head += `<th>${escapeHtml(column.header_label || "")}</th>`;
+    const meta = sessionMeta[String(column.id)] || {};
+    const header = meta.header_label || column.header_label || "";
+    head += `<th>${escapeHtml(header)}</th>`;
   }
   head += `<th class="live-sub">SUBTOTAL</th><th class="total">TOTAL SCORE</th></tr>`;
 

@@ -93,6 +93,26 @@ class Mck230ParticipationUiTests(unittest.TestCase):
 class Mck230LiveDenominatorTests(Base):
     """Participation denominator follows live response collection (MCK-230)."""
 
+    def _wire_participation_column(self, run_key: str, answered: int) -> int:
+        """Attach a game-show session column to a captured participation run."""
+        student = self.students[0]
+        credits = {student: answered} if answered > 0 else {}
+        self.school.game.persist_end_class_column(
+            self.class_id,
+            [student],
+            credits,
+            include_attendance=True,
+            include_participation=bool(credits),
+            run_key=run_key,
+            create_game=True,
+        )
+        row = self.school.game.conn.execute(
+            "SELECT session_id FROM live_participation_credits WHERE run_key = ?",
+            (run_key,),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        return int(row["session_id"])
+
     def test_deck_question_with_zero_live_answers_excluded(self) -> None:
         self.run_class("M1", "C1", 2, 0, {self.students[0]: 1})
         offered = self.school.participation_module_offered(
@@ -181,6 +201,60 @@ class Mck230LiveDenominatorTests(Base):
         self.assertEqual(m4["offered"], 3)
         cell = data["students"][0]["modules"]["M4"]
         self.assertEqual(participation_fraction(cell["answered"], m4["offered"]), f"{cell['answered']}/3")
+
+    def test_catchup_answers_excluded_from_session_numerator(self) -> None:
+        run_key = self.run_class("M5", "C1", 2, 0, {self.students[0]: 1})
+        self._wire_participation_column(run_key, 1)
+        link = self.school.list_catchup_links(self.class_id)[0]
+        self.assertTrue(
+            self.school.submit_catchup_answer(
+                link["token"], self.students[0], "item:M5-q1", "x"
+            )
+        )
+        meta = self.school.participation_session_meta(self.class_id)
+        session_id = next(
+            sid for sid, info in meta.items() if info.get("run_key") == run_key
+        )
+        cells = self.school.participation_individual_session_cells(self.class_id)
+        self.assertEqual(cells.get(f"{session_id}:{self.students[0]}"), 1)
+
+    def test_test_run_session_omitted_from_participation_grid(self) -> None:
+        real_key = self.run_class("M6", "C1", 1, 0, {self.students[0]: 1})
+        self._wire_participation_column(real_key, 1)
+        test_key = self.run_class("M6", "C2", 2, 0, {}, ended_iso="2026-10-20T15:00:00")
+        self._wire_participation_column(test_key, 1)
+        self.school.set_participation_run_real(self.class_id, test_key, False, user_id=1)
+        meta = self.school.participation_session_meta(self.class_id)
+        self.assertTrue(any(info.get("run_key") == real_key for info in meta.values()))
+        self.assertFalse(any(info.get("run_key") == test_key for info in meta.values()))
+        client = self.app.test_client()
+        client.get("/auth/google?portal=staff")
+        client.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+        code = self.school.get_user_by_email("teacher@gmail.com")["verification_code"]
+        client.post("/verify-email", data={"code": code})
+        body = client.get(
+            f"/api/classes/{self.class_id}/participation-grid?sort=az"
+        ).get_json()
+        run_keys = {
+            (body.get("session_meta") or {}).get(str(col["id"]), {}).get("run_key")
+            for col in body.get("columns") or []
+            if col.get("kind") == "session"
+        }
+        self.assertIn(real_key, run_keys)
+        self.assertNotIn(test_key, run_keys)
+
+
+class Mck230ParticipationHeaderTests(unittest.TestCase):
+    """Participation column labels use lesson slot + Toronto date."""
+
+    def test_header_label_slot_and_toronto_date(self) -> None:
+        from participation_exclusion import format_participation_session_header
+
+        label = format_participation_session_header(
+            "M1", "C1", "2026-10-15T18:30:00"
+        )
+        self.assertTrue(label.startswith("M1C1"))
+        self.assertIn("10/15/26", label)
 
 
 if __name__ == "__main__":
