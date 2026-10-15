@@ -11,9 +11,11 @@ class _LessonSlidesBackfillSchool(Protocol):
     conn: Any
     _lock: Any
 
+    def _backfill_participation_runs_ended_at_unlocked(self) -> int: ...
+
     def _upsert_lesson_slides_latest_unlocked(
         self,
-        session_id: int,
+        session_id: int | None,
         *,
         class_id: int,
         run_key: str,
@@ -24,19 +26,37 @@ class _LessonSlidesBackfillSchool(Protocol):
     ) -> None: ...
 
 
+_BACKFILL_PARTICIPATION_RUN_ENDED_AT_SQL = """
+UPDATE participation_runs
+SET ended_at = (
+    SELECT COALESCE(
+        (
+            SELECT MAX(snapshot_at)
+            FROM live_result_snapshots s
+            WHERE s.class_id = participation_runs.class_id
+              AND s.run_key = participation_runs.run_key
+        ),
+        (
+            SELECT MAX(offered_at)
+            FROM participation_items p
+            WHERE p.class_id = participation_runs.class_id
+              AND p.run_key = participation_runs.run_key
+        )
+    )
+)
+WHERE ended_at IS NULL OR TRIM(ended_at) = ''
+"""
+
 _BACKFILL_CANDIDATES_SQL = """
 WITH run_slots AS (
-    SELECT class_id, run_key, UPPER(live_module) AS live_module, UPPER(live_slot) AS live_slot
+    SELECT DISTINCT
+        class_id,
+        run_key,
+        UPPER(live_module) AS live_module,
+        UPPER(live_slot) AS live_slot
     FROM participation_items
-    WHERE TRIM(COALESCE(live_module, '')) <> '' AND TRIM(COALESCE(live_slot, '')) <> ''
-    UNION
-    SELECT class_id, run_key, UPPER(live_module), UPPER(live_slot)
-    FROM live_result_snapshots
-    WHERE TRIM(COALESCE(live_module, '')) <> '' AND TRIM(COALESCE(live_slot, '')) <> ''
-    UNION
-    SELECT class_id, run_key, UPPER(live_module), UPPER(live_slot)
-    FROM catchup_links
-    WHERE TRIM(COALESCE(live_module, '')) <> '' AND TRIM(COALESCE(live_slot, '')) <> ''
+    WHERE TRIM(COALESCE(live_module, '')) <> ''
+      AND TRIM(COALESCE(live_slot, '')) <> ''
 ),
 ranked AS (
     SELECT
@@ -44,24 +64,20 @@ ranked AS (
         rs.live_module,
         rs.live_slot,
         rs.run_key,
-        lcs.id AS session_id,
-        lcs.session_code,
-        lcs.ended_at,
+        pr.ended_at,
         ROW_NUMBER() OVER (
             PARTITION BY rs.class_id, rs.live_module, rs.live_slot
-            ORDER BY lcs.ended_at DESC, lcs.id DESC
+            ORDER BY pr.ended_at DESC, rs.run_key DESC
         ) AS rn
     FROM run_slots rs
     INNER JOIN participation_runs pr
         ON pr.class_id = rs.class_id AND pr.run_key = rs.run_key
-    INNER JOIN live_class_sessions lcs
-        ON lcs.class_id = rs.class_id AND lcs.run_key = rs.run_key
     WHERE pr.is_real = 1
       AND pr.discarded = 0
-      AND lcs.ended_at IS NOT NULL
-      AND TRIM(lcs.ended_at) <> ''
+      AND pr.ended_at IS NOT NULL
+      AND TRIM(pr.ended_at) <> ''
 )
-SELECT class_id, live_module, live_slot, run_key, session_id, session_code, ended_at
+SELECT class_id, live_module, live_slot, run_key, ended_at
 FROM ranked
 WHERE rn = 1
 ORDER BY class_id, live_module, live_slot
@@ -83,18 +99,20 @@ def backfill_lesson_slides_latest(school: _LessonSlidesBackfillSchool) -> dict[s
     """Fill ``lesson_slides_latest`` from newest real, non-discarded runs per slot.
 
     Idempotent: safe to call repeatedly; never replaces a row with an older ``ended_at``.
-    Skips test runs (``is_real=0``) and discarded runs.
+    Skips test runs (``is_real=0``) and discarded runs. Does not require ``live_class_sessions``.
     """
     inserted = 0
     updated = 0
     skipped = 0
     with school._lock:
+        school._backfill_participation_runs_ended_at_unlocked()
         rows = school.conn.execute(_BACKFILL_CANDIDATES_SQL).fetchall()
         for row in rows:
             cid = int(row["class_id"])
             mod = str(row["live_module"] or "").upper()
             sl = str(row["live_slot"] or "").upper()
             ended_at = str(row["ended_at"] or "")
+            run_key = str(row["run_key"] or "")
             existing = school.conn.execute(
                 """
                 SELECT ended_at FROM lesson_slides_latest
@@ -107,13 +125,13 @@ def backfill_lesson_slides_latest(school: _LessonSlidesBackfillSchool) -> dict[s
                 continue
             had_row = existing is not None
             school._upsert_lesson_slides_latest_unlocked(
-                int(row["session_id"]),
+                None,
                 class_id=cid,
-                run_key=str(row["run_key"] or ""),
+                run_key=run_key,
                 module=mod,
                 slot=sl,
                 ended_at=ended_at,
-                session_code=str(row["session_code"] or ""),
+                session_code="",
             )
             if had_row:
                 updated += 1

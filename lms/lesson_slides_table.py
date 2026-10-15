@@ -164,7 +164,12 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
         run_key = ""
         if latest and str(latest.get("run_key") or "").strip():
             run_key = str(latest["run_key"])
-        elif catchup and str(catchup.get("run_key") or "").strip():
+        elif (
+            catchup
+            and str(catchup.get("run_key") or "").strip()
+            and bool(catchup.get("is_real", True))
+            and not bool(catchup.get("discarded"))
+        ):
             run_key = str(catchup["run_key"])
         has_run = bool(run_key)
         catchup_url = ""

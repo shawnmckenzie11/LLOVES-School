@@ -3449,6 +3449,15 @@ class LovesDB:
             self.conn.execute(
                 "ALTER TABLE participation_runs ADD COLUMN auto_is_real INTEGER NOT NULL DEFAULT 0"
             )
+        if "ended_at" not in cols:
+            self.conn.execute("ALTER TABLE participation_runs ADD COLUMN ended_at TEXT")
+
+    def _backfill_participation_runs_ended_at_unlocked(self) -> int:
+        """Set ``participation_runs.ended_at`` from snapshots or offered items (MCK-229)."""
+        from lesson_slides_backfill import _BACKFILL_PARTICIPATION_RUN_ENDED_AT_SQL
+
+        cur = self.conn.execute(_BACKFILL_PARTICIPATION_RUN_ENDED_AT_SQL)
+        return int(cur.rowcount if cur.rowcount is not None else 0)
 
     def _ensure_catchup_slot_unique(self) -> None:
         """One shared catch-up link row per class lesson slot (MCK-207)."""
@@ -3502,7 +3511,16 @@ class LovesDB:
         """Populate ``lesson_slides_latest`` from historical real runs (MCK-229)."""
         from lesson_slides_backfill import backfill_lesson_slides_latest
 
-        backfill_lesson_slides_latest(self)
+        try:
+            backfill_lesson_slides_latest(self)
+        except Exception:  # noqa: BLE001 — backfill must never block boot
+            logger.exception("lesson_slides_latest backfill at boot failed")
+            try:
+                import sentry_sdk
+
+                sentry_sdk.capture_exception()
+            except Exception:  # noqa: BLE001
+                pass
 
     def _backfill_catchup_portal_join_codes(self) -> None:
         """Assign portal codes to existing catch-up rows that lack one."""
@@ -7025,8 +7043,8 @@ class SchoolDB(LovesDB):
         # after the school schema lock above was released (MCK-104).
         with boot_schema_lock(path):
             self.game = mod.GameShowDB(path, store, lock=self._lock)
-        self._backfill_catchup_portal_join_codes()
-        self._backfill_lesson_slides_latest()
+            self._backfill_catchup_portal_join_codes()
+            self._backfill_lesson_slides_latest()
         self.conn.commit()
         self._artifact_slider_previews: dict[tuple[int, int, int], dict[str, Any]] = {}
         self.data_dir = store
@@ -30553,7 +30571,11 @@ class SchoolDB(LovesDB):
             sched and classify_run_end(parse_ended_at(ended_at), sched)
         )
         return self._upsert_participation_run_kind_unlocked(
-            int(class_id), str(run_key), is_real=auto_real, auto_is_real=auto_real
+            int(class_id),
+            str(run_key),
+            is_real=auto_real,
+            auto_is_real=auto_real,
+            ended_at=str(ended_at or ""),
         )
 
     def _upsert_participation_run_kind_unlocked(
@@ -30563,6 +30585,7 @@ class SchoolDB(LovesDB):
         *,
         is_real: bool,
         auto_is_real: bool | None = None,
+        ended_at: str | None = None,
     ) -> bool:
         """Write ``participation_runs`` kind flags (caller holds lock)."""
         key = str(run_key or "").strip()
@@ -30571,11 +30594,13 @@ class SchoolDB(LovesDB):
         auto = auto_is_real if auto_is_real is not None else is_real
         discarded = 0 if is_real else 1
         now = _now()
+        ended = str(ended_at or "").strip() or None
         self.conn.execute(
             """
             INSERT INTO participation_runs (
-                class_id, run_key, is_real, auto_is_real, discarded, discarded_at, discarded_by
-            ) VALUES (?, ?, ?, ?, ?, ?, NULL)
+                class_id, run_key, is_real, auto_is_real, discarded, discarded_at, discarded_by,
+                ended_at
+            ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)
             ON CONFLICT(class_id, run_key) DO UPDATE SET
                 auto_is_real = excluded.auto_is_real,
                 is_real = CASE
@@ -30601,6 +30626,16 @@ class SchoolDB(LovesDB):
                     WHEN excluded.discarded = 1
                     THEN participation_runs.discarded_by
                     ELSE NULL
+                END,
+                ended_at = CASE
+                    WHEN excluded.ended_at IS NOT NULL AND TRIM(excluded.ended_at) <> ''
+                         AND (
+                             participation_runs.ended_at IS NULL
+                             OR TRIM(participation_runs.ended_at) = ''
+                             OR excluded.ended_at > participation_runs.ended_at
+                         )
+                    THEN excluded.ended_at
+                    ELSE participation_runs.ended_at
                 END
             """,
             (
@@ -30610,6 +30645,7 @@ class SchoolDB(LovesDB):
                 1 if auto else 0,
                 discarded,
                 now if discarded else None,
+                ended,
             ),
         )
         return bool(is_real)
@@ -30931,9 +30967,56 @@ class SchoolDB(LovesDB):
             out.append(item)
         return out
 
+    def _lesson_slides_questions_from_participation_unlocked(
+        self, class_id: int, run_key: str
+    ) -> list[dict[str, Any]]:
+        """Build Lesson Slides question rows from captured participation items."""
+        from lesson_slides_table import _bank_question_id, _stem, _type_label
+        from participation_weight import item_participation_weight
+
+        cid = int(class_id)
+        key = str(run_key or "").strip()
+        rows = self.conn.execute(
+            """
+            SELECT question_key, item_json, prompt_kind, offered_at
+            FROM participation_items
+            WHERE class_id = ? AND run_key = ?
+            ORDER BY offered_at, id
+            """,
+            (cid, key),
+        ).fetchall()
+        questions: list[dict[str, Any]] = []
+        for idx, row in enumerate(rows):
+            try:
+                payload = json.loads(row["item_json"] or "{}")
+            except (TypeError, ValueError):
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            kind = str(row["prompt_kind"] or payload.get("type") or "")
+            payload.setdefault("type", kind)
+            questions.append(
+                {
+                    "question_key": str(row["question_key"] or ""),
+                    "page": idx,
+                    "stem": _stem(payload),
+                    "type": str(payload.get("type") or ""),
+                    "type_label": _type_label(payload),
+                    "mode": "individual",
+                    "weight": item_participation_weight(
+                        kind,
+                        publish_mode="individual",
+                        item_json=payload,
+                    ),
+                    "in_catchup": True,
+                    "bank_question_id": _bank_question_id(payload),
+                }
+            )
+        return questions
+
     def _upsert_lesson_slides_latest_unlocked(
         self,
-        session_id: int,
+        session_id: int | None,
         *,
         class_id: int,
         run_key: str,
@@ -30946,7 +31029,7 @@ class SchoolDB(LovesDB):
         from lesson_slides_table import _bank_question_id, _stem, _type_label
         from participation_weight import item_participation_weight
 
-        sid = int(session_id)
+        sid = int(session_id) if session_id is not None else 0
         cid = int(class_id)
         mod = str(module or "").upper()
         sl = str(slot or "").upper()
@@ -30954,18 +31037,6 @@ class SchoolDB(LovesDB):
         slot_num = int(sl[1:]) if sl.startswith("C") and sl[1:].isdigit() else 0
         deck = self.get_lesson_slide_deck(cid, mod_num, slot_num) if mod_num and slot_num else None
         presentation_url = str((deck or {}).get("presentation_url") or "")
-        item_rows = self.conn.execute(
-            """
-            SELECT i.placement_key, i.page_number, i.publish_mode, i.response_mode, i.kind,
-                   CASE WHEN TRIM(COALESCE(pr.payload, '')) NOT IN ('', '{}')
-                        THEN pr.payload ELSE i.item_json END AS payload
-            FROM live_session_items i
-            LEFT JOIN live_session_prompts pr ON pr.id = i.prompt_id
-            WHERE i.live_session_id = ? AND i.published_at IS NOT NULL
-            ORDER BY COALESCE(i.page_number, 0), i.id
-            """,
-            (sid,),
-        ).fetchall()
         questions: list[dict[str, Any]] = []
         catchup_keys = {
             str(r[0])
@@ -30977,38 +31048,53 @@ class SchoolDB(LovesDB):
                 (cid, str(run_key)),
             ).fetchall()
         }
-        for row in item_rows:
-            try:
-                payload = json.loads(row["payload"] or "{}")
-            except (TypeError, ValueError):
-                payload = {}
-            if not isinstance(payload, dict):
-                payload = {}
-            payload.setdefault("type", str(row["kind"] or payload.get("type") or ""))
-            qkey = f"item:{row['placement_key']}"
-            pub = str(row["publish_mode"] or "individual").strip().lower()
-            mode = (
-                "group"
-                if pub in {"group_consensus", "group_shared", "group"}
-                else "individual"
-            )
-            questions.append(
-                {
-                    "question_key": qkey,
-                    "page": int(row["page_number"] or 0),
-                    "stem": _stem(payload),
-                    "type": str(payload.get("type") or ""),
-                    "type_label": _type_label(payload),
-                    "mode": mode,
-                    "weight": item_participation_weight(
-                        str(row["kind"] or payload.get("type") or ""),
-                        publish_mode=str(row["publish_mode"] or "individual"),
-                        item_json=payload,
-                    ),
-                    "in_catchup": qkey in catchup_keys,
-                    "bank_question_id": _bank_question_id(payload),
-                }
-            )
+        if sid:
+            item_rows = self.conn.execute(
+                """
+                SELECT i.placement_key, i.page_number, i.publish_mode, i.response_mode, i.kind,
+                       CASE WHEN TRIM(COALESCE(pr.payload, '')) NOT IN ('', '{}')
+                            THEN pr.payload ELSE i.item_json END AS payload
+                FROM live_session_items i
+                LEFT JOIN live_session_prompts pr ON pr.id = i.prompt_id
+                WHERE i.live_session_id = ? AND i.published_at IS NOT NULL
+                ORDER BY COALESCE(i.page_number, 0), i.id
+                """,
+                (sid,),
+            ).fetchall()
+            for row in item_rows:
+                try:
+                    payload = json.loads(row["payload"] or "{}")
+                except (TypeError, ValueError):
+                    payload = {}
+                if not isinstance(payload, dict):
+                    payload = {}
+                payload.setdefault("type", str(row["kind"] or payload.get("type") or ""))
+                qkey = f"item:{row['placement_key']}"
+                pub = str(row["publish_mode"] or "individual").strip().lower()
+                mode = (
+                    "group"
+                    if pub in {"group_consensus", "group_shared", "group"}
+                    else "individual"
+                )
+                questions.append(
+                    {
+                        "question_key": qkey,
+                        "page": int(row["page_number"] or 0),
+                        "stem": _stem(payload),
+                        "type": str(payload.get("type") or ""),
+                        "type_label": _type_label(payload),
+                        "mode": mode,
+                        "weight": item_participation_weight(
+                            str(row["kind"] or payload.get("type") or ""),
+                            publish_mode=str(row["publish_mode"] or "individual"),
+                            item_json=payload,
+                        ),
+                        "in_catchup": qkey in catchup_keys,
+                        "bank_question_id": _bank_question_id(payload),
+                    }
+                )
+        if not questions:
+            questions = self._lesson_slides_questions_from_participation_unlocked(cid, str(run_key))
         now = _now()
         self.conn.execute(
             """
@@ -31036,6 +31122,7 @@ class SchoolDB(LovesDB):
                 now,
             ),
         )
+
 
     def lesson_slides_question_rows(
         self,
@@ -31068,8 +31155,8 @@ class SchoolDB(LovesDB):
             if test_ids:
                 live_sql = f"""
                     SELECT question_key, COUNT(DISTINCT student_id) AS n
-                    FROM live_result_snapshots
-                    WHERE class_id = ? AND run_key = ? AND source = 'prompt'
+                    FROM participation_answers
+                    WHERE class_id = ? AND run_key = ? AND source = 'live'
                       AND student_id IS NOT NULL
                       {f'AND student_id NOT IN ({exclude})' if test_ids else ''}
                     GROUP BY question_key
@@ -31078,14 +31165,36 @@ class SchoolDB(LovesDB):
             else:
                 live_sql = """
                     SELECT question_key, COUNT(DISTINCT student_id) AS n
-                    FROM live_result_snapshots
-                    WHERE class_id = ? AND run_key = ? AND source = 'prompt'
+                    FROM participation_answers
+                    WHERE class_id = ? AND run_key = ? AND source = 'live'
                       AND student_id IS NOT NULL
                     GROUP BY question_key
                 """
             with self._lock:
                 for row in self.conn.execute(live_sql, live_params).fetchall():
                     live_counts[str(row["question_key"])] = int(row["n"])
+                if not live_counts:
+                    snap_params: list[Any] = [cid, run_key]
+                    if test_ids:
+                        snap_sql = f"""
+                            SELECT question_key, COUNT(DISTINCT student_id) AS n
+                            FROM live_result_snapshots
+                            WHERE class_id = ? AND run_key = ? AND source = 'prompt'
+                              AND student_id IS NOT NULL
+                              {f'AND student_id NOT IN ({exclude})' if test_ids else ''}
+                            GROUP BY question_key
+                        """
+                        snap_params.extend(sorted(test_ids))
+                    else:
+                        snap_sql = """
+                            SELECT question_key, COUNT(DISTINCT student_id) AS n
+                            FROM live_result_snapshots
+                            WHERE class_id = ? AND run_key = ? AND source = 'prompt'
+                              AND student_id IS NOT NULL
+                            GROUP BY question_key
+                        """
+                    for row in self.conn.execute(snap_sql, snap_params).fetchall():
+                        live_counts[str(row["question_key"])] = int(row["n"])
                 catch_params: list[Any] = [cid, run_key]
                 catch_sql = """
                     SELECT question_key, COUNT(DISTINCT student_id) AS n

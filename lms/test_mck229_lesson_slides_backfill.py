@@ -155,6 +155,93 @@ class LessonSlidesBackfillTests(RealVsTestFlowTests):
         self.assertEqual(latest[0]["run_key"], older)
 
 
+    def test_backfill_after_session_deleted(self) -> None:
+        """Backfill works when prod wiped the ended ``live_class_sessions`` row."""
+        run_key = self._ended_real_run_keep_session(
+            "M2",
+            "C1",
+            ended_iso="2026-10-14T14:30:00",
+        )
+        sid = self.school.conn.execute(
+            "SELECT id FROM live_class_sessions WHERE class_id = ? AND run_key = ?",
+            (int(self.class_id), run_key),
+        ).fetchone()
+        self.assertIsNotNone(sid)
+        self.school.conn.execute("DELETE FROM live_class_sessions WHERE id = ?", (int(sid["id"]),))
+        self.school.conn.commit()
+        report = backfill_lesson_slides_latest(self.school)
+        self.assertGreaterEqual(report["inserted"] + report["updated"], 1)
+        latest = self.school.list_lesson_slides_latest(self.class_id)
+        row = next(r for r in latest if r["live_module"] == "M2" and r["live_slot"] == "C1")
+        self.assertEqual(row["run_key"], run_key)
+        self.assertTrue(row["questions"])
+
+    def test_class9_m3c1_prod_shape_backfill(self) -> None:
+        """Prod-shaped M3C1 (run 42ca747b, portal R3W1U) backfills without a session row."""
+        run_key = "42ca747b-e2f0-4c3b-9a1d-0e5f6a7b8c9d"
+        self._ended_real_run_keep_session(
+            "M3",
+            "C1",
+            ended_iso="2026-10-14T14:30:00",
+            run_key=run_key,
+        )
+        self.school.conn.execute(
+            """
+            UPDATE catchup_links SET portal_join_code = ?
+            WHERE class_id = ? AND UPPER(live_module) = 'M3' AND UPPER(live_slot) = 'C1'
+            """,
+            ("R3W1U", int(self.class_id)),
+        )
+        self.school.conn.execute(
+            "DELETE FROM live_class_sessions WHERE class_id = ?", (int(self.class_id),)
+        )
+        self.school.conn.commit()
+        backfill_lesson_slides_latest(self.school)
+        latest = self.school.list_lesson_slides_latest(self.class_id)
+        row = next(r for r in latest if r["live_module"] == "M3" and r["live_slot"] == "C1")
+        self.assertEqual(row["run_key"], run_key)
+        payload = build_lesson_slides_table(self.school, self.class_id)
+        ui = next(r for r in payload["rows"] if r["label"] == "M3C1")
+        self.assertEqual(ui["join_code"], "R3W1U")
+        self.assertTrue(ui["has_run"])
+
+    def test_fallback_ignores_test_run_catchup(self) -> None:
+        """Catch-up fallback does not treat a test/discarded run as has_run."""
+        real_key = self._ended_real_run_keep_session(
+            "M1",
+            "C2",
+            ended_iso="2026-10-14T14:30:00",
+        )
+        test_key = self._ended_real_run_keep_session(
+            "M1",
+            "C2",
+            ended_iso="2026-10-20T15:00:00",
+        )
+        self.school.conn.execute(
+            """
+            UPDATE catchup_links SET run_key = ?
+            WHERE class_id = ? AND UPPER(live_module) = 'M1' AND UPPER(live_slot) = 'C2'
+            """,
+            (test_key, int(self.class_id)),
+        )
+        self.school.conn.execute("DELETE FROM lesson_slides_latest WHERE class_id = ?", (self.class_id,))
+        self.school.conn.commit()
+        payload = build_lesson_slides_table(self.school, self.class_id)
+        row = next(r for r in payload["rows"] if r["label"] == "M1C2")
+        self.assertFalse(row["has_run"])
+        self.school.conn.execute(
+            """
+            UPDATE catchup_links SET run_key = ?
+            WHERE class_id = ? AND UPPER(live_module) = 'M1' AND UPPER(live_slot) = 'C2'
+            """,
+            (real_key, int(self.class_id)),
+        )
+        self.school.conn.commit()
+        payload2 = build_lesson_slides_table(self.school, self.class_id)
+        row2 = next(r for r in payload2["rows"] if r["label"] == "M1C2")
+        self.assertTrue(row2["has_run"])
+
+
 def _pg_admin_url() -> str:
     return (os.environ.get("LIVE_PRESENCE_TEST_URL") or "").strip()
 
@@ -212,18 +299,17 @@ class LessonSlidesBackfillPostgresPresenceTests(LessonSlidesBackfillTests):
             live_time="9:15am",
             live_end_time="10:30am",
         )
-        self.class_id = int(
-            self.school.game.create_class(
-                year="2026/27",
-                semester="Semester 1",
-                course_code="MCR3U",
-                days_preset="M/W/F",
-                time_label="2:00pm",
-                codenames=["Ava", "Ben"],
-                offering_id=int(offering["id"]),
-                teacher_user_id=int(self.teacher["id"]),
-            )
+        created = self.school.game.create_class(
+            year="2026/27",
+            semester="Semester 1",
+            course_code="MCR3U",
+            days_preset="M/W/F",
+            time_label="2:00pm",
+            codenames=["Ava", "Ben"],
+            offering_id=int(offering["id"]),
+            teacher_user_id=int(self.teacher["id"]),
         )
+        self.class_id = int(created["id"] if isinstance(created, dict) else created)
 
     def tearDown(self) -> None:
         self.school.close()
