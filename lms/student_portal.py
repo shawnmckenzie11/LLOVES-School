@@ -523,18 +523,10 @@ def bind_pin_portal_session(
     """
     cid = int(class_id)
     sid = int(student_id)
-    if not school.catchup_portal_session_valid(session, cid, sid):
-        school.authorize_student_pin_change(cid, sid, None, session)
-    cls = school.game.get_class(cid)
-    offering = school.get_offering(int(cls["offering_id"]))
-    student = school.game.get_student(cid, sid)
-    session["student_offering_id"] = int(offering["id"])
-    session["student_class_id"] = cid
-    session["student_id"] = sid
-    session["student_codename"] = str(student.get("codename") or student.get("first_name") or "")
-    if not session.get("logged_in"):
-        session["role"] = "student"
-    session.permanent = False
+    school.authorize_student_pin_change(cid, sid, session)
+    from catchup_session import bind_global_student_session
+
+    bind_global_student_session(session, school, cid, sid)
 
 
 def resolve_pin_portal_context(school: Any, session: Any) -> dict[str, Any] | None:
