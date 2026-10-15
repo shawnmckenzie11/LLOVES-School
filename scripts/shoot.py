@@ -1934,6 +1934,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck215",
             "mck222",
             "mck219",
+            "mck233-end-live",
             "mck217-student-view",
         ),
         default="",

@@ -30779,6 +30779,40 @@ class SchoolDB(LovesDB):
                 cid, key, is_real=is_real, auto_is_real=is_real
             )
 
+    def _classify_and_record_participation_run(
+        self,
+        class_id: int,
+        run_key: str,
+        *,
+        ended_at: str,
+    ) -> bool:
+        """Classify one ended run and return whether it counts as a real class."""
+        from live_class_run import classify_run_end, parse_ended_at, schedule_from_row
+
+        cid = int(class_id)
+        key = str(run_key or "").strip()
+        existing = self.participation_run_kind(cid, key)
+        if existing is not None:
+            return bool(existing.get("is_real"))
+        sched_row = self.live_class_schedule_for_class(cid)
+        if sched_row is None or not str(sched_row.get("live_end_time") or "").strip():
+            auto_real = False
+        else:
+            sched = schedule_from_row(
+                live_days=sched_row["live_days"],
+                live_end_time=sched_row["live_end_time"],
+            )
+            auto_real = bool(
+                sched and classify_run_end(parse_ended_at(str(ended_at or "")), sched)
+            )
+        return self._upsert_participation_run_kind_unlocked(
+            cid,
+            key,
+            is_real=auto_real,
+            auto_is_real=auto_real,
+            ended_at=str(ended_at or ""),
+        )
+
     def _upsert_participation_run_kind_unlocked(
         self,
         class_id: int,
