@@ -4,7 +4,7 @@
 
 const TOAST_TEXT = "PIN saved. You're set for catch-up.";
 const PIN_HINT =
-  "Miss a live class? Use this pin to complete work for participation and grades after the live class has ended.";
+  "Miss a live class? Use this pin to complete work for participation and grades after the live class has ended. Unlock using the PIN sent to you by your teacher, then choose your own 4-digit PIN.";
 let dialogEl = null;
 let openForForced = false;
 let lastCatchupPinPayload = null;

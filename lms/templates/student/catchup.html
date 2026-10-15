@@ -62,6 +62,7 @@
     <form method="post" id="catchup-pin-form" autocomplete="off">
       <h2 id="catchup-pin-title">Set your catch-up PIN</h2>
       <p class="hint">Miss a live class? Use this pin to complete work for participation and grades after the live class has ended.</p>
+      <p class="hint">Unlock using the PIN sent to you by your teacher, then choose your own 4-digit PIN.</p>
       {% if pin_prompt.forced %}<p class="hint">Set a PIN now to open catch-up links.</p>{% endif %}
       {% if pin_error %}<div class="error">{{ pin_error }}</div>{% endif %}
       <label class="field" for="catchup_pin_new">New PIN</label>
