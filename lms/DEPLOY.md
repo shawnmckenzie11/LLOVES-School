@@ -208,6 +208,26 @@ often rejects or truncates very large request bodies.
 If something still returns HTTP 413, it is not an LLOVES size cap — check Cloudflare
 proxy mode, idle timeout on a stalled upload, or volume free space.
 
+## Deploy swap: proxy waits for `/health` (MCK-188)
+
+`[[http_service.checks]]` is a Fly **service** check: `GET /health` on the
+machine's private port 8080. The proxy does not send public traffic to that
+machine until the check returns 200. v219 routed as soon as the VM was up,
+and gunicorn was not listening yet (`instance refused connection`).
+
+This does not add a machine, a larger VM, or a top-level `[checks]` block
+(those do not steer the proxy). It is not `http_service.machine_checks`
+(those run an extra ephemeral machine and can stop a deploy). `[[vm]]` stays
+one shared-cpu-1x / 1 GB machine, `min_machines_running` stays 1, and
+`lloves_data` still mounts on that one machine. `grace_period` is 10s, `timeout` is 5s, and
+`interval` is 5s (see `serve_capacity.FLY_HEALTH_CHECK_*`). There is no TCP
+check: the listen socket opens before workers finish `create_app()`.
+
+On SIGTERM, an open LiveNewsWire stream ends on the next tail poll instead
+of holding its thread for the full 25 s. The quiet-class hold stays 25 s.
+That is what kept the v219 drain at 21 s; a shorter drain releases the
+volume sooner. The new machine still gets no traffic until `/health` is 200.
+
 ## Sentry
 
 Org `mckenzian`. Projects: `lloves-lms` (Flask) and `lloves-live` (browser). DSNs stay in the environment. The repo has no DSN strings.

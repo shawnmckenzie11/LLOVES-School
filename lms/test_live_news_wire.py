@@ -6,9 +6,11 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -22,17 +24,24 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
 from live_news_wire import (  # noqa: E402
+    STREAM_HOLD_S,
     STREAMS_PER_WORKER,
     LiveNewsLog,
     NewsAudience,
     _acquire_stream,
+    chain_sigterm,
+    clear_stream_shutdown,
     emit_session_news,
     event_visible,
     events_for_teacher_patch,
+    install_stream_shutdown_hook,
+    iter_sse,
     news_db_path,
     reset_logs,
     reset_stream_budget,
+    reset_stream_shutdown_hook,
     response_landed_events,
+    stream_shutting_down,
 )
 
 
@@ -119,6 +128,101 @@ class LiveNewsLogTests(unittest.TestCase):
         blob = json.dumps(events)
         self.assertNotIn("stem", blob)
         self.assertNotIn("<", blob)
+
+
+class StreamShutdownTests(unittest.TestCase):
+    """SIGTERM ends a LiveNewsWire hold without waiting out the 25 s tail."""
+
+    def setUp(self) -> None:
+        """Fresh tape and a clear shutdown mark."""
+        self.tmp = tempfile.TemporaryDirectory()
+        reset_logs()
+        clear_stream_shutdown()
+        reset_stream_shutdown_hook()
+        self.log = LiveNewsLog(news_db_path(self.tmp.name))
+
+    def tearDown(self) -> None:
+        """Drop the shutdown mark so later stream tests keep their hold."""
+        self.log.close()
+        reset_logs()
+        clear_stream_shutdown()
+        reset_stream_shutdown_hook()
+        self.tmp.cleanup()
+
+    def test_quiet_hold_still_waits_out_its_budget(self) -> None:
+        """Without SIGTERM the stream still holds, then reconnects."""
+        self.assertFalse(stream_shutting_down())
+        started = time.monotonic()
+        frames = list(
+            iter_sse(
+                self.log,
+                1,
+                audience=NewsAudience("staff"),
+                after_id=0,
+                hello_seq=1,
+                hold_s=0.4,
+            )
+        )
+        self.assertGreaterEqual(time.monotonic() - started, 0.3)
+        self.assertIn("ping", "".join(frames))
+
+    def test_shutdown_ends_a_long_hold(self) -> None:
+        """A marked shutdown returns hello and ping without the 25 s hold."""
+        from live_news_wire import note_stream_shutdown
+
+        note_stream_shutdown()
+        started = time.monotonic()
+        frames = list(
+            iter_sse(
+                self.log,
+                1,
+                audience=NewsAudience("staff"),
+                after_id=0,
+                hello_seq=1,
+                hold_s=STREAM_HOLD_S,
+            )
+        )
+        elapsed = time.monotonic() - started
+        self.assertLess(elapsed, 2.0, frames)
+        blob = "".join(frames)
+        self.assertIn("hello", blob)
+        self.assertIn("ping", blob)
+        self.assertEqual(STREAM_HOLD_S, 25.0)
+
+    def test_sigterm_handler_chains(self) -> None:
+        """The wrapper marks shutdown and still calls gunicorn's handler."""
+        seen: dict[str, int] = {}
+
+        def previous(signum: int, frame: object) -> None:
+            seen["signum"] = signum
+
+        handler = chain_sigterm(previous)
+        handler(signal.SIGTERM, None)
+        self.assertTrue(stream_shutting_down())
+        self.assertEqual(seen["signum"], signal.SIGTERM)
+
+    def test_hook_installs_only_under_gunicorn(self) -> None:
+        """Unit tests keep the process SIGTERM handler. Workers chain it."""
+        self.assertFalse(install_stream_shutdown_hook())
+        previous = signal.getsignal(signal.SIGTERM)
+        seen: dict[str, int] = {}
+
+        def fake(signum: int, frame: object) -> None:
+            seen["signum"] = signum
+
+        os.environ["SERVER_SOFTWARE"] = "gunicorn/test"
+        signal.signal(signal.SIGTERM, fake)
+        try:
+            self.assertTrue(install_stream_shutdown_hook())
+            self.assertFalse(install_stream_shutdown_hook())
+            signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+            self.assertTrue(stream_shutting_down())
+            self.assertEqual(seen["signum"], signal.SIGTERM)
+        finally:
+            signal.signal(signal.SIGTERM, previous)
+            os.environ.pop("SERVER_SOFTWARE", None)
+            reset_stream_shutdown_hook()
+            clear_stream_shutdown()
 
 
 class LiveNewsRouteTests(unittest.TestCase):

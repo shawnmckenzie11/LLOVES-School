@@ -79,6 +79,18 @@ GRACEFUL_TIMEOUT_SECONDS = 30
 FLY_KILL_SIGNAL = "SIGTERM"
 FLY_KILL_TIMEOUT_SECONDS = 35
 FLY_KILL_TIMEOUT_MAX_SECONDS = 300
+# MCK-188: Fly Proxy service check, not a machine check. A service check
+# withholds traffic until GET /health returns 200 and does not restart the
+# machine or start another one. grace is 10s and timeout 5s so a cold boot
+# (create_app, DB open) is not failed early; interval is 5s so a pass is noticed
+# quickly. No TCP check: gunicorn binds before workers finish create_app,
+# and a TCP pass would route while /health still cannot be served.
+FLY_HEALTH_CHECK_PATH = "/health"
+FLY_HEALTH_CHECK_METHOD = "GET"
+FLY_HEALTH_CHECK_PROTOCOL = "http"
+FLY_HEALTH_CHECK_GRACE_PERIOD = "10s"
+FLY_HEALTH_CHECK_INTERVAL = "5s"
+FLY_HEALTH_CHECK_TIMEOUT = "5s"
 # One listen socket, shared by every worker. gunicorn's default is 2048.
 # Past this, TCP is refused while workers are still inside create_app().
 BACKLOG = 64

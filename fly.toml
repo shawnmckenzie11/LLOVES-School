@@ -66,6 +66,21 @@ kill_timeout = 35
     # One shared-cpu-1x / 1 GB machine.
     idle_timeout = 600
 
+  # MCK-188: route only after a worker answers /health. v219's proxy sent
+  # traffic while the new machine was up and gunicorn was not listening yet
+  # (13 "instance refused connection" errors). This is a service check: it
+  # does not restart the machine, does not add a machine, and does not change
+  # [[vm]]. lloves_data still attaches to one machine. No TCP check — the
+  # listen socket opens before create_app() finishes. Same strings as
+  # serve_capacity.FLY_HEALTH_CHECK_*.
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "5s"
+    timeout = "5s"
+    method = "GET"
+    path = "/health"
+    protocol = "http"
+
 [[vm]]
   memory = '1gb'
   cpu_kind = 'shared'
