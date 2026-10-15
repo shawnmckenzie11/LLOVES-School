@@ -163,7 +163,7 @@ that requires a paid upgrade to raise. Config already set (no machine upsell):
 | Layer | Setting | Notes |
 |-------|---------|--------|
 | Flask / Werkzeug | `MAX_CONTENT_LENGTH` / `IMSCC_MAX_BYTES` | **`None`** (unlimited) in `lms/modules.py` |
-| gunicorn | **4 workers, 8 threads, `--timeout 120`**, keepalive 1s, `worker_connections` 32 per worker, **backlog 64** | Same line in `lms/Dockerfile` and `fly.toml` `[processes]`. A silent worker is killed after 120s. Poll slices stop at 8s. Boot `/state` sheds for 8s. |
+| gunicorn | **4 workers, 8 threads, `--timeout 120`**, keepalive 0, `worker_connections` 32 per worker, **backlog 64** | Same line in `lms/Dockerfile` and `fly.toml` `[processes]`. A silent worker is killed after 120s. Poll slices stop at 8s. Boot `/state` sheds for 8s. Keepalive is 0 so a pooled client cannot reuse a socket gunicorn is about to close. |
 | Fly `http_service.http_options.idle_timeout` | **600s** | Free config; quiet periods while the body is received / unpack runs |
 | Fly Proxy body size | streaming | No documented hard cap; >10 MB skips replay buffering (latency quirk only, not a reject) |
 | Fly volume `lloves_data` | currently **15 GB** | **Real hard limit** for `.imscc` + unpacked tree. Extending volume **costs money** — only if disk-full errors appear |
@@ -172,7 +172,7 @@ that requires a paid upgrade to raise. Config already set (no machine upsell):
 volume or buying a larger VM is **not** free — do not extend unless `/data` is full.
 Stay on **one** shared-cpu-1x / 1 GB machine. Do not add a second Fly machine.
 Inside that machine the image command is 4 gunicorn workers × 8 threads and
-timeout 120, with keepalive 1s, `worker_connections` 32 per worker, and
+timeout 120, with keepalive 0, `worker_connections` 32 per worker, and
 listen backlog 64. Live `/state` sends `Connection: close`. Fly proxy
 `idle_timeout` stays 600 for a quiet upload body. The gunicorn worker
 timeout is 120.
