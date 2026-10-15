@@ -30,6 +30,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from school_db import _now  # noqa: E402
 
 
 class LiveAddedQuestionTests(unittest.TestCase):
@@ -243,29 +244,186 @@ class LiveAddedQuestionTests(unittest.TestCase):
         self.assertEqual(int(again["slide_index"]), 20000 + int(row["id"]))
 
     def test_new_marker_is_teacher_only(self) -> None:
-        """Added mid-class carries the session id; students never get it."""
+        """Added mid-class carries the run key; students never get it."""
 
         item_id, row = self._add("Marked")
-        self.assertEqual(
-            int(row["item"].get("added_live_session_id") or 0), self.session_id
-        )
+        session = self.school.get_live_session(self.session_id)
+        run_key = str(session["run_key"])
+        self.assertEqual(row["item"].get("added_live_run_key"), run_key)
+        self.assertNotIn("added_live_session_id", row["item"])
         self._publish(row)
         payload = self.school.student_live_items_payload(
             self.session_id, int(self.students[0]["id"])
         )
-        self.assertNotIn("added_live_session_id", json.dumps(payload))
+        dumped = json.dumps(payload)
+        self.assertNotIn("added_live_session_id", dumped)
+        self.assertNotIn("added_live_run_key", dumped)
         seen = self._student_row(0, item_id)
         self.assertIsNotNone(seen)
 
+    def test_student_live_metadata_strips_new_marker(self) -> None:
+        """Teacher metadata keeps the run key; student metadata does not."""
+
+        self._add("Marked meta")
+        teacher = json.dumps(
+            self.school.live_class_metadata_for_session(self.session_id)
+        )
+        student = json.dumps(
+            self.school.student_live_class_metadata_for_session(self.session_id)
+        )
+        self.assertIn("added_live_run_key", teacher)
+        self.assertNotIn("added_live_run_key", student)
+        self.assertNotIn("added_live_session_id", student)
+
+    def test_quit_reused_session_id_does_not_revive_new(self) -> None:
+        """Quit reuses the session id; New stays on the old run key only."""
+
+        item_id, row = self._add("Before quit")
+        first = self.school.get_live_session(self.session_id)
+        first_key = str(first["run_key"])
+        self.assertEqual(row["item"].get("added_live_run_key"), first_key)
+        with self.school._lock:
+            max_id = self.school.conn.execute(
+                "SELECT MAX(id) FROM live_class_sessions"
+            ).fetchone()[0]
+        self.assertEqual(int(max_id), self.session_id)
+        self.school.wipe_live_sessions_for_class(self.class_id)
+        teacher = self.school.get_user_by_email("teacher@gmail.com")
+        second = self.school.start_live_class_session(
+            self.class_id, int(teacher["id"])
+        )
+        self.assertEqual(int(second["id"]), self.session_id)
+        second_key = str(second["run_key"])
+        self.assertNotEqual(second_key, first_key)
+        placed = next(
+            item
+            for item in self.school.list_class_playlist_placements(
+                self.class_id, "M1", "C2"
+            )
+            if str(item["item"].get("id") or "") == item_id
+        )
+        self.assertEqual(placed["item"].get("added_live_run_key"), first_key)
+        self.assertNotEqual(placed["item"].get("added_live_run_key"), second_key)
+        self.session_id = int(second["id"])
+        self.school.set_live_session_teacher_state(
+            self.session_id,
+            live_module="M1",
+            live_slot="C2",
+            stage="round",
+            page_id="round_1",
+        )
+        _fresh_id, fresh = self._add("After quit")
+        self.assertEqual(fresh["item"].get("added_live_run_key"), second_key)
+
+    def test_reimported_bank_question_starts_blank(self) -> None:
+        """Remove then import the same bank question: new prompt, old answers stay."""
+
+        library = self.school.create_library("MCR3U", origin="upload")
+        library_id = int(library["id"])
+        offering_id = int(self.school.game.get_class(self.class_id)["offering_id"])
+        self.school.attach_library(offering_id, library_id)
+        bank = self.school.conn.execute(
+            """
+            INSERT INTO question_banks (
+                library_id, import_key, title, settings_json, created_at
+            ) VALUES (?, 'bank:reimport', 'Reimport', '{}', ?)
+            """,
+            (library_id, _now()),
+        )
+        self.school.conn.commit()
+        bank_id = int(bank.lastrowid)
+        choices = [
+            {"id": "a1", "html": "First option", "correct": True},
+            {"id": "a2", "html": "Second option", "correct": False},
+        ]
+        payload = {
+            "stem_html": "Which option is first?",
+            "points_possible": 1.0,
+            "choices": choices,
+            "correct_ids": ["a1"],
+        }
+        question = self.school.conn.execute(
+            """
+            INSERT INTO questions (
+                bank_id, import_key, item_type, title, payload_json, created_at
+            ) VALUES (?, 'q-reimport', 'multiple_choice_question', ?, ?, ?)
+            """,
+            (bank_id, "Which option is first?", json.dumps(payload), _now()),
+        )
+        self.school.conn.commit()
+        question_id = int(question.lastrowid)
+        self.school.confirm_module_bank_links(library_id, 1, [bank_id])
+        item_id = f"bank-import-{question_id}"
+
+        def _import() -> dict[str, Any]:
+            """Import the same bank question onto this live lesson."""
+
+            return self.school.import_mc_to_class_playlist(
+                self.class_id,
+                "M1",
+                "C2",
+                question_id,
+                library_id=library_id,
+                page_number=4,
+                stage="round",
+            )
+
+        _import()
+        self.school.ensure_live_session_items(self.session_id)
+        first_row = next(
+            row
+            for row in self.school.list_live_session_items(self.session_id)
+            if row["item_id"] == item_id
+        )
+        first = self._publish(first_row)
+        first_prompt = self.school._prompt_for_live_item(first)
+        student_id = int(self.students[0]["id"])
+        self.school.submit_live_prompt_response(
+            int(first_prompt["id"]), student_id, {"choice": "A"}
+        )
+        self.school.remove_class_playlist_item(self.class_id, "M1", "C2", item_id)
+        second_place = _import()
+        self.assertNotEqual(
+            str(second_place.get("placement_key") or ""),
+            str(first_row.get("placement_key") or ""),
+        )
+        self.school.ensure_live_session_items(self.session_id)
+        second_row = next(
+            row
+            for row in self.school.list_live_session_items(self.session_id)
+            if row["item_id"] == item_id
+        )
+        self.assertIsNone(second_row.get("prompt_id"))
+        second = self._publish(second_row)
+        second_prompt = self.school._prompt_for_live_item(second)
+        self.assertNotEqual(int(second_prompt["id"]), int(first_prompt["id"]))
+        seen = self._student_row(0, item_id)
+        self.assertIsNotNone(seen)
+        self.assertFalse(seen.get("my_response"), "inherited a removed answer")
+        self.assertEqual(
+            len(self.school.list_live_prompt_responses(int(first_prompt["id"]))),
+            1,
+        )
+        self.assertEqual(
+            self.school.list_live_prompt_responses(int(second_prompt["id"])),
+            [],
+        )
+
     def test_teacher_card_renders_new_chip_only_before_publish(self) -> None:
-        """The chip is gated on this session and the inactive status."""
+        """The chip is gated on this run key and the inactive status."""
 
         staff = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         gate = staff.split("function liveQuestionAddedThisClass")[1].split("\n}\n")[0]
-        self.assertIn("added_live_session_id", gate)
+        self.assertIn("added_live_run_key", gate)
+        self.assertNotIn("added_live_session_id", gate)
         self.assertIn('status === "inactive"', gate)
+        paint = staff.split("function paintLiveQuestionCards")[1].split(
+            "function adoptLiveItem"
+        )[0]
+        self.assertIn("lifecycle?.status || card.status", paint)
         self.assertIn('<span class="live-question-new-chip">New</span>', staff)
         student = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertNotIn("added_live_run_key", student)
         self.assertNotIn("added_live_session_id", student)
         self.assertNotIn("live-question-new-chip", student)
 

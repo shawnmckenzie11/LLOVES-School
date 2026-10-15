@@ -12292,7 +12292,6 @@ class SchoolDB(LovesDB):
             page = max(1, int(page_number))
         except (TypeError, ValueError):
             page = 1
-        added_live = self._active_live_session_id_for_class(int(class_id))
         with self._lock:
             row = self.conn.execute(
                 """
@@ -12453,8 +12452,11 @@ class SchoolDB(LovesDB):
                 # it until Publish. Opinion ranks keep today's default.
                 item_payload["group_rank_mode"] = RANK_IMPORT_GROUP_MODE
                 item_payload["import_group_preset"] = RANK_IMPORT_GROUP_PRESET
-            if added_live is not None:
-                item_payload["added_live_session_id"] = int(added_live)
+            # MCK-163: New chip keys on the minted run, not the session id.
+            # Quit deletes the session and the next Start can reuse that id.
+            run_key = self._active_live_run_key_for_class(int(class_id))
+            if run_key:
+                item_payload["added_live_run_key"] = run_key
             stamp = _now()
             cur = self.conn.execute(
                 """
@@ -12902,11 +12904,13 @@ class SchoolDB(LovesDB):
             if answer_order:
                 item_payload["rank_key"] = answer_order
 
-        # MCK-154 S2: mark an item added while this class is live so the
-        # teacher card can show a small "New" chip. Students never see it.
-        added_live = self._active_live_session_id_for_class(int(class_id))
-        if added_live is not None:
-            item_payload["added_live_session_id"] = int(added_live)
+        # MCK-154 S2 / MCK-163: mark an item added while this class is live
+        # so the teacher card can show a small "New" chip. The marker is
+        # the run key, not the session id (Quit reuses that id). Students
+        # never see it.
+        run_key = self._active_live_run_key_for_class(int(class_id))
+        if run_key:
+            item_payload["added_live_run_key"] = run_key
         source_question_id = None
         if save_to_bank:
             if library_id in (None, ""):
@@ -15661,6 +15665,13 @@ class SchoolDB(LovesDB):
                 prompt = prompt_by_item.get(item_id) or prompt_by_item.get(
                     self._live_item_alias(item_id)
                 )
+                # MCK-163: a bank question's item id is fixed. Remove then
+                # import again mints a new placement; the old prompt (and
+                # its answers) stay stored but must not attach.
+                if prompt is not None and not self._prompt_matches_placement(
+                    prompt, placement_key
+                ):
+                    prompt = None
                 prompt_id = int(prompt["id"]) if prompt else None
                 saved = existing_by_key.get(placement_key)
                 if saved is None:
@@ -16086,6 +16097,48 @@ class SchoolDB(LovesDB):
         except (KeyError, TypeError, ValueError, sqlite3.Error):
             return None
         return int(active["id"]) if active else None
+
+    def _active_live_run_key_for_class(self, class_id: int) -> str | None:
+        """Return the active live run key for a class, or None.
+
+        Quit deletes the session row and the next Start can reuse that
+        sqlite id (MCK-45). The New chip must key on ``run_key``, which
+        is minted per Start and is not reused (MCK-163 LOW-2).
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        try:
+            active = self.get_active_live_session_for_class(int(class_id))
+        except (KeyError, TypeError, ValueError, sqlite3.Error):
+            return None
+        if not active:
+            return None
+        key = str(active.get("run_key") or "").strip()
+        return key or None
+
+    @staticmethod
+    def _prompt_matches_placement(prompt: dict[str, Any], placement_key: str) -> bool:
+        """True when a stored prompt still belongs to this playlist placement.
+
+        Bank imports keep a stable item id (``bank-import-{question}``).
+        Remove then import again mints a new placement key. The old prompt
+        and its answers stay in the database; they must not attach to the
+        new card (MCK-163). A prompt with no placement key keeps the
+        legacy item-id match.
+
+        Args:
+            prompt: ``live_session_prompts`` row, including ``payload``.
+            placement_key: Placement key of the card being ensured.
+        """
+        payload = (
+            prompt.get("payload") if isinstance(prompt.get("payload"), dict) else {}
+        )
+        owner = str(payload.get("placement_key") or "").strip()
+        key = str(placement_key or "").strip()
+        if owner and key:
+            return owner == key
+        return True
 
     def _live_item_prompt_slide(self, item: dict[str, Any], item_id: str) -> int:
         """Pick the prompt slide for a lifecycle row without inheriting a stale prompt.
@@ -22340,8 +22393,9 @@ class SchoolDB(LovesDB):
         else:
             cleaned = strip_teacher_prompt_fields(payload)
         if isinstance(cleaned, dict):
-            # MCK-154 S2: the "New" chip is teacher-only; no student cue.
+            # MCK-154 S2 / MCK-163: the "New" chip is teacher-only.
             cleaned.pop("added_live_session_id", None)
+            cleaned.pop("added_live_run_key", None)
             cleaned.pop(RANK_DISPLAY_ORDER_FIELD, None)
             cleaned.pop(RANK_DISPLAY_PENDING_FIELD, None)
         return rewrite_student_prompt_images(cleaned)
@@ -25278,6 +25332,13 @@ class SchoolDB(LovesDB):
                 cleaned.pop(RANK_DISPLAY_ORDER_FIELD, None)
                 cleaned.pop(RANK_DISPLAY_PENDING_FIELD, None)
                 cleaned.pop("correct_answer", None)
+                # MCK-163 LOW-3: the New marker is a run key, teacher-only.
+                cleaned.pop("added_live_session_id", None)
+                cleaned.pop("added_live_run_key", None)
+                nested_item = cleaned.get("item")
+                if isinstance(nested_item, dict):
+                    nested_item.pop("added_live_session_id", None)
+                    nested_item.pop("added_live_run_key", None)
                 for nested in cleaned.get("items") or []:
                     if isinstance(nested, dict):
                         nested.pop("correct_answer", None)
