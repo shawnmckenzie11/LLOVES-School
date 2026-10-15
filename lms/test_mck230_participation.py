@@ -335,6 +335,27 @@ class Mck230LiveDenominatorTests(Base):
         self.assertIn(real_key, run_keys)
         self.assertNotIn(test_key, run_keys)
 
+    def test_live_participation_column_visible_before_runs_row(self) -> None:
+        """In-flight live class: no ``participation_runs`` row yet must not hide the column."""
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        session_id = int(live["id"])
+        run_key = str(
+            self.school.conn.execute(
+                "SELECT run_key FROM live_class_sessions WHERE id = ?",
+                (session_id,),
+            ).fetchone()[0]
+        )
+        col_session_id = self._wire_participation_column(run_key, 1)
+        self.school.conn.execute(
+            "DELETE FROM participation_runs WHERE class_id = ? AND run_key = ?",
+            (self.class_id, run_key),
+        )
+        self.school.conn.commit()
+        excluded = self.school._participation_excluded_session_ids(self.class_id)
+        self.assertNotIn(col_session_id, excluded)
+
 
 class Mck230ParticipationHeaderTests(unittest.TestCase):
     """Participation column labels use lesson slot + Toronto date."""

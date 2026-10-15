@@ -141,11 +141,20 @@ def gallery_row_title(row: dict[str, Any]) -> str:
     return title or "Untitled"
 
 
-def should_snapshot_team_draw_run(school: SchoolDB, class_id: int, run_key: str) -> bool:
+def should_snapshot_team_draw_run(
+    school: SchoolDB,
+    class_id: int,
+    run_key: str,
+    *,
+    live_run: bool = False,
+) -> bool:
     """Skip persisting Team Draw rows into live_result_snapshots on test runs."""
     from participation_exclusion import participation_run_counts_in_tab
 
     kind = school.participation_run_kind(class_id, run_key)
+    if kind is None:
+        # End Live writes the snapshot before ``participation_runs`` exists.
+        return bool(live_run)
     return participation_run_counts_in_tab(kind)
 
 

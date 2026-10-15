@@ -86,6 +86,35 @@ class CatchupLandingFlowTests(Base):
         self.assertEqual(tiers["t2"], COPY_TIER_NA)
         self.assertIn("/", tiers["t1"])
 
+    def test_tier_cells_count_only_questions_with_live_responses(self) -> None:
+        """Deck items without live student answers do not inflate T1 (MCK-230)."""
+        run_key = self.run_class("M3", "C1", 2, 0, {self.students[0]: 1})
+        link = next(
+            row
+            for row in self.school.list_catchup_links(self.class_id)
+            if str(row["run_key"]) == run_key
+        )
+        now = "2026-10-14T12:00:00"
+        self.school.conn.execute(
+            """
+            INSERT INTO participation_items (
+                class_id, run_key, live_module, live_slot, question_key,
+                item_json, prompt_kind, offered_at
+            ) VALUES (?, ?, 'M3', 'C1', 'item:M3-silent', ?, 'poll', ?)
+            """,
+            (
+                self.class_id,
+                run_key,
+                '{"type": "mc", "options": [{"text": "A"}, {"text": "B"}]}',
+                now,
+            ),
+        )
+        self.school.conn.commit()
+        tiers = self.school.catchup_landing_tier_cells(
+            self.class_id, self.students[0], link
+        )
+        self.assertIn(tiers["t1"], ("1/1", COPY_TIER_DONE))
+
     def test_landing_display_name_adds_last_initial_on_collision(self) -> None:
         g = self.school.game.conn
         g.execute(

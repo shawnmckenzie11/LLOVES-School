@@ -573,12 +573,13 @@ def prepare_mck207_pin_modal(path: Path) -> tuple[int, str, int]:
         else:
             token = str(row[0])
             run_key = str(row[1] or demo_run_key)
-            _ensure_real_participation_run_row(
-                con,
-                class_id,
-                run_key,
-                demo_ended,
-            )
+            if token == "mck207demo" or run_key == demo_run_key:
+                _ensure_real_participation_run_row(
+                    con,
+                    class_id,
+                    run_key,
+                    demo_ended,
+                )
         sid = con.execute(
             "SELECT id FROM students WHERE class_id = ? ORDER BY id LIMIT 1",
             (class_id,),

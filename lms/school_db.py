@@ -30039,7 +30039,7 @@ class SchoolDB(LovesDB):
                 if not live_run:
                     continue
                 if not should_snapshot_team_draw_run(
-                    self, int(session["class_id"]), run_key
+                    self, int(session["class_id"]), run_key, live_run=bool(live_run)
                 ):
                     continue
             answer = {
@@ -33811,42 +33811,57 @@ class SchoolDB(LovesDB):
         run_key = str(link.get("run_key") or "").strip()
         slot = str(link.get("live_slot") or "").strip().upper()
         pair = "p.question_key"
+        live_keys = self.participation_run_live_answered_keys(cid, run_key)
+        live_keys_in_slot = [
+            key
+            for key in live_keys
+            if key
+        ]
         with self._lock:
-            offered = int(
-                self.conn.execute(
+            if not live_keys_in_slot:
+                offered = 0
+                answered = 0
+                item_rows = []
+            else:
+                placeholders = ",".join("?" * len(live_keys_in_slot))
+                offered = int(
+                    self.conn.execute(
+                        f"""
+                        SELECT COUNT(DISTINCT {pair}) AS n FROM participation_items p
+                        WHERE p.class_id = ? AND p.run_key = ? AND UPPER(p.live_slot) = ?
+                          AND {pair} IN ({placeholders})
+                        """,
+                        (cid, run_key, slot, *live_keys_in_slot),
+                    ).fetchone()["n"]
+                )
+                answered = int(
+                    self.conn.execute(
+                        f"""
+                        SELECT COUNT(DISTINCT {pair}) AS n
+                        FROM participation_answers a
+                        INNER JOIN participation_items p
+                            ON p.class_id = a.class_id AND p.run_key = a.run_key
+                           AND p.question_key = a.question_key
+                        WHERE p.class_id = ? AND p.run_key = ? AND UPPER(p.live_slot) = ?
+                          AND a.student_id = ?
+                          AND {pair} IN ({placeholders})
+                        """,
+                        (cid, run_key, slot, sid, *live_keys_in_slot),
+                    ).fetchone()["n"]
+                )
+                item_rows = self.conn.execute(
                     f"""
-                    SELECT COUNT(DISTINCT {pair}) AS n FROM participation_items p
+                    SELECT p.question_key, p.item_json, p.prompt_kind,
+                           a.answer_json
+                    FROM participation_items p
+                    LEFT JOIN participation_answers a
+                        ON a.class_id = p.class_id AND a.run_key = p.run_key
+                       AND p.question_key = a.question_key AND a.student_id = ?
                     WHERE p.class_id = ? AND p.run_key = ? AND UPPER(p.live_slot) = ?
+                      AND p.question_key IN ({placeholders})
                     """,
-                    (cid, run_key, slot),
-                ).fetchone()["n"]
-            )
-            answered = int(
-                self.conn.execute(
-                    f"""
-                    SELECT COUNT(DISTINCT {pair}) AS n
-                    FROM participation_answers a
-                    INNER JOIN participation_items p
-                        ON p.class_id = a.class_id AND p.run_key = a.run_key
-                       AND p.question_key = a.question_key
-                    WHERE p.class_id = ? AND p.run_key = ? AND UPPER(p.live_slot) = ?
-                      AND a.student_id = ?
-                    """,
-                    (cid, run_key, slot, sid),
-                ).fetchone()["n"]
-            )
-            item_rows = self.conn.execute(
-                """
-                SELECT p.question_key, p.item_json, p.prompt_kind,
-                       a.answer_json
-                FROM participation_items p
-                LEFT JOIN participation_answers a
-                    ON a.class_id = p.class_id AND a.run_key = p.run_key
-                   AND a.question_key = p.question_key AND a.student_id = ?
-                WHERE p.class_id = ? AND p.run_key = ? AND UPPER(p.live_slot) = ?
-                """,
-                (sid, cid, run_key, slot),
-            ).fetchall()
+                    (sid, cid, run_key, slot, *live_keys_in_slot),
+                ).fetchall()
         if offered <= 0:
             t1 = COPY_TIER_NA
         elif answered >= offered:
@@ -38179,7 +38194,12 @@ class SchoolDB(LovesDB):
             ).fetchall()
         for row in rows:
             run_key = str(row["run_key"] or "").strip()
-            if run_key and not self.participation_run_counts_in_tab(class_id, run_key):
+            if not run_key:
+                continue
+            kind = self.participation_run_kind(class_id, run_key)
+            if kind is None:
+                continue
+            if not self.participation_run_counts_in_tab(class_id, run_key):
                 excluded.add(int(row["session_id"]))
         return excluded
 

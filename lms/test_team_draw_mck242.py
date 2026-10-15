@@ -209,6 +209,32 @@ class TeamDrawTests(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(int(count), 0)
 
+    def test_real_run_end_keeps_team_draw_snapshot(self) -> None:
+        """Real End snapshots Team Draw before ``participation_runs`` is written."""
+        published = self._add_publish_team_draw()
+        live_id = int(published["id"])
+        self.school.submit_team_draw(
+            self.session_id,
+            live_id,
+            self.student_ids[0],
+            title="Class sketch",
+            image_b64=base64.b64encode(_TINY_PNG).decode("ascii"),
+        )
+        session = self.school.get_live_session(self.session_id)
+        assert session is not None
+        run_key = str(session["run_key"] or "")
+        self.school.cleanup_live_session_response_data(
+            self.session_id, live_run=True
+        )
+        count = self.school.conn.execute(
+            """
+            SELECT COUNT(*) FROM live_result_snapshots
+            WHERE class_id = ? AND run_key = ?
+            """,
+            (self.class_id, run_key),
+        ).fetchone()[0]
+        self.assertEqual(int(count), 1)
+
     def test_quit_wipe_purges_team_draw_images(self) -> None:
         published = self._add_publish_team_draw()
         live_id = int(published["id"])
