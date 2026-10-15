@@ -22,9 +22,13 @@ and the presence pool (8 connections) is per process.
 
 gunicorn's default ``worker_connections`` is 1000 and its default listen
 backlog is 2048. The caps here are 32 connections per worker and a backlog
-of 64 on the one listen socket, with keepalive of 1 second. Live ``/state``
-also sends ``Connection: close``. For the first seconds after a worker
-loads, ``/state`` is retry JSON so the boot queue cannot pin every thread.
+of 64 on the one listen socket. Keepalive is 0: gunicorn strips the app's
+``Connection`` header (hop-by-hop) and would otherwise park the socket for
+``--keep-alive`` seconds. A pooled client that reuses that socket races the
+close. The fast miss is a connection reset; the slow miss waits out
+``TCP_RTO_MAX`` and shows up near 160 seconds. Live ``/state`` still asks
+for ``Connection: close``. For the first seconds after a worker loads,
+``/state`` is retry JSON so the boot queue cannot pin every thread.
 ``/health`` stays on the normal path during that window.
 
 ``timeout`` is 120 seconds. A worker that stops notifying the arbiter (the
@@ -60,7 +64,11 @@ PRESENCE_POOL_SIZE = THREADS
 # ``scripts/load_class.py`` for the 60-minute flat-memory bar.
 # Per worker. Not gunicorn's 1000. Four workers × 32 = 128 sockets, not ~1k.
 WORKER_CONNECTIONS = 32
-KEEPALIVE_SECONDS = 1
+# MCK-231: 0, not 1. A 1s idle close races pooled clients (the SSE reconnect
+# sleeps 1s; /state polls every 2–4s). gunicorn ignores the app's
+# ``Connection: close`` and keeps the socket itself. The hung reuse waits
+# until TCP gives up, which lands at 158–166s, or resets immediately (599).
+KEEPALIVE_SECONDS = 0
 # A silent worker is killed after 120s. The old 600s left the wedge in place.
 WORKER_TIMEOUT_SECONDS = 120
 GRACEFUL_TIMEOUT_SECONDS = 30

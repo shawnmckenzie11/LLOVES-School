@@ -984,9 +984,14 @@ def live_news_response(
 
 
 def _sse_headers() -> dict[str, str]:
-    """Headers that keep a proxy from buffering or caching the tape."""
+    """Headers that keep a proxy from buffering or caching the tape.
+
+    ``Connection`` is not set here. gunicorn drops that hop-by-hop header
+    and chooses close versus keep-alive from ``--keep-alive``. The finite
+    25s stream must not be pooled: a client that reuses the socket races
+    the idle close.
+    """
     return {
         "Cache-Control": "no-cache",
         "X-Accel-Buffering": "no",
-        "Connection": "keep-alive",
     }
