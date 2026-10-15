@@ -103,6 +103,12 @@ def _question_summary_text(summary: dict[str, Any]) -> str:
 
 from lesson_slides_run_policy import display_ended_at_from_latest, effective_run_is_real
 from participation_real_students import exclude_participation_answer_student_ids
+from set_class import (
+    format_slide_day,
+    is_open_office_slot,
+    next_class_after_last_run,
+    open_office_label,
+)
 
 
 def catchup_run_visible_for_staff(
@@ -211,6 +217,9 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
                 "module": module,
                 "slot": slot,
                 "label": f"{module}{slot}",
+                "line_label": f"{module} {slot}",
+                "office_code": "",
+                "not_in_template": False,
                 "last_run_at": last_run_at,
                 "join_code": join_code if has_run else "",
                 "has_run": has_run,
@@ -223,9 +232,102 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
                 "run_key": run_key,
             }
         )
-    rows.sort(key=lambda r: (int(_MODULE_RE.match(r["module"]).group(1)) if _MODULE_RE.match(r["module"]) else 0,
-                            int(_SLOT_RE.match(r["slot"]).group(1)) if _SLOT_RE.match(r["slot"]) else 0))
+    seen = {(str(row["module"]), str(row["slot"])) for row in rows}
+    for (module, slot), latest in latest_by_slot.items():
+        if not is_open_office_slot(slot) or (module, slot) in seen:
+            continue
+        questions = school.lesson_slides_question_rows(
+            cid,
+            module,
+            slot,
+            latest=latest,
+            excluded_student_ids=test_ids,
+        )
+        summary = _summary_counts(questions)
+        run_key = str(latest.get("run_key") or "").strip()
+        has_run = bool(run_key)
+        last_run_at = display_ended_at_from_latest(latest)
+        deck_url = str(latest.get("presentation_url") or "").strip()
+        rows.append(
+            {
+                "module": module,
+                "slot": slot,
+                "label": f"{module}{slot}",
+                "line_label": f"{open_office_label(module, slot)} · Open office",
+                "office_code": open_office_label(module, slot),
+                "not_in_template": True,
+                "last_run_at": last_run_at,
+                "join_code": str(latest.get("session_code") or "").strip() if has_run else "",
+                "has_run": has_run,
+                "question_summary": _question_summary_text(summary) if questions else "—",
+                "summary": summary,
+                "questions": questions,
+                "deck_url": deck_url,
+                "catchup_url": "",
+                "catchup_enabled": False,
+                "run_key": run_key,
+            }
+        )
+    rows.sort(key=_lesson_row_sort_key)
+    _stamp_lesson_slide_status(rows)
     return {"ok": True, "course": course, "rows": rows}
+
+
+def _lesson_row_sort_key(row: dict[str, Any]) -> tuple[int, int, int]:
+    """Order template classes before open office inside each module.
+
+    Args:
+        row: One Lesson Slides table row.
+    """
+
+    module = str(row.get("module") or "")
+    slot = str(row.get("slot") or "").upper()
+    module_number = int(_MODULE_RE.match(module).group(1)) if _MODULE_RE.match(module) else 0
+    if slot.startswith("C") and slot[1:].isdigit():
+        return (module_number, 0, int(slot[1:]))
+    if slot.startswith("O") and slot[1:].isdigit():
+        return (module_number, 1, int(slot[1:]))
+    return (module_number, 2, 0)
+
+
+def _stamp_lesson_slide_status(rows: list[dict[str, Any]]) -> None:
+    """Mark Delivered, Next, and Not in template on Lesson Slides rows.
+
+    Args:
+        rows: Table rows for one class. Updated in place.
+    """
+
+    catalogue = [
+        (str(row["module"]), str(row["slot"]))
+        for row in rows
+        if not row.get("not_in_template")
+    ]
+    last_pair: tuple[str, str] | None = None
+    last_at = ""
+    for row in rows:
+        if row.get("not_in_template") or not row.get("has_run"):
+            continue
+        ended = str(row.get("last_run_at") or "")
+        if ended and ended >= last_at:
+            last_at = ended
+            last_pair = (str(row["module"]), str(row["slot"]))
+    upcoming = next_class_after_last_run(catalogue, last_pair if last_at else None)
+    for row in rows:
+        row["day_label"] = format_slide_day(row.get("last_run_at") or "")
+        if row.get("not_in_template"):
+            row["status"] = "not_in_template"
+            row["status_label"] = "Not in template"
+            continue
+        if row.get("has_run"):
+            row["status"] = "delivered"
+            row["status_label"] = "Delivered"
+            continue
+        if upcoming and (str(row["module"]), str(row["slot"])) == upcoming:
+            row["status"] = "next"
+            row["status_label"] = "Next"
+            continue
+        row["status"] = ""
+        row["status_label"] = ""
 
 
 def filter_questions(

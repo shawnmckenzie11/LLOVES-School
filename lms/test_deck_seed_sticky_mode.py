@@ -117,6 +117,11 @@ el('live-deck-seed-current-label');
 const moduleSelect = el('live-module-select', HTMLSelectElement.prototype);
 moduleSelect.value = 'M1';
 const slotSelect = el('live-class-select', HTMLSelectElement.prototype);
+// MCK-250: Live class now snaps to a slot in the module's template, so the
+// strip lists M1 C1-C4 like course.html does (C4 is the Previous case).
+const packStrip = el('live-pack-strip');
+packStrip.getAttribute = (name) =>
+  name === 'data-slots-by-module' ? JSON.stringify({ M1: ['C1', 'C2', 'C3', 'C4'] }) : null;
 slotSelect.value = 'C1';
 const inputs = () => ['previous', 'course', 'current'].map((m) => els[`live-deck-seed-${m}`]);
 

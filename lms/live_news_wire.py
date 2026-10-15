@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import json
 import logging
+import signal
 import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from flask import Response, jsonify, session
 
@@ -34,6 +35,8 @@ STREAMS_PER_WORKER = 4
 # Slow safety-net poll. The wire is the tap; this is not a 2s/4s stampede.
 FALLBACK_POLL_MS = 20000
 # How long one stream holds its thread before the browser reconnects.
+# SIGTERM does not use this full hold: note_stream_shutdown ends it on the
+# next poll so a deploy drain is not 25 s of open streams (v219 drained 21 s).
 STREAM_HOLD_S = 25.0
 STREAM_HOLD_TESTING_S = 0.2
 # Sqlite tail while this process waits for another worker's insert.
@@ -85,6 +88,80 @@ _FLAG_KEYS = ("minds_on", "action", "consolidation")
 
 _stream_lock = threading.Lock()
 _stream_count = 0
+_stream_shutdown = threading.Event()
+_shutdown_hook_installed = False
+
+
+def stream_shutting_down() -> bool:
+    """True after this worker has been asked to stop.
+
+    Returns:
+        Whether in-flight LiveNewsWire holds should end.
+    """
+    return _stream_shutdown.is_set()
+
+
+def note_stream_shutdown() -> None:
+    """End in-flight LiveNewsWire holds on the next tail poll.
+
+    gunicorn waits out the generator on SIGTERM. The steady hold stays
+    25 s so a quiet class still reconnects on that cadence. A shutdown
+    cuts the hold so the old machine can release ``lloves_data``.
+    """
+    _stream_shutdown.set()
+
+
+def clear_stream_shutdown() -> None:
+    """Forget a shutdown mark. Tests call this; a real stop does not."""
+    _stream_shutdown.clear()
+
+
+def reset_stream_shutdown_hook() -> None:
+    """Allow ``install_stream_shutdown_hook`` to run again. Tests only."""
+    global _shutdown_hook_installed
+    _shutdown_hook_installed = False
+
+
+def chain_sigterm(previous: Any) -> Callable[[int, Any], None]:
+    """Return a SIGTERM handler that ends stream holds, then chains.
+
+    Args:
+        previous: Handler already installed, usually gunicorn ``handle_exit``.
+
+    Returns:
+        Handler for ``signal.signal``.
+    """
+
+    def _on_sigterm(signum: int, frame: Any) -> None:
+        note_stream_shutdown()
+        if callable(previous):
+            previous(signum, frame)
+
+    return _on_sigterm
+
+
+def install_stream_shutdown_hook() -> bool:
+    """Chain SIGTERM in a gunicorn worker so stream holds end on shutdown.
+
+    ``create_app`` runs after gunicorn's ``init_signals``, so the previous
+    handler is ``handle_exit``. Chaining keeps that: the worker stops
+    accepting, and the SSE loop returns the thread within one poll.
+    Outside gunicorn this is a no-op so unit tests do not replace SIGTERM.
+
+    Returns:
+        True when this call installed the hook.
+    """
+    global _shutdown_hook_installed
+    if _shutdown_hook_installed:
+        return False
+    from serve_capacity import running_under_gunicorn
+
+    if not running_under_gunicorn():
+        return False
+    previous = signal.getsignal(signal.SIGTERM)
+    signal.signal(signal.SIGTERM, chain_sigterm(previous))
+    _shutdown_hook_installed = True
+    return True
 
 
 class NewsAudience:
@@ -779,6 +856,7 @@ def iter_sse(
         hello_seq: ``state_seq`` to put on the hello postcard.
         hold_s: How long to tail before ending the response.
         poll_s: Sqlite tail interval, for events written by another worker.
+            Also how soon a SIGTERM ends the hold.
     """
     cursor = int(after_id)
     yield format_sse(
@@ -797,9 +875,11 @@ def iter_sse(
             if not event_visible(event, audience):
                 continue
             yield format_sse(event, event_id=cursor)
-        if time.monotonic() >= deadline:
+        if stream_shutting_down() or time.monotonic() >= deadline:
             break
         time.sleep(min(poll_s, max(0.0, deadline - time.monotonic())))
+        if stream_shutting_down():
+            break
     yield format_sse({"type": "ping"}, retry_ms=SSE_RETRY_MS)
 
 

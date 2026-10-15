@@ -1032,6 +1032,13 @@ def write_live_lesson_playlist(
         root: Optional metadata root. Defaults to the live-class seed tree.
     """
 
+    raw_slot = str(slot or "").strip().upper()
+    try:
+        from set_class import is_open_office_slot
+    except ImportError:
+        from lms.set_class import is_open_office_slot
+    if is_open_office_slot(raw_slot):
+        raise ValueError("Open office sessions are not part of the course template.")
     dest_root = root or metadata_root()
     course_code = normalize_course_code(course)
     module_code = normalize_module(module)

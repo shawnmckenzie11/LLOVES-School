@@ -337,6 +337,10 @@ const DEFAULT_LIVE_PAGES = [
 const SETUP_STAGE = "set_class";
 /** True on Set Class (date + module + slot) until the teacher confirms Next. */
 let setupPhase = true;
+/** Set Class session type: ``live`` (template class) or ``office`` (``O1``, ``O2``, …). */
+let setClassKind = "live";
+/** Lesson Slides rows for the Set Class card. */
+let setClassSlideRows = [];
 
 /**
  * Home / remint Run Live Class (`?run=1`) always re-enters Set Class.
@@ -1074,6 +1078,11 @@ let teacherState = {
   page_id: "",
   text_ride: { frozen: false, cons_item: "", toast: "", toast_key: "" },
 };
+const setClassBoot = readSetClassDefaultsFromDom();
+if (setClassBoot) {
+  teacherState.live_module = setClassBoot.module;
+  teacherState.live_slot = setClassBoot.slot;
+}
 
 /** @type {any} */
 let lastTeamsSpark = null;
@@ -2304,6 +2313,9 @@ function scrollActiveTrackStepIntoView(focusEl = null, block = "start") {
 function adoptTeacherState(next) {
   if (!next || typeof next !== "object") return;
   const prevSeq = Number(teacherState.state_seq);
+  const localModule = teacherState.live_module;
+  const localSlot = teacherState.live_slot;
+  const keepLocalPack = !next.class_set && !teacherState.class_set;
   teacherState = {
     ...teacherState,
     ...next,
@@ -2322,11 +2334,13 @@ function adoptTeacherState(next) {
   if (next.round_flags && typeof next.round_flags === "object") {
     teacherState.round_flags = { ...next.round_flags };
   }
-  const slot = String(next.live_slot || teacherState.live_slot || "C1").toUpperCase();
+  const slot = keepLocalPack
+    ? String(localSlot || "C1").toUpperCase()
+    : String(next.live_slot || localSlot || "C1").toUpperCase();
   teacherState.live_slot = slot;
-  teacherState.live_module = String(
-    next.live_module || teacherState.live_module || "M1"
-  ).toUpperCase();
+  teacherState.live_module = keepLocalPack
+    ? String(localModule || "M1").toUpperCase()
+    : String(next.live_module || localModule || "M1").toUpperCase();
   paintLiveLessonBadge();
   paintEyesUpToggle();
   textRideSlot = slot === "C2" || slot === "C3" ? slot : "";
@@ -3379,6 +3393,143 @@ function slotsByModule() {
 }
 
 /**
+ * Read the server's next-class default from the Set Class strip.
+ * @returns {{module: string, slot: string, label: string}|null}
+ */
+function readSetClassDefaultsFromDom() {
+  const host = document.getElementById("live-pack-strip");
+  if (!host) return null;
+  const module = String(host.getAttribute("data-next-module") || "").toUpperCase();
+  const slot = String(host.getAttribute("data-next-slot") || "").toUpperCase();
+  if (!module || !slot) return null;
+  return {
+    module,
+    slot,
+    label: String(host.getAttribute("data-next-label") || `${module} · ${slot}`),
+  };
+}
+
+/**
+ * Next open-office slot for each module (``M3`` → ``O1``).
+ * @returns {Record<string, string>}
+ */
+function openOfficeNextMap() {
+  const host = document.getElementById("live-pack-strip");
+  try {
+    const raw = JSON.parse(host?.getAttribute("data-open-office-next") || "{}");
+    if (raw && typeof raw === "object") return raw;
+  } catch (_) {
+    /* keep empty */
+  }
+  return {};
+}
+
+/**
+ * Helper line under Session type. Open office adds the switch clause.
+ */
+function paintSetClassNotes() {
+  const helper = $("set-class-default-note");
+  const office = $("set-class-office-note");
+  const defaults = readSetClassDefaultsFromDom();
+  const label = defaults?.label || "";
+  if (helper && label) {
+    helper.textContent =
+      setClassKind === "office"
+        ? `Defaulted to the next class (${label}) — switched to Open office`
+        : `Defaulted to the next class (${label})`;
+  }
+  if (office) office.hidden = setClassKind !== "office";
+  const title = $("set-class-slides-title");
+  const module = String($("live-module-select")?.value || teacherState.live_module || "M1");
+  const number = module.replace(/^M/i, "");
+  if (title && number) title.textContent = `Lesson Slides · Module ${number}`;
+  const liveBtn = $("set-class-kind-live");
+  const officeBtn = $("set-class-kind-office");
+  const onOffice = setClassKind === "office";
+  liveBtn?.classList.toggle("is-on", !onOffice);
+  officeBtn?.classList.toggle("is-on", onOffice);
+  liveBtn?.setAttribute("aria-pressed", onOffice ? "false" : "true");
+  officeBtn?.setAttribute("aria-pressed", onOffice ? "true" : "false");
+}
+
+/**
+ * Switch Set Class between a template live class and the next open office.
+ * @param {"live"|"office"} kind
+ */
+function chooseSetClassKind(kind) {
+  const nextKind = kind === "office" ? "office" : "live";
+  if (nextKind === setClassKind) return;
+  setClassKind = nextKind;
+  const module = String($("live-module-select")?.value || teacherState.live_module || "M1").toUpperCase();
+  if (setClassKind === "live") {
+    const defaults = readSetClassDefaultsFromDom();
+    const slots = slotsByModule()[module] || ["C1"];
+    teacherState.live_module = module;
+    teacherState.live_slot =
+      defaults && module === defaults.module && slots.includes(defaults.slot)
+        ? defaults.slot
+        : slots[0];
+  }
+  paintLiveClassOptions(module);
+  paintSetClassNotes();
+  const slot = $("live-class-select")?.value || teacherState.live_slot || "C1";
+  applyLivePackChoice(module, slot);
+  paintSetClassSlides();
+}
+
+/**
+ * Paint the Set Class Lesson Slides card for the selected module.
+ */
+function paintSetClassSlides() {
+  const list = $("set-class-slides-list");
+  if (!list) return;
+  paintSetClassNotes();
+  const module = String($("live-module-select")?.value || teacherState.live_module || "M1").toUpperCase();
+  const rows = setClassSlideRows.filter(
+    (row) => String(row.module || "").toUpperCase() === module
+  );
+  list.replaceChildren();
+  if (!rows.length) {
+    const empty = document.createElement("p");
+    empty.className = "hint compact";
+    empty.textContent = "No classes in this module yet.";
+    list.appendChild(empty);
+    return;
+  }
+  for (const row of rows) {
+    const line = document.createElement("div");
+    line.className = "set-class-slide-row";
+    const name = document.createElement("span");
+    name.className = "set-class-slide-name";
+    name.textContent = String(row.line_label || `${row.module} ${row.slot}`);
+    const day = document.createElement("span");
+    day.className = "set-class-slide-day";
+    day.textContent = String(row.day_label || "");
+    const status = document.createElement("span");
+    const key = String(row.status || "plain");
+    status.className = `set-class-slide-status is-${key}`;
+    status.textContent = String(row.status_label || "");
+    line.append(name, day, status);
+    list.appendChild(line);
+  }
+}
+
+/**
+ * Load Lesson Slides rows for the Set Class card.
+ * @returns {Promise<void>}
+ */
+async function loadSetClassSlides() {
+  if (!classId || !$("set-class-slides-list")) return;
+  try {
+    const payload = await api(`/api/classes/${classId}/lesson-slides/table`);
+    setClassSlideRows = Array.isArray(payload?.rows) ? payload.rows : [];
+  } catch (_) {
+    setClassSlideRows = [];
+  }
+  paintSetClassSlides();
+}
+
+/**
  * Fill the Live class select for the current catalogue module.
  * @param {string} [moduleId]
  */
@@ -3386,16 +3537,25 @@ function paintLiveClassOptions(moduleId) {
   const select = $("live-class-select");
   if (!select) return;
   const module = String(moduleId || teacherState.live_module || "M1").toUpperCase();
+  if (setClassKind === "office") {
+    const slot = String(openOfficeNextMap()[module] || "O1").toUpperCase();
+    select.innerHTML = `<option value="${slot}" selected>${module} ${slot} · Open office</option>`;
+    teacherState.live_module = module;
+    teacherState.live_slot = slot;
+    return;
+  }
   const slots = slotsByModule()[module] || slotsByModule().M1 || ["C1", "C2", "C3"];
   const current = String(teacherState.live_slot || select.value || "C1").toUpperCase();
+  const chosen = slots.includes(current) ? current : slots[0];
   select.innerHTML = slots
     .map(
       (slot) =>
-        `<option value="${slot}"${slot === current ? " selected" : ""}>${slot}</option>`
+        `<option value="${slot}"${slot === chosen ? " selected" : ""}>${module} ${slot}</option>`
     )
     .join("");
-  if (![...select.options].some((opt) => opt.value === current) && slots[0]) {
-    select.value = slots[0];
+  if (chosen) {
+    select.value = chosen;
+    teacherState.live_slot = chosen;
   }
 }
 
@@ -3406,7 +3566,7 @@ function paintLivePackStrip() {
   const moduleSelect = $("live-module-select");
   const classSelect = $("live-class-select");
   const module = String(teacherState.live_module || "M1").toUpperCase();
-  if (moduleSelect && moduleSelect.value !== module) {
+  if (moduleSelect && [...moduleSelect.options].some((opt) => opt.value === module)) {
     moduleSelect.value = module;
   }
   paintLiveClassOptions(module);
@@ -3414,6 +3574,7 @@ function paintLivePackStrip() {
   if (classSelect && classSelect.value !== slot) {
     classSelect.value = slot;
   }
+  paintSetClassNotes();
 }
 
 function paintLiveSlotPicks() {
@@ -11819,10 +11980,14 @@ document.querySelectorAll("#live-slot-picks [data-live-slot]").forEach((btn) => 
 
 $("live-module-select")?.addEventListener("change", () => {
   const module = $("live-module-select")?.value || "M1";
+  if (setClassKind === "office") {
+    teacherState.live_slot = String(openOfficeNextMap()[module] || "O1").toUpperCase();
+  }
   paintLiveClassOptions(module);
   const slot = $("live-class-select")?.value || "C1";
   if (setupPhase) refreshDeckSeedOptions();
   applyLivePackChoice(module, slot);
+  paintSetClassSlides();
 });
 
 $("live-class-select")?.addEventListener("change", () => {
@@ -11831,7 +11996,20 @@ $("live-class-select")?.addEventListener("change", () => {
     $("live-module-select")?.value || teacherState.live_module || "M1",
     $("live-class-select")?.value || "C1"
   );
+  paintSetClassSlides();
 });
+
+$("set-class-kind-live")?.addEventListener("click", () => {
+  chooseSetClassKind("live");
+});
+$("set-class-kind-office")?.addEventListener("click", () => {
+  chooseSetClassKind("office");
+});
+$("set-class-start")?.addEventListener("click", () => {
+  const reservedWin = reserveLiveSessionOverlay();
+  applyValidateDateChoice({ reservedWin }).catch((err) => showError("#ap-overlay-error", err));
+});
+loadSetClassSlides().catch(() => {});
 
 /**
  * Lifecycle status for one surface, with the projection-map fallback.

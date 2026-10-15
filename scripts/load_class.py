@@ -26,9 +26,18 @@ Usage::
 
     python scripts/load_class.py --minutes 60 --students 30 --out lc-qa/load-class/run1
 
+The deploy gate runs a shorter smoke on the CI runner, never against
+production. Two classes of 15 students is 30 seats on one gunicorn::
+
+    python scripts/load_class.py --minutes 1 --classes 2 --students 15 \\
+        --items 2 --gate --max-p95-ms 250 --min-classes 2 \\
+        --out /tmp/load-smoke
+
 Pass ``--tracemalloc`` to dump the top allocation growth per worker every
 5 minutes (slows the server; profiling only). Needs Postgres for live
 presence at ``--presence-url`` (default local lloves_live), like prod.
+The presence host must be loopback. ``--gate`` exits non-zero unless
+there are 0 errors, HTTP p95 is under the limit, and 0 workers restarted.
 """
 
 from __future__ import annotations
@@ -40,6 +49,7 @@ import os
 import random
 import signal
 import statistics
+import string
 import subprocess
 import sys
 import tempfile
@@ -47,6 +57,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 REPO = Path(__file__).resolve().parents[1]
 LMS = REPO / "lms"
@@ -54,11 +65,121 @@ LMS = REPO / "lms"
 SECRET = "load-class-secret-not-for-prod-0123456789abcdef"
 DEFAULT_PRESENCE = "postgresql://lloves:lloves@127.0.0.1:5432/lloves_live"
 RANK_ITEMS = 16
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def class_codenames(index: int, students: int) -> list[str]:
+    """Codenames for one class, disjoint from every other class index.
+
+    Args:
+        index: Zero-based class number, 0 through 25.
+        students: How many names to build.
+
+    Returns:
+        Names such as ``A00`` and ``A01``.
+    """
+    if index < 0 or index > 25:
+        raise ValueError("class index must be 0..25")
+    if students < 1:
+        raise ValueError("students must be at least 1")
+    letter = string.ascii_uppercase[index]
+    return [f"{letter}{n:02d}" for n in range(students)]
+
+
+def presence_is_local(url: str) -> bool:
+    """True when a Postgres URL is on this machine, not production.
+
+    Args:
+        url: ``--presence-url`` value.
+
+    Returns:
+        Whether the host is loopback.
+    """
+    host = (urlparse(url).hostname or "").lower().strip("[]")
+    if "mckenzian.com" in host or host.endswith(".fly.dev"):
+        return False
+    return host in _LOCAL_HOSTS
+
+
+def smoke_gate_errors(
+    summary: dict[str, Any],
+    *,
+    max_p95_ms: float,
+    min_workers: int,
+    min_classes: int,
+) -> list[str]:
+    """Return deploy-gate failures. An empty list means the smoke passed.
+
+    Ops limits: 0 HTTP/SSE errors, HTTP p95 strictly under ``max_p95_ms``,
+    and 0 worker restarts. The sampler must also have seen every gunicorn
+    worker, and the run must have opened ``min_classes`` classes.
+
+    Args:
+        summary: ``summarize`` output.
+        max_p95_ms: HTTP p95 must be strictly below this.
+        min_workers: How many gunicorn workers the sampler must have seen.
+        min_classes: How many concurrent classes the run must have driven.
+
+    Returns:
+        Human-readable failure lines.
+    """
+    errors: list[str] = []
+    kinds = summary.get("kinds") or {}
+    http_n = sum(int(v["n"]) for k, v in kinds.items() if not str(k).startswith("sse"))
+    if int(summary.get("requests") or 0) < 1 or http_n < 1:
+        errors.append("no HTTP requests recorded")
+    errors_5xx = int(summary.get("errors_5xx") or 0)
+    if errors_5xx != 0:
+        errors.append(f"errors_5xx={errors_5xx}, want 0")
+    p95 = float(summary.get("http_p95_ms") or 0)
+    if p95 >= float(max_p95_ms):
+        errors.append(f"http_p95_ms={p95}, want < {max_p95_ms}")
+    restarts = int(summary.get("worker_restarts") or 0)
+    if restarts != 0:
+        errors.append(f"worker_restarts={restarts}, want 0")
+    for key in ("log_worker_timeouts", "log_autorestarts"):
+        count = int(summary.get(key) or 0)
+        if count != 0:
+            errors.append(f"{key}={count}, want 0")
+    seen = int(summary.get("max_workers") or 0)
+    if seen < int(min_workers):
+        errors.append(f"max_workers={seen}, want at least {min_workers}")
+    classes = int(summary.get("classes") or 0)
+    if classes < int(min_classes):
+        errors.append(f"classes={classes}, want at least {min_classes}")
+    return errors
 
 
 # --------------------------------------------------------------------------- setup
-def seed(data: Path, students: int, presence_url: str) -> dict[str, Any]:
-    """Build the class in-process and return cookies + ids for the clients."""
+def seed(
+    data: Path,
+    students: int,
+    presence_url: str,
+    *,
+    classes: int = 1,
+    items: int = RANK_ITEMS,
+) -> list[dict[str, Any]]:
+    """Build concurrent live classes in one sqlite file.
+
+    Each class has its own teacher, because one staff user can run only one
+    live class at a time. The load client drives them together on one
+    gunicorn, which is how the one Fly machine serves a school. Each class
+    gets its own roster, live session, and rank items.
+
+    Args:
+        data: Private data directory (sqlite and uploads).
+        students: Roster size of each class.
+        presence_url: Postgres URL for live presence. Loopback only.
+        classes: How many classes to open at once. At least 1.
+        items: Rank questions prepared on each class.
+
+    Returns:
+        One fixture dict per class.
+    """
+    if classes < 1:
+        raise ValueError("classes must be at least 1")
+    if items < 1:
+        raise ValueError("items must be at least 1")
     sys.path.insert(0, str(LMS))
     sys.path.insert(0, str(REPO))
     os.environ["ALLOW_DEV_VERIFICATION_CODE"] = "1"
@@ -72,85 +193,99 @@ def seed(data: Path, students: int, presence_url: str) -> dict[str, Any]:
         live_database_url=presence_url,
     )
     school = app.config["SCHOOL_DB"]
-    staff = app.test_client()
     school.activate_from_semester_json()
-    teacher = school.register_staff("teacher@gmail.com")
-    offering = school.assign_course(teacher_user_id=int(teacher["id"]), ontario_code="MCF3M")
-    names = [f"S{i:02d}" for i in range(students)]
-    class_id = int(
-        school.game.create_class(
-            year="2026/27",
-            semester="Semester 1",
-            course_code="MCF3M",
-            days_preset="M/W/F",
-            time_label="2:00pm",
-            codenames=names,
-            offering_id=int(offering["id"]),
-            teacher_user_id=int(teacher["id"]),
-        )["id"]
-    )
-    staff.get("/auth/google?portal=staff")
-    staff.get("/auth/google/callback?email=teacher@gmail.com&name=T")
-    code = school.get_user_by_email("teacher@gmail.com")["verification_code"]
-    staff.post("/verify-email", data={"code": code})
-    live = school.start_live_class_session(class_id, int(teacher["id"]))
-    sid = int(live["id"])
-    staff.post(
-        f"/api/live-sessions/{sid}/teacher-state",
-        json={"live_module": "M1", "live_slot": "C2", "stage": "round", "page_id": "round_1"},
-    )
-    school.game.begin_game(class_id)
-    rows = school.game.conn.execute(
-        "SELECT id, codename FROM students WHERE class_id = ? ORDER BY id", (class_id,)
-    ).fetchall()
-    ids = {str(r["codename"]): int(r["id"]) for r in rows}
-    cookies: dict[str, str] = {}
-    for name in names:
-        client = app.test_client()
-        rv = client.post("/auth/student-code", data={"code": str(live["session_code"]), "name": name})
-        assert rv.status_code == 302, rv.get_data(as_text=True)[:300]
-        client.post("/student/mood", data={"mood": "good"})
-        cookies[name] = client.get_cookie("session").value
-    n_teams = max(2, students // 4)
-    order = [ids[n] for n in names]
-    school.setup_live_session_groups(
-        sid,
-        n_teams=n_teams,
-        mode="manual",
-        present_ids=order,
-        assignments=[{"student_id": s, "team_index": i % n_teams} for i, s in enumerate(order)],
-    )
-    school.ensure_live_session_items(sid)
-    items: list[dict[str, Any]] = []
-    for k in range(RANK_ITEMS):
-        rv = staff.post(
-            f"/api/staff/class/{class_id}/live-lessons/M1/C2/add-question",
-            json={
-                "page_number": 5,
-                "stage": "round",
-                "type": "rank",
-                "text": f"Rank these representations ({k}).",
-                "options": ["Two points", "A graph", "An equation", "A table"],
-            },
+    fixtures: list[dict[str, Any]] = []
+    for index in range(classes):
+        # One live class per teacher. Two concurrent classes are two staff
+        # sessions on the same machine, which is what the product allows.
+        email = f"teacher{index}@gmail.com"
+        teacher = school.register_staff(email)
+        offering = school.assign_course(teacher_user_id=int(teacher["id"]), ontario_code="MCF3M")
+        staff = app.test_client()
+        staff.get("/auth/google?portal=staff")
+        staff.get(f"/auth/google/callback?email={email}&name=T{index}")
+        code = school.get_user_by_email(email)["verification_code"]
+        staff.post("/verify-email", data={"code": code})
+        staff_cookie = staff.get_cookie("session").value
+        names = class_codenames(index, students)
+        class_id = int(
+            school.game.create_class(
+                year="2026/27",
+                semester="Semester 1",
+                course_code="MCF3M",
+                days_preset="M/W/F",
+                time_label="2:00pm",
+                codenames=names,
+                offering_id=int(offering["id"]),
+                teacher_user_id=int(teacher["id"]),
+            )["id"]
         )
-        assert rv.status_code == 200, rv.get_data(as_text=True)[:300]
-        item_id = rv.get_json()["placement"]["item"]["id"]
-        row = next(r for r in school.list_live_session_items(sid) if r["item_id"] == item_id)
-        staff.patch(f"/api/live-sessions/{sid}/items/{row['id']}/settings", json={"group_rank_mode": "turns"})
-        live_item = school.get_live_session_item(sid, int(row["id"]))
-        raw = [o["id"] for o in school._rank_option_rows(live_item)]
-        aliases = school.student_rank_aliases(live_item)
-        opts = [aliases.out(o) for o in raw] if aliases is not None else raw
-        items.append({"live_item_id": int(row["id"]), "options": opts})
-    fixture = {
-        "session_id": sid,
-        "class_id": class_id,
-        "staff_cookie": staff.get_cookie("session").value,
-        "students": [{"name": n, "id": ids[n], "cookie": cookies[n]} for n in names],
-        "items": items,
-    }
+        live = school.start_live_class_session(class_id, int(teacher["id"]))
+        sid = int(live["id"])
+        staff.post(
+            f"/api/live-sessions/{sid}/teacher-state",
+            json={"live_module": "M1", "live_slot": "C2", "stage": "round", "page_id": "round_1"},
+        )
+        school.game.begin_game(class_id)
+        rows = school.game.conn.execute(
+            "SELECT id, codename FROM students WHERE class_id = ? ORDER BY id", (class_id,)
+        ).fetchall()
+        ids = {str(r["codename"]): int(r["id"]) for r in rows}
+        cookies: dict[str, str] = {}
+        for name in names:
+            client = app.test_client()
+            rv = client.post(
+                "/auth/student-code",
+                data={"code": str(live["session_code"]), "name": name},
+            )
+            assert rv.status_code == 302, rv.get_data(as_text=True)[:300]
+            client.post("/student/mood", data={"mood": "good"})
+            cookies[name] = client.get_cookie("session").value
+        n_teams = max(2, students // 4)
+        order = [ids[n] for n in names]
+        school.setup_live_session_groups(
+            sid,
+            n_teams=n_teams,
+            mode="manual",
+            present_ids=order,
+            assignments=[{"student_id": s, "team_index": i % n_teams} for i, s in enumerate(order)],
+        )
+        school.ensure_live_session_items(sid)
+        prepared: list[dict[str, Any]] = []
+        for k in range(items):
+            rv = staff.post(
+                f"/api/staff/class/{class_id}/live-lessons/M1/C2/add-question",
+                json={
+                    "page_number": 5,
+                    "stage": "round",
+                    "type": "rank",
+                    "text": f"Rank these representations ({index}-{k}).",
+                    "options": ["Two points", "A graph", "An equation", "A table"],
+                },
+            )
+            assert rv.status_code == 200, rv.get_data(as_text=True)[:300]
+            item_id = rv.get_json()["placement"]["item"]["id"]
+            row = next(r for r in school.list_live_session_items(sid) if r["item_id"] == item_id)
+            staff.patch(
+                f"/api/live-sessions/{sid}/items/{row['id']}/settings",
+                json={"group_rank_mode": "turns"},
+            )
+            live_item = school.get_live_session_item(sid, int(row["id"]))
+            raw = [o["id"] for o in school._rank_option_rows(live_item)]
+            aliases = school.student_rank_aliases(live_item)
+            opts = [aliases.out(o) for o in raw] if aliases is not None else raw
+            prepared.append({"live_item_id": int(row["id"]), "options": opts})
+        fixtures.append(
+            {
+                "session_id": sid,
+                "class_id": class_id,
+                "staff_cookie": staff_cookie,
+                "students": [{"name": n, "id": ids[n], "cookie": cookies[n]} for n in names],
+                "items": prepared,
+            }
+        )
     school.close()
-    return fixture
+    return fixtures
 
 
 # --------------------------------------------------------------------------- server
@@ -215,12 +350,25 @@ class Recorder:
             self.w.writerow([f"{t:.3f}", kind, status, f"{ms:.1f}"])
 
 
-def run_load(base: str, fx: dict[str, Any], minutes: float, round_minutes: float, rec: Recorder) -> None:
+def run_load(
+    base: str,
+    fixtures: list[dict[str, Any]],
+    minutes: float,
+    round_minutes: float,
+    rec: Recorder,
+) -> None:
+    """Drive every class at once against one local gunicorn.
+
+    Args:
+        base: Loopback origin, always ``http://127.0.0.1:<port>``.
+        fixtures: One seed dict per concurrent class.
+        minutes: How long the clients run.
+        round_minutes: Gap between teacher publishes.
+        rec: Shared request log.
+    """
     import requests  # noqa: PLC0415
 
     stop = time.monotonic() + minutes * 60
-    sid = fx["session_id"]
-    state = {"item": -1}
 
     def call(sess: Any, kind: str, method: str, url: str, **kw: Any) -> Any:
         t0 = time.perf_counter()
@@ -238,100 +386,145 @@ def run_load(base: str, fx: dict[str, Any], minutes: float, round_minutes: float
         s.headers["Cookie"] = f"session={cookie}"
         return s
 
-    def student_poll(st: dict[str, Any]) -> None:
-        s = mk(st["cookie"])
-        time.sleep(random.random() * 4)
-        n = 0
-        while time.monotonic() < stop:
-            call(s, "student_state", "GET", "/api/student/state")
-            if n % 5 == 0:
-                call(s, "board_mine", "GET", "/api/student/board/mine")
-            if n % 15 == 0:
-                call(s, "student_home", "GET", "/student/home")
-            n += 1
-            time.sleep(4)
+    def drive(fx: dict[str, Any]) -> list[threading.Thread]:
+        """Start one class's teacher and students. ``fx`` is bound per call."""
+        sid = fx["session_id"]
+        state: dict[str, Any] = {"item": -1}
 
-    def student_sse(st: dict[str, Any]) -> None:
-        s = mk(st["cookie"])
-        last = None
-        while time.monotonic() < stop:
-            t0 = time.perf_counter()
-            hdr = {"Last-Event-ID": last} if last else {}
-            try:
-                with s.get(base + f"/api/live/session/{sid}/events", stream=True, timeout=60, headers=hdr) as rv:
-                    first = None
-                    busy = False
-                    for line in rv.iter_lines(decode_unicode=True):
-                        if first is None:
-                            first = (time.perf_counter() - t0) * 1000
-                        if line.startswith("id:"):
-                            last = line[3:].strip()
-                        if '"busy"' in line:
-                            busy = True
+        def student_poll(st: dict[str, Any]) -> None:
+            s = mk(st["cookie"])
+            time.sleep(random.random() * 4)
+            n = 0
+            while time.monotonic() < stop:
+                call(s, "student_state", "GET", "/api/student/state")
+                if n % 5 == 0:
+                    call(s, "board_mine", "GET", "/api/student/board/mine")
+                if n % 15 == 0:
+                    call(s, "student_home", "GET", "/student/home")
+                n += 1
+                time.sleep(4)
+
+        def student_sse(st: dict[str, Any]) -> None:
+            s = mk(st["cookie"])
+            last = None
+            while time.monotonic() < stop:
+                t0 = time.perf_counter()
+                hdr = {"Last-Event-ID": last} if last else {}
+                try:
+                    with s.get(
+                        base + f"/api/live/session/{sid}/events",
+                        stream=True,
+                        timeout=60,
+                        headers=hdr,
+                    ) as rv:
+                        first = None
+                        busy = False
+                        for line in rv.iter_lines(decode_unicode=True):
+                            if first is None:
+                                first = (time.perf_counter() - t0) * 1000
+                            if line.startswith("id:"):
+                                last = line[3:].strip()
+                            if '"busy"' in line:
+                                busy = True
+                            if time.monotonic() >= stop:
+                                break
+                        rec.add("sse_busy" if busy else "sse_first_byte", rv.status_code, first or 0.0)
+                        if busy:
+                            time.sleep(20)
+                except Exception:  # noqa: BLE001
+                    rec.add("sse_first_byte", 599, (time.perf_counter() - t0) * 1000)
+                    time.sleep(1)
+                time.sleep(1)
+
+        def student_rank(st: dict[str, Any]) -> None:
+            s = mk(st["cookie"])
+            seen = -1
+            while time.monotonic() < stop:
+                k = state["item"]
+                if k >= 0 and k != seen:
+                    item = fx["items"][k]
+                    for _ in range(12):
                         if time.monotonic() >= stop:
                             break
-                    rec.add("sse_busy" if busy else "sse_first_byte", rv.status_code, first or 0.0)
-                    if busy:
-                        time.sleep(20)
-            except Exception:  # noqa: BLE001
-                rec.add("sse_first_byte", 599, (time.perf_counter() - t0) * 1000)
+                        opt = random.choice(item["options"])
+                        rv = call(
+                            s,
+                            "rank_turn",
+                            "POST",
+                            f"/api/student/live-items/{item['live_item_id']}/rank-turn",
+                            json={"option_id": opt},
+                        )
+                        time.sleep(random.uniform(2, 6))
+                        if rv is not None and rv.status_code == 200:
+                            body = rv.json().get("group_submit") or {}
+                            if (body.get("turns") or {}).get("done"):
+                                break
+                    seen = k
                 time.sleep(1)
-            time.sleep(1)
 
-    def student_rank(st: dict[str, Any]) -> None:
-        s = mk(st["cookie"])
-        seen = -1
-        while time.monotonic() < stop:
-            k = state["item"]
-            if k >= 0 and k != seen:
-                item = fx["items"][k]
-                for _ in range(12):
-                    if time.monotonic() >= stop:
-                        break
-                    opt = random.choice(item["options"])
-                    rv = call(s, "rank_turn", "POST", f"/api/student/live-items/{item['live_item_id']}/rank-turn",
-                              json={"option_id": opt})
-                    time.sleep(random.uniform(2, 6))
-                    if rv is not None and rv.status_code == 200:
-                        body = rv.json().get("group_submit") or {}
-                        if (body.get("turns") or {}).get("done"):
-                            break
-                seen = k
-            time.sleep(1)
+        def teacher() -> None:
+            s = mk(fx["staff_cookie"])
+            next_round = time.monotonic()
+            page = 1
+            while time.monotonic() < stop:
+                call(s, "staff_state", "GET", f"/api/live-sessions/{sid}/state")
+                ticks = state.setdefault("ticks", 0)
+                state["ticks"] = ticks + 1
+                if ticks % 15 == 0:
+                    call(s, "staff_class_page", "GET", f"/staff/class/{fx['class_id']}")
+                if time.monotonic() >= next_round and state["item"] + 1 < len(fx["items"]):
+                    page += 1
+                    call(
+                        s,
+                        "teacher_state",
+                        "POST",
+                        f"/api/live-sessions/{sid}/teacher-state",
+                        json={
+                            "live_module": "M1",
+                            "live_slot": "C2",
+                            "stage": "round",
+                            "page_id": f"round_{page}",
+                        },
+                    )
+                    k = state["item"] + 1
+                    call(
+                        s,
+                        "publish",
+                        "POST",
+                        f"/api/live-sessions/{sid}/items/{fx['items'][k]['live_item_id']}/publish",
+                        json={"publish_mode": "group_submit"},
+                    )
+                    state["item"] = k
+                    next_round = time.monotonic() + round_minutes * 60
+                if ticks % 30 == 15:
+                    # Mid-class deck edit (teacher adds a question), about once a
+                    # minute. Bumps class_deck_revision, which every worker sees.
+                    edits = state.setdefault("edits", 0)
+                    state["edits"] = edits + 1
+                    call(
+                        s,
+                        "add_question",
+                        "POST",
+                        f"/api/staff/class/{fx['class_id']}/live-lessons/M1/C2/add-question",
+                        json={
+                            "page_number": 6,
+                            "stage": "round",
+                            "type": "rank",
+                            "text": f"Extra rank {edits}",
+                            "options": ["w", "x", "y", "z"],
+                        },
+                    )
+                time.sleep(2)
 
-    def teacher() -> None:
-        s = mk(fx["staff_cookie"])
-        next_round = time.monotonic()
-        page = 1
-        while time.monotonic() < stop:
-            call(s, "staff_state", "GET", f"/api/live-sessions/{sid}/state")
-            ticks = state.setdefault("ticks", 0)
-            state["ticks"] = ticks + 1
-            if ticks % 15 == 0:
-                call(s, "staff_class_page", "GET", f"/staff/class/{fx['class_id']}")
-            if time.monotonic() >= next_round and state["item"] + 1 < len(fx["items"]):
-                page += 1
-                call(s, "teacher_state", "POST", f"/api/live-sessions/{sid}/teacher-state",
-                     json={"live_module": "M1", "live_slot": "C2", "stage": "round", "page_id": f"round_{page}"})
-                k = state["item"] + 1
-                call(s, "publish", "POST", f"/api/live-sessions/{sid}/items/{fx['items'][k]['live_item_id']}/publish",
-                     json={"publish_mode": "group_submit"})
-                state["item"] = k
-                next_round = time.monotonic() + round_minutes * 60
-            if ticks % 30 == 15:
-                # Mid-class deck edit (teacher adds a question), about once a
-                # minute. Bumps class_deck_revision, which every worker sees.
-                edits = state.setdefault("edits", 0)
-                state["edits"] = edits + 1
-                call(s, "add_question", "POST", f"/api/staff/class/{fx['class_id']}/live-lessons/M1/C2/add-question",
-                     json={"page_number": 6, "stage": "round", "type": "rank",
-                           "text": f"Extra rank {edits}", "options": ["w", "x", "y", "z"]})
-            time.sleep(2)
+        threads = [threading.Thread(target=teacher, daemon=True)]
+        for st in fx["students"]:
+            for fn in (student_poll, student_sse, student_rank):
+                threads.append(threading.Thread(target=fn, args=(st,), daemon=True))
+        return threads
 
-    threads = [threading.Thread(target=teacher, daemon=True)]
-    for st in fx["students"]:
-        for fn in (student_poll, student_sse, student_rank):
-            threads.append(threading.Thread(target=fn, args=(st,), daemon=True))
+    threads: list[threading.Thread] = []
+    for fx in fixtures:
+        threads.extend(drive(fx))
     for t in threads:
         t.start()
     for t in threads:
@@ -339,12 +532,30 @@ def run_load(base: str, fx: dict[str, Any], minutes: float, round_minutes: float
 
 
 # --------------------------------------------------------------------------- sampler
-def sampler(master_pid: int, out: Path, stop_evt: threading.Event, info: dict[str, Any]) -> None:
+def sampler(
+    master_pid: int,
+    out: Path,
+    stop_evt: threading.Event,
+    info: dict[str, Any],
+    expected_workers: int,
+) -> None:
+    """Sample RSS and count a worker pid that appears after the full set is up.
+
+    A worker that forks during boot is not a restart. Once ``expected_workers``
+    children have been seen together, a new pid is a replacement.
+
+    Args:
+        master_pid: gunicorn master.
+        out: Directory for ``samples.csv``.
+        stop_evt: Set when the load clients finish.
+        info: Mutated with ``restarts``, ``max_total_mb``, and ``max_workers``.
+        expected_workers: gunicorn ``--workers`` count.
+    """
     import psutil  # noqa: PLC0415
 
     master = psutil.Process(master_pid)
     seen: set[int] = set()
-    first = True
+    armed = False
     with (out / "samples.csv").open("w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["t", "pid", "rss_mb", "total_mb"])
@@ -361,10 +572,14 @@ def sampler(master_pid: int, out: Path, stop_evt: threading.Event, info: dict[st
                 w.writerow([f"{now:.0f}", pid, f"{mb:.1f}", f"{total:.1f}"])
             fh.flush()
             pids = {p.pid for p in kids}
-            if not first:
+            info["max_workers"] = max(int(info.get("max_workers", 0)), len(pids))
+            if not armed:
+                if len(pids) >= expected_workers:
+                    seen = set(pids)
+                    armed = True
+            else:
                 info["restarts"] += len(pids - seen)
-            seen |= pids
-            first = False
+                seen |= pids
             info["max_total_mb"] = max(info["max_total_mb"], total)
             stop_evt.wait(15)
 
@@ -377,7 +592,14 @@ def pct(vals: list[float], p: float) -> float:
     return vals[min(len(vals) - 1, int(round(p / 100 * (len(vals) - 1))))]
 
 
-def summarize(out: Path, rec: Recorder, info: dict[str, Any], minutes: float, server_log: Path) -> dict[str, Any]:
+def summarize(
+    out: Path,
+    rec: Recorder,
+    info: dict[str, Any],
+    minutes: float,
+    server_log: Path,
+    meta: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     by: dict[str, list[tuple[int, float]]] = {}
     for _, kind, status, ms in rec.rows:
         by.setdefault(kind, []).append((status, ms))
@@ -430,14 +652,31 @@ def summarize(out: Path, rec: Recorder, info: dict[str, Any], minutes: float, se
         "log_oom_or_sigkill": log.count("SIGKILL") + log.count("Out of memory"),
         "max_total_rss_mb": round(info["max_total_mb"], 1),
         "over_1gb": info["max_total_mb"] > 1024,
+        "max_workers": int(info.get("max_workers", 0)),
         "kinds": kinds,
         "rss": growth,
     }
+    if meta:
+        summary.update(meta)
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
     md = [f"# load_class.py — {minutes:g} min", "", "| metric | value |", "|---|---|"]
-    for key in ("requests", "http_p50_ms", "http_p95_ms", "errors_5xx", "worker_restarts",
-                "log_worker_timeouts", "log_autorestarts", "max_total_rss_mb", "over_1gb"):
-        md.append(f"| {key} | {summary[key]} |")
+    for key in (
+        "classes",
+        "students_per_class",
+        "students_total",
+        "requests",
+        "http_p50_ms",
+        "http_p95_ms",
+        "errors_5xx",
+        "worker_restarts",
+        "log_worker_timeouts",
+        "log_autorestarts",
+        "max_workers",
+        "max_total_rss_mb",
+        "over_1gb",
+    ):
+        if key in summary:
+            md.append(f"| {key} | {summary[key]} |")
     md += ["", "| kind | n | p50 ms | p95 ms | max ms | 5xx |", "|---|---|---|---|---|---|"]
     for k, v in kinds.items():
         md.append(f"| {k} | {v['n']} | {v['p50_ms']} | {v['p95_ms']} | {v['max_ms']} | {v['errors_5xx']} |")
@@ -449,9 +688,20 @@ def summarize(out: Path, rec: Recorder, info: dict[str, Any], minutes: float, se
 
 
 def main() -> int:
+    """Seed local classes, run gunicorn, and optionally fail the deploy gate.
+
+    The HTTP target is always ``127.0.0.1``. A non-loopback presence URL is
+    refused so this cannot be pointed at production.
+
+    Returns:
+        0 when the run finished and, with ``--gate``, the limits passed.
+        1 when ``--gate`` limits failed. 2 when setup or boot failed.
+    """
     ap = argparse.ArgumentParser()
     ap.add_argument("--minutes", type=float, default=60)
     ap.add_argument("--students", type=int, default=30)
+    ap.add_argument("--classes", type=int, default=1, help="Concurrent classes on one gunicorn.")
+    ap.add_argument("--items", type=int, default=RANK_ITEMS, help="Rank questions seeded per class.")
     ap.add_argument("--round-minutes", type=float, default=4)
     ap.add_argument("--port", type=int, default=18791)
     ap.add_argument("--out", type=Path, default=REPO / "lc-qa" / "load-class" / time.strftime("%Y%m%d-%H%M"))
@@ -459,18 +709,53 @@ def main() -> int:
     ap.add_argument("--tracemalloc", action="store_true")
     ap.add_argument("--strip-max-requests", action="store_true",
                     help="Drop --max-requests from the image command (baseline leak runs).")
+    ap.add_argument("--gate", action="store_true",
+                    help="Exit 1 unless errors, p95, and worker restarts are within limits.")
+    ap.add_argument("--max-p95-ms", type=float, default=250.0)
+    ap.add_argument("--min-classes", type=int, default=1)
     args = ap.parse_args()
+    if not presence_is_local(args.presence_url):
+        print("refusing non-local presence URL; this smoke never targets production", file=sys.stderr)
+        return 2
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    data = Path(tempfile.mkdtemp(prefix="load-class-"))
     # Fresh presence schema per run so attendees from old runs are not counted.
-    import psycopg  # noqa: PLC0415
+    # Loopback check first, then CREATE DATABASE; the db is dropped on exit.
     dbname = f"load_{int(time.time())}_{os.getpid()}"
+    presence = args.presence_url.rsplit("/", 1)[0] + "/" + dbname
+    if not presence_is_local(presence):
+        print("refusing non-local presence database", file=sys.stderr)
+        return 2
+    import psycopg  # noqa: PLC0415
     with psycopg.connect(args.presence_url, autocommit=True) as conn:
         conn.execute(f'CREATE DATABASE "{dbname}"')
-    presence = args.presence_url.rsplit("/", 1)[0] + "/" + dbname
-    fx = seed(data, args.students, presence)
-    (out / "fixture.json").write_text(json.dumps({k: v for k, v in fx.items() if k != "students"}, indent=2))
+    try:
+        return _run(args, out, presence)
+    finally:
+        drop_presence_db(args.presence_url, dbname)
+
+
+def drop_presence_db(admin_url: str, dbname: str) -> None:
+    """Drop the per-run presence database. Never raises."""
+    if not dbname.startswith("load_") or not presence_is_local(admin_url):
+        return
+    try:
+        import psycopg  # noqa: PLC0415
+        with psycopg.connect(admin_url, autocommit=True) as conn:
+            conn.execute(f'DROP DATABASE IF EXISTS "{dbname}" WITH (FORCE)')
+    except Exception as exc:  # noqa: BLE001
+        print(f"could not drop presence db {dbname}: {exc}", file=sys.stderr)
+
+
+def _run(args: argparse.Namespace, out: Path, presence: str) -> int:
+    """Seed, boot gunicorn, drive load, and apply the gate. See ``main``."""
+    data = Path(tempfile.mkdtemp(prefix="load-class-"))
+    fixtures = seed(data, args.students, presence, classes=args.classes, items=args.items)
+    public = [
+        {k: v for k, v in fx.items() if k not in ("students", "staff_cookie")}
+        for fx in fixtures
+    ]
+    (out / "fixture.json").write_text(json.dumps(public, indent=2))
     hooks = out / "gunicorn_hooks.py"
     hooks.write_text(GUNICORN_HOOKS)
     env = {
@@ -491,28 +776,41 @@ def main() -> int:
     (out / "command.txt").write_text(" ".join(argv) + "\n")
     proc = subprocess.Popen(argv, cwd=REPO, env=env, stdout=server_log.open("w"), stderr=subprocess.STDOUT)
     import requests  # noqa: PLC0415
+    import serve_capacity  # noqa: PLC0415
+
     base = f"http://127.0.0.1:{args.port}"
+    if not base.startswith("http://127.0.0.1:"):
+        print("refusing non-local HTTP target", file=sys.stderr)
+        proc.terminate()
+        return 2
+    ready = False
     for _ in range(120):
         if proc.poll() is not None:
             break
         try:
             if requests.get(base + "/health", timeout=2).status_code == 200:
+                ready = True
                 break
         except Exception:  # noqa: BLE001
             pass
         time.sleep(1)
-    else:
-        proc.terminate()
+    if not ready:
+        if proc.poll() is None:
+            proc.terminate()
         print("server did not come up; see", server_log)
         return 2
     time.sleep(10)  # let every worker finish create_app()
-    info = {"restarts": 0, "max_total_mb": 0.0}
+    info = {"restarts": 0, "max_total_mb": 0.0, "max_workers": 0}
     stop_evt = threading.Event()
-    smp = threading.Thread(target=sampler, args=(proc.pid, out, stop_evt, info), daemon=True)
+    smp = threading.Thread(
+        target=sampler,
+        args=(proc.pid, out, stop_evt, info, serve_capacity.WORKERS),
+        daemon=True,
+    )
     smp.start()
     rec = Recorder(out / "requests.csv")
     try:
-        run_load(base, fx, args.minutes, args.round_minutes, rec)
+        run_load(base, fixtures, args.minutes, args.round_minutes, rec)
     finally:
         stop_evt.set()
         smp.join(timeout=20)
@@ -522,9 +820,34 @@ def main() -> int:
             proc.wait(timeout=40)
         except subprocess.TimeoutExpired:
             proc.kill()
-    summary = summarize(out, rec, info, args.minutes, server_log)
+    summary = summarize(
+        out,
+        rec,
+        info,
+        args.minutes,
+        server_log,
+        meta={
+            "classes": args.classes,
+            "students_per_class": args.students,
+            "students_total": args.classes * args.students,
+            "target": base,
+        },
+    )
     print(json.dumps({k: v for k, v in summary.items() if k not in ("kinds", "rss")}, indent=2))
     print("results:", out)
+    if not args.gate:
+        return 0
+    failures = smoke_gate_errors(
+        summary,
+        max_p95_ms=args.max_p95_ms,
+        min_workers=serve_capacity.WORKERS,
+        min_classes=args.min_classes,
+    )
+    if failures:
+        for line in failures:
+            print("gate:", line, file=sys.stderr)
+        return 1
+    print("gate: passed")
     return 0
 
 

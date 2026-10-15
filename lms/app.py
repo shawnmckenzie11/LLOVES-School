@@ -94,6 +94,7 @@ from local_dev_seed import (  # noqa: E402
 )
 from school_db import (  # noqa: E402
     STAFF_2FA_MODE_LABELS,
+    DeckCopyLiveConflict,
     DeckReplaceNotConfirmed,
     GroupAnswerLocked,
     RankAgreeConflict,
@@ -128,6 +129,7 @@ from live_news_wire import (  # noqa: E402
     emit_session_news,
     events_for_teacher_patch,
     flag_work_event,
+    install_stream_shutdown_hook,
     live_news_response,
     prompt_event,
     prompt_response_count,
@@ -1426,6 +1428,9 @@ def create_app(
         return _poll_shed_response()
 
     maybe_arm_worker_warmup(testing=testing)
+    # After gunicorn init_signals. Ends 25 s LiveNewsWire holds on SIGTERM
+    # so the deploy drain can release the volume. No-op outside gunicorn.
+    install_stream_shutdown_hook()
     from cli import register_cli
 
     register_cli(app)
@@ -4099,6 +4104,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             or cls.get("ontario_code")
             or "MCF3M"
         )
+        set_class = school.set_class_picker(class_id)
         from engagement_summary import KEY_ENGAGEMENT_SUMMARY_EMPTY, engagement_copy
         from flask import make_response
 
@@ -4114,6 +4120,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             exit_feedback=exit_feedback,
             feedback_grid=feedback_grid,
             live_packs=live_packs,
+            set_class=set_class,
             portfolio_view=portfolio_view,
             take_attendance=request.args.get("take") == "1",
             log_participation=request.args.get("participate") == "1",
@@ -4707,6 +4714,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         current (non-archived) sections of the same course, admins
         included. A ``course`` copy onto a slot that already has a deck
         needs ``replace: true``; otherwise 409 with ``needs_confirm``.
+        MCK-151: copying into the slot a live class is teaching is 409.
         """
 
         user = current_user()
@@ -4741,6 +4749,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         except KeyError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 404
+        except DeckCopyLiveConflict as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 409
         except DeckReplaceNotConfirmed as exc:
             return jsonify({"ok": False, "error": str(exc), "needs_confirm": True}), 409
         except ValueError as exc:

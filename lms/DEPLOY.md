@@ -113,11 +113,12 @@ git fetch origin && git push origin origin/main:production
 
 Then approve the **Deploy LLOVES LMS** run on GitHub Actions.
 
-A push to `production` runs **Deploy LLOVES LMS** (`.github/workflows/deploy.yml`) through three jobs:
+A push to `production` runs **Deploy LLOVES LMS** (`.github/workflows/deploy.yml`) through four jobs:
 
 1. **LMS test suite** (group `deploy-lloves-lms-test-<ref>`, cancel-in-progress).
-2. **Production approval**: the `production` environment gate, Shawn approves (group `deploy-lloves-lms-gate-<ref>`, cancel-in-progress).
-3. **Deploy to Fly**: `flyctl deploy` (group `deploy-lloves-lms-fly`, never cancelled).
+2. **30-seat load smoke** (group `deploy-lloves-lms-smoke-<ref>`, cancel-in-progress). Two classes of 15 on one local gunicorn. It requires 0 errors, HTTP p95 under 400 ms (margin for shared runners), and 0 worker restarts. The per-run presence db is created after the loopback check and always dropped. Results stay as the `load-smoke` artifact. A failure skips approval, so `flyctl` does not run. The target is `127.0.0.1` on the runner, not `alc.mckenzian.com`.
+3. **Production approval**: the `production` environment gate, Shawn approves (group `deploy-lloves-lms-gate-<ref>`, cancel-in-progress).
+4. **Deploy to Fly**: `flyctl deploy` (group `deploy-lloves-lms-fly`, never cancelled).
 
 **What this means for Shawn:**
 - **Older runs should clear themselves; if an older run is still waiting, reject it.** A newer push is meant to cancel any older run still testing or waiting at **Production approval**, so only the newest run asks for review. Until the first post-merge test on `production` proves that cancel works, check Actions before approving: if an older run is still "Waiting for review", reject it and approve only the newest.
@@ -206,6 +207,26 @@ often rejects or truncates very large request bodies.
 
 If something still returns HTTP 413, it is not an LLOVES size cap — check Cloudflare
 proxy mode, idle timeout on a stalled upload, or volume free space.
+
+## Deploy swap: proxy waits for `/health` (MCK-188)
+
+`[[http_service.checks]]` is a Fly **service** check: `GET /health` on the
+machine's private port 8080. The proxy does not send public traffic to that
+machine until the check returns 200. v219 routed as soon as the VM was up,
+and gunicorn was not listening yet (`instance refused connection`).
+
+This does not add a machine, a larger VM, or a top-level `[checks]` block
+(those do not steer the proxy). It is not `http_service.machine_checks`
+(those run an extra ephemeral machine and can stop a deploy). `[[vm]]` stays
+one shared-cpu-1x / 1 GB machine, `min_machines_running` stays 1, and
+`lloves_data` still mounts on that one machine. `grace_period` is 10s, `timeout` is 5s, and
+`interval` is 5s (see `serve_capacity.FLY_HEALTH_CHECK_*`). There is no TCP
+check: the listen socket opens before workers finish `create_app()`.
+
+On SIGTERM, an open LiveNewsWire stream ends on the next tail poll instead
+of holding its thread for the full 25 s. The quiet-class hold stays 25 s.
+That is what kept the v219 drain at 21 s; a shorter drain releases the
+volume sooner. The new machine still gets no traffic until `/health` is 200.
 
 ## Sentry
 

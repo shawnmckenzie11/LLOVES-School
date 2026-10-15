@@ -35,6 +35,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 LMS_DIR = Path(__file__).resolve().parent
@@ -46,7 +48,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
-from school_db import DeckReplaceNotConfirmed, SchoolDB  # noqa: E402
+from school_db import DeckCopyLiveConflict, DeckReplaceNotConfirmed, SchoolDB  # noqa: E402
 from test_deck_seed_sticky_mode import STAFF_AP_HARNESS  # noqa: E402
 
 NODE = shutil.which("node")
@@ -445,6 +447,244 @@ class SetClassDeckCopyServerTests(unittest.TestCase):
         self.assertIn("Edited on the copy", self._deck(self.a1, "M2", "C3")[0][1])
         self.assertEqual(self._deck(self.a2, "M2", "C3"), source_deck)
         self.assertEqual(_deck_table_snapshot(self.school, self.a2), source_tables)
+
+    def test_concurrent_copies_one_success_and_clean_409s(self) -> None:
+        """Eight copies at once into one slot: one 200, the rest 409, never 500.
+
+        Separate app instances are separate SQLite connections, the way
+        gunicorn workers race. The overwrite check and the write share one
+        ``BEGIN IMMEDIATE`` (MCK-150).
+        """
+
+        root = Path(self.tmp.name)
+        cookie = self.client.get_cookie("session")
+        self.assertIsNotNone(cookie)
+        workers = [
+            create_app(db_path=root / "lloves.sqlite", data_dir=root, testing=True)
+            for _ in range(8)
+        ]
+        url = f"/api/staff/class/{self.a1}/live-lessons/M2/C1/deck-seed"
+        body = {
+            "mode": "course",
+            "source_module": "M2",
+            "source_slot": "C1",
+            "source_class_id": self.a2,
+        }
+        source = self._deck(self.a2, "M2", "C1")
+        self.assertTrue(source)
+
+        def once(index: int):
+            """POST one copy from one worker connection."""
+
+            client = workers[index].test_client()
+            client.set_cookie("session", cookie.value, domain=cookie.domain)
+            rv = client.post(url, json=body)
+            payload = rv.get_json(silent=True) or {}
+            return rv.status_code, payload.get("needs_confirm"), payload.get("error")
+
+        try:
+            # A slot that already has a deck: every copy is a clean 409.
+            occupied = _deck_table_snapshot(self.school, self.a1)
+            self.assertTrue(self.school.class_has_current_live_deck(self.a1, "M2", "C3"))
+            c3_url = f"/api/staff/class/{self.a1}/live-lessons/M2/C3/deck-seed"
+            c3_body = {
+                "mode": "course",
+                "source_module": "M2",
+                "source_slot": "C3",
+                "source_class_id": self.a2,
+            }
+
+            def once_c3(index: int):
+                """POST a copy into the occupied M2 C3 slot."""
+
+                client = workers[index].test_client()
+                client.set_cookie("session", cookie.value, domain=cookie.domain)
+                rv = client.post(c3_url, json=c3_body)
+                return rv.status_code
+
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                held_codes = list(pool.map(once_c3, range(8)))
+            self.assertEqual(held_codes, [409] * 8, held_codes)
+            self.assertEqual(_deck_table_snapshot(self.school, self.a1), occupied)
+
+            for _round in range(8):
+                self.school.apply_class_deck_seed(self.a1, "M2", "C1", mode="blank")
+                self.assertFalse(
+                    self.school.class_has_current_live_deck(self.a1, "M2", "C1")
+                )
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    raced = list(pool.map(once, range(8)))
+                codes = sorted(code for code, _confirm, _err in raced)
+                self.assertEqual(codes, [200] + [409] * 7, raced)
+                confirms = [flag for code, flag, _err in raced if code == 409]
+                self.assertTrue(all(confirms), raced)
+                self.assertEqual(self._deck(self.a1, "M2", "C1"), source)
+        finally:
+            for app in workers:
+                app.config["SCHOOL_DB"].close()
+
+    def test_refuses_copy_into_the_slot_being_taught(self) -> None:
+        """A live class on this slot refuses the copy; join and other slots do not."""
+
+        session = self.school.start_live_class_session(
+            self.a1, self.tid, live_module="M2", live_slot="C3"
+        )
+        self.school.set_live_session_teacher_state(
+            int(session["id"]),
+            live_module="M2",
+            live_slot="C3",
+            class_set=True,
+            stage="join",
+        )
+        body = {
+            "mode": "course",
+            "source_module": "M2",
+            "source_slot": "C1",
+            "source_class_id": self.a2,
+            "replace": True,
+        }
+        # Set Class still seeds while the session is on the join stage.
+        seeded = self._seed(self.a1, "M2", "C3", body)
+        self.assertEqual(seeded.status_code, 200, seeded.get_json())
+        self.school.set_live_session_teacher_state(
+            int(session["id"]),
+            live_module="M2",
+            live_slot="C3",
+            class_set=True,
+            stage="round",
+        )
+        before = _deck_table_snapshot(self.school, self.a1)
+        refused = self._seed(self.a1, "M2", "C3", body)
+        self.assertEqual(refused.status_code, 409, refused.get_json())
+        self.assertNotIn("needs_confirm", refused.get_json())
+        self.assertIn("End the live class", refused.get_json()["error"])
+        self.assertIn("M2 C3", refused.get_json()["error"])
+        self.assertEqual(_deck_table_snapshot(self.school, self.a1), before)
+        # A different slot is not the one on screen.
+        self.school.apply_class_deck_seed(self.a1, "M2", "C1", mode="blank")
+        other_slot = self._seed(
+            self.a1,
+            "M2",
+            "C1",
+            {
+                "mode": "course",
+                "source_module": "M2",
+                "source_slot": "C1",
+                "source_class_id": self.a2,
+            },
+        )
+        self.assertEqual(other_slot.status_code, 200, other_slot.get_json())
+        self.school.conn.execute(
+            "UPDATE live_class_sessions SET status = 'ended' WHERE id = ?",
+            (int(session["id"]),),
+        )
+        self.school.conn.commit()
+        after_end = self._seed(self.a1, "M2", "C3", body)
+        self.assertEqual(after_end.status_code, 200, after_end.get_json())
+
+    def test_slot_that_goes_live_mid_copy_is_refused(self) -> None:
+        """The write re-checks liveness, including a join that stops being join."""
+
+        session = self.school.start_live_class_session(
+            self.a1, self.tid, live_module="M2", live_slot="C3"
+        )
+        self.school.set_live_session_teacher_state(
+            int(session["id"]),
+            live_module="M2",
+            live_slot="C3",
+            class_set=True,
+            stage="join",
+        )
+        before = _deck_table_snapshot(self.school, self.a1)
+        real = SchoolDB._refuse_deck_copy_into_live_slot
+        calls = {"n": 0}
+
+        def leave_join(db, class_id, module, slot):
+            """Pass the first look, then leave join before the write re-check."""
+
+            calls["n"] += 1
+            if calls["n"] == 1:
+                real(db, class_id, module, slot)
+                db.set_live_session_teacher_state(
+                    int(session["id"]),
+                    live_module="M2",
+                    live_slot="C3",
+                    class_set=True,
+                    stage="round",
+                )
+                return None
+            return real(db, class_id, module, slot)
+
+        with patch.object(SchoolDB, "_refuse_deck_copy_into_live_slot", leave_join):
+            with self.assertRaises(DeckCopyLiveConflict):
+                self.school.apply_class_deck_seed(
+                    self.a1,
+                    "M2",
+                    "C3",
+                    mode="course",
+                    source_module="M2",
+                    source_slot="C1",
+                    source_class_id=self.a2,
+                    teacher_user_id=self.tid,
+                    require_replace_confirm=True,
+                    replace=True,
+                )
+        self.assertGreaterEqual(calls["n"], 2)
+        self.assertEqual(_deck_table_snapshot(self.school, self.a1), before)
+
+        self.school.conn.execute(
+            "UPDATE live_class_sessions SET status = 'ended' WHERE id = ?",
+            (int(session["id"]),),
+        )
+        self.school.conn.commit()
+        session = self.school.start_live_class_session(
+            self.a1, self.tid, live_module="M2", live_slot="C3"
+        )
+        self.school.set_live_session_teacher_state(
+            int(session["id"]),
+            live_module="M2",
+            live_slot="C3",
+            class_set=True,
+            stage="join",
+        )
+        before_item = _deck_table_snapshot(self.school, self.a1)
+        calls["n"] = 0
+
+        def activate_item(db, class_id, module, slot):
+            """Pass the join exemption, then publish a question before the write."""
+
+            calls["n"] += 1
+            if calls["n"] == 1:
+                real(db, class_id, module, slot)
+                db.conn.execute(
+                    """
+                    INSERT INTO live_session_items (
+                        live_session_id, placement_key, item_id, stage, kind,
+                        item_json, status, created_at, updated_at
+                    ) VALUES (?, 'mid-copy', 'q1', 'round', 'poll', '{}', 'active', ?, ?)
+                    """,
+                    (int(session["id"]), "2026-10-15T12:00:00", "2026-10-15T12:00:00"),
+                )
+                db.conn.commit()
+                return None
+            return real(db, class_id, module, slot)
+
+        with patch.object(SchoolDB, "_refuse_deck_copy_into_live_slot", activate_item):
+            with self.assertRaises(DeckCopyLiveConflict):
+                self.school.apply_class_deck_seed(
+                    self.a1,
+                    "M2",
+                    "C3",
+                    mode="course",
+                    source_module="M2",
+                    source_slot="C1",
+                    source_class_id=self.a2,
+                    teacher_user_id=self.tid,
+                    require_replace_confirm=True,
+                    replace=True,
+                )
+        self.assertGreaterEqual(calls["n"], 2)
+        self.assertEqual(_deck_table_snapshot(self.school, self.a1), before_item)
 
 
 HELPER_CASES = r"""

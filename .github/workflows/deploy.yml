@@ -5,17 +5,23 @@ name: Deploy LLOVES LMS
 # Deploy to Fly job runs flyctl deploy. The required reviewer is a repo
 # setting (shawnmckenzie11), not this file.
 #
-# workflow_dispatch runs the same three jobs (test, approve, deploy).
-# Only refs/heads/production gets past test: approve holds the production
-# environment and runs the SHA guard; deploy needs approve from the same
-# run attempt and re-runs the SHA guard before flyctl. Deploy itself has
-# no environment.
+# workflow_dispatch runs the same four jobs (test, load-smoke, approve, deploy).
+# Only refs/heads/production gets past test: the load smoke and approve
+# hold that ref. approve holds the production environment and runs the SHA
+# guard; deploy needs approve from the same run attempt and re-runs the SHA
+# guard before flyctl. Deploy itself has no environment.
+# The load smoke runs on the CI runner against 127.0.0.1. It never calls
+# flyctl and never receives FLY_API_TOKEN. A red smoke skips approval, so
+# flyctl does not run.
 # Feature branches never run this workflow; they test via ci.yml.
 #
 # Concurrency (MCK-126): only the newest run waits at the Production gate.
-# Three jobs, three groups:
+# Four jobs, four groups:
 #   test    group deploy-lloves-lms-test-<ref>, cancel-in-progress true.
 #           A newer run on the same ref cancels an older run still testing.
+#   smoke   group deploy-lloves-lms-smoke-<ref>, cancel-in-progress true.
+#           MCK-44. Local 30-seat gunicorn (two classes). A newer run
+#           cancels an older smoke. Nothing here touches Fly.
 #   approve group deploy-lloves-lms-gate-<ref>, cancel-in-progress true.
 #           Holds the production environment (required reviewer). A job
 #           waiting for review occupies its concurrency group, so a newer
@@ -114,12 +120,91 @@ jobs:
         timeout-minutes: 30
         run: timeout -s ABRT 25m python -X faulthandler -m unittest discover -s lms -p 'test_*.py' -v
 
+  load-smoke:
+    name: 30-seat load smoke
+    needs: test
+    # A red test skips this job. production only, same as approve. The
+    # gunicorn process is on this runner. It does not deploy.
+    if: github.ref == 'refs/heads/production'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    concurrency:
+      group: deploy-lloves-lms-smoke-${{ github.ref }}
+      cancel-in-progress: true
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: lloves
+          POSTGRES_PASSWORD: lloves
+          POSTGRES_DB: lloves_live
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lloves -d lloves_live"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        # psutil is the sampler only. It is not an LMS runtime dependency.
+        run: python -m pip install -r lms/requirements.txt psutil
+
+      - name: 30-seat two-class smoke
+        timeout-minutes: 8
+        env:
+          ALLOW_DEV_VERIFICATION_CODE: "1"
+        # 15 students × 2 classes = 30 seats on one local gunicorn.
+        # --gate requires 0 errors, HTTP p95 < 400 ms, 0 worker restarts.
+        # 400 ms (not 250) leaves margin for shared runners.
+        run: |
+          set -euo pipefail
+          python3 scripts/load_class.py \
+            --minutes 1 \
+            --classes 2 \
+            --students 15 \
+            --items 2 \
+            --round-minutes 10 \
+            --gate \
+            --max-p95-ms 400 \
+            --min-classes 2 \
+            --presence-url "postgresql://lloves:lloves@127.0.0.1:5432/lloves_live" \
+            --out "${RUNNER_TEMP}/load-smoke"
+
+      - name: Drop load smoke databases
+        # load_class.py drops its db on exit; this catches a killed run.
+        if: always()
+        env:
+          PGPASSWORD: lloves
+        run: |
+          for db in $(psql -h 127.0.0.1 -U lloves -d lloves_live -Atc "SELECT datname FROM pg_database WHERE datname LIKE 'load\_%'"); do
+            psql -h 127.0.0.1 -U lloves -d lloves_live -c "DROP DATABASE IF EXISTS \"$db\" WITH (FORCE)"
+          done
+
+      - name: Upload load smoke results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/load-smoke
+          if-no-files-found: warn
+          retention-days: 14
+
   approve:
     name: Production approval
-    needs: test
+    needs: load-smoke
     # workflow_dispatch can target any ref. Only production may request a
-    # production review. A red test job skips this job, so approval
-    # cannot ship a failed build.
+    # production review. A red test or a red load smoke skips this job, so
+    # approval cannot ship a failed build.
     if: github.ref == 'refs/heads/production'
     runs-on: ubuntu-latest
     environment:

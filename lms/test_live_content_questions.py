@@ -1032,11 +1032,22 @@ class ContentQuestionsWiringTests(unittest.TestCase):
         sel = "body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-head {"
         start = css.index(sel)
         rule = css[start : css.index("}", start)]
-        for decl in ("position: sticky;", "top: 0;", "z-index: 2;", "background: #fff;"):
+        for decl in ("position: sticky;", "top: -0.65rem;", "z-index: 2;", "background: #fff;"):
             self.assertIn(decl, rule)
         src = (LMS_DIR / "static" / "bank_mc_picker.js").read_text(encoding="utf-8")
         self.assertIn("searchResultsScroll({", src)
         self.assertIn("revealSearchResults();", src)
+
+    def test_mck162_phone_search_row_is_compact(self) -> None:
+        """LOW-10: on a phone, scope and kind share a line inside the sticky head."""
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        start = css.index("/* MCK-162 LOW-10:")
+        block = css[start : css.index("/* MCK-161 INFO-2:", start)]
+        self.assertIn("@media (max-width: 480px)", block)
+        self.assertIn("flex: 0.85 1 0;", block)
+        self.assertIn("flex: 1.25 1 0;", block)
+        self.assertIn("flex: 1 1 100%;", block)
+        self.assertIn("margin: 0;", block)
 
     def test_mck161_low8_picker_unticks_stale_picks(self) -> None:
         """On a refused import the picker reloads loaded groups and says what happened."""
