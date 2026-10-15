@@ -7058,15 +7058,46 @@ body.staff-shell .award-fresh-unavailable {
 }
 /* MCK-161 LOW-6: Contest Questions sit above the bank list, so keep the
    Bank scope / Kind / Search row in view while the picker scrolls
-   (the safest default until the product call on LOW-6 is made). */
+   (the safest default until the product call on LOW-6 is made).
+   MCK-162 LOW-9: top matches the -0.65rem margin. top: 0 leaves a
+   ~10px clear strip and list rows show through it. */
 body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-head {
   position: sticky;
-  top: 0;
+  top: -0.65rem;
   z-index: 2;
   margin: -0.65rem -0.85rem 0.45rem;
   padding: 0.65rem 0.85rem 0.5rem;
   background: #fff;
   border-bottom: 1px solid #e2e8f0;
+}
+/* MCK-162 LOW-10: on a phone the four controls each take a line and the
+   stuck row is about half the picker. Scope and Kind share a line.
+   Padding-top stays 0.65rem so the sticky offset does not clip labels. */
+@media (max-width: 480px) {
+  body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-head {
+    gap: 0.35rem 0.4rem;
+    padding-bottom: 0.35rem;
+  }
+  body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-module,
+  body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-kind,
+  body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-search {
+    margin: 0;
+    min-width: 0;
+    gap: 0.1rem;
+  }
+  body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-module {
+    flex: 0.85 1 0;
+  }
+  body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-kind {
+    flex: 1.25 1 0;
+  }
+  body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-search {
+    flex: 1 1 100%;
+  }
+  body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-head select,
+  body.staff-shell .bank-mc-picker.has-content-questions .bank-mc-picker-head input[type="search"] {
+    padding: 0.28rem 0.4rem;
+  }
 }
 /* MCK-161 INFO-2: plain prompt text with a blank line (a Contest
    Question's stem, blank line, task) keeps its paragraphs. */
