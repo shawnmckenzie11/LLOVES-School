@@ -36,14 +36,16 @@ def _pin_later_keys(session: Any) -> list[str]:
 
 def clear_global_student_keys(session: Any) -> None:
     """Drop Flask keys ``student_required`` reads for PIN portal students."""
-    for key in (
+    keys = (
         "student_offering_id",
         "student_class_id",
         "student_id",
         "student_codename",
-        "role",
-    ):
+    )
+    for key in keys:
         session.pop(key, None)
+    if not session.get("logged_in"):
+        session.pop("role", None)
 
 
 def clear_catchup_browser_session(session: Any) -> str:
@@ -145,7 +147,8 @@ def bind_global_student_session(session: Any, school: Any, class_id: int, studen
 
 def codename_for_student(school: Any, class_id: int, student_id: int) -> str:
     """Display name for one roster student (never a free-typed landing string)."""
-    return str(school.class_codenames(int(class_id)).get(int(student_id)) or "")
+    names = school.class_codenames(int(class_id), include_test_students=True)
+    return str(names.get(int(student_id)) or "")
 
 
 def refresh_identity_pin_stamp(session: Any, school: Any, class_id: int, student_id: int) -> None:

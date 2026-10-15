@@ -682,65 +682,66 @@ def shoot_mck207_run_toggle(
 
 def shoot_mck207(base: str, state_path: Path, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
     """MCK-207: roster tab, catch-up sign-in, header, PIN pop-up."""
+    from playwright.sync_api import sync_playwright
+
     origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
     class_id, token, _sid = prepare_mck207_pin_modal(path)
-    canonical = f"{origin}/catchup/MCF3M/m2-c1/{token}"
+    school = _mck208_school(path)
+    link_row = next(
+        row for row in school.list_catchup_links(class_id) if str(row["token"]) == token
+    )
+    canonical = origin + school.catchup_canonical_path_for_link(
+        {**link_row, "class_id": class_id, "token": token}
+    )
+    canonical_play = f"{canonical}?play=1"
     legacy_signin = f"{origin}/catchup/{token}"
     roster = f"{origin}/staff/class/{class_id}?tab=ap&view=roster"
+    portal_code, student_name = prepare_mck222_portal_join(path)
+    catchup_pin = "5678"
     shots: list[Path] = []
     shots.extend(
         shoot_urls([roster], widths, state_path=state_path, out_dir=out_dir, ready="#roster-root")
     )
-    shots.extend(
-        shoot_urls(
-            [legacy_signin],
-            widths,
-            state_path=state_path,
-            out_dir=out_dir,
-            ready="h1",
-        )
-    )
-    # Rename signin files for clarity
-    for w in widths:
-        src = out_dir / f"{slug_for(legacy_signin)}-{w}.png"
-        dest = out_dir / f"mck207-catchup-signin-{w}.png"
-        if src.exists():
-            src.rename(dest)
-            shots.append(dest)
-    shots.extend(
-        shoot_urls(
-            [canonical],
-            widths,
-            state_path=state_path,
-            out_dir=out_dir,
-            ready=".kicker",
-        )
-    )
-    for w in widths:
-        src = out_dir / f"{slug_for(canonical)}-{w}.png"
-        dest = out_dir / f"mck207-catchup-header-{w}.png"
-        if src.exists():
-            src.rename(dest)
-            shots.append(dest)
-    # PIN modal: sign in as student on catch-up (no auth state — fresh context)
-    from playwright.sync_api import sync_playwright
-
     out_dir.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
         browser = _launch(playwright)
         for width in widths:
             context = browser.new_context(viewport={"width": int(width), "height": 900})
             page = context.new_page()
+            page.goto(f"{origin}/", wait_until="domcontentloaded")
+            page.locator("#code").fill(portal_code)
+            page.locator("#student-name").fill(student_name)
+            page.locator("form#student-code-panel button[type='submit']").click()
+            page.wait_for_url("**/student/catchup**", timeout=30000)
             page.goto(legacy_signin, wait_until="domcontentloaded")
-            page.select_option("#codename", label="Maple")
-            page.locator('button[type="submit"]').first.click()
-            page.locator("#personal_pin").wait_for(state="visible", timeout=30000)
-            page.fill("#personal_pin", "5678")
-            page.locator('button[type="submit"]').first.click()
+            page.locator("h1", has_text="Enter your PIN").wait_for(state="visible", timeout=30000)
+            dest_signin = out_dir / f"mck207-catchup-signin-{width}.png"
+            page.screenshot(path=str(dest_signin), full_page=True)
+            shots.append(dest_signin)
+
+            _catchup_landing_signin_via_portal(
+                page, origin, portal_code, student_name, pin=catchup_pin
+            )
+            page.goto(canonical_play, wait_until="domcontentloaded")
+            page.locator("#catchup-data, .kicker").first.wait_for(state="visible", timeout=30000)
+            dest_header = out_dir / f"mck207-catchup-header-{width}.png"
+            page.screenshot(path=str(dest_header), full_page=True)
+            shots.append(dest_header)
+
+            con = sqlite3.connect(path)
+            try:
+                con.execute(
+                    "UPDATE classes SET require_catchup_pin_change = 1 WHERE id = ?",
+                    (class_id,),
+                )
+                con.commit()
+            finally:
+                con.close()
+            page.goto(canonical, wait_until="domcontentloaded")
             page.locator("#catchup-pin-dialog").wait_for(state="visible", timeout=30000)
-            dest = out_dir / f"mck207-catchup-pin-popup-{width}.png"
-            page.screenshot(path=str(dest), full_page=True)
-            shots.append(dest)
+            dest_popup = out_dir / f"mck207-catchup-pin-popup-{width}.png"
+            page.screenshot(path=str(dest_popup), full_page=True)
+            shots.append(dest_popup)
             context.close()
         browser.close()
     for w in widths:
@@ -795,15 +796,42 @@ def _mck208_signin_url(origin: str, school, class_id: int, token: str) -> str:
     )
 
 
-def _mck208_pin_signin(page, signin_url: str, *, pin: str = "5678") -> None:
-    """Codename Maple + PIN on the catch-up doorway."""
+def _catchup_landing_signin_via_portal(
+    page,
+    origin: str,
+    portal_code: str,
+    student_name: str,
+    *,
+    pin: str = "5678",
+) -> None:
+    """Portal join + landing PIN (MCK-234; catch-up links no longer use a name picker)."""
+    page.goto(f"{origin.rstrip('/')}/", wait_until="domcontentloaded")
+    page.locator("#code").fill(portal_code)
+    page.locator("#student-name").fill(student_name)
+    page.locator("form#student-code-panel button[type='submit']").click()
+    page.wait_for_url("**/student/catchup**", timeout=30000)
+    landing_pin = page.locator("#landing_pin")
+    if landing_pin.count():
+        landing_pin.fill(pin)
+        page.locator(".catchup-landing button.cl-btn-primary").click()
+        page.wait_for_url("**/student/catchup**", timeout=30000)
+
+
+def _mck208_pin_signin(
+    page, signin_url: str, path: Path, *, pin: str = "5678"
+) -> None:
+    """Portal landing PIN, then catch-up doorway PIN when needed."""
+    origin = urllib.parse.urljoin(signin_url, "/").rstrip("/")
+    portal_code, student_name = prepare_mck222_portal_join(path)
+    _catchup_landing_signin_via_portal(
+        page, origin, portal_code, student_name, pin=pin
+    )
     page.goto(signin_url, wait_until="domcontentloaded")
-    page.select_option("#codename", label="Maple")
-    page.locator('button[type="submit"]').first.click()
-    page.locator("#personal_pin").wait_for(state="visible", timeout=30000)
-    page.fill("#personal_pin", pin)
-    with page.expect_navigation(timeout=30000):
-        page.locator('button[type="submit"]').first.click()
+    pin_field = page.locator("#personal_pin")
+    if pin_field.count():
+        pin_field.fill(pin)
+        with page.expect_navigation(timeout=30000):
+            page.locator('button[type="submit"]').first.click()
     if "/student/dashboard" not in page.url:
         page.wait_for_url("**/student/dashboard**", timeout=30000)
 
@@ -1023,7 +1051,7 @@ def shoot_mck208(base: str, out_dir: Path, path: Path, widths: list[int], *, onl
             context = browser.new_context(viewport={"width": int(width), "height": 900})
             page = context.new_page()
 
-            _mck208_pin_signin(page, signin_url)
+            _mck208_pin_signin(page, signin_url, path)
             page.locator(".sd-header").wait_for(state="visible", timeout=30000)
             page.locator(".sd-finish-list").wait_for(state="visible", timeout=30000)
             finish_open = out_dir / f"mck208-dashboard-finish-open-{width}.png"
