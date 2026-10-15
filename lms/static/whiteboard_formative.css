@@ -1,0 +1,156 @@
+.wb-formative-shell {
+  background: #0b1220;
+  color: #e2e8f0;
+  min-height: 100vh;
+  font-family: system-ui, sans-serif;
+}
+
+.wb-formative-badge {
+  display: inline-block;
+  margin: 0.75rem 0 0 0.75rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: #6d28d9;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+}
+
+.wb-formative-context {
+  margin: 0.35rem 0.75rem 0.5rem;
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.wb-formative-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0 0.75rem 0.5rem;
+}
+
+.wb-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid #1e293b;
+  background: #111827;
+  color: #e2e8f0;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.wb-legend-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.wb-formative-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+  padding: 0 0.75rem 1rem;
+}
+
+@media (min-width: 1280px) {
+  .wb-formative-layout.is-teacher {
+    grid-template-columns: 260px 1fr;
+  }
+}
+
+.wb-formative-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.wb-group-card {
+  border: 1px solid #1e293b;
+  border-radius: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  background: #0f172a;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.wb-group-card.is-selected {
+  border-color: #2dd4bf;
+  box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.35);
+}
+
+.wb-group-card small {
+  color: #94a3b8;
+}
+
+.live-canvas-stage,
+.wb-formative-stage {
+  position: relative;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 0.65rem;
+  min-height: 360px;
+}
+
+.wb-formative-chips {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.name-chip {
+  position: absolute;
+  transform: translate(-8px, -8px);
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  color: #0f172a;
+  font-weight: 600;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+
+.wb-formative-toolbar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.wb-formative-toolbar button {
+  min-height: 44px;
+  border-radius: 0.55rem;
+  border: 1px solid #334155;
+  background: #111827;
+  color: #e2e8f0;
+  font-size: 0.9rem;
+}
+
+.wb-formative-toolbar button.is-active {
+  border-color: #2dd4bf;
+  color: #2dd4bf;
+}
+
+.wb-formative-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.canvas-text-editor.wb-formative-text {
+  position: absolute;
+  border: 1px dashed currentColor;
+  background: rgba(15, 23, 42, 0.92);
+  color: inherit;
+  resize: none;
+  min-width: 120px;
+  padding: 0.25rem 0.35rem;
+  font: 16px/1.35 sans-serif;
+}

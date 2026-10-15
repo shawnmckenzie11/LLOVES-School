@@ -6,6 +6,8 @@
   <title>{% if codename %}{{ codename }} · {% endif %}Class · {{ school_name }}</title>
   <link rel="stylesheet" href="/static/lloves.css">
   <link rel="stylesheet" href="/static/student-portal.css">
+  <link rel="stylesheet" href="/static/whiteboard_formative.css">
+
   {% include "_sentry_browser.html" %}
 </head>
 <body class="student-portal student-home{% if payload.scoring %} is-live{% elif payload.waiting_room != false %} is-waiting-room{% endif %}"
@@ -71,7 +73,7 @@
       <div class="live-canvas-stage team-draw-stage">
         <div id="team-draw-mystery" class="team-draw-mystery" hidden aria-label="Mystery rule steps"></div>
         <p id="team-draw-step4-banner" class="team-draw-step4-banner" hidden>Step 4 — yours</p>
-        <canvas id="student-canvas" class="student-canvas" width="720" height="360" aria-label="Live whiteboard"></canvas>
+        <canvas id="student-canvas" class="student-canvas" aria-label="Live whiteboard"></canvas>
         <div id="canvas-cursors" class="canvas-cursors" aria-hidden="true"></div>
       </div>
       <div id="team-draw-phone" class="team-draw-phone" hidden>

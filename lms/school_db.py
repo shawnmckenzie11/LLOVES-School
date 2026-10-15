@@ -28975,12 +28975,24 @@ class SchoolDB(LovesDB):
         }
         if delta.get("snapshot"):
             reply["canvas_view"] = delta.get("canvas_view")
+
+        def _with_formative(payload: dict[str, Any]) -> dict[str, Any]:
+            meta = self._cached_formative_board_meta(
+                int(session_id),
+                board_key=str(board_key),
+                student_id=student_id,
+                as_teacher=as_teacher,
+            )
+            if meta is not None:
+                payload["formative"] = meta
+            return payload
+
         if (
             teacher_since is None
             or as_teacher
             or board_key == "teacher"
         ):
-            return reply
+            return _with_formative(reply)
         teacher = self.board_delta(
             int(session_id),
             "teacher",
@@ -28996,9 +29008,158 @@ class SchoolDB(LovesDB):
             )
             reply["ops"] = []
             reply["teacher_ops"] = []
-            return reply
+            return _with_formative(reply)
         reply["teacher_ops"] = list(teacher.get("ops") or [])
-        return reply
+        return _with_formative(reply)
+
+    def list_live_session_team_members(
+        self, session_id: int, team_id: int | None
+    ) -> list[dict[str, Any]]:
+        """Roster rows on one team in live-session join order.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            team_id: Game-show team id, or None to include all joined students.
+        """
+        session_row = self.get_live_session(int(session_id))
+        if session_row is None:
+            return []
+        class_id = int(session_row["class_id"])
+        index = self.game.team_membership_index(class_id)
+        by_student = (
+            index.get("by_student")
+            if isinstance(index, dict)
+            else None
+        ) or {}
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT student_id, codename, joined_at, left_at
+                FROM live_session_attendees
+                WHERE live_session_id = ?
+                  AND student_id IS NOT NULL
+                ORDER BY joined_at ASC, id ASC
+                """,
+                (int(session_id),),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            sid = int(row["student_id"])
+            if team_id not in (None, ""):
+                if int(by_student.get(sid) or -1) != int(team_id):
+                    continue
+            out.append(
+                {
+                    "student_id": sid,
+                    "codename": str(row["codename"] or ""),
+                    "name": str(row["codename"] or ""),
+                    "left_at": row["left_at"],
+                }
+            )
+        return out
+
+    def _formative_membership_sig(
+        self,
+        session_id: int,
+        *,
+        board_key: str,
+        student_id: int | None,
+        as_teacher: bool,
+    ) -> str:
+        """Fingerprint team roster rows for formative meta caching.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            board_key: Board key being read.
+            student_id: Viewer roster id when a student.
+            as_teacher: Staff viewer.
+
+        Returns:
+            Stable string that changes when join order or ``left_at`` changes.
+        """
+        team_id: int | None = None
+        key = str(board_key or "")
+        if key.startswith("team:"):
+            try:
+                team_id = int(key.split(":", 1)[1])
+            except (TypeError, ValueError):
+                team_id = None
+        elif student_id not in (None, ""):
+            class_row = self.get_live_session(int(session_id))
+            if class_row:
+                team_id = self.student_team_id_for_class(
+                    int(class_row["class_id"]), int(student_id)
+                )
+        if team_id is None:
+            return ""
+        rows = self.list_live_session_team_members(int(session_id), team_id)
+        return "|".join(
+            f"{row.get('student_id')}:{row.get('left_at') or ''}" for row in rows
+        )
+
+    def _cached_formative_board_meta(
+        self,
+        session_id: int,
+        *,
+        board_key: str,
+        student_id: int | None,
+        as_teacher: bool,
+    ) -> dict[str, Any] | None:
+        """Formative meta for one board read, cached for the duration of one poll."""
+        cache = getattr(self, "_formative_board_meta_cache", None)
+        if cache is None:
+            cache = {}
+            self._formative_board_meta_cache = cache
+        teacher = self.live_session_teacher_state_payload(int(session_id))
+        state_seq = int(teacher.get("state_seq") or 0)
+        membership_sig = self._formative_membership_sig(
+            int(session_id),
+            board_key=str(board_key),
+            student_id=student_id,
+            as_teacher=as_teacher,
+        )
+        cache_key = (
+            int(session_id),
+            str(board_key),
+            int(student_id) if student_id not in (None, "") else None,
+            bool(as_teacher),
+            state_seq,
+            membership_sig,
+        )
+        if cache_key in cache:
+            return cache[cache_key]
+        meta = self._formative_board_meta(
+            int(session_id),
+            board_key=str(board_key),
+            student_id=student_id,
+            as_teacher=as_teacher,
+        )
+        cache[cache_key] = meta
+        if len(cache) > 64:
+            cache.clear()
+        return meta
+
+    def _formative_board_meta(
+        self,
+        session_id: int,
+        *,
+        board_key: str,
+        student_id: int | None,
+        as_teacher: bool,
+    ) -> dict[str, Any] | None:
+        """Formative whiteboard payload for one board read, when enabled."""
+        try:
+            from whiteboard_formative import formative_meta_for_board
+        except ImportError:
+            from lms.whiteboard_formative import formative_meta_for_board
+
+        return formative_meta_for_board(
+            self,
+            int(session_id),
+            student_id=student_id,
+            as_teacher=as_teacher,
+            board_key=board_key,
+        )
 
     @staticmethod
     def board_generation_key(base_key: str, gen: int) -> str:

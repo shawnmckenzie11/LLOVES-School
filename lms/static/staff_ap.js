@@ -2334,6 +2334,14 @@ function adoptTeacherState(next) {
   trackMode = teacherState.run_as_group ? "team" : "individual";
   REACHED_STAGES.add(teacherState.stage);
   syncTeacherBoardCollab();
+  if (teacherBoard?.setFormative) {
+    teacherBoard.setFormative({
+      alwaysShowNames: Boolean(teacherState.whiteboard_always_show_names),
+      projectorShowNames: Boolean(teacherState.whiteboard_projector_names),
+    });
+    teacherBoard.refreshFormative?.();
+  }
+  syncWhiteboardFormativeToggles();
   if (Number(teacherState.state_seq) !== prevSeq) {
     paintTeacherShell();
     paintResultsStrip();
@@ -12446,6 +12454,24 @@ function teacherSnapshotHasInk(view) {
 function syncTeacherBoardCollab() {
   if (!teacherBoard || typeof teacherBoard.setCollab !== "function") return;
   teacherBoard.setCollab(whiteboardCollabOn());
+  syncWhiteboardFormativeToggles();
+}
+
+/**
+ * Show formative name toggles during group whiteboard collab and mirror server state.
+ */
+function syncWhiteboardFormativeToggles() {
+  const host = $("live-whiteboard-formative-toggles");
+  const always = $("live-whiteboard-always-names");
+  const projector = $("live-whiteboard-projector-names");
+  if (!(host instanceof HTMLElement)) return;
+  host.hidden = !whiteboardCollabOn();
+  if (always instanceof HTMLInputElement) {
+    always.checked = Boolean(teacherState.whiteboard_always_show_names);
+  }
+  if (projector instanceof HTMLInputElement) {
+    projector.checked = Boolean(teacherState.whiteboard_projector_names);
+  }
 }
 
 /**
@@ -12548,6 +12574,7 @@ function refreshTeacherBoard() {
       }
     }
     teacherBoardSince = Number(data.board_seq) || 0;
+    applyTeacherBoardFormative(data.formative);
     if (canvas instanceof HTMLCanvasElement && !teacherBoardQuietRefresh) {
       // A run change onto a ~g<n> key is a Fresh board mid-class, not a
       // new class (MCK-174 follow-up: stale teacher tab).
@@ -12607,6 +12634,7 @@ function ensureTeacherBoardPoll() {
           teacherBoardSince = data.board_seq;
         }
         teacherBoard.applyDelta(data);
+        applyTeacherBoardFormative(data.formative);
         return;
       }
       const fresh = opsAboveCursor(data.ops || data.ops_since, teacherBoardSince);
@@ -12614,6 +12642,7 @@ function ensureTeacherBoardPoll() {
       if (fresh.length && teacherBoard && typeof teacherBoard.applyDelta === "function") {
         teacherBoard.applyDelta({ ops_since: fresh });
       }
+      applyTeacherBoardFormative(data.formative);
     },
   });
 }
@@ -12733,6 +12762,21 @@ function postTeacherCanvas(canvas, p, extra = {}) {
 /**
  * Whiteboard drawing, text, and group collab (strokes + named cursors).
  */
+
+/**
+ * Push formative roster metadata from a teacher board poll.
+ * @param {any} meta
+ */
+function applyTeacherBoardFormative(meta) {
+  if (!meta || !teacherBoard || typeof teacherBoard.setFormative !== "function") return;
+  teacherBoard.setFormative({
+    members: meta.members || [],
+    alwaysShowNames: Boolean(meta.always_show_names),
+    projectorShowNames: Boolean(meta.projector_show_names),
+  });
+  teacherBoard.refreshFormative?.();
+}
+
 function bindEphemeralCanvas() {
   const canvas = $("live-canvas-stub");
   if (!(canvas instanceof HTMLCanvasElement)) return;
@@ -12742,6 +12786,14 @@ function bindEphemeralCanvas() {
     eraseBtn: $("live-canvas-erase"),
     textBtn: $("live-canvas-text"),
     cursorLayer: $("live-canvas-cursors"),
+    formative: {
+      enabled: false,
+      members: [],
+      isTeacher: true,
+      isPhone: false,
+      alwaysShowNames: false,
+      projectorShowNames: false,
+    },
     owner: () => "teacher",
     onText: (label) => {
       teacherCalmFrameHeld = true;
@@ -12774,6 +12826,19 @@ function bindEphemeralCanvas() {
     },
   });
   ensureTeacherBoardPoll();
+  const alwaysNames = $("live-whiteboard-always-names");
+  const projectorNames = $("live-whiteboard-projector-names");
+  if (alwaysNames instanceof HTMLInputElement) {
+    alwaysNames.addEventListener("change", () => {
+      patchTeacherState({ whiteboard_always_show_names: alwaysNames.checked });
+    });
+  }
+  if (projectorNames instanceof HTMLInputElement) {
+    projectorNames.addEventListener("change", () => {
+      patchTeacherState({ whiteboard_projector_names: projectorNames.checked });
+    });
+  }
+  syncWhiteboardFormativeToggles();
 }
 
 selectTrackMode("individual");

@@ -2067,6 +2067,176 @@ def shoot_mck216(base: str, out_dir: Path, path: Path, widths: list[int]) -> lis
     return written
 
 
+def prepare_mck218_group_whiteboard(path: Path) -> tuple[int, int, str]:
+    """Start a live class with a published group whiteboard and demo ink.
+
+    Args:
+        path: LMS sqlite path used by the running dev server.
+
+    Returns:
+        ``(class_id, session_id, visit_token)`` for staff/student URLs.
+    """
+    sys.path.insert(0, str(LMS_DIR))
+    os.environ["LLOVES_DB"] = str(path)
+    os.environ.setdefault("LOCAL_DEV_LOGIN", "1")
+    from app import create_app
+
+    app = create_app(db_path=path, testing=True)
+    school = app.config["SCHOOL_DB"]
+    class_id = shawn_class_id(path)
+    teacher = school.get_user_by_email(staff_shawn_email(path))
+    if teacher is None:
+        raise SystemExit("Shawn staff user missing. Run with --seed first.")
+    _mck208_end_active_live(school, class_id)
+    try:
+        school.game.end_game(class_id)
+    except (KeyError, ValueError):
+        pass
+    live = school.start_live_class_session(class_id, int(teacher["id"]))
+    session_id = int(live["id"])
+    maple = school.game.find_student_by_codename(class_id, "Maple")
+    if maple is None:
+        raise SystemExit("No Maple on the demo class. Run with --seed first.")
+    cedar = school.game.find_student_by_codename(class_id, "Cedar")
+    if cedar is None:
+        school.game.add_student(class_id, codename="Cedar")
+        cedar = school.game.find_student_by_codename(class_id, "Cedar")
+    pine = school.game.find_student_by_codename(class_id, "Pine")
+    if pine is None:
+        school.game.add_student(class_id, codename="Pine")
+        pine = school.game.find_student_by_codename(class_id, "Pine")
+    assert cedar is not None and pine is not None
+    school.game.begin_game(class_id)
+    school.game.clear_team_lock(class_id)
+    for row in (maple, cedar, pine):
+        school.join_live_class_session(
+            session_id,
+            int(row["id"]),
+            codename=str(row["codename"]),
+        )
+    school.setup_live_session_groups(
+        session_id,
+        n_teams=2,
+        mode="manual",
+        present_ids=[int(maple["id"]), int(cedar["id"]), int(pine["id"])],
+        assignments=[
+            {"student_id": int(maple["id"]), "team_index": 0},
+            {"student_id": int(cedar["id"]), "team_index": 0},
+            {"student_id": int(pine["id"]), "team_index": 1},
+        ],
+    )
+    school.ensure_live_session_items(session_id)
+    wb = next(
+        row
+        for row in school.list_live_session_items(session_id)
+        if str(row.get("kind") or "") == "whiteboard"
+    )
+    school.publish_live_session_item(
+        session_id, int(wb["id"]), publish_mode="group_shared"
+    )
+    school.set_live_session_teacher_state(
+        session_id,
+        class_set=True,
+        run_as_group=True,
+        groups_configured=True,
+        canvas_align="team",
+        active_tab="canvas",
+    )
+    team_id = school.student_team_id_for_class(class_id, int(maple["id"]))
+    for owner, name, x in (
+        (str(int(maple["id"])), "Maple", 0.22),
+        (str(int(cedar["id"])), "Cedar", 0.62),
+    ):
+        school.apply_live_canvas_presence(
+            session_id,
+            owner=owner,
+            name=name,
+            team_id=team_id,
+            x=x,
+            y=0.35,
+            stroke_id=f"mck218-{owner}",
+            point=[x, 0.35],
+            as_teacher=False,
+        )
+    char_keys = list(school.game.character_keys(class_id).keys())
+    if char_keys:
+        school.game.set_character(class_id, int(maple["id"]), char_keys[0])
+    maple_row = school.conn.execute(
+        """
+        SELECT visit_token FROM live_session_attendees
+        WHERE live_session_id = ? AND student_id = ?
+        ORDER BY id DESC LIMIT 1
+        """,
+        (session_id, int(maple["id"])),
+    ).fetchone()
+    token = str(maple_row["visit_token"] if maple_row else "")
+    return class_id, session_id, token
+
+
+def shoot_mck218(base: str, out_dir: Path, path: Path, state_path: Path) -> list[Path]:
+    """MCK-218 formative whiteboard on real staff/student shells."""
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    class_id, _session_id, visit_token = prepare_mck218_group_whiteboard(path)
+    staff_url = f"{origin}/staff/class/{class_id}?tab=live"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    shots: list[Path] = []
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        staff_ctx = browser.new_context(
+            viewport={"width": 1280, "height": 900},
+            storage_state=str(state_path) if state_path.exists() else None,
+        )
+        staff = staff_ctx.new_page()
+        staff.goto(staff_url, wait_until="domcontentloaded")
+        staff.locator('.live-content-tab[data-tab="canvas"]').click(timeout=15000)
+        staff.locator("#live-canvas-stub").wait_for(state="visible", timeout=60000)
+        box = staff.locator("#live-canvas-stub").bounding_box()
+        if box:
+            staff.mouse.move(box["x"] + 60, box["y"] + 80)
+            staff.wait_for_timeout(200)
+        teacher_path = out_dir / "mck218-teacher-1280.png"
+        staff.screenshot(path=str(teacher_path), full_page=True)
+        shots.append(teacher_path)
+        staff_ctx.close()
+
+        student_ctx = browser.new_context(viewport={"width": 390, "height": 900})
+        student = student_ctx.new_page()
+        student.goto(f"{origin}/student/s/{visit_token}", wait_until="domcontentloaded")
+        for _ in range(12):
+            _mck215_dismiss_catchup_pin(student)
+            if student.locator("#canvas-pane:not([hidden])").count():
+                break
+            if "/student/mood" in student.url:
+                student.locator('button[name="skip"]').click()
+            elif "/student/character" in student.url:
+                pick = student.locator('label:has(input[type="radio"])').first
+                if pick.count():
+                    pick.click()
+                student.locator('button[type="submit"]').click()
+            student.wait_for_timeout(1000)
+        _mck215_dismiss_catchup_pin(student)
+        student.locator("#canvas-pane:not([hidden])").wait_for(state="visible", timeout=90000)
+        student.locator("#student-canvas").wait_for(state="visible", timeout=30000)
+        student.evaluate(
+            """() => {
+              const canvas = document.getElementById('student-canvas');
+              const stage = canvas && canvas.closest('.live-canvas-stage');
+              if (canvas && stage) {
+                window.dispatchEvent(new Event('resize'));
+              }
+            }"""
+        )
+        student.wait_for_timeout(1500)
+        student_path = out_dir / "mck218-student-390.png"
+        student.screenshot(path=str(student_path), full_page=True)
+        shots.append(student_path)
+        student_ctx.close()
+        browser.close()
+    return shots
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry: seed, log in once, then shoot URLs or the catch-up scenario."""
     parser = argparse.ArgumentParser(description="Headless local LMS screenshots.")
@@ -2088,6 +2258,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck207",
             "mck207-run-toggle",
             "mck208",
+            "mck218",
             "avatar-reward",
             "mck216",
             "mck220",
@@ -2139,6 +2310,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "mck208":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck208(args.base, out, path, widths, only=args.mck208_only))
+        if args.scenario == "mck218":
+            written.extend(shoot_mck218(args.base, out, path, state))
         if args.scenario == "avatar-reward":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_avatar_reward_popup(args.base, out, widths, path))
@@ -2184,7 +2357,8 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
-                "mck208|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|mck217-student-view|mck242."
+                "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
+                "mck217-student-view|mck242."
             )
         for item in written:
             print(item)
