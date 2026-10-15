@@ -30,13 +30,22 @@ class LessonSlidesBackfillTests(RealVsTestFlowTests):
 
         c = self.school.conn
         test_ids = exclude_test_student_ids(int(self.class_id), self.school)
+        roster = list(getattr(self, "students", None) or [])
+        if not roster:
+            roster = [
+                int(r[0])
+                for r in self.school.game.conn.execute(
+                    "SELECT id FROM students WHERE class_id = ? ORDER BY id",
+                    (int(self.class_id),),
+                ).fetchall()
+            ]
         student_id = None
-        for sid in self.students:
+        for sid in roster:
             if int(sid) not in test_ids:
                 student_id = int(sid)
                 break
-        if student_id is None:
-            student_id = int(self.students[0])
+        if student_id is None and roster:
+            student_id = int(roster[0])
         item = c.execute(
             """
             SELECT question_key FROM participation_items
