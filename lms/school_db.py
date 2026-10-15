@@ -31549,8 +31549,8 @@ class SchoolDB(LovesDB):
         return total
 
     def participation_individual_session_cells(self, class_id: int) -> dict[str, int]:
-        """``{session_id}:{student_id}`` → live MC answers that count in the tab."""
-        from participation_weight import count_participation_opportunities
+        """``{session_id}:{student_id}`` → counted answers (live or catch-up) in the tab."""
+        from participation_weight import count_student_answered_opportunities
 
         counts: dict[str, int] = {}
         meta = self.participation_session_meta(class_id)
@@ -31563,16 +31563,14 @@ class SchoolDB(LovesDB):
             counted_keys = frozenset(info.get("live_answered_keys") or [])
             if not counted_keys:
                 continue
-            placeholders = ",".join("?" * len(counted_keys))
-            params: list[Any] = [int(class_id), run_key, *sorted(counted_keys)]
-            sql = f"""
+            params: list[Any] = [int(class_id), run_key]
+            sql = """
                 SELECT a.student_id, a.question_key
                 FROM participation_answers a
                 INNER JOIN participation_items p
                     ON p.class_id = a.class_id AND p.run_key = a.run_key
                    AND p.question_key = a.question_key
-                WHERE a.class_id = ? AND a.run_key = ? AND a.source = 'live'
-                  AND a.question_key IN ({placeholders})
+                WHERE a.class_id = ? AND a.run_key = ?
             """
             if test_ids:
                 sql += f" AND a.student_id NOT IN ({exclude})"
@@ -31584,18 +31582,81 @@ class SchoolDB(LovesDB):
             for row in rows:
                 stu = int(row["student_id"])
                 qkey = str(row["question_key"])
-                if qkey not in counted_keys:
-                    continue
                 per_student.setdefault(stu, set()).add(qkey)
             for stu_id, keys in per_student.items():
-                answered = count_participation_opportunities(
-                    [r for r in deck if str(r.get("question_key") or "") in keys],
+                counts[f"{sid_str}:{stu_id}"] = count_student_answered_opportunities(
+                    deck,
+                    keys,
                     include_individual=True,
                     include_group=False,
-                    live_answered_keys=counted_keys,
+                    counted_live_keys=None,
                 )
-                counts[f"{sid_str}:{stu_id}"] = answered
         return counts
+
+    def participation_module_counted_pairs(self, class_id: int, live_module: str) -> set[str]:
+        """Distinct ``slot<US>question_key`` pairs in the module denominator."""
+        from participation_weight import (
+            item_participation_weight,
+            item_matches_scope,
+            participation_question_key,
+        )
+
+        mod = str(live_module or "").strip().upper()
+        pairs: set[str] = set()
+        for slot in ("C1", "C2", "C3", "C4"):
+            run_key = self._latest_real_run_key_for_slot(class_id, mod, slot)
+            if not run_key:
+                continue
+            live_keys = self.participation_run_live_answered_keys(class_id, run_key)
+            deck = self.participation_deck_items_for_run(class_id, run_key)
+            for row in deck:
+                if not item_matches_scope(
+                    str(row.get("publish_mode") or "individual"),
+                    include_individual=True,
+                    include_group=False,
+                ):
+                    continue
+                qkey = participation_question_key(row)
+                if not qkey or qkey not in live_keys:
+                    continue
+                if item_participation_weight(
+                    str(row.get("prompt_kind") or ""),
+                    publish_mode=str(row.get("publish_mode") or "individual"),
+                    item_json=row.get("item_json"),
+                ) <= 0:
+                    continue
+                pairs.add(f"{slot}\x1f{qkey}")
+        return pairs
+
+    def participation_student_module_answered(
+        self, class_id: int, live_module: str, student_id: int
+    ) -> int:
+        """Distinct module questions the student answered (live or catch-up) in the denominator."""
+        from participation_exclusion import sql_exclude_non_counted_participation_run
+
+        mod = str(live_module or "").strip().upper()
+        pairs = self.participation_module_counted_pairs(class_id, mod)
+        if not pairs:
+            return 0
+        pair_expr = "UPPER(p.live_slot) || char(31) || p.question_key"
+        real_run_clause = sql_exclude_non_counted_participation_run(
+            "p.class_id", "p.run_key"
+        )
+        placeholders = ",".join("?" * len(pairs))
+        with self._lock:
+            row = self.conn.execute(
+                f"""
+                SELECT COUNT(DISTINCT {pair_expr}) AS n
+                FROM participation_answers a
+                INNER JOIN participation_items p
+                    ON p.class_id = a.class_id AND p.run_key = a.run_key
+                   AND p.question_key = a.question_key
+                WHERE p.class_id = ? AND p.live_module = ? AND a.student_id = ?
+                  AND {pair_expr} IN ({placeholders}){real_run_clause}
+                """,
+                (int(class_id), mod, int(student_id), *sorted(pairs)),
+            ).fetchone()
+        return int(row["n"] or 0) if row else 0
 
     def participation_session_meta(self, class_id: int) -> dict[str, dict[str, Any]]:
         """Map game-show session ids to run, module, slot, and deck items."""
@@ -31756,7 +31817,10 @@ class SchoolDB(LovesDB):
                     include_group=False,
                 )
                 o = deck_offered if deck_offered > 0 else offered[mod]
-                cell = summary(got["n"], o)
+                a = self.participation_student_module_answered(
+                    class_id, mod, int(stu["id"])
+                )
+                cell = summary(a, o)
                 cell["catchup"] = got["catchup"]
                 cells[mod] = cell
             rows.append({"student_id": int(stu["id"]), "modules": cells})
@@ -31784,10 +31848,61 @@ class SchoolDB(LovesDB):
         o = self.participation_module_offered(
             class_id, mod, include_individual=True, include_group=False
         )
-        a = answered.get((int(student_id), mod), {"n": 0})["n"]
+        a = self.participation_student_module_answered(class_id, mod, int(student_id))
         out = summary(a, o)
         out["line"] = level_line(a, o)
         return out
+
+    def _participation_header_for_session_id(
+        self, class_id: int, session_id: int
+    ) -> str:
+        """Lesson slot + Toronto date label for one game-show session column."""
+        from participation_exclusion import format_participation_session_header
+
+        cid = int(class_id)
+        sid = int(session_id)
+        if getattr(self, "game", None) is not None:
+            with self.game._lock:
+                lpc = self.game.conn.execute(
+                    "SELECT run_key FROM live_participation_credits WHERE session_id = ?",
+                    (sid,),
+                ).fetchone()
+            run_key = str(lpc["run_key"] or "") if lpc else ""
+        else:
+            run_key = ""
+        live_module = ""
+        live_slot = ""
+        ended = ""
+        if run_key:
+            with self._lock:
+                part = self.conn.execute(
+                    """
+                    SELECT live_module, live_slot FROM participation_items
+                    WHERE class_id = ? AND run_key = ? LIMIT 1
+                    """,
+                    (cid, run_key),
+                ).fetchone()
+                if part is not None:
+                    live_module = str(part["live_module"] or "")
+                    live_slot = str(part["live_slot"] or "")
+                end_row = self.conn.execute(
+                    """
+                    SELECT ended_at FROM live_class_sessions
+                    WHERE class_id = ? AND run_key = ?
+                    ORDER BY id DESC LIMIT 1
+                    """,
+                    (cid, run_key),
+                ).fetchone()
+                if end_row and end_row["ended_at"]:
+                    ended = str(end_row["ended_at"])
+        if not ended and getattr(self, "game", None) is not None:
+            with self.game._lock:
+                sess = self.game.conn.execute(
+                    "SELECT starts_at FROM sessions WHERE id = ?", (sid,)
+                ).fetchone()
+            if sess is not None:
+                ended = str(sess["starts_at"] or "")
+        return format_participation_session_header(live_module, live_slot, ended)
 
     def _student_slot_participation_counts(
         self, class_id: int, module: str, student_id: int
@@ -37545,8 +37660,11 @@ class SchoolDB(LovesDB):
             if col.get("kind") == "session":
                 meta = session_meta.get(str(col["id"])) or {}
                 label = str(meta.get("header_label") or "").strip()
-                if label:
-                    col["header_label"] = label
+                if not label:
+                    label = self._participation_header_for_session_id(
+                        class_id, int(col["id"])
+                    )
+                col["header_label"] = label
             columns.append(col)
         cells = dict(dash.get("cells") or {})
         with self.game._lock:

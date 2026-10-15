@@ -17,12 +17,13 @@ import participation_weight as W  # noqa: E402
 class ParticipationWeightTests(unittest.TestCase):
     """Deck opportunity weights and display formatting."""
 
-    def test_mc_counts_one_other_types_zero(self) -> None:
+    def test_counted_types_weigh_one(self) -> None:
         self.assertEqual(W.item_participation_weight("mc", publish_mode="individual"), 1)
         self.assertEqual(
             W.item_participation_weight("poll", item_json={"type": "mc"}), 1
         )
-        self.assertEqual(W.item_participation_weight("numeric"), 0)
+        self.assertEqual(W.item_participation_weight("numeric"), 1)
+        self.assertEqual(W.item_participation_weight("rank"), 1)
 
     def test_scope_checkboxes(self) -> None:
         items = [

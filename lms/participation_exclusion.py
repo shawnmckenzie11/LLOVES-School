@@ -9,9 +9,28 @@ from __future__ import annotations
 
 from typing import Any
 
-from live_class_run import parse_ended_at
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 _WEEKDAY_ABBR = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+_UTC = ZoneInfo("UTC")
+_TORONTO = ZoneInfo("America/Toronto")
+
+
+def toronto_datetime_from_ended_at(value: str | None) -> datetime | None:
+    """Parse stored ``ended_at`` as UTC-naive and convert to Toronto, or None."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=_UTC).astimezone(_TORONTO)
+    return dt.astimezone(_TORONTO)
 
 
 def sql_exclude_non_counted_participation_run(
@@ -53,18 +72,16 @@ def format_participation_session_header(
     mod = str(live_module or "M1").strip().upper()
     slot = str(live_slot or "C1").strip().upper()
     slot_label = f"{mod}{slot}"
-    text = str(ended_at or "").strip()
-    if not text:
-        return slot_label
-    when = parse_ended_at(text)
+    when = toronto_datetime_from_ended_at(ended_at)
+    if when is None:
+        return f"{slot_label} · —"
     abbr = _WEEKDAY_ABBR[when.weekday()]
     return f"{slot_label} · {abbr} {when.month}/{when.day}/{when.year % 100:02d}"
 
 
 def toronto_date_label(ended_at: str | None) -> str:
     """Short Toronto date for tests and display helpers."""
-    text = str(ended_at or "").strip()
-    if not text:
+    when = toronto_datetime_from_ended_at(ended_at)
+    if when is None:
         return ""
-    when = parse_ended_at(text)
     return f"{when.month}/{when.day}/{when.year % 100:02d}"

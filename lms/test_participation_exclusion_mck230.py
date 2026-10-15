@@ -29,6 +29,14 @@ class ParticipationExclusionTests(unittest.TestCase):
         self.assertFalse(participation_run_counts_in_tab({"is_real": False, "discarded": True}))
         self.assertTrue(participation_run_counts_in_tab(None))
 
+    def test_header_dash_on_bad_timestamp(self) -> None:
+        from participation_exclusion import format_participation_session_header
+
+        self.assertEqual(
+            format_participation_session_header("M1", "C1", "bad"),
+            "M1C1 · —",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

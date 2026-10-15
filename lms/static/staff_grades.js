@@ -118,19 +118,42 @@ function sessionOpportunities(deckItems, liveAnsweredKeys) {
   return total;
 }
 
-/** MC prompt / item types that weigh 1 (mirrors lms/participation_weight.py). */
-const MC_KINDS = new Set(["mc", "multiple_choice", "multiple_choice_question"]);
+/** Counted prompt kinds (mirrors lms/participation_weight.py). */
+const COUNTED_PROMPT_KINDS = new Set([
+  "mc",
+  "multiple_choice",
+  "multiple_choice_question",
+  "poll",
+  "numeric",
+  "number",
+  "rank",
+  "ranking",
+  "text",
+  "short_answer",
+  "open",
+]);
+const COUNTED_JSON_TYPES = new Set([
+  "mc",
+  "multiple_choice",
+  "multiple_choice_question",
+  "numeric",
+  "number",
+  "rank",
+  "ranking",
+  "text",
+  "short_answer",
+]);
 
 /**
  * @param {string} promptKind
  * @param {object|null|undefined} payload
  * @returns {boolean}
  */
-function itemIsMultipleChoice(promptKind, payload) {
+function itemCountsForParticipation(promptKind, payload) {
   const kind = String(promptKind || "").toLowerCase();
-  if (MC_KINDS.has(kind)) return true;
+  if (COUNTED_PROMPT_KINDS.has(kind)) return true;
   const qtype = String(payload?.type || payload?.question_type || "").toLowerCase();
-  return MC_KINDS.has(qtype) || qtype === "multiple_choice";
+  return COUNTED_JSON_TYPES.has(qtype);
 }
 
 /**
@@ -146,7 +169,11 @@ function participationWeight(row) {
       payload = {};
     }
   }
-  return itemIsMultipleChoice(row.prompt_kind, payload) ? 1 : 0;
+  const mode = String(row.publish_mode || "individual").toLowerCase();
+  if (mode !== "individual" && mode !== "group_consensus" && mode !== "group_shared") {
+    return 0;
+  }
+  return itemCountsForParticipation(row.prompt_kind, payload) ? 1 : 0;
 }
 
 /**
@@ -205,17 +232,10 @@ function cellScore(data, sessionId, studentId, meta) {
   if (displayMode === "points") {
     if (includeGroup) score += groupPoints;
     if (includeIndividual) score += individualAnswered;
-  } else {
-    if (includeIndividual && includeGroup) {
-      score = Math.max(individualAnswered, includeGroup ? groupPoints : 0);
-    } else if (includeIndividual) {
-      score = individualAnswered;
-    } else if (includeGroup) {
-      score = groupPoints;
-    }
-    if (opportunities > 0) {
-      score = Math.min(score, opportunities);
-    }
+  } else if (includeIndividual) {
+    score = individualAnswered;
+  } else if (includeGroup) {
+    score = groupPoints;
   }
   return { score, opportunities, ended_at: String(meta?.ended_at || "") };
 }
