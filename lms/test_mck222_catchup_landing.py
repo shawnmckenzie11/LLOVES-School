@@ -18,6 +18,7 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
 from catchup_landing import (  # noqa: E402
+    COPY_OTHER_HEADER,
     COPY_PICK_TITLE,
     COPY_TIER_DONE,
     COPY_TIER_NA,
@@ -125,6 +126,28 @@ class CatchupLandingFlowTests(Base):
         self.assertIn("T2 Group", html)
         self.assertIn("T3 Understanding", html)
         self.assertNotIn(">New<", html)
+
+    def test_other_open_heading_hidden_when_list_empty(self) -> None:
+        """Matched class only: no 'Other open classes' heading when there are no rows."""
+        course = "MCR3U"
+        other_heading = COPY_OTHER_HEADER.format(course=course)
+        client = self.app.test_client()
+        env = {"REMOTE_ADDR": "127.0.0.1"}
+        client.post(
+            "/auth/student-code",
+            data={"code": self.portal_code, "name": self.first},
+            environ_base=env,
+            follow_redirects=False,
+        )
+        client.post(
+            "/student/catchup/landing",
+            data={"action": "pin", "pin": "4321"},
+            environ_base=env,
+        )
+        page = client.get("/student/catchup").get_data(as_text=True)
+        self.assertIn(COPY_PICK_TITLE, page)
+        self.assertNotIn(other_heading, page)
+        self.assertNotIn('id="cl-other-heading"', page)
 
     def test_wrong_portal_code_shows_spec_copy(self) -> None:
         from catchup_landing import COPY_WRONG_CODE

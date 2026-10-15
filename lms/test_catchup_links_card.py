@@ -88,6 +88,14 @@ class CatchupCardHttpTests(unittest.TestCase):
             """,
             (token, self.class_id, run_key, module, slot, 1 if is_open else 0, created_at, created_at),
         )
+        self.school.conn.execute(
+            """
+            INSERT INTO participation_runs (
+                class_id, run_key, is_real, auto_is_real, discarded, ended_at
+            ) VALUES (?, ?, 1, 1, 0, ?)
+            """,
+            (self.class_id, run_key, created_at),
+        )
         self.school.conn.commit()
 
     def test_lesson_slides_page_mounts_table_for_teacher(self) -> None:

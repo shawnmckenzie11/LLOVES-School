@@ -77,12 +77,12 @@
     </section>
     {% endif %}
 
+    {% if not others and not matched %}
+    <p class="cl-empty">{{ copy.all_caught_up }}</p>
+    {% elif others %}
     <section class="cl-list-section" aria-labelledby="cl-other-heading">
       <h2 id="cl-other-heading" class="cl-list-heading">{{ copy.other_header.format(course=course_code) }}</h2>
       <div id="cl-list" class="cl-list"{% if loading %} aria-busy="true"{% endif %}>
-        {% if not others and not matched %}
-        <p class="cl-empty">{{ copy.all_caught_up }}</p>
-        {% endif %}
         {% for row in others %}
         <a class="cl-row" href="{{ row.url }}">
           <div class="cl-row-main">
@@ -103,6 +103,7 @@
               data-offline="{{ copy.offline }}">{{ copy.show_older }}</button>
       {% endif %}
     </section>
+    {% endif %}
 {% endif %}
   </div>
   <script type="module" src="/static/catchup_landing.js"></script>
