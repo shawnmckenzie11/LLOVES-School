@@ -38896,8 +38896,66 @@ class SchoolDB(LovesDB):
         except Exception:  # noqa: BLE001 - never break the grid
             logger.exception("module_participation failed class=%s", class_id)
             payload["module_participation"] = {"modules": [], "students": []}
+        payload["module_bands"] = self.participation_module_bands(class_id, payload)
         payload["ok"] = True
         return payload
+
+    def participation_module_bands(
+        self, class_id: int, grid: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Finished / current module groups for the Participation table.
+
+        Args:
+            class_id: Class primary key.
+            grid: Optional dashboard payload that already has ``columns``
+                and ``session_meta``. When omitted, session metadata is
+                loaded on its own.
+
+        Returns:
+            ``current_module`` plus ``bands`` from
+            :func:`participation_bands.build_participation_bands`.
+        """
+        from participation_bands import build_participation_bands
+        from participation_weight import module_number
+
+        session_meta = (grid or {}).get("session_meta")
+        if session_meta is None:
+            session_meta = self.participation_session_meta(class_id)
+        columns = (grid or {}).get("columns")
+        if columns is None:
+            columns = [
+                {"id": int(session_id), "kind": "session"}
+                for session_id in session_meta
+            ]
+        modules = {
+            str((session_meta.get(str(col.get("id"))) or session_meta.get(col.get("id")) or {}).get("live_module") or "").strip().upper()
+            for col in columns
+            if str(col.get("kind") or "") != "subtotal"
+        }
+        complete = {
+            module: self.module_complete(class_id, module)
+            for module in modules
+            if module and module_number(module) > 0
+        }
+        return build_participation_bands(list(columns), session_meta, complete)
+
+    def participation_start_prompt(
+        self, class_id: int, selected_module: str
+    ) -> dict[str, str] | None:
+        """Copy for the unfinished-module dialog on Run Live Class.
+
+        Args:
+            class_id: Class primary key.
+            selected_module: Module the teacher selected in Set Class.
+
+        Returns:
+            Dialog fields, or ``None`` when the selected module is the
+            current one or earlier.
+        """
+        from participation_bands import start_prompt_for
+
+        bands = self.participation_module_bands(class_id)
+        return start_prompt_for(bands, selected_module)
 
     def _class_tracker_rows(
         self, class_id: int

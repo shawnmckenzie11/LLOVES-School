@@ -8,11 +8,18 @@ const includeIndividualKey = `lloves-ap-include-individual-${classId}`;
 const includeGroupKey = `lloves-ap-include-group-${classId}`;
 const displayModeKey = `lloves-ap-display-mode-${classId}`;
 const DISPLAY_MODES = ["points", "fraction", "percent"];
+const teacherId = String(root?.dataset.teacherId || "0");
+const expandKey = `lloves-ap-module-expand-${teacherId}-${classId}`;
 
 let sort = localStorage.getItem(sortKey) === "za" ? "za" : "az";
 let includeIndividual = loadBool(includeIndividualKey, true);
 let includeGroup = loadBool(includeGroupKey, true);
+if (!includeIndividual && !includeGroup) {
+  includeIndividual = true;
+  includeGroup = true;
+}
 let displayMode = loadDisplayMode(localStorage.getItem(displayModeKey));
+let expanded = loadExpandMap(localStorage.getItem(expandKey));
 let latest = null;
 
 /**
@@ -32,7 +39,42 @@ function loadBool(key, fallback) {
  * @returns {"points"|"fraction"|"percent"}
  */
 function loadDisplayMode(raw) {
-  return DISPLAY_MODES.includes(raw || "") ? raw : "points";
+  return DISPLAY_MODES.includes(raw || "") ? raw : "percent";
+}
+
+/**
+ * Per-teacher expand map for finished modules. Missing keys stay collapsed.
+ * @param {string|null} raw
+ * @returns {Record<string, boolean>}
+ */
+function loadExpandMap(raw) {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    const out = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      out[String(key).toUpperCase()] = Boolean(value);
+    }
+    return out;
+  } catch (_err) {
+    return {};
+  }
+}
+
+/** Persist finished-module expand choices for this teacher and class. */
+function saveExpandMap() {
+  localStorage.setItem(expandKey, JSON.stringify(expanded));
+}
+
+/**
+ * @param {string} module
+ * @param {string} role
+ * @returns {boolean}
+ */
+function moduleExpanded(module, role) {
+  if (role !== "finished") return true;
+  return Boolean(expanded[String(module || "").toUpperCase()]);
 }
 
 /**
@@ -59,14 +101,38 @@ async function refresh() {
  */
 function paint(data) {
   latest = data;
-  const ind = document.getElementById("ap-include-individual");
-  const grp = document.getElementById("ap-include-group");
-  if (ind instanceof HTMLInputElement) ind.checked = includeIndividual;
-  if (grp instanceof HTMLInputElement) grp.checked = includeGroup;
   const modeSelect = document.getElementById("ap-display-mode-select");
   if (modeSelect instanceof HTMLSelectElement) modeSelect.value = displayMode;
+  const slice = !includeIndividual && includeGroup
+    ? "group"
+    : includeIndividual && !includeGroup
+      ? "individual"
+      : "all";
+  document.querySelectorAll("[data-display]").forEach((btn) => {
+    const on = btn.getAttribute("data-display") === displayMode;
+    btn.classList.toggle("is-on", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  document.querySelectorAll("[data-slice]").forEach((btn) => {
+    const on = btn.getAttribute("data-slice") === slice;
+    btn.classList.toggle("is-on", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
   updateFilterChrome();
   renderSheet(data);
+  requestAnimationFrame(scrollCurrentModuleIntoView);
+}
+
+/**
+ * Put the current module just to the right of the pinned name column.
+ */
+function scrollCurrentModuleIntoView() {
+  const wrap = document.querySelector("#grades-root .ap-mod-wrap");
+  const anchor = document.querySelector("#sheet [data-scroll-anchor='current']");
+  if (!(wrap instanceof HTMLElement) || !(anchor instanceof HTMLElement)) return;
+  const name = document.querySelector("#sheet th.name");
+  const nameWidth = name instanceof HTMLElement ? name.offsetWidth : 0;
+  wrap.scrollLeft = Math.max(0, anchor.offsetLeft - nameWidth);
 }
 
 /** Toggle evidence panel visibility for pack courses. */
@@ -241,82 +307,181 @@ function cellScore(data, sessionId, studentId, meta) {
 }
 
 /**
- * Build the live-points session spreadsheet.
+ * Visible columns for one module band (one summary, or every class).
+ * @param {any} band
+ * @returns {Array<{kind: string, band: any, column?: any}>}
+ */
+function visibleBandColumns(band) {
+  const open = moduleExpanded(band.module, band.role);
+  if (band.role === "finished" && !open) {
+    return [{ kind: "summary", band }];
+  }
+  return (band.columns || []).map((column) => ({ kind: "class", band, column }));
+}
+
+/**
+ * Sum one student's scores across a module's class columns.
+ * @param {any} data
+ * @param {number} studentId
+ * @param {Array<any>} columns
+ * @returns {{score: number, opportunities: number, ended_at: string}}
+ */
+function moduleRollup(data, studentId, columns) {
+  let score = 0;
+  let opportunities = 0;
+  let ended = "";
+  for (const column of columns || []) {
+    const meta = data.session_meta?.[String(column.id)] || {};
+    const cell = cellScore(data, Number(column.id), studentId, meta);
+    score += cell.score;
+    opportunities += cell.opportunities;
+    if (cell.ended_at && cell.ended_at > ended) ended = cell.ended_at;
+  }
+  return { score, opportunities, ended_at: ended };
+}
+
+/**
+ * Class cell: a check when the student scored, then the fraction.
+ * Office cells are a check or a dash only.
+ * @param {any} data
+ * @param {number} sessionId
+ * @param {number} studentId
+ * @param {{score: number}} scored
+ * @param {boolean} office
+ * @returns {string}
+ */
+function classCellHtml(data, sessionId, studentId, scored, office) {
+  const cell = data.cells?.[`${sessionId}:${studentId}`] || {};
+  const hit = scored.score > 0 || (office && Boolean(cell.present));
+  const mark = hit ? "✓" : "—";
+  const markClass = hit ? "ap-mark-yes" : "ap-mark-no";
+  if (office || scored.opportunities <= 0) {
+    return `<span class="${markClass}">${mark}</span>`;
+  }
+  const fraction = `${formatScore(scored.score)}/${scored.opportunities}`;
+  return `<span class="${markClass}">${mark}</span> <span class="ap-frac">${escapeHtml(fraction)}</span>`;
+}
+
+/**
+ * Collapsed or expanded finished-module control (M1 ✓ ▸).
+ * @param {string} module
+ * @param {boolean} open
+ * @returns {string}
+ */
+function summaryHeaderHtml(module, open) {
+  const caret = open ? "▾" : "▸";
+  return `<button type="button" class="ap-mod-toggle" data-module="${escapeHtml(module)}" aria-expanded="${open ? "true" : "false"}">
+    <span class="ap-mod-code">${escapeHtml(module || "Module")}</span>
+    <span class="ap-mod-check" aria-hidden="true">✓</span>
+    <span class="ap-mod-caret" aria-hidden="true">${caret}</span>
+  </button>`;
+}
+
+/**
+ * Build the module-grouped participation sheet.
  * @param {any} data
  */
 function renderSheet(data) {
   const table = document.getElementById("sheet");
   if (!table) return;
+  table.classList.add("ap-mod-table");
   table.classList.remove("attendance-grid", "ap-module-grid");
-  const columns = data.columns || [];
   const students = data.students || [];
-  const sessionMeta = data.session_meta || {};
-  const modules = data.module_participation?.modules || [];
-  const completeByModule = new Map(modules.map((m) => [String(m.module), Boolean(m.complete)]));
-  const sortLabel = sort === "za" ? "Sort: Z–A" : "Sort: A–Z";
+  const bands = (data.module_bands && data.module_bands.bands) || [];
+  const currentBand = bands.find((band) => band.role === "current") || null;
 
-  const moduleBands = buildModuleBands(columns, sessionMeta);
-  let head = `<tr><th class="name">Student</th>`;
-  for (const column of columns) {
-    if (column.kind === "subtotal") {
-      head += `<th class="subtotal-col">${escapeHtml(column.name || column.header_label)}</th>`;
-      continue;
-    }
-    const meta = sessionMeta[String(column.id)] || {};
-    const header = meta.header_label || column.header_label || "";
-    const office = Boolean(meta.open_office || column.open_office);
-    head += office
-      ? `<th class="ap-office-header">${escapeHtml(header)}</th>`
-      : `<th>${escapeHtml(header)}</th>`;
+  const pieces = [];
+  for (const band of bands) {
+    const cols = visibleBandColumns(band);
+    if (!cols.length) continue;
+    pieces.push({ band, cols });
   }
-  head += `<th class="live-sub">SUBTOTAL</th><th class="total">TOTAL SCORE</th></tr>`;
-
-  let moduleRow = `<tr class="ap-module-band"><th class="name"></th>`;
-  for (const band of moduleBands) {
-    const colspan = band.span || 1;
-    const mod = band.module;
-    if (!mod) {
-      moduleRow += `<th colspan="${colspan}"></th>`;
-      continue;
-    }
-    const complete = completeByModule.get(mod);
-    const label = complete ? `Module ${moduleNumber(mod)} total` : `Finish Module ${moduleNumber(mod)}`;
-    if (complete) {
-      moduleRow += `<th colspan="${colspan}" class="ap-module-finish done">${escapeHtml(label)}</th>`;
+  const runs = [];
+  for (const piece of pieces) {
+    const role = piece.band.role === "finished" ? "finished" : piece.band.module;
+    const last = runs[runs.length - 1];
+    if (last && last.key === role && role === "finished") {
+      last.pieces.push(piece);
+      last.span += piece.cols.length;
     } else {
-      moduleRow += `<th colspan="${colspan}" class="ap-module-finish">
-        <button type="button" class="btn secondary ap-finish-module" data-module="${escapeHtml(mod)}">${escapeHtml(label)}</button>
-      </th>`;
+      runs.push({ key: role, role: piece.band.role, pieces: [piece], span: piece.cols.length });
     }
   }
-  moduleRow += `<th class="live-sub"></th><th class="total"></th></tr>`;
+
+  let groupRow = `<tr class="ap-mod-groups"><th class="name" rowspan="2">Student</th>`;
+  let head = `<tr class="ap-mod-cols">`;
+  for (const run of runs) {
+    const first = run.pieces[0].band;
+    const mod = String(first.module || "");
+    let groupLabel = "";
+    let groupClass = "ap-mod-group";
+    if (run.role === "finished") groupLabel = "Finished modules";
+    else if (run.role === "current") {
+      groupLabel = `Module ${moduleNumber(mod)} · current`;
+      groupClass += " is-current";
+    } else if (run.role === "open") {
+      groupLabel = `Module ${moduleNumber(mod)}`;
+    }
+    groupRow += `<th class="${groupClass}" colspan="${run.span}">${escapeHtml(groupLabel)}</th>`;
+    for (const piece of run.pieces) {
+      const pieceMod = String(piece.band.module || "");
+      piece.cols.forEach((col, index) => {
+        if (col.kind === "summary") {
+          head += `<th class="ap-mod-summary" data-module="${escapeHtml(pieceMod)}">${summaryHeaderHtml(pieceMod, false)}</th>`;
+          return;
+        }
+        const office = Boolean(col.column?.office);
+        const anchor = piece.band.role === "current" && index === 0
+          ? ` data-scroll-anchor="current"`
+          : "";
+        const toggle = piece.band.role === "finished" && index === 0
+          ? summaryHeaderHtml(pieceMod, true)
+          : "";
+        const officePill = office ? `<span class="ap-office-pill">Open office</span>` : "";
+        head += `<th class="${office ? "is-office ap-office-header" : "ap-class-col"}"${anchor}>
+          ${toggle}<span class="ap-class-label">${escapeHtml(col.column?.label || "")}</span>${officePill}
+        </th>`;
+      });
+    }
+  }
+  if (currentBand) {
+    groupRow += `<th class="ap-mod-so-far-group" rowspan="2">This module so far</th>`;
+  }
+  groupRow += `</tr>`;
+  head += `</tr>`;
 
   let body = "";
-  const liveCols = liveSessionColumns(columns);
-  const allCols = sessionColumns(columns);
   for (const student of students) {
     const sid = Number(student.id);
     body += `<tr><td class="name">${escapeHtml(displayName(student))}</td>`;
-    for (const column of columns) {
-      if (column.kind === "subtotal") {
-        const frozen = data.cells?.[`sub:${column.id}:${sid}`] || { points: 0 };
-        body += `<td class="cell frozen">${escapeHtml(formatPoints(frozen.points))}</td>`;
-        continue;
+    for (const piece of pieces) {
+      for (const col of piece.cols) {
+        if (col.kind === "summary") {
+          const roll = moduleRollup(data, sid, piece.band.columns);
+          const text = formatParticipationCell(roll.score, roll.opportunities, roll.ended_at);
+          body += `<td class="ap-summary-cell">${text}</td>`;
+          continue;
+        }
+        const column = col.column;
+        const meta = data.session_meta?.[String(column.id)] || {};
+        const scored = cellScore(data, Number(column.id), sid, meta);
+        const office = Boolean(column.office);
+        const html = classCellHtml(data, Number(column.id), sid, scored, office);
+        body += `<td class="ap-class-cell${office ? " is-office" : ""}">${html}</td>`;
       }
-      const meta = sessionMeta[String(column.id)] || {};
-      const { score, opportunities, ended_at } = cellScore(data, Number(column.id), sid, meta);
-      const text = formatParticipationCell(score, opportunities, ended_at);
-      const kind = score > 0 ? "present" : "absent";
-      body += `<td class="cell ${kind}">${text}</td>`;
     }
-    body += summaryCellHtml(data, sid, liveCols);
-    body += summaryCellHtml(data, sid, allCols, "total");
-    body += "</tr>";
+    if (currentBand) {
+      const roll = moduleRollup(data, sid, currentBand.columns);
+      const text = formatParticipationCell(roll.score, roll.opportunities, roll.ended_at);
+      body += `<td class="ap-so-far">${text}</td>`;
+    }
+    body += `</tr>`;
   }
-
-  table.innerHTML = `<thead>${moduleRow}${head}</thead><tbody>${body}</tbody>`;
-  const sortBtn = document.getElementById("sort-toggle");
-  if (sortBtn) sortBtn.textContent = sortLabel;
+  if (!students.length) {
+    const span = 1 + pieces.reduce((sum, piece) => sum + piece.cols.length, 0) + (currentBand ? 1 : 0);
+    body = `<tr><td class="ap-mod-empty" colspan="${span}">No students on this roster yet.</td></tr>`;
+  }
+  table.innerHTML = `<thead>${groupRow}${head}</thead><tbody>${body}</tbody>`;
 }
 
 /**
@@ -329,152 +494,81 @@ function moduleNumber(liveModule) {
 }
 
 /**
- * @param {Array<any>} columns
- * @param {Record<string, any>} sessionMeta
- * @returns {Array<{module?: string, span: number}>}
+ * Remember one display mode and repaint.
+ * @param {string} mode
  */
-function buildModuleBands(columns, sessionMeta) {
-  const bands = [];
-  let current = "";
-  let span = 0;
-  const flush = () => {
-    if (span > 0) bands.push({ module: current || undefined, span });
-    span = 0;
-  };
-  for (const column of columns) {
-    if (column.kind === "subtotal") {
-      flush();
-      bands.push({ span: 1 });
-      current = "";
-      continue;
-    }
-    const mod = String(sessionMeta[String(column.id)]?.live_module || "");
-    if (mod && mod !== current) {
-      flush();
-      current = mod;
-    }
-    if (!mod) current = "";
-    span += 1;
-  }
-  flush();
-  return bands;
-}
-
-/**
- * Lesson columns only (frozen SUBTOTAL snapshots skipped).
- * @param {Array<{kind?: string}>} columns
- * @returns {Array<any>}
- */
-function sessionColumns(columns) {
-  return (columns || []).filter((column) => column.kind !== "subtotal");
-}
-
-/**
- * Sessions that count toward the live SUBTOTAL (after the last freeze).
- * @param {Array<{kind?: string}>} columns
- * @returns {Array<any>}
- */
-function liveSessionColumns(columns) {
-  const before = [];
-  const after = [];
-  let seenFreeze = false;
-  for (const column of columns || []) {
-    if (column.kind === "subtotal") {
-      seenFreeze = true;
-      after.length = 0;
-      continue;
-    }
-    if (seenFreeze) after.push(column);
-    else before.push(column);
-  }
-  return seenFreeze ? after : before;
-}
-
-/**
- * @param {any} data
- * @param {number} studentId
- * @param {Array<{id: number, kind?: string}>} columns
- * @param {string} [extraClass]
- * @returns {string}
- */
-function summaryCellHtml(data, studentId, columns, extraClass = "live-sub") {
-  let sum = 0;
-  for (const column of columns) {
-    if (column.kind === "subtotal") continue;
-    const meta = data.session_meta?.[String(column.id)] || {};
-    sum += cellScore(data, Number(column.id), studentId, meta).score;
-  }
-  return `<td class="${extraClass}">${escapeHtml(formatPoints(sum))}</td>`;
-}
-
-/**
- * POST a dashboard mutation and repaint.
- * @param {string} url
- * @param {object} extra
- */
-async function mutate(url, extra) {
-  hideError("#error");
-  await api(url, {
-    method: "POST",
-    body: JSON.stringify({ sort, ...extra }),
-  });
-  await refresh();
-}
-
-document.getElementById("ap-include-individual")?.addEventListener("change", (event) => {
-  const input = event.target;
-  if (!(input instanceof HTMLInputElement)) return;
-  includeIndividual = input.checked;
-  localStorage.setItem(includeIndividualKey, includeIndividual ? "1" : "0");
+function setDisplayMode(mode) {
+  if (!DISPLAY_MODES.includes(mode)) return;
+  displayMode = mode;
+  localStorage.setItem(displayModeKey, displayMode);
   if (latest) paint(latest);
-});
+}
 
-document.getElementById("ap-include-group")?.addEventListener("change", (event) => {
-  const input = event.target;
-  if (!(input instanceof HTMLInputElement)) return;
-  includeGroup = input.checked;
+/**
+ * Remember All / Individual / Group and repaint.
+ * @param {string} slice
+ */
+function setSlice(slice) {
+  if (slice === "individual") {
+    includeIndividual = true;
+    includeGroup = false;
+  } else if (slice === "group") {
+    includeIndividual = false;
+    includeGroup = true;
+  } else {
+    includeIndividual = true;
+    includeGroup = true;
+  }
+  localStorage.setItem(includeIndividualKey, includeIndividual ? "1" : "0");
   localStorage.setItem(includeGroupKey, includeGroup ? "1" : "0");
   if (latest) paint(latest);
+}
+
+/**
+ * Expand or collapse every finished module for this teacher.
+ * @param {boolean} open
+ */
+function setAllFinished(open) {
+  const bands = latest?.module_bands?.bands || [];
+  for (const band of bands) {
+    if (band.role !== "finished") continue;
+    expanded[String(band.module || "").toUpperCase()] = open;
+  }
+  saveExpandMap();
+  if (latest) paint(latest);
+}
+
+document.querySelectorAll("[data-display]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    setDisplayMode(String(btn.getAttribute("data-display") || ""));
+  });
+});
+
+document.querySelectorAll("[data-slice]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    setSlice(String(btn.getAttribute("data-slice") || "all"));
+  });
 });
 
 document.getElementById("ap-display-mode-select")?.addEventListener("change", (event) => {
   const select = event.target;
   if (!(select instanceof HTMLSelectElement)) return;
-  if (!DISPLAY_MODES.includes(select.value)) return;
-  displayMode = select.value;
-  localStorage.setItem(displayModeKey, displayMode);
-  if (latest) paint(latest);
+  setDisplayMode(select.value);
 });
 
-document.getElementById("sort-toggle")?.addEventListener("click", (event) => {
-  event.preventDefault();
-  sort = sort === "az" ? "za" : "az";
-  localStorage.setItem(sortKey, sort);
-  refresh().catch((err) => showError("#error", err));
-});
+document.getElementById("ap-expand-all")?.addEventListener("click", () => setAllFinished(true));
+document.getElementById("ap-collapse-all")?.addEventListener("click", () => setAllFinished(false));
 
 root?.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : event.target?.parentElement;
   if (!target) return;
-  const finishBtn = target.closest(".ap-finish-module");
-  if (finishBtn instanceof HTMLButtonElement) {
-    const module = finishBtn.dataset.module;
-    if (!module) return;
-    if (
-      !window.confirm(
-        `Finish ${module}? This logs a locked Module total column and marks the module complete.`,
-      )
-    ) {
-      return;
-    }
-    hideError("#error");
-    api(`/api/classes/${classId}/participation/modules/${encodeURIComponent(module)}/finish`, {
-      method: "POST",
-      body: JSON.stringify({ sort }),
-    })
-      .then(() => refresh())
-      .catch((err) => showError("#error", err));
-  }
+  const toggle = target.closest(".ap-mod-toggle");
+  if (!(toggle instanceof HTMLButtonElement)) return;
+  const module = String(toggle.dataset.module || "").toUpperCase();
+  if (!module) return;
+  expanded[module] = !Boolean(expanded[module]);
+  saveExpandMap();
+  if (latest) paint(latest);
 });
 
 refresh().catch((err) => showError("#error", err));

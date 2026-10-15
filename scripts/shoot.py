@@ -459,13 +459,13 @@ def shoot_mck230(
                 page = context.new_page()
                 page.goto(url, wait_until="networkidle", timeout=60000)
                 page.locator("#sheet").wait_for(state="visible", timeout=60000)
+                page.locator("#ap-expand-all").wait_for(state="visible", timeout=60000)
                 if setup == "fraction":
-                    page.select_option("#ap-display-mode-select", "fraction")
+                    page.locator("[data-display='fraction']").click()
                 page.wait_for_function(
-                    "() => document.querySelector('th.live-sub')",
+                    "() => document.querySelector('.ap-mod-table tbody tr')",
                     timeout=60000,
                 )
-                page.wait_for_selector(".ap-finish-module", timeout=60000)
                 dest = out_dir / f"{label}-{width}.png"
                 page.screenshot(path=str(dest), full_page=True)
                 written.append(dest)

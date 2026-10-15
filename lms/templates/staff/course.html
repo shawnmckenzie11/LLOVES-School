@@ -353,6 +353,17 @@
         </div>
       </section>
 
+      <dialog id="finish-module-dialog" class="finish-module-dialog" aria-labelledby="finish-module-title">
+        <form method="dialog" class="finish-module-card">
+          <h2 id="finish-module-title">Module isn't finished yet</h2>
+          <p id="finish-module-body"></p>
+          <div class="finish-module-actions">
+            <button type="submit" value="cancel" class="finish-module-quiet">Cancel</button>
+            <button type="submit" value="start" class="finish-module-quiet">Start without finishing</button>
+            <button type="submit" value="finish" id="finish-module-go" class="finish-module-primary">Finish and start</button>
+          </div>
+        </form>
+      </dialog>
       <section id="ap-panel-validate" class="live-date-panel live-set-class-card ap-panel is-current" data-step="validate">
         <h2 class="live-pane-title">Set Class</h2>
         {% set packs = live_packs if live_packs is defined else {} %}
@@ -1141,30 +1152,39 @@
       </style>
       <script type="module" src="/static/staff_roster.js"></script>
       {% elif ap_view == 'participation' %}
-      <div id="grades-root" data-class-id="{{ cls.id }}" data-course-simple="{{ 1 if course_simple else 0 }}">
-        <div class="topbar ap-participation-bar">
-          <div class="row-actions ap-toolbar">
-            <button type="button" class="secondary" id="sort-toggle">Sort: A–Z</button>
-            <a class="btn secondary" id="export-results-csv" href="{{ url_for('staff_class_results_csv', class_id=cls.id) }}" download>Export results (CSV)</a>
-            <label class="field ap-view-field ap-check-field">
-              <input type="checkbox" id="ap-include-individual" checked>
-              <span>Individual</span>
-            </label>
-            <label class="field ap-view-field ap-check-field">
-              <input type="checkbox" id="ap-include-group" checked>
-              <span>Group</span>
-            </label>
-            <label class="field ap-view-field" for="ap-display-mode-select">
-              <span class="ap-view-label">Display</span>
-              <select id="ap-display-mode-select" aria-label="Participation display mode">
-                <option value="points">Points</option>
-                <option value="fraction">Fraction</option>
-                <option value="percent">%</option>
-              </select>
-            </label>
+      <div id="grades-root"
+           class="ap-mod-page"
+           data-class-id="{{ cls.id }}"
+           data-teacher-id="{{ user.id }}"
+           data-course-label="{{ offering.section_code if offering else (cls.section_code or cls.ontario_code or cls.course_code) }}"
+           data-course-simple="{{ 1 if course_simple else 0 }}">
+        <header class="ap-mod-heading">
+          <h2>Participation</h2>
+          <p class="ap-mod-kicker">{{ offering.section_code if offering else (cls.section_code or cls.ontario_code or cls.course_code) }}</p>
+        </header>
+        <div class="ap-mod-toolbar" role="toolbar" aria-label="Participation modules">
+          <div class="ap-mod-toolbar-left">
+            <button type="button" class="ap-mod-pill" id="ap-expand-all">Expand all</button>
+            <button type="button" class="ap-mod-pill" id="ap-collapse-all">Collapse all</button>
+          </div>
+          <div class="ap-mod-toolbar-right">
+            <div class="ap-seg" role="radiogroup" aria-label="Participation display mode">
+              <button type="button" class="ap-seg-btn" data-display="points">Points</button>
+              <button type="button" class="ap-seg-btn" data-display="fraction">Fraction</button>
+              <button type="button" class="ap-seg-btn" data-display="percent">%</button>
+            </div>
+            <div class="ap-seg" role="radiogroup" aria-label="Individual and group questions">
+              <button type="button" class="ap-seg-btn" data-slice="all">All</button>
+              <button type="button" class="ap-seg-btn" data-slice="individual" id="ap-include-individual">Individual</button>
+              <button type="button" class="ap-seg-btn" data-slice="group" id="ap-include-group">Group</button>
+            </div>
           </div>
         </div>
-        <p class="hint compact">Fractions and percents use questions that collected live answers in each real class run. Legacy points before Oct 14, 2026 cap at 100% in percent view.</p>
+        <select id="ap-display-mode-select" class="ap-mod-sync" aria-hidden="true" tabindex="-1">
+          <option value="points">Points</option>
+          <option value="fraction">Fraction</option>
+          <option value="percent" selected>%</option>
+        </select>
         <div id="error" class="error" hidden></div>
         <section class="card ap-evidence-coverage" id="ap-evidence-coverage"{% if course_simple %} hidden{% endif %}>
           <h2>Process evidence (this live session)</h2>
@@ -1172,8 +1192,8 @@
           <div id="ap-coverage-matrix"></div>
           <ul id="ap-coverage-log" class="ap-evidence-log"></ul>
         </section>
-        <div class="sheet-wrap">
-          <table class="sheet" id="sheet">
+        <div class="sheet-wrap ap-mod-wrap">
+          <table class="sheet ap-mod-table" id="sheet">
             <thead>
               <tr>
                 <th class="name">Student</th>
@@ -1181,6 +1201,9 @@
             </thead>
           </table>
         </div>
+        <p class="ap-mod-foot">Page loads scrolled to the current module. Collapse choices are remembered per teacher.
+          <a id="export-results-csv" href="{{ url_for('staff_class_results_csv', class_id=cls.id) }}" download>Export results (CSV)</a>
+        </p>
       </div>
       <dialog id="confirm-dialog" class="confirm-dialog">
         <form method="dialog">
