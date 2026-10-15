@@ -30,7 +30,16 @@ LIVE_END_BUSY_WAIT_SECONDS = 3.0
 LIVE_END_BUSY_POLL_SECONDS = 0.1
 # MCK-161 INFO-1: the only extra item fields Add New accepts from a caller
 # (the Contest Questions import). Everything else in ``extra_item`` is dropped.
-EXTRA_ITEM_KEYS = frozenset({"live_problem_id", "question_title", "contest_batch"})
+EXTRA_ITEM_KEYS = frozenset(
+    {
+        "live_problem_id",
+        "question_title",
+        "contest_batch",
+        "team_draw_prompt_id",
+        "team_draw_custom_text",
+        "team_draw_mystery_steps",
+    }
+)
 
 from engagement_events import (  # noqa: E402
     KINDS as ENGAGEMENT_KINDS,
@@ -1846,6 +1855,7 @@ class WhiteboardReopenConflict(ValueError):
         super().__init__(message)
         self.reason = reason
 GROUP_MC_PICK_THEN_AGREE = "pick_then_agree"
+GROUP_ROW_RESPONSE_MODES = frozenset({"group_submit", "team_draw"})
 
 
 class GroupAnswerLocked(ValueError):
@@ -1985,6 +1995,7 @@ class LovesDB:
             self._ensure_offering_schedule_columns()
             self._ensure_live_class_schedule_columns()
             self._ensure_participation_run_kind_columns()
+            self._ensure_team_draw_schema()
             self._ensure_lesson_slides_latest_schema()
             self._ensure_catchup_slot_unique()
             self._ensure_catchup_portal_join_code_column()
@@ -12531,8 +12542,8 @@ class SchoolDB(LovesDB):
             from lms.bank_mc_normalize import parse_module_token
 
         kind = str(question_type or "").strip().lower()
-        if kind not in {"mc", "numeric", "poll", "rank"}:
-            raise ValueError("type must be mc, numeric, poll, or rank")
+        if kind not in {"mc", "numeric", "poll", "rank", "team_draw"}:
+            raise ValueError("type must be mc, numeric, poll, rank, or team_draw")
         stem = str(text or "").strip()
         if not stem:
             raise ValueError("question text required")
@@ -12604,6 +12615,13 @@ class SchoolDB(LovesDB):
             item_payload["integer_only"] = False
             item_payload["options"] = []
             item_payload["choices"] = []
+        elif kind == "team_draw":
+            item_payload["publish_modes"] = ["group_submit"]
+            item_payload["response_mode"] = "team_draw"
+            item_payload["options"] = []
+            item_payload["choices"] = []
+            item_payload.pop("key", None)
+            item_payload.pop("correct_answer", None)
         else:
             item_payload["options"] = []
             item_payload["choices"] = []
@@ -14433,6 +14451,8 @@ class SchoolDB(LovesDB):
     def _question_publish_modes(question: dict[str, Any]) -> list[str]:
         """Return normalized supported publish modes for one question."""
 
+        if str(question.get("type") or "").strip().lower() == "team_draw":
+            return ["group_submit"]
         raw = question.get("publish_modes")
         modes = [
             str(value).strip().lower()
@@ -14615,6 +14635,8 @@ class SchoolDB(LovesDB):
             return "poll"
         if token == "rank":
             return "rank"
+        if token == "team_draw":
+            return "team_draw"
         return "mc"
 
     @staticmethod
@@ -15968,6 +15990,17 @@ class SchoolDB(LovesDB):
             )
             payload["options"] = kept_choices
             payload["choices"] = kept_choices
+        elif prompt_kind == "team_draw":
+            from team_draw import resolved_prompt_text
+
+            payload.pop("key", None)
+            payload.pop("correct_answer", None)
+            payload["type"] = "team_draw"
+            payload["kind"] = "team_draw"
+            payload["prompt"] = resolved_prompt_text(item)
+            payload["text"] = payload["prompt"]
+            payload["options"] = []
+            payload["choices"] = []
         elif prompt_kind == "rank":
             payload.pop("key", None)
             payload.pop("correct_answer", None)
@@ -16431,7 +16464,12 @@ class SchoolDB(LovesDB):
         if item["status"] == "closed":
             raise ValueError("Closed items cannot be republished.")
         mode = self._canonicalize_publish_mode(publish_mode)
-        if mode == "group_submit":
+        team_draw = self._question_answer_kind(item) == "team_draw"
+        if team_draw:
+            self._require_group_mc_publish(session_id, item)
+            mode = "group_submit"
+            response_mode = "team_draw"
+        elif mode == "group_submit":
             self._require_group_mc_publish(session_id, item)
             response_mode = "group_submit"
         else:
@@ -16515,6 +16553,9 @@ class SchoolDB(LovesDB):
                 self.clear_active_live_prompt(session_id)
         if response_mode == "group_consensus":
             self._initialize_group_consensus(published)
+        elif response_mode == "team_draw":
+            self._initialize_team_draw(published)
+            self._publish_team_draw_whiteboard(session_id)
         elif response_mode == "group_submit":
             self._initialize_group_submit(published)
         published = self.get_live_session_item(session_id, int(item["id"]))
@@ -17110,7 +17151,7 @@ class SchoolDB(LovesDB):
         """
 
         kind = self._question_answer_kind(item)
-        if kind not in {"mc", "rank"}:
+        if kind not in {"mc", "rank", "team_draw"}:
             raise ValueError("Group submission is multiple choice only.")
         teacher = self.live_session_teacher_state_payload(session_id)
         if not teacher.get("groups_configured"):
@@ -17278,7 +17319,7 @@ class SchoolDB(LovesDB):
 
         if student_id in (None, ""):
             raise ValueError("Roster student required")
-        if str(item.get("response_mode") or "") != "group_submit":
+        if str(item.get("response_mode") or "") not in GROUP_ROW_RESPONSE_MODES:
             raise ValueError("This question is not a group submission.")
         if str(item.get("status") or "") != "active":
             raise ValueError("This item is not accepting responses.")
@@ -17539,7 +17580,7 @@ class SchoolDB(LovesDB):
                 return self._require_group_submit_member(item, student_id)
         if student_id in (None, ""):
             raise ValueError("Roster student required")
-        if str(item.get("response_mode") or "") != "group_submit":
+        if str(item.get("response_mode") or "") not in GROUP_ROW_RESPONSE_MODES:
             raise ValueError("This question is not a group submission.")
         if str(item.get("status") or "") != "closed":
             raise ValueError("This item is not accepting responses.")
@@ -21425,9 +21466,34 @@ class SchoolDB(LovesDB):
             if item_stage and stage and item_stage != stage:
                 continue
             mode = str(item.get("response_mode") or "")
-            if mode not in {"group_submit", "group_consensus"}:
+            if mode not in {"group_submit", "group_consensus", "team_draw"}:
                 continue
             item_id = int(item["id"])
+            if mode == "team_draw":
+                from team_draw import gallery_row_title, resolved_prompt_text
+
+                teams = self._light_group_submit_teams(
+                    item_id, class_id, order, member_counts
+                )
+                for team in teams:
+                    if team.get("status") != "submitted":
+                        team["title"] = ""
+                        continue
+                    row = self._group_response_row(item_id, int(team["team_id"])) or {}
+                    team["title"] = gallery_row_title(row)
+                self._attach_quiet_member_dots(
+                    item_id, teams, run_key=run_key, roster_by_team=roster_by_team
+                )
+                entry = {
+                    "response_mode": "team_draw",
+                    "response_seq": self._group_results_seq(teams)
+                    + ":"
+                    + "|".join(str(team.get("title") or "") for team in teams),
+                    "teams": teams,
+                    "prompt": resolved_prompt_text(item),
+                }
+                out[str(item_id)] = entry
+                continue
             if mode == "group_submit":
                 teams = self._light_group_submit_teams(
                     item_id, class_id, order, member_counts
@@ -21917,6 +21983,8 @@ class SchoolDB(LovesDB):
 
         self._require_active_live_session(session_id)
         item = self.get_live_session_item(session_id, placement_or_item)
+        if item["response_mode"] == "team_draw":
+            return self.team_draw_teacher_view(session_id, item)
         if item["response_mode"] == "group_submit":
             return self.group_submit_teacher_view(session_id, item)
         if item["response_mode"] == "group_consensus":
@@ -22273,6 +22341,8 @@ class SchoolDB(LovesDB):
                 group_submit_state = self.student_group_submit_state(
                     item, student_id
                 )
+            elif item["response_mode"] == "team_draw":
+                group_submit_state = self.student_team_draw_state(item, student_id)
             elif prompt is not None:
                 prior = self.get_live_prompt_response(
                     int(prompt["id"]),
@@ -22596,7 +22666,16 @@ class SchoolDB(LovesDB):
         if session_row is None:
             raise KeyError(f"live session {session_id}")
         kind_norm = (kind or "idle").strip().lower()
-        if kind_norm not in {"mc", "numeric", "share", "draw", "artifact", "idle", "rank"}:
+        if kind_norm not in {
+            "mc",
+            "numeric",
+            "share",
+            "draw",
+            "artifact",
+            "idle",
+            "rank",
+            "team_draw",
+        }:
             raise ValueError(f"unsupported prompt kind: {kind}")
         if is_cons_payload(payload):
             slot = self.session_live_slot(session_id)
@@ -29917,6 +29996,12 @@ class SchoolDB(LovesDB):
             ),
             (*base, now, sid),
         ).rowcount
+        from team_draw import (
+            is_team_draw_item,
+            should_snapshot_team_draw_run,
+            strip_image_from_snapshot_answer,
+        )
+
         groups = self.conn.execute(
             """
             SELECT g.*, i.placement_key, i.item_json
@@ -29935,12 +30020,24 @@ class SchoolDB(LovesDB):
                 except (TypeError, ValueError):
                     return raw
 
+            item_json = {}
+            try:
+                item_json = json.loads(str(group["item_json"] or "{}"))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                item_json = {}
+            if is_team_draw_item({"item": item_json}):
+                if not should_snapshot_team_draw_run(
+                    self, int(session["class_id"]), run_key
+                ):
+                    continue
             answer = {
                 "status": str(group["status"] or ""),
                 "final": _loads(group["final_answer_json"]),
                 "proposed": _loads(group["proposed_answer_json"]),
                 "why": str(group["why_text"] or ""),
             }
+            if isinstance(answer["final"], dict):
+                answer["final"] = strip_image_from_snapshot_answer(answer["final"])
             if answer["final"] is None and answer["proposed"] is None and not answer["why"]:
                 continue  # a team that never answered
             self.conn.execute(
@@ -33860,6 +33957,7 @@ class SchoolDB(LovesDB):
         """
 
         self.purge_board_ops(int(session_id))
+        self._purge_team_draw_images(int(session_id))
         with self._lock:
             if self.conn.in_transaction:
                 self.conn.execute("COMMIT")
@@ -38482,3 +38580,9 @@ class SchoolDB(LovesDB):
                 f"/api/classes/{int(class_id)}/module-reflections"
             ),
         }
+
+
+from team_draw_school import _ensure_team_draw_schema, register_team_draw_methods  # noqa: E402
+
+LovesDB._ensure_team_draw_schema = _ensure_team_draw_schema  # type: ignore[attr-defined]
+register_team_draw_methods(SchoolDB)

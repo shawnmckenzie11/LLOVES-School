@@ -3339,3 +3339,31 @@ dialog.student-pin-dialog::backdrop {
   flex-wrap: wrap;
   margin-top: 0.75rem;
 }
+
+/* MCK-242 Team Draw */
+.canvas-pane.is-team-draw .live-canvas-stage {
+  min-height: min(62vh, 520px);
+}
+.team-draw-phone {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+.team-draw-submit {
+  font-size: 1.05rem;
+  padding: 0.65rem 1rem;
+}
+.team-draw-saved {
+  color: var(--muted, #555);
+  font-size: 0.95rem;
+}
+.team-draw-mystery-list {
+  margin: 0 0 0.5rem;
+  padding-left: 1.2rem;
+  font-size: 0.9rem;
+}
+.team-draw-step-yours {
+  list-style: none;
+  margin-top: 0.35rem;
+}

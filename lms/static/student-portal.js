@@ -54,6 +54,7 @@ import {
   opsAboveCursor,
   showBoardRefreshCue,
 } from "/static/live_whiteboard.js";
+import { canvasToPngDataUrl, isTeamDrawItem } from "/static/team_draw.js";
 import { nameWithAvatar, paintAvatar } from "/static/student_avatars.js";
 import { rankStackHtml } from "/static/rank_stack.js";
 import {
@@ -102,6 +103,11 @@ const mediaPane = document.getElementById("media-pane");
 const mediaFrame = document.getElementById("media-frame");
 const mediaLock = document.getElementById("media-lock");
 const canvasPane = document.getElementById("canvas-pane");
+const teamDrawPhone = document.getElementById("team-draw-phone");
+const teamDrawTitle = document.getElementById("team-draw-title");
+const teamDrawSubmit = document.getElementById("team-draw-submit");
+const teamDrawSaved = document.getElementById("team-draw-saved");
+const teamDrawMystery = document.getElementById("team-draw-mystery");
 const canvasLock = document.getElementById("canvas-lock");
 const studentCanvas = document.getElementById("student-canvas");
 const canvasCursors = document.getElementById("canvas-cursors");
@@ -1702,7 +1708,105 @@ function applyTeacherProjection(payload) {
     }
     if (proj.slides && !dockedLiveCardKeys.has("surface:slides")) paintStudentSlides(payload);
   }
+  syncTeamDrawChrome(payload, proj);
   return proj;
+}
+
+/**
+ * Show Team Draw naming UI on the group whiteboard when that item is live.
+ * @param {any} payload
+ * @param {ReturnType<typeof studentProjection>} proj
+ */
+function syncTeamDrawChrome(payload, proj) {
+  const item = findActiveTeamDrawItem(payload);
+  const state = item?.group_submit || null;
+  const on = Boolean(item && proj.canvas && proj.canvasAlign === "team");
+  if (teamDrawPhone instanceof HTMLElement) {
+    teamDrawPhone.hidden = !on || !state || state.submitted;
+    if (teamDrawSaved instanceof HTMLElement) {
+      teamDrawSaved.hidden = !state?.submitted;
+    }
+  }
+  if (teamDrawTitle instanceof HTMLInputElement && state && !state.submitted) {
+    if (!teamDrawTitle.value && state.title) teamDrawTitle.value = state.title;
+    teamDrawTitle.disabled = !state.can_submit;
+  }
+  if (teamDrawSubmit instanceof HTMLButtonElement && state) {
+    teamDrawSubmit.disabled = !state.can_submit;
+  }
+  if (teamDrawMystery instanceof HTMLElement) {
+    const steps = Array.isArray(state?.mystery_steps) ? state.mystery_steps : [];
+    const showMystery = on && steps.length === 3;
+    teamDrawMystery.hidden = !showMystery;
+    if (showMystery) {
+      teamDrawMystery.innerHTML = `<ol class="team-draw-mystery-list">
+        ${steps
+          .map(
+            (step, index) =>
+              `<li class="${index < 3 ? "is-locked" : ""}">${index < 3 ? "🔒 " : ""}${String(step || "")}</li>`
+          )
+          .join("")}
+        <li class="team-draw-step-yours"><strong>Step 4 is yours</strong></li>
+      </ol>`;
+    }
+  }
+  if (on && canvasPane && !canvasPane.hidden) {
+    canvasPane.classList.add("is-team-draw");
+  } else if (canvasPane) {
+    canvasPane.classList.remove("is-team-draw");
+  }
+}
+
+/**
+ * @param {any} payload
+ * @returns {any|null}
+ */
+function findActiveTeamDrawItem(payload) {
+  const pool = [
+    ...(Array.isArray(payload?.active_questions) ? payload.active_questions : []),
+    ...(Array.isArray(payload?.live_items) ? payload.live_items : []),
+  ];
+  return (
+    pool.find((row) => String(row?.status || "") === "active" && isTeamDrawItem(row)) ||
+    null
+  );
+}
+
+if (teamDrawSubmit instanceof HTMLButtonElement) {
+  teamDrawSubmit.addEventListener("click", async () => {
+    const payload = lastStudentPayload;
+    const item = payload ? findActiveTeamDrawItem(payload) : null;
+    const liveItemId = Number(item?.id) || 0;
+    const title = teamDrawTitle instanceof HTMLInputElement ? teamDrawTitle.value : "";
+    const image = canvasToPngDataUrl(studentCanvas instanceof HTMLCanvasElement ? studentCanvas : null);
+    if (!liveItemId) return;
+    teamDrawSubmit.disabled = true;
+    try {
+      const res = await fetch(`/api/student/live-items/${liveItemId}/team-draw`, {
+        ...visitFetchInit(),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, image }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Submit failed");
+      if (teamDrawSaved instanceof HTMLElement) teamDrawSaved.hidden = false;
+      if (teamDrawPhone instanceof HTMLElement) teamDrawPhone.hidden = true;
+      if (typeof bindStudentCanvas?.resetRun === "function") {
+        bindStudentCanvas.resetRun({ strokes: [], labels: [] });
+      }
+      if (canvasPane instanceof HTMLElement) {
+        dockedLiveCardKeys.add("surface:canvas");
+        canvasPane.hidden = true;
+      }
+      if (payload && data?.team_draw) {
+        item.group_submit = data.team_draw;
+        syncTeamDrawChrome(payload, studentProjection(payload));
+      }
+    } catch (_err) {
+      teamDrawSubmit.disabled = false;
+    }
+  });
 }
 
 function isWaitingRoom(payload) {

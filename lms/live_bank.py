@@ -15,7 +15,7 @@ try:
 except ImportError:
     from lms.bank_edit import create_staff_bank_question
 
-LIVE_BANK_TYPES = frozenset({"mc", "numeric", "poll", "rank"})
+LIVE_BANK_TYPES = frozenset({"mc", "numeric", "poll", "rank", "team_draw"})
 
 
 def create_live_bank_question(
@@ -48,7 +48,7 @@ def create_live_bank_question(
     """
     kind = str(body.get("type") or body.get("question_type") or "mc").strip().lower()
     if kind not in LIVE_BANK_TYPES:
-        raise ValueError("type must be mc, numeric, poll, or rank")
+        raise ValueError("type must be mc, numeric, poll, rank, or team_draw")
     rank_options: list[dict[str, str]] = []
     rank_key: list[str] | None = None
     if kind == "rank":
@@ -82,6 +82,7 @@ def create_live_bank_question(
         "numeric": "numerical_question",
         "poll": "essay_question",
         "rank": "essay_question",
+        "team_draw": "essay_question",
     }[kind]
     write = dict(body)
     write["item_type"] = item_type
@@ -112,6 +113,12 @@ def create_live_bank_question(
     if kind == "poll":
         payload["options"] = []
         payload["choices"] = []
+    if kind == "team_draw":
+        payload["type"] = "team_draw"
+        payload["publish_modes"] = ["group_submit"]
+        payload["response_mode"] = "team_draw"
+        payload.pop("key", None)
+        payload.pop("correct_answer", None)
     if kind == "rank":
         labels = [row["label"] for row in rank_options]
         payload["type"] = "rank"

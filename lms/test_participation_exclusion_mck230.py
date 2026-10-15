@@ -11,6 +11,7 @@ LMS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(LMS_DIR))
 
 from participation_exclusion import (  # noqa: E402
+    exclude_participation_answer_student_ids,
     participation_run_counts_in_tab,
     sql_exclude_non_counted_participation_run,
 )
@@ -28,6 +29,9 @@ class ParticipationExclusionTests(unittest.TestCase):
         self.assertTrue(participation_run_counts_in_tab({"is_real": True, "discarded": False}))
         self.assertFalse(participation_run_counts_in_tab({"is_real": False, "discarded": True}))
         self.assertTrue(participation_run_counts_in_tab(None))
+
+    def test_exclude_participation_answer_student_ids_is_callable(self) -> None:
+        self.assertIsInstance(exclude_participation_answer_student_ids, type(lambda: None))
 
     def test_header_dash_on_bad_timestamp(self) -> None:
         from participation_exclusion import format_participation_session_header

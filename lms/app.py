@@ -4994,6 +4994,15 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 bank_kind=str(body.get("bank_kind") or body.get("bankKind") or ""),
                 library_id=int(library_id) if library_id else None,
                 rank_key=body.get("rank_key", body.get("rankKey")),
+                extra_item={
+                    key: body[key]
+                    for key in (
+                        "team_draw_prompt_id",
+                        "team_draw_custom_text",
+                        "team_draw_mystery_steps",
+                    )
+                    if key in body
+                },
             )
         except KeyError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 404
@@ -7323,6 +7332,47 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         )
         return jsonify({"ok": True, "ack": True, "group_submit": card})
 
+    @app.route(
+        "/api/student/live-items/<int:live_item_id>/team-draw",
+        methods=["POST"],
+    )
+    @student_required
+    def api_student_team_draw(live_item_id: int):
+        """Submit a Team Draw title and ephemeral PNG for the gallery."""
+
+        denied = _require_active_live_attendee(as_json=True)
+        if denied is not None:
+            return denied
+        ident = _student_identity()
+        ctx = _student_live_context()
+        if ident is None or ctx is None or ident[2] in (None, ""):
+            return jsonify({"ok": False, "error": "Roster student required"}), 403
+        body = request.get_json(silent=True) or {}
+        try:
+            from school_db import GroupAnswerLocked
+
+            card = school.submit_team_draw(
+                int(ctx["live_session_id"]),
+                live_item_id,
+                int(ident[2]),
+                title=str(body.get("title") or ""),
+                image_b64=str(body.get("image") or body.get("image_png") or ""),
+            )
+        except GroupAnswerLocked as exc:
+            return jsonify(
+                {"ok": False, "error": str(exc), "locked": True, "team_draw": exc.card}
+            ), 409
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        emit_answer_landed(
+            school,
+            int(ctx["live_session_id"]),
+            student_id=int(ident[2]),
+            team_id=card.get("team_id") if isinstance(card, dict) else None,
+            scope="group",
+        )
+        return jsonify({"ok": True, "ack": True, "team_draw": card})
+
 def _register_game_api(app: Flask, school: SchoolDB) -> None:
     """Mount Math Game Show JSON APIs with staff (or student scoreboard) auth."""
 
@@ -8333,6 +8383,46 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         return jsonify({"ok": True, "results": results})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/team-draw/gallery",
+        methods=["GET"],
+    )
+    @login_required
+    def api_team_draw_gallery(session_id: int, live_item_id: int):
+        """Teacher gallery for one Team Draw item (session-only images)."""
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        try:
+            gallery = school.team_draw_gallery(session_id, live_item_id)
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, "gallery": gallery})
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/team-draw/clear",
+        methods=["POST"],
+    )
+    @login_required
+    def api_team_draw_clear(session_id: int, live_item_id: int):
+        """End Team Draw boards: purge team ink and gallery blobs."""
+
+        _row, error = _active_owned_live_session(session_id)
+        if error is not None:
+            return error
+        try:
+            view = school.team_draw_end_and_clear(session_id, live_item_id)
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        emit_answer_landed(
+            school,
+            session_id,
+            student_id=None,
+            scope="group",
+        )
+        return jsonify({"ok": True, "team_draw": view})
 
     @app.route(
         "/api/live-sessions/<int:session_id>/items/<int:live_item_id>/end-voting",

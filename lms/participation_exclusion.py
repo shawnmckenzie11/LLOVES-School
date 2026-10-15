@@ -79,6 +79,13 @@ def format_participation_session_header(
     return f"{slot_label} · {abbr} {when.month}/{when.day}/{when.year % 100:02d}"
 
 
+def exclude_participation_answer_student_ids(class_id: int, school: Any) -> set[int]:
+    """Test Student ids excluded from participation answer denominators (MCK-242)."""
+    from participation_real_students import exclude_test_student_ids
+
+    return exclude_test_student_ids(int(class_id), school)
+
+
 def toronto_date_label(ended_at: str | None) -> str:
     """Short Toronto date for tests and display helpers."""
     when = toronto_datetime_from_ended_at(ended_at)

@@ -888,6 +888,28 @@ class _BoardStore:
 
         return self._read(work)
 
+    def purge_board_key(self, run_key: str, board_key: str) -> None:
+        """Delete ops and the seq counter for one board within a live run.
+
+        Args:
+            run_key: Key minted when this live run started.
+            board_key: ``team:<id>``, ``solo:<owner>``, etc.
+        """
+        sid = _run_key(run_key)
+        key = str(board_key or "").strip()
+
+        def work(exec_: Exec) -> None:
+            exec_(
+                "DELETE FROM board_ops WHERE run_key = ? AND board_key = ?",
+                (sid, key),
+            )
+            exec_(
+                "DELETE FROM board_counters WHERE run_key = ? AND board_key = ?",
+                (sid, key),
+            )
+
+        self._transaction(work)
+
     def purge(self, run_key: str) -> None:
         """Close the session and delete its ops, counters, and batches.
 
