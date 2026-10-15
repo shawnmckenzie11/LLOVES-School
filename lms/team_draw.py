@@ -76,6 +76,16 @@ def resolved_prompt_text(item: dict[str, Any]) -> str:
     return str(question.get("text") or question.get("prompt") or "Team Draw").strip()
 
 
+def is_mystery_rule_item(item: dict[str, Any] | None) -> bool:
+    """True when the Team Draw item uses the mystery-rule built-in prompt."""
+    if not isinstance(item, dict):
+        return False
+    question = item.get("item") if isinstance(item.get("item"), dict) else item
+    if not isinstance(question, dict):
+        return False
+    return str(question.get("team_draw_prompt_id") or "").strip() == "mystery_rule"
+
+
 def mystery_steps_for_item(item: dict[str, Any]) -> list[str]:
     """Return three locked mystery-rule steps (teacher-authored or defaults)."""
     question = item.get("item") if isinstance(item.get("item"), dict) else {}

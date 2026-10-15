@@ -1930,15 +1930,16 @@ def prepare_mck242_live(path: Path, origin: str) -> dict[str, int | str]:
         ],
     )
     school.ensure_live_session_items(session_id)
+    mystery = BUILTIN_PROMPTS[1]
     placement = school.add_staff_question_to_class_playlist(
         class_id,
         "M1",
         "C1",
         question_type="team_draw",
-        text=BUILTIN_PROMPTS[0]["text"],
+        text=mystery["text"],
         page_number=4,
         stage="round",
-        extra_item={"team_draw_prompt_id": BUILTIN_PROMPTS[0]["id"]},
+        extra_item={"team_draw_prompt_id": mystery["id"]},
     )
     items = school.ensure_live_session_items(session_id)
     row = next(r for r in items if r["item_id"] == placement["item_id"])

@@ -2055,12 +2055,17 @@ function adoptLightGroupResults(bag) {
     if (seq && seq === String(prev.group_response_seq || "")) continue;
     const mode = String(entry.response_mode || prev.response_mode || "group_submit");
     if (mode === "team_draw") {
+      const mysterySteps = Array.isArray(entry.mystery_steps)
+        ? entry.mystery_steps
+        : prev.mystery_steps;
       lifecycleResults.set(liveItemId, {
         ...prev,
         live_item_id: liveItemId,
         response_mode: "team_draw",
         group_response_seq: seq,
         prompt: String(entry.prompt || prev.prompt || ""),
+        mystery_rule: Boolean(entry.mystery_rule ?? prev.mystery_rule),
+        mystery_steps: Array.isArray(mysterySteps) ? mysterySteps : [],
         item: prev.item,
         status_board: teams.map((team) => ({
           team_id: Number(team.team_id) || 0,

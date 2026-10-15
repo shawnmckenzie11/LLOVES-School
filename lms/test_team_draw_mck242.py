@@ -59,7 +59,7 @@ class TeamDrawTests(unittest.TestCase):
                 "offering_id": offering["id"],
                 "days": "M/W/F",
                 "time": "2:00pm",
-                "codenames": ["Aspen", "Birch"],
+                "codenames": ["Aspen", "Birch", "Cedar"],
             },
         )
         self.class_id = int(created.get_json()["class"]["id"])
@@ -85,7 +85,8 @@ class TeamDrawTests(unittest.TestCase):
             present_ids=self.student_ids,
             assignments=[
                 {"student_id": self.student_ids[0], "team_index": 0},
-                {"student_id": self.student_ids[1], "team_index": 1},
+                {"student_id": self.student_ids[1], "team_index": 0},
+                {"student_id": self.student_ids[2], "team_index": 1},
             ],
         )
         self.school.set_live_session_teacher_state(
@@ -96,11 +97,16 @@ class TeamDrawTests(unittest.TestCase):
         self.school.close()
         self.tmp.cleanup()
 
-    def _add_publish_team_draw(self) -> dict:
+    def _add_publish_team_draw(
+        self, *, prompt_id: str | None = None
+    ) -> dict:
+        row = BUILTIN_PROMPTS[0]
+        if prompt_id:
+            row = next(p for p in BUILTIN_PROMPTS if p["id"] == prompt_id)
         body = {
             "type": "team_draw",
-            "text": BUILTIN_PROMPTS[0]["text"],
-            "team_draw_prompt_id": BUILTIN_PROMPTS[0]["id"],
+            "text": row["text"],
+            "team_draw_prompt_id": row["id"],
         }
         rv = self.client.post(
             f"/api/staff/class/{self.class_id}/live-lessons/M1/C1/add-question",
@@ -156,6 +162,21 @@ class TeamDrawTests(unittest.TestCase):
     def test_decode_png_rejects_bad_data(self) -> None:
         with self.assertRaises(ValueError):
             decode_png_payload("not-valid")
+
+    def test_mystery_rule_state_includes_steps_and_pass_turn(self) -> None:
+        published = self._add_publish_team_draw(prompt_id="mystery_rule")
+        live_id = int(published["id"])
+        card = self.school.student_team_draw_state(
+            published, self.student_ids[0]
+        )
+        self.assertTrue(card.get("mystery_rule"))
+        self.assertEqual(len(card.get("mystery_steps") or []), 3)
+        turn = card.get("pass_turn")
+        self.assertIsNotNone(turn)
+        self.assertEqual(int(turn["turn_total"]), 2)
+        view = self.school.team_draw_teacher_view(self.session_id, published)
+        self.assertTrue(view.get("mystery_rule"))
+        self.assertEqual(len(view.get("mystery_steps") or []), 3)
 
 
 if __name__ == "__main__":

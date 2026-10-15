@@ -21470,7 +21470,12 @@ class SchoolDB(LovesDB):
                 continue
             item_id = int(item["id"])
             if mode == "team_draw":
-                from team_draw import gallery_row_title, resolved_prompt_text
+                from team_draw import (
+                    gallery_row_title,
+                    is_mystery_rule_item,
+                    mystery_steps_for_item,
+                    resolved_prompt_text,
+                )
 
                 teams = self._light_group_submit_teams(
                     item_id, class_id, order, member_counts
@@ -21484,7 +21489,7 @@ class SchoolDB(LovesDB):
                 self._attach_quiet_member_dots(
                     item_id, teams, run_key=run_key, roster_by_team=roster_by_team
                 )
-                entry = {
+                entry: dict[str, Any] = {
                     "response_mode": "team_draw",
                     "response_seq": self._group_results_seq(teams)
                     + ":"
@@ -21492,6 +21497,9 @@ class SchoolDB(LovesDB):
                     "teams": teams,
                     "prompt": resolved_prompt_text(item),
                 }
+                if is_mystery_rule_item(item):
+                    entry["mystery_rule"] = True
+                    entry["mystery_steps"] = mystery_steps_for_item(item)
                 out[str(item_id)] = entry
                 continue
             if mode == "group_submit":

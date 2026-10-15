@@ -70,12 +70,14 @@
       </div>
       <div class="live-canvas-stage team-draw-stage">
         <div id="team-draw-mystery" class="team-draw-mystery" hidden aria-label="Mystery rule steps"></div>
+        <p id="team-draw-step4-banner" class="team-draw-step4-banner" hidden>Step 4 — yours</p>
         <canvas id="student-canvas" class="student-canvas" width="720" height="360" aria-label="Live whiteboard"></canvas>
         <div id="canvas-cursors" class="canvas-cursors" aria-hidden="true"></div>
       </div>
       <div id="team-draw-phone" class="team-draw-phone" hidden>
-        <label class="team-draw-title-label" for="team-draw-title">Name your masterpiece</label>
-        <input id="team-draw-title" class="team-draw-title" type="text" maxlength="80" autocomplete="off" />
+        <p id="team-draw-turn-pill" class="team-draw-turn-pill" hidden role="status"></p>
+        <label id="team-draw-title-label" class="team-draw-title-label" for="team-draw-title">Name your masterpiece</label>
+        <input id="team-draw-title" class="team-draw-title" type="text" maxlength="80" autocomplete="off" placeholder="" />
         <button type="button" id="team-draw-submit" class="team-draw-submit">Submit our art</button>
         <p id="team-draw-saved" class="team-draw-saved" hidden role="status">Saved for today only. Clearing the board…</p>
       </div>

@@ -9,6 +9,7 @@ from team_draw import (
     TEAM_DRAW_RESPONSE_MODE,
     decode_png_payload,
     gallery_row_title,
+    is_mystery_rule_item,
     is_team_draw_item,
     mystery_steps_for_item,
     resolved_prompt_text,
@@ -36,6 +37,8 @@ def register_team_draw_methods(cls: type) -> None:
     cls._purge_team_draw_images = _purge_team_draw_images  # type: ignore[attr-defined]
     cls._purge_team_board_key = _purge_team_board_key  # type: ignore[attr-defined]
     cls._store_team_draw_image = _store_team_draw_image  # type: ignore[attr-defined]
+    cls._present_team_draw_member_labels = _present_team_draw_member_labels  # type: ignore[attr-defined]
+    cls._team_draw_pass_turn = _team_draw_pass_turn  # type: ignore[attr-defined]
 
 
 def _ensure_team_draw_schema(self: SchoolDB) -> None:
@@ -161,11 +164,13 @@ def team_draw_teacher_view(
             }
         )
     prompt = resolved_prompt_text(item)
+    mystery = is_mystery_rule_item(item)
     view: dict[str, Any] = {
         "item": item,
         "response_mode": TEAM_DRAW_RESPONSE_MODE,
         "prompt": prompt,
-        "mystery_steps": mystery_steps_for_item(item),
+        "mystery_rule": mystery,
+        "mystery_steps": mystery_steps_for_item(item) if mystery else [],
         "status_board": status_board,
         "response_count": sum(1 for row in status_board if row["submitted"]),
         "eligible_count": len(status_board),
@@ -178,6 +183,56 @@ def team_draw_teacher_view(
     if seq:
         view["group_response_seq"] = seq
     return view
+
+
+def _present_team_draw_member_labels(
+    self: SchoolDB, session_id: int, team_id: int
+) -> list[tuple[int, str]]:
+    """Ordered (student_id, display label) for present members on one team."""
+    present = {
+        int(row["student_id"])
+        for row in self.list_live_session_attendees(session_id, present_only=True)
+        if row.get("student_id") not in (None, "")
+    }
+    packed: list[tuple[int, str]] = []
+    for team in self._named_teams_for_live_session(session_id):
+        if int(team.get("id") or 0) != int(team_id):
+            continue
+        for member in team.get("members") or []:
+            try:
+                sid = int(member["id"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if sid not in present:
+                continue
+            label = str(
+                member.get("first_name") or member.get("codename") or "Student"
+            ).strip()
+            packed.append((sid, label[:40] or "Student"))
+        break
+    packed.sort(key=lambda row: row[0])
+    return packed
+
+
+def _team_draw_pass_turn(
+    self: SchoolDB, session_id: int, team_id: int, student_id: int
+) -> dict[str, Any] | None:
+    """Pass-it-on pill: whose step-4 turn among present teammates (mystery rule only)."""
+    members = self._present_team_draw_member_labels(session_id, int(team_id))
+    if len(members) < 2:
+        return None
+    index = next(
+        (idx for idx, (sid, _name) in enumerate(members) if int(sid) == int(student_id)),
+        None,
+    )
+    if index is None:
+        return None
+    _sid, holder_name = members[index]
+    return {
+        "holder_name": holder_name,
+        "turn_index": int(index) + 1,
+        "turn_total": len(members),
+    }
 
 
 def student_team_draw_state(
@@ -201,11 +256,20 @@ def student_team_draw_state(
     active = str(item.get("status") or "") == "active"
     question = item.get("item") if isinstance(item.get("item"), dict) else {}
     prompt_id = str(question.get("team_draw_prompt_id") or "").strip()
+    mystery = is_mystery_rule_item(item)
+    pass_turn = (
+        self._team_draw_pass_turn(session_id, int(team_id), int(student_id))
+        if mystery
+        else None
+    )
     return {
         "team_id": int(team_id),
         "team_name": str((teams.get(int(team_id)) or {}).get("name") or ""),
         "prompt": resolved_prompt_text(item),
-        "mystery_steps": mystery_steps_for_item(item) if prompt_id == "mystery_rule" else [],
+        "team_draw_prompt_id": prompt_id,
+        "mystery_rule": mystery,
+        "mystery_steps": mystery_steps_for_item(item) if mystery else [],
+        "pass_turn": pass_turn,
         "submitted": submitted,
         "title": str(final.get("title") or "").strip(),
         "can_submit": active and not submitted,

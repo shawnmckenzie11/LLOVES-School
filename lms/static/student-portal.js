@@ -108,6 +108,9 @@ const teamDrawTitle = document.getElementById("team-draw-title");
 const teamDrawSubmit = document.getElementById("team-draw-submit");
 const teamDrawSaved = document.getElementById("team-draw-saved");
 const teamDrawMystery = document.getElementById("team-draw-mystery");
+const teamDrawStep4Banner = document.getElementById("team-draw-step4-banner");
+const teamDrawTitleLabel = document.getElementById("team-draw-title-label");
+const teamDrawTurnPill = document.getElementById("team-draw-turn-pill");
 const canvasLock = document.getElementById("canvas-lock");
 const studentCanvas = document.getElementById("student-canvas");
 const canvasCursors = document.getElementById("canvas-cursors");
@@ -1721,39 +1724,73 @@ function syncTeamDrawChrome(payload, proj) {
   const item = findActiveTeamDrawItem(payload);
   const state = item?.group_submit || null;
   const on = Boolean(item && proj.canvas && proj.canvasAlign === "team");
+  const mystery =
+    Boolean(state?.mystery_rule) ||
+    String(state?.team_draw_prompt_id || "") === "mystery_rule";
+  const steps = Array.isArray(state?.mystery_steps) ? state.mystery_steps : [];
+  const showMystery = on && mystery && steps.length === 3;
   if (teamDrawPhone instanceof HTMLElement) {
     teamDrawPhone.hidden = !on || !state || state.submitted;
+    teamDrawPhone.classList.toggle("is-mystery-rule", showMystery);
     if (teamDrawSaved instanceof HTMLElement) {
       teamDrawSaved.hidden = !state?.submitted;
     }
   }
+  if (teamDrawTitleLabel instanceof HTMLLabelElement) {
+    teamDrawTitleLabel.textContent = showMystery ? "Name the rule" : "Name your masterpiece";
+  }
   if (teamDrawTitle instanceof HTMLInputElement && state && !state.submitted) {
     if (!teamDrawTitle.value && state.title) teamDrawTitle.value = state.title;
     teamDrawTitle.disabled = !state.can_submit;
+    teamDrawTitle.placeholder = showMystery ? "e.g. add 2 dots each time" : "";
   }
   if (teamDrawSubmit instanceof HTMLButtonElement && state) {
     teamDrawSubmit.disabled = !state.can_submit;
   }
+  if (teamDrawTurnPill instanceof HTMLElement) {
+    const turn = state?.pass_turn;
+    const showTurn =
+      showMystery &&
+      turn &&
+      typeof turn === "object" &&
+      Number(turn.turn_total) >= 2 &&
+      String(turn.holder_name || "").trim();
+    teamDrawTurnPill.hidden = !showTurn || Boolean(state?.submitted);
+    if (showTurn) {
+      const name = String(turn.holder_name || "").trim();
+      const index = Number(turn.turn_index) || 1;
+      const total = Number(turn.turn_total) || 1;
+      teamDrawTurnPill.textContent = `${name}'s turn (${index} of ${total})`;
+    }
+  }
   if (teamDrawMystery instanceof HTMLElement) {
-    const steps = Array.isArray(state?.mystery_steps) ? state.mystery_steps : [];
-    const showMystery = on && steps.length === 3;
     teamDrawMystery.hidden = !showMystery;
     if (showMystery) {
-      teamDrawMystery.innerHTML = `<ol class="team-draw-mystery-list">
+      teamDrawMystery.innerHTML = `<div class="team-draw-mystery-strip" role="list" aria-label="Locked steps">
         ${steps
           .map(
             (step, index) =>
-              `<li class="${index < 3 ? "is-locked" : ""}">${index < 3 ? "🔒 " : ""}${String(step || "")}</li>`
+              `<div class="team-draw-mystery-chip is-locked" role="listitem">
+                <span class="team-draw-mystery-chip-num">${index + 1}</span>
+                <span class="team-draw-mystery-chip-text">${escapeText(String(step || ""))}</span>
+              </div>`
           )
           .join("")}
-        <li class="team-draw-step-yours"><strong>Step 4 is yours</strong></li>
-      </ol>`;
+      </div>`;
+    } else {
+      teamDrawMystery.innerHTML = "";
     }
   }
-  if (on && canvasPane && !canvasPane.hidden) {
-    canvasPane.classList.add("is-team-draw");
-  } else if (canvasPane) {
-    canvasPane.classList.remove("is-team-draw");
+  if (teamDrawStep4Banner instanceof HTMLElement) {
+    teamDrawStep4Banner.hidden = !showMystery;
+  }
+  if (canvasPane instanceof HTMLElement) {
+    canvasPane.classList.toggle("is-mystery-rule", showMystery);
+    if (on && !canvasPane.hidden) {
+      canvasPane.classList.add("is-team-draw");
+    } else {
+      canvasPane.classList.remove("is-team-draw");
+    }
   }
 }
 
