@@ -4100,6 +4100,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             or cls.get("ontario_code")
             or "MCF3M"
         )
+        set_class = school.set_class_picker(class_id)
         from engagement_summary import KEY_ENGAGEMENT_SUMMARY_EMPTY, engagement_copy
         from flask import make_response
 
@@ -4115,6 +4116,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             exit_feedback=exit_feedback,
             feedback_grid=feedback_grid,
             live_packs=live_packs,
+            set_class=set_class,
             portfolio_view=portfolio_view,
             take_attendance=request.args.get("take") == "1",
             log_participation=request.args.get("participate") == "1",

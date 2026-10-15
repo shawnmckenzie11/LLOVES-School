@@ -68,10 +68,18 @@ def format_participation_session_header(
     live_slot: str,
     ended_at: str | None,
 ) -> str:
-    """Column label: lesson slot plus Toronto calendar date (naive UTC stored)."""
+    """Column label: lesson slot plus Toronto calendar date (naive UTC stored).
+
+    Open office keeps the stored label (``M3 O1``). Live class stays compact
+    (``M1C1``).
+    """
     mod = str(live_module or "M1").strip().upper()
     slot = str(live_slot or "C1").strip().upper()
-    slot_label = f"{mod}{slot}"
+    try:
+        from set_class import is_open_office_slot, open_office_label
+    except ImportError:
+        from lms.set_class import is_open_office_slot, open_office_label
+    slot_label = open_office_label(mod, slot) if is_open_office_slot(slot) else f"{mod}{slot}"
     when = toronto_datetime_from_ended_at(ended_at)
     if when is None:
         return f"{slot_label} · —"

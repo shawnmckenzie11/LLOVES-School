@@ -181,7 +181,17 @@ function paintTable() {
     const tr = document.createElement("tr");
     tr.className = "ls-run-row";
     const label = document.createElement("td");
-    label.textContent = String(row.label || `${row.module}${row.slot}`);
+    const name = document.createElement("span");
+    name.textContent = row.not_in_template
+      ? String(row.line_label || row.label || `${row.module}${row.slot}`)
+      : String(row.label || `${row.module}${row.slot}`);
+    label.appendChild(name);
+    if (row.not_in_template) {
+      const tag = document.createElement("span");
+      tag.className = "ls-not-in-template";
+      tag.textContent = String(row.status_label || "Not in template");
+      label.appendChild(tag);
+    }
     tr.appendChild(label);
     const ran = document.createElement("td");
     ran.textContent = row.has_run ? formatRunTime(row.last_run_at) : "Not run yet";

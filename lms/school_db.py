@@ -31729,26 +31729,102 @@ class SchoolDB(LovesDB):
         token = str(link.get("token") or "")
         return f"/catchup/{course}/{slug}/{token}"
 
-    def list_lesson_slides_latest(self, class_id: int) -> list[dict[str, Any]]:
-        """Return stored latest-run rows for Lesson Slides (MCK-229)."""
-        with self._lock:
-            rows = self.conn.execute(
-                """
-                SELECT * FROM lesson_slides_latest
-                WHERE class_id = ?
-                ORDER BY live_module, live_slot
-                """,
-                (int(class_id),),
-            ).fetchall()
-        out: list[dict[str, Any]] = []
-        for row in rows:
-            item = dict(row)
+    def set_class_picker(self, class_id: int) -> dict[str, Any]:
+        """Default Set Class pick and the next open-office slot per module.
+
+        The picker lands on the template class after the last real live
+        class. Open office is numbered inside the module (``M3 O1``, then
+        ``M3 O2``) and is not itself the "next class".
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            ``module``, ``slot``, ``label`` (``M3 · C2``), ``course``,
+            ``module_titles``, and ``open_office_next`` (module → ``O`` slot).
+        """
+        try:
+            from live_class_packs import live_class_registry
+            from set_class import (
+                format_next_class_label,
+                is_open_office_slot,
+                next_class_after_last_run,
+                next_open_office_slot,
+            )
+        except ImportError:
+            from lms.live_class_packs import live_class_registry
+            from lms.set_class import (
+                format_next_class_label,
+                is_open_office_slot,
+                next_class_after_last_run,
+                next_open_office_slot,
+            )
+
+        cls = self.enrich_class(self.game.get_class(int(class_id)))
+        offering = (
+            self.get_offering(int(cls["offering_id"])) if cls.get("offering_id") else None
+        )
+        course = str(
+            (offering or {}).get("ontario_code") or cls.get("course_code") or "MCF3M"
+        ).upper()
+        registry = live_class_registry(course)
+        catalogue: list[tuple[str, str]] = []
+        for module in registry.get("modules") or []:
+            for slot in (registry.get("slots_by_module") or {}).get(module) or []:
+                token = str(slot).strip().upper()
+                if is_open_office_slot(token) or not token.startswith("C"):
+                    continue
+                catalogue.append((str(module).strip().upper(), token))
+        office_used: dict[str, list[str]] = {}
+        last: tuple[str, str] | None = None
+        last_at = ""
+        for row in self.list_lesson_slides_latest(int(class_id)):
+            module = str(row.get("live_module") or "").strip().upper()
+            slot = str(row.get("live_slot") or "").strip().upper()
+            if is_open_office_slot(slot):
+                office_used.setdefault(module, []).append(slot)
+                continue
+            ended = str(row.get("ended_at") or "").strip()
+            if ended and ended >= last_at:
+                last_at = ended
+                last = (module, slot)
+        nxt = next_class_after_last_run(catalogue, last if last_at else None)
+        if nxt is None:
+            nxt = ("M1", "C1")
+        modules: list[str] = []
+        for module, _slot in catalogue:
+            if module not in modules:
+                modules.append(module)
+        for module in office_used:
+            if module not in modules:
+                modules.append(module)
+        if not modules:
+            modules = ["M1"]
+        titles: dict[str, str] = {}
+        if offering:
             try:
-                item["questions"] = json.loads(item.pop("questions_json") or "[]")
-            except (TypeError, ValueError):
-                item["questions"] = []
-            out.append(item)
-        return out
+                from live_class_slides import _module_titles
+            except ImportError:
+                from lms.live_class_slides import _module_titles
+            try:
+                titles = {
+                    f"M{number}": title
+                    for number, title in _module_titles(self, offering).items()
+                    if str(title or "").strip()
+                }
+            except Exception:
+                titles = {}
+        return {
+            "course": course,
+            "module": nxt[0],
+            "slot": nxt[1],
+            "label": format_next_class_label(nxt[0], nxt[1]),
+            "module_titles": titles,
+            "open_office_next": {
+                module: next_open_office_slot(office_used.get(module, []))
+                for module in modules
+            },
+        }
 
     def _lesson_slides_questions_from_participation_unlocked(
         self, class_id: int, run_key: str
@@ -32505,10 +32581,15 @@ class SchoolDB(LovesDB):
             ended = str(row["ended_at"] or row["starts_at"] or "")
             live_module = str(row["live_module"] or "")
             live_slot = str(row["live_slot"] or "")
+            try:
+                from set_class import is_open_office_slot
+            except ImportError:
+                from lms.set_class import is_open_office_slot
             meta[str(sid)] = {
                 "run_key": run_key,
                 "live_module": live_module,
                 "live_slot": live_slot,
+                "open_office": is_open_office_slot(live_slot),
                 "ended_at": ended,
                 "header_label": format_participation_session_header(
                     live_module, live_slot, ended
@@ -38557,6 +38638,7 @@ class SchoolDB(LovesDB):
                         class_id, int(col["id"])
                     )
                 col["header_label"] = label
+                col["open_office"] = bool(meta.get("open_office"))
             columns.append(col)
         cells = dict(dash.get("cells") or {})
         with self.game._lock:

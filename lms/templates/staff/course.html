@@ -358,23 +358,40 @@
         {% set packs = live_packs if live_packs is defined else {} %}
         <div class="live-pack-strip" id="live-pack-strip"
              data-course="{{ packs.course or 'MCF3M' }}"
+             data-next-module="{{ set_class.module }}"
+             data-next-slot="{{ set_class.slot }}"
+             data-next-label="{{ set_class.label }}"
+             data-open-office-next='{{ set_class.open_office_next | tojson }}'
              data-slots-by-module='{{ (packs.slots_by_module or {"M1": ["C1", "C2", "C3", "C4"]}) | tojson }}'>
+          <label class="live-pack-field" for="live-course-select">
+            <span>Course code</span>
+            <select id="live-course-select" aria-label="Course code">
+              <option value="{{ set_class.course or packs.course or 'MCF3M' }}" selected>{{ set_class.course or packs.course or 'MCF3M' }}</option>
+            </select>
+          </label>
           <label class="live-pack-field" for="live-module-select"{% if course_simple %} hidden{% endif %}>
             <span>Module</span>
             <select id="live-module-select" aria-label="Module">
               {% for mod in packs.modules or ['M1'] %}
-              <option value="{{ mod }}"{% if mod == 'M1' %} selected{% endif %}>{{ mod }}</option>
+              <option value="{{ mod }}"{% if mod == set_class.module %} selected{% endif %}>{{ mod }}{% if set_class.module_titles.get(mod) %} · {{ set_class.module_titles[mod] }}{% endif %}</option>
               {% endfor %}
             </select>
           </label>
           <label class="live-pack-field" for="live-class-select"{% if course_simple %} hidden{% endif %}>
-            <span>Live class</span>
-            <select id="live-class-select" aria-label="Live class">
-              {% for slot in (packs.slots_by_module or {}).get('M1', ['C1', 'C2', 'C3', 'C4']) %}
-              <option value="{{ slot }}"{% if slot == 'C1' %} selected{% endif %}>{{ slot }}</option>
+            <span>Class</span>
+            <select id="live-class-select" aria-label="Class">
+              {% for slot in (packs.slots_by_module or {}).get(set_class.module, ['C1', 'C2', 'C3', 'C4']) %}
+              <option value="{{ slot }}"{% if slot == set_class.slot %} selected{% endif %}>{{ set_class.module }} {{ slot }}</option>
               {% endfor %}
             </select>
           </label>
+          <div class="live-pack-field set-class-kind" id="set-class-kind">
+            <span>Session type</span>
+            <div class="set-class-kind-toggle" role="group" aria-label="Session type">
+              <button type="button" id="set-class-kind-live" class="is-on" aria-pressed="true">Live class</button>
+              <button type="button" id="set-class-kind-office" aria-pressed="false">Open office</button>
+            </div>
+          </div>
           <fieldset class="live-deck-seed" id="live-deck-seed" aria-describedby="live-deck-seed-previous-note">
             <legend>Live deck</legend>
             <div class="live-add-type-chip-row live-deck-seed-seg">
@@ -411,9 +428,20 @@
             <button type="button" class="secondary" id="live-deck-copy-keep" hidden>Keep current</button>{# copy: Wonder #}
           </div>
         </div>
+        <p class="set-class-default-note" id="set-class-default-note">Defaulted to the next class ({{ set_class.label }})</p>
+        <p class="set-class-office-note" id="set-class-office-note" hidden>
+          <span class="set-class-office-icon" aria-hidden="true">i</span>
+          <span>Open office sessions record attendance and slides, but they aren't copied into the course template.</span>
+        </p>
+        <button type="button" class="set-class-start" id="set-class-start">Start session</button>
         <p class="hint" id="ap-validate-hint">Pick a valid school day in the current semester, then Next.</p>
         <div id="ap-day-grid" class="ap-day-grid-wrap"></div>
         <input type="hidden" id="ap-valid-date" class="ap-date-input">
+      </section>
+
+      <section class="card set-class-slides" id="set-class-slides" aria-label="Lesson slides">
+        <h2 id="set-class-slides-title">Lesson Slides</h2>
+        <div id="set-class-slides-list"></div>
       </section>
 
       <div class="live-shell-body">
