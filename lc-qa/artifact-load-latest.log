@@ -1,64 +1,64 @@
-wall_ms=228.1
+wall_ms=394.5
 game_state_calls=35
 gunicorn_threads=2
 class_size=16
 errors=0
-media n=16 med=0.7ms p95=1.8ms max=3.3ms
-mint n=1 med=37.0ms p95=37.0ms max=37.0ms
-preview n=16 med=3.8ms p95=6.0ms max=6.7ms
-staff-media n=1 med=5.5ms p95=5.5ms max=5.5ms
-staff-state n=1 med=32.5ms p95=32.5ms max=32.5ms
-state n=16 med=17.1ms p95=18.3ms max=24.2ms
+media n=16 med=1.1ms p95=1.5ms max=1.9ms
+mint n=1 med=73.9ms p95=73.9ms max=73.9ms
+preview n=16 med=6.5ms p95=8.3ms max=8.4ms
+staff-media n=1 med=7.6ms p95=7.6ms max=7.6ms
+staff-state n=1 med=60.2ms p95=60.2ms max=60.2ms
+state n=16 med=30.7ms p95=35.7ms max=36.3ms
 codes media:200=16 mint:200=1 preview:200=16 staff-media:200=1 staff-state:200=1 state:200=16
 ---
-staff-state	200	32.5ms
-mint	200	37.0ms
-staff-media	200	5.5ms
-media	200	1.2ms
-preview	200	4.2ms
-state	200	16.2ms
-media	200	0.7ms
-preview	200	3.6ms
-state	200	17.6ms
-media	200	0.7ms
-preview	200	3.6ms
-state	200	18.3ms
-media	200	0.7ms
-preview	200	3.3ms
-state	200	17.4ms
-media	200	0.6ms
-preview	200	3.8ms
-state	200	17.9ms
-media	200	0.8ms
-preview	200	3.8ms
-state	200	16.2ms
-media	200	3.3ms
-preview	200	3.9ms
-state	200	24.2ms
-media	200	0.8ms
-state	200	17.6ms
-preview	200	6.0ms
-media	200	0.6ms
-preview	200	3.6ms
-state	200	15.9ms
-media	200	1.0ms
-state	200	15.9ms
-preview	200	6.7ms
-media	200	0.6ms
-preview	200	3.1ms
-state	200	16.4ms
-media	200	0.8ms
-preview	200	3.8ms
-state	200	17.0ms
-media	200	1.4ms
+staff-state	200	60.2ms
+staff-media	200	7.6ms
+mint	200	73.9ms
+media	200	1.1ms
+preview	200	5.4ms
+state	200	29.1ms
+state	200	20.3ms
+media	200	1.9ms
 preview	200	3.4ms
-state	200	17.5ms
-media	200	1.8ms
-state	200	15.6ms
+media	200	0.9ms
 preview	200	4.9ms
-media	200	0.7ms
-preview	200	3.5ms
-state	200	15.5ms
-media	200	0.7ms
-preview	200	3.9ms
-state	200	17.2ms
+state	200	18.7ms
+media	200	0.9ms
+preview	200	7.7ms
+state	200	31.8ms
+media	200	1.2ms
+preview	200	6.0ms
+state	200	31.6ms
+media	200	0.9ms
+preview	200	6.9ms
+state	200	30.8ms
+media	200	1.1ms
+preview	200	6.0ms
+state	200	30.2ms
+media	200	0.9ms
+preview	200	6.0ms
+state	200	29.5ms
+media	200	0.9ms
+preview	200	8.3ms
+state	200	32.9ms
+media	200	1.1ms
+preview	200	8.4ms
+state	200	35.6ms
+media	200	1.0ms
+preview	200	6.6ms
+state	200	32.5ms
+media	200	1.1ms
+preview	200	7.0ms
+state	200	30.6ms
+media	200	1.3ms
+preview	200	7.9ms
+state	200	30.4ms
+media	200	0.9ms
+preview	200	5.0ms
+state	200	36.3ms
+media	200	1.2ms
+preview	200	6.8ms
+state	200	35.7ms
+media	200	1.5ms
+preview	200	6.4ms
+state	200	26.1ms
