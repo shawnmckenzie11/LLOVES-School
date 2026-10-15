@@ -1880,68 +1880,18 @@ class GameShowDB:
             game: Open games row.
             spec: Payload from ``_read_team_lock_unlocked``.
         """
+        from board_assignment_restore import apply_team_lock_with_board_assignments
+
         game_id = int(game["id"])
         session_id = int(game["session_id"])
-        self.conn.execute(
-            "DELETE FROM game_memberships WHERE game_id = ?", (game_id,)
+        wrote = apply_team_lock_with_board_assignments(
+            self,
+            int(class_id),
+            game_id,
+            session_id,
+            spec,
+            student_is_test_locked=self._student_is_test_locked,
         )
-        self.conn.execute("DELETE FROM team_buckets WHERE game_id = ?", (game_id,))
-        self.conn.execute("DELETE FROM game_teams WHERE game_id = ?", (game_id,))
-        self._ensure_session_scores(session_id, int(class_id))
-        wrote = False
-        for team in spec.get("teams") or []:
-            if not isinstance(team, dict):
-                continue
-            try:
-                order = int(team.get("sort_order") or 0)
-            except (TypeError, ValueError):
-                order = 0
-            name = str(team.get("name") or "").strip() or default_team_name(order)
-            if name == "Class":
-                continue
-            color = str(team.get("color") or "").strip() or color_for_team(order)
-            cur = self.conn.execute(
-                """
-                INSERT INTO game_teams (game_id, name, color, sort_order)
-                VALUES (?, ?, ?, ?)
-                """,
-                (game_id, name, color, order),
-            )
-            team_id = int(cur.lastrowid)
-            self.conn.execute(
-                """
-                INSERT INTO team_buckets (game_id, team_id, points)
-                VALUES (?, ?, 0)
-                """,
-                (game_id, team_id),
-            )
-            for raw in team.get("student_ids") or []:
-                try:
-                    student_id = int(raw)
-                except (TypeError, ValueError):
-                    continue
-                roster = self.conn.execute(
-                    "SELECT id FROM students WHERE id = ? AND class_id = ?",
-                    (student_id, int(class_id)),
-                ).fetchone()
-                if roster is None:
-                    continue
-                self.conn.execute(
-                    """
-                    INSERT INTO game_memberships (game_id, team_id, student_id)
-                    VALUES (?, ?, ?)
-                    """,
-                    (game_id, team_id, student_id),
-                )
-                self.conn.execute(
-                    """
-                    UPDATE session_scores
-                    SET present = 1
-                    WHERE session_id = ? AND student_id = ? AND present = 0
-                    """,
-                    (session_id, student_id),
-                )
-                wrote = True
         if not wrote:
             return False
         if str(game["status"] or "") in {"attendance", "teams"}:
@@ -1994,6 +1944,8 @@ class GameShowDB:
         self, game_id: int, session_id: int, student_id: int
     ) -> None:
         """Put a mid-class joiner on the smallest / weakest-career team."""
+        if self._student_is_test_locked(int(student_id)):
+            return
         already = self.conn.execute(
             """
             SELECT student_id FROM game_memberships
@@ -2026,7 +1978,31 @@ class GameShowDB:
         ]
         if not teams:
             return
-        team_id = pick_late_team(teams)
+        class_row = self.conn.execute(
+            "SELECT class_id FROM games WHERE id = ?", (int(game_id),)
+        ).fetchone()
+        class_id = int(class_row["class_id"]) if class_row else 0
+        from live_board_assignments import active_live_run_key, assignment_sort_orders, record_board_assignment
+
+        run_key = active_live_run_key(self.conn, class_id) if class_id else None
+        pinned = (
+            assignment_sort_orders(self.conn, class_id=class_id, run_key=run_key or "").get(
+                int(student_id)
+            )
+            if class_id and run_key
+            else None
+        )
+        if pinned is not None:
+            team_id = next(
+                (
+                    int(t["id"])
+                    for t in teams
+                    if int(t.get("sort_order") or 0) == int(pinned)
+                ),
+                pick_late_team(teams),
+            )
+        else:
+            team_id = pick_late_team(teams)
         self.conn.execute(
             """
             INSERT INTO game_memberships (game_id, team_id, student_id)
@@ -2034,6 +2010,18 @@ class GameShowDB:
             """,
             (int(game_id), int(team_id), int(student_id)),
         )
+        if class_id and run_key:
+            sort_order = next(
+                (int(t.get("sort_order") or 0) for t in teams if int(t["id"]) == int(team_id)),
+                0,
+            )
+            record_board_assignment(
+                self.conn,
+                class_id=class_id,
+                run_key=run_key,
+                student_id=int(student_id),
+                team_sort_order=sort_order,
+            )
         self._forget_team_index(game_id=int(game_id))
 
     def _forget_team_index(
@@ -2101,6 +2089,8 @@ class GameShowDB:
             ).fetchone()
             if student is None:
                 raise KeyError(f"student {student_id}")
+            if self._student_is_test_locked(int(student_id)):
+                return self.game_state(class_id, game_id=int(game["id"]))
             game_id = int(game["id"])
             session_id = int(game["session_id"])
             already = self.conn.execute(
@@ -2695,9 +2685,6 @@ class GameShowDB:
         """
         key = int(class_id)
         now = time.monotonic()
-        hit = self._team_index_cache.get(key)
-        if hit is not None and now - hit[0] < 0.5:
-            return hit[1]
         built = self._load_team_membership_index(key)
         # Do not cache an empty index. Setup reads teacher state before
         # assign_teams; a cached miss would hide the new teams for 0.5s and
@@ -4681,8 +4668,21 @@ class GameShowDB:
             )
             self._clear_team_name_poll_unlocked(game_id)
             self._snapshot_team_lock_unlocked(int(class_id))
+            from live_board_assignments import active_live_run_key
+            from board_assignment_restore import record_assignments_from_state
+
+            run_key = active_live_run_key(self.conn, int(class_id))
+            if run_key:
+                state = self.game_state(int(class_id))
+                record_assignments_from_state(
+                    self.conn,
+                    class_id=int(class_id),
+                    run_key=run_key,
+                    game_state=state,
+                    student_is_test_locked=self._student_is_test_locked,
+                )
             self.conn.commit()
-        self._team_index_cache.pop(int(class_id), None)
+        self._forget_team_index(class_id=int(class_id))
         return self.game_state(class_id)
 
     def rename_teams(

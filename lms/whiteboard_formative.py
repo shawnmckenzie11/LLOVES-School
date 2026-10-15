@@ -58,22 +58,63 @@ def first_name_only(raw: str) -> str:
     return text.split()[0]
 
 
+def _members_for_team_sort_order(
+    school: Any,
+    session_id: int,
+    team_sort_order: int,
+) -> list[dict[str, Any]]:
+    """Roster rows on one named team bucket (``team:<sort_order>``).
+
+    Args:
+        school: Open ``SchoolDB``.
+        session_id: ``live_class_sessions.id``.
+        team_sort_order: ``game_teams.sort_order`` for the board key.
+    """
+    session_row = school.get_live_session(int(session_id))
+    if session_row is None:
+        return []
+    class_id = int(session_row["class_id"])
+    try:
+        index = school.game.team_membership_index(class_id)
+    except (TypeError, ValueError, AttributeError):
+        index = {}
+    by_student = (index.get("by_student") if isinstance(index, dict) else None) or {}
+    rows = school.list_live_session_team_members(int(session_id), None)
+    matched: list[dict[str, Any]] = []
+    for row in rows:
+        sid = row.get("student_id")
+        if sid in (None, ""):
+            continue
+        tid = by_student.get(int(sid))
+        if tid in (None, ""):
+            continue
+        sort_order = school._team_sort_order_for_team_id(class_id, int(tid))
+        if sort_order != int(team_sort_order):
+            continue
+        matched.append(row)
+    return matched
+
+
 def formative_board_members(
     school: Any,
     session_id: int,
-    team_id: int | None,
+    team_sort_order: int | None,
 ) -> list[dict[str, Any]]:
     """Members on one team board in stable join order.
 
     Args:
         school: Open ``SchoolDB``.
         session_id: ``live_class_sessions.id``.
-        team_id: Game-show team id, or None for shared bucket.
+        team_sort_order: Named team sort order for the board key, or None
+            for the all-teams legend.
 
     Returns:
         List of ``{id, name, color, slot, dashed}`` dicts.
     """
-    rows = school.list_live_session_team_members(int(session_id), team_id)
+    if team_sort_order is None:
+        rows = school.list_live_session_team_members(int(session_id), None)
+    else:
+        rows = _members_for_team_sort_order(school, int(session_id), int(team_sort_order))
     out: list[dict[str, Any]] = []
     for slot, row in enumerate(rows):
         sid = row.get("student_id")
@@ -119,20 +160,23 @@ def formative_meta_for_board(
     if not school._whiteboard_collab_active(int(session_id)):
         return None
     teacher = school.live_session_teacher_state_payload(int(session_id))
-    team_id: int | None = None
+    team_sort_order: int | None = None
     key = str(board_key or "")
     if key.startswith("team:"):
         try:
-            team_id = int(key.split(":", 1)[1])
+            team_sort_order = int(key.split(":", 1)[1])
         except (TypeError, ValueError):
-            team_id = None
+            team_sort_order = None
     elif student_id not in (None, ""):
-        class_row = school.get_live_session(int(session_id))
-        if class_row:
-            team_id = school.student_team_id_for_class(
-                int(class_row["class_id"]), int(student_id)
-            )
-    members = formative_board_members(school, int(session_id), team_id)
+        session_row = school.get_live_session(int(session_id))
+        if session_row:
+            collab = school.student_live_board_key(int(session_id), int(student_id))
+            if collab.startswith("team:"):
+                try:
+                    team_sort_order = int(collab.split(":", 1)[1])
+                except (TypeError, ValueError):
+                    team_sort_order = None
+    members = formative_board_members(school, int(session_id), team_sort_order)
     return {
         "members": members,
         "always_show_names": bool(teacher.get("whiteboard_always_show_names")),

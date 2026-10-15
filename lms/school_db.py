@@ -850,6 +850,19 @@ CREATE TABLE IF NOT EXISTS live_seq_floors (
     max_seq INTEGER NOT NULL DEFAULT 0
 );
 
+-- MCK-218: stable whiteboard buckets per live run (team:<sort_order>, not game_teams.id).
+CREATE TABLE IF NOT EXISTS live_board_assignments (
+    class_id INTEGER NOT NULL,
+    run_key TEXT NOT NULL,
+    board_key TEXT NOT NULL,
+    student_id INTEGER NOT NULL,
+    team_sort_order INTEGER NOT NULL,
+    PRIMARY KEY (class_id, run_key, student_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_board_assignments_board
+    ON live_board_assignments(class_id, run_key, board_key);
+
 -- MCK-116 S1: one Celebrations avatar reward per featured appearance.
 -- (class_id, student_id) is the roster row; no names are stored. source_ref
 -- names the appearance: 'engaged:<semester>:<freeze epoch>:<course>' or
@@ -22338,7 +22351,10 @@ class SchoolDB(LovesDB):
                 team.pop("quiet_dots", None)
             return
         team_ids = [int(team.get("team_id") or 0) for team in teams if int(team.get("team_id") or 0)]
-        board_keys = tuple(f"team:{tid}" for tid in team_ids)
+        board_keys = tuple(
+            f"team:{self._team_sort_order_for_team_id(int(class_id), int(tid)) or int(tid)}"
+            for tid in team_ids
+        )
         all_roster: list[int] = []
         for team in teams:
             team_id = int(team.get("team_id") or 0)
@@ -29222,6 +29238,140 @@ class SchoolDB(LovesDB):
         except (TypeError, ValueError):
             return None
 
+
+    def student_live_board_key(self, session_id: int, student_id: int) -> str:
+        """Collab board key for one student (``team:<sort_order>`` or ``shared``).
+
+        Reads ``live_board_assignments`` for the session run first so a game
+        lock restore cannot move ink to another bucket.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id.
+        """
+        from live_board_assignments import (
+            assignment_board_key,
+            board_key_for_sort_order,
+        )
+
+        if self.is_test_student(int(student_id)):
+            return "shared"
+        session_row = self.get_live_session(int(session_id))
+        if session_row is None:
+            return "shared"
+        class_id = int(session_row["class_id"])
+        try:
+            run_key = self.live_board_run_key(int(session_id))
+        except KeyError:
+            return "shared"
+        saved = assignment_board_key(
+            self.conn,
+            class_id=class_id,
+            run_key=run_key,
+            student_id=int(student_id),
+        )
+        if saved:
+            return saved
+        team_id = self.student_team_id_for_class(class_id, int(student_id))
+        if team_id is None:
+            return "shared"
+        sort_order = self._team_sort_order_for_team_id(class_id, int(team_id))
+        if sort_order is None:
+            return board_key_for_sort_order(0)
+        return board_key_for_sort_order(sort_order)
+
+    def _team_sort_order_for_team_id(
+        self, class_id: int, team_id: int
+    ) -> int | None:
+        """``game_teams.sort_order`` for one team row on the open game.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            team_id: ``game_teams.id``.
+        """
+        try:
+            game = self.game._game_row(int(class_id))
+        except KeyError:
+            return None
+        row = self.game.conn.execute(
+            """
+            SELECT sort_order FROM game_teams
+            WHERE id = ? AND game_id = ?
+            """,
+            (int(team_id), int(game["id"])),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            return int(row["sort_order"])
+        except (TypeError, ValueError):
+            return None
+
+    def sync_live_board_assignments_for_session(self, session_id: int) -> None:
+        """Record ``team:<sort_order>`` rows for every named-team member.
+
+        Args:
+            session_id: Active ``live_class_sessions.id``.
+        """
+        from live_board_assignments import sync_assignments_from_game_state
+
+        session_row = self.get_live_session(int(session_id))
+        if session_row is None:
+            return
+        class_id = int(session_row["class_id"])
+        try:
+            run_key = self.live_board_run_key(int(session_id))
+        except KeyError:
+            return
+        game_state = self.game.game_state(class_id)
+        with self._lock:
+            sync_assignments_from_game_state(
+                self.conn,
+                class_id=class_id,
+                run_key=run_key,
+                game_state=game_state,
+                is_test_student=self.is_test_student,
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+        self.game._forget_team_index(class_id=class_id)
+
+    def record_live_board_assignment_for_student(
+        self,
+        session_id: int,
+        student_id: int,
+        team_sort_order: int,
+    ) -> None:
+        """Persist one student's board bucket (idempotent).
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id.
+            team_sort_order: Named team sort order.
+        """
+        from live_board_assignments import record_board_assignment
+
+        if self.is_test_student(int(student_id)):
+            return
+        session_row = self.get_live_session(int(session_id))
+        if session_row is None:
+            return
+        class_id = int(session_row["class_id"])
+        try:
+            run_key = self.live_board_run_key(int(session_id))
+        except KeyError:
+            return
+        with self._lock:
+            record_board_assignment(
+                self.conn,
+                class_id=class_id,
+                run_key=run_key,
+                student_id=int(student_id),
+                team_sort_order=int(team_sort_order),
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+        self.game._forget_team_index(class_id=class_id)
     def apply_live_canvas_presence(
         self,
         session_id: int,
@@ -29279,12 +29429,19 @@ class SchoolDB(LovesDB):
                 as_teacher=as_teacher,
             )
         who = "teacher" if as_teacher else str(owner)
-        key = self._ink_board_key(
-            as_teacher=as_teacher,
-            team_id=team_id,
-            bucket=bucket,
-            owner=who,
-        )
+        if (
+            bucket == "team"
+            and not as_teacher
+            and str(who).isdigit()
+        ):
+            key = self.student_live_board_key(int(session_id), int(who))
+        else:
+            key = self._ink_board_key(
+                as_teacher=as_teacher,
+                team_id=team_id,
+                bucket=bucket,
+                owner=who,
+            )
         run_key = self._require_live_board_open(session_id, claimed_run_key)
         return self.boards.append_ink(
             run_key,
@@ -29343,7 +29500,16 @@ class SchoolDB(LovesDB):
             key = "teacher"
         elif collab and team_id not in (None, ""):
             stored_team = int(team_id)
-            key = f"team:{stored_team}"
+            if str(writer).isdigit():
+                key = self.student_live_board_key(int(session_id), int(writer))
+            else:
+                sort_order = self._team_sort_order_for_team_id(
+                    int(self.get_live_session(int(session_id))["class_id"]),
+                    stored_team,
+                )
+                from live_board_assignments import board_key_for_sort_order
+
+                key = board_key_for_sort_order(sort_order or 0)
         elif collab:
             stored_team = 0
             key = "shared"
@@ -29451,11 +29617,18 @@ class SchoolDB(LovesDB):
             view_align = "student"
         from board_ops import fold_to_public_blob
 
-        keys = self._board_keys_for_view(
-            view_align,
-            team_id=team_id,
-            viewer=viewer,
-        )
+        if (
+            view_align == "team"
+            and not as_teacher
+            and student_id not in (None, "")
+        ):
+            keys = ["teacher", self.student_live_board_key(int(session_id), int(student_id))]
+        else:
+            keys = self._board_keys_for_view(
+                view_align,
+                team_id=team_id,
+                viewer=viewer,
+            )
         blob = fold_to_public_blob(
             self.boards.load_keys(self.live_board_run_key(session_id), keys)
         )
@@ -29536,7 +29709,7 @@ class SchoolDB(LovesDB):
             team_id = self.student_team_id_for_class(
                 int(session_row["class_id"]), int(student_id)
             )
-        collab = f"team:{int(team_id)}" if team_id is not None else "shared"
+        collab = self.student_live_board_key(int(session_id), int(student_id))
         solo = f"solo:{int(student_id)}"
         return {
             "collab_key": collab,
@@ -29614,12 +29787,15 @@ class SchoolDB(LovesDB):
             if self._whiteboard_collab_active(session_id):
                 align = "team"
             if align == "team":
-                key = self._ink_board_key(
-                    as_teacher=False,
-                    team_id=team_id,
-                    bucket="team",
-                    owner=who,
-                )
+                if str(who).isdigit():
+                    key = self.student_live_board_key(int(session_id), int(who))
+                else:
+                    key = self._ink_board_key(
+                        as_teacher=False,
+                        team_id=team_id,
+                        bucket="team",
+                        owner=who,
+                    )
             else:
                 key = f"solo:{who}"
         run_key = self._require_live_board_open(session_id, claimed_run_key)
@@ -29925,22 +30101,42 @@ class SchoolDB(LovesDB):
         Returns:
             Stable string that changes when join order or ``left_at`` changes.
         """
-        team_id: int | None = None
         key = str(board_key or "")
+        team_sort_order: int | None = None
         if key.startswith("team:"):
             try:
-                team_id = int(key.split(":", 1)[1])
+                team_sort_order = int(key.split(":", 1)[1])
             except (TypeError, ValueError):
-                team_id = None
+                team_sort_order = None
         elif student_id not in (None, ""):
             class_row = self.get_live_session(int(session_id))
             if class_row:
-                team_id = self.student_team_id_for_class(
-                    int(class_row["class_id"]), int(student_id)
+                class_id = int(class_row["class_id"])
+                run_key = self.live_board_run_key(int(session_id))
+                from live_board_assignments import assignment_sort_order
+
+                pinned = assignment_sort_order(
+                    self.conn,
+                    class_id=class_id,
+                    run_key=run_key,
+                    student_id=int(student_id),
                 )
-        if team_id is None:
+                if pinned is not None:
+                    team_sort_order = pinned
+                else:
+                    team_id = self.student_team_id_for_class(class_id, int(student_id))
+                    if team_id is not None:
+                        team_sort_order = self._team_sort_order_for_team_id(
+                            class_id, int(team_id)
+                        )
+        if team_sort_order is None:
             return ""
-        rows = self.list_live_session_team_members(int(session_id), team_id)
+        try:
+            from whiteboard_formative import _members_for_team_sort_order
+        except ImportError:
+            from lms.whiteboard_formative import _members_for_team_sort_order
+
+        rows = _members_for_team_sort_order(self, int(session_id), int(team_sort_order))
         return "|".join(
             f"{row.get('student_id')}:{row.get('left_at') or ''}" for row in rows
         )
@@ -30631,6 +30827,7 @@ class SchoolDB(LovesDB):
                 game = restored if isinstance(restored, dict) else self.game.game_state(
                     class_id
                 )
+                self.sync_live_board_assignments_for_session(int(session_id))
                 return {"game": game, "teacher_state": teacher}
             raise ValueError(
                 "Groups are already locked for this Meet. End Live Class "
@@ -30650,6 +30847,7 @@ class SchoolDB(LovesDB):
             str(mode or "balanced"),
             assignments=assignments,
         )
+        self.sync_live_board_assignments_for_session(int(session_id))
         teacher = apply_teacher_state_update(
             current,
             groups_configured=True,
@@ -33769,6 +33967,11 @@ class SchoolDB(LovesDB):
                 (cid, key, 1 if discarded else 0, now if discarded else None, user_id if discarded else None),
             )
             if discarded:
+                from live_board_assignments import delete_board_assignments_for_run
+
+                delete_board_assignments_for_run(
+                    self.conn, class_id=cid, run_key=key
+                )
                 self.conn.execute(
                     """
                     UPDATE catchup_links SET is_open = 0, updated_at = ?
@@ -36754,6 +36957,15 @@ class SchoolDB(LovesDB):
         except Exception:
             logger.exception("live class %s team lock restore failed", class_id)
             return False
+        if restored is not None:
+            active = self.get_active_live_session_for_class(int(class_id))
+            if active is not None:
+                try:
+                    self.sync_live_board_assignments_for_session(int(active["id"]))
+                except Exception:
+                    logger.exception(
+                        "live class %s board assignment sync failed", class_id
+                    )
         return restored is not None
 
     def _publish_restored_team_lock(self, session_id: int) -> None:

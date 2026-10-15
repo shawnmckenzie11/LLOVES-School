@@ -141,6 +141,11 @@ class FormativeIntegrationTests(unittest.TestCase):
         self.team_id = self.school.student_team_id_for_class(
             self.class_id, self.maple_id
         )
+        assert self.team_id is not None
+        self.team_sort_order = self.school._team_sort_order_for_team_id(
+            self.class_id, int(self.team_id)
+        )
+        assert self.team_sort_order is not None
         self.student = self.app.test_client()
         row = self.school.conn.execute(
             """
@@ -181,7 +186,7 @@ class FormativeIntegrationTests(unittest.TestCase):
 
     def test_member_slot_stable_when_teammate_leaves(self) -> None:
         """Departed students keep their slot index for remaining chip colours."""
-        before = formative_board_members(self.school, self.session_id, self.team_id)
+        before = formative_board_members(self.school, self.session_id, self.team_sort_order)
         self.assertEqual(len(before), 2)
         maple_color = next(m["color"] for m in before if m["id"] == str(self.maple_id))
         self.school.conn.execute(
@@ -193,7 +198,7 @@ class FormativeIntegrationTests(unittest.TestCase):
             (self.session_id, self.cedar_id),
         )
         self.school.conn.commit()
-        after = formative_board_members(self.school, self.session_id, self.team_id)
+        after = formative_board_members(self.school, self.session_id, self.team_sort_order)
         self.assertEqual(len(after), 1)
         self.assertEqual(after[0]["id"], str(self.maple_id))
         self.assertEqual(after[0]["color"], maple_color)
@@ -212,7 +217,7 @@ class FormativeIntegrationTests(unittest.TestCase):
         )
         self.school.conn.commit()
         self.school.game._team_index_cache.pop(int(self.class_id), None)
-        before = formative_board_members(self.school, self.session_id, self.team_id)
+        before = formative_board_members(self.school, self.session_id, self.team_sort_order)
         self.assertEqual(len(before), 3)
         pine_color = next(m["color"] for m in before if m["id"] == str(self.pine_id))
         pine_slot = next(m["slot"] for m in before if m["id"] == str(self.pine_id))
@@ -226,7 +231,7 @@ class FormativeIntegrationTests(unittest.TestCase):
             (self.session_id, self.cedar_id),
         )
         self.school.conn.commit()
-        after = formative_board_members(self.school, self.session_id, self.team_id)
+        after = formative_board_members(self.school, self.session_id, self.team_sort_order)
         self.assertEqual(len(after), 2)
         pine_after = next(m for m in after if m["id"] == str(self.pine_id))
         self.assertEqual(pine_after["slot"], 2)
