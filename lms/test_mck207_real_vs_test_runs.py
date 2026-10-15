@@ -212,5 +212,126 @@ class RealVsTestFlowTests(Base):
         self.assertFalse(kind["is_real"])
 
 
+
+    def test_teacher_flip_real_test_real_survives_matching_reclassify(self) -> None:
+        """Manual real/test/real must survive auto re-classify that matches then opposes."""
+        run_key = self.run_class("M1", "C1", 1, 0, {self.students[0]: 1})
+        ended = self.school.ended_at_for_participation_run(self.class_id, run_key)
+        self.assertTrue(
+            self.school.set_participation_run_real(
+                self.class_id, run_key, False, user_id=int(self.teacher["id"])
+            )
+        )
+        with self.school._lock:
+            self.school._upsert_participation_run_kind_unlocked(
+                self.class_id,
+                run_key,
+                is_real=False,
+                auto_is_real=False,
+                ended_at=ended,
+            )
+            self.school._upsert_participation_run_kind_unlocked(
+                self.class_id,
+                run_key,
+                is_real=True,
+                auto_is_real=True,
+                ended_at=ended,
+            )
+        self.assertFalse(self.school.participation_run_kind(self.class_id, run_key)["is_real"])
+        self.assertTrue(
+            self.school.set_participation_run_real(
+                self.class_id, run_key, True, user_id=int(self.teacher["id"])
+            )
+        )
+        with self.school._lock:
+            self.school._upsert_participation_run_kind_unlocked(
+                self.class_id,
+                run_key,
+                is_real=False,
+                auto_is_real=False,
+                ended_at=ended,
+            )
+            self.school._upsert_participation_run_kind_unlocked(
+                self.class_id,
+                run_key,
+                is_real=True,
+                auto_is_real=True,
+                ended_at=ended,
+            )
+        self.assertTrue(self.school.participation_run_kind(self.class_id, run_key)["is_real"])
+
+    def test_class_kind_api_404_without_run_anchor(self) -> None:
+        """Unknown or foreign run keys must not create participation_runs rows."""
+        staff = self.app.test_client()
+        staff.get("/auth/google?portal=staff")
+        staff.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+        code = self.school.get_user_by_email("teacher@gmail.com")["verification_code"]
+        staff.post("/verify-email", data={"code": code})
+        bogus = "mck207-not-a-run"
+        missing = staff.post(
+            f"/api/classes/{self.class_id}/participation/runs/{bogus}/class-kind",
+            json={"real": True},
+        )
+        self.assertEqual(missing.status_code, 404)
+        row = self.school.conn.execute(
+            "SELECT 1 FROM participation_runs WHERE class_id = ? AND run_key = ?",
+            (self.class_id, bogus),
+        ).fetchone()
+        self.assertIsNone(row)
+        offering_id = int(
+            self.school.game.conn.execute(
+                "SELECT offering_id FROM classes WHERE id = ?", (self.class_id,)
+            ).fetchone()[0]
+        )
+        other_cid = int(
+            self.school.game.create_class(
+                year="2026/27",
+                semester="Semester 1",
+                course_code="MCR3U",
+                days_preset="M/W/F",
+                time_label="2:00pm",
+                codenames=["Zed"],
+                offering_id=offering_id,
+                teacher_user_id=int(self.teacher["id"]),
+            )["id"]
+        )
+        foreign_live = self.school.start_live_class_session(
+            other_cid, int(self.teacher["id"])
+        )
+        foreign = str(foreign_live.get("run_key") or "")
+        foreign_post = staff.post(
+            f"/api/classes/{self.class_id}/participation/runs/{foreign}/class-kind",
+            json={"real": False},
+        )
+        self.assertEqual(foreign_post.status_code, 404)
+        row2 = self.school.conn.execute(
+            "SELECT 1 FROM participation_runs WHERE class_id = ? AND run_key = ?",
+            (self.class_id, foreign),
+        ).fetchone()
+        self.assertIsNone(row2)
+
+    def test_real_flip_without_items_does_not_create_catchup_link(self) -> None:
+        """Teacher real toggle needs participation items before minting a link."""
+        live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
+        run_key = str(live.get("run_key") or "")
+        sid = int(live["id"])
+        started = datetime(2026, 10, 14, 9, 20, tzinfo=TORONTO).isoformat()
+        self.school.conn.execute(
+            "UPDATE live_class_sessions SET started_at = ?, teacher_state_json = ? WHERE id = ?",
+            (
+                started,
+                json.dumps({"live_module": "M9", "live_slot": "C1"}),
+                sid,
+            ),
+        )
+        self.school.conn.commit()
+        self.assertTrue(
+            self.school.set_participation_run_real(
+                self.class_id, run_key, True, user_id=int(self.teacher["id"])
+            )
+        )
+        self.assertFalse(self.school.list_catchup_links(self.class_id))
+
+
 if __name__ == "__main__":
     unittest.main()

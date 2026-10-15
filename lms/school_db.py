@@ -3463,6 +3463,10 @@ class LovesDB:
             )
         if "ended_at" not in cols:
             self.conn.execute("ALTER TABLE participation_runs ADD COLUMN ended_at TEXT")
+        if "teacher_kind_set" not in cols:
+            self.conn.execute(
+                "ALTER TABLE participation_runs ADD COLUMN teacher_kind_set INTEGER NOT NULL DEFAULT 0"
+            )
 
     def _ensure_catchup_slot_unique(self) -> None:
         """One shared catch-up link row per class lesson slot (MCK-207)."""
@@ -30798,9 +30802,13 @@ class SchoolDB(LovesDB):
 
         cid = int(class_id)
         key = str(run_key or "").strip()
-        existing = self.participation_run_kind(cid, key)
-        if existing is not None:
-            return bool(existing.get("is_real"))
+        existing_row = self.conn.execute(
+            """
+            SELECT is_real, teacher_kind_set FROM participation_runs
+            WHERE class_id = ? AND run_key = ?
+            """,
+            (cid, key),
+        ).fetchone()
         sched_row = self.live_class_schedule_for_class(cid)
         if sched_row is None or not str(sched_row.get("live_end_time") or "").strip():
             auto_real = False
@@ -30812,6 +30820,17 @@ class SchoolDB(LovesDB):
             auto_real = bool(
                 sched and classify_run_end(parse_ended_at(str(ended_at or "")), sched)
             )
+        if existing_row is not None:
+            teacher_set = bool(int(existing_row["teacher_kind_set"] or 0))
+            if teacher_set:
+                return self._upsert_participation_run_kind_unlocked(
+                    cid,
+                    key,
+                    is_real=bool(int(existing_row["is_real"] or 0)),
+                    auto_is_real=auto_real,
+                    ended_at=str(ended_at or ""),
+                )
+            return bool(int(existing_row["is_real"] or 0))
         return self._upsert_participation_run_kind_unlocked(
             cid,
             key,
@@ -30841,29 +30860,29 @@ class SchoolDB(LovesDB):
             """
             INSERT INTO participation_runs (
                 class_id, run_key, is_real, auto_is_real, discarded, discarded_at, discarded_by,
-                ended_at
-            ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)
+                ended_at, teacher_kind_set
+            ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 0)
             ON CONFLICT(class_id, run_key) DO UPDATE SET
                 auto_is_real = excluded.auto_is_real,
                 is_real = CASE
-                    WHEN participation_runs.is_real != participation_runs.auto_is_real
+                    WHEN participation_runs.teacher_kind_set = 1
                     THEN participation_runs.is_real
                     ELSE excluded.is_real
                 END,
                 discarded = CASE
-                    WHEN participation_runs.is_real != participation_runs.auto_is_real
+                    WHEN participation_runs.teacher_kind_set = 1
                     THEN participation_runs.discarded
                     ELSE excluded.discarded
                 END,
                 discarded_at = CASE
-                    WHEN participation_runs.is_real != participation_runs.auto_is_real
+                    WHEN participation_runs.teacher_kind_set = 1
                     THEN participation_runs.discarded_at
                     WHEN excluded.discarded = 1
                     THEN COALESCE(participation_runs.discarded_at, excluded.discarded_at)
                     ELSE NULL
                 END,
                 discarded_by = CASE
-                    WHEN participation_runs.is_real != participation_runs.auto_is_real
+                    WHEN participation_runs.teacher_kind_set = 1
                     THEN participation_runs.discarded_by
                     WHEN excluded.discarded = 1
                     THEN participation_runs.discarded_by
@@ -30899,6 +30918,74 @@ class SchoolDB(LovesDB):
         ).fetchone()
         return bool(int(row["is_real"] or 0)) if row is not None else bool(is_real)
 
+    def _participation_run_anchor_unlocked(
+        self, class_id: int, run_key: str
+    ) -> dict[str, str] | None:
+        """Return module/slot when this class has items, snapshot, or session for the run."""
+        cid = int(class_id)
+        key = str(run_key or "").strip()
+        if not key:
+            return None
+        row = self.conn.execute(
+            """
+            SELECT live_module, live_slot FROM participation_items
+            WHERE class_id = ? AND run_key = ? LIMIT 1
+            """,
+            (cid, key),
+        ).fetchone()
+        if row is not None:
+            return {
+                "live_module": str(row["live_module"] or ""),
+                "live_slot": str(row["live_slot"] or ""),
+            }
+        snap = self.conn.execute(
+            """
+            SELECT live_module, live_slot FROM live_result_snapshots
+            WHERE class_id = ? AND run_key = ?
+            LIMIT 1
+            """,
+            (cid, key),
+        ).fetchone()
+        if snap is not None:
+            return {
+                "live_module": str(snap["live_module"] or ""),
+                "live_slot": str(snap["live_slot"] or ""),
+            }
+        sess = self.conn.execute(
+            """
+            SELECT teacher_state_json FROM live_class_sessions
+            WHERE class_id = ? AND run_key = ?
+            ORDER BY id DESC LIMIT 1
+            """,
+            (cid, key),
+        ).fetchone()
+        if sess is None:
+            return None
+        module = ""
+        slot = ""
+        try:
+            state = json.loads(sess["teacher_state_json"] or "{}")
+        except (TypeError, ValueError):
+            state = {}
+        if isinstance(state, dict):
+            module = str(state.get("live_module") or "")
+            slot = str(state.get("live_slot") or "")
+        return {"live_module": module, "live_slot": slot}
+
+    def _participation_run_has_items_unlocked(self, class_id: int, run_key: str) -> bool:
+        """True when participation_items exist for this class run."""
+        key = str(run_key or "").strip()
+        if not key:
+            return False
+        row = self.conn.execute(
+            """
+            SELECT 1 FROM participation_items
+            WHERE class_id = ? AND run_key = ? LIMIT 1
+            """,
+            (int(class_id), key),
+        ).fetchone()
+        return row is not None
+
     def set_participation_run_real(
         self,
         class_id: int,
@@ -30913,47 +31000,11 @@ class SchoolDB(LovesDB):
             return False
         cid = int(class_id)
         with self._lock:
-            row = self.conn.execute(
-                """
-                SELECT live_module, live_slot FROM participation_items
-                WHERE class_id = ? AND run_key = ? LIMIT 1
-                """,
-                (cid, key),
-            ).fetchone()
-            if row is not None:
-                module = str(row["live_module"] or "")
-                slot = str(row["live_slot"] or "")
-            else:
-                snap = self.conn.execute(
-                    """
-                    SELECT live_module, live_slot FROM live_result_snapshots
-                    WHERE class_id = ? AND run_key = ?
-                    LIMIT 1
-                    """,
-                    (cid, key),
-                ).fetchone()
-                if snap is not None:
-                    module = str(snap["live_module"] or "")
-                    slot = str(snap["live_slot"] or "")
-                else:
-                    sess = self.conn.execute(
-                        """
-                        SELECT teacher_state_json FROM live_class_sessions
-                        WHERE class_id = ? AND run_key = ?
-                        ORDER BY id DESC LIMIT 1
-                        """,
-                        (cid, key),
-                    ).fetchone()
-                    module = ""
-                    slot = ""
-                    if sess is not None:
-                        try:
-                            state = json.loads(sess["teacher_state_json"] or "{}")
-                        except (TypeError, ValueError):
-                            state = {}
-                        if isinstance(state, dict):
-                            module = str(state.get("live_module") or "")
-                            slot = str(state.get("live_slot") or "")
+            anchor = self._participation_run_anchor_unlocked(cid, key)
+            if anchor is None:
+                return False
+            module = str(anchor.get("live_module") or "")
+            slot = str(anchor.get("live_slot") or "")
             auto_row = self.conn.execute(
                 "SELECT auto_is_real FROM participation_runs WHERE class_id = ? AND run_key = ?",
                 (cid, key),
@@ -30964,13 +31015,15 @@ class SchoolDB(LovesDB):
             self.conn.execute(
                 """
                 INSERT INTO participation_runs (
-                    class_id, run_key, is_real, auto_is_real, discarded, discarded_at, discarded_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    class_id, run_key, is_real, auto_is_real, discarded, discarded_at,
+                    discarded_by, teacher_kind_set
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 1)
                 ON CONFLICT(class_id, run_key) DO UPDATE SET
                     is_real = excluded.is_real,
                     discarded = excluded.discarded,
                     discarded_at = excluded.discarded_at,
-                    discarded_by = excluded.discarded_by
+                    discarded_by = excluded.discarded_by,
+                    teacher_kind_set = 1
                 """,
                 (
                     cid,
@@ -30982,7 +31035,12 @@ class SchoolDB(LovesDB):
                     user_id if discarded else None,
                 ),
             )
-            if is_real and module and slot:
+            if (
+                is_real
+                and module
+                and slot
+                and self._participation_run_has_items_unlocked(cid, key)
+            ):
                 self._upsert_real_catchup_link_unlocked(cid, key, module, slot, now=now)
             elif not is_real:
                 self.conn.execute(
@@ -30991,6 +31049,8 @@ class SchoolDB(LovesDB):
                 )
             if self.conn.in_transaction:
                 self.conn.commit()
+        return True
+
         return True
 
     def participation_run_kind(self, class_id: int, run_key: str) -> dict[str, Any] | None:
@@ -31028,6 +31088,8 @@ class SchoolDB(LovesDB):
 
         cid = int(class_id)
         key = str(run_key or "").strip()
+        if not self._participation_run_has_items_unlocked(cid, key):
+            return
         mod = str(module or "")
         sl = str(slot or "")
         existing = self.conn.execute(
