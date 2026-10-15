@@ -391,6 +391,34 @@ class QuestionEditorTests(unittest.TestCase):
         modules = {int(row["module_number"]) for row in links}
         self.assertNotIn(3, modules)
 
+    def test_bulk_move_rejects_a_bad_row_without_writing(self) -> None:
+        """A missing question in the batch leaves the valid row on M1."""
+        question = self._add_bank(
+            {
+                "bank_scope": "M1",
+                "type": "mc",
+                "stem_text": "Stay put",
+                "options": ["A", "B", "C", "D"],
+                "correct_answer": "A",
+            }
+        )
+        rv = self.client.post(
+            f"/api/staff/class/{self.class_id}/question-bank/bulk",
+            json={
+                "action": "move",
+                "bank_scope": "M4",
+                "questions": [
+                    {"bank_id": question["bank_id"], "question_id": question["id"]},
+                    {"bank_id": question["bank_id"], "question_id": 999999},
+                ],
+            },
+        )
+        self.assertEqual(rv.status_code, 404, rv.get_data(as_text=True))
+        stored = self.school.question_live_defaults(self.library_id, int(question["id"]))
+        self.assertEqual(stored["bank_scope"], "M1")
+        m4 = self.school.search_module_bank_mcs(self.library_id, 4, "Stay put")["items"]
+        self.assertFalse(any(int(row["question_id"]) == int(question["id"]) for row in m4))
+
 
 if __name__ == "__main__":
     unittest.main()

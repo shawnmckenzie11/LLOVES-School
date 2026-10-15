@@ -1974,7 +1974,14 @@ window.confirm = () => false;
 const staticDir = process.env.LLOVES_LMS_STATIC.replace(/\/$/, '');
 const staticHref = pathToFileURL(staticDir + '/').href;
 let src = readFileSync(staticDir + '/staff_ap.js', 'utf8');
-src = src.replaceAll('"/static/common.js"', JSON.stringify(pathToFileURL(process.env.LLOVES_COMMON_JS).href));
+const commonHref = JSON.stringify(pathToFileURL(process.env.LLOVES_COMMON_JS).href);
+const editorOut = '/tmp/staff-board-refresh-question-editor.mjs';
+writeFileSync(
+  editorOut,
+  readFileSync(staticDir + '/question_editor.js', 'utf8').replaceAll('"/static/common.js"', commonHref),
+);
+src = src.replaceAll('"/static/question_editor.js"', JSON.stringify(pathToFileURL(editorOut).href));
+src = src.replaceAll('"/static/common.js"', commonHref);
 src = src.replaceAll('from "./catchup_pin_prompt.js"', 'from ' + JSON.stringify(pathToFileURL(staticDir + '/catchup_pin_prompt.js').href));
 src = src.replaceAll('"/static/', '"' + staticHref);
 src = src.replaceAll('from "./catchup_pin_prompt.js"', 'from ' + JSON.stringify(staticHref + 'catchup_pin_prompt.js'));

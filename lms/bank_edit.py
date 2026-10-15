@@ -755,6 +755,9 @@ def apply_question_bank_bulk(
     Move writes ``questions.bank_scope`` only. It does not link the whole
     bank, so siblings with a blank scope stay where they are.
 
+    Every row is checked before the first write. A missing question or a
+    bad scope leaves the earlier rows unchanged.
+
     Args:
         school: School database.
         library_id: ``content_libraries.id``.
@@ -766,7 +769,7 @@ def apply_question_bank_bulk(
         raise ValueError("action must be move or kind")
     if not isinstance(rows, list) or not rows:
         raise ValueError("questions required")
-    updated = 0
+    planned: list[tuple[int, dict[str, Any]]] = []
     for item in rows:
         if not isinstance(item, dict):
             raise ValueError("questions must be objects")
@@ -778,23 +781,32 @@ def apply_question_bank_bulk(
         row = school.get_library_question(int(library_id), question_id)
         if row is None or int(row["bank_id"]) != bank_id:
             raise KeyError(f"question {question_id}")
-        if action == "move":
-            school.set_question_bank_scope(
-                int(library_id),
-                question_id,
-                str(body.get("bank_scope") or body.get("bankScope") or ""),
-            )
-        else:
+        planned.append((question_id, row))
+    if action == "move":
+        scope = str(body.get("bank_scope") or body.get("bankScope") or "")
+        try:
+            from live_defaults import normalize_scope_token
+        except ImportError:
+            from lms.live_defaults import normalize_scope_token
+
+        normalize_scope_token(scope)
+        for question_id, _row in planned:
+            school.set_question_bank_scope(int(library_id), question_id, scope)
+    else:
+        prepared: list[tuple[int, str, dict[str, Any]]] = []
+        kind = body.get("bank_kind", body.get("bankKind"))
+        for question_id, row in planned:
             payload = dict(row.get("payload") or {})
-            _apply_editor_kind(payload, body.get("bank_kind", body.get("bankKind")))
+            _apply_editor_kind(payload, kind)
+            prepared.append((question_id, str(row.get("title") or "Question"), payload))
+        for question_id, title, payload in prepared:
             school.update_library_question_payload(
                 int(library_id),
                 question_id,
-                title=str(row.get("title") or "Question"),
+                title=title,
                 payload=payload,
             )
-        updated += 1
-    return {"updated": updated, "action": action}
+    return {"updated": len(planned), "action": action}
 
 
 def apply_staff_question_patch(

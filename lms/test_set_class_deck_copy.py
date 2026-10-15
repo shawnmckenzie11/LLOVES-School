@@ -1105,7 +1105,14 @@ globalThis.fetch = async (url, init = {}) => {
 
 let src = readFileSync(staticDir + '/staff_ap.js', 'utf8');
 const staticHref = pathToFileURL(staticDir + '/').href;
-src = src.replaceAll('"/static/common.js"', JSON.stringify(pathToFileURL(process.env.LLOVES_COMMON_JS).href));
+const commonHref = JSON.stringify(pathToFileURL(process.env.LLOVES_COMMON_JS).href);
+const editorOut = (process.env.LLOVES_HARNESS_OUT || '/tmp/staff-ap-harness.mjs').replace(/\.mjs$/, '') + '-question-editor.mjs';
+writeFileSync(
+  editorOut,
+  readFileSync(staticDir + '/question_editor.js', 'utf8').replaceAll('"/static/common.js"', commonHref),
+);
+src = src.replaceAll('"/static/question_editor.js"', JSON.stringify(pathToFileURL(editorOut).href));
+src = src.replaceAll('"/static/common.js"', commonHref);
 src = src.replaceAll('"/static/', '"' + staticHref);
 src += '\nexport { enterSetClassPhase, applyDeckSeedChoice, applyValidateDateChoice, deckCopyView };\n';
 const out = process.env.LLOVES_HARNESS_OUT;
