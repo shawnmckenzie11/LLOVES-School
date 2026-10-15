@@ -10,7 +10,7 @@ Writes this file and `lc-qa/artifact-load-postgres.log`.
 
 ## Repro
 
-Thursday bar: **N=28** (MCR3U / MCR3U-2 / MCF3M headcount, not the N=12 alc sample). Artifact `mcf3m-m1-c2-transformations` at `/static/live-media/m1c2-transforms.html` with **`group_q: true`**. In-flight cap 2 (gunicorn threads). Heartbeat write window forced to 0 so every state and heartbeat poll takes the presence UPDATE. A second connection hammers `classes` on the sqlite file for the whole storm.
+Thursday bar: **N=28** (MCR3U / MCR3U-2 / MCF3M headcount, not the N=12 alc sample). Artifact `mcf3m-m1-c2-transformations` at `/static/live-media/m1c2-transforms.html` with **`group_q: true`**. Harness in-flight cap 2 (production is 4 gunicorn workers × 8 threads). Heartbeat write window forced to 0 so every state and heartbeat poll takes the presence UPDATE. A second connection hammers `classes` on the sqlite file for the whole storm.
 
 Fly stack this replaces:
 
@@ -28,22 +28,22 @@ Pass bar: those updates are Postgres, sqlite attendee writes stay 0, 0 `database
 | Class | 28 students |
 | Waves | 4 |
 | In-flight cap | 2 |
-| Wall | 3195 ms |
+| Wall | 5646 ms |
 | Postgres heartbeat writes | 336 (state + heartbeat + preview gates) |
 | Sqlite attendee INSERT/UPDATE | 0 |
 | `hot_sqlite_writes` | 0 |
-| Game-show hammer writes | 224970 |
+| Game-show hammer writes | 320794 |
 | School in_transaction | False |
 | Game in_transaction | False |
 | HTTP | heartbeat:200=112, media:200=112, preview:200=112, staff-state:200=4, state:200=112 |
 
 | Path | n | med ms | p95 ms | max ms |
 |---|---:|---:|---:|---:|
-| heartbeat | 112 | 3 | 4 | 10 |
-| media | 112 | 1 | 1 | 2 |
-| preview | 112 | 10 | 14 | 20 |
-| staff-state | 4 | 35 | 36 | 77 |
-| state | 112 | 39 | 48 | 50 |
+| heartbeat | 112 | 2 | 9 | 37 |
+| media | 112 | 1 | 2 | 3 |
+| preview | 112 | 12 | 24 | 48 |
+| staff-state | 4 | 56 | 58 | 76 |
+| state | 112 | 74 | 108 | 120 |
 
 ### Errors
 
@@ -61,5 +61,5 @@ Pass bar: those updates are Postgres, sqlite attendee writes stay 0, 0 `database
 
 - Thursday still runs on sqlite if this branch is not merged **and** the secret is not attached. Both are required. Attach alone on the current image does nothing; the image alone without the secret stays on sqlite.
 - Staff `/state` still reads prompts, scores, and roster from sqlite. Those are reads. A sqlite writer outside this process (an SSH `sqlite3` with no busy timeout) can still stall the catalogue.
-- Fly machine size is unchanged (shared-cpu-1x, 1 GB, 2 threads). Postgres moves the lock. It does not add CPU.
+- Fly machine size is unchanged (shared-cpu-1x, 1 GB, 4 workers × 8 threads, timeout 120 in `lms/serve_capacity.py`). Postgres moves the lock. It does not add CPU.
 - Basic Managed Postgres is a paid cluster. WAL remains the local/dev belt when no URL is set.
