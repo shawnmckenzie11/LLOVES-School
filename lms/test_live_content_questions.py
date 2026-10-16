@@ -602,11 +602,28 @@ class ContentQuestionsApiTests(unittest.TestCase):
         self.assertEqual(self._deck_problem_ids(), [self.m1[0]])
 
     def test_mck161_low7_unknown_module_is_400(self) -> None:
-        """A module Add New would refuse is a 400 before anything is read."""
-        for module in ("MX", "M9", "0"):
+        """A module Add New would refuse is a 400 before anything is read.
+
+        Module 0 is a real scope (M0), so that import is accepted. A token
+        with no module in 0–8, such as 99, still 400s and writes nothing.
+        """
+        for module in ("MX", "M9", "99"):
             rv = self._import([{"question_id": self.m1[0], "module": "M1"}], module=module)
             self.assertEqual(rv.status_code, 400, module)
         self.assertEqual(self._placement_count(), 0)
+        accepted = self._import(
+            [{"question_id": self.m1[0], "module": "M1"}], module="0"
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.get_data(as_text=True))
+        self.assertEqual(accepted.get_json()["imported"], 1)
+        row = self.school.conn.execute(
+            """
+            SELECT module FROM class_live_playlist_placements
+            WHERE class_id = ?
+            """,
+            (self.class_id,),
+        ).fetchone()
+        self.assertEqual(row["module"], "M0")
 
     def test_mck161_low8_stale_copy_has_no_ids_and_no_double_contest(self) -> None:
         """Course-wide, one module, several groups: clean copy plus the stale list."""

@@ -88,7 +88,12 @@ class RunPolicyScheduleTests(LessonSlidesBackfillTests):
         self.assertFalse(effective_run_is_real(self.school, self.class_id, run_key))
 
     def test_teacher_manual_real_test_not_overridden_by_schedule(self) -> None:
-        """MCK-207 teacher toggles win over start-window recomputation."""
+        """MCK-207 teacher toggles win over start-window recomputation.
+
+        The outside run's start is pinned to Tuesday. A live session starts
+        at "now", and a Friday morning "now" falls inside the 9:15 window,
+        so the recompute would call that run real before the teacher toggle.
+        """
         outside_key = LessonSlidesBackfillTests._ended_real_run_keep_session(
             self,
             "M2",
@@ -103,7 +108,7 @@ class RunPolicyScheduleTests(LessonSlidesBackfillTests):
             """,
             (int(self.class_id), outside_key),
         )
-        self.school.conn.commit()
+        _set_run_started_at(self.school, self.class_id, outside_key, "2026-10-20T13:15:00")
         self.assertFalse(effective_run_is_real(self.school, self.class_id, outside_key))
         self.school.set_participation_run_real(
             self.class_id, outside_key, True, user_id=int(self.teacher["id"])
