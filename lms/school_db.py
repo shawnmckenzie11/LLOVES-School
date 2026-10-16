@@ -41340,6 +41340,13 @@ class SchoolDB(LovesDB):
                     )
                 col["header_label"] = label
                 col["open_office"] = bool(meta.get("open_office"))
+                if meta.get("is_test"):
+                    col["is_test"] = True
+                    col["label"] = str(
+                        meta.get("test_header_label") or label or "TEST"
+                    )
+                    if meta.get("live_session_id") not in (None, ""):
+                        col["live_session_id"] = int(meta["live_session_id"])
             columns.append(col)
         cells = dict(dash.get("cells") or {})
         with self.game._lock:
@@ -41456,13 +41463,38 @@ class SchoolDB(LovesDB):
         Returns:
             A copy of ``session_meta`` with test columns filled in.
         """
+        try:
+            from test_live_class_labels import (
+                format_test_participation_label,
+                test_same_day_indices,
+            )
+        except ImportError:
+            from lms.test_live_class_labels import (
+                format_test_participation_label,
+                test_same_day_indices,
+            )
+
         meta = {str(key): dict(info) for key, info in (session_meta or {}).items()}
-        for tracker_id, detail in self._test_tracker_display(int(class_id)).items():
+        tracker_map = self._test_tracker_display(int(class_id))
+        index_rows = [
+            {
+                "live_session_id": detail.get("live_session_id"),
+                "ended_at": detail.get("ended_at"),
+            }
+            for detail in tracker_map.values()
+        ]
+        day_index = test_same_day_indices(index_rows)
+        for tracker_id, detail in tracker_map.items():
             info = meta.get(str(tracker_id)) or {}
             info["is_test"] = True
             live_id = detail.get("live_session_id")
             if live_id not in (None, ""):
                 info["live_session_id"] = int(live_id)
+                idx = int(day_index.get(int(live_id), 1))
+                info["test_header_label"] = format_test_participation_label(
+                    str(detail.get("ended_at") or info.get("ended_at") or ""),
+                    same_day_index=idx,
+                )
             module = str(detail.get("live_module") or "").strip()
             slot = str(detail.get("live_slot") or "").strip()
             if module and not str(info.get("live_module") or "").strip():

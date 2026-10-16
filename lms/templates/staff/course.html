@@ -427,18 +427,6 @@
       </dialog>
       <section id="ap-panel-validate" class="live-date-panel live-set-class-card ap-panel is-current" data-step="validate">
         <h2 class="live-pane-title">Set Class</h2>
-        <fieldset class="set-class-run-kind" id="set-class-run-kind">
-          <legend>This class</legend>
-          <label class="set-class-run-kind-option">
-            <input type="radio" name="set-class-run-kind" value="live" checked>
-            <span>Live</span>
-          </label>
-          <label class="set-class-run-kind-option">
-            <input type="radio" name="set-class-run-kind" value="test">
-            <span>Test</span>
-          </label>
-          <p class="hint compact" id="set-class-run-kind-note">A test class can run any school day. It saves like a real class, stays out of totals, and you can delete it later.</p>
-        </fieldset>
         {% set packs = live_packs if live_packs is defined else {} %}
         <div class="live-pack-strip" id="live-pack-strip"
              data-course="{{ packs.course or 'MCF3M' }}"
@@ -473,13 +461,28 @@
               {% endfor %}
             </select>
           </label>
-          <div class="live-pack-field set-class-kind" id="set-class-kind">
-            <span>Session type</span>
-            <div class="set-class-kind-toggle" role="group" aria-label="Session type">
-              <button type="button" id="set-class-kind-live" class="is-on" aria-pressed="true">Live class</button>
-              <button type="button" id="set-class-kind-office" aria-pressed="false">Open office</button>
+          <div class="set-class-type-row">
+            <div class="live-pack-field set-class-kind" id="set-class-kind">
+              <span>Session type</span>
+              <div class="set-class-kind-toggle" role="group" aria-label="Session type">
+                <button type="button" id="set-class-kind-live" class="is-on" aria-pressed="true">Live class</button>
+                <button type="button" id="set-class-kind-office" aria-pressed="false">Open office</button>
+              </div>
             </div>
+            <fieldset class="set-class-run-kind" id="set-class-run-kind">
+              <legend>Run as</legend>
+              <label class="set-class-run-kind-option">
+                <input type="radio" name="set-class-run-kind" value="live" checked>
+                <span>Live</span>
+              </label>
+              <label class="set-class-run-kind-option">
+                <input type="radio" name="set-class-run-kind" value="test">
+                <span>Test</span>
+              </label>
+            </fieldset>
           </div>
+          <p class="hint compact" id="set-class-run-kind-note">A test class can run any school day. It saves like a real class, stays out of totals, and you can delete it later.</p>
+          <p class="hint compact" id="set-class-test-deck-note" hidden>Test uses a copy of the class deck for this challenge. Open office is not available for test runs.</p>
           <fieldset class="live-deck-seed" id="live-deck-seed" aria-describedby="live-deck-seed-previous-note">
             <legend>Live deck</legend>
             <div class="live-add-type-chip-row live-deck-seed-seg">
@@ -1368,7 +1371,15 @@
   <dialog id="delete-test-dialog" class="end-live-dialog">
     <form method="dialog" class="end-live-dialog-form">
       <h2>Delete test class</h2>
-      <p>This removes the test class, its attendance, participation, deck row, and catch-up code. A live class cannot be deleted this way.</p>
+      <p>This permanently removes:</p>
+      <ul class="delete-test-list">
+        <li>Attendance logged for this test class</li>
+        <li>Participation answers from this test class</li>
+        <li>The deck copy used for this test</li>
+        <li>The Lesson Slides row for this test class</li>
+        <li>The catch-up code for this test class</li>
+      </ul>
+      <p class="hint compact">A live class cannot be deleted this way.</p>
       <div class="end-live-dialog-actions">
         <button type="submit" class="secondary" value="cancel">Cancel</button>
         <button type="submit" value="delete">Delete test class</button>

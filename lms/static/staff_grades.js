@@ -311,10 +311,7 @@ function cellScore(data, sessionId, studentId, meta) {
 function visibleBandColumns(band) {
   const open = moduleExpanded(band.module, band.role);
   if (band.role === "finished" && !open) {
-    const tests = (band.columns || [])
-      .filter((column) => column.is_test)
-      .map((column) => ({ kind: "class", band, column }));
-    return [{ kind: "summary", band }, ...tests];
+    return [{ kind: "summary", band }];
   }
   return (band.columns || []).map((column) => ({ kind: "class", band, column }));
 }
@@ -394,14 +391,22 @@ function renderSheet(data) {
   const currentBand = bands.find((band) => band.role === "current") || null;
 
   const pieces = [];
+  /** @type {Array<{kind: string, band: any, column?: any}>} */
+  const testColumns = [];
   for (const band of bands) {
     const untagged = band.role === "untagged" || String(band.module || "") === "Untagged";
     if (!untagged && moduleNumber(band.module) <= 0) continue;
     const cols = visibleBandColumns(band).filter((col) => {
       if (col.kind !== "class") return true;
+      if (col.column?.is_test) return false;
       if (untagged) return true;
       return moduleNumber(col.column?.module) > 0;
     });
+    for (const col of visibleBandColumns(band)) {
+      if (col.kind === "class" && col.column?.is_test) {
+        testColumns.push(col);
+      }
+    }
     if (!cols.length) continue;
     pieces.push({ band, cols });
   }
@@ -449,21 +454,30 @@ function renderSheet(data) {
           ? summaryHeaderHtml(pieceMod, true)
           : "";
         const officePill = office ? `<span class="ap-office-pill">Open office</span>` : "";
-        const testRun = Boolean(col.column?.is_test);
-        const testPill = testRun ? `<span class="badge-test-run">TEST</span>` : "";
-        const deleteBtn = testRun
-          ? `<button type="button" class="secondary ap-delete-test" data-live-session-id="${Number(col.column?.live_session_id || 0)}">Delete test class</button>`
-          : "";
-        head += `<th class="${office ? "is-office ap-office-header" : "ap-class-col"}${testRun ? " is-test-run" : ""}"${anchor}>
-          ${toggle}<span class="ap-class-label">${escapeHtml(col.column?.label || "")}</span>${officePill}${testPill}${deleteBtn}
+        head += `<th class="${office ? "is-office ap-office-header" : "ap-class-col"}"${anchor}>
+          ${toggle}<span class="ap-class-label">${escapeHtml(col.column?.label || "")}</span>${officePill}
         </th>`;
       });
     }
+  }
+  if (testColumns.length) {
+    groupRow += `<th class="ap-test-divider" rowspan="2" aria-hidden="true"></th>`;
+    groupRow += `<th class="ap-mod-group ap-test-group" colspan="${testColumns.length}">Test classes</th>`;
   }
   if (currentBand) {
     groupRow += `<th class="ap-mod-so-far-group" rowspan="2">This module so far</th>`;
   }
   groupRow += `</tr>`;
+  if (testColumns.length) {
+    for (const col of testColumns) {
+      const label = String(col.column?.label || "TEST");
+      head += `<th class="ap-class-col is-test-run">
+        <span class="ap-class-label">${escapeHtml(label)}</span>
+        <span class="badge-test-run">TEST</span>
+        <span class="ap-not-counted">not counted</span>
+      </th>`;
+    }
+  }
   head += `</tr>`;
 
   let body = "";
@@ -486,6 +500,16 @@ function renderSheet(data) {
         body += `<td class="ap-class-cell${office ? " is-office" : ""}">${html}</td>`;
       }
     }
+    if (testColumns.length) {
+      body += `<td class="ap-test-divider-cell" aria-hidden="true"></td>`;
+      for (const col of testColumns) {
+        const column = col.column;
+        const meta = data.session_meta?.[String(column.id)] || {};
+        const scored = cellScore(data, Number(column.id), sid, meta);
+        const html = classCellHtml(data, Number(column.id), sid, scored, false);
+        body += `<td class="ap-class-cell is-test-run">${html}</td>`;
+      }
+    }
     if (currentBand) {
       const roll = moduleRollup(data, sid, currentBand.columns);
       const text = formatParticipationCell(roll.score, roll.opportunities, roll.ended_at);
@@ -494,7 +518,11 @@ function renderSheet(data) {
     body += `</tr>`;
   }
   if (!students.length) {
-    const span = 1 + pieces.reduce((sum, piece) => sum + piece.cols.length, 0) + (currentBand ? 1 : 0);
+    const span =
+      1 +
+      pieces.reduce((sum, piece) => sum + piece.cols.length, 0) +
+      (testColumns.length ? testColumns.length + 1 : 0) +
+      (currentBand ? 1 : 0);
     body = `<tr><td class="ap-mod-empty" colspan="${span}">No students on this roster yet.</td></tr>`;
   }
   table.innerHTML = `<thead>${groupRow}${head}</thead><tbody>${body}</tbody>`;

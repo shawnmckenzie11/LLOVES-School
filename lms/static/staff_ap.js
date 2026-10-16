@@ -939,6 +939,9 @@ async function refreshDeckSeedOptions() {
  * @returns {Promise<void>}
  */
 async function applyDeckSeedChoice() {
+  if (selectedRunKind() === "test") {
+    return;
+  }
   const pack = selectedSetClassPack();
   const selected = document.querySelector('input[name="live-deck-seed"]:checked');
   const mode = deckSeedConfirmMode({
@@ -3486,6 +3489,7 @@ function paintSetClassNotes() {
   officeBtn?.classList.toggle("is-on", onOffice);
   liveBtn?.setAttribute("aria-pressed", onOffice ? "false" : "true");
   officeBtn?.setAttribute("aria-pressed", onOffice ? "true" : "false");
+  syncSetClassRunKindUi();
 }
 
 /**
@@ -8559,6 +8563,40 @@ function selectedRunKind() {
 }
 
 /**
+ * Mobbin Set Class: Run as beside session type; test hides open office.
+ */
+function syncSetClassRunKindUi() {
+  const test = selectedRunKind() === "test";
+  const officeBtn = $("set-class-kind-office");
+  const kindWrap = $("set-class-kind");
+  const deckSeed = $("live-deck-seed");
+  const startBtn = $("set-class-start");
+  const testDeckNote = $("set-class-test-deck-note");
+  const runNote = $("set-class-run-kind-note");
+  if (startBtn) {
+    startBtn.textContent = test ? "Start test session" : "Start session";
+  }
+  if (officeBtn instanceof HTMLButtonElement) {
+    officeBtn.hidden = test;
+    officeBtn.disabled = test;
+  }
+  if (test && setClassKind === "office") {
+    chooseSetClassKind("live");
+  }
+  kindWrap?.classList.toggle("is-test-run", test);
+  deckSeed?.toggleAttribute("hidden", test);
+  if (test) {
+    $("live-deck-copy-from-field")?.setAttribute("hidden", "");
+    $("live-deck-seed-picker")?.setAttribute("hidden", "");
+  }
+  testDeckNote?.toggleAttribute("hidden", !test);
+  runNote?.toggleAttribute("hidden", test);
+  if (test) {
+    showValidateGrid(gridSelectedIso($("ap-day-grid")) || String($("ap-valid-date")?.value || ""));
+  }
+}
+
+/**
  * Test runs use every school day, not only the course's live-class days.
  * @returns {object|null}
  */
@@ -12284,10 +12322,12 @@ $("set-class-start")?.addEventListener("click", () => {
 });
 document.querySelectorAll('input[name="set-class-run-kind"]').forEach((input) => {
   input.addEventListener("change", () => {
+    syncSetClassRunKindUi();
     const current = gridSelectedIso($("ap-day-grid")) || String($("ap-valid-date")?.value || "");
     showValidateGrid(current);
   });
 });
+syncSetClassRunKindUi();
 loadSetClassSlides().catch(() => {});
 
 /**

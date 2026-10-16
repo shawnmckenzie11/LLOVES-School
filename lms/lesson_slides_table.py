@@ -275,6 +275,24 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
                 "live_session_id": None,
             }
         )
+    try:
+        from test_live_class_labels import (
+            format_test_lesson_slides_label,
+            test_same_day_indices,
+        )
+    except ImportError:
+        from lms.test_live_class_labels import (
+            format_test_lesson_slides_label,
+            test_same_day_indices,
+        )
+    test_index_rows = [
+        {
+            "live_session_id": latest.get("live_session_id"),
+            "ended_at": latest.get("ended_at"),
+        }
+        for latest in test_latest
+    ]
+    test_day_index = test_same_day_indices(test_index_rows)
     for latest in test_latest:
         module = str(latest.get("live_module") or "").upper()
         slot = str(latest.get("live_slot") or "").upper()
@@ -297,12 +315,18 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
             excluded_student_ids=test_ids,
         )
         summary = _summary_counts(questions)
+        live_sid = latest.get("live_session_id")
+        day_index = int(test_day_index.get(int(live_sid or 0), 1))
+        ended_for_label = str(latest.get("ended_at") or "")
+        test_line = format_test_lesson_slides_label(
+            ended_for_label, same_day_index=day_index
+        )
         rows.append(
             {
                 "module": module,
                 "slot": slot,
-                "label": f"{module}{slot}",
-                "line_label": f"{module} {slot}",
+                "label": test_line,
+                "line_label": test_line,
                 "office_code": "",
                 "not_in_template": True,
                 "last_run_at": display_ended_at_from_latest(latest),

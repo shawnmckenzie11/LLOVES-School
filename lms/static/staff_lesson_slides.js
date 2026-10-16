@@ -163,6 +163,53 @@ function questionsDetailRow(row) {
 }
 
 /**
+ * Close any open Lesson Slides row menus except one optional wrapper.
+ * @param {Element|null} exceptWrap
+ * @returns {void}
+ */
+function closeLessonSlideRowMenus(exceptWrap = null) {
+  for (const menu of document.querySelectorAll(".ls-row-menu")) {
+    const wrap = menu.closest(".ls-row-menu-wrap");
+    if (wrap && wrap !== exceptWrap) {
+      menu.hidden = true;
+      const btn = wrap.querySelector(".ls-row-menu-btn");
+      if (btn instanceof HTMLButtonElement) btn.setAttribute("aria-expanded", "false");
+    }
+  }
+}
+
+/**
+ * Wire the ⋯ overflow menu for one test row.
+ * @param {HTMLElement} wrap
+ * @param {number} sessionId
+ * @returns {void}
+ */
+function bindTestRowMenu(wrap, sessionId) {
+  const btn = wrap.querySelector(".ls-row-menu-btn");
+  const menu = wrap.querySelector(".ls-row-menu");
+  const deleteBtn = wrap.querySelector(".ls-row-menu-delete");
+  if (!(btn instanceof HTMLButtonElement) || !(menu instanceof HTMLElement)) return;
+  btn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const open = menu.hidden;
+    closeLessonSlideRowMenus(wrap);
+    menu.hidden = !open;
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  deleteBtn?.addEventListener("click", () => {
+    menu.hidden = true;
+    btn.setAttribute("aria-expanded", "false");
+    deleteTestClass(Number(classId), Number(sessionId))
+      .then((gone) => {
+        if (gone) window.location.reload();
+      })
+      .catch(() => {});
+  });
+}
+
+document.addEventListener("click", () => closeLessonSlideRowMenus());
+
+/**
  * Paint the main table from cached payload rows.
  * @returns {void}
  */
@@ -181,37 +228,61 @@ function paintTable() {
   }
   for (const row of tableRows) {
     const tr = document.createElement("tr");
-    tr.className = "ls-run-row";
+    tr.className = row.is_test ? "ls-run-row is-test-run" : "ls-run-row";
     const label = document.createElement("td");
+    label.className = "ls-class-cell";
+    const labelWrap = document.createElement("div");
+    labelWrap.className = "ls-row-label-wrap";
+    const title = document.createElement("div");
+    title.className = "ls-row-title";
     const name = document.createElement("span");
-    name.textContent = row.not_in_template
-      ? String(row.line_label || row.label || `${row.module}${row.slot}`)
-      : String(row.label || `${row.module}${row.slot}`);
-    label.appendChild(name);
+    name.className = "ls-row-name";
+    if (row.is_test) {
+      name.textContent = String(row.line_label || row.label || "TEST");
+    } else {
+      name.textContent = row.not_in_template
+        ? String(row.line_label || row.label || `${row.module}${row.slot}`)
+        : String(row.label || `${row.module}${row.slot}`);
+    }
+    title.appendChild(name);
     if (row.is_test) {
       const tag = document.createElement("span");
       tag.className = "badge-test-run";
       tag.textContent = "TEST";
-      label.appendChild(tag);
-      if (row.live_session_id) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "secondary";
-        button.textContent = "Delete test class";
-        button.addEventListener("click", () => {
-          deleteTestClass(Number(classId), Number(row.live_session_id))
-            .then((gone) => {
-              if (gone) window.location.reload();
-            })
-            .catch(() => {});
-        });
-        label.appendChild(button);
-      }
-    } else if (row.not_in_template) {
+      title.appendChild(tag);
+    }
+    labelWrap.appendChild(title);
+    if (row.is_test && row.live_session_id) {
+      const menuWrap = document.createElement("div");
+      menuWrap.className = "ls-row-menu-wrap";
+      const menuBtn = document.createElement("button");
+      menuBtn.type = "button";
+      menuBtn.className = "ls-row-menu-btn";
+      menuBtn.setAttribute("aria-label", "Test class actions");
+      menuBtn.setAttribute("aria-haspopup", "menu");
+      menuBtn.setAttribute("aria-expanded", "false");
+      menuBtn.textContent = "⋯";
+      const menu = document.createElement("div");
+      menu.className = "ls-row-menu";
+      menu.setAttribute("role", "menu");
+      menu.hidden = true;
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "ls-row-menu-delete";
+      deleteBtn.setAttribute("role", "menuitem");
+      deleteBtn.textContent = "Delete test class";
+      menu.appendChild(deleteBtn);
+      menuWrap.appendChild(menuBtn);
+      menuWrap.appendChild(menu);
+      labelWrap.appendChild(menuWrap);
+      bindTestRowMenu(menuWrap, Number(row.live_session_id));
+    }
+    label.appendChild(labelWrap);
+    if (!row.is_test && row.not_in_template) {
       const tag = document.createElement("span");
       tag.className = "ls-not-in-template";
       tag.textContent = String(row.status_label || "Not in template");
-      label.appendChild(tag);
+      title.appendChild(tag);
     }
     tr.appendChild(label);
     const ran = document.createElement("td");
