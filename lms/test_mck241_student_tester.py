@@ -351,18 +351,6 @@ class TesterFeedbackTests(unittest.TestCase):
         os.environ["LINEAR_API_KEY"] = "test-key-not-a-pin"
         os.environ["LINEAR_TEAM_ID"] = "team-from-env"
         os.environ.pop("LINEAR_API_TOKEN", None)
-        records: list[str] = []
-
-        class _Grab(logging.Handler):
-            """Collect log messages without printing them."""
-
-            def emit(self, record: logging.LogRecord) -> None:
-                records.append(record.getMessage())
-
-        handler = _Grab()
-        logger = logging.getLogger("tester_feedback")
-        logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
         try:
             result = post_tester_feedback(note, forbidden_names={"Maple"}, transport=transport)
             self.assertEqual(result, {"ok": True})
@@ -373,10 +361,12 @@ class TesterFeedbackTests(unittest.TestCase):
             self.assertNotIn("MCR3U", dumped)
             self.assertNotIn("MCF3M", dumped)
             os.environ.pop("LINEAR_API_KEY", None)
-            with self.assertRaises(ValueError):
-                post_tester_feedback(note, transport=transport)
+            with self.assertLogs("tester_feedback", level="INFO") as caught:
+                with self.assertRaises(ValueError):
+                    post_tester_feedback(note, transport=transport)
+            self.assertTrue(any("chars=" in line for line in caught.output))
+            self.assertNotIn(note, "\n".join(caught.output))
         finally:
-            logger.removeHandler(handler)
             if old_key is None:
                 os.environ.pop("LINEAR_API_KEY", None)
             else:
@@ -389,8 +379,6 @@ class TesterFeedbackTests(unittest.TestCase):
                 os.environ.pop("LINEAR_TEAM_ID", None)
             else:
                 os.environ["LINEAR_TEAM_ID"] = old_team
-        self.assertTrue(records)
-        self.assertNotIn(note, "\n".join(records))
 
 
 class SeedScriptTests(unittest.TestCase):
