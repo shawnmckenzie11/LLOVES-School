@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -23,6 +25,238 @@ from live_class_metadata import empty_live_class_metadata  # noqa: E402
 from meet_team import meet_team_prompt_payload  # noqa: E402
 from minds_on import MINDS_ON_CHOICES  # noqa: E402
 from teams_spark import teams_spark_prompt_payload  # noqa: E402
+
+
+def _staff_function_source(js: str, name: str) -> str:
+    """Return one top-level function from ``staff_ap.js``.
+
+    Args:
+        js: Whole script text.
+        name: Function name to extract.
+    """
+    start = -1
+    for prefix in ("\nasync function ", "\nfunction "):
+        at = js.find(f"{prefix}{name}(")
+        if at >= 0:
+            start = at + 1
+            break
+    if start < 0:
+        raise AssertionError(f"missing {name}")
+    open_at = js.index("{", js.index(")", start))
+    depth = 0
+    for index in range(open_at, len(js)):
+        char = js[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return js[start : index + 1]
+    raise AssertionError(f"unbalanced {name}")
+
+
+_BOOT_FUNCTIONS = (
+    "wantsFreshSetClass",
+    "clearFreshSetClassFromUrl",
+    "classSetIsComplete",
+    "exitSetClassPhase",
+    "readLiveSessionId",
+    "releaseInactiveLiveSession",
+    "resumeLiveClassIfNeeded",
+)
+
+_BOOT_HARNESS = r"""
+const vm = require("vm");
+const input = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const sandbox = {
+  console,
+  URL,
+  URLSearchParams,
+  Promise,
+  Number,
+  String,
+  Boolean,
+  Object,
+  Array,
+  Set,
+  Map,
+  JSON,
+  href: input.href,
+  historyLog: [],
+  calls: [],
+  out: {},
+  scenario: input.scenario,
+};
+sandbox.location = {
+  get href() { return sandbox.href; },
+  set href(value) { sandbox.href = String(value); },
+  get search() {
+    const q = sandbox.href.indexOf("?");
+    return q < 0 ? "" : sandbox.href.slice(q);
+  },
+};
+sandbox.window = {
+  location: sandbox.location,
+  history: {
+    replaceState(_state, _title, next) {
+      sandbox.historyLog.push(String(next));
+      sandbox.href = String(next);
+    },
+  },
+};
+sandbox.root = { dataset: Object.assign({}, input.dataset) };
+vm.createContext(sandbox);
+const sessionStamp = JSON.stringify(String((input.dataset || {}).liveSessionId || ""));
+const codeStamp = JSON.stringify(String((input.dataset || {}).liveCode || ""));
+const script = `
+let liveSessionId = ${Number(input.liveSessionId) || 0};
+let setupPhase = true;
+let teacherState = {};
+let overlayState = {};
+let logContext = { today: "2026-10-16" };
+let staffStateNeedsFull = false;
+const classId = 1;
+let refreshed = false;
+function $(id) { calls.push("$:" + id); return null; }
+function lockClassListPane() { calls.push("lock"); }
+function loadContext() { calls.push("loadContext"); return Promise.resolve(); }
+function api(url) {
+  calls.push("api:" + url);
+  if (String(url).includes("/game")) {
+    return Promise.resolve({
+      game: { status: "live" },
+      session: { meeting_date: "2026-10-16" },
+    });
+  }
+  if (String(url).includes("teacher-state")) {
+    return Promise.resolve({ teacher_state: { class_set: true } });
+  }
+  return Promise.resolve({});
+}
+function adoptTeacherState(state) {
+  teacherState = Object.assign({}, teacherState, state || {});
+}
+function paintTeacherShell() { calls.push("paint"); }
+function openLiveScoring() { calls.push("openLiveScoring"); }
+function ensureLiveSessionOverlay() { calls.push("overlay"); }
+function renderAttendanceList() { calls.push("attendance"); }
+function setNTeams() {}
+function selectTrackMode() {}
+function renderTeamsPanel() {}
+function quietAdvanceNamesResume() { return Promise.resolve(); }
+function ensureLiveSessionMinted() { calls.push("mint"); return Promise.resolve(); }
+function startLiveSessionPolling() { calls.push("pollStart"); }
+function pollLiveSessionAttendees() { return Promise.resolve(); }
+function loadSavedLiveLesson() { return Promise.resolve(); }
+function paintQuestionArtifact() {}
+function ensureC1MediaSeeded() { return Promise.resolve(); }
+function defaultSchoolDay() { return "2026-10-16"; }
+function syncOverlayPickers() {}
+function todayISO() { return "2026-10-16"; }
+function paintFromUrl() {
+  refreshed = true;
+  const url = new URL(href);
+  root.dataset.run = url.searchParams.get("run") === "1" ? "1" : "0";
+  root.dataset.liveSessionId = ${sessionStamp};
+  root.dataset.liveCode = ${codeStamp};
+  liveSessionId = 0;
+  setupPhase = true;
+  teacherState = {};
+  overlayState = {};
+}
+` + input.src + `
+globalThis.done = (async () => {
+  if (scenario === "start-then-refresh") {
+    exitSetClassPhase();
+    const cleared = new URL(href);
+    out.afterStart = {
+      runDataset: root.dataset.run,
+      hasRun: cleared.searchParams.has("run"),
+      href,
+      replaceCount: historyLog.length,
+      refreshed,
+    };
+    calls.length = 0;
+    paintFromUrl();
+    const resumed = await resumeLiveClassIfNeeded();
+    out.refresh = {
+      resumed,
+      runDataset: root.dataset.run,
+      hasRun: new URL(href).searchParams.has("run"),
+      calls: calls.slice(),
+      setupPhase,
+    };
+    calls.length = 0;
+    href = "http://127.0.0.1:8787/staff/class/1?tab=live&run=1";
+    paintFromUrl();
+    const early = await resumeLiveClassIfNeeded();
+    out.ifRunLeftOn = { resumed: early, calls: calls.slice() };
+    return;
+  }
+  const original = Number(root.dataset.liveSessionId || 0);
+  liveSessionId = original;
+  releaseInactiveLiveSession();
+  out.kept = {
+    liveSessionId,
+    datasetId: root.dataset.liveSessionId,
+    liveCode: root.dataset.liveCode,
+  };
+  root.dataset.liveCode = "";
+  root.dataset.liveSessionId = String(original);
+  liveSessionId = original;
+  releaseInactiveLiveSession();
+  out.dropped = { liveSessionId, datasetId: root.dataset.liveSessionId };
+})().catch((err) => {
+  out.error = String(err && err.stack || err);
+  throw err;
+});
+`;
+vm.runInContext(script, sandbox);
+sandbox.done.then(() => {
+  if (sandbox.out.error) {
+    console.error(sandbox.out.error);
+    process.exit(1);
+  }
+  console.log(JSON.stringify(sandbox.out));
+}).catch((err) => {
+  console.error(err && err.stack || err);
+  process.exit(1);
+});
+"""
+
+
+def _run_live_boot(scenario: str, **opts: object) -> dict:
+    """Run the real Set Class boot functions from ``staff_ap.js`` in node.
+
+    Args:
+        scenario: ``start-then-refresh`` or ``release``.
+        **opts: ``href``, ``dataset``, and ``liveSessionId`` for the stub page.
+    """
+    node = shutil.which("node")
+    if node is None:
+        raise unittest.SkipTest("node is required")
+    js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+    src = "\n".join(_staff_function_source(js, name) for name in _BOOT_FUNCTIONS)
+    payload = {
+        "scenario": scenario,
+        "src": src,
+        "href": "http://127.0.0.1:8787/staff/class/1?tab=live&run=1",
+        "dataset": {"run": "1", "liveSessionId": "7", "liveCode": "ABCD"},
+        "liveSessionId": 0,
+    }
+    payload.update(opts)
+    result = subprocess.run(
+        [node, "-e", _BOOT_HARNESS],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise AssertionError(result.stderr or result.stdout)
+    return json.loads(result.stdout.strip().splitlines()[-1])
+
 
 
 class LiveShellTests(unittest.TestCase):
@@ -2309,10 +2543,12 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function classSetIsComplete(", js)
         self.assertIn("function enterSetClassPhase()", js)
         self.assertIn("function wantsFreshSetClass()", js)
+        self.assertIn("function releaseInactiveLiveSession()", js)
         self.assertIn("class_set: true", js)
         boot = js.split("setSessionTimerMinutes(3);")[1].split(
             "function spawnScorePop("
         )[0]
+        self.assertIn("releaseInactiveLiveSession()", boot)
         self.assertIn("enterSetClassPhase()", boot)
         self.assertIn("paintTeacherShell()", boot)
         self.assertIn("await openRunLiveClass()", boot)
@@ -2323,9 +2559,14 @@ class LiveShellTests(unittest.TestCase):
         )[0]
         self.assertIn("function clearFreshSetClassFromUrl()", js)
         self.assertIn("clearFreshSetClassFromUrl()", js)
-        self.assertIn(
-            "if (wantsFreshSetClass() && !classSetIsComplete(status, teacher)) return false",
-            resume,
+        self.assertIn("if (wantsFreshSetClass()) return false", resume)
+        self.assertLess(
+            resume.index("if (wantsFreshSetClass()) return false"),
+            resume.index("exitSetClassPhase()"),
+        )
+        self.assertLess(
+            resume.index("if (wantsFreshSetClass()) return false"),
+            resume.index("ensureLiveSessionOverlay()"),
         )
         self.assertIn("if (!classSetIsComplete(status, teacher)) return false", resume)
         self.assertIn("paintTeacherShell()", resume)
@@ -2363,6 +2604,70 @@ class LiveShellTests(unittest.TestCase):
             begin.index("exitSetClassPhase()"),
         )
 
+
+    def test_start_clears_run_before_refresh_resumes_class(self) -> None:
+        """Start drops ``?run=1`` before a refresh, so a mid-class refresh resumes.
+
+        ``proceedRunLiveBegin`` calls ``exitSetClassPhase`` with no await.
+        That calls ``clearFreshSetClassFromUrl`` before the function returns,
+        so a later refresh of the cleaned URL does not take the fresh-setup
+        early return. Leaving ``run=1`` on the URL still returns early.
+        """
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        exit_src = _staff_function_source(js, "exitSetClassPhase")
+        self.assertIn("clearFreshSetClassFromUrl();", exit_src)
+        self.assertNotIn("await", exit_src)
+        begin = js.split("async function proceedRunLiveBegin(")[1].split(
+            "export async function openRunLiveClass()"
+        )[0]
+        self.assertGreaterEqual(begin.count("exitSetClassPhase();"), 2)
+        self.assertNotIn("await exitSetClassPhase()", begin)
+        out = _run_live_boot("start-then-refresh")
+        self.assertEqual(out["afterStart"]["runDataset"], "0")
+        self.assertFalse(out["afterStart"]["hasRun"])
+        self.assertEqual(out["afterStart"]["replaceCount"], 1)
+        self.assertFalse(out["afterStart"]["refreshed"])
+        self.assertNotIn("run=1", out["afterStart"]["href"])
+        self.assertTrue(out["refresh"]["resumed"])
+        self.assertFalse(out["refresh"]["hasRun"])
+        self.assertEqual(out["refresh"]["runDataset"], "0")
+        self.assertFalse(out["refresh"]["setupPhase"])
+        self.assertIn("openLiveScoring", out["refresh"]["calls"])
+        self.assertIn("loadContext", out["refresh"]["calls"])
+        self.assertFalse(out["ifRunLeftOn"]["resumed"])
+        self.assertEqual(out["ifRunLeftOn"]["calls"], [])
+
+    def test_live_class_page_renders_join_code_release_keeps_session(self) -> None:
+        """An active class always renders ``data-live-code``, so release keeps it.
+
+        ``releaseInactiveLiveSession`` returns immediately when that attribute
+        is set. The same function drops the id only when the join code is blank.
+        """
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        code = str(live["session_code"]).strip()
+        self.assertTrue(code)
+        sid = str(int(live["id"]))
+        for query in ("?tab=live", "?tab=live&run=1"):
+            page = self.client.get(f"/staff/class/{self.class_id}{query}")
+            self.assertEqual(page.status_code, 200)
+            html = page.get_data(as_text=True)
+            root = html[html.index('id="ap-root"') : html.index('id="ap-overlay-error"')]
+            self.assertIn(f'data-live-code="{code}"', root)
+            self.assertIn(f'data-live-session-id="{sid}"', root)
+            self.assertNotIn('data-live-code=""', root)
+        out = _run_live_boot(
+            "release",
+            href=f"http://127.0.0.1:8787/staff/class/1?tab=live",
+            dataset={"run": "0", "liveSessionId": sid, "liveCode": code},
+            liveSessionId=int(sid),
+        )
+        self.assertEqual(out["kept"]["liveSessionId"], int(sid))
+        self.assertEqual(out["kept"]["datasetId"], sid)
+        self.assertEqual(out["kept"]["liveCode"], code)
+        self.assertEqual(out["dropped"]["liveSessionId"], 0)
+        self.assertEqual(out["dropped"]["datasetId"], "")
 
     def test_feedback_grid_before_after_mood_score(self) -> None:
         """Feedback tab lists the roster with before/after mood and no When column."""
