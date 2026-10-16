@@ -245,6 +245,36 @@ class TestLiveClassTests(Base):
             ]
         )
 
+    def test_attendance_only_test_is_tagged_in_participation(self) -> None:
+        """A test class with no answers still shows as TEST, not the next real slot."""
+        test = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"]), is_test=True
+        )
+        self.school.set_live_session_teacher_state(
+            int(test["id"]), live_module="M2", live_slot="C3"
+        )
+        self.school.begin_or_resume_live_game(self.class_id)
+        self.school.finish_live_class(
+            self.class_id,
+            save_attendance=True,
+            save_participation=True,
+            celebrate=True,
+            live_run=True,
+        )
+        grid = self.school.participation_week_grid(self.class_id)
+        tagged = [
+            column
+            for band in (grid.get("module_bands") or {}).get("bands") or []
+            for column in band.get("columns") or []
+            if column.get("is_test")
+        ]
+        self.assertEqual(len(tagged), 1)
+        self.assertEqual(tagged[0]["module"], "M2")
+        self.assertEqual(tagged[0]["slot"], "C3")
+        self.assertEqual(int(tagged[0]["live_session_id"]), int(test["id"]))
+        current = (grid.get("module_bands") or {}).get("current_module")
+        self.assertNotEqual(current, "M2")
+
     def test_start_wipe_keeps_the_other_kind(self) -> None:
         live = self.school.start_live_class_session(
             self.class_id, int(self.teacher["id"]), is_test=False

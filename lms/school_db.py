@@ -41409,7 +41409,9 @@ class SchoolDB(LovesDB):
         dash = self.game.dashboard(
             class_id, sort=sort, include_test_students=include_test_students
         )
-        session_meta = self.participation_session_meta(class_id)
+        session_meta = self._annotate_test_participation_meta(
+            class_id, self.participation_session_meta(class_id)
+        )
         dash = self._apply_participation_tab_dashboard(class_id, dash, session_meta)
         session_meta = self._participation_schedule_labels(
             class_id, dash.get("sessions") or [], session_meta
@@ -41436,6 +41438,119 @@ class SchoolDB(LovesDB):
         payload["module_bands"] = self.participation_module_bands(class_id, payload)
         payload["ok"] = True
         return payload
+
+    def _annotate_test_participation_meta(
+        self, class_id: int, session_meta: dict[str, dict[str, Any]]
+    ) -> dict[str, dict[str, Any]]:
+        """Flag tracker columns that belong to a test live class.
+
+        A test class still saves an attendance column when nobody answered
+        a question, so there is no participation credit to join. The
+        Participation table needs that column marked ``is_test`` with the
+        lesson the teacher set, and the module rollup skips it.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            session_meta: Credit-join metadata keyed by tracker session id.
+
+        Returns:
+            A copy of ``session_meta`` with test columns filled in.
+        """
+        meta = {str(key): dict(info) for key, info in (session_meta or {}).items()}
+        for tracker_id, detail in self._test_tracker_display(int(class_id)).items():
+            info = meta.get(str(tracker_id)) or {}
+            info["is_test"] = True
+            live_id = detail.get("live_session_id")
+            if live_id not in (None, ""):
+                info["live_session_id"] = int(live_id)
+            module = str(detail.get("live_module") or "").strip()
+            slot = str(detail.get("live_slot") or "").strip()
+            if module and not str(info.get("live_module") or "").strip():
+                info["live_module"] = module
+                info["live_slot"] = slot
+            ended = str(detail.get("ended_at") or "").strip()
+            if ended and not str(info.get("ended_at") or "").strip():
+                info["ended_at"] = ended
+            info["class_ended"] = True
+            meta[str(tracker_id)] = info
+        return meta
+
+    def _test_tracker_display(self, class_id: int) -> dict[int, dict[str, Any]]:
+        """Lesson label for each tracker column written by a test class.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            Tracker ``sessions.id`` → module, slot, live session id, ended_at.
+        """
+        slides: dict[int, dict[str, Any]] = {}
+        sessions: list[Any] = []
+        with self._lock:
+            sessions = self.conn.execute(
+                """
+                SELECT id, run_key, mgs_session_id, ended_at, teacher_state_json
+                FROM live_class_sessions
+                WHERE class_id = ? AND COALESCE(is_test, 0) = 1
+                """,
+                (int(class_id),),
+            ).fetchall()
+            for row in self.conn.execute(
+                """
+                SELECT live_session_id, live_module, live_slot, ended_at
+                FROM lesson_slides_latest
+                WHERE class_id = ? AND COALESCE(is_test, 0) = 1
+                """,
+                (int(class_id),),
+            ):
+                if row["live_session_id"] in (None, ""):
+                    continue
+                slides[int(row["live_session_id"])] = {
+                    "live_module": str(row["live_module"] or ""),
+                    "live_slot": str(row["live_slot"] or ""),
+                    "ended_at": str(row["ended_at"] or ""),
+                }
+        by_key: dict[str, dict[str, Any]] = {}
+        out: dict[int, dict[str, Any]] = {}
+        for row in sessions:
+            teacher: dict[str, Any] = {}
+            try:
+                parsed = json.loads(row["teacher_state_json"] or "{}")
+                if isinstance(parsed, dict):
+                    teacher = parsed
+            except (TypeError, ValueError):
+                teacher = {}
+            slide = slides.get(int(row["id"])) or {}
+            detail = {
+                "live_session_id": int(row["id"]),
+                "live_module": str(
+                    slide.get("live_module") or teacher.get("live_module") or ""
+                ).strip(),
+                "live_slot": str(
+                    slide.get("live_slot") or teacher.get("live_slot") or ""
+                ).strip(),
+                "ended_at": str(row["ended_at"] or slide.get("ended_at") or ""),
+            }
+            key = str(row["run_key"] or "").strip()
+            if key:
+                by_key[key] = detail
+            if row["mgs_session_id"] not in (None, ""):
+                out[int(row["mgs_session_id"])] = detail
+        if by_key and getattr(self, "game", None) is not None:
+            placeholders = ",".join("?" * len(by_key))
+            with self.game._lock:
+                credits = self.game.conn.execute(
+                    f"""
+                    SELECT session_id, run_key FROM live_participation_credits
+                    WHERE run_key IN ({placeholders})
+                    """,
+                    list(by_key),
+                ).fetchall()
+            for credit in credits:
+                detail = by_key.get(str(credit["run_key"] or ""))
+                if detail is not None:
+                    out[int(credit["session_id"])] = detail
+        return out
 
     def _participation_schedule_labels(
         self,
