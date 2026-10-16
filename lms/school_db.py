@@ -30072,14 +30072,60 @@ class SchoolDB(LovesDB):
         reply["teacher_ops"] = list(teacher.get("ops") or [])
         return _with_formative(reply)
 
+    def _open_game_team_sort_orders(self, class_id: int) -> dict[int, int]:
+        """Map ``game_teams.id`` to ``sort_order`` for the open game.
+
+        ``0`` is the first named team and is included. Colour slots read
+        this value. After board keys become ``team:<sort_order>``, the
+        roster loader should filter on it instead of the team id.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        try:
+            game = self.game._game_row(int(class_id))
+        except (KeyError, sqlite3.Error, AttributeError, TypeError, ValueError):
+            return {}
+        try:
+            game_id = int(game["id"])
+        except (KeyError, TypeError, ValueError):
+            return {}
+        try:
+            fetched = self.game.conn.execute(
+                """
+                SELECT id, sort_order FROM game_teams
+                WHERE game_id = ?
+                """,
+                (game_id,),
+            ).fetchall()
+        except sqlite3.Error:
+            return {}
+        out: dict[int, int] = {}
+        for row in fetched:
+            order = row["sort_order"]
+            if order is None:
+                continue
+            try:
+                out[int(row["id"])] = int(order)
+            except (TypeError, ValueError):
+                continue
+        return out
+
     def list_live_session_team_members(
-        self, session_id: int, team_id: int | None
+        self, session_id: int, team_sort_order: int | None
     ) -> list[dict[str, Any]]:
-        """Roster rows on one team in live-session join order.
+        """Roster rows in live-session join order, optionally one board.
+
+        ``team_sort_order`` None returns every joined student. Any other
+        value, including ``0`` (``team:0``), returns only students on that
+        board. The order is the ``live_board_assignments`` pin when one
+        exists, otherwise the open game team's sort order. Callers must
+        pass None for the whole session; do not use ``or`` (``0`` is valid).
 
         Args:
             session_id: ``live_class_sessions.id``.
-            team_id: Game-show team id, or None to include all joined students.
+            team_sort_order: ``team:<sort_order>`` suffix, or None for
+                every joined student.
         """
         session_row = self.get_live_session(int(session_id))
         if session_row is None:
@@ -30091,28 +30137,172 @@ class SchoolDB(LovesDB):
             if isinstance(index, dict)
             else None
         ) or {}
+        sort_orders = self._open_game_team_sort_orders(class_id)
+        try:
+            from live_board_assignments import assignment_sort_orders
+        except ImportError:
+            from lms.live_board_assignments import assignment_sort_orders
+
+        try:
+            run_key = self.live_board_run_key(int(session_id))
+        except KeyError:
+            run_key = ""
+        assigned = (
+            assignment_sort_orders(
+                self.conn, class_id=class_id, run_key=run_key
+            )
+            if run_key
+            else {}
+        )
+
+        def order_for(student_id: int) -> int | None:
+            """Board sort order for one student, keeping ``0``.
+
+            Args:
+                student_id: Roster id.
+            """
+            if student_id in assigned:
+                return int(assigned[student_id])
+            raw_team = by_student.get(student_id)
+            if raw_team is None or raw_team == "":
+                return None
+            try:
+                team_id = int(raw_team)
+            except (TypeError, ValueError):
+                return None
+            if team_id not in sort_orders:
+                return None
+            return int(sort_orders[team_id])
+
+        scoped_ids: list[int] | None = None
+        if team_sort_order is not None:
+            want = int(team_sort_order)
+            known: set[int] = set()
+            for sid in assigned:
+                try:
+                    known.add(int(sid))
+                except (TypeError, ValueError):
+                    continue
+            for sid in by_student:
+                if sid is None or sid == "":
+                    continue
+                try:
+                    known.add(int(sid))
+                except (TypeError, ValueError):
+                    continue
+            scoped_ids = [
+                sid for sid in known if order_for(sid) is not None and order_for(sid) == want
+            ]
+            if not scoped_ids:
+                return []
         with self._lock:
-            rows = self.conn.execute(
-                """
-                SELECT student_id, codename, joined_at, left_at
-                FROM live_session_attendees
-                WHERE live_session_id = ?
-                  AND student_id IS NOT NULL
-                ORDER BY joined_at ASC, id ASC
-                """,
-                (int(session_id),),
-            ).fetchall()
+            if scoped_ids is None:
+                rows = self.conn.execute(
+                    """
+                    SELECT student_id, codename, joined_at, left_at
+                    FROM live_session_attendees
+                    WHERE live_session_id = ?
+                      AND student_id IS NOT NULL
+                    ORDER BY joined_at ASC, id ASC
+                    """,
+                    (int(session_id),),
+                ).fetchall()
+            else:
+                marks = ",".join("?" for _ in scoped_ids)
+                rows = self.conn.execute(
+                    f"""
+                    SELECT student_id, codename, joined_at, left_at
+                    FROM live_session_attendees
+                    WHERE live_session_id = ?
+                      AND student_id IN ({marks})
+                    ORDER BY joined_at ASC, id ASC
+                    """,
+                    (int(session_id), *scoped_ids),
+                ).fetchall()
         out: list[dict[str, Any]] = []
         for row in rows:
             sid = int(row["student_id"])
-            if team_id not in (None, ""):
-                if int(by_student.get(sid) or -1) != int(team_id):
-                    continue
+            raw_team = by_student.get(sid)
+            if raw_team is None or raw_team == "":
+                row_team = None
+            else:
+                try:
+                    row_team = int(raw_team)
+                except (TypeError, ValueError):
+                    row_team = None
+            order = order_for(sid)
+            if team_sort_order is not None and (
+                order is None or order != int(team_sort_order)
+            ):
+                continue
+            payload: dict[str, Any] = {
+                "student_id": sid,
+                "codename": str(row["codename"] or ""),
+                "name": str(row["codename"] or ""),
+                "left_at": row["left_at"],
+                "team_id": row_team,
+            }
+            if order is not None:
+                payload["team_sort_order"] = order
+            out.append(payload)
+        return out
+
+    def _formative_assignment_fingerprint_rows(
+        self, session_id: int, team_sort_order: int | None
+    ) -> list[dict[str, Any]]:
+        """Leave-fingerprint rows from ``live_board_assignments``.
+
+        ``team_sort_order`` None is the teacher legend (every assignment
+        on the run). ``0`` is ``team:0``. ``left_at`` is joined from the
+        live attendee so a leave changes ``formative_membership_token``.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            team_sort_order: Board suffix, or None for every team on the run.
+        """
+        session_row = self.get_live_session(int(session_id))
+        if session_row is None:
+            return []
+        class_id = int(session_row["class_id"])
+        try:
+            run_key = self.live_board_run_key(int(session_id))
+        except KeyError:
+            return []
+        params: list[Any] = [int(session_id), class_id, run_key]
+        scope = ""
+        if team_sort_order is not None:
+            scope = " AND a.team_sort_order = ?"
+            params.append(int(team_sort_order))
+        try:
+            with self._lock:
+                fetched = self.conn.execute(
+                    f"""
+                    SELECT a.student_id, a.team_sort_order, att.left_at
+                    FROM live_board_assignments a
+                    LEFT JOIN live_session_attendees att
+                      ON att.live_session_id = ?
+                     AND att.student_id = a.student_id
+                    WHERE a.class_id = ? AND a.run_key = ?{scope}
+                    ORDER BY att.joined_at ASC, a.student_id ASC
+                    """,
+                    tuple(params),
+                ).fetchall()
+        except sqlite3.Error:
+            return []
+        out: list[dict[str, Any]] = []
+        for row in fetched:
+            raw_order = row["team_sort_order"]
+            if raw_order is None:
+                continue
+            try:
+                sort_order = int(raw_order)
+                sid = int(row["student_id"])
+            except (TypeError, ValueError):
+                continue
             out.append(
                 {
                     "student_id": sid,
-                    "codename": str(row["codename"] or ""),
-                    "name": str(row["codename"] or ""),
+                    "team_sort_order": sort_order,
                     "left_at": row["left_at"],
                 }
             )
@@ -30125,57 +30315,52 @@ class SchoolDB(LovesDB):
         board_key: str,
         student_id: int | None,
         as_teacher: bool,
+        rows: list[dict[str, Any]] | None = None,
     ) -> str:
-        """Fingerprint team roster rows for formative meta caching.
+        """Fingerprint one board from ``live_board_assignments``.
+
+        A ``team:<sort_order>`` board, including ``team:0``, fingerprints
+        that sort order only. The teacher board has no suffix and covers
+        every assignment on the run so a leave drops that student from
+        the legend. Tokens go through ``formative_membership_token``.
+        ``rows`` is unused; the assignment table is the source.
 
         Args:
             session_id: ``live_class_sessions.id``.
             board_key: Board key being read.
             student_id: Viewer roster id when a student.
-            as_teacher: Staff viewer.
+            as_teacher: Staff viewer. The board key chooses the scope.
+            rows: Ignored. Kept so poll callers can stay stable.
 
         Returns:
-            Stable string that changes when join order or ``left_at`` changes.
+            Stable string that changes when a pinned student leaves.
         """
-        key = str(board_key or "")
-        team_sort_order: int | None = None
-        if key.startswith("team:"):
-            try:
-                team_sort_order = int(key.split(":", 1)[1])
-            except (TypeError, ValueError):
-                team_sort_order = None
-        elif student_id not in (None, ""):
-            class_row = self.get_live_session(int(session_id))
-            if class_row:
-                class_id = int(class_row["class_id"])
-                run_key = self.live_board_run_key(int(session_id))
-                from live_board_assignments import assignment_sort_order
-
-                pinned = assignment_sort_order(
-                    self.conn,
-                    class_id=class_id,
-                    run_key=run_key,
-                    student_id=int(student_id),
-                )
-                if pinned is not None:
-                    team_sort_order = pinned
-                else:
-                    team_id = self.student_team_id_for_class(class_id, int(student_id))
-                    if team_id is not None:
-                        team_sort_order = self._team_sort_order_for_team_id(
-                            class_id, int(team_id)
-                        )
-        if team_sort_order is None:
-            return ""
+        del as_teacher, rows
         try:
-            from whiteboard_formative import _members_for_team_sort_order
+            from whiteboard_formative import (
+                formative_board_bucket,
+                formative_membership_token,
+                resolve_formative_bucket,
+            )
         except ImportError:
-            from lms.whiteboard_formative import _members_for_team_sort_order
+            from lms.whiteboard_formative import (
+                formative_board_bucket,
+                formative_membership_token,
+                resolve_formative_bucket,
+            )
 
-        rows = _members_for_team_sort_order(self, int(session_id), int(team_sort_order))
-        return "|".join(
-            f"{row.get('student_id')}:{row.get('left_at') or ''}" for row in rows
+        team_sort_order = formative_board_bucket(str(board_key or ""))
+        if team_sort_order is None and str(board_key or "") != "teacher":
+            team_sort_order = resolve_formative_bucket(
+                self,
+                int(session_id),
+                board_key=str(board_key or ""),
+                student_id=student_id,
+            )
+        assignment_rows = self._formative_assignment_fingerprint_rows(
+            int(session_id), team_sort_order
         )
+        return "|".join(formative_membership_token(row) for row in assignment_rows)
 
     def _cached_formative_board_meta(
         self,
@@ -30190,13 +30375,26 @@ class SchoolDB(LovesDB):
         if cache is None:
             cache = {}
             self._formative_board_meta_cache = cache
+        try:
+            from whiteboard_formative import resolve_formative_bucket
+        except ImportError:
+            from lms.whiteboard_formative import resolve_formative_bucket
+
         teacher = self.live_session_teacher_state_payload(int(session_id))
         state_seq = int(teacher.get("state_seq") or 0)
+        bucket = resolve_formative_bucket(
+            self,
+            int(session_id),
+            board_key=str(board_key),
+            student_id=student_id,
+        )
+        rows = self.list_live_session_team_members(int(session_id), bucket)
         membership_sig = self._formative_membership_sig(
             int(session_id),
             board_key=str(board_key),
             student_id=student_id,
             as_teacher=as_teacher,
+            rows=rows,
         )
         cache_key = (
             int(session_id),
@@ -30213,6 +30411,8 @@ class SchoolDB(LovesDB):
             board_key=str(board_key),
             student_id=student_id,
             as_teacher=as_teacher,
+            member_rows=rows,
+            bucket=bucket,
         )
         cache[cache_key] = meta
         if len(cache) > 64:
@@ -30226,8 +30426,19 @@ class SchoolDB(LovesDB):
         board_key: str,
         student_id: int | None,
         as_teacher: bool,
+        member_rows: list[dict[str, Any]] | None = None,
+        bucket: int | None = None,
     ) -> dict[str, Any] | None:
-        """Formative whiteboard payload for one board read, when enabled."""
+        """Formative whiteboard payload for one board read, when enabled.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            board_key: Canonical board key being read.
+            student_id: Viewer roster id when a student.
+            as_teacher: Staff viewer.
+            member_rows: Roster rows already loaded for this board.
+            bucket: ``team:<n>`` suffix matching those rows.
+        """
         try:
             from whiteboard_formative import formative_meta_for_board
         except ImportError:
@@ -30239,6 +30450,8 @@ class SchoolDB(LovesDB):
             student_id=student_id,
             as_teacher=as_teacher,
             board_key=board_key,
+            member_rows=member_rows,
+            bucket=bucket,
         )
 
     @staticmethod

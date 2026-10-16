@@ -1,4 +1,4 @@
-import { wireFormativeWhiteboard, colorForOwner } from "./whiteboard_formative.js";
+import { wireFormativeWhiteboard, colorForOwner, cursorChipInkStyle } from "./whiteboard_formative.js";
 
 /**
  * Live whiteboard: draw, undo, redo, erase, and a Text tool.
@@ -932,7 +932,7 @@ export function bindWhiteboard(canvas, opts = {}) {
         const tint = String(row.color || "#0b3d91").replace(/[<>"']/g, "");
         const left = Math.round(Number(row.x) * 1000) / 10;
         const top = Math.round(Number(row.y) * 1000) / 10;
-        return `<span class="canvas-cursor-chip" style="left:${left}%;top:${top}%;color:${tint}">${name}</span>`;
+        return `<span class="canvas-cursor-chip" style="left:${left}%;top:${top}%;${cursorChipInkStyle(tint)}">${name}</span>`;
       })
       .join("");
   };
