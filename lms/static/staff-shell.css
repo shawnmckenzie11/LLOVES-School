@@ -7926,39 +7926,8 @@ body.staff-shell .staff-help-item:focus-visible {
   background: #eef6f5;
   color: #0b5f59;
 }
-body.staff-shell .onb-tour {
-  position: fixed;
-  right: 1rem;
-  bottom: 1rem;
-  z-index: 60;
-  box-sizing: border-box;
-  width: min(26rem, calc(100vw - 2rem));
-  padding: 1rem 1.1rem 0.85rem;
-  background: #fff;
-  color: #12202e;
-  border: 1px solid #334155;
-  border-radius: 12px;
-  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.32);
-  font-family: "Segoe UI", system-ui, sans-serif;
-}
-body.staff-shell .onb-tour[hidden] { display: none; }
-body.staff-shell .onb-tour-step p { margin: 0 0 0.75rem; line-height: 1.45; }
-body.staff-shell .onb-tour-nav {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-body.staff-shell .onb-tour-nav [hidden] { display: none; }
-body.staff-shell .onb-tour-skip {
-  margin-right: auto;
-  border: 0;
-  background: transparent;
-  color: #475569;
-  text-decoration: underline;
-  cursor: pointer;
-  font: inherit;
-}
-body.staff-shell .onb-tour-count,
+/* MCK-267: the page dims, the real control gets a white and amber ring,
+   and the tip sits beside it. Under 1024px the dim stays off. */
 body.staff-shell .visually-hidden {
   position: absolute;
   width: 1px;
@@ -7967,57 +7936,182 @@ body.staff-shell .visually-hidden {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
-body.staff-shell .onb-tour-target {
-  outline: 3px solid #0b5f59;
-  outline-offset: 3px;
-  border-radius: 10px;
-}
-body.staff-shell .onb-inset {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0 0 0.75rem;
-  padding: 0.6rem;
-  background: #f7f9fb;
-  border: 1px dashed #c5d0dc;
-  border-radius: 8px;
-  font-size: 0.85rem;
+body.staff-shell .onb-tour {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
   pointer-events: none;
 }
-body.staff-shell .onb-inset-board {
+body.staff-shell .onb-tour[hidden] { display: none; }
+body.staff-shell .onb-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 28, 56, 0.72);
+  pointer-events: auto;
+}
+body.staff-shell .onb-pop {
+  position: fixed;
+  z-index: 84;
+  box-sizing: border-box;
+  width: min(22rem, calc(100vw - 1.5rem));
+  padding: 0.9rem 1rem 0.75rem;
+  background: #fff;
+  color: #12202e;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.32);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  pointer-events: auto;
+}
+body.staff-shell .onb-pop[hidden] { display: none; }
+body.staff-shell .onb-pop-center {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+body.staff-shell .onb-pop-count {
+  margin: 0 0 0.35rem;
+  color: #475569;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+body.staff-shell .onb-pop-copy {
+  margin: 0 0 0.85rem;
+  line-height: 1.45;
+}
+body.staff-shell .onb-pop-copy b { font-weight: 750; }
+body.staff-shell .onb-pop-actions {
   display: flex;
-  flex-direction: column;
-  padding: 0.4rem 0.6rem;
+  align-items: center;
+  gap: 0.75rem;
+}
+body.staff-shell .onb-tour-skip {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: #475569;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+body.staff-shell .onb-spotlight {
+  position: relative;
+  z-index: 82;
+  border-radius: 10px;
+  box-shadow: 0 0 0 3px #fff, 0 0 0 6px #d97706;
+}
+body.staff-shell .onb-spotlight.is-pulse {
+  animation: onb-pulse 0.7s ease 2;
+}
+@keyframes onb-pulse {
+  50% { box-shadow: 0 0 0 3px #fff, 0 0 0 12px rgba(217, 119, 6, 0.45); }
+}
+body.staff-shell .onb-check {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 85;
+  box-sizing: border-box;
+  width: 320px;
+  max-width: calc(100vw - 2rem);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  color: #12202e;
+}
+body.staff-shell .onb-check[hidden] { display: none; }
+body.staff-shell .onb-check-card {
+  padding: 0.85rem 0.9rem 0.7rem;
+  background: #fff;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.28);
+}
+body.staff-shell .onb-check-card[hidden] { display: none; }
+body.staff-shell .onb-check-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+body.staff-shell .onb-check-head h2 {
+  margin: 0;
+  flex: 1;
+  font-size: 1rem;
+}
+body.staff-shell .onb-check-head button,
+body.staff-shell .onb-check-pill button {
+  border: 0;
+  background: transparent;
+  color: #12202e;
+  font: inherit;
+  cursor: pointer;
+}
+body.staff-shell .onb-check-bar {
+  height: 6px;
+  margin: 0.55rem 0 0.45rem;
+  background: #e2e8f0;
+  border-radius: 99px;
+  overflow: hidden;
+}
+body.staff-shell .onb-check-bar > span,
+body.staff-shell .onb-check-bar [data-check-fill] {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: #0b5f59;
+}
+body.staff-shell .onb-check-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+body.staff-shell .onb-check-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.45rem;
+  border-radius: 8px;
+}
+body.staff-shell .onb-check-list li.is-next { background: #fff7ed; }
+body.staff-shell .onb-check-list li.is-done { color: #64748b; }
+body.staff-shell .onb-check-list li.is-done::before { content: "✓ "; color: #0b5f59; }
+body.staff-shell .onb-check-list [hidden] { display: none; }
+body.staff-shell .onb-check-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  width: fit-content;
+  margin-left: auto;
+  padding: 0.15rem 0.35rem 0.15rem 0.85rem;
+  background: #fff;
+  border: 1px solid #334155;
+  border-radius: 999px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
+}
+body.staff-shell .onb-check-pill[hidden] { display: none; }
+body.staff-shell .onb-toast {
+  position: fixed;
+  right: 1rem;
+  bottom: 5.5rem;
+  z-index: 86;
+  box-sizing: border-box;
+  width: 320px;
+  max-width: calc(100vw - 2rem);
+  margin: 0;
+  padding: 0.75rem 0.9rem;
   background: #12202e;
   color: #fff;
-  border-radius: 6px;
-}
-body.staff-shell .onb-inset-board b { font-size: 1.1rem; letter-spacing: 0.08em; }
-body.staff-shell .onb-inset-phone {
-  display: grid;
-  gap: 0.2rem;
-  padding: 0.4rem 0.55rem;
-  background: #fff;
-  border: 1px solid #c5d0dc;
   border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.28);
 }
-body.staff-shell .onb-inset-label { color: #475569; font-size: 0.75rem; }
-body.staff-shell .onb-inset-field,
-body.staff-shell .onb-inset-row,
-body.staff-shell .onb-inset-check {
-  padding: 0.2rem 0.4rem;
-  background: #fff;
-  border: 1px solid #d5dde6;
-  border-radius: 5px;
-}
-body.staff-shell .onb-inset-check::before { content: "\2611  "; }
-body.staff-shell .onb-inset-btn {
-  padding: 0.25rem 0.6rem;
-  background: #0b5f59;
-  color: #fff;
-  border-radius: 6px;
-  font-weight: 650;
+body.staff-shell .onb-toast[hidden] { display: none; }
+@media (max-width: 1023px) {
+  body.staff-shell .onb-tour { display: none !important; }
+  body.staff-shell .onb-spotlight {
+    position: static;
+    z-index: auto;
+    box-shadow: none;
+    animation: none;
+  }
 }
 body.staff-shell .onb-done {
   position: fixed;
@@ -8044,7 +8138,6 @@ body.staff-shell .onb-done-card {
 }
 body.staff-shell .onb-done-card h2 { margin: 0 0 0.5rem; font-size: 1.2rem; }
 body.staff-shell .onb-done-actions { display: flex; justify-content: flex-end; }
-body.staff-shell.course-live .onb-tour,
 body.staff-shell.course-live .onb-done { display: none !important; }
 
 /* MCK-183 slice E: pack-less non-math courses hide Module / Live class
