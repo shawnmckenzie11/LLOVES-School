@@ -11138,7 +11138,11 @@ class SchoolDB(LovesDB):
             existing_seed = self.get_class_live_deck_seed(
                 int(class_id), module_key, slot_key
             )
-            if existing_seed is not None and not int(existing_seed.get("is_test") or 0):
+            live_sid = int(active_live["id"]) if active_live else 0
+            if (
+                existing_seed is not None
+                and int(existing_seed.get("source_live_session_id") or 0) == live_sid
+            ):
                 return
         if (
             require_replace_confirm

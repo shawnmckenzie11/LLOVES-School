@@ -1561,6 +1561,74 @@ body.staff-shell .set-class-run-kind-option {
   margin-right: 0.8rem;
   font-weight: 600;
 }
+body.staff-shell .staff-info-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  margin-left: 0.15rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  vertical-align: middle;
+}
+body.staff-shell .staff-info-trigger:hover,
+body.staff-shell .staff-info-trigger[aria-expanded="true"] {
+  color: #64748b;
+}
+body.staff-shell .staff-info-popover {
+  position: fixed;
+  z-index: 1200;
+  width: min(280px, calc(100vw - 1.5rem));
+  padding: 0.75rem 0.85rem 0.85rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.14);
+  color: #334155;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+body.staff-shell .staff-info-popover[hidden] {
+  display: none !important;
+}
+body.staff-shell .staff-info-popover h3 {
+  margin: 0 1.5rem 0.45rem 0;
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+body.staff-shell .staff-info-popover p {
+  margin: 0 0 0.55rem;
+}
+body.staff-shell .staff-info-popover p:last-child {
+  margin-bottom: 0;
+}
+body.staff-shell .staff-info-popover-close {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.4rem;
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+}
+body.staff-shell .ap-not-counted-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+}
+body.staff-shell .end-live-dialog .btn-danger {
+  background: #b91c1c;
+  color: #fff;
+  border: 0;
+}
 body.staff-shell .ap-test-divider,
 body.staff-shell .ap-test-divider-cell {
   width: 0.55rem;

@@ -35,6 +35,7 @@ import {
   syncOverlayPickers,
 } from "/static/ap_calendar.js";
 import { nameWithMood } from "/static/mood_faces.js";
+import { bindStaffInfoPopovers } from "/static/staff_info_popover.js";
 import {
   bindWhiteboard,
   boardWriteRejected,
@@ -939,10 +940,22 @@ async function refreshDeckSeedOptions() {
  * @returns {Promise<void>}
  */
 async function applyDeckSeedChoice() {
+  const pack = selectedSetClassPack();
   if (selectedRunKind() === "test") {
+    await api(
+      `/api/staff/class/${classId}/live-lessons/${pack.module}/${pack.slot}/deck-seed`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          mode: "course",
+          source_module: pack.module,
+          source_slot: pack.slot,
+          replace: true,
+        }),
+      }
+    );
     return;
   }
-  const pack = selectedSetClassPack();
   const selected = document.querySelector('input[name="live-deck-seed"]:checked');
   const mode = deckSeedConfirmMode({
     selected: String(selected?.value || deckSeedMode || "current"),
@@ -8583,14 +8596,25 @@ function syncSetClassRunKindUi() {
   if (test && setClassKind === "office") {
     chooseSetClassKind("live");
   }
-  kindWrap?.classList.toggle("is-test-run", test);
-  deckSeed?.toggleAttribute("hidden", test);
+  if (kindWrap instanceof HTMLElement) {
+    kindWrap.classList.toggle("is-test-run", test);
+  }
+  if (deckSeed instanceof HTMLElement) {
+    if (test) deckSeed.setAttribute("hidden", "");
+    else deckSeed.removeAttribute("hidden");
+  }
   if (test) {
     $("live-deck-copy-from-field")?.setAttribute("hidden", "");
     $("live-deck-seed-picker")?.setAttribute("hidden", "");
   }
-  testDeckNote?.toggleAttribute("hidden", !test);
-  runNote?.toggleAttribute("hidden", test);
+  if (testDeckNote instanceof HTMLElement) {
+    if (test) testDeckNote.removeAttribute("hidden");
+    else testDeckNote.setAttribute("hidden", "");
+  }
+  if (runNote instanceof HTMLElement) {
+    if (test) runNote.setAttribute("hidden", "");
+    else runNote.removeAttribute("hidden");
+  }
   if (test) {
     showValidateGrid(gridSelectedIso($("ap-day-grid")) || String($("ap-valid-date")?.value || ""));
   }
@@ -12328,6 +12352,7 @@ document.querySelectorAll('input[name="set-class-run-kind"]').forEach((input) =>
   });
 });
 syncSetClassRunKindUi();
+bindStaffInfoPopovers();
 loadSetClassSlides().catch(() => {});
 
 /**

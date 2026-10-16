@@ -303,12 +303,117 @@ class TestLiveClassTests(Base):
         self.assertIsNone(self.school.get_live_session(int(test["id"])))
         self.assertIsNotNone(self.school.get_live_session(int(fresh_live["id"])))
 
+    def test_catchup_answers_stay_on_test_run_key(self) -> None:
+        """Catch-up answers for a test class credit only that test run_key."""
+        real = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"]), is_test=False
+        )
+        self._publish_one_answer(int(real["id"]), "M1", "C1")
+        self.school.finish_live_class(
+            self.class_id,
+            save_attendance=True,
+            save_participation=True,
+            celebrate=True,
+            live_run=True,
+        )
+        before = self._snapshot()
+
+        test = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"]), is_test=True
+        )
+        self._publish_one_answer(int(test["id"]), "M2", "C2")
+        self.school.finish_live_class(
+            self.class_id,
+            save_attendance=True,
+            save_participation=True,
+            celebrate=True,
+            live_run=True,
+        )
+        test_row = self.school.conn.execute(
+            "SELECT run_key FROM live_class_sessions WHERE id = ?",
+            (int(test["id"]),),
+        ).fetchone()
+        link = self.school.conn.execute(
+            """
+            SELECT token, run_key, live_session_id FROM catchup_links
+            WHERE live_session_id = ? AND COALESCE(is_test, 0) = 1
+            """,
+            (int(test["id"]),),
+        ).fetchone()
+        self.assertIsNotNone(link)
+        self.assertEqual(str(link["run_key"]), str(test_row["run_key"]))
+        self.assertEqual(int(link["live_session_id"]), int(test["id"]))
+        live_answer = self.school.conn.execute(
+            """
+            SELECT run_key, source, question_key FROM participation_answers
+            WHERE class_id = ? AND run_key = ? AND source = 'live'
+            ORDER BY id DESC LIMIT 1
+            """,
+            (self.class_id, str(test_row["run_key"])),
+        ).fetchone()
+        self.assertIsNotNone(live_answer)
+        qkey = str(live_answer["question_key"])
+        allowed = {
+            q["question_key"]
+            for q in self.school.catchup_questions(
+                str(link["token"]), int(self.students[0])
+            )
+            if not q["answered"]
+        }
+        if qkey in allowed:
+            self.assertTrue(
+                self.school.submit_catchup_answer(
+                    str(link["token"]), int(self.students[0]), qkey, "A"
+                )
+            )
+            catchup_answer = self.school.conn.execute(
+                """
+                SELECT run_key FROM participation_answers
+                WHERE class_id = ? AND run_key = ? AND source = 'catchup'
+                  AND question_key = ?
+                """,
+                (self.class_id, str(test_row["run_key"]), qkey),
+            ).fetchone()
+            self.assertIsNotNone(catchup_answer)
+        self.assertEqual(self._snapshot(), before)
+
+    def test_delete_test_disables_catchup_immediately(self) -> None:
+        """Deleting a test class removes the link so catch-up cannot resolve."""
+        test = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"]), is_test=True
+        )
+        self._publish_one_answer(int(test["id"]), "M1", "C2")
+        self.school.finish_live_class(
+            self.class_id,
+            save_attendance=True,
+            save_participation=True,
+            celebrate=True,
+            live_run=True,
+        )
+        link = self.school.conn.execute(
+            """
+            SELECT token FROM catchup_links
+            WHERE live_session_id = ? AND COALESCE(is_test, 0) = 1
+            """,
+            (int(test["id"]),),
+        ).fetchone()
+        self.assertIsNotNone(link)
+        token = str(link["token"])
+        self.assertIsNotNone(self.school.resolve_catchup_link(token))
+        self.school.delete_test_live_class(self.class_id, int(test["id"]))
+        self.assertIsNone(self.school.resolve_catchup_link(token))
+        with self.assertRaises(PermissionError):
+            self.school.submit_catchup_answer(
+                token, int(self.students[0]), "item:M1-q0", "A"
+            )
+
     def test_course_page_picks_test_at_the_start(self) -> None:
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         body = page.get_data(as_text=True)
         self.assertIn('name="set-class-run-kind"', body)
         self.assertNotIn('name="run_mode"', body)
-        self.assertIn("Delete test class", body)
+        self.assertIn("Delete this test class?", body)
+        self.assertIn("info-popover-test-run-kind", body)
         self.assertIn('name="save_attendance"', body)
         self.assertIn('name="save_participation"', body)
 

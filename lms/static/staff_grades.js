@@ -1,5 +1,6 @@
 import { api, escapeHtml, formatPoints, hideError, showError } from "/static/common.js";
 import { deleteTestClass } from "/static/staff_test_class.js";
+import { bindStaffInfoPopovers, staffInfoTriggerHtml } from "/static/staff_info_popover.js";
 
 const root = document.getElementById("grades-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -474,7 +475,7 @@ function renderSheet(data) {
       head += `<th class="ap-class-col is-test-run">
         <span class="ap-class-label">${escapeHtml(label)}</span>
         <span class="badge-test-run">TEST</span>
-        <span class="ap-not-counted">not counted</span>
+        <span class="ap-not-counted-wrap"><span class="ap-not-counted">not counted</span>${staffInfoTriggerHtml("info-popover-participation-test-col", "Test class column help")}</span>
       </th>`;
     }
   }
@@ -626,4 +627,5 @@ root?.addEventListener("click", async (event) => {
   if (latest) paint(latest);
 });
 
+bindStaffInfoPopovers();
 refresh().catch((err) => showError("#error", err));
