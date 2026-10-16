@@ -454,7 +454,7 @@ class CatalogTabTests(unittest.TestCase):
         self.assertIn('<option value="warmup">Warmup</option>', html)
         self.assertIn('id="live-bank-search"', html)
         self.assertIn('id="qbank-select-tab"', html)
-        self.assertIn("Select all on this tab", html)
+        self.assertIn("Select all in this module", html)
         self.assertIn('id="qbank-clear-selection"', html)
         self.assertIn(">Clear</button>", html)
         self.assertIn('class="qbank-list"', html)

@@ -738,6 +738,31 @@ def apply_question_editor_save(
     return saved
 
 
+def _unique_planned_questions(
+    planned: list[tuple[int, dict[str, Any]]],
+) -> list[tuple[int, dict[str, Any]]]:
+    """Keep the first row for each question id.
+
+    A bulk remove that lists the same id twice is one delete. Looking the
+    id up again after the first delete would 404 a request that already
+    removed the question.
+
+    Args:
+        planned: Validated ``(question_id, row)`` pairs.
+
+    Returns:
+        Those pairs with later copies of an id dropped.
+    """
+    seen: set[int] = set()
+    unique: list[tuple[int, dict[str, Any]]] = []
+    for question_id, row in planned:
+        if question_id in seen:
+            continue
+        seen.add(question_id)
+        unique.append((question_id, row))
+    return unique
+
+
 def apply_question_bank_bulk(
     school: Any,
     *,
@@ -751,7 +776,8 @@ def apply_question_bank_bulk(
     deletes each question after every row has been checked.
 
     Every row is checked before the first write. A missing question or a
-    bad scope leaves the earlier rows unchanged.
+    bad scope leaves the earlier rows unchanged. Remove drops duplicate
+    question ids, then deletes the rest in one transaction.
 
     Args:
         school: School database.
@@ -788,12 +814,11 @@ def apply_question_bank_bulk(
         for question_id, _row in planned:
             school.set_question_bank_scope(int(library_id), question_id, scope)
     elif action == "remove":
-        for question_id, row in planned:
-            school.delete_library_bank_question(
-                int(library_id),
-                int(row["bank_id"]),
-                question_id,
-            )
+        planned = _unique_planned_questions(planned)
+        school.delete_library_bank_questions(
+            int(library_id),
+            [(int(row["bank_id"]), question_id) for question_id, row in planned],
+        )
     else:
         prepared: list[tuple[int, str, dict[str, Any]]] = []
         kind = body.get("bank_kind", body.get("bankKind"))

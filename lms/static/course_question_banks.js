@@ -433,6 +433,17 @@ function removeConfirmTitle(count) {
 }
 
 /**
+ * Resting heading for the shared remove dialog.
+ *
+ * The question editor opens the same dialog and does not set the heading.
+ * Bulk remove must put this back when the dialog closes.
+ * @returns {string}
+ */
+function defaultRemoveTitle() {
+  return root?.dataset.removeFromBank || "Remove from bank?";
+}
+
+/**
  * Confirm removal, then delete the checked questions in one request.
  * @returns {Promise<void>}
  */
@@ -442,13 +453,15 @@ async function removeSelected() {
   const title = document.getElementById("bank-remove-title");
   if (title) title.textContent = removeConfirmTitle(count);
   const ok = await new Promise((resolve) => {
-    const onClose = () => {
+    const finish = (accepted) => {
       removeDialog.removeEventListener("close", onClose);
-      resolve(removeDialog.returnValue === "ok");
+      if (title) title.textContent = defaultRemoveTitle();
+      resolve(accepted);
     };
+    const onClose = () => finish(removeDialog.returnValue === "ok");
     removeDialog.addEventListener("close", onClose);
     if (typeof removeDialog.showModal === "function") removeDialog.showModal();
-    else resolve(false);
+    else finish(false);
   });
   if (!ok) return;
   await postBulk({ action: "remove" }, "Removed from bank.");

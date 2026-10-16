@@ -12676,6 +12676,49 @@ class SchoolDB(LovesDB):
             )
             self.conn.commit()
 
+    def delete_library_bank_questions(
+        self, library_id: int, rows: list[tuple[int, int]]
+    ) -> None:
+        """Delete every listed question, then commit once.
+
+        Overlay rows cascade with each delete. A failure after any delete
+        rolls the whole batch back, so a partial remove is not saved.
+
+        The school connection is in autocommit mode, so ``Connection.commit``
+        does not finish an explicit ``BEGIN``. This uses SQL ``COMMIT`` and
+        ``ROLLBACK``.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            rows: ``(bank_id, question_id)`` pairs to delete.
+        """
+        with self._lock:
+            started = False
+            try:
+                self.conn.execute("BEGIN IMMEDIATE")
+                started = True
+                for bank_id, question_id in rows:
+                    found = self.conn.execute(
+                        """
+                        SELECT q.id
+                        FROM questions q
+                        JOIN question_banks b ON b.id = q.bank_id
+                        WHERE q.id = ? AND q.bank_id = ? AND b.library_id = ?
+                        """,
+                        (int(question_id), int(bank_id), int(library_id)),
+                    ).fetchone()
+                    if found is None:
+                        raise KeyError(f"question {question_id}")
+                    self.conn.execute(
+                        "DELETE FROM questions WHERE id = ?",
+                        (int(question_id),),
+                    )
+                self.conn.execute("COMMIT")
+            except Exception:
+                if started and self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                raise
+
     def import_mc_to_class_playlist(
         self,
         class_id: int,

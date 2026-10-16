@@ -198,9 +198,96 @@ class QuestionBankGapTests(unittest.TestCase):
         js = (LMS_DIR / "static" / "course_question_banks.js").read_text(encoding="utf-8")
         self.assertIn('n === 1 ? "Remove 1 question?"', js)
         self.assertIn("Remove ${n} questions?", js)
+        self.assertIn("function defaultRemoveTitle()", js)
+        self.assertIn("title.textContent = defaultRemoveTitle()", js)
         self.assertIn('action: "remove"', js)
         self.assertNotIn('method: "DELETE"', js)
         self.assertNotIn("window.confirm(", js)
+
+    def test_bulk_remove_rolls_back_when_a_later_delete_fails(self) -> None:
+        """A delete that fails partway through leaves every question in place."""
+        import sqlite3
+
+        first = self._add_bank(
+            {
+                "bank_scope": "M1",
+                "type": "mc",
+                "stem_text": "mck262rollback first",
+                "options": ["A", "B", "C", "D"],
+                "correct_answer": "A",
+            }
+        )
+        second = self._add_bank(
+            {
+                "bank_scope": "M1",
+                "type": "mc",
+                "stem_text": "mck262rollback second",
+                "options": ["A", "B", "C", "D"],
+                "correct_answer": "B",
+            }
+        )
+        conn = self.school.conn
+        conn.execute("CREATE TEMP TABLE _mck262_fail (n INTEGER)")
+        conn.execute("INSERT INTO _mck262_fail (n) VALUES (0)")
+        conn.execute(
+            """
+            CREATE TEMP TRIGGER _mck262_fail_second BEFORE DELETE ON questions
+            BEGIN
+              UPDATE _mck262_fail SET n = n + 1;
+              SELECT RAISE(ABORT, 'forced failure')
+              WHERE (SELECT n FROM _mck262_fail) >= 2;
+            END
+            """
+        )
+        try:
+            with self.assertRaises(sqlite3.IntegrityError):
+                self.client.post(
+                    f"/api/staff/class/{self.class_id}/question-bank/bulk",
+                    json={
+                        "action": "remove",
+                        "questions": [
+                            {"bank_id": first["bank_id"], "question_id": first["id"]},
+                            {"bank_id": second["bank_id"], "question_id": second["id"]},
+                        ],
+                    },
+                )
+        finally:
+            conn.execute("DROP TRIGGER IF EXISTS _mck262_fail_second")
+            conn.execute("DROP TABLE IF EXISTS _mck262_fail")
+        still = self.school.search_module_bank_mcs(
+            self.library_id, 1, "mck262rollback", kind="any", staff_types=True
+        )
+        kept_ids = {int(row["question_id"]) for row in still["items"]}
+        self.assertIn(int(first["id"]), kept_ids)
+        self.assertIn(int(second["id"]), kept_ids)
+
+    def test_bulk_remove_treats_a_duplicate_id_as_one(self) -> None:
+        """Listing the same question twice removes it once and returns 200."""
+        row = self._add_bank(
+            {
+                "bank_scope": "M1",
+                "type": "mc",
+                "stem_text": "mck262duplicate",
+                "options": ["A", "B", "C", "D"],
+                "correct_answer": "A",
+            }
+        )
+        removed = self.client.post(
+            f"/api/staff/class/{self.class_id}/question-bank/bulk",
+            json={
+                "action": "remove",
+                "questions": [
+                    {"bank_id": row["bank_id"], "question_id": row["id"]},
+                    {"bank_id": row["bank_id"], "question_id": row["id"]},
+                ],
+            },
+        )
+        self.assertEqual(removed.status_code, 200, removed.get_data(as_text=True))
+        self.assertEqual(removed.get_json()["updated"], 1)
+        gone = self.school.search_module_bank_mcs(
+            self.library_id, 1, "mck262duplicate", kind="any", staff_types=True
+        )
+        self.assertEqual(gone["items"], [])
 
     def test_server_sort_runs_before_the_cap(self) -> None:
         """Type order is applied before the row cap, and a bad sort is rejected."""
