@@ -2216,6 +2216,12 @@ body.student-home.is-celebrating .student-me .me-stats {
   letter-spacing: 0.02em;
 }
 
+.gamification-winner .winner-poll-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 body.student-home.is-summary-winner .student-wait,
 body.student-home.is-summary-winner .question-frame,
 body.student-home.is-summary-winner .live-question-stack,

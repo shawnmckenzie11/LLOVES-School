@@ -1073,7 +1073,7 @@ const EYES_UP_OFF_TITLE =
   "Pause every student screen so the class looks up. Tap again to resume."; // copy: Wonder
 let eyesUpBusy = false;
 
-/** @type {{stage: string, round?: string|null, round_flags?: {minds_on: boolean, action: boolean, consolidation: boolean}, teams_mode: string, groups_configured: boolean, run_as_group: boolean, scoreboard_visible: boolean, hide_absent: boolean, layout_preset: string, frames: Record<string, string>, active_tab: string, active_media_ref?: string|null, prompt_ref?: string|null, canvas_ephemeral: true, updated_at?: string, cue_id?: string|null, meet_chain?: any, state_seq?: number, student_frames?: Record<string, boolean>, unlocks?: Record<string, boolean>, mc_ui?: {prompt_ref: string, reveal: boolean, reveal_to_students?: boolean, poll_closed?: boolean}}} */
+/** @type {{stage: string, round?: string|null, round_flags?: {minds_on: boolean, action: boolean, consolidation: boolean}, teams_mode: string, groups_configured: boolean, run_as_group: boolean, scoreboard_visible: boolean, gamification_on: boolean, hide_absent: boolean, layout_preset: string, frames: Record<string, string>, active_tab: string, active_media_ref?: string|null, prompt_ref?: string|null, canvas_ephemeral: true, updated_at?: string, cue_id?: string|null, meet_chain?: any, state_seq?: number, student_frames?: Record<string, boolean>, unlocks?: Record<string, boolean>, mc_ui?: {prompt_ref: string, reveal: boolean, reveal_to_students?: boolean, poll_closed?: boolean}}} */
 let teacherState = {
   stage: "join",
   round: null,
@@ -1082,6 +1082,7 @@ let teacherState = {
   groups_configured: false,
   run_as_group: false,
   scoreboard_visible: false,
+  gamification_on: false,
   hide_absent: false,
   timer_closes_answers: false,
   eyes_up: false,
@@ -2615,6 +2616,10 @@ function paintGlobalGroupControls() {
   if (scoreboard instanceof HTMLInputElement) {
     scoreboard.checked = Boolean(teacherState.scoreboard_visible);
     scoreboard.disabled = false;
+  }
+  const winnerPage = $("ap-gamification-toggle");
+  if (winnerPage instanceof HTMLInputElement) {
+    winnerPage.checked = Boolean(teacherState.gamification_on);
   }
   syncScoreboardPreview();
   const rename = $("ap-teams-rename");
@@ -10164,6 +10169,10 @@ function setNTeams(value) {
 function renderTeamsPanel() {
   const box = $("ap-scoreboard-toggle");
   if (box) box.checked = Boolean(teacherState.scoreboard_visible);
+  const winnerPage = $("ap-gamification-toggle");
+  if (winnerPage instanceof HTMLInputElement) {
+    winnerPage.checked = Boolean(teacherState.gamification_on);
+  }
   syncScoreboardPreview();
   setNTeams(Number($("ap-n-teams")?.value) || 1);
   syncSetupEnabled();
@@ -10222,6 +10231,12 @@ $("ap-scoreboard-toggle")?.addEventListener("change", (event) => {
   if (box instanceof HTMLInputElement) {
     patchTeacherState({ scoreboard_visible: box.checked });
     syncScoreboardPreview();
+  }
+});
+$("ap-gamification-toggle")?.addEventListener("change", (event) => {
+  const box = event.target;
+  if (box instanceof HTMLInputElement) {
+    patchTeacherState({ gamification_on: box.checked });
   }
 });
 

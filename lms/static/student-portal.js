@@ -5209,6 +5209,127 @@ function maybeScorePops(payload) {
 }
 
 /**
+ * Copy placeholder for one Winner-page key.
+ * @param {any} page
+ * @param {string} key
+ */
+function winnerCopy(page, key) {
+  const text = page && page.copy ? page.copy[key] : "";
+  return text ? String(text) : key;
+}
+
+/**
+ * Paint the optional Winner page: codenames, scoreboard, and the MVP poll.
+ * @param {any} payload
+ */
+function paintGamificationWinner(payload) {
+  const host = document.getElementById("gamification-winner");
+  if (!(host instanceof HTMLElement)) return;
+  const page = payload && payload.gamification;
+  if (!page || !page.on) {
+    host.hidden = true;
+    host.innerHTML = "";
+    return;
+  }
+  const teams = Array.isArray(page.scoreboard) ? page.scoreboard : [];
+  const board = teams
+    .map((team) => {
+      const names = Array.isArray(team.codenames) ? team.codenames.filter(Boolean) : [];
+      return `<li>
+        <span data-copy-key="winner.scoreboard_label">${escapeText(team.name || "")}</span>
+        <span>${escapeText(String(team.score ?? 0))}</span>
+        <span>${escapeText(winnerCopy(page, "winner.points_label"))}</span>
+        <span>${escapeText(names.join(" · "))}</span>
+      </li>`;
+    })
+    .join("");
+  let extra = "";
+  if (page.mvp && page.mvp.codename) {
+    extra = `<p data-copy-key="winner.mvp_kicker">${escapeText(winnerCopy(page, "winner.mvp_kicker"))}</p>
+      <p>${escapeText(page.mvp.codename)}</p>
+      <p data-copy-key="winner.mvp_reward">${escapeText(winnerCopy(page, "winner.mvp_reward"))}</p>`;
+  } else if (page.tie && Array.isArray(page.tie.codenames) && page.tie.codenames.length) {
+    extra = `<p data-copy-key="winner.mvp_tie">${escapeText(winnerCopy(page, "winner.mvp_tie"))}</p>
+      <p>${escapeText(page.tie.codenames.join(" · "))}</p>`;
+  } else if (page.poll && page.poll.voted) {
+    extra = `<p data-copy-key="winner.poll_thanks">${escapeText(winnerCopy(page, "winner.poll_thanks"))}</p>`;
+  } else if (page.poll && page.poll.open && Array.isArray(page.poll.options)) {
+    const buttons = page.poll.options
+      .map(
+        (name) =>
+          `<button type="button" data-mvp-codename="${escapeText(name)}">${escapeText(name)}</button>`
+      )
+      .join("");
+    extra = `<p data-copy-key="winner.poll_prompt">${escapeText(winnerCopy(page, "winner.poll_prompt"))}</p>
+      <div class="winner-poll-options">${buttons}</div>
+      <p class="winner-poll-error" data-copy-key="winner.poll_error" hidden></p>`;
+  } else if (page.winner_name && page.poll && !page.poll.eligible) {
+    extra = `<p data-copy-key="winner.not_voting">${escapeText(winnerCopy(page, "winner.not_voting"))}</p>`;
+  } else if (!page.winner_name && teams.length > 1) {
+    extra = `<p data-copy-key="winner.tie">${escapeText(winnerCopy(page, "winner.tie"))}</p>`;
+  } else if (!teams.length) {
+    extra = `<p data-copy-key="winner.empty">${escapeText(winnerCopy(page, "winner.empty"))}</p>`;
+  } else {
+    extra = `<p data-copy-key="winner.waiting">${escapeText(winnerCopy(page, "winner.waiting"))}</p>`;
+  }
+  const title = page.winner_name
+    ? escapeText(page.winner_name)
+    : escapeText(winnerCopy(page, "winner.kicker"));
+  host.innerHTML = `<p class="gs-kicker" data-copy-key="winner.kicker">${escapeText(winnerCopy(page, "winner.kicker"))}</p>
+    <h2 class="gs-title">${title}</h2>
+    <p data-copy-key="winner.scoreboard_label">${escapeText(winnerCopy(page, "winner.scoreboard_label"))}</p>
+    <ul>${board}</ul>
+    ${extra}`;
+  host.hidden = false;
+}
+
+/**
+ * POST one MVP ballot. The stored choice is not kept on this page.
+ * @param {string} codename
+ */
+async function submitMvpVote(codename) {
+  const host = document.getElementById("gamification-winner");
+  const error = host instanceof HTMLElement ? host.querySelector(".winner-poll-error") : null;
+  try {
+    const res = await fetch(
+      "/api/student/mvp-vote",
+      visitFetchInit({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ nominee_codename: codename }),
+      })
+    );
+    const data = await res.json();
+    if (data && data.ok && lastStudentPayload && lastStudentPayload.gamification) {
+      lastStudentPayload.gamification.poll = {
+        ...(lastStudentPayload.gamification.poll || {}),
+        open: false,
+        voted: true,
+        options: [],
+      };
+      paintGamificationWinner(lastStudentPayload);
+      return;
+    }
+    if (error instanceof HTMLElement) {
+      error.hidden = false;
+      error.textContent = winnerCopy(
+        lastStudentPayload && lastStudentPayload.gamification,
+        "winner.poll_error"
+      );
+    }
+  } catch (_err) {
+    if (error instanceof HTMLElement) {
+      error.hidden = false;
+      error.textContent = winnerCopy(
+        lastStudentPayload && lastStudentPayload.gamification,
+        "winner.poll_error"
+      );
+    }
+  }
+}
+
+/**
  * Keep the scoreboard up with winner graffiti + How-was-class after End Live.
  * Quit wipes the SID and this overlay disappears with the redirect.
  * @param {any} payload
@@ -5646,6 +5767,7 @@ async function tick() {
     paintBoard(data);
     maybeScorePops(data);
     paintCelebrate(data);
+    paintGamificationWinner(data);
     void paintCatchupPinPromptSafe(data);
 
     paintRoundBanner(data);
@@ -6095,6 +6217,17 @@ if (bootCodename) {
   setTabTitle(bootCodename);
 }
 
+
+document.getElementById("gamification-winner")?.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  const button = target.closest("[data-mvp-codename]");
+  if (!(button instanceof HTMLButtonElement)) return;
+  const codename = button.getAttribute("data-mvp-codename") || "";
+  if (!codename) return;
+  button.disabled = true;
+  void submitMvpVote(codename);
+});
 
 window.addEventListener("catchup-pin-saved", (ev) => {
   const line = String((ev.detail && ev.detail.toast) || "PIN saved. You're set for catch-up.");
