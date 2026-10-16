@@ -3669,6 +3669,21 @@ class LovesDB:
         }
         if "is_test" in cols and "live_session_id" in cols:
             return
+        if self.conn.in_transaction:
+            self.conn.execute("COMMIT")
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            self._rebuild_lesson_slides_latest_for_test_key_unlocked()
+        except BaseException:
+            if self.conn.in_transaction:
+                self.conn.execute("ROLLBACK")
+            raise
+        else:
+            if self.conn.in_transaction:
+                self.conn.execute("COMMIT")
+
+    def _rebuild_lesson_slides_latest_for_test_key_unlocked(self) -> None:
+        """Rebuild ``lesson_slides_latest`` with an ``is_test`` primary-key part."""
         self.conn.execute(
             "ALTER TABLE lesson_slides_latest RENAME TO lesson_slides_latest_mck269_old"
         )
@@ -3771,6 +3786,44 @@ class LovesDB:
                 "ALTER TABLE class_live_deck_seeds "
                 "ADD COLUMN source_live_session_id INTEGER"
             )
+
+    def _deck_storage_slot_keys(
+        self,
+        class_id: int,
+        module: str,
+        slot: str,
+        *,
+        live_session_id: int | None = None,
+        real_deck_only: bool = False,
+    ) -> tuple[str, str]:
+        """Map a teacher-facing challenge to sqlite deck rows.
+
+        Real runs use the module and slot tokens. Test runs use a dedicated
+        storage slot so a rehearsal never overwrites the real working deck.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Module token such as ``M1``.
+            slot: Challenge token such as ``C1``.
+            live_session_id: When set, force the test storage slot for that run.
+            real_deck_only: When True, always use the real slot.
+
+        Returns:
+            ``(module, slot)`` keys for deck table queries.
+        """
+        from live_deck_test_storage import test_deck_storage_slot
+
+        module_key, slot_key = self._require_live_lesson_token(module, slot)
+        if real_deck_only:
+            return module_key, slot_key
+        sid = live_session_id
+        if sid is None:
+            active = self.get_active_live_session_for_class(int(class_id))
+            if active and int(active.get("is_test") or 0):
+                sid = int(active["id"])
+        if sid:
+            return module_key, test_deck_storage_slot(int(sid))
+        return module_key, slot_key
 
     def _ensure_live_session_schema(self) -> None:
         """Create live-class session + attendee + prompt tables on existing DBs.
@@ -9043,7 +9096,13 @@ class SchoolDB(LovesDB):
         return str(row.get("id") or row.get("item_id") or "").strip()
 
     def list_class_playlist_item_overrides(
-        self, class_id: int, module: str, slot: str
+        self,
+        class_id: int,
+        module: str,
+        slot: str,
+        *,
+        live_session_id: int | None = None,
+        real_deck_only: bool = False,
     ) -> list[dict[str, Any]]:
         """Return per-class seed-question hide/move overrides for one lesson file.
 
@@ -9051,12 +9110,19 @@ class SchoolDB(LovesDB):
             class_id: Game-show ``classes.id``.
             module: Module token such as ``M1``.
             slot: Live slot such as ``C2``.
+            live_session_id: Optional test run id for test storage lookup.
+            real_deck_only: When True, read the real slot deck only.
 
         Returns:
             Override rows keyed by metadata ``item_id``.
         """
-        module_key = str(module or "").upper()
-        slot_key = str(slot or "").upper()
+        module_key, slot_key = self._deck_storage_slot_keys(
+            int(class_id),
+            module,
+            slot,
+            live_session_id=live_session_id,
+            real_deck_only=real_deck_only,
+        )
         with self._lock:
             rows = self.conn.execute(
                 """
@@ -9070,7 +9136,13 @@ class SchoolDB(LovesDB):
         return [dict(row) for row in rows]
 
     def get_class_live_media_copy(
-        self, class_id: int, module: str, slot: str
+        self,
+        class_id: int,
+        module: str,
+        slot: str,
+        *,
+        live_session_id: int | None = None,
+        real_deck_only: bool = False,
     ) -> dict[str, str]:
         """Return the class overlay stem/caption for one lesson slot.
 
@@ -9078,12 +9150,19 @@ class SchoolDB(LovesDB):
             class_id: Game-show ``classes.id``.
             module: Module token such as ``M1``.
             slot: Live slot such as ``C3``.
+            live_session_id: Optional test run id for test storage lookup.
+            real_deck_only: When True, read the real slot deck only.
 
         Returns:
             ``{stem, caption}``; empty strings when no overlay exists.
         """
-        module_key = str(module or "").upper()
-        slot_key = str(slot or "").upper()
+        module_key, slot_key = self._deck_storage_slot_keys(
+            int(class_id),
+            module,
+            slot,
+            live_session_id=live_session_id,
+            real_deck_only=real_deck_only,
+        )
         with self._lock:
             row = self.conn.execute(
                 """
@@ -9124,9 +9203,10 @@ class SchoolDB(LovesDB):
         Returns:
             Stored ``{stem, caption}``.
         """
-        module_key = str(module or "").upper()
-        slot_key = str(slot or "").upper()
-        current = self.get_class_live_media_copy(int(class_id), module_key, slot_key)
+        module_key, slot_key = self._deck_storage_slot_keys(
+            int(class_id), module, slot
+        )
+        current = self.get_class_live_media_copy(int(class_id), module, slot)
         next_stem = current["stem"] if stem is None else str(stem)
         next_caption = current["caption"] if caption is None else str(caption)
         stamp = _now()
@@ -9455,8 +9535,15 @@ class SchoolDB(LovesDB):
         self, class_id: int, module: str, slot: str
     ) -> None:
         """Refresh cached metadata and lifecycle rows after playlist edits."""
+        from live_deck_test_storage import parse_test_deck_storage_slot
+
         module_key = str(module or "").upper()
         slot_key = str(slot or "").upper()
+        if parse_test_deck_storage_slot(slot_key) is not None:
+            active = self.get_active_live_session_for_class(int(class_id))
+            if active:
+                module_key = str(active.get("live_module") or module_key).upper()
+                slot_key = str(active.get("live_slot") or slot_key).upper()
         self.invalidate_live_metadata_cache(
             class_id=int(class_id), module=module_key, slot=slot_key
         )
@@ -9508,8 +9595,9 @@ class SchoolDB(LovesDB):
         sort_order: int | None = None,
     ) -> dict[str, Any]:
         """Insert or update one seed-question playlist override row."""
-        module_key = str(module or "").upper()
-        slot_key = str(slot or "").upper()
+        module_key, slot_key = self._deck_storage_slot_keys(
+            int(class_id), module, slot
+        )
         token = str(item_id or "").strip()
         if not token:
             raise ValueError("item_id required")
@@ -9587,8 +9675,9 @@ class SchoolDB(LovesDB):
         Returns:
             Summary dict with ``action`` and ``item_id``.
         """
-        module_key = str(module or "").upper()
-        slot_key = str(slot or "").upper()
+        module_key, slot_key = self._deck_storage_slot_keys(
+            int(class_id), module, slot
+        )
         token = str(item_id or "").strip()
         if not token:
             raise ValueError("item_id required")
@@ -9613,7 +9702,7 @@ class SchoolDB(LovesDB):
                 token,
                 removed=True,
             )
-        self._sync_playlist_change(int(class_id), module_key, slot_key)
+        self._sync_playlist_change(int(class_id), module, slot)
         if self._engine_ride_item_id(token):
             live = self.get_active_live_session_for_class(int(class_id))
             if live is not None:
@@ -9647,14 +9736,15 @@ class SchoolDB(LovesDB):
         Returns:
             Summary dict with destination stage/page and ``item_id``.
         """
-        module_key = str(module or "").upper()
-        slot_key = str(slot or "").upper()
+        module_key, slot_key = self._deck_storage_slot_keys(
+            int(class_id), module, slot
+        )
         token = str(item_id or "").strip()
         if not token:
             raise ValueError("item_id required")
         self._prepare_playlist_item_edit(int(class_id), token)
         metadata = self.live_class_metadata_for_class_lesson(
-            int(class_id), module_key, slot_key
+            int(class_id), module, slot
         )
         canonical = self._resolve_playlist_metadata_item_id(metadata, token)
         stage, page_number = self._playlist_page_target(
@@ -9729,7 +9819,7 @@ class SchoolDB(LovesDB):
                 page_number=int(page_number),
                 sort_order=int(sort_order),
             )
-        self._sync_playlist_change(int(class_id), module_key, slot_key)
+        self._sync_playlist_change(int(class_id), module, slot)
         self._apply_moved_playlist_item_to_session(
             int(class_id),
             canonical,
@@ -9785,7 +9875,13 @@ class SchoolDB(LovesDB):
         return str(class_row.get("course_code") or "").strip().upper()
 
     def get_class_live_deck_seed(
-        self, class_id: int, module: str, slot: str
+        self,
+        class_id: int,
+        module: str,
+        slot: str,
+        *,
+        live_session_id: int | None = None,
+        real_deck_only: bool = False,
     ) -> dict[str, Any] | None:
         """Return the Set Class deck seed for one challenge, if any.
 
@@ -9793,13 +9889,20 @@ class SchoolDB(LovesDB):
             class_id: Game-show ``classes.id``.
             module: Module token such as ``M2``.
             slot: Live slot such as ``C3``.
+            live_session_id: Optional test run id for test storage lookup.
+            real_deck_only: When True, read the real slot deck only.
 
         Returns:
             Seed row with ``media`` and ``team_challenge`` decoded, or None.
         """
 
-        module_key = str(module or "").strip().upper()
-        slot_key = str(slot or "").strip().upper()
+        module_key, slot_key = self._deck_storage_slot_keys(
+            int(class_id),
+            module,
+            slot,
+            live_session_id=live_session_id,
+            real_deck_only=real_deck_only,
+        )
         with self._lock:
             row = self.conn.execute(
                 """
@@ -9825,16 +9928,33 @@ class SchoolDB(LovesDB):
             data[key] = parsed if isinstance(parsed, dict) else None
         return data
 
-    def _slot_has_deck_overlay(self, class_id: int, module: str, slot: str) -> bool:
+    def _slot_has_deck_overlay(
+        self,
+        class_id: int,
+        module: str,
+        slot: str,
+        *,
+        live_session_id: int | None = None,
+        real_deck_only: bool = False,
+    ) -> bool:
         """Return whether this class has saved deck rows for one challenge.
 
         Args:
             class_id: Game-show ``classes.id``.
             module: Module token such as ``M2``.
             slot: Live slot such as ``C3``.
+            live_session_id: Optional test run id for test storage lookup.
+            real_deck_only: When True, inspect the real slot deck only.
         """
 
-        params = (int(class_id), str(module or "").upper(), str(slot or "").upper())
+        module_key, slot_key = self._deck_storage_slot_keys(
+            int(class_id),
+            module,
+            slot,
+            live_session_id=live_session_id,
+            real_deck_only=real_deck_only,
+        )
+        params = (int(class_id), module_key, slot_key)
         with self._lock:
             placement = self.conn.execute(
                 """
@@ -9893,10 +10013,14 @@ class SchoolDB(LovesDB):
 
         module_key, slot_key = self._require_live_lesson_token(module, slot)
         course = self._course_code_for_class(int(class_id))
-        seed = self.get_class_live_deck_seed(int(class_id), module_key, slot_key)
+        seed = self.get_class_live_deck_seed(
+            int(class_id), module_key, slot_key, real_deck_only=True
+        )
         if ignore_test and seed is not None and int(seed.get("is_test") or 0):
             seed = None
-        has_overlay = self._slot_has_deck_overlay(int(class_id), module_key, slot_key)
+        has_overlay = self._slot_has_deck_overlay(
+            int(class_id), module_key, slot_key, real_deck_only=True
+        )
         mode = str((seed or {}).get("mode") or "")
         if mode == "blank" and not has_overlay:
             return False
@@ -10289,7 +10413,9 @@ class SchoolDB(LovesDB):
         """
 
         params = (int(class_id), str(module).upper(), str(slot).upper())
-        edited = self._slot_has_deck_overlay(int(class_id), module, slot)
+        edited = self._slot_has_deck_overlay(
+            int(class_id), module, slot, real_deck_only=True
+        )
         if not edited:
             with self._lock:
                 edited = (
@@ -10814,8 +10940,90 @@ class SchoolDB(LovesDB):
 
         module_key, slot_key = self._require_live_lesson_token(module, slot)
         choice = str(mode or "").strip().lower()
-        if choice not in {"previous", "course", "blank", "current"}:
+        if choice not in {"previous", "course", "blank", "current", "test_copy"}:
             raise ValueError("Choose how to start the live deck.")
+        if choice == "test_copy":
+            course = self._course_code_for_class(int(class_id))
+            active = self.get_active_live_session_for_class(int(class_id))
+            if active is None or not int(active.get("is_test") or 0):
+                raise ValueError("Start a test class before copying the deck.")
+            live_sid = int(active["id"])
+            store_m, store_s = self._deck_storage_slot_keys(
+                int(class_id), module_key, slot_key, live_session_id=live_sid
+            )
+            with self._lock:
+                existing = self.conn.execute(
+                    """
+                    SELECT source_live_session_id FROM class_live_deck_seeds
+                    WHERE class_id = ? AND module = ? AND slot = ?
+                    """,
+                    (int(class_id), store_m, store_s),
+                ).fetchone()
+            if existing is not None and int(existing["source_live_session_id"] or 0) == live_sid:
+                metadata = self.live_class_metadata_for_class_lesson(
+                    int(class_id), module_key, slot_key, fresh=True
+                )
+                return {
+                    "mode": "test_copy",
+                    "source_module": module_key,
+                    "source_slot": slot_key,
+                    "source_class_id": int(class_id),
+                    "course": course,
+                    "live_metadata": metadata,
+                    "deck_revision": self.class_deck_revision(
+                        int(class_id), module_key, slot_key
+                    ),
+                }
+            if not self.class_live_deck_available(
+                int(class_id), module_key, slot_key, ignore_test=True
+            ):
+                raise ValueError(f"No deck saved for {module_key} {slot_key}.")
+            source_meta = self._merged_live_class_metadata(
+                int(class_id),
+                course,
+                module_key,
+                slot_key,
+                fresh=True,
+                real_deck_only=True,
+            )
+            questions = [
+                row
+                for row in source_meta.get("questions") or []
+                if isinstance(row, dict)
+            ]
+            pages = [
+                row for row in source_meta.get("pages") or [] if isinstance(row, dict)
+            ]
+            media = source_meta.get("media")
+            challenge = source_meta.get("team_challenge")
+            ready = self._serializable_deck_questions(questions)
+            self._replace_class_deck_working_copy(
+                int(class_id),
+                module_key,
+                slot_key,
+                mode="course",
+                source_module=module_key,
+                source_slot=slot_key,
+                questions=ready,
+                pages=pages,
+                media=media if isinstance(media, dict) else None,
+                team_challenge=challenge if isinstance(challenge, dict) else None,
+            )
+            self._sync_playlist_change(int(class_id), module, slot)
+            metadata = self.live_class_metadata_for_class_lesson(
+                int(class_id), module_key, slot_key, fresh=True
+            )
+            return {
+                "mode": "test_copy",
+                "source_module": module_key,
+                "source_slot": slot_key,
+                "source_class_id": int(class_id),
+                "course": course,
+                "live_metadata": metadata,
+                "deck_revision": self.class_deck_revision(
+                    int(class_id), module_key, slot_key
+                ),
+            }
         course = self._course_code_for_class(int(class_id))
         kept_existing = False
         if (
@@ -10954,7 +11162,7 @@ class SchoolDB(LovesDB):
             ),
             replace=bool(replace),
         )
-        self._sync_playlist_change(int(class_id), module_key, slot_key)
+        self._sync_playlist_change(int(class_id), module, slot)
         if choice == "blank":
             self._drop_blank_deck_prompts(int(class_id), module_key, slot_key)
         metadata = self.live_class_metadata_for_class_lesson(
@@ -11134,11 +11342,22 @@ class SchoolDB(LovesDB):
         self._refuse_deck_copy_into_live_slot(int(class_id), module_key, slot_key)
         active_live = self.get_active_live_session_for_class(int(class_id))
         writing_test = bool(active_live and int(active_live.get("is_test") or 0))
+        live_sid = int(active_live["id"]) if active_live else 0
+        store_module, store_slot = module_key, slot_key
+        if writing_test and live_sid:
+            store_module, store_slot = self._deck_storage_slot_keys(
+                int(class_id),
+                module_key,
+                slot_key,
+                live_session_id=live_sid,
+            )
         if writing_test:
             existing_seed = self.get_class_live_deck_seed(
-                int(class_id), module_key, slot_key
+                int(class_id),
+                module_key,
+                slot_key,
+                live_session_id=live_sid,
             )
-            live_sid = int(active_live["id"]) if active_live else 0
             if (
                 existing_seed is not None
                 and int(existing_seed.get("source_live_session_id") or 0) == live_sid
@@ -11147,12 +11366,13 @@ class SchoolDB(LovesDB):
         if (
             require_replace_confirm
             and not replace
+            and not writing_test
             and self.class_has_current_live_deck(int(class_id), module_key, slot_key)
         ):
             raise DeckReplaceNotConfirmed(
                 "Replace the deck or keep current first."
             )
-        params = (int(class_id), module_key, slot_key)
+        params = (int(class_id), store_module, store_slot)
         self.conn.execute(
             """
             DELETE FROM class_live_playlist_placements
@@ -11184,7 +11404,7 @@ class SchoolDB(LovesDB):
         for index, payload in enumerate(questions, start=1):
             item_id = str(payload.get("id") or "").strip()
             placement_key = (
-                f"deck-copy:{int(class_id)}:{module_key}{slot_key}:{index}:{item_id}"
+                f"deck-copy:{int(class_id)}:{store_module}{store_slot}:{index}:{item_id}"
             )
             stage = str(payload.get("stage") or "round").strip().lower() or "round"
             try:
@@ -11205,8 +11425,8 @@ class SchoolDB(LovesDB):
                 """,
                 (
                     int(class_id),
-                    module_key,
-                    slot_key,
+                    store_module,
+                    store_slot,
                     page_number,
                     stage,
                     sort_order,
@@ -11227,8 +11447,8 @@ class SchoolDB(LovesDB):
                 """,
                 (
                     int(class_id),
-                    module_key,
-                    slot_key,
+                    store_module,
+                    store_slot,
                     row["page_id"],
                     row["name"],
                     row["stage"],
@@ -11269,8 +11489,8 @@ class SchoolDB(LovesDB):
                 """,
                 (
                     int(class_id),
-                    module_key,
-                    slot_key,
+                    store_module,
+                    store_slot,
                     str(media.get("stem") or ""),
                     str(media.get("caption") or ""),
                     stamp,
@@ -11298,8 +11518,8 @@ class SchoolDB(LovesDB):
             """,
             (
                 int(class_id),
-                module_key,
-                slot_key,
+                store_module,
+                store_slot,
                 mode,
                 source_module,
                 source_slot,
@@ -11558,7 +11778,13 @@ class SchoolDB(LovesDB):
     CUSTOM_LIVE_PAGE_STAGE = "play"
 
     def list_class_playlist_pages(
-        self, class_id: int, module: str, slot: str
+        self,
+        class_id: int,
+        module: str,
+        slot: str,
+        *,
+        live_session_id: int | None = None,
+        real_deck_only: bool = False,
     ) -> list[dict[str, Any]]:
         """Return per-class add/hide page overlay rows for one live lesson.
 
@@ -11566,12 +11792,19 @@ class SchoolDB(LovesDB):
             class_id: Game-show ``classes.id``.
             module: Module token such as ``M1``.
             slot: Live slot such as ``C2``.
+            live_session_id: Optional test run id for test storage lookup.
+            real_deck_only: When True, read the real slot deck only.
 
         Returns:
             Overlay rows ordered by id (creation order).
         """
-        module_key = str(module or "").upper()
-        slot_key = str(slot or "").upper()
+        module_key, slot_key = self._deck_storage_slot_keys(
+            int(class_id),
+            module,
+            slot,
+            live_session_id=live_session_id,
+            real_deck_only=real_deck_only,
+        )
         with self._lock:
             rows = self.conn.execute(
                 """
@@ -11794,8 +12027,9 @@ class SchoolDB(LovesDB):
             KeyError: Unknown class.
             ValueError: Empty blank name, unknown ``after_page_id``, or kind.
         """
-        module_key = str(module or "").upper()
-        slot_key = str(slot or "").upper()
+        module_key, slot_key = self._deck_storage_slot_keys(
+            int(class_id), module, slot
+        )
         page_kind = self._normalize_playlist_page_kind(kind)
         title = str(name or "").strip()
         if page_kind == "welcome":
@@ -11874,7 +12108,7 @@ class SchoolDB(LovesDB):
                 ),
             )
             self.conn.commit()
-        self._sync_playlist_change(int(class_id), module_key, slot_key)
+        self._sync_playlist_change(int(class_id), module, slot)
         live_metadata = self.live_class_metadata_for_class_lesson(
             int(class_id), module_key, slot_key
         )
@@ -11928,8 +12162,9 @@ class SchoolDB(LovesDB):
             KeyError: Unknown class or page.
             ValueError: Last remaining page, or empty ``page_id``.
         """
-        module_key = str(module or "").upper()
-        slot_key = str(slot or "").upper()
+        module_key, slot_key = self._deck_storage_slot_keys(
+            int(class_id), module, slot
+        )
         token = str(page_id or "").strip()
         if not token:
             raise ValueError("page_id required")
@@ -12056,7 +12291,7 @@ class SchoolDB(LovesDB):
                 ),
             )
             self.conn.commit()
-        self._sync_playlist_change(int(class_id), module_key, slot_key)
+        self._sync_playlist_change(int(class_id), module, slot)
         live_metadata = self.live_class_metadata_for_class_lesson(
             int(class_id), module_key, slot_key
         )
@@ -12096,8 +12331,9 @@ class SchoolDB(LovesDB):
         Returns:
             Opaque revision string that changes when overlays change.
         """
-        module_key = str(module or "").upper()
-        slot_key = str(slot or "").upper()
+        module_key, slot_key = self._deck_storage_slot_keys(
+            int(class_id), module, slot
+        )
         params = (int(class_id), module_key, slot_key)
         with self._lock:
             placements = self.conn.execute(
@@ -12302,7 +12538,13 @@ class SchoolDB(LovesDB):
 
 
     def list_class_playlist_placements(
-        self, class_id: int, module: str, slot: str
+        self,
+        class_id: int,
+        module: str,
+        slot: str,
+        *,
+        live_session_id: int | None = None,
+        real_deck_only: bool = False,
     ) -> list[dict[str, Any]]:
         """Return per-class imported MC placements for one live lesson file.
 
@@ -12310,12 +12552,19 @@ class SchoolDB(LovesDB):
             class_id: Game-show ``classes.id``.
             module: Module token such as ``M1``.
             slot: Live slot such as ``C2``.
+            live_session_id: Optional test run id for test storage lookup.
+            real_deck_only: When True, read the real slot deck only.
 
         Returns:
             Placement rows ordered by sort_order then id.
         """
-        module_key = str(module or "").upper()
-        slot_key = str(slot or "").upper()
+        module_key, slot_key = self._deck_storage_slot_keys(
+            int(class_id),
+            module,
+            slot,
+            live_session_id=live_session_id,
+            real_deck_only=real_deck_only,
+        )
         with self._lock:
             rows = self.conn.execute(
                 """
@@ -12927,8 +13176,9 @@ class SchoolDB(LovesDB):
         module_number = parse_module_token(str(module or "").strip().upper())
         if module_number is None:
             raise ValueError("module required (e.g. M1)")
-        module_key = f"M{module_number}"
-        slot_key = str(slot or "").upper()
+        module_key, slot_key = self._deck_storage_slot_keys(
+            int(class_id), f"M{module_number}", str(slot or "")
+        )
         stage_key = str(stage or "round").strip().lower()
         try:
             page = max(1, int(page_number))
@@ -13493,8 +13743,9 @@ class SchoolDB(LovesDB):
         module_number = parse_module_token(str(module or "").strip().upper())
         if module_number is None:
             raise ValueError("module required (e.g. M1)")
-        module_key = f"M{module_number}"
-        slot_key = str(slot or "").upper()
+        module_key, slot_key = self._deck_storage_slot_keys(
+            int(class_id), f"M{module_number}", str(slot or "")
+        )
         stage_key = str(stage or "round").strip().lower() or "round"
         try:
             page = max(1, int(page_number))
@@ -25763,6 +26014,8 @@ class SchoolDB(LovesDB):
         slot: str,
         *,
         fresh: bool = False,
+        live_session_id: int | None = None,
+        real_deck_only: bool = False,
     ) -> dict[str, Any]:
         """Load seed metadata merged with per-class bank, page, and item overlays.
 
@@ -25775,6 +26028,8 @@ class SchoolDB(LovesDB):
             module: Module token such as ``M1``.
             slot: Live slot such as ``C3``.
             fresh: When True, skip the in-process cache and rebuild.
+            live_session_id: Optional test run id for test storage lookup.
+            real_deck_only: When True, read the real slot deck only.
         """
         key = (
             int(class_id),
@@ -25783,12 +26038,18 @@ class SchoolDB(LovesDB):
             str(slot or "C1").upper(),
         )
         revision = self.class_deck_revision(int(class_id), key[2], key[3])
+        deck_kw = {
+            "live_session_id": live_session_id,
+            "real_deck_only": real_deck_only,
+        }
         cache_key = (*key, revision)
         if not fresh:
             cached = self._live_metadata_cache.get(cache_key)
             if cached is not None:
                 return deepcopy(cached)
-        seed_choice = self.get_class_live_deck_seed(int(class_id), key[2], key[3])
+        seed_choice = self.get_class_live_deck_seed(
+            int(class_id), key[2], key[3], **deck_kw
+        )
         if seed_choice and int(seed_choice.get("suppress_authored") or 0):
             loaded = empty_live_class_metadata(key[1], key[2], key[3])
             # Working copies own their question list. Schema v1 would
@@ -25810,13 +26071,13 @@ class SchoolDB(LovesDB):
         else:
             loaded = load_live_class_metadata(key[1], key[2], key[3])
         placements = self.list_class_playlist_placements(
-            int(class_id), key[2], key[3]
+            int(class_id), key[2], key[3], **deck_kw
         )
         overrides = self.list_class_playlist_item_overrides(
-            int(class_id), key[2], key[3]
+            int(class_id), key[2], key[3], **deck_kw
         )
         page_overlays = self.list_class_playlist_pages(
-            int(class_id), key[2], key[3]
+            int(class_id), key[2], key[3], **deck_kw
         )
         merged = self._merge_playlist_placements_into_metadata(
             loaded, placements
@@ -25825,7 +26086,7 @@ class SchoolDB(LovesDB):
         merged = self._apply_class_playlist_page_overlays(merged, page_overlays)
         merged = self._apply_class_live_media_overlay(
             merged,
-            self.get_class_live_media_copy(int(class_id), key[2], key[3]),
+            self.get_class_live_media_copy(int(class_id), key[2], key[3], **deck_kw),
         )
         merged["deck_revision"] = revision
         merged = self._clean_metadata_question_stems(merged)
@@ -25985,7 +26246,14 @@ class SchoolDB(LovesDB):
         return metadata
 
     def live_class_metadata_for_class_lesson(
-        self, class_id: int, module: str, slot: str, *, fresh: bool = True
+        self,
+        class_id: int,
+        module: str,
+        slot: str,
+        *,
+        fresh: bool = True,
+        live_session_id: int | None = None,
+        real_deck_only: bool = False,
     ) -> dict[str, Any]:
         """Return merged live-lesson metadata for one class deck.
 
@@ -26003,7 +26271,13 @@ class SchoolDB(LovesDB):
             raise KeyError(f"class {class_id}")
         course = str(class_row.get("course_code") or "").upper()
         return self._merged_live_class_metadata(
-            int(class_id), course, module, slot, fresh=fresh
+            int(class_id),
+            course,
+            module,
+            slot,
+            fresh=fresh,
+            live_session_id=live_session_id,
+            real_deck_only=real_deck_only,
         )
 
     def live_class_metadata_for_session(self, session_id: int) -> dict[str, Any]:
@@ -38090,9 +38364,9 @@ class SchoolDB(LovesDB):
                 self._delete_test_school_rows_unlocked(sid, run_key)
                 if owned_tracker or run_key:
                     self._delete_test_tracker_rows(run_key, owned_tracker)
+                self._assert_test_session_gone_unlocked(sid, run_key, owned_tracker)
                 if presence is not None:
                     presence.delete_session_tree(sid)
-                self._assert_test_session_gone_unlocked(sid, run_key, owned_tracker)
             except BaseException:
                 if self.conn.in_transaction:
                     self.conn.execute("ROLLBACK")
@@ -38154,8 +38428,35 @@ class SchoolDB(LovesDB):
 
     def _delete_test_school_rows_unlocked(self, session_id: int, run_key: str) -> None:
         """Delete school rows for one test session. Caller holds the write txn."""
+        from live_deck_test_storage import test_deck_storage_slot
+
         sid = int(session_id)
         key = str(run_key or "").strip()
+        session_row = self.conn.execute(
+            "SELECT class_id FROM live_class_sessions WHERE id = ?",
+            (sid,),
+        ).fetchone()
+        if session_row is not None:
+            class_id = int(session_row["class_id"])
+            test_slot = test_deck_storage_slot(sid)
+            deck_params = (class_id, test_slot)
+            for table in (
+                "class_live_playlist_placements",
+                "class_live_playlist_item_overrides",
+                "class_live_playlist_pages",
+                "class_live_media_overlays",
+            ):
+                self.conn.execute(
+                    f"DELETE FROM {table} WHERE class_id = ? AND slot = ?",
+                    deck_params,
+                )
+            self.conn.execute(
+                """
+                DELETE FROM class_live_deck_seeds
+                WHERE class_id = ? AND slot = ?
+                """,
+                deck_params,
+            )
         prompt_rows = self.conn.execute(
             "SELECT id FROM live_session_prompts WHERE live_session_id = ?",
             (sid,),
@@ -38284,6 +38585,10 @@ class SchoolDB(LovesDB):
                 (key,),
             )
         for tid in tracker_ids:
+            self.conn.execute(
+                "DELETE FROM session_scores WHERE session_id = ?",
+                (int(tid),),
+            )
             self.conn.execute("DELETE FROM sessions WHERE id = ?", (int(tid),))
 
     def _assert_test_session_gone_unlocked(
@@ -38331,6 +38636,11 @@ class SchoolDB(LovesDB):
                     (int(tid),),
                 ).fetchone()
                 leftover += int(row["n"] or 0)
+                score_row = self.conn.execute(
+                    "SELECT COUNT(*) AS n FROM session_scores WHERE session_id = ?",
+                    (int(tid),),
+                ).fetchone()
+                leftover += int(score_row["n"] or 0)
         if leftover:
             raise RuntimeError(f"test class {sid} still has rows after delete")
 

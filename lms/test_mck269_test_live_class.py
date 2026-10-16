@@ -418,5 +418,191 @@ class TestLiveClassTests(Base):
         self.assertIn('name="save_participation"', body)
 
 
+
+def _real_deck_table_snapshot(school, class_id: int) -> str:
+    """Stable dump of real (non-test-storage) deck rows for one class."""
+    from live_deck_test_storage import TEST_DECK_SLOT_PREFIX
+
+    prefix = TEST_DECK_SLOT_PREFIX.upper()
+    chunks: list[str] = []
+    for table in (
+        "class_live_playlist_placements",
+        "class_live_playlist_item_overrides",
+        "class_live_playlist_pages",
+        "class_live_media_overlays",
+        "class_live_deck_seeds",
+    ):
+        rows = school.conn.execute(
+            f"SELECT * FROM {table} WHERE class_id = ? ORDER BY id",
+            (int(class_id),),
+        ).fetchall()
+        kept = [
+            tuple(row)
+            for row in rows
+            if not str(row["slot"] or "").upper().startswith(prefix)
+        ]
+        chunks.append(repr((table, kept)))
+    return "\n".join(chunks)
+
+
+class TestLiveClassDeckIsolationTests(Base):
+    """Test runs must not overwrite the real slot deck."""
+
+    def setUp(self) -> None:
+        super().setUp()
+
+    def test_test_deck_edit_delete_preserves_real_deck(self) -> None:
+        self.school.apply_class_deck_seed(
+            self.class_id, "M1", "C1", mode="blank"
+        )
+        self.school.upsert_class_live_media_copy(
+            self.class_id,
+            "M1",
+            "C1",
+            stem="Real deck stem",
+            caption="Real caption",
+        )
+        before = _real_deck_table_snapshot(self.school, self.class_id)
+        test = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"]), is_test=True
+        )
+        self.school.set_live_session_teacher_state(
+            int(test["id"]), live_module="M1", live_slot="C1"
+        )
+        self.school.apply_class_deck_seed(
+            self.class_id, "M1", "C1", mode="test_copy"
+        )
+        self.school.upsert_class_live_media_copy(
+            self.class_id,
+            "M1",
+            "C1",
+            stem="Test-only stem",
+            caption="Test-only caption",
+        )
+        from live_deck_test_storage import test_deck_storage_slot
+
+        test_slot = test_deck_storage_slot(int(test["id"]))
+        test_media = self.school.get_class_live_media_copy(
+            self.class_id, "M1", "C1"
+        )
+        self.assertEqual(test_media["stem"], "Test-only stem")
+        seed = self.school.conn.execute(
+            """
+            SELECT slot FROM class_live_deck_seeds
+            WHERE class_id = ? AND slot = ?
+            """,
+            (self.class_id, test_slot),
+        ).fetchone()
+        self.assertIsNotNone(seed)
+        self.school.delete_test_live_class(self.class_id, int(test["id"]))
+        after = _real_deck_table_snapshot(self.school, self.class_id)
+        self.assertEqual(before, after)
+        real_media = self.school.get_class_live_media_copy(
+            self.class_id, "M1", "C1", real_deck_only=True
+        )
+        self.assertEqual(real_media["stem"], "Real deck stem")
+
+
+def _pg_admin_url() -> str:
+    return (os.environ.get("LIVE_PRESENCE_TEST_URL") or "").strip()
+
+
+@unittest.skipUnless(_pg_admin_url(), "LIVE_PRESENCE_TEST_URL is not set")
+class TestLiveClassPostgresDeleteTests(TestLiveClassTests):
+    """Delete test class against a real Postgres presence store."""
+
+    def setUp(self) -> None:
+        import logging
+        import tempfile
+        import uuid
+        from urllib.parse import urlsplit, urlunsplit
+
+        import psycopg
+
+        from app import create_app
+
+        logging.disable(logging.WARNING)
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        admin = _pg_admin_url()
+        self.pg_db = f"lloves_mck269_{uuid.uuid4().hex[:8]}"
+        with psycopg.connect(admin, autocommit=True) as conn:
+            conn.execute(f'CREATE DATABASE "{self.pg_db}"')
+        self.addCleanup(self._drop_pg, admin)
+        parts = urlsplit(admin)
+        presence_url = urlunsplit(
+            (parts.scheme, parts.netloc, f"/{self.pg_db}", parts.query, "")
+        )
+        self.app = create_app(
+            db_path=root / "lloves.sqlite",
+            data_dir=root,
+            testing=True,
+            live_database_url=presence_url,
+        )
+        self.school = self.app.config["SCHOOL_DB"]
+        self.school.activate_from_semester_json()
+        self.teacher = self.school.register_staff("teacher@gmail.com")
+        offering = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]), ontario_code="MCR3U"
+        )
+        self.school.set_offering_schedule(
+            int(offering["id"]),
+            live_days="M/W/F",
+            live_time="9:15am",
+            live_end_time="10:30am",
+        )
+        self.class_id = int(
+            self.school.game.create_class(
+                year="2026/27",
+                semester="Semester 1",
+                course_code="MCR3U",
+                days_preset="M/W/F",
+                time_label="2:00pm",
+                codenames=["Ava", "Ben"],
+                offering_id=int(offering["id"]),
+                teacher_user_id=int(self.teacher["id"]),
+            )["id"]
+        )
+        g = self.school.game.conn
+        self.students = [
+            int(r[0])
+            for r in g.execute(
+                "SELECT id FROM students WHERE class_id = ? ORDER BY id",
+                (self.class_id,),
+            ).fetchall()
+        ]
+
+    def _drop_pg(self, admin: str) -> None:
+        import psycopg
+
+        with psycopg.connect(admin, autocommit=True) as conn:
+            conn.execute(f'DROP DATABASE IF EXISTS "{self.pg_db}" WITH (FORCE)')
+
+    def test_delete_test_live_class_removes_postgres_presence(self) -> None:
+        test = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"]), is_test=True
+        )
+        sid = int(test["id"])
+        store = self.school.presence
+        self.assertIsNotNone(store)
+        store.upsert_session(
+            {
+                "id": sid,
+                "class_id": int(self.class_id),
+                "status": "active",
+                "started_at": "2026-10-14T12:00:00",
+                "ended_at": None,
+            }
+        )
+        self.school.delete_test_live_class(self.class_id, sid)
+        import psycopg
+
+        with psycopg.connect(store.dsn) as check:
+            left = check.execute(
+                "SELECT COUNT(*) AS n FROM live_presence_sessions WHERE id = %s",
+                (sid,),
+            ).fetchone()
+            self.assertEqual(int(left["n"]), 0)
+
 if __name__ == "__main__":
     unittest.main()

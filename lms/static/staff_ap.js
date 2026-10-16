@@ -946,12 +946,7 @@ async function applyDeckSeedChoice() {
       `/api/staff/class/${classId}/live-lessons/${pack.module}/${pack.slot}/deck-seed`,
       {
         method: "POST",
-        body: JSON.stringify({
-          mode: "course",
-          source_module: pack.module,
-          source_slot: pack.slot,
-          replace: true,
-        }),
+        body: JSON.stringify({ mode: "test_copy" }),
       }
     );
     return;
