@@ -35,7 +35,7 @@ class TestLiveClassLabelTests(unittest.TestCase):
     def test_lesson_slides_label(self) -> None:
         """Lesson Slides rows include weekday in the title."""
         text = format_test_lesson_slides_label("2026-10-16T18:00:00")
-        self.assertEqual(text, "TEST Fri Oct 16")
+        self.assertEqual(text, "Fri Oct 16")
 
     def test_same_day_indices_order(self) -> None:
         """Same-day index follows ended_at order."""

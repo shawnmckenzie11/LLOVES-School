@@ -8566,8 +8566,23 @@ async function confirmOverrideIfLogged(iso) {
  * @returns {"live"|"test"}
  */
 function selectedRunKind() {
-  const picked = document.querySelector('input[name="set-class-run-kind"]:checked');
-  return picked instanceof HTMLInputElement && picked.value === "test" ? "test" : "live";
+  const testBtn = $("set-class-run-kind-test");
+  return testBtn instanceof HTMLButtonElement && testBtn.classList.contains("is-on") ? "test" : "live";
+}
+
+/**
+ * Switch Set Class between a live run and a test rehearsal.
+ * @param {"live"|"test"} kind
+ */
+function chooseSetClassRunKind(kind) {
+  const test = kind === "test";
+  const liveBtn = $("set-class-run-kind-live");
+  const testBtn = $("set-class-run-kind-test");
+  liveBtn?.classList.toggle("is-on", !test);
+  testBtn?.classList.toggle("is-on", test);
+  liveBtn?.setAttribute("aria-pressed", test ? "false" : "true");
+  testBtn?.setAttribute("aria-pressed", test ? "true" : "false");
+  syncSetClassRunKindUi();
 }
 
 /**
@@ -8607,8 +8622,8 @@ function syncSetClassRunKindUi() {
     else testDeckNote.setAttribute("hidden", "");
   }
   if (runNote instanceof HTMLElement) {
-    if (test) runNote.setAttribute("hidden", "");
-    else runNote.removeAttribute("hidden");
+    if (test) runNote.removeAttribute("hidden");
+    else runNote.setAttribute("hidden", "");
   }
   if (test) {
     showValidateGrid(gridSelectedIso($("ap-day-grid")) || String($("ap-valid-date")?.value || ""));
@@ -12339,12 +12354,15 @@ $("set-class-start")?.addEventListener("click", () => {
   const reservedWin = reserveLiveSessionOverlay();
   applyValidateDateChoice({ reservedWin }).catch((err) => showError("#ap-overlay-error", err));
 });
-document.querySelectorAll('input[name="set-class-run-kind"]').forEach((input) => {
-  input.addEventListener("change", () => {
-    syncSetClassRunKindUi();
-    const current = gridSelectedIso($("ap-day-grid")) || String($("ap-valid-date")?.value || "");
-    showValidateGrid(current);
-  });
+$("set-class-run-kind-live")?.addEventListener("click", () => {
+  chooseSetClassRunKind("live");
+  const current = gridSelectedIso($("ap-day-grid")) || String($("ap-valid-date")?.value || "");
+  showValidateGrid(current);
+});
+$("set-class-run-kind-test")?.addEventListener("click", () => {
+  chooseSetClassRunKind("test");
+  const current = gridSelectedIso($("ap-day-grid")) || String($("ap-valid-date")?.value || "");
+  showValidateGrid(current);
 });
 syncSetClassRunKindUi();
 bindStaffInfoPopovers();

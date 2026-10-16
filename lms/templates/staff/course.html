@@ -469,20 +469,16 @@
                 <button type="button" id="set-class-kind-office" aria-pressed="false">Open office</button>
               </div>
             </div>
-            <fieldset class="set-class-run-kind" id="set-class-run-kind">
-              <legend>Run as</legend>
-              <label class="set-class-run-kind-option">
-                <input type="radio" name="set-class-run-kind" value="live" checked>
-                <span>Live</span>
-              </label>
-              <label class="set-class-run-kind-option">
-                <input type="radio" name="set-class-run-kind" value="test">
-                <span>Test</span>
-              </label>
+            <div class="live-pack-field set-class-run-kind" id="set-class-run-kind">
+              <span>Run as</span>
+              <div class="set-class-run-kind-toggle set-class-kind-toggle" role="group" aria-label="Run as">
+                <button type="button" id="set-class-run-kind-live" class="is-on" aria-pressed="true">Live</button>
+                <button type="button" id="set-class-run-kind-test" aria-pressed="false">Test</button>
+              </div>
               <button type="button" class="staff-info-trigger" id="set-class-run-kind-info" aria-controls="info-popover-test-run-kind" aria-expanded="false" aria-label="What's a test class?">ⓘ</button>
-            </fieldset>
+            </div>
           </div>
-          <p class="hint compact" id="set-class-run-kind-note">A test class can run any school day. It saves like a real class, stays out of totals, and you can delete it later.</p>
+          <p class="hint compact" id="set-class-run-kind-note" hidden>A test class can run any school day. It saves like a real class, stays out of totals, and you can delete it later.</p>
           <p class="hint compact" id="set-class-test-deck-note" hidden>Test uses a copy of the class deck for this challenge. Open office is not available for test runs.</p>
           <fieldset class="live-deck-seed" id="live-deck-seed" aria-describedby="live-deck-seed-previous-note">
             <legend>Live deck</legend>

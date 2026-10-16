@@ -1536,8 +1536,8 @@ body.staff-shell .badge-test-run {
   margin-left: 0.3rem;
   padding: 0.05rem 0.35rem;
   border-radius: 999px;
-  background: #f59e0b;
-  color: #1a1204;
+  background: #fffbeb;
+  color: #92400e;
   font-size: 0.7rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -1551,15 +1551,17 @@ body.staff-shell .set-class-type-row {
 }
 body.staff-shell .set-class-type-row .set-class-run-kind {
   margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.55rem;
 }
-body.staff-shell .set-class-run-kind {
-  margin: 0.4rem 0 0.8rem;
-  border: 0;
-  padding: 0;
+body.staff-shell .set-class-run-kind-toggle button.is-on#set-class-run-kind-test {
+  background: #f59e0b;
+  color: #1a1204;
 }
-body.staff-shell .set-class-run-kind-option {
-  margin-right: 0.8rem;
-  font-weight: 600;
+body.staff-shell .set-class-run-kind .staff-info-trigger {
+  margin-left: 0;
 }
 body.staff-shell .staff-info-trigger {
   display: inline-flex;

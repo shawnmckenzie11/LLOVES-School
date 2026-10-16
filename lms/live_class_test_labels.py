@@ -93,14 +93,14 @@ def format_test_lesson_slides_label(ended_at: str | None, *, same_day_index: int
         same_day_index: Second test on the same day becomes ``(2)``.
 
     Returns:
-        Text such as ``TEST Fri Oct 16`` or ``TEST Fri Oct 16 (2)``.
+        Text such as ``Fri Oct 16`` or ``Fri Oct 16 (2)`` (TEST badge is separate).
     """
     day = _calendar_day(ended_at)
     if day is None:
         return "TEST"
     weekday = _WEEKDAY[day.weekday()]
     month = _MONTH[day.month - 1]
-    base = f"TEST {weekday} {month} {day.day}"
+    base = f"{weekday} {month} {day.day}"
     if int(same_day_index or 1) > 1:
         return f"{base} ({int(same_day_index)})"
     return base

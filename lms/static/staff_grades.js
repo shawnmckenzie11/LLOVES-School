@@ -461,12 +461,11 @@ function renderSheet(data) {
       });
     }
   }
-  if (testColumns.length) {
-    groupRow += `<th class="ap-test-divider" rowspan="2" aria-hidden="true"></th>`;
-    groupRow += `<th class="ap-mod-group ap-test-group" colspan="${testColumns.length}">Test classes</th>`;
-  }
   if (currentBand) {
     groupRow += `<th class="ap-mod-so-far-group" rowspan="2">This module so far</th>`;
+  }
+  if (testColumns.length) {
+    groupRow += `<th class="ap-test-divider" rowspan="2" aria-hidden="true"></th>`;
   }
   groupRow += `</tr>`;
   if (testColumns.length) {
@@ -474,7 +473,6 @@ function renderSheet(data) {
       const label = String(col.column?.label || "TEST");
       head += `<th class="ap-class-col is-test-run">
         <span class="ap-class-label">${escapeHtml(label)}</span>
-        <span class="badge-test-run">TEST</span>
         <span class="ap-not-counted-wrap"><span class="ap-not-counted">not counted</span>${staffInfoTriggerHtml("info-popover-participation-test-col", "Test class column help")}</span>
       </th>`;
     }
@@ -501,6 +499,11 @@ function renderSheet(data) {
         body += `<td class="ap-class-cell${office ? " is-office" : ""}">${html}</td>`;
       }
     }
+    if (currentBand) {
+      const roll = moduleRollup(data, sid, currentBand.columns);
+      const text = formatParticipationCell(roll.score, roll.opportunities, roll.ended_at);
+      body += `<td class="ap-so-far">${text}</td>`;
+    }
     if (testColumns.length) {
       body += `<td class="ap-test-divider-cell" aria-hidden="true"></td>`;
       for (const col of testColumns) {
@@ -510,11 +513,6 @@ function renderSheet(data) {
         const html = classCellHtml(data, Number(column.id), sid, scored, false);
         body += `<td class="ap-class-cell is-test-run">${html}</td>`;
       }
-    }
-    if (currentBand) {
-      const roll = moduleRollup(data, sid, currentBand.columns);
-      const text = formatParticipationCell(roll.score, roll.opportunities, roll.ended_at);
-      body += `<td class="ap-so-far">${text}</td>`;
     }
     body += `</tr>`;
   }

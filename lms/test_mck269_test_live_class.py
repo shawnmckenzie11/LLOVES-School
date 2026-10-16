@@ -410,7 +410,8 @@ class TestLiveClassTests(Base):
     def test_course_page_picks_test_at_the_start(self) -> None:
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
         body = page.get_data(as_text=True)
-        self.assertIn('name="set-class-run-kind"', body)
+        self.assertIn('id="set-class-run-kind-test"', body)
+        self.assertIn("set-class-run-kind-toggle", body)
         self.assertNotIn('name="run_mode"', body)
         self.assertIn("Delete this test class?", body)
         self.assertIn("info-popover-test-run-kind", body)
@@ -594,6 +595,21 @@ class TestLiveClassPostgresDeleteTests(Base):
                 "ended_at": None,
             }
         )
+        student_id = int(self.students[0])
+        store.upsert_attendee(
+            {
+                "id": 880_001,
+                "live_session_id": sid,
+                "student_id": student_id,
+                "participant_uuid": "",
+                "visit_token": f"mck269-delete-{sid}",
+                "codename": "Maple",
+                "unmatched": 0,
+                "joined_at": "2026-10-14T12:01:00",
+                "left_at": None,
+                "last_heartbeat_at": None,
+            }
+        )
         self.school.delete_test_live_class(self.class_id, sid)
         import psycopg
 
@@ -603,6 +619,11 @@ class TestLiveClassPostgresDeleteTests(Base):
                 (sid,),
             ).fetchone()
             self.assertEqual(int(left[0]), 0)
+            attendees = check.execute(
+                "SELECT COUNT(*) AS n FROM live_presence_attendees WHERE live_session_id = %s",
+                (sid,),
+            ).fetchone()
+            self.assertEqual(int(attendees[0]), 0)
 
 if __name__ == "__main__":
     unittest.main()

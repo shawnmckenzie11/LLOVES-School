@@ -2,12 +2,19 @@
  * MCK-269: click/keyboard info popovers (no hover).
  */
 
+/** @type {HTMLButtonElement|null} */
+let staffInfoPopoverFocusTrigger = null;
+
 /**
  * Close every open staff info popover.
  * @param {HTMLElement|null} except
+ * @param {{ focusTrigger?: boolean }} [options]
  * @returns {void}
  */
-function closeStaffInfoPopovers(except = null) {
+function closeStaffInfoPopovers(except = null, options = {}) {
+  const focusTrigger = Boolean(options.focusTrigger);
+  const triggerToFocus = focusTrigger ? staffInfoPopoverFocusTrigger : null;
+  staffInfoPopoverFocusTrigger = null;
   for (const pop of document.querySelectorAll(".staff-info-popover")) {
     if (!(pop instanceof HTMLElement) || pop === except) continue;
     pop.hidden = true;
@@ -17,6 +24,7 @@ function closeStaffInfoPopovers(except = null) {
       if (trigger instanceof HTMLElement) trigger.setAttribute("aria-expanded", "false");
     }
   }
+  if (triggerToFocus instanceof HTMLButtonElement) triggerToFocus.focus();
 }
 
 /**
@@ -33,6 +41,7 @@ function toggleStaffInfoPopover(trigger) {
   pop.hidden = !willOpen;
   trigger.setAttribute("aria-expanded", willOpen ? "true" : "false");
   if (willOpen) {
+    staffInfoPopoverFocusTrigger = trigger;
     const rect = trigger.getBoundingClientRect();
     pop.style.top = `${Math.min(rect.bottom + 6, window.innerHeight - 12)}px`;
     pop.style.left = `${Math.min(rect.left, window.innerWidth - 292)}px`;
@@ -59,7 +68,7 @@ export function bindStaffInfoPopovers() {
     closeStaffInfoPopovers();
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeStaffInfoPopovers();
+    if (event.key === "Escape") closeStaffInfoPopovers(null, { focusTrigger: true });
   });
   for (const closeBtn of document.querySelectorAll(".staff-info-popover-close")) {
     closeBtn.addEventListener("click", (event) => {
