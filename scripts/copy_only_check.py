@@ -65,6 +65,22 @@ HTML_ENTITY = re.compile(r"&(?:#\d+|#x[0-9a-fA-F]+|\w+);")
 JAVASCRIPT_SCHEME = re.compile(r"javascript\s*:", re.IGNORECASE)
 JINJA_LINE_STMT = re.compile(r"#\s*for\b", re.IGNORECASE)
 PSEUDO_JINJA = re.compile(r"\{\s+\{")
+SENSITIVE_TEMPLATE_NAMES = frozenset(
+    {
+        "landing.html",
+        "catchup.html",
+        "student_join.html",
+        "join.html",
+        "login.html",
+        "local_dev_login.html",
+    }
+)
+SENSITIVE_PATH_PARTS = frozenset({"login", "join", "catchup", "auth", "verify"})
+SENSITIVE_WORDING = re.compile(
+    r"(?:\bjoin\s*code\b|\bcatch[- ]?up\s*pin\b|\bverification\s+code\b|"
+    r"\b(?:wrong\s+)?pin\b|\blogin\b)",
+    re.IGNORECASE,
+)
 
 Normalizer = Callable[[str], str]
 
@@ -162,6 +178,24 @@ def is_binary_at(rev: str, path: str) -> bool:
     if result.returncode != 0:
         return False
     return b"\x00" in result.stdout[:8192]
+
+
+def is_sensitive_auth_template(path: str, old: str | None, new: str | None) -> bool:
+    """True when a template touches login, student PIN, or join-code wording."""
+    pure = PurePosixPath(path)
+    parts_lower = [part.lower() for part in pure.parts]
+    if "templates" not in parts_lower:
+        return False
+    name = pure.name.lower()
+    if name in SENSITIVE_TEMPLATE_NAMES:
+        return True
+    for part in parts_lower:
+        if part in SENSITIVE_PATH_PARTS:
+            return True
+        if "login" in part or "join" in part or "catchup" in part:
+            return True
+    combined = f"{old or ''}\n{new or ''}"
+    return bool(SENSITIVE_WORDING.search(combined))
 
 
 def classify_path(path: str) -> str:
@@ -545,8 +579,11 @@ def file_is_copy_only(old: str | None, new: str | None, kind: str) -> tuple[bool
 def check_range(base: str, head: str) -> list[str]:
     """Return human-readable errors for a revision range (empty when clean)."""
     merge = git_merge_base(base, head)
+    entries = changed_entries(base, head)
     errors: list[str] = list(diff_summary_errors(base, head))
-    for status, path in changed_entries(base, head):
+    if not entries and not errors:
+        return ["empty diff: no file changes between merge-base and head"]
+    for status, path in entries:
         if path in TRUSTED_LANE_PATHS:
             errors.append(f"{path}: trusted copy-only lane files cannot change")
             continue
@@ -575,7 +612,11 @@ def check_range(base: str, head: str) -> list[str]:
         old = git_file_at(merge, path)
         new = git_file_at(head, path)
         ok, reason = file_is_copy_only(old, new, kind)
-        if not ok:
+        if ok and is_sensitive_auth_template(path, old, new):
+            errors.append(
+                f"{path}: login, PIN, or join-code wording requires human review"
+            )
+        elif not ok:
             errors.append(f"{path}: {reason}")
     return errors
 

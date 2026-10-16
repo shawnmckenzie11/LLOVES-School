@@ -45,6 +45,10 @@ python3 scripts/copy_only_template_smoke.py origin/main HEAD
 
 The diff guard fails (with a path and reason) when a change touches:
 
+- An **empty diff** (merge-base..head has no file changes)
+- **Login, PIN, or join-code** templates or wording (even when the edit is otherwise
+  copy-only — use the normal code lane and human review instead)
+
 - New, deleted, or renamed paths; chmod / mode changes; symlinks; binary blobs
 - `scripts/copy_only_check.py`, `scripts/copy_only_template_smoke.py`, or
   `.github/workflows/copy-only.yml`

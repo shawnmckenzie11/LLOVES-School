@@ -210,6 +210,15 @@ class CopyOnlyNormalizerTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("line", reason.lower())
 
+    def test_sensitive_landing_flagged(self) -> None:
+        """Join-code templates are treated as sensitive auth wording."""
+        path = "lms/templates/landing.html"
+        old = '<label for="code">Join code</label>'
+        new = '<label for="code">Class code</label>'
+        self.assertTrue(coc.is_sensitive_auth_template(path, old, new))
+        ok, _ = coc.file_is_copy_only(old, new, "markup")
+        self.assertTrue(ok)
+
 
 class CopyOnlyWorkflowTests(unittest.TestCase):
     """CI layout: base checker path + pr git directory."""
@@ -250,14 +259,6 @@ class CopyOnlyWorkflowTests(unittest.TestCase):
             "COPY_ONLY_GIT_DIR": str(pr),
             "COPY_ONLY_CHECKER": str(checker_dst),
         }
-        result = subprocess.run(
-            [sys.executable, str(checker_dst), sha, sha],
-            cwd=pr,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
         selftest = subprocess.run(
             [sys.executable, str(SCRIPTS / "copy_only_workflow_selftest.py")],
             cwd=pr,
@@ -300,6 +301,26 @@ class CopyOnlyGitTests(unittest.TestCase):
             text=True,
         )
         return result.stdout
+
+    def test_git_empty_diff_fails(self) -> None:
+        """An empty revision range is rejected."""
+        errors = self._check(self.base, self.base)
+        self.assertTrue(any("empty diff" in e.lower() for e in errors))
+
+    def test_git_sensitive_join_code_requires_human_review(self) -> None:
+        """Copy-only join-code edits still require human review."""
+        landing = self.root / "lms" / "templates" / "landing.html"
+        landing.parent.mkdir(parents=True, exist_ok=True)
+        landing.write_text('<label>Join code</label>\n', encoding="utf-8")
+        self._git("add", ".")
+        self._git("commit", "-m", "landing")
+        base2 = self._git("rev-parse", "HEAD").strip()
+        landing.write_text('<label>Class code</label>\n', encoding="utf-8")
+        self._git("add", ".")
+        self._git("commit", "-m", "join copy")
+        head = self._git("rev-parse", "HEAD").strip()
+        errors = self._check(base2, head)
+        self.assertTrue(any("human review" in e.lower() for e in errors))
 
     def test_git_range_passes_copy_edit(self) -> None:
         """A text-only template edit exits 0."""
