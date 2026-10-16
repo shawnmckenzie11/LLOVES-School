@@ -29,14 +29,3 @@ def parse_is_test_form(raw: Any) -> bool:
     if isinstance(raw, str):
         return raw.strip().lower() in {"true", "1"}
     return False
-
-
-def parse_is_test_value(raw: Any) -> bool:
-    """Backward-compatible helper: JSON rules plus form strings.
-
-    Prefer :func:`parse_is_test_json` or :func:`parse_is_test_form` at the
-    HTTP boundary so JSON string ``"true"`` is not treated as test mode.
-    """
-    if parse_is_test_json(raw):
-        return True
-    return parse_is_test_form(raw)

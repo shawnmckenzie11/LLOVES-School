@@ -38129,7 +38129,9 @@ class SchoolDB(LovesDB):
 
 
     def _live_session_has_run_activity(self, session_id: int) -> bool:
-        """True when the session has attendees, prompts, or student responses.
+        """True when the session has roster attendees or student responses.
+
+        Automatic waiting-room prompts (Minds-On) do not block Test/Live.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -38141,11 +38143,6 @@ class SchoolDB(LovesDB):
         with self._lock:
             if self.conn.execute(
                 "SELECT 1 FROM live_session_attendees WHERE live_session_id = ? LIMIT 1",
-                (sid,),
-            ).fetchone():
-                return True
-            if self.conn.execute(
-                "SELECT 1 FROM live_session_prompts WHERE live_session_id = ? LIMIT 1",
                 (sid,),
             ).fetchone():
                 return True
@@ -38203,8 +38200,8 @@ class SchoolDB(LovesDB):
                 )
             with self._lock:
                 self.conn.execute(
-                    "UPDATE live_class_sessions SET is_test = ? WHERE id = ?",
-                    (flag, int(active["id"])),
+                    "UPDATE live_class_sessions SET is_test = ?, created_as_test = ? WHERE id = ?",
+                    (flag, flag, int(active["id"])),
                 )
                 if self.conn.in_transaction:
                     self.conn.commit()

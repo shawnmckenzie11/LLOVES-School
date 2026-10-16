@@ -640,22 +640,43 @@ class TestLiveClassKindGuardTests(TestLiveClassTests):
         code = self.school.get_user_by_email("teacher@gmail.com")["verification_code"]
         self.client.post("/verify-email", data={"code": code})
 
-    def test_kind_switch_refuses_after_prompt(self) -> None:
-        """Live-session kind endpoint returns 409 once prompts exist."""
+    def test_kind_switch_after_run_live_ignores_minds_on_prompt(self) -> None:
+        """Run Live then Test works while only the automatic Minds-On exists."""
+        rv = self.client.post(f"/staff/class/{self.class_id}/run-live")
+        self.assertEqual(rv.status_code, 302, rv.status_code)
+        live = self.school.get_active_live_session_for_teacher(int(self.teacher["id"]))
+        self.assertIsNotNone(live)
+        sid = int(live["id"])
+        prompt_count = self.school.conn.execute(
+            "SELECT COUNT(*) AS n FROM live_session_prompts WHERE live_session_id = ?",
+            (sid,),
+        ).fetchone()["n"]
+        self.assertGreater(int(prompt_count), 0)
+        rv = self.client.post(
+            f"/api/classes/{self.class_id}/live-session/kind",
+            json={"is_test": True},
+        )
+        self.assertEqual(rv.status_code, 200, rv.get_json())
+        row = self.school.get_live_session(sid)
+        self.assertEqual(int(row["is_test"]), 1)
+        self.assertEqual(int(row["created_as_test"]), 1)
+
+    def test_kind_switch_refuses_after_attendee(self) -> None:
+        """Kind endpoint 409 once a student has joined."""
         from school_db import LiveRunKindConflict
 
-        live = self.school.start_live_class_session(
-            self.class_id, int(self.teacher["id"]), is_test=False
-        )
+        self.client.post(f"/staff/class/{self.class_id}/run-live")
+        live = self.school.get_active_live_session_for_teacher(int(self.teacher["id"]))
         sid = int(live["id"])
-        now = "2026-10-14T13:00:00"
+        now = "2026-10-14T13:05:00"
         self.school.conn.execute(
             """
-            INSERT INTO live_session_prompts (
-                live_session_id, slide_index, kind, payload, created_at, updated_at
-            ) VALUES (?, 0, 'idle', '{}', ?, ?)
+            INSERT INTO live_session_attendees (
+                id, live_session_id, student_id, participant_uuid, visit_token,
+                codename, unmatched, joined_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 0, ?)
             """,
-            (sid, now, now),
+            (9001, sid, int(self.students[0]), "uuid-mck269", "tok-mck269", "Maple", now),
         )
         self.school.conn.commit()
         with self.assertRaises(LiveRunKindConflict):
@@ -667,6 +688,22 @@ class TestLiveClassKindGuardTests(TestLiveClassTests):
             json={"is_test": True},
         )
         self.assertEqual(rv.status_code, 409, rv.get_json())
+
+    def test_delete_test_succeeds_after_kind_switch_to_test(self) -> None:
+        """Switching to Test stamps created_as_test so delete-test works."""
+        self.client.post(f"/staff/class/{self.class_id}/run-live")
+        live = self.school.get_active_live_session_for_teacher(int(self.teacher["id"]))
+        sid = int(live["id"])
+        rv = self.client.post(
+            f"/api/classes/{self.class_id}/live-session/kind",
+            json={"is_test": True},
+        )
+        self.assertEqual(rv.status_code, 200, rv.get_json())
+        rv = self.client.post(
+            f"/api/classes/{self.class_id}/live-sessions/{sid}/delete-test"
+        )
+        self.assertEqual(rv.status_code, 200, rv.get_json())
+        self.assertIsNone(self.school.get_live_session(sid))
 
     def test_delete_test_refuses_mistagged_real_with_data(self) -> None:
         """delete-test returns 409 when is_test was flipped on a real run."""
