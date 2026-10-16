@@ -3553,6 +3553,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             class_id=first_class,
             block=whats_new_hold,
         )
+        # While a class is live the Dashboard must not link the archived
+        # class's pages (the End form is the only /staff/class/… URL).
+        if whats_new_hold:
+            for key in ("tour_nav", "tour_qb", "tour_ap", "tour_part", "tour_live_href"):
+                tour[key] = ""
         html = render_template(
             "staff/home.html",
             user=user,

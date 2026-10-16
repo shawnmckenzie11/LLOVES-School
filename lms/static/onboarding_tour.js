@@ -670,6 +670,9 @@ export function initTour(env) {
   let dwellId = null;
   let opened = "";
   let painted = "";
+  let lastTarget = null;
+  let checkSig = "";
+  let painting = false;
 
   const persist = (next, eventStatus) => {
     state = next;
@@ -692,11 +695,21 @@ export function initTour(env) {
     if (!check) return;
     const hidden = Boolean(state.checklist && state.checklist.hidden);
     const visible = !hidden && engaged;
-    check.hidden = !visible;
-    if (!visible) return;
     const done = state.done || {};
     const n = checklistCount(done);
     const collapsed = Boolean(state.checklist && state.checklist.collapsed) || n === TASK_IDS.length;
+    let nextId = "";
+    for (const task of TASKS) {
+      if (!done[task.id]) {
+        nextId = task.id;
+        break;
+      }
+    }
+    const sig = `${visible ? 1 : 0}|${n}|${collapsed ? 1 : 0}|${nextId}`;
+    if (sig === checkSig) return;
+    checkSig = sig;
+    check.hidden = !visible;
+    if (!visible) return;
     const card = check.querySelector("[data-check-card]");
     const pill = check.querySelector("[data-check-pill]");
     const title = check.querySelector("[data-check-title]");
@@ -709,13 +722,6 @@ export function initTour(env) {
     if (bar) bar.style.width = `${(n / TASK_IDS.length) * 100}%`;
     if (pillLabel) pillLabel.textContent = n === TASK_IDS.length ? "✓ Getting started 5/5" : `Getting started ${n}/5`;
     if (dismiss) dismiss.hidden = n !== TASK_IDS.length;
-    let nextId = "";
-    for (const task of TASKS) {
-      if (!done[task.id]) {
-        nextId = task.id;
-        break;
-      }
-    }
     for (const row of check.querySelectorAll("[data-task]")) {
       const id = row.getAttribute("data-task");
       const ticked = Boolean(done[id]);
@@ -746,6 +752,16 @@ export function initTour(env) {
   };
 
   const paint = () => {
+    if (painting) return opened;
+    painting = true;
+    try {
+      return renderTour();
+    } finally {
+      painting = false;
+    }
+  };
+
+  const renderTour = () => {
     showChecklist();
     showToast();
     const allowed = !pausedHere && spotlightAllowed({ offer, forced, status: state.status });
@@ -800,11 +816,12 @@ export function initTour(env) {
       state.checklist && state.checklist.collapsed ? "1" : "0",
       state.checklist && state.checklist.hidden ? "1" : "0",
     ].join("|");
-    if (sig === painted && currentEl === target) {
+    if (sig === painted && target === lastTarget) {
       opened = plan.mode === "step" ? String(plan.id || "") : plan.mode === "empty" ? "empty" : "";
       return opened;
     }
     painted = sig;
+    lastTarget = target;
     const pop = root.querySelector("[data-tour-pop]");
     const empty = root.querySelector("[data-tour-empty]");
     clearLit();
