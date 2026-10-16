@@ -2024,7 +2024,6 @@ class LovesDB:
             self._ensure_access_request_schema()
             self._ensure_staff_invite_schema()
             self._ensure_observation_history_shape()
-            self._ensure_gamification_schema()
             self._seed()
             self._seed_live_class_features()
             self._seed_live_class_schedules()
@@ -7256,6 +7255,9 @@ class SchoolDB(LovesDB):
         # (``games.team_names_approved``). Same cross-worker lock, taken
         # after the school schema lock above was released (MCK-104).
         with boot_schema_lock(path):
+            # Vote tables belong to the school facade. Bare ``LovesDB``
+            # opens stay free of this helper.
+            self._ensure_gamification_schema()
             self.game = mod.GameShowDB(path, store, lock=self._lock)
             self._backfill_catchup_portal_join_codes()
             self._backfill_lesson_slides_latest()
@@ -37600,6 +37602,8 @@ class SchoolDB(LovesDB):
         (MCK-108). End Live Class flips both, so a tab that still sends its
         pre-End seq and stamp can never get the unchanged short-circuit
         and miss the celebration, even if ``state_seq`` was not bumped.
+        The MVP ballot count sits just before the presence token. The
+        last field stays that token while a Take turns item is open.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -37750,8 +37754,8 @@ class SchoolDB(LovesDB):
             f"{seq}:{prompt_max}:{prompt_active}:{active_n}:{item_n}:{save_n}:"
             f"{item_max}:{response_max}:{group_vote_max}:{event_max}:"
             f"{prompt_rev}:{item_rev}:{group_vote_rev}:{status}:{celebrate}:"
-            f"{group_response_rev}:{race_step_rev}:{presence_rev}:"
-            f"{self._mvp_voter_count(int(session_id))}"
+            f"{group_response_rev}:{race_step_rev}:"
+            f"{self._mvp_voter_count(int(session_id))}:{presence_rev}"
         )
 
     #: Last good presence token per session (MCK-186), so a presence blip

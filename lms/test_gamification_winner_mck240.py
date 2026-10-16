@@ -291,7 +291,9 @@ class GamificationWinnerTests(unittest.TestCase):
         self.assertNotIn("Birch", first.get_data(as_text=True))
         after = self.school.live_student_poll_stamp(self.session_id, self.class_id)
         self.assertNotEqual(before, after)
-        self.assertTrue(after.endswith(":1"))
+        # Ballot count sits immediately before the presence token.
+        self.assertEqual(before.rsplit(":", 2)[-2], "0")
+        self.assertEqual(after.rsplit(":", 2)[-2], "1")
         with self.assertRaises(ValueError):
             self.school.cast_mvp_vote(self.session_id, self.ids["Aspen"], "Birch")
         tallies = winner_mod.tally_map(self.school.conn, self.session_id)
