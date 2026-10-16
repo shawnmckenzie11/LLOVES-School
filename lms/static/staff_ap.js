@@ -5245,6 +5245,11 @@ function paintLiveQuestionCards() {
             : "";
       const promptId = Number(card.prompt_id) || 0;
       const liveItemId = Number(card.live_item_id || card.id) || 0;
+      // MCK-261: this render map is its own function. The merge map's
+      // lifecycle const is not in scope here (that threw and blanked the deck).
+      const token = String(card.id || card.item_id || "").trim();
+      const lifecycle =
+        lifecycleByItemId.get(token) || lifecycleByItemId.get(liveItemAlias(token));
       const status = String(
         lifecycle?.status || card.status || "inactive"
       ).toLowerCase();
