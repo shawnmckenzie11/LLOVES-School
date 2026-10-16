@@ -428,6 +428,71 @@ class LiveAddedQuestionTests(unittest.TestCase):
         self.assertNotIn("live-question-new-chip", student)
 
 
+class LiveLifecycleBindingTests(unittest.TestCase):
+    """MCK-261: teacher deck paint must not read an unbound lifecycle."""
+
+    def test_render_map_declares_lifecycle_before_status(self) -> None:
+        """The question-card render map binds lifecycle from the item id.
+
+        Commit 6f5deae (#342) read ``lifecycle?.status`` inside the render
+        map. That ``const`` lived only in the earlier merge map, so every
+        live class threw ReferenceError and the deck stayed blank.
+        """
+
+        staff = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        paint = staff.split("function paintLiveQuestionCards")[1].split(
+            "function adoptLiveItem"
+        )[0]
+        render = _brace_body(paint, ".map((card, index)")
+        status_at = render.index("lifecycle?.status || card.status")
+        declared = render.rfind("const lifecycle", 0, status_at)
+        self.assertGreater(declared, -1)
+        lookup = render[declared:status_at]
+        self.assertIn("lifecycleByItemId.get(", lookup)
+        self.assertIn("liveItemAlias(", lookup)
+
+    def test_deck_question_rows_already_binds_lifecycle(self) -> None:
+        """The metadata loop in deckQuestionRows declares lifecycle before status."""
+
+        staff = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        rows = staff.split("function deckQuestionRows")[1].split(
+            "function metadataMatchesCurrentPack"
+        )[0]
+        first = rows.split("for (const card of serverCards)")[0]
+        status_at = first.index(
+            "lifecycle?.status || (server || question).status"
+        )
+        self.assertGreater(first.rfind("const lifecycle", 0, status_at), -1)
+        server = rows.split("for (const card of serverCards)", 1)[1]
+        server_status = server.index("lifecycle?.status || card.status")
+        self.assertGreater(server.rfind("const lifecycle", 0, server_status), -1)
+
+
+def _brace_body(source: str, signature: str) -> str:
+    """Return the brace-balanced body that starts at the first ``{`` after signature.
+
+    Args:
+        source: JavaScript text to scan.
+        signature: Unique prefix of the function or callback.
+
+    Returns:
+        The text inside the matching braces, without the braces.
+    """
+
+    at = source.index(signature)
+    brace = source.index("{", at)
+    depth = 0
+    for index in range(brace, len(source)):
+        char = source[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[brace + 1 : index]
+    raise AssertionError(f"unbalanced braces after {signature}")
+
+
 class RankStackNodeHarness(unittest.TestCase):
     """MCK-154 S1: run the rank_stack.js node checks."""
 
