@@ -8747,13 +8747,16 @@ body.staff-shell .live-add-q-footer-row {
 body.staff-shell .qbank-page {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
   background: #f7f9fb;
 }
 body.staff-shell .qbank-head {
+  flex-shrink: 0;
   background: #fff;
   border-bottom: 1px solid #d5dde6;
-  padding: 0.7rem 1.1rem 0;
+  padding: 0.7rem 1.1rem;
 }
 body.staff-shell .qbank-head-row {
   display: flex;
@@ -8768,86 +8771,173 @@ body.staff-shell .qbank-title {
 body.staff-shell .qbank-head-row #qbank-add {
   margin-left: auto;
 }
-body.staff-shell .qbank-tabs {
-  display: flex;
-  gap: 0.15rem;
-  overflow-x: auto;
-}
-body.staff-shell .qbank-tabs button {
-  background: transparent;
-  color: #12202e;
-  border: 0;
-  border-bottom: 3px solid transparent;
-  border-radius: 0;
-  padding: 0.45rem 0.7rem;
-  font-weight: 600;
-}
-body.staff-shell .qbank-tabs button.is-on {
-  border-bottom-color: #12202e;
-  font-weight: 750;
-}
-body.staff-shell .qbank-page .live-bank-toolbar {
+body.staff-shell .qbank-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: block;
   background: #fff;
-  border-bottom: 1px solid #d5dde6;
-  padding: 0.65rem 1.1rem;
-  align-items: center;
+  padding-bottom: 4.5rem;
 }
-body.staff-shell .qbank-scope-sync {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-}
-body.staff-shell .qbank-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem;
-  padding: 0.9rem 1.1rem 4.5rem;
-  align-content: start;
-}
-body.staff-shell .qbank-card {
-  background: #fff;
-  border: 1px solid #d5dde6;
-  border-radius: 10px;
-  padding: 0.7rem 0.8rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  min-height: 7.5rem;
-  cursor: pointer;
+body.staff-shell .qbank-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
   text-align: left;
+  font-size: 0.875rem;
+  color: #12202e;
 }
-body.staff-shell .qbank-card-head {
-  display: flex;
-  gap: 0.35rem;
-  align-items: center;
+body.staff-shell .qcol-check { width: 40px; }
+body.staff-shell .qcol-kind { width: 110px; }
+body.staff-shell .qcol-module { width: 104px; }
+body.staff-shell .qcol-mode { width: 96px; }
+body.staff-shell .qcol-results { width: 104px; }
+body.staff-shell .qcol-points { width: 64px; }
+body.staff-shell .qcol-more { width: 44px; }
+body.staff-shell .qbank-table th,
+body.staff-shell .qbank-table td {
+  padding: 0.45rem 0.6rem;
+  text-align: left;
+  vertical-align: middle;
+  border: 0;
+  border-bottom: 1px solid #e2e8f0;
+  font-weight: 450;
+  background: #fff;
 }
-body.staff-shell .qbank-kind,
-body.staff-shell .qbank-points,
-body.staff-shell .qbank-key {
+body.staff-shell .qbank-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f7f9fb;
   color: #475569;
-  font-size: 0.78rem;
-  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 650;
+  border-bottom-color: #d5dde6;
+  white-space: nowrap;
 }
-body.staff-shell .qbank-points {
-  margin-left: auto;
+body.staff-shell .qbank-tr:hover td {
+  background: #f7f9fb;
+}
+body.staff-shell .qbank-tr.is-checked td,
+body.staff-shell .qbank-tr.is-checked:hover td {
+  background: #eef4fb;
+}
+body.staff-shell .qcell-check {
+  padding-left: 0.7rem;
+  padding-right: 0.2rem;
+}
+body.staff-shell .qbank-table thead .qcell-more {
+  text-align: center;
+  color: #475569;
+}
+body.staff-shell .qcell-more {
+  padding-left: 0.2rem;
+  padding-right: 0.35rem;
+  text-align: center;
+}
+body.staff-shell .qcell-points {
+  font-variant-numeric: tabular-nums;
+}
+body.staff-shell .qbank-sorts {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+body.staff-shell .qbank-sort {
+  background: transparent;
+  border: 0;
+  color: #475569;
+  font-size: 0.75rem;
+  font-weight: 650;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+body.staff-shell .qbank-sort.is-on {
+  color: #12202e;
+}
+body.staff-shell .qbank-sort-ico {
+  font-size: 0.65rem;
+  margin-left: 0.12rem;
+}
+body.staff-shell .qbank-line {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+body.staff-shell .qbank-line .chip,
+body.staff-shell .qbank-tag {
+  flex: 0 0 auto;
 }
 body.staff-shell .qbank-stem {
-  font-size: 0.9rem;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.875rem;
+}
+body.staff-shell .qbank-stem * {
+  display: inline;
+  white-space: nowrap;
+}
+body.staff-shell .qbank-tag {
+  color: #475569;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+body.staff-shell .qbank-more {
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #475569;
+  font-size: 1.05rem;
+  line-height: 1;
+  padding: 0;
+}
+body.staff-shell .qbank-more:hover {
+  background: #e2e8f0;
+}
+body.staff-shell .qbank-more-menu {
+  position: fixed;
+  z-index: 40;
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #d5dde6;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(18, 32, 46, 0.12);
+  min-width: 11rem;
+}
+body.staff-shell .qbank-more-menu[hidden] {
+  display: none !important;
+}
+body.staff-shell .qbank-more-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: #12202e;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.875rem;
+  font-weight: 550;
+  border-radius: 4px;
+}
+body.staff-shell .qbank-more-menu button:hover {
+  background: #f7f9fb;
 }
 body.staff-shell .qbank-type-mc { background: #dbeafe; color: #1e40af; }
 body.staff-shell .qbank-type-num { background: #dcfce7; color: #166534; }
-body.staff-shell .qbank-type-rank { background: #fef3c7; color: #92400e; }
-body.staff-shell .qbank-type-poll { background: #f3e8ff; color: #6b21a8; }
+body.staff-shell .qbank-type-rank { background: #f3e8ff; color: #6b21a8; }
+body.staff-shell .qbank-type-poll { background: #fef3c7; color: #92400e; }
 body.staff-shell .qbank-edited { background: #fef9c3; color: #854d0e; }
-body.staff-shell .qbank-empty,
-body.staff-shell .qbank-empty-card {
-  grid-column: 1 / -1;
-  background: #fff;
-  border: 1px solid #d5dde6;
-  border-radius: 10px;
-  padding: 1.4rem;
+body.staff-shell .qbank-empty {
+  color: #475569;
+  padding: 1.1rem 0.6rem;
 }
 body.staff-shell .qbank-bulk {
   position: fixed;

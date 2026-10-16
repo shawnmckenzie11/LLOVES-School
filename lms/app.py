@@ -4581,7 +4581,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     )
     @staff_required
     def staff_question_bank_bulk(class_id: int):
-        """Move selected bank questions or set their Kind."""
+        """Move selected bank questions, set their Kind, or remove them."""
         user = current_user()
         assert user is not None
         if not school.teacher_owns_class(int(user["id"]), class_id):
@@ -4745,6 +4745,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         question_type = parse_type_filter(request.args.get("type"))
         if question_type is None:
             return jsonify({"ok": False, "error": "unknown question type"}), 400
+        sort = str(request.args.get("sort") or "").strip().lower()
+        if sort not in {"", "bank", "edited", "type"}:
+            return jsonify({"ok": False, "error": "unknown sort"}), 400
+        sort_arg = sort or None
         staff_types = str(request.args.get("staff_types") or "").strip().lower() in {
             "1",
             "true",
@@ -4755,12 +4759,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             request.args.get("bank_scope") or request.args.get("bankScope") or ""
         ).strip().lower()
         module_token = str(module or "").strip()
-        course_tokens = {"course", "course-wide", "coursewide", "all"}
+        course_tokens = {"course", "course-wide", "coursewide"}
         course_scope = (
             module_token.lower() in course_tokens or scope_arg in course_tokens
         )
+        all_scope = module_token.lower() == "all" or scope_arg == "all"
         module_number = None
-        if not course_scope:
+        if not course_scope and not all_scope:
             module_number = parse_module_token(module_token.upper())
             if module_number is None:
                 return jsonify({"ok": False, "error": "module required (e.g. M1)"}), 400
@@ -4768,6 +4773,36 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         library_id, error = _ready_library(school, cls)
         if not library_id:
             return jsonify({"ok": False, "error": error or "No module pack"}), 404
+        if all_scope:
+            result = school.search_bank_scope_mcs(
+                int(library_id),
+                "all",
+                1,
+                query,
+                class_id=int(class_id),
+                kind=kind,
+                question_type=question_type,
+                staff_types=staff_types,
+                sort=sort_arg,
+            )
+            items = result.get("items") or []
+            return jsonify(
+                {
+                    "ok": True,
+                    "module": "ALL",
+                    "bank_scope": "all",
+                    "module_number": None,
+                    "library_id": int(library_id),
+                    "query": query,
+                    "kind": kind,
+                    "type": question_type,
+                    "count": len(items),
+                    "total": int(result.get("total") or 0),
+                    "filtered": int(result.get("filtered") or 0),
+                    "type_counts": result.get("type_counts") or [],
+                    "items": items,
+                }
+            )
         if course_scope and placement == "course":
             result = school.search_module_bank_mcs(
                 int(library_id),
@@ -4778,6 +4813,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 question_type=question_type,
                 scope_policy="course_only",
                 staff_types=staff_types,
+                sort=sort_arg,
             )
             items = result.get("items") or []
             return jsonify(
@@ -4807,6 +4843,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 kind=kind,
                 question_type=question_type,
                 staff_types=staff_types,
+                sort=sort_arg,
             )
             items = result.get("items") or []
             return jsonify(
@@ -4835,6 +4872,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             question_type=question_type,
             staff_types=staff_types,
             include_course_placed=placement != "module",
+            sort=sort_arg,
         )
         items = result.get("items") or []
         return jsonify(

@@ -5,6 +5,7 @@
  * Save to bank and either POST a new bank row or PATCH with from_editor.
  */
 import { api, escapeHtml, renderLiveQuestionMath } from "/static/common.js";
+import { questionPointsValue } from "/static/question_points.js";
 
 const EQ_RENDER_ERROR = "Couldn't render this equation — check the TeX.";
 
@@ -314,7 +315,7 @@ function fillQuestion(question) {
   }
   const points = $("live-add-q-points");
   if (points instanceof HTMLInputElement) {
-    points.value = question.live_points == null || question.live_points === "" ? "1" : String(question.live_points);
+    points.value = questionPointsValue(question);
   }
   const select = $("live-add-q-bank-scope-select");
   const storedScope = String(question.bank_scope || "");
@@ -572,6 +573,8 @@ async function removeCurrent() {
       resolve(dialog.returnValue === "ok");
     };
     dialog.addEventListener("close", onClose);
+    // Esc reuses the last returnValue unless it is cleared before open.
+    dialog.returnValue = "";
     dialog.showModal();
   });
   if (!ok) {
@@ -722,7 +725,7 @@ function bindEditor() {
     const tag = document.activeElement?.tagName || "";
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
     event.preventDefault();
-    stepQuestion(key === "j" ? -1 : 1);
+    stepQuestion(key === "j" ? 1 : -1);
   });
 }
 

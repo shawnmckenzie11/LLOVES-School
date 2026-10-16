@@ -109,40 +109,27 @@
          data-kind="question-banks"
          data-live-bank="1"
          data-empty-banks="{{ bank_copy.empty_banks }}"
-         data-edit-bank="{{ bank_copy.edit_bank }}"
-         data-done="{{ bank_copy.done }}"
-         data-cancel="{{ bank_copy.cancel }}"
          data-remove-from-bank="{{ bank_copy.remove_from_bank }}"
          data-edited-in-lms="{{ bank_copy.edited_in_lms }}"
-         data-save-toast="{{ bank_copy.save_toast }}">
+         data-save-toast="{{ bank_copy.save_toast }}"
+         data-course-simple="{{ 1 if course_simple else 0 }}">
       <header class="qbank-head">
         <div class="qbank-head-row">
           <h1 class="qbank-title">Question bank</h1>
+          <label class="live-bank-field qbank-module-field" for="qbank-module">Module
+            <select id="qbank-module" aria-label="Module">
+              <option value="all" data-tab-label="All">All</option>
+              {% for n in range(0, 9) %}
+              <option value="M{{ n }}" data-tab-label="M{{ n }}"{% if n == 1 %} selected{% endif %}>M{{ n }}</option>
+              {% endfor %}
+              <option value="course" data-tab-label="Course Wide">Course Wide</option>
+            </select>
+          </label>
           <p class="hint" id="qbank-summary"></p>
           <button type="button" id="qbank-add">+ Add question</button>
         </div>
-        <div class="qbank-tabs" role="tablist" aria-label="Module">
-          <button type="button" role="tab" data-bank-tab="all" data-tab-label="All">All</button>
-          <button type="button" role="tab" data-bank-tab="M1" data-tab-label="M1" class="is-on" aria-selected="true">M1</button>
-          <button type="button" role="tab" data-bank-tab="M2" data-tab-label="M2">M2</button>
-          <button type="button" role="tab" data-bank-tab="M3" data-tab-label="M3">M3</button>
-          <button type="button" role="tab" data-bank-tab="M4" data-tab-label="M4">M4</button>
-          <button type="button" role="tab" data-bank-tab="M5" data-tab-label="M5">M5</button>
-          <button type="button" role="tab" data-bank-tab="M6" data-tab-label="M6">M6</button>
-          <button type="button" role="tab" data-bank-tab="M7" data-tab-label="M7">M7</button>
-          <button type="button" role="tab" data-bank-tab="M8" data-tab-label="M8">M8</button>
-          <button type="button" role="tab" data-bank-tab="course" data-tab-label="Course Wide">Course Wide</button>
-        </div>
       </header>
       <div class="live-bank-toolbar">
-        <label class="live-bank-field qbank-scope-sync" for="live-bank-scope">Bank scope
-          <select id="live-bank-scope" aria-label="Bank scope">
-            {% for n in range(0, 9) %}
-            <option value="M{{ n }}"{% if n == 1 %} selected{% endif %}>M{{ n }}</option>
-            {% endfor %}
-            <option value="course">Course Wide</option>
-          </select>
-        </label>
         <label class="live-bank-field live-bank-search" for="live-bank-search">Search
           <input id="live-bank-search" type="search" placeholder="Search stem or option text" autocomplete="off">
         </label>
@@ -155,15 +142,9 @@
           </select>
         </label>
         <div id="live-bank-types" data-bank-type-chips></div>
-        <label class="live-bank-field" for="live-bank-sort">Sort
-          <select id="live-bank-sort" aria-label="Sort">
-            <option value="bank" selected>Bank order</option>
-            <option value="edited">Recently edited</option>
-            <option value="type">Type</option>
-          </select>
-        </label>
+        <button type="button" class="secondary" id="qbank-clear-selection">Clear</button>
       </div>
-      <div id="catalog-list" class="qbank-grid">Loading live bank…</div>
+      <div id="catalog-list" class="qbank-list">Loading live bank…</div>
     </div>
     <div id="qbank-bulk" class="qbank-bulk" hidden>
       <strong id="qbank-bulk-count">0 selected</strong>
@@ -171,12 +152,18 @@
       <button type="button" class="secondary" id="qbank-bulk-kind">Set kind</button>
       <button type="button" class="danger" id="qbank-bulk-remove">Remove</button>
     </div>
+    <menu id="qbank-row-menu" class="qbank-more-menu" hidden>
+      <li><button type="button" data-qbank-menu="edit">Edit</button></li>
+      <li><button type="button" data-qbank-menu="move">Move to module</button></li>
+      <li><button type="button" data-qbank-menu="kind">Set kind</button></li>
+      <li><button type="button" data-qbank-menu="remove">Remove</button></li>
+    </menu>
     <p id="bank-toast" class="bank-toast" hidden role="status"></p>
     <dialog id="bank-remove-dialog" class="bank-remove-dialog" aria-labelledby="bank-remove-title">
       <form method="dialog" class="bank-remove-card">
         <h2 id="bank-remove-title">{{ bank_copy.remove_from_bank }}</h2>
         <div class="row-actions">
-          <button type="submit" value="cancel" class="secondary">{{ bank_copy.cancel }}</button>
+          <button type="submit" value="cancel" class="secondary">Cancel</button>
           <button type="submit" value="ok" class="danger">{{ bank_copy.remove_from_bank.rstrip('?') }}</button>
         </div>
       </form>

@@ -8077,6 +8077,7 @@ class SchoolDB(LovesDB):
         scope_policy: str = "module",
         staff_types: bool = False,
         include_course_placed: bool = True,
+        sort: str | None = None,
     ) -> dict[str, Any]:
         """Search normalized MCs scoped to confirmed module banks only.
 
@@ -8105,6 +8106,8 @@ class SchoolDB(LovesDB):
             include_course_placed: When false, hide questions pinned to
                 Course Wide. Import keeps them so a course-wide save is
                 still found from another module.
+            sort: ``bank`` (question id), ``edited`` (LMS edits first),
+                or ``type``. Omitted keeps rank rows first for Import.
 
         Returns:
             Dict with ``items``, ``total`` (importable MC count),
@@ -8402,6 +8405,8 @@ class SchoolDB(LovesDB):
             filtered_items = self._rank_rows_first(all_items)
         counts = bank_type_counts(filtered_items)
         filtered_items = filter_bank_by_type(filtered_items, question_type)
+        if sort:
+            filtered_items = self._sort_bank_search_items(filtered_items, sort)
         return {
             "items": filtered_items[:cap],
             "total": total,
@@ -8421,6 +8426,48 @@ class SchoolDB(LovesDB):
             return items
         rest = [item for item in items if str(item.get("type") or "") != "rank"]
         return rank + rest
+
+    @staticmethod
+    def _sort_bank_search_items(
+        items: list[dict[str, Any]], sort: str
+    ) -> list[dict[str, Any]]:
+        """Order a bank search before the row cap.
+
+        ``bank`` is question id. ``edited`` puts LMS edits first, then id.
+        ``type`` is the canonical question type, then id. An unknown mode
+        leaves the list as it arrived.
+
+        Args:
+            items: Normalized bank search rows, already type-filtered.
+            sort: ``bank``, ``edited``, or ``type``.
+        """
+        mode = str(sort or "").strip().lower()
+        rows = list(items)
+
+        def question_id(item: dict[str, Any]) -> int:
+            """Stable id for one search row."""
+            try:
+                return int(item.get("question_id") or item.get("id") or 0)
+            except (TypeError, ValueError):
+                return 0
+
+        if mode == "edited":
+            rows.sort(
+                key=lambda item: (
+                    0 if item.get("edited_in_lms") else 1,
+                    question_id(item),
+                )
+            )
+        elif mode == "type":
+            rows.sort(
+                key=lambda item: (
+                    str(item.get("question_type") or item.get("type") or "").lower(),
+                    question_id(item),
+                )
+            )
+        elif mode == "bank":
+            rows.sort(key=question_id)
+        return rows
 
     def ensure_rank_bank(self, library_id: int) -> dict[str, Any] | None:
         """Seed the reviewed rank items for an MCR3U / MCF3M library if stale.
@@ -8747,13 +8794,16 @@ class SchoolDB(LovesDB):
         kind: str | None = None,
         question_type: str | None = None,
         staff_types: bool = False,
+        sort: str | None = None,
     ) -> dict[str, Any]:
         """Search importable MCs for one bank scope, deduped across modules.
 
-        ``course`` unions confirmed banks on modules 1–8. Kind ``warmup``
-        seeds the Course Wide bank for MCF3M and MCR3U when the locked
-        titles are missing. A module token searches that module only.
-        Core Math drops warmup-tagged icebreakers and Custom rows.
+        ``course`` unions confirmed banks on modules 1–8. ``all`` unions
+        modules 0–8 and then Course Wide pins, which is the question-bank
+        All tab. Kind ``warmup`` seeds the Course Wide bank for MCF3M and
+        MCR3U when the locked titles are missing. A module token searches
+        that module only. Core Math drops warmup-tagged icebreakers and
+        Custom rows.
 
         Args:
             library_id: ``content_libraries.id``.
@@ -8766,6 +8816,8 @@ class SchoolDB(LovesDB):
                 process picks and drops warmup-tagged icebreakers.
             question_type: MCK-170 canonical type; empty keeps every type.
             staff_types: When true, staff numeric and poll rows are included.
+            sort: ``bank``, ``edited``, or ``type``. Omitted keeps rank
+                rows first. Applied after the union, before the cap.
 
         Returns:
             Dict with ``items``, ``total``, ``filtered``, and ``type_counts``.
@@ -8792,6 +8844,7 @@ class SchoolDB(LovesDB):
                 kind=kind,
                 question_type=question_type,
                 staff_types=staff_types,
+                sort=sort,
             )
         merged: dict[int, dict[str, Any]] = {}
         for number in numbers:
@@ -8839,6 +8892,8 @@ class SchoolDB(LovesDB):
             filtered_items = self._rank_rows_first(all_items)
         counts = bank_type_counts(filtered_items)
         filtered_items = filter_bank_by_type(filtered_items, question_type)
+        if sort:
+            filtered_items = self._sort_bank_search_items(filtered_items, sort)
         cap = max(1, min(int(limit), 500))
         return {
             "items": filtered_items[:cap],
@@ -12621,6 +12676,49 @@ class SchoolDB(LovesDB):
             )
             self.conn.commit()
 
+    def delete_library_bank_questions(
+        self, library_id: int, rows: list[tuple[int, int]]
+    ) -> None:
+        """Delete every listed question, then commit once.
+
+        Overlay rows cascade with each delete. A failure after any delete
+        rolls the whole batch back, so a partial remove is not saved.
+
+        The school connection is in autocommit mode, so ``Connection.commit``
+        does not finish an explicit ``BEGIN``. This uses SQL ``COMMIT`` and
+        ``ROLLBACK``.
+
+        Args:
+            library_id: ``content_libraries.id``.
+            rows: ``(bank_id, question_id)`` pairs to delete.
+        """
+        with self._lock:
+            started = False
+            try:
+                self.conn.execute("BEGIN IMMEDIATE")
+                started = True
+                for bank_id, question_id in rows:
+                    found = self.conn.execute(
+                        """
+                        SELECT q.id
+                        FROM questions q
+                        JOIN question_banks b ON b.id = q.bank_id
+                        WHERE q.id = ? AND q.bank_id = ? AND b.library_id = ?
+                        """,
+                        (int(question_id), int(bank_id), int(library_id)),
+                    ).fetchone()
+                    if found is None:
+                        raise KeyError(f"question {question_id}")
+                    self.conn.execute(
+                        "DELETE FROM questions WHERE id = ?",
+                        (int(question_id),),
+                    )
+                self.conn.execute("COMMIT")
+            except Exception:
+                if started and self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                raise
+
     def import_mc_to_class_playlist(
         self,
         class_id: int,
@@ -13030,8 +13128,11 @@ class SchoolDB(LovesDB):
     ) -> list[int]:
         """Resolve a Bank scope value into module numbers 0–8.
 
-        Accepts ``course`` / ``all`` (content modules 1–8), ``module`` (current),
-        ``M0`` / ``m2`` / ``2``. Unknown tokens fall back to the current module.
+        ``all`` is modules 0–8 (the question-bank All tab, before Course
+        Wide is merged by the caller). ``course`` stays content modules
+        1–8 so live import does not pick up M0. ``module`` is the current
+        lesson. ``M0`` / ``m2`` / ``2`` are single modules. Unknown tokens
+        fall back to the current module.
 
         Args:
             bank_scope: Staff Bank scope value.
@@ -13046,7 +13147,9 @@ class SchoolDB(LovesDB):
             from lms.bank_mc_normalize import parse_module_token
 
         token = str(bank_scope or "module").strip().lower()
-        if token in {"course", "course-wide", "coursewide", "all"}:
+        if token == "all":
+            return list(range(0, 9))
+        if token in {"course", "course-wide", "coursewide"}:
             return list(range(1, 9))
         if token in {"module", "this", "current", ""}:
             return [int(current_module_number)]
