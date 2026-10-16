@@ -2808,7 +2808,9 @@ class GameShowDB:
             return None
         return self._round_fields(dict(row))
 
-    def career_totals(self, class_id: int) -> dict[int, float]:
+    def career_totals(
+        self, class_id: int, *, include_test_students: bool = False
+    ) -> dict[int, float]:
         """Sum credited individual scores per student (all columns).
 
         Dashboard TOTAL is the sum of each session's credited score, which
@@ -2818,17 +2820,20 @@ class GameShowDB:
 
         Args:
             class_id: Classes primary key.
+            include_test_students: When True, include rows flagged
+                ``is_test_student``. The default matches today's class stats.
 
         Returns:
             Map of student_id → summed points.
         """
+        hidden = "" if include_test_students else " AND COALESCE(s.is_test_student, 0) = 0"
         with self._lock:
             rows = self.conn.execute(
-                """
+                f"""
                 SELECT s.id AS student_id, COALESCE(SUM(ss.points), 0) AS total
                 FROM students s
                 LEFT JOIN session_scores ss ON ss.student_id = s.id
-                WHERE s.class_id = ? AND COALESCE(s.is_test_student, 0) = 0
+                WHERE s.class_id = ?{hidden}
                 GROUP BY s.id
                 """,
                 (class_id,),
@@ -2843,7 +2848,13 @@ class GameShowDB:
         ).fetchone()
         return bool(row and int(row[0]))
 
-    def dashboard(self, class_id: int, sort: str = "last") -> dict[str, Any]:
+    def dashboard(
+        self,
+        class_id: int,
+        sort: str = "last",
+        *,
+        include_test_students: bool = False,
+    ) -> dict[str, Any]:
         """Spreadsheet payload: students, mixed columns, cells, totals.
 
         ``columns`` interleaves live-class sessions with frozen SUBTOTAL
@@ -2853,6 +2864,9 @@ class GameShowDB:
         Args:
             class_id: Classes primary key.
             sort: ``first`` / ``last`` (Canvas names) or ``az`` / ``za`` (Codename).
+            include_test_students: When True, keep rows flagged
+                ``is_test_student``. Default False keeps class stats on
+                real students only.
         """
         cls = self.get_class(class_id)
         self.set_current_class(class_id)
@@ -2861,7 +2875,11 @@ class GameShowDB:
             for row in self.conn.execute(
                 "SELECT * FROM students WHERE class_id = ?", (class_id,)
             ):
-                if "is_test_student" in row.keys() and int(row["is_test_student"] or 0):
+                if (
+                    not include_test_students
+                    and "is_test_student" in row.keys()
+                    and int(row["is_test_student"] or 0)
+                ):
                     continue
                 students.append(dict(row))
             sessions = [

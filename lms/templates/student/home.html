@@ -142,6 +142,49 @@
       </div>
     </section>
   </div>
+  {% if tester_feedback %}
+  <section class="card tester-feedback" id="tester-feedback" aria-label="Tester feedback">
+    <h2>Tester feedback</h2>
+    <p class="hint">Leave out names, PINs, and class codes.</p>
+    <form id="tester-feedback-form">
+      <label class="field">Feedback
+        <textarea name="text" rows="4" maxlength="2000" required></textarea>
+      </label>
+      <button type="submit">Send</button>
+      <p id="tester-feedback-status" role="status"></p>
+    </form>
+  </section>
+  <script>
+    (function () {
+      var form = document.getElementById("tester-feedback-form");
+      var status = document.getElementById("tester-feedback-status");
+      if (!form || !status) return;
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        var text = String((form.elements.text && form.elements.text.value) || "").trim();
+        fetch("/student/tester-feedback", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({text: text})
+        }).then(function (res) {
+          return res.json().then(function (body) {
+            return {ok: res.ok, body: body || {}};
+          });
+        }).then(function (result) {
+          if (result.ok && result.body.ok) {
+            status.textContent = "Sent.";
+            if (form.elements.text) form.elements.text.value = "";
+            return;
+          }
+          status.textContent = result.body.error || "Feedback is not available right now.";
+        }).catch(function () {
+          status.textContent = "Feedback is not available right now.";
+        });
+      });
+    })();
+  </script>
+  {% endif %}
   <script src="/static/student-visit-token.js"></script>
   <script src="/static/student-live-session.js"></script>
   <script type="module" src="/static/student-portal.js"></script>

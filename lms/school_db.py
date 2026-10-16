@@ -2482,16 +2482,34 @@ class LovesDB:
         )
 
     def engagement_summary_for_run(
-        self, class_id: int, run_key: str
+        self,
+        class_id: int,
+        run_key: str,
+        *,
+        include_test_students: bool = False,
     ) -> dict[str, Any] | None:
-        """End-of-class engagement summary for one run (MCK-59)."""
+        """End-of-class engagement summary for one run (MCK-59).
+
+        Args:
+            class_id: Class primary key.
+            run_key: Live-class run key.
+            include_test_students: When True, the roster includes test
+                students. Default False keeps the summary on real students.
+        """
         from engagement_summary import build_summary
 
         rows = self.list_engagement_rollup(int(class_id), run_key=str(run_key))
         if not rows:
             return None
         try:
-            roster = list(self.game.dashboard(int(class_id), sort="az").get("students") or [])
+            roster = list(
+                self.game.dashboard(
+                    int(class_id),
+                    sort="az",
+                    include_test_students=include_test_students,
+                ).get("students")
+                or []
+            )
         except Exception:  # noqa: BLE001
             roster = []
         team_for = {
@@ -13896,23 +13914,29 @@ class SchoolDB(LovesDB):
             out.append(item)
         return out
 
-    def roster_name_entries(self, class_id: int) -> list[dict[str, Any]]:
+    def roster_name_entries(
+        self, class_id: int, *, include_test_students: bool = False
+    ) -> list[dict[str, Any]]:
         """Return roster rows for the in-place name editor.
 
         Args:
             class_id: Game-show ``classes.id``.
+            include_test_students: When True, include rows flagged
+                ``is_test_student``. Default False hides them.
 
         Returns:
             Dicts with ``id``, ``first_name``, ``last_name``,
-            ``display_name``, ``name``, and ``second_kind``
-            (``last_name`` or ``display_name``).
+            ``display_name``, ``name``, ``is_test_student``, and
+            ``second_kind`` (``last_name`` or ``display_name``).
         """
+        hidden = "" if include_test_students else " AND COALESCE(is_test_student, 0) = 0"
         with self.game._lock:
             rows = self.game.conn.execute(
-                """
-                SELECT id, first_name, last_display, codename
+                f"""
+                SELECT id, first_name, last_display, codename,
+                       COALESCE(is_test_student, 0) AS is_test_student
                 FROM students
-                WHERE class_id = ?
+                WHERE class_id = ?{hidden}
                 ORDER BY lower(trim(COALESCE(codename, first_name, ''))), id
                 """,
                 (int(class_id),),
@@ -13936,6 +13960,7 @@ class SchoolDB(LovesDB):
                     "last_name": last,
                     "display_name": display,
                     "name": display or first,
+                    "is_test_student": bool(int(item.get("is_test_student") or 0)),
                     "second_kind": second_kind,
                     "second_value": second_value,
                 }
@@ -33419,19 +33444,32 @@ class SchoolDB(LovesDB):
         self.set_module_complete(class_id, mod, True, user_id=user_id)
         return dash
 
-    def class_participation(self, class_id: int) -> dict[str, Any]:
-        """Teacher-only per-module participation column for the roster/gradebook."""
+    def class_participation(
+        self, class_id: int, *, include_test_students: bool = False
+    ) -> dict[str, Any]:
+        """Teacher-only per-module participation column for the roster/gradebook.
+
+        Args:
+            class_id: Class primary key.
+            include_test_students: When True, include test-student rows.
+                Default False keeps participation counts on real students.
+        """
         from participation import summary
 
         from participation_real_students import exclude_participation_answer_student_ids
 
         offered, answered = self._participation_counts(class_id)
         modules = sorted(offered)
-        excluded_ids = exclude_participation_answer_student_ids(class_id, self)
+        excluded_ids = (
+            set()
+            if include_test_students
+            else exclude_participation_answer_student_ids(class_id, self)
+        )
+        hidden = "" if include_test_students else " AND COALESCE(is_test_student, 0) = 0"
         students = self.game.conn.execute(
-            """
+            f"""
             SELECT id FROM students
-            WHERE class_id = ? AND COALESCE(is_test_student, 0) = 0
+            WHERE class_id = ?{hidden}
             ORDER BY id
             """,
             (int(class_id),),
@@ -33911,8 +33949,16 @@ class SchoolDB(LovesDB):
             if self.conn.in_transaction:
                 self.conn.commit()
 
-    def catchup_pin_alerts_for_teacher(self, teacher_user_id: int) -> list[dict[str, Any]]:
-        """PIN guess alerts across classes this teacher owns (staff dashboard)."""
+    def catchup_pin_alerts_for_teacher(
+        self, teacher_user_id: int, *, include_test_students: bool = False
+    ) -> list[dict[str, Any]]:
+        """PIN guess alerts across classes this teacher owns (staff dashboard).
+
+        Args:
+            teacher_user_id: Staff user id.
+            include_test_students: When True, alerts for test students are
+                included. Default False hides those rows.
+        """
         active = self.get_active_semester()
         if not active:
             return []
@@ -33922,7 +33968,9 @@ class SchoolDB(LovesDB):
             cid = int(row["id"])
             if not self.teacher_owns_class(int(teacher_user_id), cid):
                 continue
-            for alert in self.catchup_pin_guess_alerts(cid):
+            for alert in self.catchup_pin_guess_alerts(
+                cid, include_test_students=include_test_students
+            ):
                 alert = dict(alert)
                 alert["class_id"] = cid
                 alert["course_code"] = str(row.get("course_code") or row.get("ontario_code") or "")
@@ -34013,8 +34061,16 @@ class SchoolDB(LovesDB):
                 self.conn.commit()
         return int(row["n"] if row is not None else 0)
 
-    def catchup_pin_guess_alerts(self, class_id: int) -> list[dict[str, Any]]:
-        """Students with many wrong catch-up PIN tries (teacher alert, not student lockout)."""
+    def catchup_pin_guess_alerts(
+        self, class_id: int, *, include_test_students: bool = False
+    ) -> list[dict[str, Any]]:
+        """Students with many wrong catch-up PIN tries (teacher alert, not student lockout).
+
+        Args:
+            class_id: Class primary key.
+            include_test_students: When True, name and include test-student
+                alerts. Default False drops those rows.
+        """
         from participation import CATCHUP_PIN_STUDENT_ALERT, PIN_WINDOW_S
 
         cutoff = (
@@ -34032,7 +34088,10 @@ class SchoolDB(LovesDB):
                 """,
                 (int(class_id), cutoff, int(CATCHUP_PIN_STUDENT_ALERT)),
             ).fetchall()
-        names = self.class_codenames(int(class_id))
+        names = self.class_codenames(
+            int(class_id), include_test_students=include_test_students
+        )
+        hidden = set() if include_test_students else set(self.test_student_ids(int(class_id)))
         return [
             {
                 "student_id": int(r["student_id"]),
@@ -34040,6 +34099,7 @@ class SchoolDB(LovesDB):
                 "failures": int(r["n"]),
             }
             for r in rows
+            if int(r["student_id"]) not in hidden
         ]
 
     def catchup_pin_change_blocks_student(
@@ -34200,17 +34260,27 @@ class SchoolDB(LovesDB):
             return None
         return {"forced": forced, "show": True}
 
-    def teacher_default_pin_slips(self, class_id: int, secret: str) -> list[dict[str, Any]]:
-        """Teacher-only printable slips for students who still have default PIN ciphertext."""
+    def teacher_default_pin_slips(
+        self, class_id: int, secret: str, *, include_test_students: bool = False
+    ) -> list[dict[str, Any]]:
+        """Teacher-only printable slips for students who still have default PIN ciphertext.
+
+        Args:
+            class_id: Class primary key.
+            secret: App secret used to decrypt the stored default PIN.
+            include_test_students: When True, include test-student slips.
+                Default False leaves those PINs out of the roster view.
+        """
         from default_pin import SLIP_TEMPLATE, decrypt_pin
 
+        hidden = "" if include_test_students else " AND COALESCE(is_test_student, 0) = 0"
         out: list[dict[str, Any]] = []
         with self.game._lock:
             rows = self.game.conn.execute(
-                """
+                f"""
                 SELECT id, codename, first_name, default_pin_ciphertext
                 FROM students
-                WHERE class_id = ? AND TRIM(COALESCE(default_pin_ciphertext, '')) <> ''
+                WHERE class_id = ? AND TRIM(COALESCE(default_pin_ciphertext, '')) <> ''{hidden}
                 ORDER BY codename COLLATE NOCASE, first_name COLLATE NOCASE, id
                 """,
                 (int(class_id),),
@@ -36158,17 +36228,29 @@ class SchoolDB(LovesDB):
             return None
         return int(right) - int(left)
 
-    def feedback_grid_for_class(self, class_id: int) -> dict[str, Any]:
+    def feedback_grid_for_class(
+        self, class_id: int, *, include_test_students: bool = False
+    ) -> dict[str, Any]:
         """Roster table grouped by live class (M1C1) with before/after mood.
 
-        Rows include every rostered student. Comment text stays off the
-        grid; cells only flag a pop-out when a note exists.
+        Rows include every rostered student the teacher is looking at.
+        Comment text stays off the grid; cells only flag a pop-out when a
+        note exists.
 
         Args:
             class_id: Game-show ``classes.id``.
+            include_test_students: When True, include test-student rows.
+                Default False hides them.
         """
         try:
-            roster = list(self.game.dashboard(int(class_id), sort="az").get("students") or [])
+            roster = list(
+                self.game.dashboard(
+                    int(class_id),
+                    sort="az",
+                    include_test_students=include_test_students,
+                ).get("students")
+                or []
+            )
         except Exception:  # noqa: BLE001 — empty roster still shows submitted guests
             roster = []
         submitted = self.list_exit_feedback_for_class(int(class_id))
@@ -39193,12 +39275,21 @@ class SchoolDB(LovesDB):
                 f"({schedule}). Pick a valid date."
             )
 
-    def attendance_week_grid(self, class_id: int, sort: str = "az") -> dict[str, Any]:
+    def attendance_week_grid(
+        self,
+        class_id: int,
+        sort: str = "az",
+        *,
+        include_test_students: bool = False,
+    ) -> dict[str, Any]:
         """Slim weekday attendance grid for the staff Attendance sub-tab.
 
         Args:
             class_id: Class primary key.
             sort: Roster sort (``az`` / ``za`` Codename).
+            include_test_students: When True, include test-student rows
+                and their marks in the day totals. Default False keeps
+                today's real-student totals.
 
         Returns:
             Week-grid payload plus enriched class metadata.
@@ -39208,7 +39299,9 @@ class SchoolDB(LovesDB):
         except ImportError:
             from lms.gradebook import build_attendance_week_grid
 
-        dash = self.game.dashboard(class_id, sort=sort)
+        dash = self.game.dashboard(
+            class_id, sort=sort, include_test_students=include_test_students
+        )
         marks = self.game.attendance_score_rows(class_id)
         grid = build_attendance_week_grid(
             students=list(dash.get("students") or []),
@@ -39219,7 +39312,13 @@ class SchoolDB(LovesDB):
         grid["ok"] = True
         return grid
 
-    def mood_week_grid(self, class_id: int, sort: str = "az") -> dict[str, Any]:
+    def mood_week_grid(
+        self,
+        class_id: int,
+        sort: str = "az",
+        *,
+        include_test_students: bool = False,
+    ) -> dict[str, Any]:
         """Slim weekday mood grid for the staff Mood sub-tab.
 
         Same calendar shape as attendance; cell values come from student
@@ -39228,13 +39327,18 @@ class SchoolDB(LovesDB):
         Args:
             class_id: Class primary key.
             sort: Roster sort (``az`` / ``za`` Codename).
+            include_test_students: When True, include test-student rows.
+                Default False hides them. Day totals stay the check-in
+                counts already stored for the class.
         """
         try:
             from gradebook import build_attendance_week_grid
         except ImportError:
             from lms.gradebook import build_attendance_week_grid
 
-        dash = self.game.dashboard(class_id, sort=sort)
+        dash = self.game.dashboard(
+            class_id, sort=sort, include_test_students=include_test_students
+        )
         marks = self.game.attendance_score_rows(class_id)
         grid = build_attendance_week_grid(
             students=list(dash.get("students") or []),
@@ -39305,7 +39409,12 @@ class SchoolDB(LovesDB):
         }
 
     def clear_attendance_day(
-        self, class_id: int, meeting: date, sort: str = "az"
+        self,
+        class_id: int,
+        meeting: date,
+        sort: str = "az",
+        *,
+        include_test_students: bool = False,
     ) -> dict[str, Any]:
         """Remove attendance/participation logged on one school day.
 
@@ -39315,6 +39424,8 @@ class SchoolDB(LovesDB):
             class_id: Class primary key.
             meeting: School day to clear.
             sort: Roster sort for the returned grid.
+            include_test_students: Passed through to the returned grid so
+                the page the teacher is looking at stays consistent.
 
         Returns:
             Updated attendance week grid payload.
@@ -39334,7 +39445,9 @@ class SchoolDB(LovesDB):
                 to_delete.append(int(sess["id"]))
         for sess_id in to_delete:
             self.game.delete_session_column(class_id, sess_id, sort=sort)
-        return self.attendance_week_grid(class_id, sort=sort)
+        return self.attendance_week_grid(
+            class_id, sort=sort, include_test_students=include_test_students
+        )
 
     def _participation_excluded_session_ids(self, class_id: int) -> set[int]:
         """Session columns tied to test/discarded participation runs."""
@@ -39439,17 +39552,28 @@ class SchoolDB(LovesDB):
         out["live_subtotals"] = {str(k): v for k, v in live_subtotals.items()}
         return out
 
-    def participation_week_grid(self, class_id: int, sort: str = "az") -> dict[str, Any]:
+    def participation_week_grid(
+        self,
+        class_id: int,
+        sort: str = "az",
+        *,
+        include_test_students: bool = False,
+    ) -> dict[str, Any]:
         """Live-points spreadsheet for the Participation tab (MCK-230).
 
         Args:
             class_id: Class primary key.
             sort: Roster sort (``az`` / ``za`` Codename).
+            include_test_students: When True, include test-student rows
+                and their module cells. Default False keeps participation
+                totals on real students.
 
         Returns:
             Dashboard payload plus session deck metadata and module participation.
         """
-        dash = self.game.dashboard(class_id, sort=sort)
+        dash = self.game.dashboard(
+            class_id, sort=sort, include_test_students=include_test_students
+        )
         session_meta = self.participation_session_meta(class_id)
         dash = self._apply_participation_tab_dashboard(class_id, dash, session_meta)
         payload = dict(dash)
@@ -39457,7 +39581,9 @@ class SchoolDB(LovesDB):
         payload["session_meta"] = session_meta
         payload["individual_cells"] = self.participation_individual_session_cells(class_id)
         try:
-            payload["module_participation"] = self.class_participation(class_id)
+            payload["module_participation"] = self.class_participation(
+                class_id, include_test_students=include_test_students
+            )
         except Exception:  # noqa: BLE001 - never break the grid
             logger.exception("module_participation failed class=%s", class_id)
             payload["module_participation"] = {"modules": [], "students": []}
@@ -39622,7 +39748,13 @@ class SchoolDB(LovesDB):
             "complete": bool(flag),
         }
 
-    def gradebook_for_class(self, class_id: int, sort: str = "az") -> dict[str, Any]:
+    def gradebook_for_class(
+        self,
+        class_id: int,
+        sort: str = "az",
+        *,
+        include_test_students: bool = False,
+    ) -> dict[str, Any]:
         """Ontario-weighted gradebook with Module 1 portfolio auto-score.
 
         Term 65% includes the Module 1 portfolio (100% when live-class
@@ -39633,6 +39765,8 @@ class SchoolDB(LovesDB):
         Args:
             class_id: Class primary key.
             sort: Roster sort key.
+            include_test_students: When True, include test-student rows.
+                Default False keeps gradebook stats on real students.
 
         Returns:
             Gradebook JSON for the staff Grades tab.
@@ -39658,7 +39792,9 @@ class SchoolDB(LovesDB):
 
         weights = self.grade_weights_for_class(class_id)
         m1_rules = self.module_portfolio_rules_for_class(class_id, 1)
-        dash = self.game.dashboard(class_id, sort=sort)
+        dash = self.game.dashboard(
+            class_id, sort=sort, include_test_students=include_test_students
+        )
         students = list(dash.get("students") or [])
         cls = self.enrich_class(dash["class"])
         days_label = str(cls.get("days") or "")
@@ -39667,7 +39803,9 @@ class SchoolDB(LovesDB):
         windows = even_module_windows()
         m1 = module_window_for(1) or (windows[0] if windows else None)
         reflections = self.module_reflections_for_class(class_id, 1)
-        career = self.game.career_totals(class_id)
+        career = self.game.career_totals(
+            class_id, include_test_students=include_test_students
+        )
 
         portfolio_by_student: dict[str, dict[str, Any]] = {}
         portfolio_scores: dict[str, float | None] = {}
