@@ -3888,7 +3888,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             abort(403)
         try:
             live_session = _start_live_and_wake(
-                school, class_id, int(user["id"]), defer_wipe=True
+                school, class_id, int(user["id"])
             )
         except ValueError as exc:
             return render_template("forbidden.html", message=str(exc)), 400

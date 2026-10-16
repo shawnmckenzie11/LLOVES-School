@@ -37610,6 +37610,27 @@ class SchoolDB(LovesDB):
                     wrote = None
                 if not (wrote and wrote.get("in_progress")):
                     break
+                if time.monotonic() >= deadline:
+                    logger.warning(
+                        "End for class=%s refused: another End holds the run",
+                        class_id,
+                    )
+                    return {
+                        "ok": False,
+                        "class_id": int(class_id),
+                        "in_progress": True,
+                    }
+                time.sleep(LIVE_END_BUSY_POLL_SECONDS)
+        if wrote and wrote.get("in_progress"):
+            logger.warning(
+                "End for class=%s refused: another End holds the run",
+                class_id,
+            )
+            return {
+                "ok": False,
+                "class_id": int(class_id),
+                "in_progress": True,
+            }
         if wrote and wrote.get("session_id"):
             with self._lock:
                 self.conn.execute(
@@ -37622,23 +37643,6 @@ class SchoolDB(LovesDB):
                 )
                 if self.conn.in_transaction:
                     self.conn.commit()
-                # Another End is writing this run (a double click): give it
-                # a moment to finish, then follow it as already persisted.
-                if time.monotonic() >= deadline:
-                    # Still open: that End is stuck or its worker died
-                    # mid-write. Closing now would celebrate with nothing
-                    # saved and leave the game open, so tomorrow's End
-                    # would merge both days (Ops MED on a4147fd).
-                    logger.warning(
-                        "End for class=%s refused: another End holds the run",
-                        class_id,
-                    )
-                    return {
-                        "ok": False,
-                        "class_id": int(class_id),
-                        "in_progress": True,
-                    }
-                time.sleep(LIVE_END_BUSY_POLL_SECONDS)
         if wrote is None and not save_attendance and not save_participation:
             try:
                 self.game.cancel_setup(int(class_id))
