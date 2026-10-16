@@ -6833,6 +6833,22 @@ function readLiveSessionId() {
 }
 
 /**
+ * Drop a live-tab session id that is not the active class.
+ *
+ * The course page stamps the latest session onto ``data-live-session-id``,
+ * including an ended one. Resume treated that id, plus a leftover game
+ * status or ``class_set``, as an in-progress class: the overlay opened and
+ * the rail landed on page one before the teacher could use the calendar
+ * or settings. An active class always has a join code. Without one, Start
+ * must mint a new session.
+ */
+function releaseInactiveLiveSession() {
+  if (String(root?.dataset.liveCode || "").trim()) return;
+  liveSessionId = 0;
+  if (root) root.dataset.liveSessionId = "";
+}
+
+/**
  * Remember the minted live run key for the New chip.
  * A blank value is ignored so a light poll cannot clear a known run.
  * @param {unknown} raw
@@ -11579,12 +11595,14 @@ async function quietAdvanceNamesResume(state) {
 
 /**
  * Resume an in-progress live class when returning to tab=live with a session id.
- * Fresh / reminted sessions stay on Set Class until date + module + slot are set.
+ * Fresh Run Live Class (`?run=1`) stays on Set Class until the teacher
+ * presses Start. A leftover ended session must not open the overlay.
  * Uses the open game's meeting_date; does not re-begin with “today” and discard
  * a picker-chosen setup column.
  * @returns {Promise<boolean>}
  */
 async function resumeLiveClassIfNeeded() {
+  if (wantsFreshSetClass()) return false;
   liveSessionId = readLiveSessionId() || liveSessionId;
   if (!liveSessionId) return false;
   try {
@@ -11606,7 +11624,6 @@ async function resumeLiveClassIfNeeded() {
     } catch (_) {
       /* keep local defaults */
     }
-    if (wantsFreshSetClass() && !classSetIsComplete(status, teacher)) return false;
     if (!classSetIsComplete(status, teacher)) return false;
     const openStatuses = new Set(["attendance", "teams", "names", "rounds", "live"]);
     overlayState = state || overlayState;
@@ -13222,6 +13239,7 @@ window.addEventListener("pageshow", (event) => {
 });
 
 if (root?.dataset.apView === "live") {
+  releaseInactiveLiveSession();
   mountTeamsRenameDialog();
   bindActiveMediaControls();
   bindEphemeralCanvas();

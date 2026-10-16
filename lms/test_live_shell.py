@@ -2309,10 +2309,12 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("function classSetIsComplete(", js)
         self.assertIn("function enterSetClassPhase()", js)
         self.assertIn("function wantsFreshSetClass()", js)
+        self.assertIn("function releaseInactiveLiveSession()", js)
         self.assertIn("class_set: true", js)
         boot = js.split("setSessionTimerMinutes(3);")[1].split(
             "function spawnScorePop("
         )[0]
+        self.assertIn("releaseInactiveLiveSession()", boot)
         self.assertIn("enterSetClassPhase()", boot)
         self.assertIn("paintTeacherShell()", boot)
         self.assertIn("await openRunLiveClass()", boot)
@@ -2323,9 +2325,14 @@ class LiveShellTests(unittest.TestCase):
         )[0]
         self.assertIn("function clearFreshSetClassFromUrl()", js)
         self.assertIn("clearFreshSetClassFromUrl()", js)
-        self.assertIn(
-            "if (wantsFreshSetClass() && !classSetIsComplete(status, teacher)) return false",
-            resume,
+        self.assertIn("if (wantsFreshSetClass()) return false", resume)
+        self.assertLess(
+            resume.index("if (wantsFreshSetClass()) return false"),
+            resume.index("exitSetClassPhase()"),
+        )
+        self.assertLess(
+            resume.index("if (wantsFreshSetClass()) return false"),
+            resume.index("ensureLiveSessionOverlay()"),
         )
         self.assertIn("if (!classSetIsComplete(status, teacher)) return false", resume)
         self.assertIn("paintTeacherShell()", resume)
