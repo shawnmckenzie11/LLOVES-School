@@ -427,6 +427,18 @@
       </dialog>
       <section id="ap-panel-validate" class="live-date-panel live-set-class-card ap-panel is-current" data-step="validate">
         <h2 class="live-pane-title">Set Class</h2>
+        <fieldset class="set-class-run-kind" id="set-class-run-kind">
+          <legend>This class</legend>
+          <label class="set-class-run-kind-option">
+            <input type="radio" name="set-class-run-kind" value="live" checked>
+            <span>Live</span>
+          </label>
+          <label class="set-class-run-kind-option">
+            <input type="radio" name="set-class-run-kind" value="test">
+            <span>Test</span>
+          </label>
+          <p class="hint compact" id="set-class-run-kind-note">A test class can run any school day. It saves like a real class, stays out of totals, and you can delete it later.</p>
+        </fieldset>
         {% set packs = live_packs if live_packs is defined else {} %}
         <div class="live-pack-strip" id="live-pack-strip"
              data-course="{{ packs.course or 'MCF3M' }}"
@@ -1346,21 +1358,20 @@
           <input type="checkbox" name="save_participation" value="1" checked>
           <span>Save participation</span>
         </label>
-        <fieldset class="end-live-run-mode" role="group" aria-label="Test or Live class">
-          <span class="end-live-run-mode-label">Class run</span>
-          <label class="end-live-run-mode-option">
-            <input type="radio" name="run_mode" value="test">
-            <span>Test</span>
-          </label>
-          <label class="end-live-run-mode-option">
-            <input type="radio" name="run_mode" value="live">
-            <span>Live</span>
-          </label>
-        </fieldset>
       </div>
       <div class="end-live-dialog-actions">
         <button type="button" class="secondary" data-close-end-live>Cancel</button>
         <button type="submit">End class</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="delete-test-dialog" class="end-live-dialog">
+    <form method="dialog" class="end-live-dialog-form">
+      <h2>Delete test class</h2>
+      <p>This removes the test class, its attendance, participation, deck row, and catch-up code. A live class cannot be deleted this way.</p>
+      <div class="end-live-dialog-actions">
+        <button type="submit" class="secondary" value="cancel">Cancel</button>
+        <button type="submit" value="delete">Delete test class</button>
       </div>
     </form>
   </dialog>

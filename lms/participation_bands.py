@@ -203,12 +203,19 @@ def build_participation_bands(
                 "label": label,
                 "ended_at": ended,
                 "class_ended": class_ended,
+                "is_test": bool(meta.get("is_test")),
+                "live_session_id": meta.get("live_session_id"),
             }
         )
     for rows in buckets.values():
         rows.sort(key=lambda row: (row["ended_at"], row["id"]))
     order = sorted(buckets, key=_module_sort_key)
-    numbered = [key for key in order if module_number(key) > 0]
+    numbered = [
+        key
+        for key in order
+        if module_number(key) > 0
+        and any(not row.get("is_test") for row in buckets[key])
+    ]
     incomplete = [
         key for key in numbered if not bool(complete_by_module.get(key))
     ]

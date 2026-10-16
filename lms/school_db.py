@@ -565,6 +565,7 @@ CREATE TABLE IF NOT EXISTS live_class_sessions (
     started_at TEXT NOT NULL,
     ended_at TEXT,
     mgs_session_id INTEGER,
+    is_test INTEGER NOT NULL DEFAULT 0,
     allow_unmatched_guests INTEGER NOT NULL DEFAULT 0
 );
 
@@ -2030,6 +2031,7 @@ class LovesDB:
             self._ensure_gradebook_schema()
             self._ensure_live_session_schema()
             self._ensure_live_session_identity_schema()
+            self._ensure_test_live_class_schema()
             self._ensure_live_item_schema()
             self._ensure_rank_race_schema()
             self._ensure_save_to_card_columns()
@@ -3638,6 +3640,138 @@ class LovesDB:
                 )
                 break
 
+    def _ensure_test_live_class_schema(self) -> None:
+        """Add ``is_test`` and keep a test run from replacing a real slot (MCK-269).
+
+        ``live_class_sessions.is_test`` is the only test flag. Lesson Slides
+        and catch-up links gain the same flag in their slot key so a rehearsal
+        does not overwrite the real class. Deck seeds record which session
+        wrote them. Safe to run on every boot.
+        """
+        cols = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(live_class_sessions)")
+        }
+        if "is_test" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_class_sessions "
+                "ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0"
+            )
+        self._ensure_lesson_slides_is_test_key()
+        self._ensure_catchup_is_test_key()
+        self._ensure_deck_seed_is_test_columns()
+
+    def _ensure_lesson_slides_is_test_key(self) -> None:
+        """Rebuild Lesson Slides so a test row does not replace the real slot."""
+        cols = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(lesson_slides_latest)")
+        }
+        if "is_test" in cols and "live_session_id" in cols:
+            return
+        self.conn.execute(
+            "ALTER TABLE lesson_slides_latest RENAME TO lesson_slides_latest_mck269_old"
+        )
+        self.conn.execute(
+            """
+            CREATE TABLE lesson_slides_latest (
+                class_id INTEGER NOT NULL,
+                live_module TEXT NOT NULL,
+                live_slot TEXT NOT NULL,
+                is_test INTEGER NOT NULL DEFAULT 0,
+                live_session_id INTEGER,
+                run_key TEXT NOT NULL,
+                session_code TEXT NOT NULL DEFAULT '',
+                ended_at TEXT NOT NULL,
+                presentation_url TEXT NOT NULL DEFAULT '',
+                questions_json TEXT NOT NULL DEFAULT '[]',
+                updated_at TEXT NOT NULL,
+                ended_at_inferred INTEGER NOT NULL DEFAULT 0,
+                inferred_ended_at TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (class_id, live_module, live_slot, is_test)
+            )
+            """
+        )
+        old_cols = {
+            row["name"]
+            for row in self.conn.execute(
+                "PRAGMA table_info(lesson_slides_latest_mck269_old)"
+            )
+        }
+        inferred = (
+            "COALESCE(ended_at_inferred, 0)"
+            if "ended_at_inferred" in old_cols
+            else "0"
+        )
+        inferred_at = (
+            "COALESCE(inferred_ended_at, '')"
+            if "inferred_ended_at" in old_cols
+            else "''"
+        )
+        self.conn.execute(
+            f"""
+            INSERT INTO lesson_slides_latest (
+                class_id, live_module, live_slot, is_test, live_session_id,
+                run_key, session_code, ended_at, presentation_url, questions_json,
+                updated_at, ended_at_inferred, inferred_ended_at
+            )
+            SELECT class_id, live_module, live_slot, 0, NULL,
+                   run_key, session_code, ended_at, presentation_url, questions_json,
+                   updated_at, {inferred}, {inferred_at}
+            FROM lesson_slides_latest_mck269_old
+            """
+        )
+        self.conn.execute("DROP TABLE lesson_slides_latest_mck269_old")
+
+    def _ensure_catchup_is_test_key(self) -> None:
+        """One catch-up row per slot for real runs, and a separate row for test."""
+        cols = {
+            row["name"] for row in self.conn.execute("PRAGMA table_info(catchup_links)")
+        }
+        if "is_test" not in cols:
+            self.conn.execute(
+                "ALTER TABLE catchup_links ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0"
+            )
+        if "live_session_id" not in cols:
+            self.conn.execute(
+                "ALTER TABLE catchup_links ADD COLUMN live_session_id INTEGER"
+            )
+        indexed = {
+            str(row["name"])
+            for row in self.conn.execute(
+                "PRAGMA index_info(idx_catchup_links_class_lesson)"
+            )
+        }
+        if "is_test" not in indexed:
+            self.conn.execute(
+                "DROP INDEX IF EXISTS idx_catchup_links_class_lesson"
+            )
+            self.conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_catchup_links_class_lesson
+                ON catchup_links(class_id, live_module, live_slot, is_test)
+                """
+            )
+
+    def _ensure_deck_seed_is_test_columns(self) -> None:
+        """Remember when a deck seed was written by a test live class."""
+        cols = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(class_live_deck_seeds)")
+        }
+        if not cols:
+            return
+        if "is_test" not in cols:
+            self.conn.execute(
+                "ALTER TABLE class_live_deck_seeds "
+                "ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0"
+            )
+        if "source_live_session_id" not in cols:
+            self.conn.execute(
+                "ALTER TABLE class_live_deck_seeds "
+                "ADD COLUMN source_live_session_id INTEGER"
+            )
+
     def _ensure_live_session_schema(self) -> None:
         """Create live-class session + attendee + prompt tables on existing DBs.
 
@@ -3659,6 +3793,7 @@ class LovesDB:
                 started_at TEXT NOT NULL,
                 ended_at TEXT,
                 mgs_session_id INTEGER,
+                is_test INTEGER NOT NULL DEFAULT 0,
                 allow_unmatched_guests INTEGER NOT NULL DEFAULT 0
             );
             CREATE UNIQUE INDEX IF NOT EXISTS idx_live_session_code_active
@@ -9742,7 +9877,9 @@ class SchoolDB(LovesDB):
             ).fetchone()
         return media is not None
 
-    def class_live_deck_available(self, class_id: int, module: str, slot: str) -> bool:
+    def class_live_deck_available(
+        self, class_id: int, module: str, slot: str, *, ignore_test: bool = False
+    ) -> bool:
         """Return whether this class has a real deck for one challenge.
 
         A seed file or a saved working copy counts. An explicit blank
@@ -9757,6 +9894,8 @@ class SchoolDB(LovesDB):
         module_key, slot_key = self._require_live_lesson_token(module, slot)
         course = self._course_code_for_class(int(class_id))
         seed = self.get_class_live_deck_seed(int(class_id), module_key, slot_key)
+        if ignore_test and seed is not None and int(seed.get("is_test") or 0):
+            seed = None
         has_overlay = self._slot_has_deck_overlay(int(class_id), module_key, slot_key)
         mode = str((seed or {}).get("mode") or "")
         if mode == "blank" and not has_overlay:
@@ -10348,7 +10487,9 @@ class SchoolDB(LovesDB):
             }
         else:
             label = live_deck_choice_label(module_key, previous)
-            if self.class_live_deck_available(int(class_id), module_key, previous):
+            if self.class_live_deck_available(
+                int(class_id), module_key, previous, ignore_test=True
+            ):
                 previous_block = {
                     "available": True,
                     "module": module_key,
@@ -10991,6 +11132,14 @@ class SchoolDB(LovesDB):
         # or gains an active question, between the earlier look and this
         # write is refused before any row changes.
         self._refuse_deck_copy_into_live_slot(int(class_id), module_key, slot_key)
+        active_live = self.get_active_live_session_for_class(int(class_id))
+        writing_test = bool(active_live and int(active_live.get("is_test") or 0))
+        if writing_test:
+            existing_seed = self.get_class_live_deck_seed(
+                int(class_id), module_key, slot_key
+            )
+            if existing_seed is not None and not int(existing_seed.get("is_test") or 0):
+                return
         if (
             require_replace_confirm
             and not replace
@@ -11124,13 +11273,14 @@ class SchoolDB(LovesDB):
                     stamp,
                 ),
             )
+        seed_session_id = int(active_live["id"]) if writing_test and active_live else None
         self.conn.execute(
             """
             INSERT INTO class_live_deck_seeds (
                 class_id, module, slot, mode, source_module, source_slot,
                 suppress_authored, media_json, team_challenge_json,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+                created_at, updated_at, is_test, source_live_session_id
+            ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(class_id, module, slot) DO UPDATE SET
                 mode = excluded.mode,
                 source_module = excluded.source_module,
@@ -11138,7 +11288,9 @@ class SchoolDB(LovesDB):
                 suppress_authored = 1,
                 media_json = excluded.media_json,
                 team_challenge_json = excluded.team_challenge_json,
-                updated_at = excluded.updated_at
+                updated_at = excluded.updated_at,
+                is_test = excluded.is_test,
+                source_live_session_id = excluded.source_live_session_id
             """,
             (
                 int(class_id),
@@ -11151,6 +11303,8 @@ class SchoolDB(LovesDB):
                 challenge_blob,
                 stamp,
                 stamp,
+                1 if writing_test else 0,
+                seed_session_id,
             ),
         )
 
@@ -32137,8 +32291,10 @@ class SchoolDB(LovesDB):
         (``publish_mode``/``response_mode`` not individual) are skipped, so
         group questions never enter the participation math.
 
-        When ``live_run`` is False (MCK-233 Test toggle), skip participation,
-        catch-up, and Lesson Slides for this run.
+        When ``live_run`` is False and the session is not ``is_test`` (legacy
+        MCK-233 end-time test), skip participation, catch-up, and Lesson
+        Slides. An ``is_test`` session still saves those rows, marked so they
+        stay out of real counts (MCK-269).
         """
         sid = int(session_id)
         session = self.conn.execute(
@@ -32161,7 +32317,8 @@ class SchoolDB(LovesDB):
         class_id = int(session["class_id"])
         now = _now()
         ended_at = str(session["ended_at"] if "ended_at" in keys and session["ended_at"] else now)
-        if not live_run:
+        session_is_test = bool(int(session["is_test"] or 0)) if "is_test" in keys else False
+        if not live_run and not session_is_test:
             self.conn.execute(
                 """
                 INSERT OR IGNORE INTO participation_items (
@@ -32249,6 +32406,38 @@ class SchoolDB(LovesDB):
             (class_id, run_key),
         ).fetchone()
         ended_at = str(session["ended_at"] if "ended_at" in keys and session["ended_at"] else now)
+        if session_is_test:
+            self._upsert_participation_run_kind_unlocked(
+                class_id,
+                run_key,
+                is_real=False,
+                auto_is_real=False,
+                ended_at=ended_at,
+                discarded=False,
+            )
+            self._upsert_real_catchup_link_unlocked(
+                class_id,
+                run_key,
+                module,
+                slot,
+                now=now,
+                is_test=True,
+                live_session_id=sid,
+                require_items=False,
+            )
+            self._upsert_lesson_slides_latest_unlocked(
+                sid,
+                class_id=class_id,
+                run_key=run_key,
+                module=module,
+                slot=slot,
+                ended_at=ended_at,
+                session_code=str(session["session_code"] or ""),
+                ended_at_inferred=False,
+                inferred_ended_at="",
+                is_test=True,
+            )
+            return
         is_real = self._classify_and_record_participation_run(
             class_id,
             run_key,
@@ -32264,7 +32453,7 @@ class SchoolDB(LovesDB):
             )
         if offered is not None and answered is not None and is_real:
             self._upsert_real_catchup_link_unlocked(
-                class_id, run_key, module, slot, now=now
+                class_id, run_key, module, slot, now=now, live_session_id=sid
             )
             self._upsert_lesson_slides_latest_unlocked(
                 sid,
@@ -32610,13 +32799,24 @@ class SchoolDB(LovesDB):
         is_real: bool,
         auto_is_real: bool | None = None,
         ended_at: str | None = None,
+        discarded: bool | None = None,
     ) -> bool:
-        """Write ``participation_runs`` kind flags (caller holds lock)."""
+        """Write ``participation_runs`` kind flags (caller holds lock).
+
+        Args:
+            discarded: When set, stored as given. When omitted, a non-real
+                run is discarded (legacy test). MCK-269 test classes pass
+                False so the run stays visible and still out of totals.
+        """
         key = str(run_key or "").strip()
         if not key:
             return False
         auto = auto_is_real if auto_is_real is not None else is_real
-        discarded = 0 if is_real else 1
+        if discarded is None:
+            discarded_flag = 0 if is_real else 1
+        else:
+            discarded_flag = 1 if discarded else 0
+        discarded = discarded_flag
         now = _now()
         ended = str(ended_at or "").strip() or None
         self.conn.execute(
@@ -32848,22 +33048,37 @@ class SchoolDB(LovesDB):
         slot: str,
         *,
         now: str,
+        is_test: bool = False,
+        live_session_id: int | None = None,
+        require_items: bool = True,
     ) -> None:
-        """One shared catch-up row per lesson slot, always the latest real run."""
+        """One catch-up row per lesson slot and run kind.
+
+        A test row does not replace the real row for the same slot. Join
+        codes are stored and never written to the log.
+
+        Args:
+            is_test: True for a rehearsal run (MCK-269).
+            live_session_id: ``live_class_sessions.id`` that owns the row.
+            require_items: Real runs need offered items. A test run still
+                gets a code when nothing was published.
+        """
         from participation import new_token
 
         cid = int(class_id)
         key = str(run_key or "").strip()
-        if not self._participation_run_has_items_unlocked(cid, key):
+        if require_items and not self._participation_run_has_items_unlocked(cid, key):
             return
         mod = str(module or "")
         sl = str(slot or "")
+        flag = 1 if is_test else 0
         existing = self.conn.execute(
             """
             SELECT token, portal_join_code FROM catchup_links
             WHERE class_id = ? AND live_module = ? AND live_slot = ?
+              AND COALESCE(is_test, 0) = ?
             """,
-            (cid, mod, sl),
+            (cid, mod, sl, flag),
         ).fetchone()
         token = str(existing["token"]) if existing else new_token()
         portal_code = str(existing["portal_join_code"] or "").strip() if existing else ""
@@ -32873,18 +33088,30 @@ class SchoolDB(LovesDB):
             """
             INSERT INTO catchup_links (
                 token, class_id, run_key, live_module, live_slot, is_open,
-                portal_join_code, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
-            ON CONFLICT(class_id, live_module, live_slot) DO UPDATE SET
+                portal_join_code, created_at, updated_at, is_test, live_session_id
+            ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+            ON CONFLICT(class_id, live_module, live_slot, is_test) DO UPDATE SET
                 run_key = excluded.run_key,
                 is_open = 1,
                 updated_at = excluded.updated_at,
+                live_session_id = excluded.live_session_id,
                 portal_join_code = COALESCE(
                     NULLIF(TRIM(catchup_links.portal_join_code), ''),
                     excluded.portal_join_code
                 )
             """,
-            (token, cid, key, mod, sl, portal_code, now, now),
+            (
+                token,
+                cid,
+                key,
+                mod,
+                sl,
+                portal_code,
+                now,
+                now,
+                flag,
+                int(live_session_id) if live_session_id else None,
+            ),
         )
 
     def _mint_unique_portal_join_code(
@@ -32966,6 +33193,10 @@ class SchoolDB(LovesDB):
         link = self.get_catchup_link(token)
         if link is None:
             return None
+        if int(link.get("is_test") or 0) == 1:
+            if int(link.get("is_open") or 0) != 1:
+                return None
+            return link
         cid = int(link["class_id"])
         mod = str(link.get("live_module") or "").upper()
         slot = str(link.get("live_slot") or "").upper()
@@ -33113,6 +33344,8 @@ class SchoolDB(LovesDB):
         last: tuple[str, str] | None = None
         last_at = ""
         for row in self.list_lesson_slides_latest(int(class_id)):
+            if int(row.get("is_test") or 0):
+                continue
             module = str(row.get("live_module") or "").strip().upper()
             slot = str(row.get("live_slot") or "").strip().upper()
             if is_open_office_slot(slot):
@@ -33219,8 +33452,13 @@ class SchoolDB(LovesDB):
         session_code: str,
         ended_at_inferred: bool = False,
         inferred_ended_at: str = "",
+        is_test: bool = False,
     ) -> None:
-        """Replace the Lesson Slides ground-truth row for one live class slot."""
+        """Replace the Lesson Slides row for one slot and run kind.
+
+        Args:
+            is_test: When true, write the test row and leave the real row.
+        """
         from lesson_slides_table import _bank_question_id, _stem, _type_label
         from participation_weight import item_participation_weight
 
@@ -33294,11 +33532,13 @@ class SchoolDB(LovesDB):
         self.conn.execute(
             """
             INSERT INTO lesson_slides_latest (
-                class_id, live_module, live_slot, run_key, session_code, ended_at,
+                class_id, live_module, live_slot, is_test, live_session_id,
+                run_key, session_code, ended_at,
                 ended_at_inferred, inferred_ended_at,
                 presentation_url, questions_json, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(class_id, live_module, live_slot) DO UPDATE SET
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(class_id, live_module, live_slot, is_test) DO UPDATE SET
+                live_session_id = excluded.live_session_id,
                 run_key = excluded.run_key,
                 session_code = excluded.session_code,
                 ended_at = excluded.ended_at,
@@ -33312,6 +33552,8 @@ class SchoolDB(LovesDB):
                 cid,
                 mod,
                 sl,
+                1 if is_test else 0,
+                sid or None,
                 str(run_key),
                 str(session_code or ""),
                 str(ended_at or now),
@@ -33875,13 +34117,17 @@ class SchoolDB(LovesDB):
         meta: dict[str, dict[str, Any]] = {}
         if getattr(self, "game", None) is None:
             return meta
-        from participation_exclusion import (
-            format_participation_session_header,
-            sql_exclude_non_counted_participation_run,
-        )
+        from participation_exclusion import format_participation_session_header
 
-        run_filter = sql_exclude_non_counted_participation_run(
-            "s.class_id", "lpc.run_key", alias="prx"
+        run_filter = (
+            " AND ("
+            " EXISTS (SELECT 1 FROM participation_runs prx"
+            " WHERE prx.class_id = s.class_id AND prx.run_key = lpc.run_key"
+            " AND prx.discarded = 0 AND prx.is_real = 1)"
+            " OR EXISTS (SELECT 1 FROM live_class_sessions lcs_test"
+            " WHERE lcs_test.class_id = s.class_id AND lcs_test.run_key = lpc.run_key"
+            " AND COALESCE(lcs_test.is_test, 0) = 1)"
+            ")"
         )
         with self._lock:
             rows = self.conn.execute(
@@ -33894,7 +34140,19 @@ class SchoolDB(LovesDB):
                            WHERE lcs.class_id = s.class_id AND lcs.run_key = lpc.run_key
                            ORDER BY lcs.id DESC
                            LIMIT 1
-                       ) AS ended_at
+                       ) AS ended_at,
+                       (
+                           SELECT COALESCE(lcs.is_test, 0) FROM live_class_sessions lcs
+                           WHERE lcs.class_id = s.class_id AND lcs.run_key = lpc.run_key
+                           ORDER BY lcs.id DESC
+                           LIMIT 1
+                       ) AS is_test,
+                       (
+                           SELECT lcs.id FROM live_class_sessions lcs
+                           WHERE lcs.class_id = s.class_id AND lcs.run_key = lpc.run_key
+                           ORDER BY lcs.id DESC
+                           LIMIT 1
+                       ) AS live_session_id
                 FROM live_participation_credits lpc
                 INNER JOIN sessions s ON s.id = lpc.session_id
                 LEFT JOIN participation_items pi
@@ -33945,6 +34203,12 @@ class SchoolDB(LovesDB):
                 ),
                 "deck_items": deck,
                 "live_answered_keys": live_keys,
+                "is_test": bool(int(row["is_test"] or 0)),
+                "live_session_id": (
+                    int(row["live_session_id"])
+                    if row["live_session_id"] not in (None, "")
+                    else None
+                ),
             }
         return meta
 
@@ -33967,6 +34231,11 @@ class SchoolDB(LovesDB):
                     ON pi.class_id = ? AND pi.run_key = lpc.run_key
                 INNER JOIN sessions s ON s.id = lpc.session_id AND s.class_id = ?
                 WHERE pi.live_module = ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM live_class_sessions lcs
+                    WHERE lcs.run_key = lpc.run_key
+                      AND COALESCE(lcs.is_test, 0) = 1
+                  )
                 """,
                 (int(class_id), int(class_id), mod),
             ).fetchall()
@@ -33989,6 +34258,9 @@ class SchoolDB(LovesDB):
                     str(r["run_key"])
                     for r in run_rows
                     if str(r["run_key"] or "").strip()
+                    and not self._run_belongs_to_test_session(
+                        int(class_id), str(r["run_key"] or "")
+                    )
                 ]
                 for key in run_keys:
                     lpc_row = self.game.conn.execute(
@@ -34003,6 +34275,10 @@ class SchoolDB(LovesDB):
                         session_ids.append(int(lpc_row["session_id"]))
                 if not session_ids:
                     raise ValueError(f"No live classes recorded for {mod} yet.")
+        test_ids = self.test_mgs_session_ids(int(class_id))
+        session_ids = [sid for sid in session_ids if sid not in test_ids]
+        if not session_ids:
+            raise ValueError(f"No live classes recorded for {mod} yet.")
         through_id = max(session_ids)
         label = module_finish_label(mod)
         dash = self.game.freeze_subtotal(
@@ -34010,6 +34286,7 @@ class SchoolDB(LovesDB):
             name=label,
             sort=sort,
             through_session_id=through_id,
+            exclude_session_ids=test_ids,
         )
         self.set_module_complete(class_id, mod, True, user_id=user_id)
         return dash
@@ -34323,6 +34600,7 @@ class SchoolDB(LovesDB):
                 LEFT JOIN participation_runs r
                     ON r.class_id = c.class_id AND r.run_key = c.run_key
                 WHERE c.class_id = ?
+                  AND COALESCE(c.is_test, 0) = 0
                   AND COALESCE(r.discarded, 0) = 0
                 ORDER BY c.id
                 """,
@@ -37249,23 +37527,31 @@ class SchoolDB(LovesDB):
                 it). When that run is no longer the class's active run, a
                 concurrent End already closed it, so this one does nothing
                 (MCK-72 follow-up: a late End used to begin a new column).
-            live_run: Teacher chose Live on the End dialog (MCK-233); Test skips A&P.
-                When omitted, follow the schedule-window default for the active run.
+            live_run: Legacy end-time test flag (MCK-233). A session with
+                ``is_test`` set at Start still saves attendance, participation,
+                the deck row, and a catch-up code (MCK-269). When omitted on a
+                non-test session, follow the schedule-window default.
 
         Returns:
             Celebration payload or wipe payload, or ``already_ended``.
         """
         resolved_live = live_run
-        if resolved_live is None:
-            with self._lock:
-                active_row = self.conn.execute(
-                    """
-                    SELECT started_at FROM live_class_sessions
-                    WHERE class_id = ? AND status = 'active'
-                    ORDER BY id DESC LIMIT 1
-                    """,
-                    (int(class_id),),
-                ).fetchone()
+        session_is_test = False
+        with self._lock:
+            active_row = self.conn.execute(
+                """
+                SELECT started_at, COALESCE(is_test, 0) AS is_test
+                FROM live_class_sessions
+                WHERE class_id = ? AND status = 'active'
+                ORDER BY id DESC LIMIT 1
+                """,
+                (int(class_id),),
+            ).fetchone()
+        if active_row is not None:
+            session_is_test = bool(int(active_row["is_test"] or 0))
+        if session_is_test:
+            resolved_live = True
+        elif resolved_live is None:
             if active_row is not None:
                 mode = self.default_end_live_run_mode_for_class(
                     int(class_id), str(active_row["started_at"] or "")
@@ -37273,7 +37559,7 @@ class SchoolDB(LovesDB):
                 resolved_live = mode == "live"
             else:
                 resolved_live = True
-        if not resolved_live:
+        if not session_is_test and not resolved_live:
             save_attendance = False
             save_participation = False
         active_key = self._live_class_run_key(int(class_id))
@@ -37320,6 +37606,18 @@ class SchoolDB(LovesDB):
                     wrote = None
                 if not (wrote and wrote.get("in_progress")):
                     break
+        if wrote and wrote.get("session_id"):
+            with self._lock:
+                self.conn.execute(
+                    """
+                    UPDATE live_class_sessions
+                    SET mgs_session_id = ?
+                    WHERE class_id = ? AND status = 'active'
+                    """,
+                    (int(wrote["session_id"]), int(class_id)),
+                )
+                if self.conn.in_transaction:
+                    self.conn.commit()
                 # Another End is writing this run (a double click): give it
                 # a moment to finish, then follow it as already persisted.
                 if time.monotonic() >= deadline:
@@ -37472,15 +37770,22 @@ class SchoolDB(LovesDB):
             Game-state payload.
         """
         active = self.get_active_live_session_for_class(int(class_id))
+        set_current = not bool(active and int(active.get("is_test") or 0))
         if active is not None:
             try:
                 self.game.game_state(int(class_id))
             except KeyError:
-                self.game.begin_game(int(class_id), meeting_date=meeting_date)
+                self.game.begin_game(
+                    int(class_id),
+                    meeting_date=meeting_date,
+                    set_current=set_current,
+                )
             if self._restore_live_team_lock(int(class_id), create=False):
                 self._publish_restored_team_lock(int(active["id"]))
             return self.game.game_state(int(class_id))
-        return self.game.begin_game(int(class_id), meeting_date=meeting_date)
+        return self.game.begin_game(
+            int(class_id), meeting_date=meeting_date, set_current=True
+        )
 
     def _open_game_meeting_iso(self, class_id: int) -> str | None:
         """Return the open game's meeting day when a game is still in progress.
@@ -37521,6 +37826,506 @@ class SchoolDB(LovesDB):
             return None
         return meeting.isoformat()
 
+    def commit_live_run_kind(
+        self,
+        class_id: int,
+        teacher_user_id: int,
+        *,
+        is_test: bool,
+    ) -> dict[str, Any]:
+        """Stamp the active session and wipe only same-kind celebrations.
+
+        Run Live Class opens a session before the teacher picks Test or
+        Live. This is the pick. A test start never wipes a real celebrating
+        session, and a live start never wipes a test run.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            teacher_user_id: Staff user who owns the active session.
+            is_test: True when this run is a rehearsal.
+
+        Returns:
+            The active session row.
+
+        Raises:
+            ValueError: No active session for this teacher and class.
+        """
+        flag = 1 if is_test else 0
+        active = self.get_active_live_session_for_teacher(int(teacher_user_id))
+        if active is None or int(active["class_id"]) != int(class_id):
+            active = self.start_live_class_session(
+                int(class_id),
+                int(teacher_user_id),
+                is_test=bool(is_test),
+                defer_wipe=False,
+            )
+        else:
+            with self._lock:
+                self.conn.execute(
+                    "UPDATE live_class_sessions SET is_test = ? WHERE id = ?",
+                    (flag, int(active["id"])),
+                )
+                if self.conn.in_transaction:
+                    self.conn.commit()
+            prior = self.list_live_sessions_for_class(int(class_id))
+            celebrating = [
+                int(row["id"])
+                for row in prior
+                if int(row["id"]) != int(active["id"])
+                and self.session_is_celebrating(int(row["id"]))
+                and int(row.get("is_test") or 0) == flag
+            ]
+            if celebrating:
+                self.wipe_live_sessions_for_class(
+                    int(class_id), session_ids=celebrating
+                )
+        refreshed = self.get_live_session(int(active["id"]))
+        return refreshed or active
+
+    def test_mgs_session_ids(self, class_id: int) -> set[int]:
+        """Tracker session ids that belong to a test live class.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            ``sessions.id`` values written by ``is_test`` runs.
+        """
+        ids: set[int] = set()
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT run_key, mgs_session_id
+                FROM live_class_sessions
+                WHERE class_id = ? AND COALESCE(is_test, 0) = 1
+                """,
+                (int(class_id),),
+            ).fetchall()
+        keys: list[str] = []
+        for row in rows:
+            if row["mgs_session_id"] not in (None, ""):
+                ids.add(int(row["mgs_session_id"]))
+            key = str(row["run_key"] or "").strip()
+            if key:
+                keys.append(key)
+        if keys and getattr(self, "game", None) is not None:
+            placeholders = ",".join("?" * len(keys))
+            with self.game._lock:
+                credit_rows = self.game.conn.execute(
+                    f"""
+                    SELECT session_id FROM live_participation_credits
+                    WHERE run_key IN ({placeholders})
+                    """,
+                    keys,
+                ).fetchall()
+            for row in credit_rows:
+                ids.add(int(row["session_id"]))
+        return ids
+
+    def _run_belongs_to_test_session(self, class_id: int, run_key: str) -> bool:
+        """True when ``run_key`` is an ``is_test`` live session for this class."""
+        key = str(run_key or "").strip()
+        if not key:
+            return False
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT 1 FROM live_class_sessions
+                WHERE class_id = ? AND run_key = ? AND COALESCE(is_test, 0) = 1
+                LIMIT 1
+                """,
+                (int(class_id), key),
+            ).fetchone()
+        return row is not None
+
+    def official_gradebook_totals(self, class_id: int, sort: str = "az") -> dict[str, Any]:
+        """Gradebook totals with test live classes removed.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            sort: Roster sort forwarded to the tracker dashboard.
+
+        Returns:
+            The dashboard payload after test columns are left out of totals.
+        """
+        dash = self.game.dashboard(int(class_id), sort=sort)
+        return self.omit_test_sessions_from_dashboard(int(class_id), dash)
+
+    def omit_test_sessions_from_dashboard(
+        self, class_id: int, dash: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Drop test tracker columns and recompute totals without their points.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            dash: Payload from ``GameDB.dashboard``.
+
+        Returns:
+            A copy of ``dash`` whose totals ignore test runs.
+        """
+        try:
+            from db import as_points
+        except ImportError:
+            from lms.paths import MGS_DIR
+            import sys
+
+            mgs = str(MGS_DIR)
+            if mgs not in sys.path:
+                sys.path.insert(0, mgs)
+            from db import as_points
+
+        test_ids = self.test_mgs_session_ids(int(class_id))
+        if not test_ids:
+            return dash
+        students = dash.get("students") or []
+        student_ids = [int(s["id"]) for s in students]
+        columns = [
+            column
+            for column in (dash.get("columns") or [])
+            if not (
+                column.get("kind") == "session" and int(column["id"]) in test_ids
+            )
+        ]
+        cells = dict(dash.get("cells") or {})
+        totals = {sid: 0.0 for sid in student_ids}
+        for column in columns:
+            if column.get("kind") == "subtotal":
+                sub_id = int(column["id"])
+                for sid in student_ids:
+                    frozen = cells.get(f"sub:{sub_id}:{sid}") or {}
+                    totals[sid] = as_points(totals[sid] + as_points(frozen.get("points")))
+                continue
+            if column.get("kind") != "session":
+                continue
+            sess_id = int(column["id"])
+            for sid in student_ids:
+                cell = cells.get(f"{sess_id}:{sid}") or {}
+                totals[sid] = as_points(totals[sid] + as_points(cell.get("points")))
+        out = dict(dash)
+        out["columns"] = columns
+        out["sessions"] = [
+            row
+            for row in (dash.get("sessions") or [])
+            if int(row["id"]) not in test_ids
+        ]
+        out["totals"] = {str(k): v for k, v in totals.items()}
+        return out
+
+    def delete_test_live_class(
+        self, class_id: int, session_id: int
+    ) -> dict[str, Any]:
+        """Delete one test live class and every row that belongs to it.
+
+        Refuses a real run. School sqlite, the tracker column, and Postgres
+        presence commit together. A presence failure rolls the sqlite work
+        back. After commit, a leftover row for this session is an error.
+        Join codes are not logged. Student names are not read.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            session_id: ``live_class_sessions.id`` to delete.
+
+        Returns:
+            ``{ok, deleted_session_id}``.
+
+        Raises:
+            KeyError: The session is missing or belongs to another class.
+            PermissionError: The session is not a test run.
+            RuntimeError: Rows for this session remained after delete.
+        """
+        sid = int(session_id)
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM live_class_sessions WHERE id = ?",
+                (sid,),
+            ).fetchone()
+        if row is None or int(row["class_id"]) != int(class_id):
+            raise KeyError(f"live session {sid}")
+        if not int(row["is_test"] or 0):
+            raise PermissionError("Only a test class can be deleted this way.")
+        run_key = str(row["run_key"] or "").strip()
+        tracker_id = row["mgs_session_id"]
+        tracker_ids = set()
+        if tracker_id not in (None, ""):
+            tracker_ids.add(int(tracker_id))
+        if run_key and getattr(self, "game", None) is not None:
+            with self.game._lock:
+                credit_rows = self.game.conn.execute(
+                    """
+                    SELECT session_id FROM live_participation_credits
+                    WHERE run_key = ?
+                    """,
+                    (run_key,),
+                ).fetchall()
+            for credit in credit_rows:
+                tracker_ids.add(int(credit["session_id"]))
+        owned_tracker = {
+            tid
+            for tid in tracker_ids
+            if not self._tracker_session_shared(sid, run_key, tid)
+        }
+        presence = getattr(self, "presence", None)
+        game_conn = self.game.conn if getattr(self, "game", None) is not None else None
+        self.purge_board_ops(sid)
+        self._purge_team_draw_images(sid)
+        with self._lock:
+            # Tracker tables live in this same sqlite file on a second
+            # connection. Release any shared lock it still holds, then delete
+            # those rows on this connection so one BEGIN IMMEDIATE covers
+            # school rows and tracker rows together.
+            if game_conn is not None and game_conn.in_transaction:
+                game_conn.commit()
+            if self.conn.in_transaction:
+                self.conn.execute("COMMIT")
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self._delete_test_school_rows_unlocked(sid, run_key)
+                if owned_tracker or run_key:
+                    self._delete_test_tracker_rows(run_key, owned_tracker)
+                if presence is not None:
+                    presence.delete_session_tree(sid)
+                self._assert_test_session_gone_unlocked(sid, run_key, owned_tracker)
+            except BaseException:
+                if self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                raise
+            if self.conn.in_transaction:
+                self.conn.execute("COMMIT")
+        return {"ok": True, "deleted_session_id": sid}
+
+    def _tracker_session_shared(
+        self, live_session_id: int, run_key: str, tracker_id: int
+    ) -> bool:
+        """True when a non-test run also uses this tracker column."""
+        with self._lock:
+            other = self.conn.execute(
+                """
+                SELECT 1 FROM live_class_sessions
+                WHERE mgs_session_id = ? AND id != ?
+                  AND COALESCE(is_test, 0) = 0
+                LIMIT 1
+                """,
+                (int(tracker_id), int(live_session_id)),
+            ).fetchone()
+        if other is not None:
+            return True
+        if getattr(self, "game", None) is None:
+            return False
+        with self.game._lock:
+            credit = self.game.conn.execute(
+                """
+                SELECT 1 FROM live_participation_credits
+                WHERE session_id = ? AND run_key != ?
+                LIMIT 1
+                """,
+                (int(tracker_id), str(run_key or "")),
+            ).fetchone()
+        return credit is not None
+
+    def _sqlite_tables_with_column(self, column: str) -> list[str]:
+        """Table names in this database that have ``column``."""
+        names: list[str] = []
+        tables = self.conn.execute(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+            """
+        ).fetchall()
+        ident = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+        for table in tables:
+            name = str(table["name"])
+            if not ident.fullmatch(name):
+                continue
+            cols = {
+                str(row["name"])
+                for row in self.conn.execute(f'PRAGMA table_info("{name}")')
+            }
+            if column in cols:
+                names.append(name)
+        return names
+
+    def _delete_test_school_rows_unlocked(self, session_id: int, run_key: str) -> None:
+        """Delete school rows for one test session. Caller holds the write txn."""
+        sid = int(session_id)
+        key = str(run_key or "").strip()
+        prompt_rows = self.conn.execute(
+            "SELECT id FROM live_session_prompts WHERE live_session_id = ?",
+            (sid,),
+        ).fetchall()
+        prompt_ids = [int(row["id"]) for row in prompt_rows]
+        item_rows = self.conn.execute(
+            "SELECT id FROM live_session_items WHERE live_session_id = ?",
+            (sid,),
+        ).fetchall()
+        item_ids = [int(row["id"]) for row in item_rows]
+        if item_ids:
+            ph = ",".join("?" * len(item_ids))
+            for table in (
+                "live_group_votes",
+                "live_group_members",
+                "live_group_responses",
+            ):
+                self.conn.execute(
+                    f"DELETE FROM {table} WHERE live_item_id IN ({ph})",
+                    item_ids,
+                )
+        if prompt_ids:
+            ph = ",".join("?" * len(prompt_ids))
+            self.conn.execute(
+                f"DELETE FROM live_session_responses WHERE prompt_id IN ({ph})",
+                prompt_ids,
+            )
+        obs_rows = self.conn.execute(
+            "SELECT id FROM observations WHERE live_session_id = ?",
+            (sid,),
+        ).fetchall()
+        obs_ids = [int(row["id"]) for row in obs_rows]
+        if obs_ids:
+            ph = ",".join("?" * len(obs_ids))
+            self.conn.execute(
+                f"DELETE FROM observation_subjects WHERE observation_id IN ({ph})",
+                obs_ids,
+            )
+            self.conn.execute(
+                f"DELETE FROM observation_processes WHERE observation_id IN ({ph})",
+                obs_ids,
+            )
+        pending = [
+            table
+            for table in self._sqlite_tables_with_column("live_session_id")
+            if table != "live_class_sessions"
+        ]
+        for _ in range(8):
+            if not pending:
+                break
+            still: list[str] = []
+            for table in pending:
+                self.conn.execute("SAVEPOINT del_test_child")
+                try:
+                    self.conn.execute(
+                        f'DELETE FROM "{table}" WHERE live_session_id = ?',
+                        (sid,),
+                    )
+                except sqlite3.IntegrityError:
+                    self.conn.execute("ROLLBACK TO del_test_child")
+                    still.append(table)
+                self.conn.execute("RELEASE del_test_child")
+            if still == pending:
+                break
+            pending = still
+        if pending:
+            raise RuntimeError(f"test class {sid} still has rows after delete")
+        self.conn.execute(
+            "DELETE FROM observation_history WHERE live_session = ?",
+            (sid,),
+        )
+        if key:
+            self.conn.execute(
+                "DELETE FROM observation_history WHERE run_key = ?",
+                (key,),
+            )
+            for table in (
+                "participation_answers",
+                "participation_items",
+                "participation_runs",
+            ):
+                self.conn.execute(
+                    f"DELETE FROM {table} WHERE run_key = ?",
+                    (key,),
+                )
+            self.conn.execute(
+                "DELETE FROM catchup_links WHERE run_key = ? AND COALESCE(is_test, 0) = 1",
+                (key,),
+            )
+            self.conn.execute(
+                """
+                DELETE FROM lesson_slides_latest
+                WHERE run_key = ? AND COALESCE(is_test, 0) = 1
+                """,
+                (key,),
+            )
+        self.conn.execute(
+            "DELETE FROM catchup_links WHERE live_session_id = ?",
+            (sid,),
+        )
+        self.conn.execute(
+            "DELETE FROM lesson_slides_latest WHERE live_session_id = ?",
+            (sid,),
+        )
+        self.conn.execute(
+            "DELETE FROM class_live_deck_seeds WHERE source_live_session_id = ?",
+            (sid,),
+        )
+        self.conn.execute("DELETE FROM live_class_sessions WHERE id = ?", (sid,))
+
+    def _delete_test_tracker_rows(self, run_key: str, tracker_ids: set[int]) -> None:
+        """Delete tracker rows for a test run on the school connection.
+
+        Attendance tables share this sqlite file. Deleting them here keeps
+        the delete inside the caller's ``BEGIN IMMEDIATE`` instead of opening
+        a second writer, which SQLite refuses while that transaction is open.
+        """
+        key = str(run_key or "").strip()
+        if key:
+            self.conn.execute(
+                "DELETE FROM live_participation_credits WHERE run_key = ?",
+                (key,),
+            )
+            self.conn.execute(
+                "DELETE FROM live_end_claims WHERE run_key = ?",
+                (key,),
+            )
+        for tid in tracker_ids:
+            self.conn.execute("DELETE FROM sessions WHERE id = ?", (int(tid),))
+
+    def _assert_test_session_gone_unlocked(
+        self, session_id: int, run_key: str, tracker_ids: set[int]
+    ) -> None:
+        """Raise when any row for this test session is still stored."""
+        sid = int(session_id)
+        leftover = 0
+        for table in self._sqlite_tables_with_column("live_session_id"):
+            row = self.conn.execute(
+                f'SELECT COUNT(*) AS n FROM "{table}" WHERE live_session_id = ?',
+                (sid,),
+            ).fetchone()
+            leftover += int(row["n"] or 0)
+        hist = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM observation_history WHERE live_session = ?",
+            (sid,),
+        ).fetchone()
+        leftover += int(hist["n"] or 0)
+        key = str(run_key or "").strip()
+        if key:
+            for table in (
+                "participation_answers",
+                "participation_items",
+                "participation_runs",
+                "catchup_links",
+            ):
+                row = self.conn.execute(
+                    f"SELECT COUNT(*) AS n FROM {table} WHERE run_key = ?",
+                    (key,),
+                ).fetchone()
+                leftover += int(row["n"] or 0)
+            slides = self.conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM lesson_slides_latest
+                WHERE run_key = ? AND COALESCE(is_test, 0) = 1
+                """,
+                (key,),
+            ).fetchone()
+            leftover += int(slides["n"] or 0)
+        if tracker_ids:
+            for tid in tracker_ids:
+                row = self.conn.execute(
+                    "SELECT COUNT(*) AS n FROM sessions WHERE id = ?",
+                    (int(tid),),
+                ).fetchone()
+                leftover += int(row["n"] or 0)
+        if leftover:
+            raise RuntimeError(f"test class {sid} still has rows after delete")
+
     def start_live_class_session(
         self,
         class_id: int,
@@ -37528,6 +38333,8 @@ class SchoolDB(LovesDB):
         *,
         live_module: Any = None,
         live_slot: Any = None,
+        is_test: bool = False,
+        defer_wipe: bool = False,
     ) -> dict[str, Any]:
         """Mint a new active live session for this teacher.
 
@@ -37546,6 +38353,9 @@ class SchoolDB(LovesDB):
             teacher_user_id: Staff user starting the meeting.
             live_module: Optional catalogue module (``M1``).
             live_slot: Optional live class (``C1`` / ``C2`` / ``C3``).
+            is_test: True for a rehearsal that must not touch real counts.
+            defer_wipe: When true, leave celebrating sessions for
+                ``commit_live_run_kind`` (the teacher has not picked yet).
 
         Returns:
             The newly created active session row, or this teacher's
@@ -37567,6 +38377,8 @@ class SchoolDB(LovesDB):
                 int(offering_id),
                 live_module=live_module,
                 live_slot=live_slot,
+                is_test=bool(is_test),
+                defer_wipe=bool(defer_wipe),
             )
 
     def _active_live_session_blocking_start(
@@ -37643,6 +38455,8 @@ class SchoolDB(LovesDB):
         offering_id: int,
         code: str,
         meeting_iso: Any,
+        *,
+        is_test: bool = False,
     ) -> tuple[int | None, dict[str, Any] | None]:
         """Insert the new active row unless one appeared meanwhile.
 
@@ -37681,8 +38495,8 @@ class SchoolDB(LovesDB):
                     INSERT INTO live_class_sessions (
                         class_id, offering_id, teacher_user_id, session_code,
                         status, started_at, ended_at, mgs_session_id,
-                        meeting_date, run_key
-                    ) VALUES (?, ?, ?, ?, 'active', ?, NULL, NULL, ?, ?)
+                        meeting_date, run_key, is_test
+                    ) VALUES (?, ?, ?, ?, 'active', ?, NULL, NULL, ?, ?, ?)
                     """,
                     (
                         int(class_id),
@@ -37692,6 +38506,7 @@ class SchoolDB(LovesDB):
                         _now(),
                         meeting_iso,
                         uuid.uuid4().hex,
+                        1 if is_test else 0,
                     ),
                 )
                 session_id = int(cur.lastrowid)
@@ -37710,6 +38525,8 @@ class SchoolDB(LovesDB):
         *,
         live_module: Any,
         live_slot: Any,
+        is_test: bool = False,
+        defer_wipe: bool = False,
     ) -> dict[str, Any]:
         """Body of :meth:`start_live_class_session` under the Start lock."""
         existing = self._active_live_session_blocking_start(
@@ -37730,18 +38547,20 @@ class SchoolDB(LovesDB):
             self._live_class_seq_floor(prior_rows),
             self.stored_seq_floor(class_id=int(class_id)),
         )
+        kind = 1 if is_test else 0
         celebrating = [
             int(row["id"])
             for row in prior_rows
             if self.session_is_celebrating(int(row["id"]))
+            and int(row.get("is_test") or 0) == kind
         ]
-        if celebrating:
+        if celebrating and not defer_wipe:
             self.wipe_live_sessions_for_class(int(class_id), session_ids=celebrating)
         self.game.clear_class_moods_and_characters(int(class_id))
         code = self.mint_unique_active_session_code()
         meeting_iso = self._open_game_meeting_iso(int(class_id))
         new_id, clash = self._insert_active_live_session(
-            class_id, teacher_user_id, offering_id, code, meeting_iso
+            class_id, teacher_user_id, offering_id, code, meeting_iso, is_test=is_test
         )
         if clash is not None or new_id is None:
             # Only without the Start lock (busy past its wait): another
@@ -40186,8 +41005,11 @@ class SchoolDB(LovesDB):
             from lms.gradebook import session_meeting_date
 
         marks = self.game.attendance_score_rows(class_id)
+        test_ids = self.test_mgs_session_ids(class_id)
         logged: set[str] = set()
         for sess in marks.get("sessions") or []:
+            if int(sess.get("id") or 0) in test_ids:
+                continue
             if str(sess.get("status") or "") != "ended":
                 continue
             meeting = session_meeting_date(sess.get("starts_at"))
@@ -40480,6 +41302,8 @@ class SchoolDB(LovesDB):
             kind = self.participation_run_kind(class_id, run_key)
             if kind is None:
                 continue
+            if self._run_belongs_to_test_session(class_id, run_key):
+                continue
             if not self.participation_run_counts_in_tab(class_id, run_key):
                 excluded.add(int(row["session_id"]))
         return excluded
@@ -40549,6 +41373,8 @@ class SchoolDB(LovesDB):
             if column.get("kind") != "session":
                 continue
             sess_id = int(column["id"])
+            if (session_meta.get(str(sess_id)) or {}).get("is_test"):
+                continue
             for sid in student_ids:
                 cell = cells.get(f"{sess_id}:{sid}") or {}
                 pts = as_points(cell.get("points"))

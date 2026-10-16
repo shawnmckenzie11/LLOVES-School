@@ -389,6 +389,53 @@ class LivePresenceStore:
         with self._conn() as conn:
             apply_locked_ddl(conn.connection, statements, PRESENCE_DDL_LOCK)
 
+    def delete_session_tree(self, session_id: int) -> None:
+        """Delete one presence session and its attendees, then verify none remain.
+
+        Attendees are removed first. Both statements share one transaction.
+        Nothing about a join code is logged.
+
+        Args:
+            session_id: ``live_class_sessions.id``, also the presence session id.
+
+        Raises:
+            LivePresenceUnavailable: The database could not finish the delete.
+            RuntimeError: A row for this session was still present.
+        """
+        sid = int(session_id)
+        with self._conn() as conn:
+            raw = conn.connection
+            previous = raw.autocommit
+            raw.autocommit = False
+            try:
+                raw.execute(
+                    "DELETE FROM live_presence_attendees WHERE live_session_id = %s",
+                    (sid,),
+                )
+                raw.execute(
+                    "DELETE FROM live_presence_sessions WHERE id = %s",
+                    (sid,),
+                )
+                left_attendees = raw.execute(
+                    """
+                    SELECT COUNT(*) AS n FROM live_presence_attendees
+                    WHERE live_session_id = %s
+                    """,
+                    (sid,),
+                ).fetchone()
+                left_session = raw.execute(
+                    "SELECT COUNT(*) AS n FROM live_presence_sessions WHERE id = %s",
+                    (sid,),
+                ).fetchone()
+                if int(left_attendees["n"] or 0) or int(left_session["n"] or 0):
+                    raise RuntimeError(f"presence rows remain for session {sid}")
+                raw.commit()
+            except Exception:
+                raw.rollback()
+                raise
+            finally:
+                raw.autocommit = previous
+
     def upsert_session(self, session_row: dict[str, Any]) -> None:
         """Insert or update one live session's status.
 

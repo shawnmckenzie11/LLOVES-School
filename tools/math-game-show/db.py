@@ -3418,6 +3418,7 @@ class GameShowDB:
         *,
         through_session_id: int | None = None,
         return_dashboard: bool = True,
+        exclude_session_ids: set[int] | None = None,
     ) -> dict[str, Any]:
         """Snapshot current TOTAL into a frozen column after the last class.
 
@@ -3430,6 +3431,8 @@ class GameShowDB:
             sort: Dashboard name order to return.
             through_session_id: When set, freeze through this session instead of
                 the newest column (MCK-230 module finish).
+            exclude_session_ids: Tracker columns left out of the frozen total
+                (test live classes, MCK-269).
             return_dashboard: When false, skip the dashboard reload. The
                 dashboard reload writes ``app_state.current_class_id``, so
                 batch scripts pass false (MCK-251).
@@ -3484,10 +3487,20 @@ class GameShowDB:
                     SELECT s.id AS student_id, COALESCE(SUM(ss.points), 0) AS total
                     FROM students s
                     LEFT JOIN session_scores ss ON ss.student_id = s.id
+                      AND (
+                        ? = 0
+                        OR ss.session_id NOT IN (
+                          SELECT value FROM json_each(?)
+                        )
+                      )
                     WHERE s.class_id = ?
                     GROUP BY s.id
                     """,
-                    (class_id,),
+                    (
+                        1 if exclude_session_ids else 0,
+                        json.dumps(sorted(int(x) for x in (exclude_session_ids or []))),
+                        class_id,
+                    ),
                 )
             }
             for sid, pts in totals.items():
@@ -3711,6 +3724,7 @@ class GameShowDB:
         class_id: int,
         today: date | None = None,
         meeting_date: date | None = None,
+        set_current: bool = True,
     ) -> dict[str, Any]:
         """Start a new game, or resume only if one is already live.
 
@@ -3724,6 +3738,8 @@ class GameShowDB:
             class_id: Classes primary key.
             today: Optional reference date.
             meeting_date: Optional teacher override (any calendar day).
+            set_current: When false, leave ``current_class_id`` unchanged
+                (a test live class must not move the real class pointer).
 
         Returns:
             Full game-state payload.
@@ -3740,12 +3756,14 @@ class GameShowDB:
             if existing:
                 if existing["status"] == "live":
                     self._set_scoreboard_game(int(existing["id"]))
-                    self._set_current_class(class_id)
+                    if set_current:
+                        self._set_current_class(class_id)
                     self.conn.commit()
                     return self.game_state(class_id, game_id=int(existing["id"]))
                 self._discard_setup_unlocked(existing)
             self._set_scoreboard_game(None)
-            self._set_current_class(class_id)
+            if set_current:
+                self._set_current_class(class_id)
 
             meeting = self._meeting_datetime(cls, today=today, meeting_date=meeting_date)
             unused = self._unused_template_session(class_id)

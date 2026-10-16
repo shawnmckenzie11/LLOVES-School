@@ -1,4 +1,5 @@
 import { api, escapeHtml, formatPoints, hideError, showError } from "/static/common.js";
+import { deleteTestClass } from "/static/staff_test_class.js";
 
 const root = document.getElementById("grades-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -328,6 +329,7 @@ function moduleRollup(data, studentId, columns) {
   let ended = "";
   for (const column of columns || []) {
     const meta = data.session_meta?.[String(column.id)] || {};
+    if (meta.is_test || column.is_test) continue;
     const cell = cellScore(data, Number(column.id), studentId, meta);
     score += cell.score;
     opportunities += cell.opportunities;
@@ -444,8 +446,13 @@ function renderSheet(data) {
           ? summaryHeaderHtml(pieceMod, true)
           : "";
         const officePill = office ? `<span class="ap-office-pill">Open office</span>` : "";
-        head += `<th class="${office ? "is-office ap-office-header" : "ap-class-col"}"${anchor}>
-          ${toggle}<span class="ap-class-label">${escapeHtml(col.column?.label || "")}</span>${officePill}
+        const testRun = Boolean(col.column?.is_test);
+        const testPill = testRun ? `<span class="badge-test-run">TEST</span>` : "";
+        const deleteBtn = testRun
+          ? `<button type="button" class="secondary ap-delete-test" data-live-session-id="${Number(col.column?.live_session_id || 0)}">Delete test class</button>`
+          : "";
+        head += `<th class="${office ? "is-office ap-office-header" : "ap-class-col"}${testRun ? " is-test-run" : ""}"${anchor}>
+          ${toggle}<span class="ap-class-label">${escapeHtml(col.column?.label || "")}</span>${officePill}${testPill}${deleteBtn}
         </th>`;
       });
     }
@@ -565,9 +572,20 @@ document.getElementById("ap-display-mode-select")?.addEventListener("change", (e
 document.getElementById("ap-expand-all")?.addEventListener("click", () => setAllFinished(true));
 document.getElementById("ap-collapse-all")?.addEventListener("click", () => setAllFinished(false));
 
-root?.addEventListener("click", (event) => {
+root?.addEventListener("click", async (event) => {
   const target = event.target instanceof Element ? event.target : event.target?.parentElement;
   if (!target) return;
+  const deleteBtn = target.closest(".ap-delete-test");
+  if (deleteBtn instanceof HTMLButtonElement) {
+    const sid = Number(deleteBtn.dataset.liveSessionId || 0);
+    try {
+      const gone = await deleteTestClass(classId, sid);
+      if (gone) await refresh();
+    } catch (err) {
+      showError("#error", err);
+    }
+    return;
+  }
   const toggle = target.closest(".ap-mod-toggle");
   if (!(toggle instanceof HTMLButtonElement)) return;
   const module = String(toggle.dataset.module || "").toUpperCase();

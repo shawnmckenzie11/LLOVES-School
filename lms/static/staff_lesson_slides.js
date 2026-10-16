@@ -1,6 +1,8 @@
 /**
  * Lesson Slides table (MCK-229): one row per live class, latest real run.
+ * Test runs are extra rows with a TEST tag (MCK-269).
  */
+import { deleteTestClass } from "/static/staff_test_class.js";
 
 const root = document.getElementById("lesson-slides-root");
 const classId = root?.dataset.classId;
@@ -186,7 +188,26 @@ function paintTable() {
       ? String(row.line_label || row.label || `${row.module}${row.slot}`)
       : String(row.label || `${row.module}${row.slot}`);
     label.appendChild(name);
-    if (row.not_in_template) {
+    if (row.is_test) {
+      const tag = document.createElement("span");
+      tag.className = "badge-test-run";
+      tag.textContent = "TEST";
+      label.appendChild(tag);
+      if (row.live_session_id) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "secondary";
+        button.textContent = "Delete test class";
+        button.addEventListener("click", () => {
+          deleteTestClass(Number(classId), Number(row.live_session_id))
+            .then((gone) => {
+              if (gone) window.location.reload();
+            })
+            .catch(() => {});
+        });
+        label.appendChild(button);
+      }
+    } else if (row.not_in_template) {
       const tag = document.createElement("span");
       tag.className = "ls-not-in-template";
       tag.textContent = String(row.status_label || "Not in template");
