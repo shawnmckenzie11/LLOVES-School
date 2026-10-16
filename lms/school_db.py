@@ -33285,7 +33285,13 @@ class SchoolDB(LovesDB):
         return int(row["n"] or 0) if row else 0
 
     def participation_session_meta(self, class_id: int) -> dict[str, dict[str, Any]]:
-        """Map game-show session ids to run, module, slot, and deck items."""
+        """Map game-show session ids to run, module, slot, and deck items.
+
+        The module and slot come from the same participation item, preferring
+        a row that actually stored them. A blank module stays blank so the
+        table does not relabel it ``M1``. ``class_ended`` is true only when
+        the live class has an ``ended_at``.
+        """
         meta: dict[str, dict[str, Any]] = {}
         if getattr(self, "game", None) is None:
             return meta
@@ -33301,16 +33307,8 @@ class SchoolDB(LovesDB):
             rows = self.conn.execute(
                 f"""
                 SELECT lpc.session_id, lpc.run_key, s.starts_at,
-                       (
-                           SELECT live_module FROM participation_items pi
-                           WHERE pi.class_id = s.class_id AND pi.run_key = lpc.run_key
-                           LIMIT 1
-                       ) AS live_module,
-                       (
-                           SELECT live_slot FROM participation_items pi
-                           WHERE pi.class_id = s.class_id AND pi.run_key = lpc.run_key
-                           LIMIT 1
-                       ) AS live_slot,
+                       pi.live_module AS live_module,
+                       pi.live_slot AS live_slot,
                        (
                            SELECT ended_at FROM live_class_sessions lcs
                            WHERE lcs.class_id = s.class_id AND lcs.run_key = lpc.run_key
@@ -33319,6 +33317,21 @@ class SchoolDB(LovesDB):
                        ) AS ended_at
                 FROM live_participation_credits lpc
                 INNER JOIN sessions s ON s.id = lpc.session_id
+                LEFT JOIN participation_items pi
+                    ON pi.id = (
+                        SELECT p2.id FROM participation_items p2
+                        WHERE p2.class_id = s.class_id AND p2.run_key = lpc.run_key
+                        ORDER BY CASE
+                                   WHEN TRIM(COALESCE(p2.live_module, '')) = '' THEN 1
+                                   ELSE 0
+                                 END,
+                                 CASE
+                                   WHEN TRIM(COALESCE(p2.live_slot, '')) = '' THEN 1
+                                   ELSE 0
+                                 END,
+                                 p2.id
+                        LIMIT 1
+                    )
                 WHERE s.class_id = ?{run_filter}
                 """,
                 (int(class_id),),
@@ -33332,9 +33345,10 @@ class SchoolDB(LovesDB):
                 if run_key
                 else []
             )
-            ended = str(row["ended_at"] or row["starts_at"] or "")
-            live_module = str(row["live_module"] or "")
-            live_slot = str(row["live_slot"] or "")
+            session_ended = str(row["ended_at"] or "").strip()
+            ended = session_ended or str(row["starts_at"] or "")
+            live_module = str(row["live_module"] or "").strip()
+            live_slot = str(row["live_slot"] or "").strip()
             try:
                 from set_class import is_open_office_slot
             except ImportError:
@@ -33345,6 +33359,7 @@ class SchoolDB(LovesDB):
                 "live_slot": live_slot,
                 "open_office": is_open_office_slot(live_slot),
                 "ended_at": ended,
+                "class_ended": bool(session_ended),
                 "header_label": format_participation_session_header(
                     live_module, live_slot, ended
                 ),
@@ -33511,7 +33526,17 @@ class SchoolDB(LovesDB):
                 part = self.conn.execute(
                     """
                     SELECT live_module, live_slot FROM participation_items
-                    WHERE class_id = ? AND run_key = ? LIMIT 1
+                    WHERE class_id = ? AND run_key = ?
+                    ORDER BY CASE
+                               WHEN TRIM(COALESCE(live_module, '')) = '' THEN 1
+                               ELSE 0
+                             END,
+                             CASE
+                               WHEN TRIM(COALESCE(live_slot, '')) = '' THEN 1
+                               ELSE 0
+                             END,
+                             id
+                    LIMIT 1
                     """,
                     (cid, run_key),
                 ).fetchone()

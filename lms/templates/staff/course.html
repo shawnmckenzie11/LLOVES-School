@@ -1119,12 +1119,6 @@
           <option value="percent" selected>%</option>
         </select>
         <div id="error" class="error" hidden></div>
-        <section class="card ap-evidence-coverage" id="ap-evidence-coverage"{% if course_simple %} hidden{% endif %}>
-          <h2>Process evidence (this live session)</h2>
-          <p class="hint compact">Qualitative observations from Team Challenge. Not written to participation points.</p>
-          <div id="ap-coverage-matrix"></div>
-          <ul id="ap-coverage-log" class="ap-evidence-log"></ul>
-        </section>
         <div class="sheet-wrap ap-mod-wrap">
           <table class="sheet ap-mod-table" id="sheet">
             <thead>
@@ -1149,7 +1143,6 @@
         </form>
       </dialog>
       <script type="module" src="/static/staff_grades.js"></script>
-      <script type="module" src="/static/staff_evidence.js"></script>
       {% endif %}
     </div>
     {% elif tab == 'gradebook' %}

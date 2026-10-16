@@ -5,7 +5,6 @@ import { api, escapeHtml } from "/static/common.js";
 
 const root = document.getElementById("ap-root");
 const panel = document.getElementById("ap-evidence-panel");
-const coverageRoot = document.getElementById("ap-evidence-coverage");
 
 let phrases = [];
 let processes = [];
@@ -257,54 +256,6 @@ function bindPanel() {
   });
 }
 
-/**
- * After-class coverage matrix on the Participation tab.
- * @returns {Promise<void>}
- */
-async function loadCoverage() {
-  if (!coverageRoot || root?.dataset.apView !== "participation") return;
-  const sid = Number(root.dataset.liveSessionId || 0);
-  let sessionId = sid;
-  if (!sessionId) {
-    const dash = await api(`/api/classes/${classId}/game`).catch(() => null);
-    sessionId = Number(dash?.live_session_id || 0);
-  }
-  if (!sessionId) {
-    const active = await api("/api/live-sessions/active").catch(() => null);
-    const mine = (active?.sessions || []).find((s) => Number(s.class_id) === classId);
-    sessionId = mine ? Number(mine.id) : 0;
-  }
-  if (!sessionId) {
-    document.getElementById("ap-coverage-matrix").textContent =
-      "No live session on this page. Open Run Live Class, then return here after End Class.";
-    return;
-  }
-  const cov = await api(`/api/live-sessions/${sessionId}/observations/coverage`);
-  const obs = await api(`/api/live-sessions/${sessionId}/observations`);
-  const procKeys = (cov.class_counts && Object.keys(cov.class_counts)) || [];
-  const students = Object.keys(cov.by_student || {});
-  const keys = [...new Set([...procKeys, ...students.flatMap((id) => Object.keys(cov.by_student[id] || {}))])];
-  const head = keys.map((k) => `<th>${escapeHtml(k)}</th>`).join("");
-  const body = students
-    .map((id) => {
-      const cells = keys
-        .map((k) => `<td>${Number(cov.by_student[id]?.[k] || 0)}</td>`)
-        .join("");
-      return `<tr><td>Student ${escapeHtml(id)}</td>${cells}</tr>`;
-    })
-    .join("");
-  document.getElementById("ap-coverage-matrix").innerHTML = keys.length
-    ? `<table class="data"><thead><tr><th>Student</th>${head}</tr></thead><tbody>${body}</tbody></table>
-       <p class="hint compact">${cov.observation_count} observation(s)</p>`
-    : `<p class="hint">${cov.observation_count || 0} observation(s). None tagged with a process yet.</p>`;
-  const log = document.getElementById("ap-coverage-log");
-  if (log) {
-    log.innerHTML = (obs.observations || [])
-      .map((o) => `<li>${escapeHtml(o.scope)} · ${escapeHtml(o.note)}</li>`)
-      .join("");
-  }
-}
-
 window.addEventListener("lloves-score-round", (event) => {
   const detail = event.detail || {};
   overlayState = detail.overlayState;
@@ -325,4 +276,3 @@ window.addEventListener("lloves-score-round", (event) => {
 });
 
 if (panel) bindPanel();
-if (coverageRoot) loadCoverage().catch(() => {});
