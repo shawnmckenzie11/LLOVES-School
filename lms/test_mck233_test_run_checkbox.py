@@ -146,7 +146,8 @@ class EndLiveToggleTests(Base):
         self.assertEqual(len(qs_answered_live), 1)
         self.assertEqual(qs_answered_live[0]["question_key"], "item:q1")
 
-    def test_test_run_skips_participation_and_catchup(self) -> None:
+    def test_posted_run_mode_does_not_skip_a_live_session(self) -> None:
+        """End no longer has a Test choice. A live session still saves."""
         started = datetime(2026, 10, 14, 9, 20, tzinfo=TORONTO).replace(microsecond=0).isoformat()
         _, run_key = self._start_live_with_two_questions(started_at=started)
         resp = self.client.post(
@@ -160,14 +161,13 @@ class EndLiveToggleTests(Base):
             follow_redirects=False,
         )
         self.assertEqual(resp.status_code, 302)
-        self.assertFalse(self.school.list_catchup_links(self.class_id))
-        self.assertFalse(self.school.list_lesson_slides_latest(self.class_id))
+        self.assertEqual(len(self.school.list_catchup_links(self.class_id)), 1)
         kind = self.school.participation_run_kind(self.class_id, run_key)
         assert kind is not None
-        self.assertFalse(kind["is_real"])
+        self.assertTrue(kind["is_real"])
 
     def test_override_live_default_to_test(self) -> None:
-        """Inside the schedule window the UI default is Live; Test still wins when posted."""
+        """Schedule helper still knows the window. End ignores a posted Test choice."""
         started = datetime(2026, 10, 14, 9, 20, tzinfo=TORONTO)
         sched = LiveClassStartSchedule(days_key="M/W/F", start_time_label="9:15am")
         self.assertEqual(default_end_live_run_mode(started, sched), "live")
@@ -183,7 +183,7 @@ class EndLiveToggleTests(Base):
             data={"end_options": "1", "run_mode": "test"},
             follow_redirects=False,
         )
-        self.assertFalse(self.school.list_catchup_links(self.class_id))
+        self.assertEqual(len(self.school.list_catchup_links(self.class_id)), 1)
 
     def test_outside_window_live_choice_still_kept_after_backfill(self) -> None:
         """Regression: afternoon start does not auto-flip to test on repair."""
@@ -260,8 +260,8 @@ class EndLiveToggleTests(Base):
         self.assertEqual(resp.status_code, 302)
         self.assertFalse(self.school.list_catchup_links(self.class_id))
 
-    def test_omitted_run_mode_uses_schedule_window_default(self) -> None:
-        """Bare POST with end_options uses the same default as the staff dialog."""
+    def test_omitted_run_mode_saves_a_live_session(self) -> None:
+        """A non-test session saves even outside the old schedule window."""
         afternoon = datetime(2026, 10, 14, 18, 54, tzinfo=TORONTO).replace(microsecond=0).isoformat()
         self.school.set_offering_schedule(
             int(
@@ -279,7 +279,7 @@ class EndLiveToggleTests(Base):
             data={"end_options": "1", "save_attendance": "1", "save_participation": "1"},
             follow_redirects=False,
         )
-        self.assertFalse(self.school.list_catchup_links(self.class_id))
+        self.assertEqual(len(self.school.list_catchup_links(self.class_id)), 1)
 
 
     def test_ensure_participation_run_kind_idempotent(self) -> None:

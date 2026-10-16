@@ -162,8 +162,11 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
         for l in school.list_catchup_links(cid)
     }
     latest_rows = school.list_lesson_slides_latest(cid)
+    real_latest = [row for row in latest_rows if not int(row.get("is_test") or 0)]
+    test_latest = [row for row in latest_rows if int(row.get("is_test") or 0)]
     latest_by_slot = {
-        (str(r["live_module"]).upper(), str(r["live_slot"]).upper()): r for r in latest_rows
+        (str(r["live_module"]).upper(), str(r["live_slot"]).upper()): r
+        for r in real_latest
     }
     test_ids = exclude_participation_answer_student_ids(cid, school)
 
@@ -230,6 +233,8 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
                 "catchup_url": catchup_url,
                 "catchup_enabled": has_run and bool(catchup_url),
                 "run_key": run_key,
+                "is_test": False,
+                "live_session_id": None,
             }
         )
     seen = {(str(row["module"]), str(row["slot"])) for row in rows}
@@ -266,11 +271,121 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
                 "catchup_url": "",
                 "catchup_enabled": False,
                 "run_key": run_key,
+                "is_test": False,
+                "live_session_id": None,
+            }
+        )
+    try:
+        from live_class_test_labels import (
+            format_test_lesson_slides_label,
+            test_same_day_indices as same_day_test_indices,
+        )
+    except ImportError:
+        from lms.live_class_test_labels import (
+            format_test_lesson_slides_label,
+            test_same_day_indices as same_day_test_indices,
+        )
+    test_index_rows = [
+        {
+            "live_session_id": latest.get("live_session_id"),
+            "ended_at": latest.get("ended_at"),
+        }
+        for latest in test_latest
+    ]
+    test_day_index = same_day_test_indices(test_index_rows)
+    for latest in test_latest:
+        module = str(latest.get("live_module") or "").upper()
+        slot = str(latest.get("live_slot") or "").upper()
+        run_key = str(latest.get("run_key") or "").strip()
+        link = _test_catchup_for_run(school, cid, run_key, latest.get("live_session_id"))
+        join_code = ""
+        catchup_url = ""
+        if link:
+            join_code = str(
+                link.get("portal_join_code") or link.get("token") or ""
+            ).strip()
+            catchup_url = school.catchup_public_url(cid, link)
+        if not join_code:
+            join_code = str(latest.get("session_code") or "").strip()
+        questions = school.lesson_slides_question_rows(
+            cid,
+            module,
+            slot,
+            latest=latest,
+            excluded_student_ids=test_ids,
+        )
+        summary = _summary_counts(questions)
+        live_sid = latest.get("live_session_id")
+        day_index = int(test_day_index.get(int(live_sid or 0), 1))
+        ended_for_label = str(latest.get("ended_at") or "")
+        test_line = format_test_lesson_slides_label(
+            ended_for_label, same_day_index=day_index
+        )
+        rows.append(
+            {
+                "module": module,
+                "slot": slot,
+                "label": test_line,
+                "line_label": test_line,
+                "office_code": "",
+                "not_in_template": True,
+                "last_run_at": display_ended_at_from_latest(latest),
+                "join_code": join_code,
+                "has_run": True,
+                "question_summary": _question_summary_text(summary) if questions else "—",
+                "summary": summary,
+                "questions": questions,
+                "deck_url": str(latest.get("presentation_url") or "").strip(),
+                "catchup_url": catchup_url,
+                "catchup_enabled": bool(catchup_url),
+                "run_key": run_key,
+                "is_test": True,
+                "live_session_id": latest.get("live_session_id"),
+                "status": "test",
+                "status_label": "TEST",
             }
         )
     rows.sort(key=_lesson_row_sort_key)
     _stamp_lesson_slide_status(rows)
     return {"ok": True, "course": course, "rows": rows}
+
+
+def _test_catchup_for_run(
+    school: Any, class_id: int, run_key: str, live_session_id: Any
+) -> dict[str, Any] | None:
+    """Return the test catch-up row for one run, without logging its code.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        class_id: Game-show ``classes.id``.
+        run_key: Participation run key.
+        live_session_id: ``live_class_sessions.id`` when the row stored one.
+    """
+    key = str(run_key or "").strip()
+    sid = int(live_session_id) if live_session_id not in (None, "") else 0
+    with school._lock:
+        if sid:
+            row = school.conn.execute(
+                """
+                SELECT * FROM catchup_links
+                WHERE live_session_id = ? AND COALESCE(is_test, 0) = 1
+                LIMIT 1
+                """,
+                (sid,),
+            ).fetchone()
+            if row is not None:
+                return dict(row)
+        if not key:
+            return None
+        row = school.conn.execute(
+            """
+            SELECT * FROM catchup_links
+            WHERE class_id = ? AND run_key = ? AND COALESCE(is_test, 0) = 1
+            LIMIT 1
+            """,
+            (int(class_id), key),
+        ).fetchone()
+    return dict(row) if row is not None else None
 
 
 def _lesson_row_sort_key(row: dict[str, Any]) -> tuple[int, int, int]:
@@ -305,7 +420,7 @@ def _stamp_lesson_slide_status(rows: list[dict[str, Any]]) -> None:
     last_pair: tuple[str, str] | None = None
     last_at = ""
     for row in rows:
-        if row.get("not_in_template") or not row.get("has_run"):
+        if row.get("is_test") or row.get("not_in_template") or not row.get("has_run"):
             continue
         ended = str(row.get("last_run_at") or "")
         if ended and ended >= last_at:
@@ -314,6 +429,10 @@ def _stamp_lesson_slide_status(rows: list[dict[str, Any]]) -> None:
     upcoming = next_class_after_last_run(catalogue, last_pair if last_at else None)
     for row in rows:
         row["day_label"] = format_slide_day(row.get("last_run_at") or "")
+        if row.get("is_test"):
+            row["status"] = "test"
+            row["status_label"] = "TEST"
+            continue
         if row.get("not_in_template"):
             row["status"] = "not_in_template"
             row["status_label"] = "Not in template"

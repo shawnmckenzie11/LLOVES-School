@@ -35,6 +35,7 @@ import {
   syncOverlayPickers,
 } from "/static/ap_calendar.js";
 import { nameWithMood } from "/static/mood_faces.js";
+import { bindStaffInfoPopovers } from "/static/staff_info_popover.js";
 import {
   bindWhiteboard,
   boardWriteRejected,
@@ -940,6 +941,16 @@ async function refreshDeckSeedOptions() {
  */
 async function applyDeckSeedChoice() {
   const pack = selectedSetClassPack();
+  if (selectedRunKind() === "test") {
+    await api(
+      `/api/staff/class/${classId}/live-lessons/${pack.module}/${pack.slot}/deck-seed`,
+      {
+        method: "POST",
+        body: JSON.stringify({ mode: "test_copy" }),
+      }
+    );
+    return;
+  }
   const selected = document.querySelector('input[name="live-deck-seed"]:checked');
   const mode = deckSeedConfirmMode({
     selected: String(selected?.value || deckSeedMode || "current"),
@@ -3486,6 +3497,7 @@ function paintSetClassNotes() {
   officeBtn?.classList.toggle("is-on", onOffice);
   liveBtn?.setAttribute("aria-pressed", onOffice ? "false" : "true");
   officeBtn?.setAttribute("aria-pressed", onOffice ? "true" : "false");
+  syncSetClassRunKindUi();
 }
 
 /**
@@ -8549,15 +8561,95 @@ async function confirmOverrideIfLogged(iso) {
  * Paint the semester day-grid on the validate step.
  * @param {string} [selected]
  */
+/**
+ * Live is the real class. Test is a rehearsal that can run any school day.
+ * @returns {"live"|"test"}
+ */
+function selectedRunKind() {
+  const testBtn = $("set-class-run-kind-test");
+  return testBtn instanceof HTMLButtonElement && testBtn.classList.contains("is-on") ? "test" : "live";
+}
+
+/**
+ * Switch Set Class between a live run and a test rehearsal.
+ * @param {"live"|"test"} kind
+ */
+function chooseSetClassRunKind(kind) {
+  const test = kind === "test";
+  const liveBtn = $("set-class-run-kind-live");
+  const testBtn = $("set-class-run-kind-test");
+  liveBtn?.classList.toggle("is-on", !test);
+  testBtn?.classList.toggle("is-on", test);
+  liveBtn?.setAttribute("aria-pressed", test ? "false" : "true");
+  testBtn?.setAttribute("aria-pressed", test ? "true" : "false");
+  syncSetClassRunKindUi();
+}
+
+/**
+ * Mobbin Set Class: Run as beside session type; test hides open office.
+ */
+function syncSetClassRunKindUi() {
+  const test = selectedRunKind() === "test";
+  const officeBtn = $("set-class-kind-office");
+  const kindWrap = $("set-class-kind");
+  const deckSeed = $("live-deck-seed");
+  const startBtn = $("set-class-start");
+  const testDeckNote = $("set-class-test-deck-note");
+  const runNote = $("set-class-run-kind-note");
+  if (startBtn) {
+    startBtn.textContent = test ? "Start test session" : "Start session";
+  }
+  if (officeBtn instanceof HTMLButtonElement) {
+    officeBtn.hidden = test;
+    officeBtn.disabled = test;
+  }
+  if (test && setClassKind === "office") {
+    chooseSetClassKind("live");
+  }
+  if (kindWrap instanceof HTMLElement) {
+    kindWrap.classList.toggle("is-test-run", test);
+  }
+  if (deckSeed instanceof HTMLElement) {
+    if (test) deckSeed.setAttribute("hidden", "");
+    else deckSeed.removeAttribute("hidden");
+  }
+  if (test) {
+    $("live-deck-copy-from-field")?.setAttribute("hidden", "");
+    $("live-deck-seed-picker")?.setAttribute("hidden", "");
+  }
+  if (testDeckNote instanceof HTMLElement) {
+    if (test) testDeckNote.removeAttribute("hidden");
+    else testDeckNote.setAttribute("hidden", "");
+  }
+  if (runNote instanceof HTMLElement) {
+    if (test) runNote.removeAttribute("hidden");
+    else runNote.setAttribute("hidden", "");
+  }
+  if (test) {
+    showValidateGrid(gridSelectedIso($("ap-day-grid")) || String($("ap-valid-date")?.value || ""));
+  }
+}
+
+/**
+ * Test runs use every school day, not only the course's live-class days.
+ * @returns {object|null}
+ */
+function validateLogContext() {
+  if (!logContext || selectedRunKind() !== "test") return logContext;
+  const school = logContext.valid_school_dates || logContext.valid_dates;
+  return { ...logContext, valid_dates: school, only_live_class_days: false };
+}
+
 function showValidateGrid(selected) {
   const box = $("ap-day-grid");
-  if (!box || !logContext) return;
+  const ctx = validateLogContext();
+  if (!box || !ctx) return;
   const logged = new Set(
-    Array.isArray(logContext.logged_dates) ? logContext.logged_dates : []
+    Array.isArray(ctx.logged_dates) ? ctx.logged_dates : []
   );
-  const iso = renderSemesterDayGrid(box, logContext, {
-    selected: selected || suggestedLogDay(logContext),
-    minIso: String(logContext.today || ""),
+  const iso = renderSemesterDayGrid(box, ctx, {
+    selected: selected || suggestedLogDay(ctx),
+    minIso: String(ctx.today || ""),
     loggedDates: logged,
     onSelect: (value) => {
       const hidden = $("ap-valid-date");
@@ -8642,7 +8734,7 @@ async function applyValidateDateChoice(opts = {}) {
     String($("ap-meeting-date")?.value || "").trim() ||
     overlayState?.session?.meeting_date ||
     "";
-  if (!(await confirmOverrideIfLogged(iso))) {
+  if (selectedRunKind() !== "test" && !(await confirmOverrideIfLogged(iso))) {
     // Cancel: keep prior date selection; do not begin/clobber.
     if (priorIso) {
       syncOverlayPickers(logContext, priorIso);
@@ -8700,6 +8792,10 @@ function closeReservedLiveWindow(reservedWin) {
  * @returns {Promise<void>}
  */
 async function continueRunLiveAfterPrompt(iso, opts = {}) {
+  if (selectedRunKind() === "test") {
+    await proceedRunLiveBegin(iso, { reservedWin: opts.reservedWin || null });
+    return;
+  }
   let choice;
   try {
     choice = await unfinishedModuleChoice();
@@ -8787,7 +8883,26 @@ async function stayOnSetClassAfterSeedError(err, opts = {}) {
  * @param {string} iso
  * @param {{ reservedWin?: Window|null }} [opts]
  */
+/**
+ * Stamp Test or Live, then open the game. Kind is saved before begin so a
+ * test run does not move the real class pointer.
+ * @returns {Promise<void>}
+ */
+async function commitLiveRunKind() {
+  const isTest = selectedRunKind() === "test";
+  const res = await api(`/api/classes/${classId}/live-session/kind`, {
+    method: "POST",
+    body: JSON.stringify({ is_test: isTest }),
+  });
+  const sid = Number(res.live_session_id || 0);
+  if (sid) {
+    liveSessionId = sid;
+    if (root) root.dataset.liveSessionId = String(sid);
+  }
+}
+
 async function proceedRunLiveBegin(iso, opts = {}) {
+  await commitLiveRunKind();
   syncOverlayPickers(logContext, iso);
   const meetingInput = $("ap-meeting-date");
   if (meetingInput) meetingInput.value = iso;
@@ -12239,6 +12354,18 @@ $("set-class-start")?.addEventListener("click", () => {
   const reservedWin = reserveLiveSessionOverlay();
   applyValidateDateChoice({ reservedWin }).catch((err) => showError("#ap-overlay-error", err));
 });
+$("set-class-run-kind-live")?.addEventListener("click", () => {
+  chooseSetClassRunKind("live");
+  const current = gridSelectedIso($("ap-day-grid")) || String($("ap-valid-date")?.value || "");
+  showValidateGrid(current);
+});
+$("set-class-run-kind-test")?.addEventListener("click", () => {
+  chooseSetClassRunKind("test");
+  const current = gridSelectedIso($("ap-day-grid")) || String($("ap-valid-date")?.value || "");
+  showValidateGrid(current);
+});
+syncSetClassRunKindUi();
+bindStaffInfoPopovers();
 loadSetClassSlides().catch(() => {});
 
 /**
@@ -13311,55 +13438,11 @@ function spawnScorePop(name) {
 /**
  * Open / close the End Live Class save-options dialog.
  */
-function syncEndLiveSaveCheckboxes(dialog) {
-  const testOn = dialog.querySelector(
-    'input[name="run_mode"][value="test"]'
-  );
-  const isTest = testOn instanceof HTMLInputElement && testOn.checked;
-  const att = dialog.querySelector('input[name="save_attendance"]');
-  const part = dialog.querySelector('input[name="save_participation"]');
-  if (!(att instanceof HTMLInputElement) || !(part instanceof HTMLInputElement)) {
-    return;
-  }
-  if (isTest) {
-    if (dialog.dataset.saveAttendanceStash === undefined) {
-      dialog.dataset.saveAttendanceStash = att.checked ? "1" : "0";
-      dialog.dataset.saveParticipationStash = part.checked ? "1" : "0";
-    }
-    att.checked = false;
-    part.checked = false;
-    return;
-  }
-  if (dialog.dataset.saveAttendanceStash !== undefined) {
-    att.checked = dialog.dataset.saveAttendanceStash === "1";
-    part.checked = dialog.dataset.saveParticipationStash === "1";
-    delete dialog.dataset.saveAttendanceStash;
-    delete dialog.dataset.saveParticipationStash;
-  }
-}
-
-function applyEndLiveRunModeDefault(dialog) {
-  delete dialog.dataset.saveAttendanceStash;
-  delete dialog.dataset.saveParticipationStash;
-  const mode = String(dialog.dataset.endLiveDefault || "test").toLowerCase();
-  const pick = mode === "live" ? "live" : "test";
-  dialog.querySelectorAll('input[name="run_mode"]').forEach((input) => {
-    if (input instanceof HTMLInputElement) {
-      input.checked = input.value === pick;
-    }
-  });
-  syncEndLiveSaveCheckboxes(dialog);
-}
-
 function wireEndLiveDialog() {
   const dialog = document.getElementById("end-live-dialog");
   if (!(dialog instanceof HTMLDialogElement)) return;
-  dialog.querySelectorAll('input[name="run_mode"]').forEach((input) => {
-    input.addEventListener("change", () => syncEndLiveSaveCheckboxes(dialog));
-  });
   document.querySelectorAll("[data-open-end-live]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      applyEndLiveRunModeDefault(dialog);
       dialog.showModal();
     });
   });

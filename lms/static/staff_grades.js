@@ -1,4 +1,6 @@
 import { api, escapeHtml, formatPoints, hideError, showError } from "/static/common.js";
+import { deleteTestClass } from "/static/staff_test_class.js";
+import { bindStaffInfoPopovers, staffInfoTriggerHtml } from "/static/staff_info_popover.js";
 
 const root = document.getElementById("grades-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -328,6 +330,7 @@ function moduleRollup(data, studentId, columns) {
   let ended = "";
   for (const column of columns || []) {
     const meta = data.session_meta?.[String(column.id)] || {};
+    if (meta.is_test || column.is_test) continue;
     const cell = cellScore(data, Number(column.id), studentId, meta);
     score += cell.score;
     opportunities += cell.opportunities;
@@ -389,14 +392,22 @@ function renderSheet(data) {
   const currentBand = bands.find((band) => band.role === "current") || null;
 
   const pieces = [];
+  /** @type {Array<{kind: string, band: any, column?: any}>} */
+  const testColumns = [];
   for (const band of bands) {
     const untagged = band.role === "untagged" || String(band.module || "") === "Untagged";
     if (!untagged && moduleNumber(band.module) <= 0) continue;
     const cols = visibleBandColumns(band).filter((col) => {
       if (col.kind !== "class") return true;
+      if (col.column?.is_test) return false;
       if (untagged) return true;
       return moduleNumber(col.column?.module) > 0;
     });
+    for (const col of visibleBandColumns(band)) {
+      if (col.kind === "class" && col.column?.is_test) {
+        testColumns.push(col);
+      }
+    }
     if (!cols.length) continue;
     pieces.push({ band, cols });
   }
@@ -453,7 +464,19 @@ function renderSheet(data) {
   if (currentBand) {
     groupRow += `<th class="ap-mod-so-far-group" rowspan="2">This module so far</th>`;
   }
+  if (testColumns.length) {
+    groupRow += `<th class="ap-test-divider" rowspan="2" aria-hidden="true"></th>`;
+  }
   groupRow += `</tr>`;
+  if (testColumns.length) {
+    for (const col of testColumns) {
+      const label = String(col.column?.label || "TEST");
+      head += `<th class="ap-class-col is-test-run">
+        <span class="ap-class-label">${escapeHtml(label)}</span>
+        <span class="ap-not-counted-wrap"><span class="ap-not-counted">not counted</span>${staffInfoTriggerHtml("info-popover-participation-test-col", "Test class column help")}</span>
+      </th>`;
+    }
+  }
   head += `</tr>`;
 
   let body = "";
@@ -481,10 +504,24 @@ function renderSheet(data) {
       const text = formatParticipationCell(roll.score, roll.opportunities, roll.ended_at);
       body += `<td class="ap-so-far">${text}</td>`;
     }
+    if (testColumns.length) {
+      body += `<td class="ap-test-divider-cell" aria-hidden="true"></td>`;
+      for (const col of testColumns) {
+        const column = col.column;
+        const meta = data.session_meta?.[String(column.id)] || {};
+        const scored = cellScore(data, Number(column.id), sid, meta);
+        const html = classCellHtml(data, Number(column.id), sid, scored, false);
+        body += `<td class="ap-class-cell is-test-run">${html}</td>`;
+      }
+    }
     body += `</tr>`;
   }
   if (!students.length) {
-    const span = 1 + pieces.reduce((sum, piece) => sum + piece.cols.length, 0) + (currentBand ? 1 : 0);
+    const span =
+      1 +
+      pieces.reduce((sum, piece) => sum + piece.cols.length, 0) +
+      (testColumns.length ? testColumns.length + 1 : 0) +
+      (currentBand ? 1 : 0);
     body = `<tr><td class="ap-mod-empty" colspan="${span}">No students on this roster yet.</td></tr>`;
   }
   table.innerHTML = `<thead>${groupRow}${head}</thead><tbody>${body}</tbody>`;
@@ -565,9 +602,20 @@ document.getElementById("ap-display-mode-select")?.addEventListener("change", (e
 document.getElementById("ap-expand-all")?.addEventListener("click", () => setAllFinished(true));
 document.getElementById("ap-collapse-all")?.addEventListener("click", () => setAllFinished(false));
 
-root?.addEventListener("click", (event) => {
+root?.addEventListener("click", async (event) => {
   const target = event.target instanceof Element ? event.target : event.target?.parentElement;
   if (!target) return;
+  const deleteBtn = target.closest(".ap-delete-test");
+  if (deleteBtn instanceof HTMLButtonElement) {
+    const sid = Number(deleteBtn.dataset.liveSessionId || 0);
+    try {
+      const gone = await deleteTestClass(classId, sid);
+      if (gone) await refresh();
+    } catch (err) {
+      showError("#error", err);
+    }
+    return;
+  }
   const toggle = target.closest(".ap-mod-toggle");
   if (!(toggle instanceof HTMLButtonElement)) return;
   const module = String(toggle.dataset.module || "").toUpperCase();
@@ -577,4 +625,5 @@ root?.addEventListener("click", (event) => {
   if (latest) paint(latest);
 });
 
+bindStaffInfoPopovers();
 refresh().catch((err) => showError("#error", err));

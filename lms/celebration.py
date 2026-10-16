@@ -390,6 +390,13 @@ def _gather_stats(school: Any) -> list[dict[str, Any]]:
             if meeting is None:
                 continue
             session_days[int(session["id"])] = meeting.isoformat()
+        try:
+            test_ids = school.test_mgs_session_ids(class_id)
+        except Exception:  # noqa: BLE001 — celebrations must still render
+            test_ids = set()
+        counted -= set(test_ids)
+        for sid in test_ids:
+            session_days.pop(int(sid), None)
         present_days: dict[int, set[str]] = {}
         points_by_student: dict[int, float] = {}
         for row in score_rows:

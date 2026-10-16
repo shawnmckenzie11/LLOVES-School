@@ -492,55 +492,11 @@ function initPackProgress() {
 /**
  * Open / close the End Live Class save-options dialog.
  */
-function syncEndLiveSaveCheckboxes(dialog) {
-  const testOn = dialog.querySelector(
-    'input[name="run_mode"][value="test"]'
-  );
-  const isTest = testOn instanceof HTMLInputElement && testOn.checked;
-  const att = dialog.querySelector('input[name="save_attendance"]');
-  const part = dialog.querySelector('input[name="save_participation"]');
-  if (!(att instanceof HTMLInputElement) || !(part instanceof HTMLInputElement)) {
-    return;
-  }
-  if (isTest) {
-    if (dialog.dataset.saveAttendanceStash === undefined) {
-      dialog.dataset.saveAttendanceStash = att.checked ? "1" : "0";
-      dialog.dataset.saveParticipationStash = part.checked ? "1" : "0";
-    }
-    att.checked = false;
-    part.checked = false;
-    return;
-  }
-  if (dialog.dataset.saveAttendanceStash !== undefined) {
-    att.checked = dialog.dataset.saveAttendanceStash === "1";
-    part.checked = dialog.dataset.saveParticipationStash === "1";
-    delete dialog.dataset.saveAttendanceStash;
-    delete dialog.dataset.saveParticipationStash;
-  }
-}
-
-function applyEndLiveRunModeDefault(dialog) {
-  delete dialog.dataset.saveAttendanceStash;
-  delete dialog.dataset.saveParticipationStash;
-  const mode = String(dialog.dataset.endLiveDefault || "test").toLowerCase();
-  const pick = mode === "live" ? "live" : "test";
-  dialog.querySelectorAll('input[name="run_mode"]').forEach((input) => {
-    if (input instanceof HTMLInputElement) {
-      input.checked = input.value === pick;
-    }
-  });
-  syncEndLiveSaveCheckboxes(dialog);
-}
-
 function wireEndLiveDialog() {
   const dialog = document.getElementById("end-live-dialog");
   if (!(dialog instanceof HTMLDialogElement)) return;
-  dialog.querySelectorAll('input[name="run_mode"]').forEach((input) => {
-    input.addEventListener("change", () => syncEndLiveSaveCheckboxes(dialog));
-  });
   document.querySelectorAll("[data-open-end-live]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      applyEndLiveRunModeDefault(dialog);
       dialog.showModal();
     });
   });

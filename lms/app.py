@@ -96,6 +96,8 @@ from onboarding_tour import tour_run_type  # noqa: E402
 from school_db import (  # noqa: E402
     STAFF_2FA_MODE_LABELS,
     DeckCopyLiveConflict,
+    DeleteTestLiveClassConflict,
+    LiveRunKindConflict,
     DeckReplaceNotConfirmed,
     GroupAnswerLocked,
     RankAgreeConflict,
@@ -3887,7 +3889,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if not school.teacher_owns_class(int(user["id"]), class_id):
             abort(403)
         try:
-            live_session = _start_live_and_wake(school, class_id, int(user["id"]))
+            live_session = _start_live_and_wake(
+                school, class_id, int(user["id"])
+            )
         except ValueError as exc:
             return render_template("forbidden.html", message=str(exc)), 400
         return redirect(
@@ -3982,18 +3986,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         if str(form.get("end_options") or "") == "1":
             save_attendance = str(form.get("save_attendance") or "") == "1"
             save_participation = str(form.get("save_participation") or "") == "1"
-            default_mode = school.default_end_live_run_mode_for_class(
-                int(class_id), str(active.get("started_at") or "")
-            )
-            from end_live_run_mode import resolve_live_run_from_posted_run_mode
-
-            live_run = resolve_live_run_from_posted_run_mode(
-                form.get("run_mode"), default_mode=default_mode
-            )
         else:
             save_attendance = True
             save_participation = True
-            live_run = True
+        # Test or Live was chosen at Start. A posted end-time run_mode is ignored.
+        live_run = True
         # The run this request saw as active. If another End closes it
         # first, this one is a no-op instead of a new column (MCK-72).
         ended = school.finish_live_class(
@@ -10466,6 +10463,64 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             )
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
+        except Exception as exc:  # noqa: BLE001
+            return _json_error(exc)
+
+    @app.route("/api/classes/<int:class_id>/live-session/kind", methods=["POST"])
+    @login_required
+    def api_commit_live_run_kind(class_id: int):
+        """Record Test or Live on the active session before the class begins."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        user = current_user()
+        assert user is not None
+        from live_class_flags import parse_is_test_form, parse_is_test_json
+
+        if request.is_json:
+            body = request.get_json(silent=True) or {}
+            is_test = parse_is_test_json(body.get("is_test"))
+        else:
+            is_test = parse_is_test_form(request.form.get("is_test"))
+        try:
+            session_row = school.commit_live_run_kind(
+                int(class_id),
+                int(user["id"]),
+                is_test=is_test,
+            )
+            return jsonify(
+                {
+                    "ok": True,
+                    "is_test": bool(int(session_row.get("is_test") or 0)),
+                    "live_session_id": int(session_row["id"]),
+                }
+            )
+        except LiveRunKindConflict as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 409
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except Exception as exc:  # noqa: BLE001
+            return _json_error(exc)
+
+    @app.route(
+        "/api/classes/<int:class_id>/live-sessions/<int:session_id>/delete-test",
+        methods=["POST"],
+    )
+    @login_required
+    def api_delete_test_live_class(class_id: int, session_id: int):
+        """Delete one test live class. Real runs are refused."""
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        try:
+            result = school.delete_test_live_class(int(class_id), int(session_id))
+            return jsonify(result)
+        except DeleteTestLiveClassConflict as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 409
+        except PermissionError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 403
+        except KeyError:
+            return jsonify({"ok": False, "error": "That class was not found."}), 404
         except Exception as exc:  # noqa: BLE001
             return _json_error(exc)
 

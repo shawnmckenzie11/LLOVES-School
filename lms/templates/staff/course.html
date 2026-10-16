@@ -461,13 +461,25 @@
               {% endfor %}
             </select>
           </label>
-          <div class="live-pack-field set-class-kind" id="set-class-kind">
-            <span>Session type</span>
-            <div class="set-class-kind-toggle" role="group" aria-label="Session type">
-              <button type="button" id="set-class-kind-live" class="is-on" aria-pressed="true">Live class</button>
-              <button type="button" id="set-class-kind-office" aria-pressed="false">Open office</button>
+          <div class="set-class-type-row">
+            <div class="live-pack-field set-class-kind" id="set-class-kind">
+              <span>Session type</span>
+              <div class="set-class-kind-toggle" role="group" aria-label="Session type">
+                <button type="button" id="set-class-kind-live" class="is-on" aria-pressed="true">Live class</button>
+                <button type="button" id="set-class-kind-office" aria-pressed="false">Open office</button>
+              </div>
+            </div>
+            <div class="live-pack-field set-class-run-kind" id="set-class-run-kind">
+              <span>Run as</span>
+              <div class="set-class-run-kind-toggle set-class-kind-toggle" role="group" aria-label="Run as">
+                <button type="button" id="set-class-run-kind-live" class="is-on" aria-pressed="true">Live</button>
+                <button type="button" id="set-class-run-kind-test" aria-pressed="false">Test</button>
+              </div>
+              <button type="button" class="staff-info-trigger" id="set-class-run-kind-info" aria-controls="info-popover-test-run-kind" aria-expanded="false" aria-label="What's a test class?">ⓘ</button>
             </div>
           </div>
+          <p class="hint compact" id="set-class-run-kind-note" hidden>A test class can run any school day. It saves like a real class, stays out of totals, and you can delete it later.</p>
+          <p class="hint compact" id="set-class-test-deck-note" hidden>Test uses a copy of the class deck for this challenge. Open office is not available for test runs.</p>
           <fieldset class="live-deck-seed" id="live-deck-seed" aria-describedby="live-deck-seed-previous-note">
             <legend>Live deck</legend>
             <div class="live-add-type-chip-row live-deck-seed-seg">
@@ -1346,21 +1358,31 @@
           <input type="checkbox" name="save_participation" value="1" checked>
           <span>Save participation</span>
         </label>
-        <fieldset class="end-live-run-mode" role="group" aria-label="Test or Live class">
-          <span class="end-live-run-mode-label">Class run</span>
-          <label class="end-live-run-mode-option">
-            <input type="radio" name="run_mode" value="test">
-            <span>Test</span>
-          </label>
-          <label class="end-live-run-mode-option">
-            <input type="radio" name="run_mode" value="live">
-            <span>Live</span>
-          </label>
-        </fieldset>
       </div>
       <div class="end-live-dialog-actions">
         <button type="button" class="secondary" data-close-end-live>Cancel</button>
         <button type="submit">End class</button>
+      </div>
+    </form>
+  </dialog>
+  <div id="info-popover-test-run-kind" class="staff-info-popover" hidden role="dialog" aria-labelledby="info-test-run-kind-title">
+    <button type="button" class="staff-info-popover-close" aria-label="Close">×</button>
+    <h3 id="info-test-run-kind-title">What's a test class?</h3>
+    <p>A test class works just like a real one. Students can join, take attendance, answer questions and use the catch-up code. Everything is kept separate from your real classes, so it never counts toward marks, participation or module totals, and it won't change your class deck.</p>
+    <p>Test classes appear in Lesson Slides with a TEST tag. Delete one from its ⋯ menu to remove everything recorded in it, and its catch-up code stops working right away.</p>
+  </div>
+  <div id="info-popover-participation-test-col" class="staff-info-popover" hidden role="dialog" aria-labelledby="info-participation-test-col-title">
+    <button type="button" class="staff-info-popover-close" aria-label="Close">×</button>
+    <h3 id="info-participation-test-col-title">Test class</h3>
+    <p>This column is from a test class, so it isn't counted in participation, marks or module totals. Delete the test from Lesson Slides to remove it.</p>
+  </div>
+  <dialog id="delete-test-dialog" class="end-live-dialog">
+    <form method="dialog" class="end-live-dialog-form">
+      <h2>Delete this test class?</h2>
+      <p>This removes its attendance, answers, catch-up answers and deck copy, and turns off its catch-up code. Your real classes aren't affected. This can't be undone.</p>
+      <div class="end-live-dialog-actions">
+        <button type="submit" class="secondary" value="cancel">Cancel</button>
+        <button type="submit" class="btn-danger" value="delete">Delete test class</button>
       </div>
     </form>
   </dialog>
