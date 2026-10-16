@@ -526,8 +526,8 @@ class NoStreamPollTests(unittest.TestCase):
     def test_shed_or_reconnecting_tab_polls_at_the_pre_wire_pace(self) -> None:
         """Open stream: 20s. Shed, connecting, or no wire: 4s.
 
-        The worker cap is 4 streams (16 per machine), so a class of 25
-        always has tabs that get ``busy`` and hear no publish postcard.
+        A tab the worker did not seat gets ``busy`` and hears no publish
+        postcard, so it must not wait the 20s safety net.
         """
         node = shutil.which("node")
         if node is None:

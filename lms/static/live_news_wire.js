@@ -11,11 +11,12 @@ import { artifactMountAction, mediaMountKey } from "./live_poll_feel.js";
 /** Slow /state safety net when the wire is quiet or down. */
 export const FALLBACK_POLL_MS = 20000;
 /**
- * /state pace for a tab with no open stream: shed at the per-worker
- * stream cap (4 per gunicorn worker, 16 per machine), still connecting,
- * or reconnecting. That tab hears no postcards, so the slow 20s net would
- * leave a published question or a new joiner up to 20s late. This is the
- * pre-wire student pace (#166 moved every tab to 20s).
+ * /state pace for a tab with no open stream: shed because this worker is
+ * past a full class (30 students + the teacher, plus the reconnect
+ * overlap), still connecting, or reconnecting. That tab hears no
+ * postcards, so the slow 20s net would leave a published question or a
+ * new joiner up to 20s late. This is the pre-wire student pace (#166
+ * moved every tab to 20s).
  */
 export const NO_STREAM_POLL_MS = 4000;
 
