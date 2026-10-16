@@ -47,6 +47,60 @@ class FormativeLimitTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
 
+    def test_stale_run_refetches_and_retries_once(self) -> None:
+        """A stale-run 409 is posted again with the fetched key, not the old one."""
+        script = """
+globalThis.HTMLElement = class HTMLElement {};
+globalThis.document = { getElementById() { return null; } };
+const { postOpsWithFreshRun } = await import('./lms/static/formative_live_board.js');
+const sent = [];
+const first = await postOpsWithFreshRun({
+  runKey: 'old-run',
+  post: async (key) => {
+    sent.push(key);
+    if (key === 'old-run') return { status: 409, data: { ok: false, stale_run: true } };
+    return { status: 200, data: { ok: true, run_key: key } };
+  },
+  refetch: async () => 'current-run',
+});
+if (sent.join(',') !== 'old-run,current-run') {
+  console.error(JSON.stringify(sent));
+  process.exit(1);
+}
+if (first.status !== 200) process.exit(2);
+const same = [];
+const stuck = await postOpsWithFreshRun({
+  runKey: 'old-run',
+  post: async (key) => {
+    same.push(key);
+    return { status: 409, data: { stale_run: true } };
+  },
+  refetch: async () => 'old-run',
+});
+if (same.join(',') !== 'old-run' || stuck.status !== 409) {
+  console.error(JSON.stringify(same));
+  process.exit(3);
+}
+let fetches = 0;
+await postOpsWithFreshRun({
+  runKey: 'current-run',
+  post: async () => ({ status: 200, data: { ok: true } }),
+  refetch: async () => {
+    fetches += 1;
+    return 'other-run';
+  },
+});
+if (fetches !== 0) process.exit(4);
+"""
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+
 
 class FormativeLiveBoardTests(unittest.TestCase):
     """Teacher grid and the signed-in student's own board."""
@@ -377,28 +431,74 @@ class FormativeLiveBoardTests(unittest.TestCase):
         self.assertEqual(calls["sql"], 1)
         self.assertEqual(len(response.get_json()["tiles"]), 3)
 
-    def test_test_class_delete_removes_feedback_and_ops(self) -> None:
-        """Delete drops live_board_feedback and counts leftover board ops."""
-        self.maple.post(
-            "/api/student/formative-board/ops",
-            json={"ops": [self._text_op("keep-until-delete", "del-ink")]},
-            headers=self._student_headers(self.maple_token),
+    def test_show_hides_feedback_until_release(self) -> None:
+        """Show to class includes the feedback layer only after release."""
+        mark = self._text_op("check vertex", "fb-show")
+        posted = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/formative-boards/{self.maple_id}/feedback",
+            json={"ops": [mark]},
         )
-        self.school.mark_formative_done(self.session_id, self.maple_id)
+        self.assertEqual(posted.status_code, 200, posted.get_data(as_text=True))
+        panel = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/formative-boards/{self.maple_id}"
+        )
+        self.assertIn("check vertex", json.dumps(panel.get_json()))
+        hidden = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/formative-boards/{self.maple_id}/show"
+        )
+        self.assertEqual(hidden.status_code, 200, hidden.get_data(as_text=True))
+        hidden_body = hidden.get_json()
+        hidden_blob = json.dumps(hidden_body)
+        self.assertNotIn("check vertex", hidden_blob)
+        self.assertNotIn("feedback_ops", hidden_body)
+        self.assertNotIn("feedback_view", hidden_body)
         self.school.release_formative_feedback(self.session_id, self.maple_id)
-        run_key = self.school.live_board_run_key(self.session_id)
+        shown = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/formative-boards/{self.maple_id}/show"
+        )
+        self.assertEqual(shown.status_code, 200, shown.get_data(as_text=True))
+        self.assertIn("check vertex", json.dumps(shown.get_json()))
+        self.assertIn("feedback_ops", shown.get_json())
+
+    def test_delete_test_run_drops_ink_and_released_feedback(self) -> None:
+        """Delete-test removes student ink and released feedback for that run."""
+        self.school.end_live_class_session(self.session_id)
+        test = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"]), is_test=True
+        )
+        sid = int(test["id"])
+        self.school.join_live_class_session(sid, self.maple_id, codename="Maple")
+        self.school.append_formative_student_ops(
+            sid,
+            self.maple_id,
+            [self._text_op("keep-until-delete", "del-ink")],
+        )
+        self.school.append_formative_feedback_ops(
+            sid,
+            self.maple_id,
+            [self._text_op("released mark", "fb-del")],
+        )
+        self.school.release_formative_feedback(sid, self.maple_id)
+        run_key = self.school.live_board_run_key(sid)
         self.assertGreater(self.school.boards.count_run_ops(run_key), 0)
-        with self.assertRaises(RuntimeError):
-            self.school._assert_test_session_gone_unlocked(
-                self.session_id, run_key, set()
-            )
+        released = self.school.conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM live_board_feedback
+            WHERE live_session_id = ? AND released_at IS NOT NULL
+            """,
+            (sid,),
+        ).fetchone()
+        self.assertGreater(int(released["n"] or 0), 0)
         with self.assertRaises(KeyError):
-            self.school.delete_test_live_class(self.class_id + 99, self.session_id)
-        deleted = self.school.delete_test_live_class(self.class_id, self.session_id)
-        self.assertTrue(deleted["ok"])
+            self.school.delete_test_live_class(self.class_id + 99, sid)
+        deleted = self.school.delete_test_live_class(self.class_id, sid)
+        self.assertEqual(deleted["deleted_session_id"], sid)
         left = self.school.conn.execute(
-            "SELECT COUNT(*) AS n FROM live_board_feedback WHERE live_session_id = ?",
-            (self.session_id,),
+            """
+            SELECT COUNT(*) AS n FROM live_board_feedback
+            WHERE live_session_id = ? OR run_key = ?
+            """,
+            (sid, run_key),
         ).fetchone()
         self.assertEqual(int(left["n"] or 0), 0)
         self.assertEqual(self.school.boards.count_run_ops(run_key), 0)

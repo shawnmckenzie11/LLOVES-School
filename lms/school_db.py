@@ -31599,6 +31599,7 @@ class SchoolDB(LovesDB):
             {
                 "ok": True,
                 "ended": False,
+                "run_key": self.live_board_run_key(int(session_id)),
                 "context": context,
                 "always_show_names": show_names,
                 "names_on_projector": projector_names,
@@ -31663,6 +31664,7 @@ class SchoolDB(LovesDB):
         body["submitted"] = bool(str(mark.get("submitted_at") or "").strip())
         body["released"] = bool(str(mark.get("released_at") or "").strip())
         body["away"] = bool(str(attendee.get("left_at") or "").strip())
+        body["run_key"] = self.live_board_run_key(int(session_id))
         return body
 
     def formative_student_payload(
@@ -31694,7 +31696,7 @@ class SchoolDB(LovesDB):
         if session_row is None:
             raise KeyError(f"live session {session_id}")
         if str(session_row.get("status") or "") != "active":
-            return {"ok": True, "ended": True, "visible": False}
+            return {"ok": True, "ended": True, "visible": False, "run_key": ""}
         orders = self._formative_sort_orders(
             int(session_id), int(session_row["class_id"])
         )
@@ -31706,7 +31708,7 @@ class SchoolDB(LovesDB):
         if released_at:
             cursors[feedback_ink_key(int(student_id))] = int(feedback_since)
         deltas = self._formative_deltas(int(session_id), cursors)
-        return build_student_view(
+        view = build_student_view(
             student_id=int(student_id),
             team_sort_order=orders.get(int(student_id)),
             submitted_at=mark.get("submitted_at"),
@@ -31718,9 +31720,14 @@ class SchoolDB(LovesDB):
             else None,
             released_at=released_at or None,
         )
+        view["run_key"] = self.live_board_run_key(int(session_id))
+        return view
 
     def formative_projection(self, session_id: int, student_id: int) -> dict[str, Any]:
-        """Show-on-board payload. Projector names are blanked on the server.
+        """Show-to-class payload. Projector names are blanked on the server.
+
+        Teacher ink is included only after ``released_at`` is set. The
+        side panel still receives unreleased marks.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -31744,10 +31751,13 @@ class SchoolDB(LovesDB):
         )
         ink_key = student_ink_key(int(student_id))
         mark_key = feedback_ink_key(int(student_id))
-        deltas = self._formative_deltas(
-            int(session_id), {ink_key: 0, mark_key: 0}
-        )
-        return build_projection(
+        mark = self._formative_feedback_map(int(session_id)).get(int(student_id)) or {}
+        released = bool(str(mark.get("released_at") or "").strip())
+        cursors = {ink_key: 0}
+        if released:
+            cursors[mark_key] = 0
+        deltas = self._formative_deltas(int(session_id), cursors)
+        body = build_projection(
             student_id=int(student_id),
             codename=str(attendee.get("codename") or ""),
             show_names=projector_names,
@@ -31755,8 +31765,11 @@ class SchoolDB(LovesDB):
             question=question,
             context=context,
             student_delta=deltas.get(ink_key),
-            feedback_delta=deltas.get(mark_key),
+            feedback_delta=deltas.get(mark_key) if released else None,
+            include_feedback=released,
         )
+        body["run_key"] = self.live_board_run_key(int(session_id))
+        return body
 
     def append_formative_student_ops(
         self,
@@ -39112,6 +39125,16 @@ class SchoolDB(LovesDB):
 
         sid = int(session_id)
         key = str(run_key or "").strip()
+        # Formative Done / feedback rows share this session and run key.
+        self.conn.execute(
+            "DELETE FROM live_board_feedback WHERE live_session_id = ?",
+            (sid,),
+        )
+        if key:
+            self.conn.execute(
+                "DELETE FROM live_board_feedback WHERE run_key = ?",
+                (key,),
+            )
         session_row = self.conn.execute(
             "SELECT class_id FROM live_class_sessions WHERE id = ?",
             (sid,),
@@ -39274,7 +39297,11 @@ class SchoolDB(LovesDB):
     def _assert_test_session_gone_unlocked(
         self, session_id: int, run_key: str, tracker_ids: set[int]
     ) -> None:
-        """Raise when any row for this test session is still stored."""
+        """Raise when any row for this test session is still stored.
+
+        ``live_board_feedback`` and ``board_ops`` for ``run_key`` are
+        counted here, before ``presence.delete_session_tree``.
+        """
         sid = int(session_id)
         leftover = 0
         for table in self._sqlite_tables_with_column("live_session_id"):
@@ -39309,6 +39336,15 @@ class SchoolDB(LovesDB):
                 (key,),
             ).fetchone()
             leftover += int(slides["n"] or 0)
+            feedback_left = self.conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM live_board_feedback
+                WHERE run_key = ?
+                """,
+                (key,),
+            ).fetchone()
+            leftover += int(feedback_left["n"] or 0)
+            leftover += self._count_board_ops_for_run(key)
         if tracker_ids:
             for tid in tracker_ids:
                 row = self.conn.execute(

@@ -351,8 +351,13 @@ def build_projection(
     context: str,
     student_delta: dict[str, Any] | None,
     feedback_delta: dict[str, Any] | None,
+    include_feedback: bool = True,
 ) -> dict[str, Any]:
     """Show-on-board payload. The projector names toggle blanks the codename.
+
+    The feedback layer is omitted until the teacher has released it.
+    The side panel passes ``include_feedback`` true so unreleased marks
+    stay on the teacher's own screen.
 
     Args:
         student_id: Board being projected.
@@ -362,25 +367,27 @@ def build_projection(
         question: Active prompt text.
         context: Header line.
         student_delta: Full or since-seq student ink.
-        feedback_delta: Teacher ink, included for the projector.
+        feedback_delta: Teacher ink. Used only when ``include_feedback``.
+        include_feedback: True once ``released_at`` is set for Show to class.
     """
     ink = _delta_view(student_delta)
-    feedback = _delta_view(feedback_delta)
-    body = {
+    body: dict[str, Any] = {
         "ok": True,
         "projected": True,
         "student_id": int(student_id),
         "codename": blank_codename(codename, show=show_names),
         "board_key": student_ink_key(student_id),
-        "feedback_key": feedback_ink_key(student_id),
         "question": question,
         "context": context,
         "board_seq": ink["board_seq"],
-        "feedback_seq": feedback["board_seq"],
         "ops": ink["ops"],
-        "feedback_ops": feedback["ops"],
         "canvas_view": ink["canvas_view"],
-        "feedback_view": feedback["canvas_view"],
     }
+    if include_feedback:
+        feedback = _delta_view(feedback_delta)
+        body["feedback_key"] = feedback_ink_key(student_id)
+        body["feedback_seq"] = feedback["board_seq"]
+        body["feedback_ops"] = feedback["ops"]
+        body["feedback_view"] = feedback["canvas_view"]
     body.update(team_fields(team_sort_order))
     return public_board_payload(body)

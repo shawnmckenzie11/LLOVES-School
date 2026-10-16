@@ -37,6 +37,35 @@ function batchId() {
 }
 
 /**
+ * Post ops, and on a stale-run 409 fetch the current run key and post once more.
+ *
+ * The second post uses the key from the refetch. The key that was just
+ * refused is not sent again. Any other status, including a second 409,
+ * is returned as-is.
+ *
+ * @param {{
+ *   runKey: string,
+ *   post: (runKey: string) => Promise<{status: number, data: any}>,
+ *   refetch: () => Promise<string>,
+ * }} args
+ * @returns {Promise<{status: number, data: any, sent: string[]}>}
+ */
+export async function postOpsWithFreshRun({ runKey, post, refetch }) {
+  const first = String(runKey || "");
+  const sent = [first];
+  let result = await post(first);
+  const stale =
+    Number(result?.status) === 409 &&
+    Boolean(result?.data && result.data.stale_run);
+  if (!stale) return { status: result.status, data: result.data, sent };
+  const fresh = String((await refetch()) || "").trim();
+  if (!fresh || fresh === first) return { status: result.status, data: result.data, sent };
+  sent.push(fresh);
+  result = await post(fresh);
+  return { status: result.status, data: result.data, sent };
+}
+
+/**
  * Label from the server codename, or "Student N" when that field is blank.
  *
  * @param {{codename?: string, anon_index?: number}} tile
@@ -225,6 +254,7 @@ export function mountTeacherGrid(root) {
   let panelTimer = 0;
   let panelSince = 0;
   let feedbackSince = 0;
+  let runKey = "";
   const openStrokes = new Set();
   const alwaysNames = root.querySelector("#wb-live-always-names");
   const projectorNames = root.querySelector("#wb-live-projector-names");
@@ -319,15 +349,55 @@ export function mountTeacherGrid(root) {
   /**
    * @param {Record<string, any>[]} ops
    */
+  /**
+   * @param {Record<string, any>[]} ops
+   */
   function postFeedback(ops) {
     const id = sessionId();
-    if (!id || !openId || !ops.length) return;
-    fetch(`/api/live-sessions/${id}/formative-boards/${openId}/feedback`, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ops, client_batch_id: batchId() }),
-    }).catch(() => {});
+    const studentId = openId;
+    if (!id || !studentId || !ops.length) return;
+    const claimed = runKey;
+    postOpsWithFreshRun({
+      runKey: claimed,
+      post: async (key) => {
+        const res = await fetch(
+          `/api/live-sessions/${id}/formative-boards/${studentId}/feedback`,
+          {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ops,
+              client_batch_id: batchId(),
+              run_key: key,
+            }),
+          }
+        );
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (_err) {
+          data = null;
+        }
+        return { status: res.status, data };
+      },
+      refetch: async () => {
+        const data = await readJson(
+          `/api/live-sessions/${id}/formative-boards?cursors=${encodeURIComponent(JSON.stringify(cursors))}`,
+          { credentials: "same-origin" }
+        );
+        return String(data?.run_key || "");
+      },
+    })
+      .then((result) => {
+        const fromBody = String(result?.data?.run_key || "").trim();
+        if (fromBody) runKey = fromBody;
+        else if (result.sent.length > 1) {
+          const fresh = String(result.sent[result.sent.length - 1] || "").trim();
+          if (fresh) runKey = fresh;
+        }
+      })
+      .catch(() => {});
   }
 
   /**
@@ -550,6 +620,7 @@ export function mountTeacherGrid(root) {
     if (Number(id) !== session) {
       session = Number(id);
       tiles = [];
+      runKey = "";
       for (const key of Object.keys(ink)) delete ink[key];
       for (const key of Object.keys(cursors)) delete cursors[key];
     }
@@ -558,7 +629,10 @@ export function mountTeacherGrid(root) {
       `/api/live-sessions/${id}/formative-boards?cursors=${query}`,
       { credentials: "same-origin" }
     );
-    if (data) applyTiles(data);
+    if (!data) return;
+    const next = String(data.run_key || "").trim();
+    if (next) runKey = next;
+    applyTiles(data);
   }
 
   root.querySelector("#wb-live-prev")?.addEventListener("click", () => stepPanel(-1));
@@ -650,6 +724,7 @@ export function mountStudentBoard(root) {
   let feedbackSince = 0;
   let sawFeedback = false;
   let studentOwner = "student";
+  let runKey = "";
 
   const board = bindWhiteboard(canvas, {
     undoBtn: root.querySelector("#wb-phone-undo"),
@@ -710,21 +785,54 @@ export function mountStudentBoard(root) {
   /**
    * @param {Record<string, any>[]} ops
    */
+  /**
+   * @param {Record<string, any>[]} ops
+   */
   function postOps(ops) {
-    fetch(
-      "/api/student/formative-board/ops",
-      withVisit({
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ops,
-          client_batch_id: batchId(),
-          since,
-          feedback_since: feedbackSince,
-        }),
+    const claimed = runKey;
+    postOpsWithFreshRun({
+      runKey: claimed,
+      post: async (key) => {
+        const res = await fetch(
+          "/api/student/formative-board/ops",
+          withVisit({
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ops,
+              client_batch_id: batchId(),
+              since,
+              feedback_since: feedbackSince,
+              run_key: key,
+            }),
+          })
+        );
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (_err) {
+          data = null;
+        }
+        return { status: res.status, data };
+      },
+      refetch: async () => {
+        const data = await readJson(
+          `/api/student/formative-board?since=${since}&feedback_since=${feedbackSince}`,
+          withVisit({ credentials: "same-origin" })
+        );
+        return String(data?.run_key || "");
+      },
+    })
+      .then((result) => {
+        const fromBody = String(result?.data?.run_key || "").trim();
+        if (fromBody) runKey = fromBody;
+        else if (result.sent.length > 1) {
+          const fresh = String(result.sent[result.sent.length - 1] || "").trim();
+          if (fresh) runKey = fresh;
+        }
       })
-    ).catch(() => {});
+      .catch(() => {});
   }
 
   /**
@@ -753,6 +861,8 @@ export function mountStudentBoard(root) {
       }
     }
     studentOwner = String(data.student_id || studentOwner);
+    const nextRun = String(data.run_key || "").trim();
+    if (nextRun) runKey = nextRun;
     board.setFormative?.({
       members: [
         { id: studentOwner, name: "", color: STUDENT_INK, slot: 0 },
@@ -809,8 +919,10 @@ export function mountStudentBoard(root) {
   window.setInterval(poll, TILE_POLL_MS);
 }
 
-const teacherRoot = document.getElementById("formative-live-board");
-if (teacherRoot instanceof HTMLElement) mountTeacherGrid(teacherRoot);
+if (typeof document !== "undefined") {
+  const teacherRoot = document.getElementById("formative-live-board");
+  if (teacherRoot instanceof HTMLElement) mountTeacherGrid(teacherRoot);
 
-const studentRoot = document.getElementById("student-formative-board");
-if (studentRoot instanceof HTMLElement) mountStudentBoard(studentRoot);
+  const studentRoot = document.getElementById("student-formative-board");
+  if (studentRoot instanceof HTMLElement) mountStudentBoard(studentRoot);
+}
