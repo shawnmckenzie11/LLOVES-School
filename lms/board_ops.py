@@ -38,7 +38,7 @@ MAX_OPS_PER_BATCH = 32
 # Stable lock id for board_ops DDL. Not a presence-table lock.
 _BOARD_DDL_LOCK = 87421301
 _BOARD_KEY = re.compile(
-    r"^(teacher|shared|team:[0-9]+|solo:[A-Za-z0-9_-]{1,80})$"
+    r"^(teacher|shared|team:[0-9]+|solo:[A-Za-z0-9_-]{1,80}|student:[0-9]+|fb:[0-9]+)$"
 )
 _OP_TYPES = frozenset(
     {"stroke_add", "pts_append", "stroke_end", "stroke_remove", "text_upsert"}
@@ -179,7 +179,8 @@ def normalize_board_key(raw: Any) -> str:
 
     Args:
         raw: ``teacher``, ``shared``, ``team:<id>``, ``solo:<owner>``,
-            or the route alias ``mine`` (resolved by the caller).
+            ``student:<id>``, ``fb:<id>``, or the route alias ``mine``
+            (resolved by the caller).
 
     Returns:
         The key with surrounding space removed.
@@ -299,6 +300,23 @@ def fold_to_public_blob(rows: list[dict[str, Any]]) -> dict[str, Any]:
         for owner, cursor in cursors.items():
             blob["cursors"][owner] = cursor
     return blob
+
+
+def fold_one_board(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Replay one board's rows into strokes and texts.
+
+    ``student:<id>`` and ``fb:<id>`` are not team buckets, so they do not
+    go through ``fold_to_public_blob``.
+
+    Args:
+        rows: Stored rows for a single board, any order.
+
+    Returns:
+        ``{strokes, texts}`` in the shape the whiteboard paints.
+    """
+    ordered = sorted(rows, key=lambda item: int(item.get("board_seq") or 0))
+    strokes, texts, _cursors = _fold_board(ordered)
+    return {"strokes": strokes, "texts": texts}
 
 
 def _fold_board(
@@ -836,6 +854,139 @@ class _BoardStore:
             }
 
         return self._read(work)
+
+    def since_many(
+        self, run_key: str, cursors: dict[str, int]
+    ) -> dict[str, dict[str, Any]]:
+        """Return since-seq deltas for many boards in one query.
+
+        Each cursor is that board's last applied sequence. A gap wider
+        than ``MAX_DELTA_OPS`` sets ``snapshot`` and returns no op list.
+        Boards with no counter still come back at sequence 0.
+
+        Args:
+            run_key: Key minted when this live run started.
+            cursors: ``board_key`` to last sequence. An empty map reads
+                nothing.
+
+        Returns:
+            ``board_key`` to ``{board_key, board_seq, since, ops, snapshot, last_at}``.
+        """
+        cleaned: dict[str, int] = {}
+        for raw_key, raw_since in (cursors or {}).items():
+            key = normalize_board_key(raw_key)
+            cleaned[key] = max(0, int(raw_since))
+        if not cleaned:
+            return {}
+        run = _run_key(run_key)
+        keys = list(cleaned)
+
+        def work(exec_: Exec) -> dict[str, dict[str, Any]]:
+            """Read heads, new ops, and last touch in one statement."""
+            head_marks = ",".join("?" for _ in keys)
+            op_clauses: list[str] = []
+            op_params: list[Any] = [run]
+            for key in keys:
+                since_n = cleaned[key]
+                op_clauses.append(
+                    """
+                    (
+                        board_key = ? AND board_seq > ?
+                        AND COALESCE((
+                            SELECT c.next_seq - 1 FROM board_counters c
+                            WHERE c.run_key = board_ops.run_key
+                              AND c.board_key = board_ops.board_key
+                        ), 0) - ? <= ?
+                    )
+                    """
+                )
+                op_params.extend([key, since_n, since_n, MAX_DELTA_OPS])
+            touch_marks = ",".join("?" for _ in keys)
+            sql = f"""
+                SELECT kind, board_key, board_seq, op, owner, touch FROM (
+                    SELECT 'head' AS kind, board_key,
+                           CASE WHEN next_seq > 0 THEN next_seq - 1 ELSE 0 END AS board_seq,
+                           '' AS op, '' AS owner, '' AS touch
+                    FROM board_counters
+                    WHERE run_key = ? AND board_key IN ({head_marks})
+                    UNION ALL
+                    SELECT 'op', board_key, board_seq, op, owner, ''
+                    FROM board_ops
+                    WHERE run_key = ? AND ({' OR '.join(op_clauses)})
+                    UNION ALL
+                    SELECT 'touch', board_key, 0, '', '', MAX(created_at)
+                    FROM board_ops
+                    WHERE run_key = ? AND board_key IN ({touch_marks})
+                    GROUP BY board_key
+                ) board_delta
+                ORDER BY board_key ASC, kind ASC, board_seq ASC
+            """
+            params: tuple[Any, ...] = (
+                run,
+                *keys,
+                *op_params,
+                run,
+                *keys,
+            )
+            cursor = exec_(sql, params)
+            out: dict[str, dict[str, Any]] = {
+                key: {
+                    "board_key": key,
+                    "board_seq": 0,
+                    "since": cleaned[key],
+                    "ops": [],
+                    "snapshot": False,
+                    "last_at": "",
+                }
+                for key in keys
+            }
+            for row in cursor.fetchall():
+                item = _row_dict(row)
+                key = str(item.get("board_key") or "")
+                slot = out.get(key)
+                if slot is None:
+                    continue
+                kind = str(item.get("kind") or "")
+                if kind == "head":
+                    slot["board_seq"] = int(item.get("board_seq") or 0)
+                elif kind == "touch":
+                    slot["last_at"] = str(item.get("touch") or "")
+                elif kind == "op":
+                    op = _public_op(item)
+                    if op is not None:
+                        slot["ops"].append(op)
+            for key, slot in out.items():
+                gap = int(slot["board_seq"]) - int(slot["since"])
+                if gap > MAX_DELTA_OPS:
+                    slot["ops"] = []
+                    slot["snapshot"] = True
+            return out
+
+        return self._read(work)
+
+    def count_run_ops(self, run_key: str) -> int:
+        """Count ``board_ops`` rows stored for one run key.
+
+        Args:
+            run_key: Key minted when this live run started.
+
+        Returns:
+            Row count. ``0`` when the key is empty or the run has no ink.
+        """
+        token = str(run_key or "").strip()
+        if not token:
+            return 0
+
+        def work(exec_: Exec) -> int:
+            """Count rows for this run."""
+            cursor = exec_(
+                "SELECT COUNT(*) AS n FROM board_ops WHERE run_key = ?",
+                (_run_key(token),),
+            )
+            row = _row_dict(cursor.fetchone())
+            return int(row.get("n") or 0)
+
+        return int(self._read(work))
 
     def current_seq(self, run_key: str, board_key: str) -> int:
         """Return the latest sequence on one board, or 0.

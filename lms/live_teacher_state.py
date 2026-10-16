@@ -244,6 +244,7 @@ def default_teacher_state() -> dict[str, Any]:
         "question_views": default_question_views(),
         "whiteboard_always_show_names": False,
         "whiteboard_projector_names": False,
+        "whiteboard_projected_student_id": None,
     }
 
 
@@ -848,6 +849,12 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
         parsed = _as_bool(stored.get(key))
         if parsed is not None:
             base[key] = parsed
+    projected = stored.get("whiteboard_projected_student_id")
+    if projected not in (None, "", 0, "0"):
+        try:
+            base["whiteboard_projected_student_id"] = int(projected)
+        except (TypeError, ValueError):
+            base["whiteboard_projected_student_id"] = None
     if not base["groups_configured"]:
         base["run_as_group"] = False
     base["teams_mode"] = "teams" if base["run_as_group"] else "individual"
@@ -1005,6 +1012,7 @@ def apply_teacher_state_update(
     question_views: Any = None,
     whiteboard_always_show_names: Any = None,
     whiteboard_projector_names: Any = None,
+    whiteboard_projected_student_id: Any = None,
     gamification_on: Any = None,
 ) -> dict[str, Any]:
     """Patch the thin teacher channel. Never persists canvas pixels.
@@ -1158,6 +1166,18 @@ def apply_teacher_state_update(
         if proj is None:
             raise ValueError("whiteboard_projector_names must be a boolean")
         base["whiteboard_projector_names"] = proj
+    if whiteboard_projected_student_id is not None:
+        if whiteboard_projected_student_id in ("", 0, "0", False):
+            base["whiteboard_projected_student_id"] = None
+        else:
+            try:
+                base["whiteboard_projected_student_id"] = int(
+                    whiteboard_projected_student_id
+                )
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "whiteboard_projected_student_id must be an integer"
+                ) from exc
     if gamification_on is not None:
         opened = _as_bool(gamification_on)
         if opened is None:

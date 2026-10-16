@@ -9410,6 +9410,212 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return _json_error(exc)
         return jsonify(reply)
 
+    def _teacher_formative_session(session_id: int):
+        """Return a teacher-owned session, or an error response.
+
+        Tile polls and Show on board are staff routes. A joined student
+        is not a teacher for this session.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            ``(row, None)`` or ``(None, response)``.
+        """
+        row = school.get_live_session(session_id)
+        if row is None:
+            return None, (jsonify({"ok": False, "error": "Session not found"}), 404)
+        if not _can_view_live_session(row):
+            return None, (jsonify({"ok": False, "error": "Forbidden"}), 403)
+        return row, None
+
+    @app.route("/api/student/formative-board", methods=["GET"])
+    @student_required
+    def api_student_formative_board():
+        """The caller's board. ``student_id`` in the query is ignored.
+
+        Feedback strokes are included only after the teacher releases them.
+        """
+        ctx, denied = _joined_student_board()
+        if denied is not None:
+            return denied
+        try:
+            reply = school.formative_student_payload(
+                int(ctx["live_session_id"]),
+                int(ctx["student_id"]),
+                since=_optional_board_seq(request.args.get("since")) or 0,
+                feedback_since=_optional_board_seq(request.args.get("feedback_since"))
+                or 0,
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify(reply)
+
+    @app.route("/api/student/formative-board/ops", methods=["POST"])
+    @student_required
+    def api_student_formative_board_ops():
+        """Append ink to the caller's own board. Body ids are ignored."""
+        ctx, denied = _joined_student_board()
+        if denied is not None:
+            return denied
+        body = request.get_json(silent=True) or {}
+        ops = body.get("ops") if isinstance(body.get("ops"), list) else []
+        try:
+            school.append_formative_student_ops(
+                int(ctx["live_session_id"]),
+                int(ctx["student_id"]),
+                ops,
+                client_batch_id=str(body.get("client_batch_id") or "").strip() or None,
+                claimed_run_key=str(body.get("run_key") or "").strip() or None,
+            )
+            reply = school.formative_student_payload(
+                int(ctx["live_session_id"]),
+                int(ctx["student_id"]),
+                since=_optional_board_seq(body.get("since")) or 0,
+                feedback_since=_optional_board_seq(body.get("feedback_since")) or 0,
+            )
+        except BoardSessionClosed as exc:
+            return board_write_closed(exc)
+        except BoardOpRejected as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 403
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify(reply)
+
+    @app.route("/api/student/formative-board/done", methods=["POST"])
+    @student_required
+    def api_student_formative_board_done():
+        """Set Done for the caller. The board stays editable and ungraded."""
+        ctx, denied = _joined_student_board()
+        if denied is not None:
+            return denied
+        try:
+            reply = school.mark_formative_done(
+                int(ctx["live_session_id"]), int(ctx["student_id"])
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify(reply)
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/formative-boards",
+        methods=["GET"],
+    )
+    @login_required
+    def api_formative_boards(session_id: int):
+        """Teacher tile poll. One since-seq query covers every board."""
+        from formative_live_board import parse_cursors
+
+        _row, denied = _teacher_formative_session(session_id)
+        if denied is not None:
+            return denied
+        try:
+            reply = school.formative_tile_poll(
+                session_id, parse_cursors(request.args.get("cursors"))
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify(reply)
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/formative-boards/<int:student_id>",
+        methods=["GET"],
+    )
+    @login_required
+    def api_formative_board_one(session_id: int, student_id: int):
+        """Teacher side panel for one student, including unreleased marks."""
+        _row, denied = _teacher_formative_session(session_id)
+        if denied is not None:
+            return denied
+        try:
+            reply = school.formative_open_board(
+                session_id,
+                student_id,
+                since=_optional_board_seq(request.args.get("since")) or 0,
+                feedback_since=_optional_board_seq(request.args.get("feedback_since"))
+                or 0,
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify(reply)
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/formative-boards/<int:student_id>/feedback",
+        methods=["POST"],
+    )
+    @login_required
+    def api_formative_board_feedback(session_id: int, student_id: int):
+        """Append teacher pen feedback on ``fb:<student_id>``."""
+        _row, denied = _teacher_formative_session(session_id)
+        if denied is not None:
+            return denied
+        body = request.get_json(silent=True) or {}
+        ops = body.get("ops") if isinstance(body.get("ops"), list) else []
+        try:
+            school.append_formative_feedback_ops(
+                session_id,
+                student_id,
+                ops,
+                client_batch_id=str(body.get("client_batch_id") or "").strip() or None,
+                claimed_run_key=str(body.get("run_key") or "").strip() or None,
+            )
+            reply = school.formative_open_board(session_id, student_id)
+        except BoardSessionClosed as exc:
+            return board_write_closed(exc)
+        except BoardOpRejected as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 403
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify(reply)
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/formative-boards/<int:student_id>/release",
+        methods=["POST"],
+    )
+    @login_required
+    def api_formative_board_release(session_id: int, student_id: int):
+        """Send feedback: students can see it after this."""
+        _row, denied = _teacher_formative_session(session_id)
+        if denied is not None:
+            return denied
+        try:
+            reply = school.release_formative_feedback(session_id, student_id)
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify(reply)
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/formative-boards/<int:student_id>/clear",
+        methods=["POST"],
+    )
+    @login_required
+    def api_formative_board_clear(session_id: int, student_id: int):
+        """Clear one student's ink and Done flag. Feedback ink stays."""
+        _row, denied = _teacher_formative_session(session_id)
+        if denied is not None:
+            return denied
+        try:
+            reply = school.clear_formative_response(session_id, student_id)
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify(reply)
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/formative-boards/<int:student_id>/show",
+        methods=["POST"],
+    )
+    @login_required
+    def api_formative_board_show(session_id: int, student_id: int):
+        """Show on board. Names follow the projector toggle, blanked here."""
+        _row, denied = _teacher_formative_session(session_id)
+        if denied is not None:
+            return denied
+        try:
+            reply = school.show_formative_board(session_id, student_id)
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify(reply)
+
     @app.route(
         "/api/live-sessions/<int:session_id>/board/<board_key>",
         methods=["GET"],
