@@ -11,7 +11,22 @@
 
   {% include "_sentry_browser.html" %}
 </head>
-<body class="staff-shell{% if tab in ['modules', 'pages', 'assignments', 'quizzes', 'question-banks'] %} course-modules{% elif tab == 'live' %} course-live{% endif %}">
+<body class="staff-shell{% if tab in ['modules', 'pages', 'assignments', 'quizzes', 'question-banks'] %} course-modules{% elif tab == 'live' %} course-live{% endif %}"
+      data-user-id="{{ user.id }}"
+      data-tour-offer="{{ '1' if tour_offer and not tour_block else '0' }}"
+      data-tour-page="{{ tour_page }}"
+      data-tour-view="{{ tour_view }}"
+      data-tour-roster="{{ tour_roster }}"
+      data-tour-live="{{ '1' if tour_live else '0' }}"
+      data-tour-block="{{ '1' if tour_block else '0' }}"
+      data-tour-run-type="{{ tour_run_type }}"
+      data-tour-session="{{ tour_session }}"
+      data-tour-dashboard="{{ tour_dashboard }}"
+      data-tour-nav="{{ tour_nav }}"
+      data-tour-qb="{{ tour_qb }}"
+      data-tour-ap="{{ tour_ap }}"
+      data-tour-part="{{ tour_part }}"
+      data-tour-live-href="{{ tour_live_href }}">
   <div class="wrap course-shell">
     <nav class="staff-top-menu" aria-label="Staff navigation">
       <a class="staff-top-btn" href="{{ url_for('staff_home') }}">Dashboard</a>
@@ -1329,6 +1344,7 @@
     {% endif %}
   </div>
   <div id="score-pop-layer" class="score-pop-layer" aria-hidden="true"></div>
+  {% include "staff/_tour.html" %}
   <dialog id="end-live-dialog" class="end-live-dialog" data-end-live-default="{{ end_live_default_mode }}">
     <form class="end-live-dialog-form" method="post" action="{{ url_for('staff_end_live_class', class_id=cls.id) }}">
       <h2>End Live Class</h2>

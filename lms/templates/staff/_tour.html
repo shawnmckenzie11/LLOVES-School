@@ -1,44 +1,42 @@
-{# MCK-183 slice D: the 4-step Dashboard tour. Copy: Wonder v1.3 step 1,
-   Part 3 steps 2-4, v1.2 onb.back / onb.tour.skip. Never clicks or starts a
-   live class: steps 2-4 show small static pictures. onboarding_tour.js opens
-   it (localStorage alc-onboarding:<user id>). Not rendered while live. #}
-<section class="onb-tour" id="onb-tour" role="dialog" aria-modal="false" aria-labelledby="onb-tour-title"
-         data-class-href="{{ tour_class_href }}" hidden>
-  <h2 class="visually-hidden" id="onb-tour-title">Tour</h2>
-  <div class="onb-tour-step" data-tour-step="1" data-tour-target=".course-action-live">
-    <p><b>Start class.</b> Press <b>Run Live Class</b> on your Dashboard. A join code appears on the screen for students.</p>
-  </div>
-  <div class="onb-tour-step" data-tour-step="2" data-tour-target=".course-card" hidden>
-    <p><b>Students join.</b> They go to alc.mckenzian.com and type their first name and the code. Attendance fills in as they arrive.</p>
-    <div class="onb-inset onb-inset-join" aria-hidden="true">
-      <div class="onb-inset-board"><span>JOIN CODE</span><b>K7Q2M9TB</b></div>
-      <div class="onb-inset-phone">
-        <span class="onb-inset-label">Join code</span><span class="onb-inset-field">K7Q2M9TB</span>
-        <span class="onb-inset-label">First name or Codename</span><span class="onb-inset-field">Sam</span>
-        <span class="onb-inset-btn">Join</span>
-      </div>
+{# MCK-267: spotlight tour and Getting started checklist. Copy is final.
+   onboarding_tour.js positions the popover on the real control. A step
+   finishes when that control is clicked. Not shown while a class is live
+   on the Dashboard (the script still listens for End Live Class). #}
+<div id="onb-tour" class="onb-tour" hidden>
+  <div class="onb-dim" data-tour-dim></div>
+  <div class="onb-pop" data-tour-pop role="dialog" aria-modal="false" aria-labelledby="onb-tour-copy" hidden>
+    <p class="onb-pop-count" data-tour-count></p>
+    <p class="onb-pop-copy" id="onb-tour-copy" data-tour-copy></p>
+    <div class="onb-pop-actions">
+      <button type="button" data-tour-show>Show me</button>
+      <button type="button" class="onb-tour-skip" data-tour-skip>Skip tour</button>
     </div>
   </div>
-  <div class="onb-tour-step" data-tour-step="3" data-tour-target=".course-action-live" hidden>
-    <p><b>Ask a quick question.</b> Pick a question or poll and press <b>Publish</b>. Each answer counts toward participation. You don't need a math question; a check-in like 'How ready do you feel?' works.</p>
-    <div class="onb-inset onb-inset-poll" aria-hidden="true">
-      <span class="onb-inset-row">How ready do you feel?</span><span class="onb-inset-btn">Publish</span>
-    </div>
-  </div>
-  <div class="onb-tour-step" data-tour-step="4" data-tour-target='a[aria-label="Take Attendance"]' hidden>
-    <p><b>End class.</b> Press <b>End Live Class</b> to save attendance and participation. You'll find them under <b>Attendance &amp; Participation</b>. Quit closes the class without saving.</p>
-    <div class="onb-inset onb-inset-end" aria-hidden="true">
-      <span class="onb-inset-check">Save attendance</span>
-      <span class="onb-inset-check">Save participation</span>
-      <span class="onb-inset-btn">End Live Class</span>
-    </div>
-  </div>
-  <div class="onb-tour-nav">
+  <div class="onb-pop onb-pop-center" data-tour-empty role="dialog" aria-modal="false" aria-labelledby="onb-tour-empty-title" hidden>
+    <p id="onb-tour-empty-title">Add a class first to start the tour.</p>
+    <p><a href="{{ url_for('staff_welcome', step='class') }}">Add a class</a></p>
     <button type="button" class="onb-tour-skip" data-tour-skip>Skip tour</button>
-    <span class="onb-tour-count" data-tour-count aria-live="polite"></span>
-    <button type="button" class="secondary" data-tour-back>Back</button>
-    <button type="button" data-tour-next>Next</button>
-    <button type="button" data-tour-finish hidden>Go to my class</button>
   </div>
-</section>
+</div>
+<aside id="onb-check" class="onb-check" aria-label="Getting started" hidden>
+  <div class="onb-check-card" data-check-card>
+    <header class="onb-check-head">
+      <h2 data-check-title>Getting started 0 of 5</h2>
+      <button type="button" data-check-collapse aria-label="Collapse">▾</button>
+    </header>
+    <div class="onb-check-bar" data-check-bar aria-hidden="true"><span data-check-fill></span></div>
+    <ul class="onb-check-list">
+      <li data-task="populate">Populate your class <button type="button" data-check-show hidden>Show me</button></li>
+      <li data-task="question_bank">Open the Question Bank <button type="button" data-check-show hidden>Show me</button></li>
+      <li data-task="test_live">Run a test live class <button type="button" data-check-show hidden>Show me</button></li>
+      <li data-task="attendance">Take attendance <button type="button" data-check-show hidden>Show me</button></li>
+      <li data-task="participation">Check Participation <button type="button" data-check-show hidden>Show me</button></li>
+    </ul>
+  </div>
+  <div class="onb-check-pill" data-check-pill hidden>
+    <button type="button" data-check-expand><span data-check-pill-label>Getting started 0/5</span></button>
+    <button type="button" data-check-dismiss aria-label="Dismiss" hidden>×</button>
+  </div>
+</aside>
+<p id="onb-toast" class="onb-toast" role="status" hidden>You're all set. Replay the tour anytime from Help.</p>
 <script type="module" src="/static/onboarding_tour.js?v={{ sentry_release }}"></script>

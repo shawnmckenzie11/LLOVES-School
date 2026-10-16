@@ -314,9 +314,14 @@ args = json.loads(sys.argv[3])
 school = SchoolDB(root / "lloves.sqlite", root)
 go = root / "go"
 deadline = time.time() + 60
-while not go.exists() and time.time() < deadline:
+raw = ""
+while time.time() < deadline:
+    if go.exists():
+        raw = go.read_text().strip()
+        if raw:
+            break
     time.sleep(0.005)
-start = float(go.read_text())
+start = float(raw)
 while time.time() < start:
     pass
 try:
@@ -545,7 +550,10 @@ class GateFixTests(unittest.TestCase):
                 for _ in range(6)
             ]
             time.sleep(3.0)
-            go.write_text(str(time.time() + 1.0))
+            # Rename is atomic: exists() must not win before the timestamp is written.
+            stamp = go.with_name("go.ready")
+            stamp.write_text(str(time.time() + 1.0))
+            stamp.replace(go)
             replies = set()
             for proc in procs:
                 stdout, stderr = proc.communicate(timeout=180)

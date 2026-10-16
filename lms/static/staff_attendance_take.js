@@ -285,10 +285,18 @@ $("att-take-done")?.addEventListener("click", async () => {
     setCardOpen(false);
     await refreshAttendanceGrid();
     window.dispatchEvent(new CustomEvent("lloves-attendance-refresh"));
+    notifyTourAttendanceSaved();
   } catch (err) {
     showError("#att-take-error", err);
   }
 });
+
+/**
+ * Tell the teacher tour that attendance was saved (MCK-267 checklist).
+ */
+function notifyTourAttendanceSaved() {
+  window.dispatchEvent(new CustomEvent("alc-attendance-saved"));
+}
 
 const takeLink = document.getElementById("take-attendance");
 takeLink?.addEventListener("click", (event) => {

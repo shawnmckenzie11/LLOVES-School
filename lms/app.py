@@ -92,6 +92,7 @@ from local_dev_seed import (  # noqa: E402
     local_dev_login_enabled,
     seed_local_dev_school,
 )
+from onboarding_tour import tour_run_type  # noqa: E402
 from school_db import (  # noqa: E402
     STAFF_2FA_MODE_LABELS,
     DeckCopyLiveConflict,
@@ -3117,6 +3118,55 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return False
         return str(user.get("email") or "").strip().lower() not in _owner_emails()
 
+    def _tour_template(
+        *,
+        page: str,
+        roster: int,
+        live_session: dict[str, Any] | None,
+        class_id: int | None,
+        view: str = "",
+        block: bool = False,
+    ) -> dict[str, Any]:
+        """Template values for the spotlight tour and Getting started checklist.
+
+        ``tour_run_type`` stays empty until MCK-269 stores Test or Live on
+        the session. Show-me links are blank when the teacher has no class.
+        Who is offered the tour stays in ``_tour_offer``.
+
+        Args:
+            page: ``dashboard``, ``live``, ``ap``, ``question_bank``, or ``course``.
+            roster: Students already on a roster. The checklist ticks at 1+.
+            live_session: Active live session, if one is running.
+            class_id: Class the checklist links open.
+            view: Attendance & Participation subview when ``page`` is ``ap``.
+            block: True when a live class is running and this page must not dim.
+
+        Returns:
+            Keys the staff shell reads as ``data-tour-*``.
+        """
+        first = int(class_id) if class_id else None
+
+        def href(tab: str, **extra: str) -> str:
+            if not first:
+                return ""
+            return url_for("staff_course", class_id=first, tab=tab, **extra)
+
+        return {
+            "tour_page": page,
+            "tour_view": view,
+            "tour_roster": int(roster),
+            "tour_live": live_session is not None,
+            "tour_block": bool(block),
+            "tour_run_type": tour_run_type(live_session),
+            "tour_session": str((live_session or {}).get("id") or ""),
+            "tour_dashboard": url_for("staff_home"),
+            "tour_nav": url_for("staff_course", class_id=first) if first else "",
+            "tour_qb": href("question-banks"),
+            "tour_ap": href("ap", view="attendance"),
+            "tour_part": href("ap", view="participation"),
+            "tour_live_href": href("live"),
+        }
+
     def _needs_first_run(
         user: dict[str, Any],
         offerings: list[dict[str, Any]],
@@ -3491,6 +3541,23 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         catchup_pin_alerts = school.catchup_pin_alerts_for_teacher(
             int(user["id"]), include_test_students=_include_test_students()
         )
+        roster_n = 0
+        for offering in offerings:
+            for section in offering.get("classes") or []:
+                roster_n += len(section.get("roster") or [])
+        first_class = int(classes[0]["id"]) if classes else None
+        tour = _tour_template(
+            page="dashboard",
+            roster=roster_n,
+            live_session=active_live_session,
+            class_id=first_class,
+            block=whats_new_hold,
+        )
+        # While a class is live the Dashboard must not link the archived
+        # class's pages (the End form is the only /staff/class/… URL).
+        if whats_new_hold:
+            for key in ("tour_nav", "tour_qb", "tour_ap", "tour_part", "tour_live_href"):
+                tour[key] = ""
         html = render_template(
             "staff/home.html",
             user=user,
@@ -3503,6 +3570,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             whats_new_hold=whats_new_hold,
             show_test_students=_include_test_students(),
             tour_offer=_tour_offer(user, classes),
+            **tour,
             plain_teacher=bool(offerings)
             and all(_simple_course(o.get("ontario_code"), o.get("library_id")) for o in offerings),
             tour_class_href=(
@@ -4168,6 +4236,26 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         from engagement_summary import KEY_ENGAGEMENT_SUMMARY_EMPTY, engagement_copy
         from flask import make_response
 
+        teacher_live = school.get_active_live_session_for_teacher(int(user["id"]))
+        session_for_type = active_live if active_live is not None else teacher_live
+        if tab == "live":
+            tour_page = "live"
+        elif tab == "question-banks":
+            tour_page = "question_bank"
+        elif tab == "ap":
+            tour_page = "ap"
+        else:
+            tour_page = "course"
+        on_running_live = tab == "live" and active_live is not None
+        roster_rows = school.roster_name_entries(class_id)
+        tour = _tour_template(
+            page=tour_page,
+            roster=len(roster_rows),
+            live_session=session_for_type,
+            class_id=class_id,
+            view=ap_view if tab == "ap" else "",
+            block=session_for_type is not None and not on_running_live,
+        )
         html = render_template(
             "staff/course.html",
             user=user,
@@ -4186,6 +4274,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             log_participation=request.args.get("participate") == "1",
             run_live=request.args.get("run") == "1",
             tour_done=request.args.get("tour") == "done" and tab == "ap",
+            tour_offer=_tour_offer(user, [cls]),
+            **tour,
             course_simple=course_simple,
             live_session_id=live_session_id,
             live_run_key=live_run_key,
@@ -4207,7 +4297,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             ),
             roster_students=school.roster_name_entries(
                 class_id, include_test_students=show_tests
-            ),
+            ) if show_tests else roster_rows,
             show_test_students=show_tests,
             engagement_summary_empty_copy=engagement_copy(KEY_ENGAGEMENT_SUMMARY_EMPTY),
         )
