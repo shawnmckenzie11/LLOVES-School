@@ -272,6 +272,11 @@ class TestLiveClassTests(Base):
         self.assertEqual(tagged[0]["module"], "M2")
         self.assertEqual(tagged[0]["slot"], "C3")
         self.assertEqual(int(tagged[0]["live_session_id"]), int(test["id"]))
+        roles = {
+            str(band.get("module")): band.get("role")
+            for band in (grid.get("module_bands") or {}).get("bands") or []
+        }
+        self.assertEqual(roles.get("M2"), "open")
         current = (grid.get("module_bands") or {}).get("current_module")
         self.assertNotEqual(current, "M2")
 

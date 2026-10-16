@@ -111,7 +111,9 @@ def untagged_column_label(ended_at: str | None) -> str:
 
 
 def module_classes_are_done(columns: list[dict[str, Any]]) -> bool:
-    """True when every class column in the module has ended.
+    """True when every real class column in the module has ended.
+
+    Test columns do not finish a module by themselves.
 
     ``class_ended`` is the live-class end flag. When a caller only stored
     ``ended_at`` (tests), a non-empty end time counts as done. This reads
@@ -123,9 +125,10 @@ def module_classes_are_done(columns: list[dict[str, Any]]) -> bool:
     Returns:
         Whether the view should treat those classes as finished.
     """
-    if not columns:
+    real = [column for column in columns if not column.get("is_test")]
+    if not real:
         return False
-    for column in columns:
+    for column in real:
         if "class_ended" in column:
             if not column["class_ended"]:
                 return False

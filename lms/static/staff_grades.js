@@ -311,7 +311,10 @@ function cellScore(data, sessionId, studentId, meta) {
 function visibleBandColumns(band) {
   const open = moduleExpanded(band.module, band.role);
   if (band.role === "finished" && !open) {
-    return [{ kind: "summary", band }];
+    const tests = (band.columns || [])
+      .filter((column) => column.is_test)
+      .map((column) => ({ kind: "class", band, column }));
+    return [{ kind: "summary", band }, ...tests];
   }
   return (band.columns || []).map((column) => ({ kind: "class", band, column }));
 }
