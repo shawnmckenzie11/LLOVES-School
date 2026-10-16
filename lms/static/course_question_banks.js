@@ -423,6 +423,16 @@ async function postBulk(body, toastMessage) {
 }
 
 /**
+ * Confirm heading for a bulk remove. One row stays singular.
+ * @param {number} count
+ * @returns {string}
+ */
+function removeConfirmTitle(count) {
+  const n = Number(count) || 0;
+  return n === 1 ? "Remove 1 question?" : `Remove ${n} questions?`;
+}
+
+/**
  * Confirm removal, then delete the checked questions in one request.
  * @returns {Promise<void>}
  */
@@ -430,7 +440,7 @@ async function removeSelected() {
   const count = selectedRows.size;
   if (!(removeDialog instanceof HTMLDialogElement) || !count) return;
   const title = document.getElementById("bank-remove-title");
-  if (title) title.textContent = `Remove ${count} questions?`;
+  if (title) title.textContent = removeConfirmTitle(count);
   const ok = await new Promise((resolve) => {
     const onClose = () => {
       removeDialog.removeEventListener("close", onClose);
