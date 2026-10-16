@@ -1,4 +1,4 @@
-import { wireFormativeWhiteboard, colorForOwner } from "./whiteboard_formative.js";
+import { wireFormativeWhiteboard, colorForOwner, cursorChipInkStyle } from "./whiteboard_formative.js";
 
 /**
  * Live whiteboard: draw, undo, redo, erase, and a Text tool.
@@ -815,6 +815,7 @@ export function bindWhiteboard(canvas, opts = {}) {
       liveCanvas.height = bh;
       replayCommitted();
       paintLive();
+      syncCursorLayerToCanvas();
     } finally {
       fitting = false;
     }
@@ -907,10 +908,23 @@ export function bindWhiteboard(canvas, opts = {}) {
    * Paint named cursors over the board. Hover does not post a cursor.
    * @param {any[]} cursors
    */
+  const syncCursorLayerToCanvas = () => {
+    const layer = opts.cursorLayer;
+    if (!(layer instanceof HTMLElement) || !(canvas instanceof HTMLCanvasElement)) return;
+    const rect = canvas.getBoundingClientRect();
+    layer.style.left = `${canvas.offsetLeft}px`;
+    layer.style.top = `${canvas.offsetTop}px`;
+    layer.style.width = `${rect.width}px`;
+    layer.style.height = `${rect.height}px`;
+    layer.style.right = "auto";
+    layer.style.bottom = "auto";
+  };
+
   const paintCursors = (cursors) => {
     const layer = opts.cursorLayer;
     if (!(layer instanceof HTMLElement)) return;
     if (!Array.isArray(cursors)) return;
+    syncCursorLayerToCanvas();
     const rows = cursors;
     layer.innerHTML = rows
       .map((row) => {
@@ -918,7 +932,7 @@ export function bindWhiteboard(canvas, opts = {}) {
         const tint = String(row.color || "#0b3d91").replace(/[<>"']/g, "");
         const left = Math.round(Number(row.x) * 1000) / 10;
         const top = Math.round(Number(row.y) * 1000) / 10;
-        return `<span class="canvas-cursor-chip" style="left:${left}%;top:${top}%;color:${tint}">${name}</span>`;
+        return `<span class="canvas-cursor-chip" style="left:${left}%;top:${top}%;${cursorChipInkStyle(tint)}">${name}</span>`;
       })
       .join("");
   };

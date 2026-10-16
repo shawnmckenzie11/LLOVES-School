@@ -12851,8 +12851,13 @@ function syncWhiteboardFormativeToggles() {
   const host = $("live-whiteboard-formative-toggles");
   const always = $("live-whiteboard-always-names");
   const projector = $("live-whiteboard-projector-names");
+  const projectorWrap = $("live-whiteboard-projector-wrap");
   if (!(host instanceof HTMLElement)) return;
-  host.hidden = !whiteboardCollabOn();
+  const collab = whiteboardCollabOn();
+  host.hidden = !collab;
+  if (projectorWrap instanceof HTMLElement) {
+    projectorWrap.hidden = collab;
+  }
   if (always instanceof HTMLInputElement) {
     always.checked = Boolean(teacherState.whiteboard_always_show_names);
   }

@@ -2016,6 +2016,10 @@ function applyTeacherProjection(payload) {
       canvasPane.hidden = !proj.canvas || docked;
     }
     canvasPane.classList.toggle("is-readonly", proj.canvas && proj.canvasAlign === "teacher");
+    canvasPane.classList.toggle(
+      "is-group-whiteboard",
+      Boolean(proj.canvas && proj.canvasAlign === "team")
+    );
     if (canvasLock) canvasLock.hidden = true;
   }
   if (mediaPane) {

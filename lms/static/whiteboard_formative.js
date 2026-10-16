@@ -42,6 +42,35 @@ export function colorForOwner(membersById, owner) {
 }
 
 /**
+ * Whether collab ink shows every name.
+ *
+ * The projector-names toggle is hidden for the whole collab session, so
+ * a saved true is ignored. Always-show names still labels the board.
+ *
+ * @param {boolean} alwaysShowNames
+ * @param {boolean} [_projectorShowNames]
+ * @returns {boolean}
+ */
+export function collabForcesNames(alwaysShowNames, _projectorShowNames) {
+  return Boolean(alwaysShowNames);
+}
+
+/**
+ * Inline style for a cursor-name chip on the white student canvas.
+ *
+ * Text stays near-black on a white chip. The member colour is the
+ * border, with a dark outline so the chip separates from the board.
+ *
+ * @param {string} tint
+ * @returns {string}
+ */
+export function cursorChipInkStyle(tint) {
+  const raw = String(tint || "");
+  const safe = /^#[0-9a-fA-F]{3,8}$/.test(raw) ? raw : "#0b3d91";
+  return `--cursor-tint:${safe};color:#0f172a;background:#fff;box-shadow:0 0 0 1px #0f172a;border:2px solid ${safe}`;
+}
+
+/**
  * Merge pen-down/up strokes from the same author when close in time and space.
  *
  * @param {any[]} strokes
@@ -153,15 +182,28 @@ export function wireFormativeWhiteboard(boardApi, opts) {
   /**
    * @param {any[]} items
    */
+  function syncChipLayerToCanvas() {
+    if (!(stage instanceof HTMLElement)) return;
+    const stageRect = stage.getBoundingClientRect();
+    const rect = canvas.getBoundingClientRect();
+    chipLayer.style.position = "absolute";
+    chipLayer.style.left = `${rect.left - stageRect.left}px`;
+    chipLayer.style.top = `${rect.top - stageRect.top}px`;
+    chipLayer.style.width = `${rect.width}px`;
+    chipLayer.style.height = `${rect.height}px`;
+    chipLayer.style.right = "auto";
+    chipLayer.style.bottom = "auto";
+  }
+
   function paintChips(items) {
     chipLayer.innerHTML = "";
+    syncChipLayerToCanvas();
     const rect = canvas.getBoundingClientRect();
     const lw = Number(canvas.dataset.logicalWidth) || canvas.width;
     const lh = Number(canvas.dataset.logicalHeight) || canvas.height;
     const now = Date.now();
     const phone = Boolean(opts.isPhone);
-    const showAll =
-      alwaysShow || (opts.isTeacher && projectorNames);
+    const showAll = collabForcesNames(alwaysShow, projectorNames);
     for (const item of items) {
       const member = membersById[String(item.owner)] || {
         name: String(item.owner || ""),
