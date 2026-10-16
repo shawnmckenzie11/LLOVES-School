@@ -745,6 +745,51 @@
                   <div id="live-canvas-cursors" class="canvas-cursors" aria-hidden="true"></div>
                 </div>
                 <p class="hint compact" id="live-canvas-ephemeral-flag">canvas_ephemeral: true</p>
+                <section id="formative-live-board" class="wb-live" hidden>
+                  <header class="wb-live-head">
+                    <div>
+                      <h2 class="wb-live-title">Live whiteboard</h2>
+                      <p id="wb-live-context" class="wb-live-context"></p>
+                    </div>
+                    <div class="wb-live-controls">
+                      <label><input type="checkbox" id="wb-live-always-names"> Always show names</label>
+                      <label><input type="checkbox" id="wb-live-projector-names"> Names on projector</label>
+                      <label>Tiles/row
+                        <select id="wb-live-cols" aria-label="Tiles per row">
+                          <option value="3">3</option>
+                          <option value="4" selected>4</option>
+                          <option value="5">5</option>
+                        </select>
+                      </label>
+                      <span class="wb-live-pill">Live</span>
+                    </div>
+                  </header>
+                  <div id="wb-live-filters" class="wb-live-filters" role="tablist"></div>
+                  <p id="wb-live-summary" class="wb-live-summary"></p>
+                  <p id="wb-live-projected" class="wb-live-projected"></p>
+                  <div class="wb-live-body">
+                    <div id="wb-live-grid" class="wb-live-grid"></div>
+                    <aside id="wb-live-panel" class="wb-live-panel" hidden>
+                      <div class="wb-live-panel-bar">
+                        <button type="button" id="wb-live-prev" aria-label="Previous board">←</button>
+                        <button type="button" id="wb-live-next" aria-label="Next board">→</button>
+                        <strong id="wb-live-panel-name">Student</strong>
+                        <span id="wb-live-panel-team" class="wb-live-team"></span>
+                        <button type="button" id="wb-live-close" aria-label="Close board">×</button>
+                      </div>
+                      <p id="wb-live-panel-age" class="wb-live-age"></p>
+                      <canvas id="wb-live-panel-canvas" class="wb-live-panel-canvas" width="720" height="360" aria-label="Student board"></canvas>
+                      <div class="wb-live-panel-tools" role="toolbar" aria-label="Feedback tools">
+                        <button type="button" id="wb-live-pen">Pen (feedback)</button>
+                        <button type="button" id="wb-live-text" aria-pressed="false">Text</button>
+                        <button type="button" id="wb-live-undo">Undo</button>
+                        <button type="button" id="wb-live-show" class="wb-live-show">Show on board</button>
+                        <button type="button" id="wb-live-send">Send feedback</button>
+                        <button type="button" id="wb-live-clear">Clear response</button>
+                      </div>
+                    </aside>
+                  </div>
+                </section>
               </section>
               <section id="slides-zone" class="live-content-slot" data-content-id="slides" data-slot="">
                 <div class="live-content-pane-head">
@@ -850,6 +895,7 @@
       </div>
     </dialog>
     <script type="module" src="/static/staff_ap.js"></script>
+    <script type="module" src="/static/formative_live_board.js"></script>
     {% elif tab == 'lesson-slides' %}
     <div class="card lesson-slides-table-card" id="lesson-slides-root" data-class-id="{{ cls.id }}">
       <h2>Lesson Slides</h2>

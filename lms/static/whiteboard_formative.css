@@ -154,3 +154,261 @@
   padding: 0.25rem 0.35rem;
   font: 16px/1.35 sans-serif;
 }
+
+/* MCK-270 live grid and phone board. */
+.wb-live {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 12px;
+  background: #0b1220;
+  color: #e2e8f0;
+}
+
+.wb-live-head,
+.wb-live-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.wb-live-title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.wb-live-context,
+.wb-live-summary,
+.wb-live-age,
+.wb-live-projected {
+  margin: 0.2rem 0 0;
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.wb-live-controls label {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.wb-live-pill {
+  border-radius: 999px;
+  background: #166534;
+  color: #ecfdf5;
+  padding: 0.2rem 0.7rem;
+  font-size: 0.8rem;
+}
+
+.wb-live-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.75rem 0;
+}
+
+.wb-live-filter,
+.wb-live-team {
+  border: 0;
+  border-radius: 999px;
+  background: #1e293b;
+  color: #e2e8f0;
+  padding: 0.25rem 0.65rem;
+}
+
+.wb-live-filter.is-on {
+  background: #0f766e;
+}
+
+.wb-live-body {
+  display: grid;
+  gap: 0.75rem;
+}
+
+@media (min-width: 1280px) {
+  .wb-live-body {
+    grid-template-columns: minmax(0, 1fr) 360px;
+  }
+}
+
+.wb-live-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--wb-live-cols, 4), minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.wb-live-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.35rem;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.wb-live-tile.is-open {
+  border-color: #2dd4bf;
+}
+
+.wb-live-tile-canvas {
+  width: 100%;
+  height: auto;
+  background: #fff;
+  border-radius: 8px;
+}
+
+.wb-live-tile-meta {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  font-size: 0.8rem;
+}
+
+.wb-live-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: #22c55e;
+}
+
+.wb-live-dot.is-away {
+  background: #64748b;
+}
+
+.wb-live-name {
+  flex: 1;
+}
+
+.wb-live-panel {
+  background: #111827;
+  border-radius: 12px;
+  padding: 0.6rem;
+}
+
+.wb-live-panel-bar,
+.wb-live-panel-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.wb-live-panel-canvas,
+.wb-phone-canvas {
+  width: 100%;
+  background: #fff;
+  border-radius: 8px;
+  touch-action: none;
+}
+
+.wb-live-panel-tools button,
+.wb-phone-tools button,
+.wb-phone-done {
+  min-height: 44px;
+  border-radius: 8px;
+  border: 0;
+  padding: 0.4rem 0.75rem;
+}
+
+.wb-live-show,
+.wb-phone-done,
+.wb-phone-tools .is-on {
+  background: #0f766e;
+  color: #ecfdf5;
+}
+
+#canvas-zone:has(#formative-live-board.is-on) .live-canvas-toolbar,
+#canvas-zone:has(#formative-live-board.is-on) .live-canvas-stage,
+#canvas-zone:has(#formative-live-board.is-on) #live-canvas-ephemeral-flag,
+#canvas-zone:has(#formative-live-board.is-on) #live-whiteboard-formative-toggles {
+  display: none;
+}
+
+.wb-phone {
+  margin: 0.75rem;
+  border-radius: 16px;
+  background: #0f172a;
+  color: #e2e8f0;
+  overflow: hidden;
+}
+
+.wb-phone-bar,
+.wb-phone-tools {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.6rem;
+}
+
+.wb-phone-title {
+  font-weight: 650;
+}
+
+.wb-phone-team {
+  border-radius: 999px;
+  background: #1e293b;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+.wb-phone-done {
+  margin-left: auto;
+  background: #2563eb;
+  color: #fff;
+}
+
+.wb-phone-question,
+.wb-phone-feedback,
+.wb-phone-saved {
+  margin: 0 0.6rem 0.5rem;
+}
+
+.wb-phone-question {
+  width: calc(100% - 1.2rem);
+  text-align: left;
+  border: 0;
+  border-radius: 8px;
+  background: #1e293b;
+  color: inherit;
+  padding: 0.45rem 0.6rem;
+}
+
+.wb-phone-question.is-collapsed {
+  max-height: 1.2rem;
+  overflow: hidden;
+}
+
+.wb-phone-feedback {
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 999px;
+  padding: 0.25rem 0.6rem;
+}
+
+.wb-phone-stage {
+  margin: 0 0.6rem;
+  position: relative;
+  background: #fff;
+  border-radius: 8px;
+}
+
+.wb-phone-tools {
+  background: #0f172a;
+}
+
+.wb-phone-tools button {
+  background: #1e293b;
+  color: #e2e8f0;
+  flex: 1;
+}
+
+.wb-phone-saved {
+  color: #94a3b8;
+  font-size: 0.8rem;
+  text-align: center;
+}
