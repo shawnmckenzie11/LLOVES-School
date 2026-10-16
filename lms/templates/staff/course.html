@@ -111,7 +111,8 @@
          data-empty-banks="{{ bank_copy.empty_banks }}"
          data-remove-from-bank="{{ bank_copy.remove_from_bank }}"
          data-edited-in-lms="{{ bank_copy.edited_in_lms }}"
-         data-save-toast="{{ bank_copy.save_toast }}">
+         data-save-toast="{{ bank_copy.save_toast }}"
+         data-course-simple="{{ 1 if course_simple else 0 }}">
       <header class="qbank-head">
         <div class="qbank-head-row">
           <h1 class="qbank-title">Question bank</h1>
@@ -141,14 +142,6 @@
           </select>
         </label>
         <div id="live-bank-types" data-bank-type-chips></div>
-        <label class="live-bank-field" for="live-bank-sort">Sort
-          <select id="live-bank-sort" aria-label="Sort">
-            <option value="bank" selected>Bank order</option>
-            <option value="edited">Recently edited</option>
-            <option value="type">Type</option>
-          </select>
-        </label>
-        <button type="button" class="secondary" id="qbank-select-tab">Select all in this module</button>
         <button type="button" class="secondary" id="qbank-clear-selection">Clear</button>
       </div>
       <div id="catalog-list" class="qbank-list">Loading live bank…</div>
@@ -159,6 +152,12 @@
       <button type="button" class="secondary" id="qbank-bulk-kind">Set kind</button>
       <button type="button" class="danger" id="qbank-bulk-remove">Remove</button>
     </div>
+    <menu id="qbank-row-menu" class="qbank-more-menu" hidden>
+      <li><button type="button" data-qbank-menu="edit">Edit</button></li>
+      <li><button type="button" data-qbank-menu="move">Move to module</button></li>
+      <li><button type="button" data-qbank-menu="kind">Set kind</button></li>
+      <li><button type="button" data-qbank-menu="remove">Remove</button></li>
+    </menu>
     <p id="bank-toast" class="bank-toast" hidden role="status"></p>
     <dialog id="bank-remove-dialog" class="bank-remove-dialog" aria-labelledby="bank-remove-title">
       <form method="dialog" class="bank-remove-card">
