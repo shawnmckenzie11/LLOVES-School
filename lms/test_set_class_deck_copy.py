@@ -1109,7 +1109,7 @@ const commonHref = JSON.stringify(pathToFileURL(process.env.LLOVES_COMMON_JS).hr
 const editorOut = (process.env.LLOVES_HARNESS_OUT || '/tmp/staff-ap-harness.mjs').replace(/\.mjs$/, '') + '-question-editor.mjs';
 writeFileSync(
   editorOut,
-  readFileSync(staticDir + '/question_editor.js', 'utf8').replaceAll('"/static/common.js"', commonHref),
+  readFileSync(staticDir + '/question_editor.js', 'utf8').replaceAll('"/static/common.js"', commonHref).replaceAll('"/static/', '"' + staticHref),
 );
 src = src.replaceAll('"/static/question_editor.js"', JSON.stringify(pathToFileURL(editorOut).href));
 src = src.replaceAll('"/static/common.js"', commonHref);
