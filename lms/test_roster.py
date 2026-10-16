@@ -170,7 +170,9 @@ class RosterTests(unittest.TestCase):
         self.assertIn("Grading Scheme", grades_html)
         self.assertIn("Term Mark", grades_html)
         self.assertIn("scheme-term-module", grades_html)
-        self.assertIn("Module 1", grades_html)
+        self.assertIn(">M0</option>", grades_html)
+        self.assertIn(">M1</option>", grades_html)
+        self.assertNotIn(">Module 1</option>", grades_html)
 
         legacy_tab = self.client.get(
             f"/staff/class/{class_id}?tab=grades", follow_redirects=False

@@ -319,7 +319,7 @@ function fillQuestion(question) {
   const select = $("live-add-q-bank-scope-select");
   const storedScope = String(question.bank_scope || "");
   if (select instanceof HTMLSelectElement) {
-    select.value = /^M[1-8]$/.test(storedScope) || storedScope === "course" ? storedScope : initialScope;
+    select.value = /^M[0-8]$/.test(storedScope) || storedScope === "course" ? storedScope : initialScope;
     initialScope = select.value;
   }
   defaultsDirty = false;
@@ -377,7 +377,7 @@ function fillBlank(scope) {
   const mc = document.querySelector('input[name="live-add-q-type"][value="mc"]');
   if (mc instanceof HTMLInputElement) mc.checked = true;
   const select = $("live-add-q-bank-scope-select");
-  const token = /^M[1-8]$/.test(scope) || scope === "course" ? scope : "M1";
+  const token = /^M[0-8]$/.test(scope) || scope === "course" ? scope : "M1";
   if (select instanceof HTMLSelectElement) {
     select.value = token;
     initialScope = token;
@@ -410,7 +410,7 @@ export function openQuestionEditor(opts = {}) {
   }
   const scope = String(opts.scope || "M1");
   if (mode === "edit" && opts.question) {
-    initialScope = /^M[1-8]$/.test(scope) || scope === "course" ? scope : "M1";
+    initialScope = /^M[0-8]$/.test(scope) || scope === "course" ? scope : "M1";
     fillQuestion(opts.question);
     paintChrome();
   } else {

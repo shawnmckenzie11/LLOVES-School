@@ -375,17 +375,18 @@ class GradebookApiTests(unittest.TestCase):
         self.assertEqual(body["weights"]["exam"], 25.0)
 
     def test_gradebook_scheme_lists_eight_editable_modules(self) -> None:
-        """Term Mark JSON carries all eight module windows and default rules."""
+        """Term Mark JSON lists M0 plus the eight content-module windows."""
         class_id, _, _ = self._populate()
         body = self.client.get(f"/api/classes/{class_id}/gradebook").get_json()
         self.assertEqual(body["scheme"]["weights"]["term"], 65.0)
         self.assertEqual(body["scheme"]["module_1"]["min_sessions"], 3)
         self.assertTrue(body["scheme"]["module_1"]["editable"])
         modules = body["scheme"]["modules"]
-        self.assertEqual([m["number"] for m in modules], list(range(1, 9)))
+        self.assertEqual([m["number"] for m in modules], list(range(0, 9)))
         self.assertTrue(all(m["editable"] for m in modules))
-        self.assertEqual(modules[0]["start"], "2026-09-10")
-        self.assertEqual(modules[0]["min_sessions"], 3)
+        self.assertIsNone(modules[0]["start"])
+        self.assertEqual(modules[1]["start"], "2026-09-10")
+        self.assertEqual(modules[1]["min_sessions"], 3)
 
     def test_saving_scheme_re_evaluates_module_1(self) -> None:
         """Raising min sessions to 4 drops a previously earned 100."""

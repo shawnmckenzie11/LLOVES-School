@@ -13542,7 +13542,7 @@ $("live-add-question-btn")?.addEventListener("click", () => {
   const currentModule = String(teacherState.live_module || "").trim().toUpperCase();
   openQuestionEditor({
     mode: "add",
-    scope: /^M[1-8]$/.test(currentModule) ? currentModule : "M1",
-    scopeKnown: /^M[1-8]$/.test(currentModule),
+    scope: /^M[0-8]$/.test(currentModule) ? currentModule : "M1",
+    scopeKnown: /^M[0-8]$/.test(currentModule),
   });
 });

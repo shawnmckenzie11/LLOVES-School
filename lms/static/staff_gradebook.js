@@ -140,7 +140,7 @@ function indexModules(data) {
   if (Array.isArray(rows)) {
     for (const row of rows) {
       const n = Number(row?.number);
-      if (!Number.isFinite(n) || n < 1) continue;
+      if (!Number.isFinite(n) || n < 0) continue;
       out[String(n)] = { ...row };
     }
   }
@@ -322,7 +322,8 @@ document.getElementById("scheme-term-module")?.addEventListener("change", (event
   const select = event.currentTarget;
   if (!(select instanceof HTMLSelectElement)) return;
   stashCurrentModule();
-  selectedModule = Number(select.value) || 1;
+  const next = Number(select.value);
+  selectedModule = Number.isFinite(next) ? next : 1;
   applyTermRulesToForm(moduleRules[String(selectedModule)]);
 });
 ["scheme-weight-term", "scheme-weight-exam", "scheme-weight-participation"].forEach((id) => {

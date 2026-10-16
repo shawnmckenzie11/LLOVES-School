@@ -354,7 +354,7 @@ function clearFilters() {
  */
 function addScope() {
   if (activeTab === "course") return "course";
-  if (/^M[1-8]$/.test(activeTab)) return activeTab;
+  if (/^M[0-8]$/.test(activeTab)) return activeTab;
   return "M1";
 }
 

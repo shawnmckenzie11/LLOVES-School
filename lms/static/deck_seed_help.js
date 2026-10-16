@@ -356,7 +356,7 @@ export function deckOptionsBySource(decks, classId, pack = {}) {
     const mod = String(deck.module || "").toUpperCase();
     const s = String(deck.slot || "").toUpperCase();
     const [modNumber] = deckNaturalKey(mod, s);
-    const group = `Module ${modNumber}`; // copy: Wonder
+    const group = `M${modNumber}`;
     if (!groups.has(group)) groups.set(group, { group, options: [] });
     const sameSlot = mod === moduleName && s === slot;
     const name = deckName(mod, s);

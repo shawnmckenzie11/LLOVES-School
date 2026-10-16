@@ -69,19 +69,29 @@ def _specifics_for_module(payload: dict[str, Any], module_number: int) -> list[d
 
 
 def list_modules(course_code: str, cache_root: Path | None = None) -> list[dict[str, Any]]:
-    """Module dropdown rows from ``module-strand-map.json``.
+    """Module rows from ``module-strand-map.json``, including module 0.
 
     Args:
         course_code: Ontario code.
         cache_root: Curriculum cache override.
+
+    Returns:
+        Rows with ``module_number`` (0 and up), title, and strand fields.
+        A missing number is skipped. Titles are not dropdown labels.
     """
     payload = _load_module_strand_map(str(course_code).upper(), cache_root=cache_root) or {}
     rows = []
     for item in payload.get("modules") or []:
         if not isinstance(item, dict):
             continue
-        num = int(item.get("module_number") or 0)
-        if num < 1:
+        raw_number = item.get("module_number")
+        if raw_number is None or str(raw_number).strip() == "":
+            continue
+        try:
+            num = int(raw_number)
+        except (TypeError, ValueError):
+            continue
+        if num < 0:
             continue
         rows.append(
             {
@@ -105,14 +115,23 @@ def assemble_context(
 
     Args:
         course_code: Ontario code for the open class.
-        module_number: Selected module.
+        module_number: Selected module. ``0`` is allowed when the strand map
+            has no intro row.
         data_dir: LMS data root (glossary files).
         cache_root: ``.local-data/curriculum`` override.
     """
     code = str(course_code or "").upper()
     payload = _load_module_strand_map(code, cache_root=cache_root) or {}
     module_row = _module_row(payload, int(module_number))
-    if module_row is None:
+    if module_row is None and int(module_number) == 0:
+        module_row = {
+            "module_number": 0,
+            "title": "",
+            "strand": "",
+            "strand_name": "",
+            "expectation_codes": [],
+        }
+    elif module_row is None:
         raise ValueError(f"No module {module_number} in {code} strand map")
     overalls = _overall_codes(payload, int(module_number))
     specifics = _specifics_for_module(payload, int(module_number))

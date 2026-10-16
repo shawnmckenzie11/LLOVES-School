@@ -17,7 +17,7 @@ CHOICE_LETTERS = "ABCDEFGH"
 
 
 def parse_module_token(raw: Any) -> int | None:
-    """Return a 1–8 module number from ``M1`` / ``1`` / ``module 2``.
+    """Return a 0–8 module number from ``M0`` / ``1`` / ``module 2``.
 
     Args:
         raw: Staff module token.
@@ -32,7 +32,7 @@ def parse_module_token(raw: Any) -> int | None:
     if not match:
         return None
     number = int(match.group(1))
-    if 1 <= number <= 8:
+    if 0 <= number <= 8:
         return number
     return None
 
