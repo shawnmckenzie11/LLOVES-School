@@ -33285,7 +33285,13 @@ class SchoolDB(LovesDB):
         return int(row["n"] or 0) if row else 0
 
     def participation_session_meta(self, class_id: int) -> dict[str, dict[str, Any]]:
-        """Map game-show session ids to run, module, slot, and deck items."""
+        """Map game-show session ids to run, module, slot, and deck items.
+
+        The module and slot come from the same participation item, preferring
+        a row that actually stored them. A blank module stays blank so the
+        table does not relabel it ``M1``. ``class_ended`` is true only when
+        the live class has an ``ended_at``.
+        """
         meta: dict[str, dict[str, Any]] = {}
         if getattr(self, "game", None) is None:
             return meta
@@ -33301,16 +33307,8 @@ class SchoolDB(LovesDB):
             rows = self.conn.execute(
                 f"""
                 SELECT lpc.session_id, lpc.run_key, s.starts_at,
-                       (
-                           SELECT live_module FROM participation_items pi
-                           WHERE pi.class_id = s.class_id AND pi.run_key = lpc.run_key
-                           LIMIT 1
-                       ) AS live_module,
-                       (
-                           SELECT live_slot FROM participation_items pi
-                           WHERE pi.class_id = s.class_id AND pi.run_key = lpc.run_key
-                           LIMIT 1
-                       ) AS live_slot,
+                       pi.live_module AS live_module,
+                       pi.live_slot AS live_slot,
                        (
                            SELECT ended_at FROM live_class_sessions lcs
                            WHERE lcs.class_id = s.class_id AND lcs.run_key = lpc.run_key
@@ -33319,6 +33317,21 @@ class SchoolDB(LovesDB):
                        ) AS ended_at
                 FROM live_participation_credits lpc
                 INNER JOIN sessions s ON s.id = lpc.session_id
+                LEFT JOIN participation_items pi
+                    ON pi.id = (
+                        SELECT p2.id FROM participation_items p2
+                        WHERE p2.class_id = s.class_id AND p2.run_key = lpc.run_key
+                        ORDER BY CASE
+                                   WHEN TRIM(COALESCE(p2.live_module, '')) = '' THEN 1
+                                   ELSE 0
+                                 END,
+                                 CASE
+                                   WHEN TRIM(COALESCE(p2.live_slot, '')) = '' THEN 1
+                                   ELSE 0
+                                 END,
+                                 p2.id
+                        LIMIT 1
+                    )
                 WHERE s.class_id = ?{run_filter}
                 """,
                 (int(class_id),),
@@ -33332,9 +33345,10 @@ class SchoolDB(LovesDB):
                 if run_key
                 else []
             )
-            ended = str(row["ended_at"] or row["starts_at"] or "")
-            live_module = str(row["live_module"] or "")
-            live_slot = str(row["live_slot"] or "")
+            session_ended = str(row["ended_at"] or "").strip()
+            ended = session_ended or str(row["starts_at"] or "")
+            live_module = str(row["live_module"] or "").strip()
+            live_slot = str(row["live_slot"] or "").strip()
             try:
                 from set_class import is_open_office_slot
             except ImportError:
@@ -33345,6 +33359,7 @@ class SchoolDB(LovesDB):
                 "live_slot": live_slot,
                 "open_office": is_open_office_slot(live_slot),
                 "ended_at": ended,
+                "class_ended": bool(session_ended),
                 "header_label": format_participation_session_header(
                     live_module, live_slot, ended
                 ),
@@ -33511,7 +33526,17 @@ class SchoolDB(LovesDB):
                 part = self.conn.execute(
                     """
                     SELECT live_module, live_slot FROM participation_items
-                    WHERE class_id = ? AND run_key = ? LIMIT 1
+                    WHERE class_id = ? AND run_key = ?
+                    ORDER BY CASE
+                               WHEN TRIM(COALESCE(live_module, '')) = '' THEN 1
+                               ELSE 0
+                             END,
+                             CASE
+                               WHEN TRIM(COALESCE(live_slot, '')) = '' THEN 1
+                               ELSE 0
+                             END,
+                             id
+                    LIMIT 1
                     """,
                     (cid, run_key),
                 ).fetchone()
@@ -39452,6 +39477,17 @@ class SchoolDB(LovesDB):
         dash = self.game.dashboard(class_id, sort=sort)
         session_meta = self.participation_session_meta(class_id)
         dash = self._apply_participation_tab_dashboard(class_id, dash, session_meta)
+        session_meta = self._participation_schedule_labels(
+            class_id, dash.get("sessions") or [], session_meta
+        )
+        for column in dash.get("columns") or []:
+            if column.get("kind") != "session":
+                continue
+            info = session_meta.get(str(column.get("id"))) or {}
+            label = str(info.get("header_label") or "").strip()
+            if label and info.get("schedule_label"):
+                column["header_label"] = label
+                column["open_office"] = bool(info.get("open_office"))
         payload = dict(dash)
         payload["class"] = self.enrich_class(dash["class"])
         payload["session_meta"] = session_meta
@@ -39464,6 +39500,64 @@ class SchoolDB(LovesDB):
         payload["module_bands"] = self.participation_module_bands(class_id, payload)
         payload["ok"] = True
         return payload
+
+    def _participation_schedule_labels(
+        self,
+        class_id: int,
+        sessions: list[dict[str, Any]],
+        stored_meta: dict[Any, dict[str, Any]],
+    ) -> dict[str, dict[str, Any]]:
+        """Label blank participation columns from the class calendar.
+
+        Stored modules are copied through. A session with no module takes
+        the slot for its date, or ``Untagged`` when the date is not a
+        meeting. The database is not updated.
+
+        Args:
+            class_id: Class primary key.
+            sessions: Dashboard session rows still on the Participation tab.
+            stored_meta: ``participation_session_meta`` for this class.
+
+        Returns:
+            Display metadata keyed by session id.
+        """
+        from participation_schedule import (
+            course_module_slots,
+            label_sessions_from_schedule,
+            participation_date_slots,
+        )
+
+        days = ""
+        course = ""
+        if getattr(self, "game", None) is not None:
+            row = self.game.conn.execute(
+                "SELECT course_code, days, offering_id FROM classes WHERE id = ?",
+                (int(class_id),),
+            ).fetchone()
+            if row is not None:
+                course = str(row["course_code"] or "").strip()
+                days = str(row["days"] or "").strip()
+                offering_id = row["offering_id"]
+                if offering_id not in (None, ""):
+                    try:
+                        offering = self.get_offering(int(offering_id))
+                    except KeyError:
+                        offering = None
+                    if offering:
+                        course = str(offering.get("ontario_code") or course).strip()
+                        days = str(offering.get("live_days") or days).strip()
+        sched = self.live_class_schedule_for_class(class_id)
+        if sched and str(sched.get("live_days") or "").strip():
+            days = str(sched["live_days"]).strip()
+        if not days:
+            return {
+                str(key): dict(info) for key, info in (stored_meta or {}).items()
+            }
+        date_slots = participation_date_slots(
+            days,
+            module_slots=course_module_slots(course) if course else None,
+        )
+        return label_sessions_from_schedule(list(sessions or []), stored_meta, date_slots)
 
     def participation_module_bands(
         self, class_id: int, grid: dict[str, Any] | None = None

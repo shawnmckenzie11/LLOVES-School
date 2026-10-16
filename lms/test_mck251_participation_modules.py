@@ -307,6 +307,8 @@ class BackfillTests(Base):
         self.assertIn('id="ap-include-individual"', html)
         self.assertIn('id="ap-include-group"', html)
         self.assertIn("Page loads scrolled to the current module.", html)
+        self.assertNotIn("Process evidence (this live session)", html)
+        self.assertNotIn("Qualitative observations from Team Challenge", html)
         live = client.get(f"/staff/class/{self.class_id}?tab=live").get_data(as_text=True)
         self.assertIn('id="finish-module-dialog"', live)
         self.assertIn("Start without finishing", live)

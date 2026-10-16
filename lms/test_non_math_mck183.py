@@ -92,7 +92,8 @@ class NonMathTests(unittest.TestCase):
             f"/staff/class/{class_id}?tab=ap&view=participation"
         ).get_data(as_text=True)
         self.assertIn('id="ap-include-group"', part)
-        self.assertIn('id="ap-evidence-coverage" hidden', part)
+        self.assertNotIn('id="ap-evidence-coverage"', part)
+        self.assertNotIn("Process evidence (this live session)", part)
 
     def test_math_course_without_pack_is_unchanged(self) -> None:
         """Shawn's math courses keep every tab, Core Math, the pack strip and hints."""
@@ -117,7 +118,8 @@ class NonMathTests(unittest.TestCase):
             f"/staff/class/{class_id}?tab=ap&view=participation"
         ).get_data(as_text=True)
         self.assertIn('id="ap-include-group"', part)
-        self.assertIn('id="ap-evidence-coverage">', part)
+        self.assertNotIn('id="ap-evidence-coverage"', part)
+        self.assertNotIn("Process evidence (this live session)", part)
 
     def test_course_with_a_pack_is_unchanged(self) -> None:
         """A non-math course that has a pack keeps the full view."""

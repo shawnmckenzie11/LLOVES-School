@@ -2,7 +2,6 @@ import { api, escapeHtml, formatPoints, hideError, showError } from "/static/com
 
 const root = document.getElementById("grades-root");
 const classId = Number(root?.dataset.classId || 0);
-const courseSimple = root?.dataset.courseSimple === "1";
 const sortKey = `lloves-sort-${classId}`;
 const includeIndividualKey = `lloves-ap-include-individual-${classId}`;
 const includeGroupKey = `lloves-ap-include-group-${classId}`;
@@ -118,7 +117,6 @@ function paint(data) {
     btn.classList.toggle("is-on", on);
     btn.setAttribute("aria-pressed", on ? "true" : "false");
   });
-  updateFilterChrome();
   renderSheet(data);
   requestAnimationFrame(scrollCurrentModuleIntoView);
 }
@@ -133,14 +131,6 @@ function scrollCurrentModuleIntoView() {
   const name = document.querySelector("#sheet th.name");
   const nameWidth = name instanceof HTMLElement ? name.offsetWidth : 0;
   wrap.scrollLeft = Math.max(0, anchor.offsetLeft - nameWidth);
-}
-
-/** Toggle evidence panel visibility for pack courses. */
-function updateFilterChrome() {
-  document.getElementById("ap-evidence-coverage")?.toggleAttribute(
-    "hidden",
-    courseSimple || (!includeGroup && !includeIndividual),
-  );
 }
 
 /**
@@ -250,12 +240,13 @@ function participationWeight(row) {
  */
 function formatParticipationCell(score, opportunities, endedAt) {
   if (!includeIndividual && !includeGroup) return "—";
+  if (opportunities <= 0) {
+    return score > 0 ? escapeHtml(formatPoints(score)) : "—";
+  }
   if (displayMode === "fraction") {
-    if (opportunities <= 0) return "—";
     return `${formatScore(score)}/${opportunities}`;
   }
   if (displayMode === "percent") {
-    if (opportunities <= 0) return "—";
     let pct = Math.round((100 * score) / opportunities);
     if (endedAt && legacyCap(endedAt) && pct > 100) pct = 100;
     return `${pct}%`;
@@ -295,6 +286,11 @@ function cellScore(data, sessionId, studentId, meta) {
   const individualKey = `${sessionId}:${studentId}`;
   const individualAnswered = numericPoints(data.individual_cells?.[individualKey] || 0);
   let score = 0;
+  if (opportunities <= 0) {
+    if (includeGroup) score += groupPoints;
+    if (includeIndividual) score += individualAnswered;
+    return { score, opportunities, ended_at: String(meta?.ended_at || "") };
+  }
   if (displayMode === "points") {
     if (includeGroup) score += groupPoints;
     if (includeIndividual) score += individualAnswered;
@@ -341,29 +337,32 @@ function moduleRollup(data, studentId, columns) {
 }
 
 /**
- * Class cell: a check when the student scored, then the fraction.
- * Office cells are a check or a dash only.
+ * Class cell shows the score fraction. Office cells are a check or a dash.
+ * A check is not repeated beside the fraction.
  * @param {any} data
  * @param {number} sessionId
  * @param {number} studentId
- * @param {{score: number}} scored
+ * @param {{score: number, opportunities: number}} scored
  * @param {boolean} office
  * @returns {string}
  */
 function classCellHtml(data, sessionId, studentId, scored, office) {
   const cell = data.cells?.[`${sessionId}:${studentId}`] || {};
   const hit = scored.score > 0 || (office && Boolean(cell.present));
+  if (!office && scored.opportunities > 0) {
+    const fraction = `${formatScore(scored.score)}/${scored.opportunities}`;
+    return `<span class="ap-frac">${escapeHtml(fraction)}</span>`;
+  }
+  if (!office && scored.score > 0) {
+    return `<span class="ap-frac">${escapeHtml(formatScore(scored.score))}</span>`;
+  }
   const mark = hit ? "✓" : "—";
   const markClass = hit ? "ap-mark-yes" : "ap-mark-no";
-  if (office || scored.opportunities <= 0) {
-    return `<span class="${markClass}">${mark}</span>`;
-  }
-  const fraction = `${formatScore(scored.score)}/${scored.opportunities}`;
-  return `<span class="${markClass}">${mark}</span> <span class="ap-frac">${escapeHtml(fraction)}</span>`;
+  return `<span class="${markClass}">${mark}</span>`;
 }
 
 /**
- * Collapsed or expanded finished-module control (M1 ✓ ▸).
+ * Collapsed or expanded finished-module control (M2 ▸).
  * @param {string} module
  * @param {boolean} open
  * @returns {string}
@@ -372,7 +371,6 @@ function summaryHeaderHtml(module, open) {
   const caret = open ? "▾" : "▸";
   return `<button type="button" class="ap-mod-toggle" data-module="${escapeHtml(module)}" aria-expanded="${open ? "true" : "false"}">
     <span class="ap-mod-code">${escapeHtml(module || "Module")}</span>
-    <span class="ap-mod-check" aria-hidden="true">✓</span>
     <span class="ap-mod-caret" aria-hidden="true">${caret}</span>
   </button>`;
 }
@@ -392,7 +390,13 @@ function renderSheet(data) {
 
   const pieces = [];
   for (const band of bands) {
-    const cols = visibleBandColumns(band);
+    const untagged = band.role === "untagged" || String(band.module || "") === "Untagged";
+    if (!untagged && moduleNumber(band.module) <= 0) continue;
+    const cols = visibleBandColumns(band).filter((col) => {
+      if (col.kind !== "class") return true;
+      if (untagged) return true;
+      return moduleNumber(col.column?.module) > 0;
+    });
     if (!cols.length) continue;
     pieces.push({ band, cols });
   }
@@ -421,6 +425,8 @@ function renderSheet(data) {
       groupClass += " is-current";
     } else if (run.role === "open") {
       groupLabel = `Module ${moduleNumber(mod)}`;
+    } else if (run.role === "untagged") {
+      groupLabel = "Untagged";
     }
     groupRow += `<th class="${groupClass}" colspan="${run.span}">${escapeHtml(groupLabel)}</th>`;
     for (const piece of run.pieces) {
