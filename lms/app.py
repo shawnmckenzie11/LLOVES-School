@@ -6691,6 +6691,28 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             school_name=SCHOOL_NAME,
         )
 
+    @app.route("/api/student/mvp-vote", methods=["POST"])
+    @student_required
+    def api_student_mvp_vote():
+        """Winning-team MVP ballot. The response does not echo the choice."""
+        ident = _student_identity()
+        ctx = _student_live_context()
+        if ident is None or ctx is None:
+            return jsonify({"ok": False, "error": "Join class first"}), 403
+        _offering, _class_id, student_id = ident
+        if student_id in (None, ""):
+            return jsonify({"ok": False, "error": "Only the winning team can vote"}), 403
+        body = request.get_json(silent=True) or {}
+        try:
+            school.cast_mvp_vote(
+                int(ctx["live_session_id"]),
+                int(student_id),
+                str(body.get("nominee_codename") or ""),
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, "voted": True})
+
     @app.route("/api/student/state")
     @student_required
     @_guard_live_poll
@@ -8223,6 +8245,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             "page_id",
             "whiteboard_always_show_names",
             "whiteboard_projector_names",
+            "gamification_on",
         ):
             if key in body:
                 kwargs[key] = body.get(key)

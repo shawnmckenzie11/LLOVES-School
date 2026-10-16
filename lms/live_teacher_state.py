@@ -216,6 +216,7 @@ def default_teacher_state() -> dict[str, Any]:
         "groups_configured": False,
         "run_as_group": False,
         "scoreboard_visible": False,
+        "gamification_on": False,
         "hide_absent": False,
         "timer_closes_answers": False,
         "class_set": False,
@@ -836,6 +837,7 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
         "groups_configured",
         "run_as_group",
         "scoreboard_visible",
+        "gamification_on",
         "hide_absent",
         "timer_closes_answers",
         "class_set",
@@ -1003,6 +1005,7 @@ def apply_teacher_state_update(
     question_views: Any = None,
     whiteboard_always_show_names: Any = None,
     whiteboard_projector_names: Any = None,
+    gamification_on: Any = None,
 ) -> dict[str, Any]:
     """Patch the thin teacher channel. Never persists canvas pixels.
 
@@ -1020,6 +1023,7 @@ def apply_teacher_state_update(
         groups_configured: Whether fixed memberships have been created.
         run_as_group: Session-global group presentation/tracking toggle.
         scoreboard_visible: Session-global student scoreboard toggle.
+        gamification_on: Optional Winner page. Off until the teacher opens it.
         hide_absent: Session-global class-list filter; defaults false.
         timer_closes_answers: Opt-in. When the SessionTimer reaches 0:00,
             open questions published before then close (MCK-27).
@@ -1154,6 +1158,11 @@ def apply_teacher_state_update(
         if proj is None:
             raise ValueError("whiteboard_projector_names must be a boolean")
         base["whiteboard_projector_names"] = proj
+    if gamification_on is not None:
+        opened = _as_bool(gamification_on)
+        if opened is None:
+            raise ValueError("gamification_on must be a boolean")
+        base["gamification_on"] = opened
     if not base.get("groups_configured"):
         base["run_as_group"] = False
     base["teams_mode"] = "teams" if base.get("run_as_group") else "individual"

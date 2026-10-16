@@ -859,7 +859,7 @@ CREATE TABLE IF NOT EXISTS avatar_reward_grants (
     id INTEGER PRIMARY KEY,
     class_id INTEGER NOT NULL,
     student_id INTEGER NOT NULL,
-    source TEXT NOT NULL CHECK (source IN ('shoutout', 'engaged')),
+    source TEXT NOT NULL CHECK (source IN ('shoutout', 'engaged', 'mvp')),
     source_ref TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'claimed')),
     avatar_key TEXT,
@@ -2024,6 +2024,7 @@ class LovesDB:
             self._ensure_access_request_schema()
             self._ensure_staff_invite_schema()
             self._ensure_observation_history_shape()
+            self._ensure_gamification_schema()
             self._seed()
             self._seed_live_class_features()
             self._seed_live_class_schedules()
@@ -30520,6 +30521,8 @@ class SchoolDB(LovesDB):
                 self.ensure_live_class_media(session_id)
             if not self._session_left_waiting_room(session_id) and not self.schema_v2_owns_live_stage_questions(session_id):
                 self.ensure_waiting_room_minds_on(session_id)
+        if payload.get("gamification_on") and not current.get("gamification_on"):
+            self._seed_open_mvp_tallies(session_id)
         return written
 
     def _assign_teams_for_meet_advance(
@@ -35531,6 +35534,7 @@ class SchoolDB(LovesDB):
             self.release_eyes_up(int(sid))
             self.purge_board_ops(sid)
             self._purge_team_draw_images(int(sid))
+            self.purge_session_votes(int(sid))
             self.clear_attendee_moods_and_characters(sid)
         try:
             self.game.clear_class_moods_and_characters(int(class_id))
@@ -37105,15 +37109,423 @@ class SchoolDB(LovesDB):
         return session_row
 
 
+    def _ensure_gamification_schema(self) -> None:
+        """Create the split MVP tables and allow an ``mvp`` avatar source.
+
+        Fresh files get the tables from this helper. An older
+        ``avatar_reward_grants`` check is rebuilt so an MVP grant can
+        be stored without a voter id.
+        """
+        from gamification_winner import VOTE_DDL
+
+        self.conn.executescript(VOTE_DDL)
+        row = self.conn.execute(
+            """
+            SELECT sql FROM sqlite_master
+            WHERE type = 'table' AND name = 'avatar_reward_grants'
+            """
+        ).fetchone()
+        ddl = str(row["sql"] if row is not None else "")
+        if not ddl or "mvp" in ddl:
+            return
+        self.conn.executescript(
+            """
+            CREATE TABLE avatar_reward_grants_v2 (
+                id INTEGER PRIMARY KEY,
+                class_id INTEGER NOT NULL,
+                student_id INTEGER NOT NULL,
+                source TEXT NOT NULL CHECK (source IN ('shoutout', 'engaged', 'mvp')),
+                source_ref TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'claimed')),
+                avatar_key TEXT,
+                created_at TEXT NOT NULL,
+                claimed_at TEXT,
+                UNIQUE (class_id, student_id, source, source_ref)
+            );
+            INSERT INTO avatar_reward_grants_v2 (
+                id, class_id, student_id, source, source_ref, status,
+                avatar_key, created_at, claimed_at
+            )
+            SELECT id, class_id, student_id, source, source_ref, status,
+                   avatar_key, created_at, claimed_at
+            FROM avatar_reward_grants;
+            DROP TABLE avatar_reward_grants;
+            ALTER TABLE avatar_reward_grants_v2 RENAME TO avatar_reward_grants;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_avatar_reward_grants_owned
+                ON avatar_reward_grants(class_id, student_id, avatar_key)
+                WHERE avatar_key IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS idx_avatar_reward_grants_student
+                ON avatar_reward_grants(class_id, student_id, status);
+            """
+        )
+
+    def purge_session_votes(self, session_id: int) -> None:
+        """Wipe MVP ballots and tallies for one live session.
+
+        Same lifetime as ``purge_session_news``: a reused session id or
+        a Quit must not keep the previous run's votes.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        from gamification_winner import purge_vote_tables
+
+        with self._lock:
+            purge_vote_tables(self.conn, int(session_id))
+
+    def _joined_student_ids(self, session_id: int) -> set[int]:
+        """Roster ids still in this live session.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT student_id FROM live_session_attendees
+                WHERE live_session_id = ?
+                  AND student_id IS NOT NULL
+                  AND left_at IS NULL
+                """,
+                (int(session_id),),
+            ).fetchall()
+        return {int(row["student_id"]) for row in rows}
+
+    def _group_challenge_points(
+        self, session_id: int, raw_teams: list[dict[str, Any]]
+    ) -> dict[int, float]:
+        """Individual points that still count: challenges and group awards.
+
+        Challenge payouts are counted from the race ledger once. The
+        group-member cache of those same payouts is skipped. Consensus
+        points are the per-member amount on a group response that is
+        not a rank-team award.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            raw_teams: ``game_state`` teams, used to map a team id to members.
+        """
+        allowed: dict[int, float] = {}
+
+        def add(student_id: int, points: Any) -> None:
+            allowed[int(student_id)] = float(allowed.get(int(student_id), 0)) + float(
+                points or 0
+            )
+
+        members_of: dict[int, list[int]] = {}
+        for team in raw_teams:
+            try:
+                team_id = int(team.get("id") or 0)
+            except (TypeError, ValueError):
+                continue
+            ids: list[int] = []
+            for member in team.get("members") or []:
+                if not isinstance(member, dict):
+                    continue
+                try:
+                    sid = int(member.get("id") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if sid:
+                    ids.append(sid)
+            members_of[team_id] = ids
+        with self._lock:
+            challenges = self.conn.execute(
+                """
+                SELECT a.student_id AS student_id, a.points AS points
+                FROM live_rank_race_awards a
+                JOIN live_session_items i ON i.id = a.live_item_id
+                WHERE i.live_session_id = ? AND a.paid_at IS NOT NULL
+                """,
+                (int(session_id),),
+            ).fetchall()
+            group_members = self.conn.execute(
+                """
+                SELECT m.student_id AS student_id, m.awarded_points AS points
+                FROM live_group_members m
+                JOIN live_session_items i ON i.id = m.live_item_id
+                WHERE i.live_session_id = ?
+                  AND COALESCE(m.awarded_points, 0) != 0
+                  AND NOT EXISTS (
+                    SELECT 1 FROM live_rank_race_awards a
+                    WHERE a.live_item_id = m.live_item_id
+                      AND a.student_id = m.student_id
+                      AND a.paid_at IS NOT NULL
+                  )
+                """,
+                (int(session_id),),
+            ).fetchall()
+            consensus = self.conn.execute(
+                """
+                SELECT g.team_id AS team_id, g.awarded_points AS points
+                FROM live_group_responses g
+                JOIN live_session_items i ON i.id = g.live_item_id
+                WHERE i.live_session_id = ?
+                  AND COALESCE(g.awarded_points, 0) != 0
+                  AND NOT EXISTS (
+                    SELECT 1 FROM live_rank_team_awards a
+                    WHERE a.live_item_id = g.live_item_id
+                      AND a.team_id = g.team_id
+                  )
+                """,
+                (int(session_id),),
+            ).fetchall()
+        for row in challenges:
+            add(int(row["student_id"]), row["points"])
+        for row in group_members:
+            add(int(row["student_id"]), row["points"])
+        for row in consensus:
+            points = row["points"]
+            for sid in members_of.get(int(row["team_id"]), []):
+                add(sid, points)
+        return allowed
+
+    def _load_winner_state(self, session_id: int) -> dict[str, Any] | None:
+        """Internal winner facts. None when the page is off.
+
+        The dict still has roster ids for the vote writer. Student
+        payloads go through :meth:`gamification_winner_payload`.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        from gamification_winner import ranked_group_teams, student_event_sums, tally_map, voter_id_set
+
+        try:
+            teacher = self.live_session_teacher_state_payload(int(session_id))
+        except KeyError:
+            return None
+        if not teacher.get("gamification_on"):
+            return None
+        session_row = self.get_live_session(int(session_id))
+        if session_row is None:
+            return None
+        class_id = int(session_row["class_id"])
+        try:
+            state = self.game.game_state(class_id)
+        except Exception:  # noqa: BLE001 — no game yet still shows an empty page
+            state = {"teams": [], "game": {}}
+        raw_teams = [row for row in (state.get("teams") or []) if isinstance(row, dict)]
+        game_id = int((state.get("game") or {}).get("id") or 0)
+        event_sums: dict[int, float] = {}
+        if game_id:
+            with self.game._lock:
+                event_sums = student_event_sums(self.game.conn, game_id)
+        allowed = self._group_challenge_points(int(session_id), raw_teams)
+        teams = ranked_group_teams(raw_teams, event_sums, allowed)
+        with self._lock:
+            voters = voter_id_set(self.conn, int(session_id))
+            tallies = tally_map(self.conn, int(session_id))
+        return {
+            "class_id": class_id,
+            "teams": teams,
+            "joined": self._joined_student_ids(int(session_id)),
+            "voter_ids": voters,
+            "tallies": tallies,
+        }
+
+    def _winner_decision(self, loaded: dict[str, Any]) -> dict[str, Any]:
+        """MVP decision for a loaded winner state.
+
+        Args:
+            loaded: Output of :meth:`_load_winner_state`.
+        """
+        from gamification_winner import decide_mvp, unique_leader
+
+        leader = unique_leader(list(loaded.get("teams") or []))
+        if leader is None:
+            return {"status": "waiting", "student_id": None, "codename": "", "tied": []}
+        joined = set(loaded.get("joined") or [])
+        eligible = {
+            int(member["id"])
+            for member in leader["members"]
+            if int(member["id"]) in joined
+        }
+        return decide_mvp(
+            list(leader["members"]),
+            dict(loaded.get("tallies") or {}),
+            eligible,
+            set(loaded.get("voter_ids") or []),
+        )
+
+    def _grant_mvp_if_decided(
+        self, session_id: int, loaded: dict[str, Any] | None = None
+    ) -> None:
+        """Insert one pending avatar grant for a decided MVP.
+
+        The grant names the session and the MVP. It does not name voters.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            loaded: Optional winner state already read by the caller.
+        """
+        from gamification_winner import mvp_source_ref
+
+        facts = loaded if loaded is not None else self._load_winner_state(int(session_id))
+        if facts is None:
+            return
+        decision = self._winner_decision(facts)
+        student_id = decision.get("student_id")
+        if decision.get("status") != "mvp" or student_id in (None, ""):
+            return
+        ref = mvp_source_ref(int(session_id))
+        with self._lock:
+            found = self.conn.execute(
+                """
+                SELECT 1 FROM avatar_reward_grants
+                WHERE class_id = ? AND student_id = ? AND source = 'mvp' AND source_ref = ?
+                """,
+                (int(facts["class_id"]), int(student_id), ref),
+            ).fetchone()
+            if found is not None:
+                return
+            self.conn.execute(
+                """
+                INSERT INTO avatar_reward_grants
+                    (class_id, student_id, source, source_ref, status, created_at)
+                VALUES (?, ?, 'mvp', ?, 'pending', ?)
+                """,
+                (int(facts["class_id"]), int(student_id), ref, _now()),
+            )
+            self.conn.commit()
+
+    def _seed_open_mvp_tallies(self, session_id: int) -> None:
+        """Zero-fill tallies for the current winning team.
+
+        Seeding uses nominee id order so the tally table is not vote order.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        from gamification_winner import seed_tallies, unique_leader
+
+        loaded = self._load_winner_state(int(session_id))
+        if loaded is None:
+            return
+        leader = unique_leader(list(loaded.get("teams") or []))
+        if leader is None:
+            return
+        ids = [int(member["id"]) for member in leader["members"]]
+        with self._lock:
+            seed_tallies(self.conn, int(session_id), ids)
+            if self.conn.in_transaction:
+                self.conn.commit()
+
+    def gamification_winner_payload(
+        self,
+        session_id: int,
+        class_id: int,
+        student_id: int | None,
+    ) -> dict[str, Any]:
+        """Winner page for one student. Off unless the teacher opened it.
+
+        The dict shows codenames only. It does not include ballot rows.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            class_id: Game-show ``classes.id``. Unused; the session owns the class.
+            student_id: Roster id of the viewer, or None for a guest.
+        """
+        from gamification_winner import WINNER_COPY, format_winner_page
+
+        del class_id
+        loaded = self._load_winner_state(int(session_id))
+        if loaded is None:
+            return {"on": False, "copy": dict(WINNER_COPY)}
+        self._grant_mvp_if_decided(int(session_id), loaded)
+        decision = self._winner_decision(loaded)
+        viewer = int(student_id) if student_id not in (None, "") else None
+        voted = viewer is not None and viewer in set(loaded.get("voter_ids") or [])
+        return format_winner_page(
+            enabled=True,
+            teams=list(loaded.get("teams") or []),
+            viewer_id=viewer,
+            voted=voted,
+            decision=decision,
+        )
+
+    def cast_mvp_vote(
+        self, session_id: int, voter_id: int, nominee_codename: str
+    ) -> dict[str, Any]:
+        """Record one anonymous MVP ballot for a winning-team member.
+
+        The ballot table stores that ``voter_id`` voted. The tally table
+        stores the nominee count. Those writes do not share a timestamp
+        or a log line. The return value does not echo the choice.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            voter_id: Roster ``students.id``.
+            nominee_codename: Winning-team codename. Not stored on the ballot.
+
+        Returns:
+            ``{"ok": True, "voted": True}``.
+
+        Raises:
+            ValueError: The page is off, the student cannot vote, the
+                codename is not on the winning team, or they already voted.
+        """
+        from gamification_winner import cast_split, unique_leader
+
+        loaded = self._load_winner_state(int(session_id))
+        if loaded is None:
+            raise ValueError("Winner page is off")
+        leader = unique_leader(list(loaded.get("teams") or []))
+        if leader is None:
+            raise ValueError("No winning team yet")
+        voter = int(voter_id)
+        member_ids = {int(member["id"]) for member in leader["members"]}
+        if voter not in member_ids or voter not in set(loaded.get("joined") or []):
+            raise ValueError("Only the winning team can vote")
+        wanted = str(nominee_codename or "").strip().casefold()
+        nominee = next(
+            (
+                member
+                for member in leader["members"]
+                if str(member["codename"]).casefold() == wanted
+            ),
+            None,
+        )
+        if nominee is None or not wanted:
+            raise ValueError("Pick a teammate")
+        with self._lock:
+            outcome = cast_split(
+                self.conn,
+                int(session_id),
+                voter,
+                int(nominee["id"]),
+                [int(member["id"]) for member in leader["members"]],
+            )
+        if outcome == "duplicate":
+            raise ValueError("You already voted")
+        self._grant_mvp_if_decided(int(session_id))
+        return {"ok": True, "voted": True}
+
+    def _mvp_voter_count(self, session_id: int) -> int:
+        """Ballot count for the student poll stamp. Tallies are not read.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        from gamification_winner import voter_count
+
+        try:
+            with self._lock:
+                return voter_count(self.conn, int(session_id))
+        except sqlite3.Error:
+            return 0
+
     def _purge_session_news(self, session_id: int) -> None:
-        """Clear LiveNewsWire postcards left on a reused session id.
+        """Clear LiveNewsWire postcards and MVP votes on a reused session id.
 
         A first connect (no ``Last-Event-ID``) reads the whole ring, so
-        an old run's postcards would replay into the new run.
+        an old run's postcards would replay into the new run. Votes are
+        wiped with the same call.
 
         Args:
             session_id: ``live_class_sessions.id`` of the new run.
         """
+        self.purge_session_votes(int(session_id))
         try:
             from live_news_wire import purge_session_news
         except Exception:  # noqa: BLE001 — wire is optional at import time
@@ -37338,7 +37750,8 @@ class SchoolDB(LovesDB):
             f"{seq}:{prompt_max}:{prompt_active}:{active_n}:{item_n}:{save_n}:"
             f"{item_max}:{response_max}:{group_vote_max}:{event_max}:"
             f"{prompt_rev}:{item_rev}:{group_vote_rev}:{status}:{celebrate}:"
-            f"{group_response_rev}:{race_step_rev}:{presence_rev}"
+            f"{group_response_rev}:{race_step_rev}:{presence_rev}:"
+            f"{self._mvp_voter_count(int(session_id))}"
         )
 
     #: Last good presence token per session (MCK-186), so a presence blip
@@ -38161,6 +38574,9 @@ class SchoolDB(LovesDB):
             int(class_id),
             sid,
             participant_uuid,
+        )
+        payload["gamification"] = self.gamification_winner_payload(
+            int(live_session_id), int(class_id), sid
         )
         return payload
 
