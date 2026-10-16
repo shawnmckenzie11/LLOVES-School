@@ -5215,7 +5215,7 @@ function winnerCopy(page, key) {
 }
 
 /**
- * Paint the optional Winner page: codenames, scoreboard, and the MVP poll.
+ * Paint the optional Winner page. Classmates are not shown who voted for whom.
  * @param {any} payload
  */
 function paintGamificationWinner(payload) {
@@ -5271,8 +5271,10 @@ function paintGamificationWinner(payload) {
   const title = page.winner_name
     ? escapeText(page.winner_name)
     : escapeText(winnerCopy(page, "winner.kicker"));
+  const hidden = `<p data-copy-key="winner.hidden">${escapeText(winnerCopy(page, "winner.hidden"))}</p>`;
   host.innerHTML = `<p class="gs-kicker" data-copy-key="winner.kicker">${escapeText(winnerCopy(page, "winner.kicker"))}</p>
     <h2 class="gs-title">${title}</h2>
+    ${hidden}
     <p data-copy-key="winner.scoreboard_label">${escapeText(winnerCopy(page, "winner.scoreboard_label"))}</p>
     <ul>${board}</ul>
     ${extra}`;

@@ -6694,7 +6694,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/student/mvp-vote", methods=["POST"])
     @student_required
     def api_student_mvp_vote():
-        """Winning-team MVP ballot. The response does not echo the choice."""
+        """Winning-team MVP ballot. The response does not say who was chosen."""
         ident = _student_identity()
         ctx = _student_live_context()
         if ident is None or ctx is None:

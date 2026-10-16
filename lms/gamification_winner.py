@@ -1,12 +1,12 @@
-"""MCK-240 Winner page: group scoreboard and an anonymous MVP vote.
+"""MCK-240 Winner page: group scoreboard and an MVP vote.
 
 Gamification is an optional add-on. The teacher turns the Winner page on.
-The page shows codenames only.
+The page shows codenames only. Classmates do not see who voted for whom.
 
-Votes are split on purpose. ``gamification_mvp_voters`` records that a
-student voted (session and voter, no choice). ``gamification_mvp_tallies``
-records nominee totals (session and nominee, no voter). The tables share
-no timestamp, no rowid order, and no log line.
+Votes are stored in one transaction. ``gamification_mvp_voters`` records
+that a student voted (session and voter, no choice). ``gamification_mvp_tallies``
+records nominee totals (session and nominee, no voter). Student APIs do
+not join those tables. Staff may still read the school database.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ WINNER_COPY: dict[str, str] = {
     "winner.scoreboard_label": "Scoreboard",
     "winner.points_label": "points",
     "winner.poll_prompt": "Vote for your MVP",
+    "winner.hidden": "Votes are hidden from classmates",
     "winner.poll_thanks": "Vote recorded",
     "winner.poll_error": "Try again",
     "winner.waiting": "Waiting for votes",
@@ -212,6 +213,39 @@ def decide_mvp(
     }
 
 
+def student_payload_hides_ballots(page: dict[str, Any]) -> bool:
+    """Return True when a student payload does not pair a voter with a choice.
+
+    Args:
+        page: Winner page dict sent to a student.
+    """
+    link_keys = {
+        "voter_id",
+        "nominee_id",
+        "voter",
+        "nominee",
+        "choice",
+        "ballot",
+        "ballots",
+        "votes",
+        "tally",
+        "tallies",
+    }
+
+    def keys_of(value: object) -> set[str]:
+        found: set[str] = set()
+        if isinstance(value, dict):
+            for key, child in value.items():
+                found.add(str(key))
+                found.update(keys_of(child))
+        elif isinstance(value, list):
+            for child in value:
+                found.update(keys_of(child))
+        return found
+
+    return not (keys_of(page) & link_keys)
+
+
 def format_winner_page(
     *,
     enabled: bool,
@@ -220,7 +254,7 @@ def format_winner_page(
     voted: bool,
     decision: dict[str, Any],
 ) -> dict[str, Any]:
-    """Student payload. Codenames and copy keys only.
+    """Student payload. Codenames and copy keys only, with no ballot pairs.
 
     Args:
         enabled: Teacher opened the Winner page.
@@ -429,6 +463,44 @@ def purge_vote_tables(conn: sqlite3.Connection, session_id: int) -> None:
             "DELETE FROM gamification_mvp_tallies WHERE session_id = ?",
             (sid,),
         )
+
+    run_write(conn, write)
+
+
+def delete_votes_for_sessions(conn: sqlite3.Connection, session_ids: list[int]) -> None:
+    """Delete voter and tally rows for sessions that are about to be removed.
+
+    The vote tables do not reference ``live_class_sessions``, so deleting
+    a staff member's sessions leaves the ballots behind unless this runs
+    first.
+
+    Args:
+        conn: School sqlite connection.
+        session_ids: ``live_class_sessions.id`` values.
+    """
+    ids = [int(value) for value in session_ids]
+    if not ids:
+        return
+    placeholders = ",".join("?" for _ in ids)
+    present = {
+        str(row[0])
+        for row in conn.execute(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type = 'table'
+              AND name IN ('gamification_mvp_voters', 'gamification_mvp_tallies')
+            """
+        )
+    }
+
+    def write() -> None:
+        for table in ("gamification_mvp_voters", "gamification_mvp_tallies"):
+            if table not in present:
+                continue
+            conn.execute(
+                f"DELETE FROM {table} WHERE session_id IN ({placeholders})",
+                ids,
+            )
 
     run_write(conn, write)
 
