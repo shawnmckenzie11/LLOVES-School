@@ -1880,68 +1880,18 @@ class GameShowDB:
             game: Open games row.
             spec: Payload from ``_read_team_lock_unlocked``.
         """
+        from board_assignment_restore import apply_team_lock_with_board_assignments
+
         game_id = int(game["id"])
         session_id = int(game["session_id"])
-        self.conn.execute(
-            "DELETE FROM game_memberships WHERE game_id = ?", (game_id,)
+        wrote = apply_team_lock_with_board_assignments(
+            self,
+            int(class_id),
+            game_id,
+            session_id,
+            spec,
+            student_is_test_locked=self._student_is_test_locked,
         )
-        self.conn.execute("DELETE FROM team_buckets WHERE game_id = ?", (game_id,))
-        self.conn.execute("DELETE FROM game_teams WHERE game_id = ?", (game_id,))
-        self._ensure_session_scores(session_id, int(class_id))
-        wrote = False
-        for team in spec.get("teams") or []:
-            if not isinstance(team, dict):
-                continue
-            try:
-                order = int(team.get("sort_order") or 0)
-            except (TypeError, ValueError):
-                order = 0
-            name = str(team.get("name") or "").strip() or default_team_name(order)
-            if name == "Class":
-                continue
-            color = str(team.get("color") or "").strip() or color_for_team(order)
-            cur = self.conn.execute(
-                """
-                INSERT INTO game_teams (game_id, name, color, sort_order)
-                VALUES (?, ?, ?, ?)
-                """,
-                (game_id, name, color, order),
-            )
-            team_id = int(cur.lastrowid)
-            self.conn.execute(
-                """
-                INSERT INTO team_buckets (game_id, team_id, points)
-                VALUES (?, ?, 0)
-                """,
-                (game_id, team_id),
-            )
-            for raw in team.get("student_ids") or []:
-                try:
-                    student_id = int(raw)
-                except (TypeError, ValueError):
-                    continue
-                roster = self.conn.execute(
-                    "SELECT id FROM students WHERE id = ? AND class_id = ?",
-                    (student_id, int(class_id)),
-                ).fetchone()
-                if roster is None:
-                    continue
-                self.conn.execute(
-                    """
-                    INSERT INTO game_memberships (game_id, team_id, student_id)
-                    VALUES (?, ?, ?)
-                    """,
-                    (game_id, team_id, student_id),
-                )
-                self.conn.execute(
-                    """
-                    UPDATE session_scores
-                    SET present = 1
-                    WHERE session_id = ? AND student_id = ? AND present = 0
-                    """,
-                    (session_id, student_id),
-                )
-                wrote = True
         if not wrote:
             return False
         if str(game["status"] or "") in {"attendance", "teams"}:
@@ -1990,24 +1940,24 @@ class GameShowDB:
             self._forget_team_index(class_id=int(class_id))
         return self.game_state(int(class_id))
 
-    def _assign_joiner_if_teams_locked(
-        self, game_id: int, session_id: int, student_id: int
-    ) -> None:
-        """Put a mid-class joiner on the smallest / weakest-career team."""
-        already = self.conn.execute(
-            """
-            SELECT student_id FROM game_memberships
-            WHERE game_id = ? AND student_id = ?
-            """,
-            (int(game_id), int(student_id)),
-        ).fetchone()
-        if already is not None:
-            return
-        teams = [
+    def _late_join_teams_unlocked(
+        self, game_id: int, *, named_only: bool
+    ) -> list[dict[str, Any]]:
+        """Team rows used to place a joiner. Caller holds the lock.
+
+        ``sort_order`` is selected so the first team (order ``0``) is not
+        treated as missing.
+
+        Args:
+            game_id: Open game id.
+            named_only: When True, omit the individual-tracking Class team.
+        """
+        named_clause = "AND t.name != 'Class'" if named_only else ""
+        return [
             dict(row)
             for row in self.conn.execute(
-                """
-                SELECT t.id, t.name,
+                f"""
+                SELECT t.id, t.name, t.sort_order,
                        (SELECT COUNT(*) FROM game_memberships m
                         WHERE m.team_id = t.id) AS size,
                        COALESCE((
@@ -2018,21 +1968,133 @@ class GameShowDB:
                            WHERE m.team_id = t.id
                        ), 0) AS course_total
                 FROM game_teams t
-                WHERE t.game_id = ? AND t.name != 'Class'
+                WHERE t.game_id = ? {named_clause}
                 ORDER BY t.sort_order, t.id
                 """,
                 (int(game_id),),
             )
         ]
+
+    @staticmethod
+    def _team_sort_order_value(team: dict[str, Any]) -> int:
+        """Sort order on a late-join team row. ``None`` is 0; ``0`` stays 0.
+
+        Args:
+            team: Row from ``_late_join_teams_unlocked``.
+        """
+        raw = team.get("sort_order")
+        if raw is None:
+            return 0
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return 0
+
+    def _pinned_team_id_unlocked(
+        self, class_id: int, student_id: int, teams: list[dict[str, Any]]
+    ) -> int | None:
+        """Team id whose sort order matches this student's saved board pin.
+
+        Args:
+            class_id: Classes primary key. ``0`` means no class was resolved.
+            student_id: Roster id.
+            teams: Candidate rows including ``sort_order``.
+        """
+        from board_pins import active_live_run_key, assignment_sort_orders
+
+        if not class_id:
+            return None
+        run_key = active_live_run_key(self.conn, int(class_id))
+        if not run_key:
+            return None
+        pinned = assignment_sort_orders(
+            self.conn, class_id=int(class_id), run_key=run_key
+        ).get(int(student_id))
+        if pinned is None:
+            return None
+        for team in teams:
+            if str(team.get("name") or "") == "Class":
+                continue
+            if self._team_sort_order_value(team) == int(pinned):
+                return int(team["id"])
+        return None
+
+    def _record_joiner_board_pin_unlocked(
+        self,
+        class_id: int,
+        student_id: int,
+        teams: list[dict[str, Any]],
+        team_id: int,
+    ) -> None:
+        """Write ``team:<sort_order>`` for a joiner. Caller holds the lock.
+
+        Skips Test Student and the Class list. Sort order ``0`` is stored
+        as ``team:0``. The caller commits.
+
+        Args:
+            class_id: Classes primary key.
+            student_id: Roster id.
+            teams: Rows from ``_late_join_teams_unlocked``.
+            team_id: Team the joiner was placed on.
+        """
+        from board_pins import active_live_run_key, record_board_assignment
+
+        if not class_id or self._student_is_test_locked(int(student_id)):
+            return
+        chosen = next(
+            (team for team in teams if int(team["id"]) == int(team_id)),
+            None,
+        )
+        if chosen is None or str(chosen.get("name") or "") == "Class":
+            return
+        run_key = active_live_run_key(self.conn, int(class_id))
+        if not run_key:
+            return
+        record_board_assignment(
+            self.conn,
+            class_id=int(class_id),
+            run_key=run_key,
+            student_id=int(student_id),
+            team_sort_order=self._team_sort_order_value(chosen),
+        )
+
+    def _assign_joiner_if_teams_locked(
+        self, game_id: int, session_id: int, student_id: int
+    ) -> None:
+        """Put a mid-class joiner on the smallest / weakest-career team.
+
+        When this live run already has a board pin, that sort order wins.
+        Otherwise the joiner is pinned to the team they were just placed on.
+        """
+        if self._student_is_test_locked(int(student_id)):
+            return
+        already = self.conn.execute(
+            """
+            SELECT student_id FROM game_memberships
+            WHERE game_id = ? AND student_id = ?
+            """,
+            (int(game_id), int(student_id)),
+        ).fetchone()
+        if already is not None:
+            return
+        teams = self._late_join_teams_unlocked(int(game_id), named_only=True)
         if not teams:
             return
-        team_id = pick_late_team(teams)
+        class_row = self.conn.execute(
+            "SELECT class_id FROM games WHERE id = ?", (int(game_id),)
+        ).fetchone()
+        class_id = int(class_row["class_id"]) if class_row else 0
+        pinned_team = self._pinned_team_id_unlocked(class_id, int(student_id), teams)
+        team_id = pinned_team if pinned_team is not None else pick_late_team(teams)
         self.conn.execute(
             """
             INSERT INTO game_memberships (game_id, team_id, student_id)
             VALUES (?, ?, ?)
             """,
             (int(game_id), int(team_id), int(student_id)),
+        )
+        self._record_joiner_board_pin_unlocked(
+            class_id, int(student_id), teams, int(team_id)
         )
         self._forget_team_index(game_id=int(game_id))
 
@@ -2074,7 +2136,9 @@ class GameShowDB:
 
         Marks attendance Late (``present=1``, ``late=1``), assigns them to a
         balanced existing team (fewest players, then lowest summed course score),
-        and is race-safe under the DB lock (idempotent if already a member).
+        and pins that team sort order on the live whiteboard run. An existing
+        pin for this run wins over the balance pick. Race-safe under the DB
+        lock (idempotent if already a member).
 
         Args:
             class_id: Classes primary key.
@@ -2101,6 +2165,8 @@ class GameShowDB:
             ).fetchone()
             if student is None:
                 raise KeyError(f"student {student_id}")
+            if self._student_is_test_locked(int(student_id)):
+                return self.game_state(class_id, game_id=int(game["id"]))
             game_id = int(game["id"])
             session_id = int(game["session_id"])
             already = self.conn.execute(
@@ -2122,30 +2188,15 @@ class GameShowDB:
                 # Already on a team (on-time or previously admitted) — no-op.
                 return self.game_state(class_id, game_id=game_id)
 
-            teams = [
-                dict(row)
-                for row in self.conn.execute(
-                    """
-                    SELECT t.id, t.name,
-                           (SELECT COUNT(*) FROM game_memberships m
-                            WHERE m.team_id = t.id) AS size,
-                           COALESCE((
-                               SELECT SUM(s.points)
-                               FROM game_memberships m
-                               JOIN session_scores s
-                                 ON s.student_id = m.student_id
-                               WHERE m.team_id = t.id
-                           ), 0) AS course_total
-                    FROM game_teams t
-                    WHERE t.game_id = ?
-                    ORDER BY t.sort_order, t.id
-                    """,
-                    (game_id,),
-                )
-            ]
+            teams = self._late_join_teams_unlocked(game_id, named_only=False)
             if not teams:
                 raise ValueError("No teams available for late join")
-            if len(teams) == 1 and str(teams[0].get("name") or "") == "Class":
+            pinned_team = self._pinned_team_id_unlocked(
+                int(class_id), int(student_id), teams
+            )
+            if pinned_team is not None:
+                team_id = pinned_team
+            elif len(teams) == 1 and str(teams[0].get("name") or "") == "Class":
                 team_id = int(teams[0]["id"])
             else:
                 team_id = pick_late_team(teams)
@@ -2177,6 +2228,9 @@ class GameShowDB:
                 VALUES (?, ?, ?)
                 """,
                 (game_id, team_id, int(student_id)),
+            )
+            self._record_joiner_board_pin_unlocked(
+                int(class_id), int(student_id), teams, int(team_id)
             )
             self._snapshot_team_lock_unlocked(int(class_id))
             self.conn.commit()
@@ -2695,9 +2749,6 @@ class GameShowDB:
         """
         key = int(class_id)
         now = time.monotonic()
-        hit = self._team_index_cache.get(key)
-        if hit is not None and now - hit[0] < 0.5:
-            return hit[1]
         built = self._load_team_membership_index(key)
         # Do not cache an empty index. Setup reads teacher state before
         # assign_teams; a cached miss would hide the new teams for 0.5s and
@@ -4681,8 +4732,21 @@ class GameShowDB:
             )
             self._clear_team_name_poll_unlocked(game_id)
             self._snapshot_team_lock_unlocked(int(class_id))
+            from board_pins import active_live_run_key
+            from board_assignment_restore import record_assignments_from_state
+
+            run_key = active_live_run_key(self.conn, int(class_id))
+            if run_key:
+                state = self.game_state(int(class_id))
+                record_assignments_from_state(
+                    self.conn,
+                    class_id=int(class_id),
+                    run_key=run_key,
+                    game_state=state,
+                    student_is_test_locked=self._student_is_test_locked,
+                )
             self.conn.commit()
-        self._team_index_cache.pop(int(class_id), None)
+        self._forget_team_index(class_id=int(class_id))
         return self.game_state(class_id)
 
     def rename_teams(
