@@ -7255,12 +7255,12 @@ class SchoolDB(LovesDB):
         # (``games.team_names_approved``). Same cross-worker lock, taken
         # after the school schema lock above was released (MCK-104).
         with boot_schema_lock(path):
-            # Vote tables belong to the school facade. Bare ``LovesDB``
-            # opens stay free of this helper.
-            self._ensure_gamification_schema()
             self.game = mod.GameShowDB(path, store, lock=self._lock)
             self._backfill_catchup_portal_join_codes()
             self._backfill_lesson_slides_latest()
+            # Vote tables belong to the school facade. Bare ``LovesDB``
+            # opens stay free of this helper.
+            self._ensure_gamification_schema()
         self.conn.commit()
         self._artifact_slider_previews: dict[tuple[int, int, int], dict[str, Any]] = {}
         self.data_dir = store
