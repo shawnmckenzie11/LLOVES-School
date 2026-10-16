@@ -3,6 +3,10 @@
  */
 import { api } from "/static/common.js";
 
+/** Shown when delete-test fails; never include server codes in the UI. */
+export const DELETE_TEST_CLASS_ERROR =
+  "Couldn't delete this test class. Nothing was removed, so try again.";
+
 /**
  * Ask, then delete a test class. Live runs are refused by the server.
  * @param {number} classId
@@ -23,9 +27,13 @@ export async function deleteTestClass(classId, sessionId) {
     dialog.showModal();
   });
   if (!yes) return false;
-  await api(
-    `/api/classes/${classId}/live-sessions/${sid}/delete-test`,
-    { method: "POST", body: "{}" }
-  );
+  try {
+    await api(
+      `/api/classes/${classId}/live-sessions/${sid}/delete-test`,
+      { method: "POST", body: "{}" }
+    );
+  } catch {
+    throw new Error(DELETE_TEST_CLASS_ERROR);
+  }
   return true;
 }

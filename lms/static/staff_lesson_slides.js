@@ -2,7 +2,10 @@
  * Lesson Slides table (MCK-229): one row per live class, latest real run.
  * Test runs are extra rows with a TEST tag (MCK-269).
  */
-import { deleteTestClass } from "/static/staff_test_class.js";
+import {
+  deleteTestClass,
+  DELETE_TEST_CLASS_ERROR,
+} from "/static/staff_test_class.js";
 
 const root = document.getElementById("lesson-slides-root");
 const classId = root?.dataset.classId;
@@ -203,7 +206,13 @@ function bindTestRowMenu(wrap, sessionId) {
       .then((gone) => {
         if (gone) window.location.reload();
       })
-      .catch(() => {});
+      .catch(() => {
+        const status = document.getElementById("ls-table-status");
+        if (status) {
+          status.hidden = false;
+          status.textContent = DELETE_TEST_CLASS_ERROR;
+        }
+      });
   });
 }
 
