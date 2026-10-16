@@ -22238,7 +22238,11 @@ class SchoolDB(LovesDB):
                     row = self._group_response_row(item_id, int(team["team_id"])) or {}
                     team["title"] = gallery_row_title(row)
                 self._attach_quiet_member_dots(
-                    item_id, teams, run_key=run_key, roster_by_team=roster_by_team
+                    item_id,
+                    teams,
+                    class_id=class_id,
+                    run_key=run_key,
+                    roster_by_team=roster_by_team,
                 )
                 entry: dict[str, Any] = {
                     "response_mode": "team_draw",
@@ -22283,7 +22287,11 @@ class SchoolDB(LovesDB):
                     item_id, class_id, order, member_counts, present_ids=present
                 )
             self._attach_quiet_member_dots(
-                item_id, teams, run_key=run_key, roster_by_team=roster_by_team
+                item_id,
+                teams,
+                class_id=class_id,
+                run_key=run_key,
+                roster_by_team=roster_by_team,
             )
             entry: dict[str, Any] = {
                 "response_mode": mode,
@@ -22324,11 +22332,27 @@ class SchoolDB(LovesDB):
             break
         return members
 
+    def _quiet_dot_board_key(self, class_id: int, team_id: int) -> str:
+        """Collab bucket used to detect team-board ink for one game team.
+
+        Sort order ``0`` is ``team:0``. The game team id is used only when
+        that team row has no sort order.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            team_id: ``game_teams.id``.
+        """
+        sort_order = self._team_sort_order_for_team_id(int(class_id), int(team_id))
+        if sort_order is None:
+            return f"team:{int(team_id)}"
+        return f"team:{int(sort_order)}"
+
     def _attach_quiet_member_dots(
         self,
         live_item_id: int,
         teams: list[dict[str, Any]],
         *,
+        class_id: int,
         run_key: str,
         roster_by_team: dict[int, list[int]],
     ) -> None:
@@ -22336,10 +22360,13 @@ class SchoolDB(LovesDB):
 
         Each bool is True when the member has no vote, draft edit, or team-board
         ink on this item in the current run. Names are never sent on the poll.
+        Sort order ``0`` stays ``team:0``; only a missing sort order falls back
+        to the game team id.
 
         Args:
             live_item_id: Active ``live_session_items.id``.
             teams: Thin team rows for one active group item.
+            class_id: Game-show ``classes.id`` for the open session.
             run_key: Current ``live_class_sessions.run_key`` (from the poll).
             roster_by_team: Member ids per team, built once per light poll.
         """
@@ -22352,8 +22379,7 @@ class SchoolDB(LovesDB):
             return
         team_ids = [int(team.get("team_id") or 0) for team in teams if int(team.get("team_id") or 0)]
         board_keys = tuple(
-            f"team:{self._team_sort_order_for_team_id(int(class_id), int(tid)) or int(tid)}"
-            for tid in team_ids
+            self._quiet_dot_board_key(int(class_id), int(tid)) for tid in team_ids
         )
         all_roster: list[int] = []
         for team in teams:
