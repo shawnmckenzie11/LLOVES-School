@@ -69,6 +69,8 @@
       })();
     </script>
 
+    {% include "staff/_show_test_students.html" %}
+
     {% if tab == 'modules' %}
     <div class="layout" id="modules-root" data-class-id="{{ cls.id }}">
       <aside class="card module-nav-pane">
@@ -1129,7 +1131,7 @@
           </table>
         </div>
         <p class="ap-mod-foot">Page loads scrolled to the current module. Collapse choices are remembered per teacher.
-          <a id="export-results-csv" href="{{ url_for('staff_class_results_csv', class_id=cls.id) }}" download>Export results (CSV)</a>
+          <a id="export-results-csv" href="{{ url_for('staff_class_results_csv', class_id=cls.id, show_test_students=1 if show_test_students else 0) }}" download>Export results (CSV)</a>
         </p>
       </div>
       <dialog id="confirm-dialog" class="confirm-dialog">

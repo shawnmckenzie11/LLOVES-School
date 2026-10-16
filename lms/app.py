@@ -264,6 +264,7 @@ from schedule import TIME_OPTIONS, format_live_schedule_line, wizard_defaults  #
 import staff_invites  # noqa: E402
 from onboarding_presets import clean_preset as onboarding_clean_preset  # noqa: E402
 from onboarding_presets import preset_lists as onboarding_preset_lists  # noqa: E402
+from show_test_students import show_test_students_requested  # noqa: E402
 
 MGS_TEMPLATES = MGS_PATH / "templates"
 MGS_STATIC = MGS_PATH / "static"
@@ -274,6 +275,17 @@ def _optional_date(value: Any) -> date | None:
     if value is None or value == "":
         return None
     return date.fromisoformat(str(value)[:10])
+
+
+def _include_test_students() -> bool:
+    """True when this staff request asked to show test-student rows.
+
+    The query value wins, including an explicit off, so an export link
+    matches the page. Otherwise the staff cookie is used. Missing both
+    means hidden, which keeps attendance and participation totals on
+    real students.
+    """
+    return show_test_students_requested(request.args, request.cookies)
 
 
 logger = logging.getLogger(__name__)
@@ -3445,7 +3457,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             ]
             for offering in offerings:
                 for section in offering.get("classes") or []:
-                    section["roster"] = school.roster_name_entries(int(section["id"]))
+                    section["roster"] = school.roster_name_entries(
+                        int(section["id"]),
+                        include_test_students=_include_test_students(),
+                    )
             classes = school.list_staff_classes(int(user["id"]), int(active["id"]))
         # MCK-183 first-run gate: a teacher with no course and no class gets
         # the Welcome setup instead of the "Ask Admin" dead end. Admin (IT)
@@ -3473,7 +3488,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             school.get_active_live_session_for_class(int(row["id"])) is not None
             for row in classes
         )
-        catchup_pin_alerts = school.catchup_pin_alerts_for_teacher(int(user["id"]))
+        catchup_pin_alerts = school.catchup_pin_alerts_for_teacher(
+            int(user["id"]), include_test_students=_include_test_students()
+        )
         html = render_template(
             "staff/home.html",
             user=user,
@@ -3484,6 +3501,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             end_live_default_mode=end_live_default_mode,
             catchup_pin_alerts=catchup_pin_alerts,
             whats_new_hold=whats_new_hold,
+            show_test_students=_include_test_students(),
             tour_offer=_tour_offer(user, classes),
             plain_teacher=bool(offerings)
             and all(_simple_course(o.get("ontario_code"), o.get("library_id")) for o in offerings),
@@ -3834,12 +3852,21 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             runs = [run for run in runs if run["run_key"] == wanted]
             if not runs:
                 abort(404)
-        body = live_results_csv(
-            [
-                (run, school.live_result_snapshot_rows(class_id, run_key=run["run_key"]))
-                for run in runs
+        show_tests = _include_test_students()
+        hidden_ids = set() if show_tests else set(school.test_student_ids(class_id))
+
+        def _export_rows(run: dict[str, Any]) -> list[dict[str, Any]]:
+            """Snapshot rows for one run, hiding test students unless asked."""
+            rows = school.live_result_snapshot_rows(class_id, run_key=run["run_key"])
+            if not hidden_ids:
+                return rows
+            return [
+                row
+                for row in rows
+                if int(row.get("student_id") or 0) not in hidden_ids
             ]
-        )
+
+        body = live_results_csv([(run, _export_rows(run)) for run in runs])
         label = re.sub(
             r"[^A-Za-z0-9_-]+",
             "-",
@@ -4099,27 +4126,36 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             resource_id=class_id,
             detail={"tab": tab},
         )
+        show_tests = _include_test_students()
         exit_feedback = (
             school.list_exit_feedback_for_class(class_id) if tab == "ap" else []
         )
         feedback_grid = (
-            school.feedback_grid_for_class(class_id)
+            school.feedback_grid_for_class(class_id, include_test_students=show_tests)
             if tab == "ap" and ap_view == "feedback"
             else {"columns": [], "students": [], "totals": {}, "grand_total": 0}
         )
         roster_pin_slips = (
-            school.teacher_default_pin_slips(class_id, str(app.secret_key or ""))
+            school.teacher_default_pin_slips(
+                class_id,
+                str(app.secret_key or ""),
+                include_test_students=show_tests,
+            )
             if tab == "ap"
             and ap_view == "roster"
             and school.teacher_owns_class(int(user["id"]), class_id)
             else []
         )
         roster_pin_alerts = (
-            school.catchup_pin_guess_alerts(class_id)
+            school.catchup_pin_guess_alerts(class_id, include_test_students=show_tests)
             if tab == "ap" and ap_view == "roster"
             else []
         )
-        roster_codenames = school.class_codenames(class_id, include_test_students=True) if tab == "ap" and ap_view == "roster" else {}
+        roster_codenames = (
+            school.class_codenames(class_id, include_test_students=show_tests)
+            if tab == "ap" and ap_view == "roster"
+            else {}
+        )
         require_catchup_pin_change = (
             school.require_catchup_pin_change(class_id) if tab == "ap" and ap_view == "roster" else False
         )
@@ -4169,7 +4205,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             allow_media_url_swap=live_media_url_swap_allowed(
                 testing=bool(app.config.get("TESTING"))
             ),
-            roster_students=school.roster_name_entries(class_id),
+            roster_students=school.roster_name_entries(
+                class_id, include_test_students=show_tests
+            ),
+            show_test_students=show_tests,
             engagement_summary_empty_copy=engagement_copy(KEY_ENGAGEMENT_SUMMARY_EMPTY),
         )
         resp = make_response(html)
@@ -6494,6 +6533,52 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         set_rejoin_cookie(resp, visit_token)
         return resp
 
+    def _viewer_is_stmtg_tester(offering: Any, student_id: Any) -> bool:
+        """True when the bound student is the STMTG test seat."""
+        from tester_feedback import viewer_is_stmtg_tester
+
+        return viewer_is_stmtg_tester(school, offering, student_id)
+
+    def _redact_tester_payload(
+        payload: Any, offering: Any, class_id: int, student_id: Any
+    ) -> Any:
+        """Blank exact real roster names when the viewer is the STMTG tester."""
+        from tester_feedback import redact_real_roster
+
+        if not _viewer_is_stmtg_tester(offering, student_id):
+            return payload
+        names = set(school.class_codenames(int(class_id)).values())
+        return redact_real_roster(payload, names)
+
+    def _stmtg_tester_identity() -> tuple[dict[str, Any], int, int] | None:
+        """Offering, class, and student for a student session, live or not.
+
+        Live join fills ``_student_identity``. A student-code session that
+        is not in a live class still has offering and class ids on the
+        session, which is enough to accept tester feedback.
+        """
+        ident = _student_identity()
+        if ident is not None and ident[2] not in (None, ""):
+            return ident[0], int(ident[1]), int(ident[2])
+        class_id = session.get("student_class_id")
+        student_id = session.get("student_id")
+        offering_id = session.get("student_offering_id")
+        if class_id in (None, "") or student_id in (None, ""):
+            return None
+        offering = None
+        if offering_id not in (None, ""):
+            try:
+                offering = school.get_offering(int(offering_id))
+            except KeyError:
+                offering = None
+        if offering is None:
+            cls = school.game.get_class(int(class_id))
+            if cls.get("offering_id"):
+                offering = school.get_offering(int(cls["offering_id"]))
+        if offering is None:
+            return None
+        return offering, int(class_id), int(student_id)
+
     @app.route("/student/home")
     @student_required
     def student_home():
@@ -6566,6 +6651,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         reward = None
         if not unmatched and not payload.get("scoring") and not payload.get("celebrate"):
             reward = _avatar_reward_view(ctx, class_id, int(student_id))
+        tester_feedback = _viewer_is_stmtg_tester(offering, student_id)
+        if tester_feedback:
+            payload = _redact_tester_payload(payload, offering, class_id, student_id)
         return render_template(
             "student/home.html",
             offering=offering,
@@ -6575,7 +6663,39 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             codename=str(ctx.get("codename") or payload.get("me", {}).get("codename") or ""),
             reward=reward,
             reward_next_url="",
+            tester_feedback=tester_feedback,
         )
+
+    @app.route("/student/tester-feedback", methods=["POST"])
+    @student_required
+    def student_tester_feedback():
+        """Send STMTG tester feedback to Linear as text.
+
+        The response is ``{"ok": true}`` or a generic error. The submitted
+        text is not logged and is not returned.
+        """
+        import tester_feedback as tester_feedback_mod
+
+        ident = _stmtg_tester_identity()
+        if ident is None:
+            return jsonify({"ok": False, "error": "Not joined."}), 403
+        offering, class_id, student_id = ident
+        if not _viewer_is_stmtg_tester(offering, student_id):
+            return jsonify({"ok": False, "error": "Feedback is not available right now."}), 403
+        body = request.get_json(silent=True) or {}
+        text = body.get("text") if isinstance(body, dict) else ""
+        if text in (None, "") and request.form:
+            text = request.form.get("text") or ""
+        names = set(school.class_codenames(int(class_id)).values())
+        try:
+            tester_feedback_mod.post_tester_feedback(
+                str(text or ""), forbidden_names=names
+            )
+        except ValueError as exc:
+            message = str(exc)
+            status = 503 if "not available" in message else 400
+            return jsonify({"ok": False, "error": message}), status
+        return jsonify({"ok": True})
 
     @app.route("/api/student/avatar-reward/claim", methods=["POST"])
     @student_required
@@ -6737,6 +6857,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     return _student_poll_ended_response(live_session_id)
                 unchanged = dict(unchanged)
                 unchanged["live_session_id"] = live_session_id
+                unchanged = _redact_tester_payload(
+                    unchanged, _offering, int(class_id), student_id
+                )
                 return jsonify(unchanged)
             # MCK-155 gate MED-4: take the stamp BEFORE the build. A write
             # that lands while the payload is being built then leaves the
@@ -6822,6 +6945,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     **prompt,
                     "catchup_url": portal_url,
                 }
+        payload = _redact_tester_payload(payload, _offering, int(class_id), student_id)
         return jsonify(payload)
 
     @app.route("/api/student/live-prompt")
@@ -9273,11 +9397,16 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
     def _dashboard_payload(class_id: int, sort: str) -> dict[str, Any]:
         """Spreadsheet JSON with offering metadata attached."""
-        payload = school.game.dashboard(class_id, sort)
+        show_tests = _include_test_students()
+        payload = school.game.dashboard(
+            class_id, sort, include_test_students=show_tests
+        )
         payload["class"] = school.enrich_class(payload["class"])
         # MCK-198: participation column and catch-up links (staff-only route).
         try:
-            payload["participation"] = school.class_participation(class_id)
+            payload["participation"] = school.class_participation(
+                class_id, include_test_students=show_tests
+            )
             payload["catchup_links"] = _catchup_links_payload(class_id)
         except Exception:  # noqa: BLE001 - never break the gradebook
             logger.exception("participation payload failed class=%s", class_id)
@@ -9965,7 +10094,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             if not runs:
                 return jsonify({"ok": True, "summary": None, "runs": []})
             run_key = str(runs[0]["run_key"])
-        summary = school.engagement_summary_for_run(class_id, run_key)
+        summary = school.engagement_summary_for_run(
+            class_id, run_key, include_test_students=_include_test_students()
+        )
         if summary is None:
             return jsonify({"ok": False, "error": "No rollup for this run."}), 404
         return jsonify(
@@ -10006,7 +10137,11 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": "Student not found."}), 404
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
-        summary = school.engagement_summary_for_run(class_id, str(run_key))
+        summary = school.engagement_summary_for_run(
+            class_id,
+            str(run_key),
+            include_test_students=_include_test_students(),
+        )
         return jsonify({"ok": True, "override": row, "summary": summary})
 
     @app.route("/api/classes/<int:class_id>/dashboard")
@@ -10743,7 +10878,13 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return denied
         sort = request.args.get("sort") or "az"
         try:
-            return jsonify(school.attendance_week_grid(class_id, sort=sort))
+            return jsonify(
+                school.attendance_week_grid(
+                    class_id,
+                    sort=sort,
+                    include_test_students=_include_test_students(),
+                )
+            )
         except Exception as exc:  # noqa: BLE001
             return _json_error(exc)
 
@@ -10756,7 +10897,13 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return denied
         sort = request.args.get("sort") or "az"
         try:
-            return jsonify(school.mood_week_grid(class_id, sort=sort))
+            return jsonify(
+                school.mood_week_grid(
+                    class_id,
+                    sort=sort,
+                    include_test_students=_include_test_students(),
+                )
+            )
         except Exception as exc:  # noqa: BLE001
             return _json_error(exc)
 
@@ -10802,7 +10949,12 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             if chosen is None:
                 raise ValueError("date is required (YYYY-MM-DD)")
             sort = str(body.get("sort") or "az")
-            return school.clear_attendance_day(class_id, chosen, sort=sort)
+            return school.clear_attendance_day(
+                class_id,
+                chosen,
+                sort=sort,
+                include_test_students=_include_test_students(),
+            )
 
         return _staff_post(class_id, run)
 
@@ -10827,7 +10979,13 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return denied
         sort = request.args.get("sort") or "az"
         try:
-            return jsonify(school.participation_week_grid(class_id, sort=sort))
+            return jsonify(
+                school.participation_week_grid(
+                    class_id,
+                    sort=sort,
+                    include_test_students=_include_test_students(),
+                )
+            )
         except Exception as exc:  # noqa: BLE001
             return _json_error(exc)
 
@@ -11119,7 +11277,13 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return denied
         sort = request.args.get("sort") or "az"
         try:
-            return jsonify(school.gradebook_for_class(class_id, sort=sort))
+            return jsonify(
+                school.gradebook_for_class(
+                    class_id,
+                    sort=sort,
+                    include_test_students=_include_test_students(),
+                )
+            )
         except Exception as exc:  # noqa: BLE001
             return _json_error(exc)
 
@@ -11155,7 +11319,11 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return denied
         if request.method == "GET":
             try:
-                book = school.gradebook_for_class(class_id, sort="az")
+                book = school.gradebook_for_class(
+                    class_id,
+                    sort="az",
+                    include_test_students=_include_test_students(),
+                )
                 return jsonify({"ok": True, "scheme": book.get("scheme")})
             except Exception as exc:  # noqa: BLE001
                 return _json_error(exc)
@@ -11163,7 +11331,11 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         def run(body):
             """Persist the staff grading scheme and return the full book."""
             saved = school.set_grade_scheme(class_id, body or {})
-            book = school.gradebook_for_class(class_id, sort="az")
+            book = school.gradebook_for_class(
+                class_id,
+                sort="az",
+                include_test_students=_include_test_students(),
+            )
             return {"scheme": saved, "gradebook": book}
 
         return _staff_post(class_id, run)
@@ -11185,9 +11357,13 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 raise ValueError("module_number must be an integer") from exc
             if module_number < 1:
                 raise ValueError("module_number must be 1 or greater")
+            show_tests = _include_test_students()
             roster = {
                 int(row["id"])
-                for row in school.game.dashboard(class_id, sort="az").get("students") or []
+                for row in school.game.dashboard(
+                    class_id, sort="az", include_test_students=show_tests
+                ).get("students")
+                or []
             }
             if student_id not in roster:
                 raise ValueError("Student is not on this class roster")
@@ -11197,7 +11373,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             saved = school.set_module_reflection(
                 class_id, student_id, module_number, bool(complete)
             )
-            book = school.gradebook_for_class(class_id, sort="az")
+            book = school.gradebook_for_class(
+                class_id, sort="az", include_test_students=show_tests
+            )
             return {"reflection": saved, "gradebook": book}
 
         return _staff_post(class_id, run)
