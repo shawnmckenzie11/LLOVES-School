@@ -90,19 +90,33 @@ def run(sha: str, at: str = "2026-10-04T15:56:00Z", rid: int = 1) -> dict:
 class ParseAndCheckTests(unittest.TestCase):
     def test_parse_lines_audience_none_and_comments(self) -> None:
         body = (
-            "## What's new\n<!-- What's new: In Run Live Class, example only. -->\n"
-            f"- What's new: **{GOOD}**\nWhat’s new (Both): {BOTH}\nWhat's new: none\nWhat's new:\n"
+            "## What's new\n<!-- What's new (feature): In Run Live Class, example only. -->\n"
+            f"- What's new (feature): **{GOOD}**\nWhat’s new (change, Both): {BOTH}\n"
+            "What's new: none\nWhat's new:\n"
         )
         notes = wn.parse_notes(body)
         self.assertEqual([n["text"] for n in notes], [GOOD, BOTH, "none", ""])
         self.assertEqual([n["audience"] for n in notes], ["Teacher", "Both", "Teacher", "Teacher"])
+        self.assertEqual([n["kind"] for n in notes], ["feature", "change", "", ""])
         self.assertEqual([n["none"] for n in notes], [False, False, True, True])
         self.assertEqual([n["blank"] for n in notes], [False, False, False, True])
 
-    def test_check_passes_good_and_none(self) -> None:
-        self.assertEqual(wn.check_body(f"What's new: {GOOD}"), [])
+    def test_check_passes_marked_lines_and_none(self) -> None:
+        self.assertEqual(wn.check_body(f"What's new (feature): {GOOD}"), [])
         self.assertEqual(wn.check_body("What's new: none"), [])
-        self.assertEqual(wn.check_body(f"What's new (Both): {BOTH}\nWhat's new: none"), [])
+        self.assertEqual(wn.check_body(f"What's new (feature, Both): {BOTH}\nWhat's new: none"), [])
+        self.assertEqual(wn.check_body(f"What's new (change): {GOOD}"), [])
+
+    def test_check_rejects_unmarked_and_fix_lines(self) -> None:
+        """A fix or an unmarked line never passes the gate (MCK-268)."""
+        unmarked = wn.check_body(f"What's new: {GOOD}")
+        self.assertEqual(len(unmarked), 1, unmarked)
+        self.assertIn("feature", unmarked[0])
+        fix = wn.check_body("What's new (fix): In Run Live Class, the chart is right again.")
+        self.assertEqual(len(fix), 1, fix)
+        self.assertIn("none", fix[0])
+        old_both = wn.check_body(f"What's new (Both): {BOTH}")
+        self.assertEqual(len(old_both), 1, old_both)
 
     def test_check_requires_a_line_and_rejects_blank(self) -> None:
         self.assertEqual(len(wn.check_body("## What changed\nStuff")), 1)
@@ -125,7 +139,7 @@ class ParseAndCheckTests(unittest.TestCase):
         }
         for text, expect in cases.items():
             with self.subTest(text=text[:40]):
-                errors = wn.check_body(f"What's new: {text}")
+                errors = wn.check_body(f"What's new (feature): {text}")
                 self.assertEqual(len(errors), 1, errors)
                 self.assertIn(expect, errors[0])
 
@@ -139,7 +153,7 @@ class ParseAndCheckTests(unittest.TestCase):
 
     def test_run_check_exit_codes(self) -> None:
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(wn.run_check(f"What's new: {GOOD}"), 0)
+            self.assertEqual(wn.run_check(f"What's new (feature): {GOOD}"), 0)
             self.assertEqual(wn.run_check("nothing here"), 1)
 
 
@@ -156,10 +170,10 @@ class BuildTests(unittest.TestCase):
             [run(SHA_OLD)],
             {(SHA_OLD, SHA_NEW): ["m1", "m2", "x"]},
             [
-                pr(243, "m2", f"What's new (Both): {BOTH}", "2026-10-05T12:10:00Z", "MCK-171: Team challenge"),
-                pr(244, "m1", f"What's new: {GOOD}\nWhat's new: none", "2026-10-05T12:00:00Z"),
-                pr(9, "elsewhere", f"What's new: {GOOD}"),
-                {**pr(10, "x", f"What's new: {GOOD}"), "merged_at": None},
+                pr(243, "m2", f"What's new (feature, Both): {BOTH}", "2026-10-05T12:10:00Z", "MCK-171: Team challenge"),
+                pr(244, "m1", f"What's new (change): {GOOD}\nWhat's new: none", "2026-10-05T12:00:00Z"),
+                pr(9, "elsewhere", f"What's new (feature): {GOOD}"),
+                {**pr(10, "x", f"What's new (feature): {GOOD}"), "merged_at": None},
             ],
         )
         out, generated, warnings = self.build(gh)
@@ -194,11 +208,31 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(out["releases"], committed()["releases"])
         self.assertIn("No entry is written", wn.summary_markdown(generated, SHA_NEW))
 
+    def test_fix_only_and_unmarked_lines_contribute_nothing(self) -> None:
+        """MCK-268: bug-fix notes never become a release, and they do not warn."""
+        gh = FakeGitHub(
+            [run(SHA_OLD)],
+            {(SHA_OLD, SHA_NEW): ["m1", "m2"]},
+            [
+                pr(1, "m1", "What's new: none"),
+                pr(
+                    2,
+                    "m2",
+                    "What's new (fix): In Run Live Class, the chart no longer splits.\n"
+                    f"What's new: {GOOD}",
+                ),
+            ],
+        )
+        out, generated, warnings = self.build(gh)
+        self.assertEqual(generated, [])
+        self.assertEqual(warnings, [])
+        self.assertEqual(out["releases"], committed()["releases"])
+
     def test_bad_lines_are_dropped_with_a_warning(self) -> None:
         gh = FakeGitHub(
             [run(SHA_OLD)],
             {(SHA_OLD, SHA_NEW): ["m1"]},
-            [pr(5, "m1", f"What's new: Fixed MCK-5 somewhere.\nWhat's new: {GOOD}")],
+            [pr(5, "m1", f"What's new: Fixed MCK-5 somewhere.\nWhat's new (feature): Fixed MCK-5 in Run Live Class.\nWhat's new (change): {GOOD}")],
         )
         _, generated, warnings = self.build(gh)
         self.assertEqual([i["text"] for i in generated[0]["items"]], [GOOD])
@@ -215,7 +249,7 @@ class BuildTests(unittest.TestCase):
                 run("d" * 40, "2026-10-03T22:00:00Z", 95),  # older than the baseline: never read
             ],
             {(SHA_MID, SHA_NEW): ["m2"], (SHA_OLD, SHA_MID): ["m1"]},
-            [pr(2, "m2", "What's new: none"), pr(1, "m1", f"What's new: {GOOD}", "2026-10-05T00:50:00Z")],
+            [pr(2, "m2", "What's new: none"), pr(1, "m1", f"What's new (feature): {GOOD}", "2026-10-05T00:50:00Z")],
         )
         out, generated, _ = self.build(gh)
         self.assertEqual([g["id"] for g in generated], ["bbbbbbb"])
@@ -263,7 +297,7 @@ class RunBuildTests(unittest.TestCase):
         self.assertEqual(self.src.read_bytes(), before)
 
     def test_writes_the_file_and_the_summary(self) -> None:
-        gh = FakeGitHub([run(SHA_OLD)], {(SHA_OLD, SHA_NEW): ["m1"]}, [pr(7, "m1", f"What's new (Both): {BOTH}")])
+        gh = FakeGitHub([run(SHA_OLD)], {(SHA_OLD, SHA_NEW): ["m1"]}, [pr(7, "m1", f"What's new (change, Both): {BOTH}")])
         with redirect_stdout(io.StringIO()):
             self.assertEqual(wn.run_build(self.args(), gh=gh, now=NOW), 0)
         data = json.loads(self.src.read_text(encoding="utf-8"))
@@ -305,6 +339,8 @@ class WiringTests(unittest.TestCase):
         text = (REPO_ROOT / ".github/pull_request_template.md").read_text(encoding="utf-8")
         self.assertIn("## What's new\n", text)
         self.assertIn("What's new: none", text)
+        self.assertIn("What's new (feature):", text)
+        self.assertIn("What's new (change):", text)
 
 
 if __name__ == "__main__":

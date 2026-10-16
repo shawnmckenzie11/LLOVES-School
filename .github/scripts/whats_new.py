@@ -5,17 +5,20 @@ Two commands:
 
 ``check``
     PR gate, run from ``pr-linear-id.yml``. The PR body (env ``PR_BODY``)
-    needs at least one ``What's new:`` line. ``What's new: none`` marks
-    housekeeping. Every other line follows Wonder's rules: 30 words or fewer,
-    no ticket ids, PR numbers or SHAs, plain text, and it names a place in
-    the app (:data:`PLACES`).
+    needs at least one ``What's new:`` line. ``What's new: none`` marks a
+    bug fix or housekeeping, and that PR contributes nothing. A line teachers
+    should see is marked ``What's new (feature):`` or ``What's new (change):``
+    (add ``, Both`` when students see it too). Every published line follows
+    Wonder's rules: 30 words or fewer, no ticket ids, PR numbers or SHAs,
+    plain text, and it names a place in the app (:data:`PLACES`).
 
 ``build``
     Deploy step, run from ``deploy.yml``. It rebuilds the deployed
     ``releases.json`` from the committed file plus one entry per successful
     Deploy run since the newest committed release, including the commit being
-    deployed now. Each entry collects the ``What's new:`` lines of the PRs
-    merged in that deploy::
+    deployed now. Each entry collects only the ``(feature)`` and ``(change)``
+    lines of the PRs merged in that deploy. Fix notes, unmarked lines, and
+    ``none`` are left out::
 
         {"id": "<sha7>", "sha": "<sha>", "deployed_at": "<ISO, Toronto>",
          "day": "YYYY-MM-DD", "items": [{"text", "audience", "refs"}],
@@ -48,10 +51,19 @@ from typing import Any, Callable
 
 MAX_WORDS = 30
 LOOKBACK_RUNS = 30
+# Kind first, optional audience: "What's new (feature, Both): ...".
+# "(Both)" alone is the old audience marker and is not a feature or a change.
 NOTE_RE = re.compile(
-    r"^\s*(?:[-*]\s+)?What[’']s new\s*(?:\(\s*(?P<aud>both|teacher)\s*\))?\s*:\s*(?P<text>.*?)\s*$",
+    r"^\s*(?:[-*]\s+)?What[’']s new"
+    r"(?:"
+    r"\s*\(\s*(?P<kind>feature|change|fix)\s*(?:,\s*(?P<aud>both|teacher))?\s*\)"
+    r"|"
+    r"\s*\(\s*(?P<aud_only>both|teacher)\s*\)"
+    r")?"
+    r"\s*:\s*(?P<text>.*?)\s*$",
     re.IGNORECASE,
 )
+PUBLISHED_KINDS = ("feature", "change")
 NONE_RE = re.compile(r"^(?:none|n/a|no)\.?$", re.IGNORECASE)
 COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 ID_RES = (
@@ -73,6 +85,11 @@ PLACES = (
     "attendance and participation",
     "take attendance",
     "end live class",
+    "end class",
+    "participation tab",
+    "responses & points",
+    "responses and points",
+    "show teams to students",
     "dashboard",
     "what's new",
     "whiteboard",
@@ -104,9 +121,11 @@ def parse_notes(body: str | None) -> list[dict[str, Any]]:
         body: PR body markdown.
 
     Returns:
-        ``[{text, audience, none, blank}]`` in body order. ``none`` is True
-        for a blank, ``none`` or ``n/a`` line; ``blank`` only for an empty
-        one (the PR gate asks for ``none`` instead). ``**bold**`` is dropped.
+        ``[{text, audience, kind, none, blank}]`` in body order. ``kind`` is
+        ``feature``, ``change``, ``fix``, or ``""`` when the line has no kind
+        marker. ``none`` is True for a blank, ``none`` or ``n/a`` line;
+        ``blank`` only for an empty one (the PR gate asks for ``none``
+        instead). ``**bold**`` is dropped.
     """
     notes: list[dict[str, Any]] = []
     for raw in COMMENT_RE.sub("", body or "").splitlines():
@@ -115,11 +134,12 @@ def parse_notes(body: str | None) -> list[dict[str, Any]]:
             continue
         text = match.group("text").replace("**", "").replace("`", "").strip()
         text = re.sub(r"\s+", " ", text)
-        audience = "Both" if (match.group("aud") or "").lower() == "both" else "Teacher"
+        aud = (match.group("aud") or match.group("aud_only") or "").lower()
         notes.append(
             {
                 "text": text,
-                "audience": audience,
+                "audience": "Both" if aud == "both" else "Teacher",
+                "kind": (match.group("kind") or "").lower(),
                 "none": not text or bool(NONE_RE.match(text)),
                 "blank": not text,
             }
@@ -169,17 +189,26 @@ def check_body(body: str | None) -> list[str]:
     notes = parse_notes(body)
     if not notes:
         return [
-            "Add a \"What's new:\" line under ## What's new: one line per change a teacher "
-            "can see, saying where it is in the app, or \"What's new: none\" for housekeeping."
+            "Add a \"What's new (feature):\" or \"What's new (change):\" line under ## What's new "
+            "(where it is, then what teachers can do), or \"What's new: none\" for a bug fix "
+            "or housekeeping."
         ]
     errors: list[str] = []
     for note in notes:
         if note["blank"]:
             errors.append(
-                "A \"What's new:\" line is empty. Say what changed and where, or write \"none\"."
+                "A \"What's new:\" line is empty. Mark it \"What's new (feature):\" or "
+                "\"What's new (change):\", or write \"none\"."
             )
             continue
         if note["none"]:
+            continue
+        if note["kind"] not in PUBLISHED_KINDS:
+            errors.append(
+                f"\"What's new: {note['text']}\" is not marked as a feature or a workflow change. "
+                "Use \"What's new (feature):\" or \"What's new (change):\", or \"What's new: none\" "
+                "for a bug fix."
+            )
             continue
         for problem in note_problems(note["text"]):
             errors.append(f"\"What's new: {note['text']}\" {problem}.")
@@ -206,13 +235,16 @@ def items_from_prs(prs: list[dict[str, Any]], warn: Callable[[str], None]) -> li
         warn: Called with a message for every dropped line.
 
     Returns:
-        ``[{text, audience, refs}]``. ``none`` lines and lines that break the
-        rules are left out.
+        ``[{text, audience, refs}]``. Only ``(feature)`` and ``(change)``
+        lines are kept. ``none``, ``(fix)``, and unmarked lines contribute
+        nothing (no warning: old fix notes would otherwise alarm every
+        deploy). A marked line that breaks Wonder's rules is dropped with
+        a warning.
     """
     items: list[dict[str, Any]] = []
     for pr in prs:
         for note in parse_notes(pr.get("body")):
-            if note["none"]:
+            if note["none"] or note["kind"] not in PUBLISHED_KINDS:
                 continue
             problems = note_problems(note["text"])
             if problems:

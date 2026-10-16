@@ -98,6 +98,11 @@ class ReleaseNotesDataTests(unittest.TestCase):
                 self.assertEqual(release["id"], release["sha"][:7])
                 self.assertRegex(release["deployed_at"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}-0[45]:00$")
                 self.assertEqual(release["day"], release["deployed_at"][:10])
+                if not release["items"]:
+                    # MCK-268: v217 was only the money-display fix. Empty items
+                    # take that committed row down on the next boot.
+                    self.assertEqual(release["id"], "5bd4edf")
+                    continue
                 self.assertTrue(1 <= len(release["items"]) <= 7)
                 for item in release["items"]:
                     text = item["text"]
@@ -118,7 +123,9 @@ class ReleaseNotesDataTests(unittest.TestCase):
         by_fly = {r["fly"]: r for r in _releases() if r.get("fly")}
         self.assertEqual(by_fly["v216"]["id"], "e640589")
         self.assertEqual(by_fly["v217"]["id"], "5bd4edf")
+        self.assertEqual(by_fly["v217"]["items"], [])
         self.assertEqual(by_fly["v218"]["id"], "65d69db")
+        self.assertEqual(len(by_fly["v218"]["items"]), 2)
         self.assertEqual(len(by_fly["v216"]["items"]), 4)
 
     def test_items_keep_to_wonder_limits(self) -> None:
@@ -129,18 +136,13 @@ class ReleaseNotesDataTests(unittest.TestCase):
             items = release["items"]
             self.assertTrue(1 <= len(items) <= 7, (release["id"], len(items)))
             for item in items:
-                with self.subTest(release=release["id"], title=item.get("title")):
-                    title, line = item["title"], item["line"]
+                with self.subTest(release=release["id"], text=item.get("text", "")[:40]):
+                    self.assertEqual(set(item), {"text", "audience", "refs"})
                     self.assertTrue(item["refs"].strip())
-                    self.assertLessEqual(len(title.split()), 5)
-                    self.assertLessEqual(len(title), 40)
-                    self.assertFalse(title.endswith("."), "titles have no period")
-                    self.assertLessEqual(len(line), 120)
+                    self.assertTrue(item["text"].strip())
                     self.assertIn(item["audience"], AUDIENCES)
-                    for text in (title, line, item["refs"]):
-                        self.assertNotRegex(text, r"[<>]", "plain text only")
-                    self.assertIn("image", item)
-                    self.assertIn("screenshot", item)
+                    self.assertNotRegex(item["text"], r"[<>]", "plain text only")
+                    self.assertNotRegex(item["refs"], r"[<>]", "plain text only")
 
     def test_not_yet_footer_is_optional_and_short(self) -> None:
         """The footer is its own field; absent or empty means no footer."""
@@ -153,8 +155,8 @@ class ReleaseNotesDataTests(unittest.TestCase):
             self.assertLessEqual(len(release["not_yet"]), 120)
             self.assertNotRegex(release["not_yet"], r"[<>]")
 
-    def test_first_release_is_the_ac2fcf0_copy_without_images(self) -> None:
-        """Slice 1 seeds the Oct 2 release (Wonder v1) and ships no images."""
+    def test_first_release_is_the_ac2fcf0_copy_without_fix_notes(self) -> None:
+        """Oct 2 keeps the five feature lines. The join-code and decimal fixes are gone."""
         oldest = _releases()[-1]
         self.assertEqual(oldest["id"], "2026-10-02")
         self.assertEqual(oldest["covers_main"], "ac2fcf0")
@@ -166,14 +168,33 @@ class ReleaseNotesDataTests(unittest.TestCase):
                 "#198 · MCK-72",
                 "#202 (+#200) · MCK-46",
                 "#207 · MCK-111",
-                "#210 · MCK-114",
-                "#211 · MCK-83",
             ],
         )
-        self.assertTrue(all(i["image"] is None for i in oldest["items"]))
-        # Wonder dropped the #214 footer (#214 merged before this ships).
         self.assertEqual(oldest.get("not_yet", ""), "")
         self.assertEqual(oldest.get("not_yet_refs", ""), "")
+
+    def test_teacher_copy_is_wonders_eleven_lines(self) -> None:
+        """MCK-268: Wonder's wording pass, and the four bug-fix notes are gone."""
+        texts = [item.get("text", "") for release in _releases() for item in release["items"]]
+        self.assertEqual(
+            texts,
+            [
+                "After End Live Class, use the Real class / Test switch to mark a practice run. Practice runs stay out of catch-up.",
+                "In Run Live Class, turn on Team challenge for a rank question. Groups agree on one order and get 2 points for each item in the right spot, then you reveal the answer and the top teams.",
+                "In Run Live Class, you can reopen a closed whiteboard, either your last board or a fresh one. The last board is kept until class ends.",
+                "In Import from bank, choose Contest Questions in the Kind menu to see the contest list.",
+                "In Import from bank, rank questions are labelled Answer order or Opinion. Answer-order questions are listed first and run as group questions with turns.",
+                "In Run Live Class, answer-order rank questions are shuffled each time you publish them, on phones and the projector, so the order never gives the answer away.",
+                "Every question card, whiteboard and artifact now has the same \"Students work: Individual · Group\" switch.",
+                "\"Run as Group\" is now called \"Show teams to students\". If you publish as a group while teams are hidden, you're asked first.",
+                "When you end class, participation credit is added on top of points you gave by hand.",
+                "On the Participation tab, the new \"Export results (CSV)\" button downloads every saved answer, with names, for marking.",
+                "In Responses & points with names hidden, each student keeps the same number all class and the Class List is blurred.",
+            ],
+        )
+        blob = "\n".join(texts)
+        for gone in ("can't reopen", "about money", "two codes", "3.14159", "lifecycle is not defined"):
+            self.assertNotIn(gone, blob)
 
 
 class WhatsNewPagesTests(unittest.TestCase):
@@ -691,7 +712,7 @@ class WhatsNewScriptTests(unittest.TestCase):
         self.assertEqual(more["days"], ["Sun Oct 4", "Sat Oct 3", "Fri Oct 2"])
         self.assertEqual(len(more["lines"]), len(self.all_items))
         self.assertEqual(more["tags"], len(self.all_items))
-        self.assertEqual(more["titles"][0], "Group work is one switch")
+        self.assertEqual(more["titles"], [])
         self.assertTrue(more["allHidden"])
         self.assertEqual(more["earlier"], [])
 
