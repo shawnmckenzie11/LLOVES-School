@@ -1,9 +1,10 @@
 /**
- * Question banks tab: module cards, shared editor, and a short bulk bar.
+ * Question banks tab: one module menu, a full-height row list, and a short bulk bar.
  */
 import { api, escapeHtml, formatQuestionHtml, renderLiveQuestionMath } from "/static/common.js";
 import { mountTypeChips } from "/static/bank_type_chips.js";
 import { configureQuestionEditor, openQuestionEditor } from "/static/question_editor.js";
+import { questionPointsValue } from "/static/question_points.js";
 
 const root = document.getElementById("catalog-root");
 const classId = Number(root?.dataset.classId || 0);
@@ -13,7 +14,7 @@ const TOAST_COPY = root?.dataset.saveToast || "Saved to this course’s copy.";
 const list = document.getElementById("catalog-list");
 const toast = document.getElementById("bank-toast");
 const removeDialog = document.getElementById("bank-remove-dialog");
-const scopeEl = document.getElementById("live-bank-scope");
+const moduleEl = document.getElementById("qbank-module");
 const kindEl = document.getElementById("live-bank-kind");
 const searchEl = document.getElementById("live-bank-search");
 const sortEl = document.getElementById("live-bank-sort");
@@ -32,14 +33,14 @@ const typeChips =
       })
     : null;
 
-const TABS = ["all", "M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8", "course"];
+const TABS = ["all", "M0", "M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8", "course"];
 /** @type {Record<string, number>} */
 let tabCounts = {};
 /** @type {Record<string, unknown>[]} */
 let items = [];
-/** @type {Set<string>} */
-let selectedIds = new Set();
-let activeTab = "M1";
+/** @type {Map<string, {bank_id: number, question_id: number}>} */
+let selectedRows = new Map();
+let activeTab = moduleEl instanceof HTMLSelectElement ? moduleEl.value || "M1" : "M1";
 let toastTimer = 0;
 let searchTimer = 0;
 let loadToken = 0;
@@ -86,7 +87,7 @@ function itemKey(item) {
 }
 
 /**
- * Kind label on a card.
+ * Kind label on a row.
  * @param {Record<string, unknown>} item
  * @returns {string}
  */
@@ -122,7 +123,7 @@ function rankPeekHtml(item) {
 }
 
 /**
- * One-line key for the card footer.
+ * One-line key for the row.
  * @param {Record<string, unknown>} item
  * @returns {string}
  */
@@ -135,43 +136,63 @@ function keyLine(item) {
 }
 
 /**
- * Points chip: a stored live default, else the question's points, else 1.
+ * Points chip from the same figure the editor uses.
  * @param {Record<string, unknown>} item
  * @returns {string}
  */
 function pointsLabel(item) {
-  const live = item.live_points;
-  const points = live != null && live !== "" ? Number(live) : Number(item.points ?? 1);
+  const points = Number(questionPointsValue(item));
   if (!Number.isFinite(points)) return "1 pt";
   return `${points} pt`;
 }
 
 /**
- * Sort the current page of cards without another search.
- * @param {Record<string, unknown>[]} rows
- * @returns {Record<string, unknown>[]}
+ * Remember one checked row so a module change does not drop it.
+ * @param {string} key
+ * @param {boolean} checked
  */
-function sortItems(rows) {
-  const mode = sortEl instanceof HTMLSelectElement ? sortEl.value : "bank";
-  const copy = [...rows];
-  if (mode === "edited") {
-    copy.sort((a, b) => Number(Boolean(b.edited_in_lms)) - Number(Boolean(a.edited_in_lms)));
-    return copy;
+function setChecked(key, checked) {
+  if (!checked) {
+    selectedRows.delete(key);
+    paintBulk();
+    return;
   }
-  if (mode === "type") {
-    copy.sort((a, b) => String(a.question_type || a.type || "").localeCompare(String(b.question_type || b.type || "")));
-    return copy;
-  }
-  copy.sort((a, b) => Number(a.question_id || a.id || 0) - Number(b.question_id || b.id || 0));
-  return copy;
+  const item = items.find((row) => itemKey(row) === key);
+  if (!item) return;
+  const bankId = Number(item.bank_id || item.source_bank_id || 0);
+  const questionId = Number(item.question_id || item.id || 0);
+  if (!bankId || !questionId) return;
+  selectedRows.set(key, { bank_id: bankId, question_id: questionId });
+  paintBulk();
 }
 
 /**
- * Paint the card grid.
+ * Check every row on the open module without touching other modules.
  */
-function renderGrid() {
+function selectAllOnTab() {
+  for (const item of items) {
+    const key = itemKey(item);
+    const bankId = Number(item.bank_id || item.source_bank_id || 0);
+    const questionId = Number(item.question_id || item.id || 0);
+    if (bankId && questionId) selectedRows.set(key, { bank_id: bankId, question_id: questionId });
+  }
+  renderList();
+}
+
+/**
+ * Drop every checked row, including ones on other modules.
+ */
+function clearSelection() {
+  selectedRows.clear();
+  renderList();
+}
+
+/**
+ * Paint the row list in the order the server returned.
+ */
+function renderList() {
   if (!(list instanceof HTMLElement)) return;
-  const rows = sortItems(items);
+  const rows = items;
   const query = String(searchEl instanceof HTMLInputElement ? searchEl.value : "").trim();
   const qtype = typeChips ? typeChips.value() : "";
   const kindSet = kindEl instanceof HTMLSelectElement && Boolean(kindEl.value);
@@ -198,16 +219,12 @@ function renderGrid() {
       const edited = item.edited_in_lms
         ? `<span class="chip qbank-edited">${escapeHtml(CHIP_COPY)}</span>`
         : "";
-      return `<article class="qbank-card" data-bank-kind="${escapeHtml(String(item.kind || ""))}" data-qbank-key="${escapeHtml(key)}">
-        <div class="qbank-card-head">
-          <input type="checkbox" data-qbank-check="${escapeHtml(key)}" aria-label="Select question"${selectedIds.has(key) ? " checked" : ""}>
-          <span class="chip qbank-type qbank-type-${escapeHtml(chip.token)}">${escapeHtml(chip.label)}</span>
-          <span class="qbank-kind">${escapeHtml(kindLabel(item))}</span>
-          <span class="qbank-points">${escapeHtml(pointsLabel(item))}</span>
-          ${edited}
-        </div>
+      return `<article class="qbank-row" data-bank-kind="${escapeHtml(String(item.kind || ""))}" data-qbank-key="${escapeHtml(key)}">
+        <input type="checkbox" data-qbank-check="${escapeHtml(key)}" aria-label="Select question"${selectedRows.has(key) ? " checked" : ""}>
+        <span class="chip qbank-type qbank-type-${escapeHtml(chip.token)}">${escapeHtml(chip.label)}</span>
         <div class="qbank-stem">${formatQuestionHtml(stemSource)}</div>
-        <p class="qbank-key">Key: <b>${escapeHtml(keyLine(item))}</b></p>
+        <p class="qbank-meta">${escapeHtml(kindLabel(item))} · ${escapeHtml(pointsLabel(item))} · Key: <b>${escapeHtml(keyLine(item))}</b></p>
+        ${edited}
       </article>`;
     })
     .join("");
@@ -216,39 +233,26 @@ function renderGrid() {
 }
 
 /**
- * Show the bulk bar only while at least one card is checked.
+ * Show the bulk bar only while at least one row is checked.
  */
 function paintBulk() {
   if (!(bulkEl instanceof HTMLElement)) return;
-  const count = selectedIds.size;
+  const count = selectedRows.size;
   bulkEl.hidden = count === 0;
   if (bulkCountEl) bulkCountEl.textContent = `${count} selected`;
 }
 
 /**
- * Keep the hidden scope select aligned with the active tab.
+ * Write each module's count beside its menu label.
  */
-function syncScopeSelect() {
-  if (!(scopeEl instanceof HTMLSelectElement)) return;
-  if (activeTab === "all") return;
-  scopeEl.value = activeTab === "course" ? "course" : activeTab;
-}
-
-/**
- * Mark the active module tab.
- */
-function paintTabs() {
-  document.querySelectorAll("[data-bank-tab]").forEach((button) => {
-    if (!(button instanceof HTMLButtonElement)) return;
-    const tab = button.dataset.bankTab || "";
-    const on = tab === activeTab;
-    button.setAttribute("aria-selected", on ? "true" : "false");
-    button.classList.toggle("is-on", on);
+function paintModule() {
+  if (!(moduleEl instanceof HTMLSelectElement)) return;
+  for (const option of moduleEl.options) {
+    const tab = option.value;
+    const label = option.dataset.tabLabel || option.textContent || "";
     const count = tabCounts[tab];
-    const label = button.dataset.tabLabel || "";
-    button.textContent = count == null ? label : `${label} · ${count}`;
-  });
-  syncScopeSelect();
+    option.textContent = count == null ? label : `${label} · ${count}`;
+  }
 }
 
 /**
@@ -256,12 +260,13 @@ function paintTabs() {
  * @returns {string}
  */
 function searchScope() {
-  if (activeTab === "all" || activeTab === "course") return "course";
+  if (activeTab === "all") return "all";
+  if (activeTab === "course") return "course";
   return activeTab;
 }
 
 /**
- * Load one tab through the same mc-search Import uses, plus staff numeric and poll.
+ * Load one module through the same mc-search Import uses, plus staff numeric and poll.
  * @returns {Promise<void>}
  */
 async function loadLiveBank() {
@@ -272,9 +277,11 @@ async function loadLiveBank() {
   const query = String(searchEl instanceof HTMLInputElement ? searchEl.value : "").trim();
   const kind = kindEl instanceof HTMLSelectElement ? String(kindEl.value || "") : "";
   const qtype = typeChips ? typeChips.value() : "";
+  const sort = sortEl instanceof HTMLSelectElement ? sortEl.value : "bank";
   if (query) params.set("q", query);
   if (kind) params.set("kind", kind);
   if (qtype) params.set("type", qtype);
+  if (sort) params.set("sort", sort);
   if (activeTab === "course") params.set("placement", "course");
   else if (activeTab !== "all") params.set("placement", "module");
   const suffix = params.toString() ? `?${params.toString()}` : "";
@@ -285,13 +292,17 @@ async function loadLiveBank() {
     );
     if (token !== loadToken) return;
     items = Array.isArray(payload.items) ? payload.items : [];
-    selectedIds = new Set([...selectedIds].filter((key) => items.some((item) => itemKey(item) === key)));
     if (typeChips) typeChips.update(payload.type_counts || []);
     if (summaryEl) {
+      const shown = items.length;
+      const matched = Number(payload.filtered ?? shown);
       const edited = items.filter((item) => item.edited_in_lms).length;
-      summaryEl.textContent = `${Number(payload.total || items.length)} questions · ${edited} edited in LMS`;
+      summaryEl.textContent =
+        shown < matched
+          ? `Showing ${shown} of ${matched}`
+          : `${Number(payload.total || shown)} questions · ${edited} edited in LMS`;
     }
-    renderGrid();
+    renderList();
   } catch (error) {
     if (token !== loadToken) return;
     list.innerHTML = `<p class="error compact">${escapeHtml(error instanceof Error ? error.message : String(error))}</p>`;
@@ -301,12 +312,12 @@ async function loadLiveBank() {
 }
 
 /**
- * Tab counts once per visit and after a write, not on each keystroke.
+ * Module counts once per visit and after a write, not on each keystroke.
  * @returns {Promise<void>}
  */
 async function loadTabCounts() {
   const jobs = TABS.map(async (tab) => {
-    const scope = tab === "all" || tab === "course" ? "course" : tab;
+    const scope = tab === "all" ? "all" : tab === "course" ? "course" : tab;
     const params = new URLSearchParams();
     params.set("staff_types", "1");
     params.set("kind", "any");
@@ -318,14 +329,14 @@ async function loadTabCounts() {
     tabCounts[tab] = Number(payload.total || 0);
   });
   await Promise.all(jobs);
-  paintTabs();
+  paintModule();
 }
 
 /**
- * Reload counts and the open tab after a save, move, or remove.
+ * Reload counts and the open module after a save, move, or remove.
  */
 function refreshAfterWrite() {
-  selectedIds = new Set();
+  selectedRows = new Map();
   paintBulk();
   loadTabCounts()
     .catch(() => {})
@@ -349,7 +360,7 @@ function clearFilters() {
 }
 
 /**
- * Scope the Add dialog should offer for the open tab.
+ * Scope the Add dialog should offer for the open module.
  * @returns {string}
  */
 function addScope() {
@@ -371,17 +382,16 @@ function openAdd() {
 }
 
 /**
- * Open Edit question for one card, with Prev/Next across the visible grid.
+ * Open Edit question for one row, with Prev/Next across the visible list.
  * @param {string} key
  */
 function openEdit(key) {
-  const rows = sortItems(items);
-  const index = rows.findIndex((item) => itemKey(item) === key);
+  const index = items.findIndex((item) => itemKey(item) === key);
   if (index < 0) return;
   openQuestionEditor({
     mode: "edit",
-    question: rows[index],
-    questions: rows,
+    question: items[index],
+    questions: items,
     index,
     scope: addScope(),
     scopeKnown: true,
@@ -390,39 +400,37 @@ function openEdit(key) {
 }
 
 /**
- * Questions currently checked, as bulk-route rows.
+ * Questions currently checked, including rows on other modules.
  * @returns {{bank_id: number, question_id: number}[]}
  */
 function selectedQuestions() {
-  return items
-    .filter((item) => selectedIds.has(itemKey(item)))
-    .map((item) => ({
-      bank_id: Number(item.bank_id || item.source_bank_id || 0),
-      question_id: Number(item.question_id || item.id || 0),
-    }))
-    .filter((row) => row.bank_id && row.question_id);
+  return [...selectedRows.values()];
 }
 
 /**
  * POST one bulk action and refresh.
  * @param {Record<string, unknown>} body
+ * @param {string} [toastMessage]
  * @returns {Promise<void>}
  */
-async function postBulk(body) {
+async function postBulk(body, toastMessage) {
   await api(`/api/staff/class/${classId}/question-bank/bulk`, {
     method: "POST",
     body: JSON.stringify({ ...body, questions: selectedQuestions() }),
   });
-  showToast(TOAST_COPY);
+  showToast(toastMessage || TOAST_COPY);
   refreshAfterWrite();
 }
 
 /**
- * Confirm removal, then delete each selected question.
+ * Confirm removal, then delete the checked questions in one request.
  * @returns {Promise<void>}
  */
 async function removeSelected() {
-  if (!(removeDialog instanceof HTMLDialogElement) || !selectedIds.size) return;
+  const count = selectedRows.size;
+  if (!(removeDialog instanceof HTMLDialogElement) || !count) return;
+  const title = document.getElementById("bank-remove-title");
+  if (title) title.textContent = `Remove ${count} questions?`;
   const ok = await new Promise((resolve) => {
     const onClose = () => {
       removeDialog.removeEventListener("close", onClose);
@@ -433,28 +441,19 @@ async function removeSelected() {
     else resolve(false);
   });
   if (!ok) return;
-  const rows = selectedQuestions();
-  for (const row of rows) {
-    await api(`/api/staff/class/${classId}/question-bank/${row.bank_id}/questions/${row.question_id}`, {
-      method: "DELETE",
-    });
-  }
-  showToast("Removed from bank.");
-  refreshAfterWrite();
+  await postBulk({ action: "remove" }, "Removed from bank.");
 }
 
-document.querySelectorAll("[data-bank-tab]").forEach((button) => {
-  button.addEventListener("click", () => {
-    activeTab = button.getAttribute("data-bank-tab") || "M1";
-    selectedIds = new Set();
-    paintTabs();
-    loadLiveBank().catch(() => {});
-  });
+moduleEl?.addEventListener("change", () => {
+  activeTab = moduleEl instanceof HTMLSelectElement ? moduleEl.value || "M1" : "M1";
+  loadLiveBank().catch(() => {});
 });
 kindEl?.addEventListener("change", () => {
   loadLiveBank().catch(() => {});
 });
-sortEl?.addEventListener("change", () => renderGrid());
+sortEl?.addEventListener("change", () => {
+  loadLiveBank().catch(() => {});
+});
 searchEl?.addEventListener("input", () => {
   window.clearTimeout(searchTimer);
   searchTimer = window.setTimeout(() => {
@@ -462,15 +461,14 @@ searchEl?.addEventListener("input", () => {
   }, 200);
 });
 document.getElementById("qbank-add")?.addEventListener("click", () => openAdd());
+document.getElementById("qbank-select-tab")?.addEventListener("click", () => selectAllOnTab());
+document.getElementById("qbank-clear-selection")?.addEventListener("click", () => clearSelection());
 list?.addEventListener("click", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
   const check = target.closest("[data-qbank-check]");
   if (check instanceof HTMLInputElement) {
-    const key = check.dataset.qbankCheck || "";
-    if (check.checked) selectedIds.add(key);
-    else selectedIds.delete(key);
-    paintBulk();
+    setChecked(check.dataset.qbankCheck || "", check.checked);
     return;
   }
   const card = target.closest("[data-qbank-key]");
@@ -479,9 +477,7 @@ list?.addEventListener("click", (event) => {
 list?.addEventListener("change", (event) => {
   const check = event.target;
   if (!(check instanceof HTMLInputElement) || !check.dataset.qbankCheck) return;
-  if (check.checked) selectedIds.add(check.dataset.qbankCheck);
-  else selectedIds.delete(check.dataset.qbankCheck);
-  paintBulk();
+  setChecked(check.dataset.qbankCheck, check.checked);
 });
 document.getElementById("qbank-bulk-move")?.addEventListener("click", () => {
   const dialog = document.getElementById("qbank-move-dialog");
@@ -513,7 +509,7 @@ document.getElementById("qbank-kind-form")?.addEventListener("submit", (event) =
   document.getElementById("qbank-kind-dialog")?.close();
 });
 
-paintTabs();
+paintModule();
 loadTabCounts()
   .catch(() => {})
   .finally(() => {

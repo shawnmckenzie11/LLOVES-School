@@ -30,18 +30,12 @@ except ImportError:
 
 # Wonder IA §9 locked microcopy — do not paraphrase.
 EMPTY_BANKS_MESSAGE = "No banks imported yet."
-EDIT_BANK_LABEL = "Edit bank"
-DONE_LABEL = "Done"
-CANCEL_LABEL = "Cancel"
 REMOVE_FROM_BANK_TITLE = "Remove from bank?"
 EDITED_IN_LMS_CHIP = "Edited in LMS"
 SAVE_TOAST = "Saved to this course’s copy."
 
 WONDER_COPY = {
     "empty_banks": EMPTY_BANKS_MESSAGE,
-    "edit_bank": EDIT_BANK_LABEL,
-    "done": DONE_LABEL,
-    "cancel": CANCEL_LABEL,
     "remove_from_bank": REMOVE_FROM_BANK_TITLE,
     "edited_in_lms": EDITED_IN_LMS_CHIP,
     "save_toast": SAVE_TOAST,
@@ -750,10 +744,11 @@ def apply_question_bank_bulk(
     library_id: int,
     body: dict[str, Any],
 ) -> dict[str, Any]:
-    """Move questions to a module tab or set their Kind.
+    """Move questions, set their Kind, or remove them.
 
     Move writes ``questions.bank_scope`` only. It does not link the whole
-    bank, so siblings with a blank scope stay where they are.
+    bank, so siblings with a blank scope stay where they are. Remove
+    deletes each question after every row has been checked.
 
     Every row is checked before the first write. A missing question or a
     bad scope leaves the earlier rows unchanged.
@@ -761,12 +756,12 @@ def apply_question_bank_bulk(
     Args:
         school: School database.
         library_id: ``content_libraries.id``.
-        body: ``action`` of ``move`` or ``kind``, plus ``questions``.
+        body: ``action`` of ``move``, ``kind``, or ``remove``, plus ``questions``.
     """
     action = str(body.get("action") or "").strip().lower()
     rows = body.get("questions") or []
-    if action not in {"move", "kind"}:
-        raise ValueError("action must be move or kind")
+    if action not in {"move", "kind", "remove"}:
+        raise ValueError("action must be move, kind, or remove")
     if not isinstance(rows, list) or not rows:
         raise ValueError("questions required")
     planned: list[tuple[int, dict[str, Any]]] = []
@@ -792,6 +787,13 @@ def apply_question_bank_bulk(
         normalize_scope_token(scope)
         for question_id, _row in planned:
             school.set_question_bank_scope(int(library_id), question_id, scope)
+    elif action == "remove":
+        for question_id, row in planned:
+            school.delete_library_bank_question(
+                int(library_id),
+                int(row["bank_id"]),
+                question_id,
+            )
     else:
         prepared: list[tuple[int, str, dict[str, Any]]] = []
         kind = body.get("bank_kind", body.get("bankKind"))

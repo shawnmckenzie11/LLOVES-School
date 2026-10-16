@@ -8747,13 +8747,16 @@ body.staff-shell .live-add-q-footer-row {
 body.staff-shell .qbank-page {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
   background: #f7f9fb;
 }
 body.staff-shell .qbank-head {
+  flex-shrink: 0;
   background: #fff;
   border-bottom: 1px solid #d5dde6;
-  padding: 0.7rem 1.1rem 0;
+  padding: 0.7rem 1.1rem;
 }
 body.staff-shell .qbank-head-row {
   display: flex;
@@ -8787,6 +8790,7 @@ body.staff-shell .qbank-tabs button.is-on {
   font-weight: 750;
 }
 body.staff-shell .qbank-page .live-bank-toolbar {
+  flex-shrink: 0;
   background: #fff;
   border-bottom: 1px solid #d5dde6;
   padding: 0.65rem 1.1rem;
@@ -8799,12 +8803,43 @@ body.staff-shell .qbank-scope-sync {
   overflow: hidden;
   clip: rect(0 0 0 0);
 }
-body.staff-shell .qbank-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem;
-  padding: 0.9rem 1.1rem 4.5rem;
-  align-content: start;
+body.staff-shell .qbank-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  padding-bottom: 4.5rem;
+}
+body.staff-shell .qbank-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 2.5rem;
+  padding: 0.35rem 1.1rem;
+  border-bottom: 1px solid #e2e8f0;
+  cursor: pointer;
+  text-align: left;
+}
+body.staff-shell .qbank-row .qbank-stem {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.9rem;
+}
+body.staff-shell .qbank-row .qbank-stem * {
+  display: inline;
+  white-space: nowrap;
+}
+body.staff-shell .qbank-meta {
+  flex: 0 0 auto;
+  margin: 0;
+  color: #475569;
+  font-size: 0.78rem;
+  white-space: nowrap;
 }
 body.staff-shell .qbank-card {
   background: #fff;

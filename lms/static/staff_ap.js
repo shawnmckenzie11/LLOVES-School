@@ -23,6 +23,7 @@ import {
   sortStudents,
 } from "/static/common.js";
 import { configureQuestionEditor, openQuestionEditor } from "/static/question_editor.js";
+import { bankLiveStart } from "/static/live_start.js";
 import {
   bindSchoolDayPicker,
   defaultSchoolDay,
@@ -5258,6 +5259,13 @@ function paintLiveQuestionCards() {
       const status = String(
         lifecycle?.status || card.status || "inactive"
       ).toLowerCase();
+      const start = bankLiveStart(item, { ...card, status }, {
+        modeHeld: teacherSettingHold.has(`${liveItemId}:response_mode`),
+        showHeld: teacherSettingHold.has(`${liveItemId}:show_live_results`),
+      });
+      card.response_mode = start.response_mode;
+      card.publish_mode = start.publish_mode;
+      card.show_live_results = start.show_live_results;
       const newChip = liveQuestionAddedThisClass(item, card, status)
         ? `<span class="live-question-new-chip">New</span>`
         : "";
@@ -5391,7 +5399,7 @@ function paintLiveQuestionCards() {
             )}" data-question-type="${escapeHtml(item.type || card.type || "poll")}" data-has-answer-key="${
               hasAnswerKey ? "1" : ""
             }" data-live-points="${escapeHtml(
-              item.live_points == null || item.live_points === "" ? "" : item.live_points
+              start.live_points == null ? "" : start.live_points
             )}" ${
               promptId ? "" : "disabled"
             }>Responses &amp; points</button>`;
