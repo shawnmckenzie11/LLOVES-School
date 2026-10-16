@@ -5049,6 +5049,7 @@ class LovesDB:
 
         Frees the email for re-registration. Shared content libraries are kept.
         Offering instance directories under the data volume are removed when present.
+        MVP vote rows for that staff member's live sessions are removed too.
 
         Args:
             user_id: Primary key of the staff user to delete.
@@ -5108,6 +5109,26 @@ class LovesDB:
                     ).fetchall()
                 class_ids = [int(row["id"]) for row in class_rows]
 
+            if offering_ids:
+                placeholders = ",".join("?" * len(offering_ids))
+                session_rows = self.conn.execute(
+                    f"""
+                    SELECT id FROM live_class_sessions
+                    WHERE teacher_user_id = ?
+                       OR offering_id IN ({placeholders})
+                    """,
+                    (uid, *offering_ids),
+                ).fetchall()
+            else:
+                session_rows = self.conn.execute(
+                    "SELECT id FROM live_class_sessions WHERE teacher_user_id = ?",
+                    (uid,),
+                ).fetchall()
+            from gamification_winner import delete_votes_for_sessions
+
+            delete_votes_for_sessions(
+                self.conn, [int(row["id"]) for row in session_rows]
+            )
             if offering_ids:
                 placeholders = ",".join("?" * len(offering_ids))
                 self.conn.execute(
@@ -38017,11 +38038,11 @@ class SchoolDB(LovesDB):
     def cast_mvp_vote(
         self, session_id: int, voter_id: int, nominee_codename: str
     ) -> dict[str, Any]:
-        """Record one anonymous MVP ballot for a winning-team member.
+        """Record one MVP ballot for a winning-team member.
 
-        The ballot table stores that ``voter_id`` voted. The tally table
-        stores the nominee count. Those writes do not share a timestamp
-        or a log line. The return value does not echo the choice.
+        Classmates are not told who voted for whom. The ballot table stores
+        that ``voter_id`` voted. The tally table stores the nominee count.
+        The return value does not echo the choice.
 
         Args:
             session_id: ``live_class_sessions.id``.

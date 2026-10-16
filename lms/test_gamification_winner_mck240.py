@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MCK-240: Winner page scoreboard, anonymous MVP vote, and session purge."""
+"""MCK-240: Winner page scoreboard, classmate-hidden MVP vote, and session purge."""
 
 from __future__ import annotations
 
@@ -501,6 +501,95 @@ class GamificationWinnerTests(unittest.TestCase):
         excluded = {row["name"]: row["score"] for row in self._page("Aspen")["scoreboard"]}
         self.assertEqual(excluded["Team 1"], 0)
 
+    def _assert_no_id_pair(self, value: object, ballots: dict[int, int]) -> None:
+        """Fail when one object holds both a voter id and their nominee id.
+
+        Args:
+            value: Student JSON tree.
+            ballots: Voter roster id to nominee roster id.
+        """
+        if isinstance(value, dict):
+            ints = [item for item in value.values() if isinstance(item, int)]
+            for voter_id, nominee_id in ballots.items():
+                if voter_id in ints and nominee_id in ints and voter_id != nominee_id:
+                    self.fail(f"voter {voter_id} paired with {nominee_id} in {value}")
+            for child in value.values():
+                self._assert_no_id_pair(child, ballots)
+        elif isinstance(value, list):
+            ints = [item for item in value if isinstance(item, int)]
+            for voter_id, nominee_id in ballots.items():
+                if voter_id in ints and nominee_id in ints and voter_id != nominee_id:
+                    self.fail(f"voter {voter_id} paired with {nominee_id} in {value}")
+            for child in value:
+                self._assert_no_id_pair(child, ballots)
+
+    def test_students_never_see_who_voted_for_whom(self) -> None:
+        """Student state and the vote API do not pair a voter with a choice."""
+        self._score_group_and_solo()
+        self.school.set_live_session_teacher_state(
+            self.session_id, gamification_on=True
+        )
+        ballots = {
+            self.ids["Aspen"]: self.ids["Birch"],
+            self.ids["Birch"]: self.ids["Aspen"],
+        }
+        self._bind("Aspen")
+        first = self.client.post(
+            "/api/student/mvp-vote",
+            json={"nominee_codename": "Birch"},
+        )
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.get_json(), {"ok": True, "voted": True})
+        self.assertNotIn("Birch", first.get_data(as_text=True))
+        self.assertTrue(winner_mod.student_payload_hides_ballots(first.get_json()))
+        self._bind("Birch")
+        second = self.client.post(
+            "/api/student/mvp-vote",
+            json={"nominee_codename": "Aspen"},
+        )
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.get_json(), {"ok": True, "voted": True})
+        self.assertNotIn("Aspen", second.get_data(as_text=True))
+        for codename in ("Aspen", "Birch", "Cedar", "Dale"):
+            self._bind(codename)
+            state = self.client.get("/api/student/state")
+            self.assertEqual(state.status_code, 200)
+            body = state.get_json()
+            page = body.get("gamification") or {}
+            self.assertTrue(winner_mod.student_payload_hides_ballots(page))
+            self.assertFalse(_walk_keys(body) & {"voter_id", "nominee_id"})
+            self.assertEqual(
+                page["copy"]["winner.hidden"],
+                "Votes are hidden from classmates",
+            )
+            blob = json.dumps(page)
+            self.assertNotIn("Aspen voted for Birch", blob)
+            self.assertNotIn("Birch voted for Aspen", blob)
+            self.assertNotIn('"Aspen": "Birch"', blob)
+            self.assertNotIn('"Birch": "Aspen"', blob)
+            self._assert_no_id_pair(page, ballots)
+            home = self.client.get("/student/home")
+            home_text = home.get_data(as_text=True)
+            self.assertNotIn("voter_id", home_text)
+            self.assertNotIn("nominee_id", home_text)
+            self.assertNotIn("Aspen voted for Birch", home_text)
+
+    def test_staff_hard_delete_removes_vote_rows(self) -> None:
+        """Hard-deleting a staff member removes that class's MVP vote rows."""
+        self._score_group_and_solo()
+        self.school.set_live_session_teacher_state(
+            self.session_id, gamification_on=True
+        )
+        self.school.cast_mvp_vote(self.session_id, self.ids["Aspen"], "Birch")
+        self.assertEqual(winner_mod.voter_count(self.school.conn, self.session_id), 1)
+        self.assertEqual(
+            winner_mod.tally_map(self.school.conn, self.session_id)[self.ids["Birch"]],
+            1,
+        )
+        self.school.delete_staff_permanently(self.teacher_id, 999999)
+        self.assertEqual(winner_mod.voter_count(self.school.conn, self.session_id), 0)
+        self.assertEqual(winner_mod.tally_map(self.school.conn, self.session_id), {})
+
     def test_copy_keys_are_in_the_staff_and_student_shells(self) -> None:
         html = (LMS_DIR / "templates" / "staff" / "course.html").read_text(encoding="utf-8")
         self.assertIn('id="ap-gamification-toggle"', html)
@@ -517,3 +606,8 @@ class GamificationWinnerTests(unittest.TestCase):
         self.assertIn(".gamification-winner .winner-poll-options", css)
         self.assertIn("winner.mvp_reward", WINNER_COPY)
         self.assertEqual(WINNER_COPY["winner.mvp_reward"], "Avatar reward")
+        self.assertEqual(WINNER_COPY["winner.hidden"], "Votes are hidden from classmates")
+        self.assertIn('data-copy-key="winner.hidden"', html)
+        self.assertIn("Votes are hidden from classmates", html)
+        self.assertIn("winner.hidden", js)
+        self.assertNotIn("anonymous", WINNER_COPY.values())
