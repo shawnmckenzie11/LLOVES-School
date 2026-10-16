@@ -41785,12 +41785,12 @@ class SchoolDB(LovesDB):
             A copy of ``session_meta`` with test columns filled in.
         """
         try:
-            from test_live_class_labels import (
+            from live_class_test_labels import (
                 format_test_participation_label,
                 test_same_day_indices,
             )
         except ImportError:
-            from lms.test_live_class_labels import (
+            from lms.live_class_test_labels import (
                 format_test_participation_label,
                 test_same_day_indices,
             )

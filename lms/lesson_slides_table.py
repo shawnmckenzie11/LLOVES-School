@@ -276,12 +276,12 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
             }
         )
     try:
-        from test_live_class_labels import (
+        from live_class_test_labels import (
             format_test_lesson_slides_label,
             test_same_day_indices,
         )
     except ImportError:
-        from lms.test_live_class_labels import (
+        from lms.live_class_test_labels import (
             format_test_lesson_slides_label,
             test_same_day_indices,
         )

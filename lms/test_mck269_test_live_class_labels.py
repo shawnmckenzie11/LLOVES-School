@@ -10,7 +10,7 @@ from pathlib import Path
 LMS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(LMS_DIR))
 
-from test_live_class_labels import (  # noqa: E402
+from live_class_test_labels import (  # noqa: E402
     format_test_lesson_slides_label,
     format_test_participation_label,
     test_same_day_indices,
