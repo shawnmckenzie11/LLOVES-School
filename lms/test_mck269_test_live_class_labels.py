@@ -13,7 +13,7 @@ sys.path.insert(0, str(LMS_DIR))
 from live_class_test_labels import (  # noqa: E402
     format_test_lesson_slides_label,
     format_test_participation_label,
-    test_same_day_indices,
+    test_same_day_indices as same_day_test_indices,
 )
 
 
@@ -43,7 +43,7 @@ class TestLiveClassLabelTests(unittest.TestCase):
             {"live_session_id": 10, "ended_at": "2026-10-16T14:00:00"},
             {"live_session_id": 11, "ended_at": "2026-10-16T16:00:00"},
         ]
-        indices = test_same_day_indices(rows)
+        indices = same_day_test_indices(rows)
         self.assertEqual(indices[10], 1)
         self.assertEqual(indices[11], 2)
 

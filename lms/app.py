@@ -96,6 +96,8 @@ from onboarding_tour import tour_run_type  # noqa: E402
 from school_db import (  # noqa: E402
     STAFF_2FA_MODE_LABELS,
     DeckCopyLiveConflict,
+    DeleteTestLiveClassConflict,
+    LiveRunKindConflict,
     DeckReplaceNotConfirmed,
     GroupAnswerLocked,
     RankAgreeConflict,
@@ -10473,12 +10475,18 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return denied
         user = current_user()
         assert user is not None
-        body = request.get_json(silent=True) or {}
+        from live_class_flags import parse_is_test_form, parse_is_test_json
+
+        if request.is_json:
+            body = request.get_json(silent=True) or {}
+            is_test = parse_is_test_json(body.get("is_test"))
+        else:
+            is_test = parse_is_test_form(request.form.get("is_test"))
         try:
             session_row = school.commit_live_run_kind(
                 int(class_id),
                 int(user["id"]),
-                is_test=bool(body.get("is_test")),
+                is_test=is_test,
             )
             return jsonify(
                 {
@@ -10487,6 +10495,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     "live_session_id": int(session_row["id"]),
                 }
             )
+        except LiveRunKindConflict as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 409
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         except Exception as exc:  # noqa: BLE001
@@ -10505,6 +10515,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         try:
             result = school.delete_test_live_class(int(class_id), int(session_id))
             return jsonify(result)
+        except DeleteTestLiveClassConflict as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 409
         except PermissionError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 403
         except KeyError:

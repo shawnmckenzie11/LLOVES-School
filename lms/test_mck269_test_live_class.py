@@ -120,6 +120,7 @@ class TestLiveClassTests(Base):
             for row in self.school.conn.execute("PRAGMA table_info(live_class_sessions)")
         }
         self.assertIn("is_test", cols)
+        self.assertIn("created_as_test", cols)
         indexed = {
             str(row["name"])
             for row in self.school.conn.execute(
@@ -627,3 +628,64 @@ class TestLiveClassPostgresDeleteTests(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestLiveClassKindGuardTests(TestLiveClassTests):
+    """409 when Test/Live would change after run activity."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.client = self.app.test_client()
+        self.client.get("/auth/google?portal=staff")
+        self.client.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+        code = self.school.get_user_by_email("teacher@gmail.com")["verification_code"]
+        self.client.post("/verify-email", data={"code": code})
+
+    def test_kind_switch_refuses_after_prompt(self) -> None:
+        """Live-session kind endpoint returns 409 once prompts exist."""
+        from school_db import LiveRunKindConflict
+
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"]), is_test=False
+        )
+        sid = int(live["id"])
+        now = "2026-10-14T13:00:00"
+        self.school.conn.execute(
+            """
+            INSERT INTO live_session_prompts (
+                live_session_id, slide_index, kind, payload, created_at, updated_at
+            ) VALUES (?, 0, 'idle', '{}', ?, ?)
+            """,
+            (sid, now, now),
+        )
+        self.school.conn.commit()
+        with self.assertRaises(LiveRunKindConflict):
+            self.school.commit_live_run_kind(
+                self.class_id, int(self.teacher["id"]), is_test=True
+            )
+        rv = self.client.post(
+            f"/api/classes/{self.class_id}/live-session/kind",
+            json={"is_test": True},
+        )
+        self.assertEqual(rv.status_code, 409, rv.get_json())
+
+    def test_delete_test_refuses_mistagged_real_with_data(self) -> None:
+        """delete-test returns 409 when is_test was flipped on a real run."""
+        from school_db import DeleteTestLiveClassConflict
+
+        real = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"]), is_test=False
+        )
+        sid = int(real["id"])
+        self._publish_one_answer(sid, "M1", "C1")
+        self.school.conn.execute(
+            "UPDATE live_class_sessions SET is_test = 1, created_as_test = 0 WHERE id = ?",
+            (sid,),
+        )
+        self.school.conn.commit()
+        with self.assertRaises(DeleteTestLiveClassConflict):
+            self.school.delete_test_live_class(self.class_id, sid)
+        rv = self.client.post(
+            f"/api/classes/{self.class_id}/live-sessions/{sid}/delete-test"
+        )
+        self.assertEqual(rv.status_code, 409, rv.get_json())
+

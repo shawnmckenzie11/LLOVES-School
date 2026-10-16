@@ -1945,6 +1945,14 @@ class DeckCopyLiveConflict(ValueError):
     """
 
 
+class LiveRunKindConflict(ValueError):
+    """Cannot switch Test/Live after the session has run activity (409)."""
+
+
+class DeleteTestLiveClassConflict(ValueError):
+    """Refuse delete-test when a real class was mis-tagged but has run data (409)."""
+
+
 def section_code(ontario_code: str, section_index: Any = 1) -> str:
     """Return the teacher-facing code for one section of a course.
 
@@ -3656,6 +3664,14 @@ class LovesDB:
             self.conn.execute(
                 "ALTER TABLE live_class_sessions "
                 "ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0"
+            )
+        if "created_as_test" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_class_sessions "
+                "ADD COLUMN created_as_test INTEGER NOT NULL DEFAULT 0"
+            )
+            self.conn.execute(
+                "UPDATE live_class_sessions SET created_as_test = COALESCE(is_test, 0)"
             )
         self._ensure_lesson_slides_is_test_key()
         self._ensure_catchup_is_test_key()
@@ -38111,6 +38127,40 @@ class SchoolDB(LovesDB):
             return None
         return meeting.isoformat()
 
+
+    def _live_session_has_run_activity(self, session_id: int) -> bool:
+        """True when the session has attendees, prompts, or student responses.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            True if switching Test/Live or delete-test must be refused.
+        """
+        sid = int(session_id)
+        with self._lock:
+            if self.conn.execute(
+                "SELECT 1 FROM live_session_attendees WHERE live_session_id = ? LIMIT 1",
+                (sid,),
+            ).fetchone():
+                return True
+            if self.conn.execute(
+                "SELECT 1 FROM live_session_prompts WHERE live_session_id = ? LIMIT 1",
+                (sid,),
+            ).fetchone():
+                return True
+            if self.conn.execute(
+                """
+                SELECT 1 FROM live_session_responses r
+                JOIN live_session_prompts p ON p.id = r.prompt_id
+                WHERE p.live_session_id = ?
+                LIMIT 1
+                """,
+                (sid,),
+            ).fetchone():
+                return True
+        return False
+
     def commit_live_run_kind(
         self,
         class_id: int,
@@ -38145,6 +38195,12 @@ class SchoolDB(LovesDB):
                 defer_wipe=False,
             )
         else:
+            current_flag = int(active.get("is_test") or 0)
+            if current_flag != flag and self._live_session_has_run_activity(int(active["id"])):
+                raise LiveRunKindConflict(
+                    "This class already has students or responses. "
+                    "End it and start again to switch Test or Live."
+                )
             with self._lock:
                 self.conn.execute(
                     "UPDATE live_class_sessions SET is_test = ? WHERE id = ?",
@@ -38328,6 +38384,11 @@ class SchoolDB(LovesDB):
             raise KeyError(f"live session {sid}")
         if not int(row["is_test"] or 0):
             raise PermissionError("Only a test class can be deleted this way.")
+        created_as_test = int(row["created_as_test"] if row["created_as_test"] is not None else row["is_test"] or 0)
+        if not created_as_test and self._live_session_has_run_activity(sid):
+            raise DeleteTestLiveClassConflict(
+                "This class has real student or response data and cannot be deleted as a test run."
+            )
         run_key = str(row["run_key"] or "").strip()
         tracker_id = row["mgs_session_id"]
         tracker_ids = set()
@@ -38816,8 +38877,8 @@ class SchoolDB(LovesDB):
                     INSERT INTO live_class_sessions (
                         class_id, offering_id, teacher_user_id, session_code,
                         status, started_at, ended_at, mgs_session_id,
-                        meeting_date, run_key, is_test
-                    ) VALUES (?, ?, ?, ?, 'active', ?, NULL, NULL, ?, ?, ?)
+                        meeting_date, run_key, is_test, created_as_test
+                    ) VALUES (?, ?, ?, ?, 'active', ?, NULL, NULL, ?, ?, ?, ?)
                     """,
                     (
                         int(class_id),
@@ -38827,6 +38888,7 @@ class SchoolDB(LovesDB):
                         _now(),
                         meeting_iso,
                         uuid.uuid4().hex,
+                        1 if is_test else 0,
                         1 if is_test else 0,
                     ),
                 )
@@ -41787,12 +41849,12 @@ class SchoolDB(LovesDB):
         try:
             from live_class_test_labels import (
                 format_test_participation_label,
-                test_same_day_indices,
+                test_same_day_indices as same_day_test_indices,
             )
         except ImportError:
             from lms.live_class_test_labels import (
                 format_test_participation_label,
-                test_same_day_indices,
+                test_same_day_indices as same_day_test_indices,
             )
 
         meta = {str(key): dict(info) for key, info in (session_meta or {}).items()}
@@ -41804,7 +41866,7 @@ class SchoolDB(LovesDB):
             }
             for detail in tracker_map.values()
         ]
-        day_index = test_same_day_indices(index_rows)
+        day_index = same_day_test_indices(index_rows)
         for tracker_id, detail in tracker_map.items():
             info = meta.get(str(tracker_id)) or {}
             info["is_test"] = True

@@ -278,12 +278,12 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
     try:
         from live_class_test_labels import (
             format_test_lesson_slides_label,
-            test_same_day_indices,
+            test_same_day_indices as same_day_test_indices,
         )
     except ImportError:
         from lms.live_class_test_labels import (
             format_test_lesson_slides_label,
-            test_same_day_indices,
+            test_same_day_indices as same_day_test_indices,
         )
     test_index_rows = [
         {
@@ -292,7 +292,7 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
         }
         for latest in test_latest
     ]
-    test_day_index = test_same_day_indices(test_index_rows)
+    test_day_index = same_day_test_indices(test_index_rows)
     for latest in test_latest:
         module = str(latest.get("live_module") or "").upper()
         slot = str(latest.get("live_slot") or "").upper()
