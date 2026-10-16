@@ -240,12 +240,13 @@ function participationWeight(row) {
  */
 function formatParticipationCell(score, opportunities, endedAt) {
   if (!includeIndividual && !includeGroup) return "—";
+  if (opportunities <= 0) {
+    return score > 0 ? escapeHtml(formatPoints(score)) : "—";
+  }
   if (displayMode === "fraction") {
-    if (opportunities <= 0) return "—";
     return `${formatScore(score)}/${opportunities}`;
   }
   if (displayMode === "percent") {
-    if (opportunities <= 0) return "—";
     let pct = Math.round((100 * score) / opportunities);
     if (endedAt && legacyCap(endedAt) && pct > 100) pct = 100;
     return `${pct}%`;
@@ -285,6 +286,11 @@ function cellScore(data, sessionId, studentId, meta) {
   const individualKey = `${sessionId}:${studentId}`;
   const individualAnswered = numericPoints(data.individual_cells?.[individualKey] || 0);
   let score = 0;
+  if (opportunities <= 0) {
+    if (includeGroup) score += groupPoints;
+    if (includeIndividual) score += individualAnswered;
+    return { score, opportunities, ended_at: String(meta?.ended_at || "") };
+  }
   if (displayMode === "points") {
     if (includeGroup) score += groupPoints;
     if (includeIndividual) score += individualAnswered;
@@ -347,6 +353,9 @@ function classCellHtml(data, sessionId, studentId, scored, office) {
     const fraction = `${formatScore(scored.score)}/${scored.opportunities}`;
     return `<span class="ap-frac">${escapeHtml(fraction)}</span>`;
   }
+  if (!office && scored.score > 0) {
+    return `<span class="ap-frac">${escapeHtml(formatScore(scored.score))}</span>`;
+  }
   const mark = hit ? "✓" : "—";
   const markClass = hit ? "ap-mark-yes" : "ap-mark-no";
   return `<span class="${markClass}">${mark}</span>`;
@@ -381,9 +390,11 @@ function renderSheet(data) {
 
   const pieces = [];
   for (const band of bands) {
-    if (moduleNumber(band.module) <= 0) continue;
+    const untagged = band.role === "untagged" || String(band.module || "") === "Untagged";
+    if (!untagged && moduleNumber(band.module) <= 0) continue;
     const cols = visibleBandColumns(band).filter((col) => {
       if (col.kind !== "class") return true;
+      if (untagged) return true;
       return moduleNumber(col.column?.module) > 0;
     });
     if (!cols.length) continue;
@@ -414,6 +425,8 @@ function renderSheet(data) {
       groupClass += " is-current";
     } else if (run.role === "open") {
       groupLabel = `Module ${moduleNumber(mod)}`;
+    } else if (run.role === "untagged") {
+      groupLabel = "Untagged";
     }
     groupRow += `<th class="${groupClass}" colspan="${run.span}">${escapeHtml(groupLabel)}</th>`;
     for (const piece of run.pieces) {

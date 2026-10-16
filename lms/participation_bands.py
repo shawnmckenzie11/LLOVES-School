@@ -5,7 +5,9 @@ module stays expanded as the current module. Starting a later module
 while that current module is open asks the teacher to finish it first.
 
 Column labels use the stored module token. A blank module is not shown
-as ``M1``, and the number is not shifted down by one.
+as ``M1``, and the number is not shifted down by one. The grid may pass
+a display module worked out from the class calendar; a session that
+still has no module stays in the ``Untagged`` band.
 """
 
 from __future__ import annotations
@@ -13,8 +15,13 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from participation_exclusion import toronto_datetime_from_ended_at
+from participation_exclusion import (
+    calendar_date_from_stored,
+    toronto_datetime_from_ended_at,
+)
 from participation_weight import module_number
+
+UNTAGGED_MODULE = "Untagged"
 
 _WEEKDAY = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 _MONTH = (
@@ -83,6 +90,26 @@ def format_participation_grouped_header(
     return " · ".join(parts)
 
 
+def untagged_column_label(ended_at: str | None) -> str:
+    """Header for a session the class calendar cannot place.
+
+    The word is ``Untagged``, with the meeting date when one is stored.
+    It is never ``M1`` or ``C1``.
+
+    Args:
+        ended_at: Stored start or end time.
+
+    Returns:
+        ``Untagged`` or ``Untagged · Mon Sep 14``.
+    """
+    day = calendar_date_from_stored(ended_at)
+    if day is None:
+        return UNTAGGED_MODULE
+    weekday = _WEEKDAY[day.weekday()]
+    month = _MONTH[day.month - 1]
+    return f"{UNTAGGED_MODULE} · {weekday} {month} {day.day}"
+
+
 def module_classes_are_done(columns: list[dict[str, Any]]) -> bool:
     """True when every class column in the module has ended.
 
@@ -123,14 +150,14 @@ def build_participation_bands(
 ) -> dict[str, Any]:
     """Group live-class columns into finished, open, and current bands.
 
-    Subtotal snapshots are omitted. A column with no stored module is
-    omitted, so it cannot appear as an ``M1 C1`` placeholder after the
-    current module. The current module is the highest numbered module
-    that still has classes and is not complete. A module is ``finished``
-    when it is marked complete, or when every class in it has ended and
-    a later module is the current one. That second case is view-only:
-    it does not write the module mark. An earlier module that still has
-    a class in progress stays ``open``.
+    Subtotal snapshots are omitted. A column whose module is blank or
+    ``Untagged`` stays in an ``Untagged`` band, so its points remain on
+    the table and it is not labeled ``M1 C1``. The current module is the
+    highest numbered module that still has classes and is not complete.
+    A module is ``finished`` when it is marked complete, or when every
+    class in it has ended and a later module is the current one. That
+    second case is view-only: it does not write the module mark. An
+    earlier module that still has a class in progress stays ``open``.
 
     Args:
         columns: Dashboard columns (``kind`` ``session`` or ``subtotal``).
@@ -153,10 +180,16 @@ def build_participation_bands(
             continue
         meta = session_meta.get(str(session_id)) or session_meta.get(session_id) or {}
         module = str(meta.get("live_module") or "").strip().upper()
-        if module_number(module) <= 0:
-            continue
         slot = str(meta.get("live_slot") or "").strip().upper()
         ended = str(meta.get("ended_at") or "")
+        if module_number(module) <= 0:
+            module = UNTAGGED_MODULE
+            slot = ""
+            label = str(meta.get("header_label") or "").strip() or untagged_column_label(ended)
+            office = False
+        else:
+            label = format_participation_grouped_header(module, slot, ended)
+            office = is_office_slot(slot)
         if "class_ended" in meta:
             class_ended = bool(meta.get("class_ended"))
         else:
@@ -166,8 +199,8 @@ def build_participation_bands(
                 "id": session_id,
                 "module": module,
                 "slot": slot,
-                "office": is_office_slot(slot),
-                "label": format_participation_grouped_header(module, slot, ended),
+                "office": office,
+                "label": label,
                 "ended_at": ended,
                 "class_ended": class_ended,
             }
@@ -183,9 +216,10 @@ def build_participation_bands(
     bands: list[dict[str, Any]] = []
     for key in order:
         number = module_number(key)
-        if number <= 0:
-            continue
-        if bool(complete_by_module.get(key)):
+        if key == UNTAGGED_MODULE or number <= 0:
+            role = "untagged"
+            number = 0
+        elif bool(complete_by_module.get(key)):
             role = "finished"
         elif key == current:
             role = "current"

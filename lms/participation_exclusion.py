@@ -7,9 +7,8 @@ excluded when deciding which live answers count toward denominators.
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from typing import Any
-
-from datetime import datetime
 from zoneinfo import ZoneInfo
 
 _WEEKDAY_ABBR = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -31,6 +30,31 @@ def toronto_datetime_from_ended_at(value: str | None) -> datetime | None:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=_UTC).astimezone(_TORONTO)
     return dt.astimezone(_TORONTO)
+
+
+def calendar_date_from_stored(value: str | None) -> date | None:
+    """Toronto calendar date for a stored session time.
+
+    A date-only ``YYYY-MM-DD`` stays that day. A timestamp is read as
+    UTC-naive and converted to America/Toronto, the same way column
+    headers already do.
+
+    Args:
+        value: ``starts_at`` or ``ended_at`` text.
+
+    Returns:
+        The local calendar date, or None when ``value`` is blank or invalid.
+    """
+    text = str(value or "").strip()
+    if len(text) >= 10 and text[4] == "-" and "T" not in text[:10] and len(text) == 10:
+        try:
+            return date.fromisoformat(text)
+        except ValueError:
+            return None
+    when = toronto_datetime_from_ended_at(text)
+    if when is None:
+        return None
+    return when.date()
 
 
 def sql_exclude_non_counted_participation_run(
