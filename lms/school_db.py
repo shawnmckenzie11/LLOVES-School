@@ -12994,10 +12994,10 @@ class SchoolDB(LovesDB):
     def _bank_scope_module_numbers(
         bank_scope: str, current_module_number: int
     ) -> list[int]:
-        """Resolve a Bank scope value into module numbers 1–8.
+        """Resolve a Bank scope value into module numbers 0–8.
 
-        Accepts ``course`` / ``all`` (every module), ``module`` (current),
-        ``M2`` / ``m2`` / ``2``. Unknown tokens fall back to the current module.
+        Accepts ``course`` / ``all`` (content modules 1–8), ``module`` (current),
+        ``M0`` / ``m2`` / ``2``. Unknown tokens fall back to the current module.
 
         Args:
             bank_scope: Staff Bank scope value.
@@ -13019,10 +13019,10 @@ class SchoolDB(LovesDB):
         digits = token[1:] if token.startswith("m") else token
         if digits.isdigit():
             number = int(digits)
-            if 1 <= number <= 8:
+            if 0 <= number <= 8:
                 return [number]
         parsed = parse_module_token(str(bank_scope or "").strip().upper())
-        if parsed is not None and 1 <= int(parsed) <= 8:
+        if parsed is not None and 0 <= int(parsed) <= 8:
             return [int(parsed)]
         return [int(current_module_number)]
 
@@ -38772,10 +38772,11 @@ class SchoolDB(LovesDB):
         return normalized
 
     def _assert_module_number(self, module_number: int) -> None:
-        """Raise when a scheme module index is outside 1–8.
+        """Raise when a scheme module index is outside 0–8.
 
         Args:
-            module_number: 1-based module index.
+            module_number: Module index. ``0`` is the intro module; ``1``–``8``
+                are the content modules.
 
         Raises:
             ValueError: When the index is not a math-course module.
@@ -38785,8 +38786,8 @@ class SchoolDB(LovesDB):
         except ImportError:
             from lms.gradebook import MATH_MODULE_COUNT
 
-        if int(module_number) < 1 or int(module_number) > int(MATH_MODULE_COUNT):
-            raise ValueError(f"module_number must be 1–{MATH_MODULE_COUNT}")
+        if int(module_number) < 0 or int(module_number) > int(MATH_MODULE_COUNT):
+            raise ValueError(f"module_number must be 0–{MATH_MODULE_COUNT}")
 
     def set_grade_scheme(
         self, class_id: int, payload: dict[str, Any]
@@ -39705,7 +39706,16 @@ class SchoolDB(LovesDB):
         overview = gradebook_overview_text(
             weights=weights, window=m1, rules=m1_rules
         )
-        scheme_modules = []
+        scheme_modules = [
+            {
+                "number": 0,
+                "start": None,
+                "end": None,
+                "window": {},
+                **self.module_portfolio_rules_for_class(class_id, 0),
+                "editable": True,
+            }
+        ]
         for win in windows:
             number = int(win.get("number") or 0)
             if number < 1:

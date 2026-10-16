@@ -19,13 +19,14 @@ function $(id) {
 }
 
 /**
- * Selected module number.
+ * Selected module number. ``0`` stays ``0`` (it is the intro module).
  * @returns {number}
  */
 function moduleNumber() {
   const select = $("portfolio-module");
-  if (select instanceof HTMLSelectElement) {
-    return Number(select.value) || 1;
+  if (select instanceof HTMLSelectElement && select.value !== "") {
+    const number = Number(select.value);
+    if (Number.isFinite(number)) return number;
   }
   return 1;
 }
@@ -55,6 +56,10 @@ function lensEdits() {
 
 /**
  * Fill the module dropdown from context API.
+ *
+ * Options are shorthand only (``M0``, ``M1``, …). Course titles stay off
+ * the menu. ``M0`` is always first, even when the strand map starts at 1.
+ *
  * @returns {Promise<any>}
  */
 async function fillModuleSelect() {
@@ -63,12 +68,19 @@ async function fillModuleSelect() {
   );
   const select = $("portfolio-module");
   if (select instanceof HTMLSelectElement && Array.isArray(data.modules)) {
-    const current = String(data.module_number || 1);
-    select.innerHTML = data.modules
-      .map(
-        (row) =>
-          `<option value="${row.module_number}"${String(row.module_number) === current ? " selected" : ""}>M${row.module_number} · ${escapeHtml(row.title || "")}</option>`
-      )
+    const rows = data.modules.filter((row) => Number.isFinite(Number(row?.module_number)));
+    if (!rows.some((row) => Number(row.module_number) === 0)) {
+      rows.unshift({ module_number: 0 });
+    }
+    rows.sort((a, b) => Number(a.module_number) - Number(b.module_number));
+    const currentNumber = Number(data.module_number);
+    const current = Number.isFinite(currentNumber) ? String(currentNumber) : "1";
+    select.innerHTML = rows
+      .map((row) => {
+        const number = Number(row.module_number);
+        const picked = String(number) === current ? " selected" : "";
+        return `<option value="${number}"${picked}>M${number}</option>`;
+      })
       .join("");
   }
   return data;

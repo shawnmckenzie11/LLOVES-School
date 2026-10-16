@@ -78,7 +78,7 @@ function itemPreview(item) {
  */
 
 /**
- * Normalize a Bank scope token to ``M1``–``M8`` or ``course``.
+ * Normalize a Bank scope token to ``M0``–``M8`` or ``course``.
  * @param {unknown} raw
  * @returns {string}
  */
@@ -86,20 +86,23 @@ function normalizeBankScope(raw) {
   const token = String(raw || "").trim();
   if (token.toLowerCase() === "course") return "course";
   const upper = token.toUpperCase();
-  return /^M[1-8]$/.test(upper) ? upper : "M1";
+  return /^M[0-8]$/.test(upper) ? upper : "M1";
 }
 
 /**
  * Option list for the shared Bank scope control.
+ *
+ * Labels are shorthand only: ``M0`` through ``M8``, then Course Wide.
+ *
  * @param {string} selected
  * @returns {string}
  */
 function bankScopeOptionsHtml(selected) {
   const current = normalizeBankScope(selected);
-  const modules = ["M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8"]
-    .map((token, index) => {
+  const modules = ["M0", "M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8"]
+    .map((token) => {
       const picked = token === current ? " selected" : "";
-      return `<option value="${token}"${picked}>Module ${index + 1}</option>`;
+      return `<option value="${token}"${picked}>${token}</option>`;
     })
     .join("");
   const coursePicked = current === "course" ? " selected" : "";

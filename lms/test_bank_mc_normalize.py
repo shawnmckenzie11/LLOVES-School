@@ -41,7 +41,8 @@ class BankMcNormalizeTests(unittest.TestCase):
     """Normalizer edge cases from ingest fixtures."""
 
     def test_parse_module_token(self) -> None:
-        """Module tokens parse to one-based numbers."""
+        """Module tokens parse to 0–8. ``M0`` is the intro module."""
+        self.assertEqual(parse_module_token("M0"), 0)
         self.assertEqual(parse_module_token("M1"), 1)
         self.assertIsNone(parse_module_token("m12"))
         self.assertIsNone(parse_module_token("hello"))

@@ -105,14 +105,9 @@
         <label id="live-add-q-bank-scope" class="live-add-q-bank-scope" for="live-add-q-bank-scope-select" hidden>
           <span class="live-relocate-move-field">Bank scope</span>
           <select id="live-add-q-bank-scope-select" disabled>
-            <option value="M1">Module 1</option>
-            <option value="M2">Module 2</option>
-            <option value="M3">Module 3</option>
-            <option value="M4">Module 4</option>
-            <option value="M5">Module 5</option>
-            <option value="M6">Module 6</option>
-            <option value="M7">Module 7</option>
-            <option value="M8">Module 8</option>
+            {% for n in range(0, 9) %}
+            <option value="M{{ n }}"{% if n == 1 %} selected{% endif %}>M{{ n }}</option>
+            {% endfor %}
             <option value="course">Course Wide</option>
           </select>
         </label>

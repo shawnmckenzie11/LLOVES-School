@@ -951,16 +951,16 @@ class DeckCopyHelperTests(unittest.TestCase):
         self.assertEqual(
             self.got["groups"],
             [
-                ["Module 1", ["M1 C1 · 7 questions"]],
+                ["M1", ["M1 C1 · 7 questions"]],
                 [
-                    "Module 2",
+                    "M2",
                     [
                         "M2 C1 · 1 question",
                         "M2 C3 · 9 questions · same slot",
                         "M2 C10 · 2 questions",
                     ],
                 ],
-                ["Module 10", ["M10 C1 · 4 questions"]],
+                ["M10", ["M10 C1 · 4 questions"]],
             ],
         )
         self.assertEqual(self.got["values"], ["9:M2:C1", "9:M2:C3", "9:M2:C10"])
@@ -1260,8 +1260,8 @@ class SetClassDeckCopyFlowTests(unittest.TestCase):
         self.assertEqual(
             r["sourceGroups"],
             [
-                ["Module 1", ["M1 C1 · 5 questions"]],
-                ["Module 2", ["M2 C1 · 8 questions", "M2 C3 · 9 questions · same slot"]],
+                ["M1", ["M1 C1 · 5 questions"]],
+                ["M2", ["M2 C1 · 8 questions", "M2 C3 · 9 questions · same slot"]],
             ],
         )
 
@@ -1323,7 +1323,7 @@ class SetClassDeckCopyFlowTests(unittest.TestCase):
         r = self.r
         self.assertEqual(
             r["thisClassGroups"],
-            [["Module 1", ["M1 C2 · 6 questions"]], ["Module 2", ["M2 C1 · 0 questions"]]],
+            [["M1", ["M1 C2 · 6 questions"]], ["M2", ["M2 C1 · 0 questions"]]],
         )
         self.assertEqual(r["thisClassValue"], "")
         self.assertTrue(r["thisClassView"]["holdsNext"])

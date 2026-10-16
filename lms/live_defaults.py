@@ -178,7 +178,7 @@ def stamp_launch_defaults(item: dict[str, Any], defaults: dict[str, Any] | None)
 
 
 def normalize_scope_token(raw: Any) -> str:
-    """Return ``M1``–``M8``, ``course``, or ``""`` for an empty scope.
+    """Return ``M0``–``M8``, ``course``, or ``""`` for an empty scope.
 
     Args:
         raw: Staff Bank scope value.
@@ -190,11 +190,11 @@ def normalize_scope_token(raw: Any) -> str:
     if lowered in {"course", "course-wide", "coursewide", "all"}:
         return "course"
     upper = token.upper()
-    if len(upper) == 2 and upper[0] == "M" and upper[1] in "12345678":
+    if len(upper) == 2 and upper[0] == "M" and upper[1] in "012345678":
         return upper
-    if token.isdigit() and token in {"1", "2", "3", "4", "5", "6", "7", "8"}:
+    if token.isdigit() and token in {"0", "1", "2", "3", "4", "5", "6", "7", "8"}:
         return f"M{token}"
-    raise ValueError("bank_scope must be M1–M8 or course")
+    raise ValueError("bank_scope must be M0–M8 or course")
 
 
 def scope_visible(
