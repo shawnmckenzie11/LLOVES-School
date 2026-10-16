@@ -239,7 +239,10 @@ def format_winner_page(
             {
                 "name": team["name"],
                 "score": team["score"],
-                "codenames": [str(member["codename"]) for member in team["members"]],
+                "codenames": sorted(
+                    (str(member["codename"]) for member in team["members"]),
+                    key=str.casefold,
+                ),
                 "leading": bool(leader is not None and int(team["id"]) == int(leader["id"])),
             }
         )

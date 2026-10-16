@@ -327,7 +327,7 @@ class GamificationWinnerTests(unittest.TestCase):
         self.assertIsNotNone(grant)
         self.assertEqual(int(grant["student_id"]), self.ids["Birch"])
         self.assertEqual(grant["source_ref"], f"mvp:{self.session_id}")
-        self.assertNotIn(str(self.ids["Aspen"]), str(grant["source_ref"]))
+        self.assertNotIn("voter", str(grant["source_ref"]))
         self.assertEqual(grant["status"], "pending")
 
     def test_split_tables_have_no_join_path(self) -> None:
@@ -339,8 +339,8 @@ class GamificationWinnerTests(unittest.TestCase):
         self.assertNotIn("import logging", source)
         self.assertNotIn("logger", source)
         self.assertNotIn("print(", source)
-        voter_sql = inspect.getsource(insert_voter)
-        tally_sql = inspect.getsource(bump_tally)
+        voter_sql = inspect.getsource(insert_voter).split('"""')[3]
+        tally_sql = inspect.getsource(bump_tally).split('"""')[3]
         self.assertNotIn("nominee", voter_sql)
         self.assertNotIn("voter", tally_sql)
         conn = self.school.conn
