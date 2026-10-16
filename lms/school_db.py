@@ -29269,7 +29269,9 @@ class SchoolDB(LovesDB):
         """Collab board key for one student (``team:<sort_order>`` or ``shared``).
 
         Reads ``live_board_assignments`` for the session run first so a game
-        lock restore cannot move ink to another bucket.
+        lock restore cannot move ink to another bucket. Sort order ``0`` is
+        ``team:0``. When the team row has no sort order, the key is
+        ``team:<game team id>`` so two unknown teams do not share a board.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -29303,7 +29305,7 @@ class SchoolDB(LovesDB):
             return "shared"
         sort_order = self._team_sort_order_for_team_id(class_id, int(team_id))
         if sort_order is None:
-            return board_key_for_sort_order(0)
+            return f"team:{int(team_id)}"
         return board_key_for_sort_order(sort_order)
 
     def _team_sort_order_for_team_id(
@@ -29535,7 +29537,10 @@ class SchoolDB(LovesDB):
                 )
                 from live_board_assignments import board_key_for_sort_order
 
-                key = board_key_for_sort_order(sort_order or 0)
+                if sort_order is None:
+                    key = f"team:{int(stored_team)}"
+                else:
+                    key = board_key_for_sort_order(sort_order)
         elif collab:
             stored_team = 0
             key = "shared"
@@ -29643,12 +29648,17 @@ class SchoolDB(LovesDB):
             view_align = "student"
         from board_ops import fold_to_public_blob
 
+        # The loaded keys are already this student's sort-order board. The
+        # folded blob indexes that board by sort order, not ``game_teams.id``,
+        # so a second filter on the game team id would drop team:0.
+        scoped_team_board = False
         if (
             view_align == "team"
             and not as_teacher
             and student_id not in (None, "")
         ):
             keys = ["teacher", self.student_live_board_key(int(session_id), int(student_id))]
+            scoped_team_board = True
         else:
             keys = self._board_keys_for_view(
                 view_align,
@@ -29662,7 +29672,7 @@ class SchoolDB(LovesDB):
             blob,
             align=view_align,
             team_id=team_id,
-            include_all_teams=False,
+            include_all_teams=scoped_team_board,
             viewer=viewer,
         )
 
