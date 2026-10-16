@@ -9,19 +9,14 @@
       "day": "2026-10-04",
       "items": [
         {
-          "text": "After End Live Class, the Real class / Test switch lets you fix a mis-tagged run: practice runs stay out of catch-up, and only scheduled class ends count automatically.",
+          "text": "After End Live Class, use the Real class / Test switch to mark a practice run. Practice runs stay out of catch-up.",
           "audience": "Teacher",
           "refs": "MCK-207"
         },
         {
-          "text": "On a rank question in Run Live Class, turn on Team challenge. Groups lock in their order together and get 2 points for each item in the right spot. Then you reveal the right order and the top teams.",
+          "text": "In Run Live Class, turn on Team challenge for a rank question. Groups agree on one order and get 2 points for each item in the right spot, then you reveal the answer and the top teams.",
           "audience": "Both",
           "refs": "#235 #241 #242 #243 · MCK-171"
-        },
-        {
-          "text": "If a whiteboard can't reopen, the message now says why. A reopened board also shows up right away in a second teacher tab.",
-          "audience": "Teacher",
-          "refs": "#244 #247 · MCK-174, MCK-181"
         }
       ]
     },
@@ -31,13 +26,7 @@
       "fly": "v217",
       "deployed_at": "2026-10-03T23:18:20-04:00",
       "day": "2026-10-03",
-      "items": [
-        {
-          "text": "In Import from bank and Question banks, rank questions about money now display correctly, with amounts written in words.",
-          "audience": "Both",
-          "refs": "#245 · MCK-178"
-        }
-      ]
+      "items": []
     },
     {
       "id": "e640589",
@@ -47,22 +36,22 @@
       "day": "2026-10-03",
       "items": [
         {
-          "text": "In Run Live Class, you can reopen a closed whiteboard as your Last board or a Fresh board. The last board is kept until class ends.",
+          "text": "In Run Live Class, you can reopen a closed whiteboard, either your last board or a fresh one. The last board is kept until class ends.",
           "audience": "Both",
           "refs": "#238 · MCK-174"
         },
         {
-          "text": "In Import from bank, the Contest Questions list only appears when you pick Contest Questions in the Kind menu.",
+          "text": "In Import from bank, choose Contest Questions in the Kind menu to see the contest list.",
           "audience": "Teacher",
           "refs": "#237 · MCK-175"
         },
         {
-          "text": "In Import from bank, rank questions now show Answer order or Opinion, so you can see which ones have a right order. Answer-order questions come first and run as group questions with turns.",
+          "text": "In Import from bank, rank questions are labelled Answer order or Opinion. Answer-order questions are listed first and run as group questions with turns.",
           "audience": "Teacher",
           "refs": "#239 · MCK-177"
         },
         {
-          "text": "In Run Live Class, answer-order rank questions appear shuffled each time you publish, on phones and the projector, so the order never gives the answer away. Opinion questions are unchanged.",
+          "text": "In Run Live Class, answer-order rank questions are shuffled each time you publish them, on phones and the projector, so the order never gives the answer away.",
           "audience": "Both",
           "refs": "#240 · MCK-176"
         }
@@ -75,59 +64,28 @@
       "items": [
         {
           "refs": "#209 · MCK-112",
-          "title": "Group work is one switch",
-          "line": "Every question card, whiteboard and artifact now has the same \"Students work: Individual · Group\" control.",
-          "audience": "Teacher",
-          "screenshot": "A question card set to Group, with the options row showing",
-          "image": null
+          "text": "Every question card, whiteboard and artifact now has the same \"Students work: Individual · Group\" switch.",
+          "audience": "Teacher"
         },
         {
           "refs": "#208 · MCK-112",
-          "title": "No surprise team reveals",
-          "line": "\"Run as Group\" is now \"Show teams to students\", and publishing as a group with teams hidden asks you first.",
-          "audience": "Both",
-          "screenshot": "The \"Students can't see teams yet…\" confirm with its two buttons",
-          "image": null
+          "text": "\"Run as Group\" is now called \"Show teams to students\". If you publish as a group while teams are hidden, you're asked first.",
+          "audience": "Both"
         },
         {
           "refs": "#198 · MCK-72",
-          "title": "End Class adds, never replaces",
-          "line": "Participation credit goes on top of points you gave by hand, and ending twice doesn't count it twice.",
-          "audience": "Teacher",
-          "screenshot": null,
-          "image": null
+          "text": "When you end class, participation credit is added on top of points you gave by hand.",
+          "audience": "Teacher"
         },
         {
           "refs": "#202 (+#200) · MCK-46",
-          "title": "Export class results to CSV",
-          "line": "A new \"Export results (CSV)\" button on the Participation tab downloads every saved answer, with names, for marking.",
-          "audience": "Teacher",
-          "screenshot": "The Participation toolbar with the Export button",
-          "image": null
+          "text": "On the Participation tab, the new \"Export results (CSV)\" button downloads every saved answer, with names, for marking.",
+          "audience": "Teacher"
         },
         {
           "refs": "#207 · MCK-111",
-          "title": "Hidden names stay hidden",
-          "line": "In Responses & points, each student keeps one number all class, the Class List blurs, and ticks stay put.",
-          "audience": "Teacher",
-          "screenshot": "The Responses window with names hidden and the blurred Class List behind it",
-          "image": null
-        },
-        {
-          "refs": "#210 · MCK-114",
-          "title": "One join code per class",
-          "line": "A double-click on Run Live Class, or a second tab, no longer splits the class across two codes.",
-          "audience": "Both",
-          "screenshot": null,
-          "image": null
-        },
-        {
-          "refs": "#211 · MCK-83",
-          "title": "Long decimals marked correctly",
-          "line": "In a numeric question's live answer chart, keys like 3.14159 now mark the full key correct, not a rounded one.",
-          "audience": "Both (projector)",
-          "screenshot": "The answer bars for a 3.14159 key",
-          "image": null
+          "text": "In Responses & points with names hidden, each student keeps the same number all class and the Class List is blurred.",
+          "audience": "Teacher"
         }
       ],
       "not_yet": "",

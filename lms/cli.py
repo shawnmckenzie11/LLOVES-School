@@ -310,6 +310,121 @@ def register_cli(app: Flask) -> None:
             click.echo(audit_line)
             logger.warning(audit_line)
 
+    @app.cli.command("whats-new")
+    @click.option(
+        "--id",
+        "release_ids",
+        multiple=True,
+        help="whats_new_releases id to hide (repeatable). Not the Dashboard's deploy-time id.",
+    )
+    @click.option(
+        "--apply",
+        is_flag=True,
+        default=False,
+        help="Hide the given ids. Without this flag, nothing is written.",
+    )
+    @click.option(
+        "--i-know-this-is-prod",
+        "prod_override",
+        is_flag=True,
+        default=False,
+        help="Required with --apply when this process is pointed at production.",
+    )
+    def whats_new_cmd(release_ids: tuple[str, ...], apply: bool, prod_override: bool) -> None:
+        """List What's New rows, and hide ids with --apply (dry-run by default).
+
+        Deploy-sourced rows stay hidden across boots. A committed row is
+        rewritten from releases.json on the next boot, so hiding that id
+        does not stick. Safe to run twice: an id that is already hidden
+        stays hidden.
+        """
+        import whats_new_store
+
+        if apply and not release_ids:
+            raise click.ClickException("Pass at least one --id to hide. --apply with no ids writes nothing.")
+        if apply and _is_production_env() and not prod_override:
+            raise click.ClickException(
+                "Refusing --apply on production without --i-know-this-is-prod."
+            )
+        school = app.config["SCHOOL_DB"]
+        mode = "APPLIED" if apply else "DRY RUN"
+        click.echo(f"What's new ({mode}) db={school.db_path}")
+
+        def _read() -> list[dict]:
+            """Stored What's New rows, including hidden ones."""
+            with school._lock:
+                return whats_new_store.list_stored_releases(school.conn)
+
+        def _echo_rows(rows: list[dict]) -> None:
+            """Print one block per stored release."""
+            if not rows:
+                click.echo("(no stored What's new rows)")
+                return
+            for row in rows:
+                flag = "yes" if row["hidden"] else "no"
+                click.echo(
+                    f"id={row['id']} day={row['day']} source={row['source']} hidden={flag}"
+                )
+                for text in row["items"]:
+                    click.echo(f"  - {text}")
+                if not row["items"]:
+                    click.echo("  - (no items)")
+
+        rows = _read()
+        _echo_rows(rows)
+        if not release_ids:
+            return
+        by_id = {row["id"]: row for row in rows}
+        if not apply:
+            would, already, missing = [], [], []
+            seen: set[str] = set()
+            for raw in release_ids:
+                rid = str(raw or "").strip()
+                if not rid or rid in seen:
+                    continue
+                seen.add(rid)
+                row = by_id.get(rid)
+                if row is None:
+                    missing.append(rid)
+                elif row["hidden"]:
+                    already.append(rid)
+                else:
+                    would.append(rid)
+                    if row["source"] != "deploy":
+                        click.echo(
+                            f"note: {rid} is source={row['source']} and a boot sync "
+                            "rewrites it from releases.json"
+                        )
+            click.echo("would hide: " + (", ".join(would) if would else "(none)"))
+            click.echo("already hidden: " + (", ".join(already) if already else "(none)"))
+            click.echo("missing: " + (", ".join(missing) if missing else "(none)"))
+            click.echo("no rows written")
+            if missing:
+                raise click.exceptions.Exit(1)
+            return
+        with school._lock:
+            result = whats_new_store.hide_stored_releases(school.conn, list(release_ids))
+        for rid in result["hidden"] + result["already"]:
+            row = by_id.get(rid)
+            if row is not None and row["source"] != "deploy":
+                click.echo(
+                    f"note: {rid} is source={row['source']} and a boot sync "
+                    "rewrites it from releases.json"
+                )
+        click.echo("hidden: " + (", ".join(result["hidden"]) if result["hidden"] else "(none)"))
+        click.echo(
+            "already hidden: " + (", ".join(result["already"]) if result["already"] else "(none)")
+        )
+        click.echo("missing: " + (", ".join(result["missing"]) if result["missing"] else "(none)"))
+        audit = (
+            "whats_new_hide_audit hidden=%s already=%s missing=%s"
+            % (len(result["hidden"]), len(result["already"]), len(result["missing"]))
+        )
+        click.echo(audit)
+        logger.warning(audit)
+        if result["missing"]:
+            raise click.exceptions.Exit(1)
+
 
 def main() -> None:
     """Entry point for ``python -m cli`` against the default database."""
@@ -322,11 +437,12 @@ def main() -> None:
             "backfill-catchup",
             "repair-catchup",
             "sync-offering-live-schedules",
+            "whats-new",
         )
         if not allowed_cmd:
             raise SystemExit(
                 "Refusing CLI on production except: backfill-catchup, "
-                "repair-catchup, sync-offering-live-schedules"
+                "repair-catchup, sync-offering-live-schedules, whats-new"
             )
     application.cli.main(prog_name="python -m cli")
 

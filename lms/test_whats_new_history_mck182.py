@@ -70,11 +70,32 @@ class StoreTests(unittest.TestCase):
 
     def test_shipped_file_is_stored_newest_first(self) -> None:
         counts = store.sync_from_file(self.conn)
-        expected = [r["id"] for r in committed()["releases"]]
+        expected = [r["id"] for r in committed()["releases"] if store.clean_items(r)]
         self.assertEqual(counts["inserted"], len(expected))
         self.assertEqual(self.ids(), expected)
         again = store.sync_from_file(self.conn)
         self.assertEqual(again["inserted"] + again["replaced"], 0, "re-sync changes nothing")
+
+    def test_empty_committed_fix_release_is_taken_down(self) -> None:
+        """MCK-268: v217's money-display note is removed when the file has no items."""
+        money = next(r for r in committed()["releases"] if r["id"] == "5bd4edf")
+        seeded = {
+            **money,
+            "items": [
+                {
+                    "text": "In Import from bank, rank questions about money now display correctly.",
+                    "audience": "Both",
+                    "refs": "#245 · MCK-178",
+                }
+            ],
+        }
+        store.sync_from_file(self.conn, write(self.dir / "money.json", [seeded]))
+        self.assertIn("5bd4edf", self.ids())
+        counts = store.sync_from_file(self.conn)
+        self.assertEqual(counts["removed"], 1)
+        self.assertNotIn("5bd4edf", self.ids())
+        payload = store.teacher_payload(store.stored_releases(self.conn))
+        self.assertNotIn("about money", json.dumps(payload))
 
     def test_deploy_entries_are_written_once_and_never_rewritten(self) -> None:
         first = deploy_entry(1, "In Run Live Class, the line as shipped.")
@@ -128,7 +149,8 @@ class StoreTests(unittest.TestCase):
             shipped = generated[:30] + base
             store.sync_from_file(self.conn, write(self.dir / f"deploy{n}.json", shipped))
         ids = self.ids()
-        self.assertEqual(len(ids), 35 + len(base))
+        stored_base = [r for r in base if store.clean_items(r)]
+        self.assertEqual(len(ids), 35 + len(stored_base))
         self.assertIn(deploy_entry(1)["id"], ids, "the first deploy is still there")
         payload = store.teacher_payload(store.stored_releases(self.conn))
         self.assertEqual(payload["releases"][0]["id"], store.sort_at(deploy_entry(35)))
@@ -225,9 +247,11 @@ class AppTests(unittest.TestCase):
     def test_boot_stores_the_shipped_file_and_the_api_serves_it(self) -> None:
         with self.school._lock:
             rows = self.school.conn.execute("SELECT id, source FROM whats_new_releases").fetchall()
-        self.assertEqual({r[0] for r in rows}, {r["id"] for r in committed()["releases"]})
+        visible = [r for r in committed()["releases"] if store.clean_items(r)]
+        self.assertEqual({r[0] for r in rows}, {r["id"] for r in visible})
+        self.assertNotIn("5bd4edf", {r[0] for r in rows})
         got = self.payload()
-        self.assertEqual([r["deployed_at"] for r in got["releases"]], [store.sort_at(r) for r in committed()["releases"]])
+        self.assertEqual([r["deployed_at"] for r in got["releases"]], [store.sort_at(r) for r in visible])
         self.assertNotRegex(json.dumps([i for r in got["releases"] for i in r["items"]]), REF_RE)
         self.assertNotIn('"refs"', json.dumps(got))
 

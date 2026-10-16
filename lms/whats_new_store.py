@@ -18,6 +18,10 @@ Rules for a release in the shipped file:
   same id fixes a generated line. Committing it with ``"items": []`` takes
   it down.
 * A release with no usable items is housekeeping and is never stored.
+* ``"hidden": true`` on a stored row (set by ``python -m cli whats-new
+  --apply``) keeps that row out of the teacher payload. A deploy-sourced
+  row stays hidden, because this sync never overwrites it. A committed row
+  is rewritten from git on the next boot.
 
 The teacher payload (:func:`teacher_payload`) never carries ``refs``,
 ``sha`` or any ticket id, PR number or SHA in the text.
@@ -265,6 +269,115 @@ def sync_from_file(conn: sqlite3.Connection, path: Path | str | None = None) -> 
     return counts
 
 
+def _item_text(item: dict[str, Any]) -> str:
+    """First non-empty teacher sentence on an item (``text``, ``title``, or ``line``)."""
+    for key in ITEM_TEXT_KEYS:
+        value = str(item.get(key) if item.get(key) is not None else "").strip()
+        if value:
+            return value
+    return ""
+
+
+def list_stored_releases(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Every stored What's New row, newest first, including hidden ones.
+
+    Args:
+        conn: School database connection.
+
+    Returns:
+        ``[{id, day, source, hidden, items}]``. ``items`` is the teacher
+        text of each note. A row whose JSON cannot be read is still listed,
+        with ``items`` empty and ``hidden`` false.
+    """
+    ensure_schema(conn)
+    rows = conn.execute(
+        """SELECT id, day, source, release_json FROM whats_new_releases
+           ORDER BY sort_at DESC, id DESC"""
+    ).fetchall()
+    listed: list[dict[str, Any]] = []
+    for rid, day, source, raw in rows:
+        hidden = False
+        texts: list[str] = []
+        try:
+            release = json.loads(raw)
+        except ValueError:
+            release = None
+        if isinstance(release, dict):
+            hidden = release.get("hidden") is True
+            texts = [text for text in (_item_text(item) for item in clean_items(release)) if text]
+        listed.append(
+            {
+                "id": str(rid),
+                "day": str(day or ""),
+                "source": str(source or ""),
+                "hidden": hidden,
+                "items": texts,
+            }
+        )
+    return listed
+
+
+def hide_stored_releases(conn: sqlite3.Connection, ids: list[str]) -> dict[str, list[str]]:
+    """Hide What's New rows so teachers no longer see them.
+
+    Safe to call twice. An id that is already hidden stays hidden and is
+    reported in ``already``. An unknown id is reported in ``missing`` and
+    nothing else is written for it. Deploy-sourced rows stay hidden across
+    boots (:func:`sync_from_file` never overwrites them). A committed row is
+    replaced from ``releases.json`` on the next boot, so hiding that id
+    does not stick.
+
+    Args:
+        conn: School database connection.
+        ids: Release ids (the ``whats_new_releases.id`` values, not the
+            deploy-time ids the Dashboard shows).
+
+    Returns:
+        ``{hidden, already, missing}``, each a list of ids. Repeated ids in
+        one call are handled once.
+    """
+    ensure_schema(conn)
+    hidden: list[str] = []
+    already: list[str] = []
+    missing: list[str] = []
+    seen: set[str] = set()
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    conn.execute("SAVEPOINT whats_new_hide")
+    try:
+        for raw_id in ids:
+            rid = str(raw_id or "").strip()
+            if not rid or rid in seen:
+                continue
+            seen.add(rid)
+            row = conn.execute(
+                "SELECT release_json FROM whats_new_releases WHERE id = ?", (rid,)
+            ).fetchone()
+            if row is None:
+                missing.append(rid)
+                continue
+            try:
+                release = json.loads(row[0])
+            except ValueError:
+                release = None
+            if not isinstance(release, dict):
+                release = {"id": rid, "items": []}
+            if release.get("hidden") is True:
+                already.append(rid)
+                continue
+            release["hidden"] = True
+            conn.execute(
+                "UPDATE whats_new_releases SET release_json = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(release, ensure_ascii=False, sort_keys=True), now, rid),
+            )
+            hidden.append(rid)
+        conn.execute("RELEASE SAVEPOINT whats_new_hide")
+    except Exception:
+        conn.execute("ROLLBACK TO SAVEPOINT whats_new_hide")
+        conn.execute("RELEASE SAVEPOINT whats_new_hide")
+        raise
+    return {"hidden": hidden, "already": already, "missing": missing}
+
+
 def stored_releases(conn: sqlite3.Connection, limit: int = PAYLOAD_LIMIT) -> list[dict[str, Any]]:
     """Stored releases, newest first (raw, refs included: server use only)."""
     rows = conn.execute(
@@ -301,7 +414,8 @@ def teacher_payload(releases: list[dict[str, Any]], limit: int = PAYLOAD_LIMIT) 
 
     Returns:
         ``{"schema": 2, "releases": [{id, deployed_at, day, items}]}``,
-        newest first, housekeeping releases left out.
+        newest first. Housekeeping releases and rows marked ``hidden`` are
+        left out.
     """
     shaped: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -311,6 +425,9 @@ def teacher_payload(releases: list[dict[str, Any]], limit: int = PAYLOAD_LIMIT) 
         day = release_day(release)
         key = sort_at(release)
         if not rid or rid in seen or not day or not key:
+            continue
+        if release.get("hidden") is True:
+            seen.add(rid)
             continue
         items = [t for t in (_teacher_item(i) for i in clean_items(release)) if t]
         if not items:
