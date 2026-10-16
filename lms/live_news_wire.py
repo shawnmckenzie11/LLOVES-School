@@ -6,32 +6,42 @@ one ``GET /api/live/session/<sid>/events`` stream. The log is its own
 sqlite file so the four gunicorn workers on the 1 GB machine see the same
 tape without taking the school catalogue lock.
 
-Each worker keeps at most ``STREAMS_PER_WORKER`` streams so half of the
-eight ``gthread`` threads stay free for join, submit, and the slow
-``/state`` fallback. Extra tabs get one ``busy`` event and the browser
-waits. That event never means reload.
+One tail thread reads the tape for every seat on this worker. Each read
+is a deferred snapshot that is committed before anyone waits, so a hold
+cannot block an answer write. On gunicorn the browser socket is lifted
+off the request thread; the eight ``gthread`` threads stay free for
+join, submit, and ``/state``. A seat past ``STREAMS_PER_WORKER`` gets
+one ``busy`` event and the browser waits. That event never means reload.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
+import queue
 import signal
+import socket
 import sqlite3
+import ssl
 import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from flask import Response, jsonify, session
+from flask import Response, has_request_context, jsonify, request, session
 
 from auth import current_user
 from student_portal import resolve_student_live_context
 
 logger = logging.getLogger(__name__)
 
-# Half of gunicorn's 8 threads per worker. The other half stays on HTTP.
-STREAMS_PER_WORKER = 4
+# 30 students + the teacher. MCK-43. A real class stays on the push line.
+CLASS_ON_STREAM = 31
+# EventSource opens the next connection as this hold closes, so a full
+# class briefly needs a second seat per person while the old one releases.
+# Four spare seats cover a second teacher tab. Seats are not gunicorn threads.
+STREAMS_PER_WORKER = CLASS_ON_STREAM * 2 + 4
 # Slow safety-net poll. The wire is the tap; this is not a 2s/4s stampede.
 FALLBACK_POLL_MS = 20000
 # How long one stream holds its thread before the browser reconnects.
@@ -112,6 +122,7 @@ def note_stream_shutdown() -> None:
     cuts the hold so the old machine can release ``lloves_data``.
     """
     _stream_shutdown.set()
+    _fan_notify_shutdown()
 
 
 def clear_stream_shutdown() -> None:
@@ -199,6 +210,7 @@ def reset_stream_budget() -> None:
     global _stream_count
     with _stream_lock:
         _stream_count = 0
+    _fan_drop_all()
 
 
 def _acquire_stream() -> bool:
@@ -220,6 +232,201 @@ def _release_stream() -> None:
     global _stream_count
     with _stream_lock:
         _stream_count = max(0, _stream_count - 1)
+
+
+class _NewsSeat:
+    """One tab subscribed to the shared tail. The queue is the push line."""
+
+    def __init__(
+        self,
+        log: LiveNewsLog,
+        session_id: int,
+        audience: NewsAudience,
+        cursor: int,
+        school: Any,
+    ) -> None:
+        """Remember whose tape to read and where this tab left off.
+
+        Args:
+            log: Shared postcard tape.
+            session_id: ``live_class_sessions.id``.
+            audience: Staff or student scope for this socket.
+            cursor: Last event id already handed to the tab.
+            school: SchoolDB for a board-key refresh, or ``None``.
+        """
+        self.log = log
+        self.session_id = int(session_id)
+        self.audience = audience
+        self.cursor = int(cursor)
+        self.school = school
+        self.queue: queue.Queue[str | None] = queue.Queue()
+
+
+_fan_lock = threading.Lock()
+_fan_seats: list[_NewsSeat] = []
+_fan_wake = threading.Event()
+_fan_thread: threading.Thread | None = None
+
+
+def _ensure_fan() -> None:
+    """Start the process-wide tail thread the first time a seat subscribes."""
+    global _fan_thread
+    if _fan_thread is not None and _fan_thread.is_alive():
+        return
+    _fan_thread = threading.Thread(
+        target=_fan_loop, name="live-news-tail", daemon=True
+    )
+    _fan_thread.start()
+
+
+def _fan_subscribe(
+    log: LiveNewsLog,
+    session_id: int,
+    audience: NewsAudience,
+    cursor: int,
+    school: Any,
+) -> _NewsSeat:
+    """Register one tab on the shared tail.
+
+    Args:
+        log: Shared postcard tape.
+        session_id: ``live_class_sessions.id``.
+        audience: Staff or student scope.
+        cursor: Last event id this tab already applied.
+        school: SchoolDB for board-key refresh, or ``None``.
+
+    Returns:
+        The seat whose queue receives later frames.
+    """
+    seat = _NewsSeat(log, session_id, audience, cursor, school)
+    with _fan_lock:
+        _fan_seats.append(seat)
+        _ensure_fan()
+    _fan_wake.set()
+    return seat
+
+
+def _fan_unsubscribe(seat: _NewsSeat) -> None:
+    """Remove one tab from the tail. A late frame may still sit on its queue.
+
+    Args:
+        seat: Seat returned by :func:`_fan_subscribe`.
+    """
+    with _fan_lock:
+        try:
+            _fan_seats.remove(seat)
+        except ValueError:
+            return
+
+
+def _fan_drop_all() -> None:
+    """Wake every seat and forget it. Tests call this between cases."""
+    with _fan_lock:
+        seats = list(_fan_seats)
+        _fan_seats.clear()
+    for seat in seats:
+        seat.queue.put(None)
+    _fan_wake.set()
+
+
+def _fan_notify_shutdown() -> None:
+    """Wake holds so a SIGTERM does not wait out the 25 s tail."""
+    with _fan_lock:
+        seats = list(_fan_seats)
+    for seat in seats:
+        seat.queue.put(None)
+    _fan_wake.set()
+
+
+def _deliver_batch(seat: _NewsSeat, batch: list[dict[str, Any]]) -> bool:
+    """Enqueue frames this seat has not applied yet.
+
+    Args:
+        seat: Subscriber whose cursor moves forward.
+        batch: Postcards from one short read, oldest first.
+
+    Returns:
+        True when the seat's cursor advanced.
+    """
+    before = seat.cursor
+    refreshed = False
+    for event in batch:
+        event_id = _as_int(event.get("id"), seat.cursor)
+        if event_id <= seat.cursor:
+            continue
+        seat.cursor = event_id
+        if (
+            not refreshed
+            and seat.school is not None
+            and str(event.get("type") or "") == "board_ink"
+        ):
+            _sync_board_read_keys(seat.school, seat.session_id, seat.audience)
+            refreshed = True
+        if event_visible(event, seat.audience):
+            seat.queue.put(format_sse(event, event_id=event_id))
+    return seat.cursor != before
+
+
+def _fan_catch_up(group: list[_NewsSeat]) -> None:
+    """Read one session until every seat in the group has the new rows.
+
+    Each ``since`` commits before the next. The ring is 200 rows and each
+    read returns at most 50, so four passes finish a cold seat.
+
+    Args:
+        group: Seats sharing one tape and one session id.
+    """
+    if not group:
+        return
+    log = group[0].log
+    session_id = group[0].session_id
+    for _ in range(4):
+        cursor = min(seat.cursor for seat in group)
+        try:
+            batch = log.since(session_id, cursor)
+        except sqlite3.Error:
+            logger.warning(
+                "live news tail read failed session=%s", session_id, exc_info=True
+            )
+            return
+        if not batch:
+            return
+        moved = False
+        for seat in group:
+            if _deliver_batch(seat, batch):
+                moved = True
+        if not moved or len(batch) < 50:
+            return
+
+
+def _fan_loop() -> None:
+    """Tail every subscribed session. One read serves every seat on it.
+
+    The sleep sits after the read is committed. A quiet class does not
+    hold a sqlite transaction open between polls. With no seats the
+    thread waits until the next subscribe.
+    """
+    while True:
+        with _fan_lock:
+            seats = list(_fan_seats)
+        if not seats:
+            _fan_wake.wait()
+            _fan_wake.clear()
+            continue
+        if not stream_shutting_down():
+            groups: dict[tuple[str, int], list[_NewsSeat]] = {}
+            for seat in seats:
+                key = (str(seat.log.path), seat.session_id)
+                groups.setdefault(key, []).append(seat)
+            for group in groups.values():
+                if stream_shutting_down():
+                    break
+                _fan_catch_up(group)
+        # A subscribe during this pass already set the wake. Clear it
+        # before the poll so the next wait can block for a new seat,
+        # while a postcard still arrives on the next poll.
+        _fan_wake.clear()
+        _fan_wake.wait(STREAM_POLL_S)
 
 
 #: ``busy_timeout`` (ms) on the tape connection once it is open.
@@ -428,16 +635,23 @@ class LiveNewsLog:
         """
         cap = max(1, min(int(limit), 50))
         with self._lock:
-            rows = self._conn.execute(
-                """
-                SELECT id, payload_json
-                FROM live_news_events
-                WHERE session_id = ? AND id > ?
-                ORDER BY id ASC
-                LIMIT ?
-                """,
-                (int(session_id), int(after_id), cap),
-            ).fetchall()
+            # Deferred snapshot, committed before this returns. Callers wait
+            # outside ``_lock``, so a 25 s hold cannot keep a read open and
+            # the next postcard append is not stuck behind it.
+            self._begin_read()
+            try:
+                rows = self._conn.execute(
+                    """
+                    SELECT id, payload_json
+                    FROM live_news_events
+                    WHERE session_id = ? AND id > ?
+                    ORDER BY id ASC
+                    LIMIT ?
+                    """,
+                    (int(session_id), int(after_id), cap),
+                ).fetchall()
+            finally:
+                self._conn.commit()
         out: list[dict[str, Any]] = []
         for row in rows:
             try:
@@ -542,6 +756,19 @@ class LiveNewsLog:
         with self._lock:
             self._conn.execute("DELETE FROM board_ink_coalesce")
             self._conn.commit()
+
+    def _begin_read(self) -> None:
+        """Start a deferred read. The caller commits before it waits.
+
+        Deferred, not ``IMMEDIATE``: a tail must not take the tape's write
+        lock. Other workers can still append postcards during the snapshot,
+        and this connection commits before the stream sleeps.
+        """
+        try:
+            self._conn.execute("BEGIN")
+        except sqlite3.OperationalError:
+            self._conn.commit()
+            self._conn.execute("BEGIN")
 
     def _begin_immediate(self) -> None:
         """Start a write transaction that waits for other workers.
@@ -1123,9 +1350,10 @@ def iter_sse(
 ) -> Iterator[str]:
     """Yield hello, a resume tail, live appends, and a ping. Then stop.
 
-    The browser reconnects with ``Last-Event-ID``. Stopping the generator
-    returns the gunicorn thread. ``busy`` is not produced here; the route
-    sheds before calling this.
+    The browser reconnects with ``Last-Event-ID``. The resume is read
+    here, once, and committed. Later postcards come from the shared tail,
+    so thirty seats do not each hold a read open. ``busy`` is not produced
+    here; the route sheds before calling this.
 
     Args:
         log: Shared tape.
@@ -1134,8 +1362,7 @@ def iter_sse(
         after_id: Resume cursor. Events at or below this id are not replayed.
         hello_seq: ``state_seq`` to put on the hello postcard.
         hold_s: How long to tail before ending the response.
-        poll_s: Sqlite tail interval, for events written by another worker.
-            Also how soon a SIGTERM ends the hold.
+        poll_s: How often to notice a shutdown while waiting on the tail.
         school: SchoolDB. Used to refresh board read keys on ``board_ink``.
     """
     cursor = int(after_id)
@@ -1148,8 +1375,12 @@ def iter_sse(
         retry_ms=SSE_RETRY_MS,
     )
     deadline = time.monotonic() + max(0.0, float(hold_s))
-    while True:
+    # The ring is 200 and each read returns 50. Four committed reads
+    # finish a cold resume without sleeping inside a transaction.
+    for _ in range(4):
         batch = log.since(session_id, cursor)
+        if not batch:
+            break
         refreshed = False
         for event in batch:
             cursor = max(cursor, _as_int(event.get("id"), cursor))
@@ -1163,11 +1394,24 @@ def iter_sse(
             if not event_visible(event, audience):
                 continue
             yield format_sse(event, event_id=cursor)
-        if stream_shutting_down() or time.monotonic() >= deadline:
+        if len(batch) < 50:
             break
-        time.sleep(min(poll_s, max(0.0, deadline - time.monotonic())))
-        if stream_shutting_down():
-            break
+    if not stream_shutting_down() and time.monotonic() < deadline:
+        seat = _fan_subscribe(log, int(session_id), audience, cursor, school)
+        try:
+            while not stream_shutting_down() and time.monotonic() < deadline:
+                timeout = min(
+                    float(poll_s), max(0.0, deadline - time.monotonic())
+                )
+                try:
+                    frame = seat.queue.get(timeout=timeout)
+                except queue.Empty:
+                    continue
+                if frame is None:
+                    break
+                yield frame
+        finally:
+            _fan_unsubscribe(seat)
     yield format_sse({"type": "ping"}, retry_ms=SSE_RETRY_MS)
 
 
@@ -1208,6 +1452,164 @@ def _audience_for(
             )
             read_keys = frozenset()
     return NewsAudience("student", student_id=sid, read_keys=read_keys)
+
+
+def detach_gunicorn_client(sock: socket.socket) -> socket.socket | None:
+    """Point gunicorn's fd at a drain and return the browser connection.
+
+    gunicorn finishes the WSGI response with ``shutdown(SHUT_WR)``. That
+    FIN would end the SSE body. ``dup2`` moves gunicorn's fd onto a
+    socketpair first, so the FIN hits the drain and the eight ``gthread``
+    threads are free while the class stays connected. A TLS socket is
+    left in place: duplicating its raw fd is not the TLS session.
+
+    Args:
+        sock: ``environ["gunicorn.socket"]`` for this request.
+
+    Returns:
+        The browser socket to write the SSE body on, or ``None`` when the
+        socket cannot be lifted and the caller should keep the generator.
+    """
+    if isinstance(sock, ssl.SSLSocket) or not isinstance(sock, socket.socket):
+        return None
+    try:
+        fileno = sock.fileno()
+    except OSError:
+        return None
+    if fileno < 0:
+        return None
+    try:
+        held = os.dup(fileno)
+    except OSError:
+        return None
+    drain_read, drain_write = socket.socketpair()
+    try:
+        os.dup2(drain_write.fileno(), fileno)
+    except OSError:
+        os.close(held)
+        drain_read.close()
+        drain_write.close()
+        return None
+    drain_write.close()
+    drain_read.setblocking(True)
+
+    def _drain() -> None:
+        """Discard gunicorn's response so its write cannot fill the pair.
+
+        Closing this end after EOF lets ``close_graceful`` finish its
+        read instead of lingering on an open socketpair.
+        """
+        try:
+            while True:
+                chunk = drain_read.recv(65536)
+                if not chunk:
+                    break
+        except OSError:
+            pass
+        finally:
+            try:
+                drain_read.close()
+            except OSError:
+                pass
+
+    threading.Thread(target=_drain, name="live-news-drain", daemon=True).start()
+    try:
+        client = socket.socket(fileno=held)
+    except OSError:
+        os.close(held)
+        return None
+    client.setblocking(True)
+    return client
+
+
+def _request_gunicorn_socket() -> socket.socket | None:
+    """Return this request's gunicorn socket, or ``None`` outside a worker.
+
+    Returns:
+        The client socket gunicorn stored on the WSGI environ.
+    """
+    if not has_request_context():
+        return None
+    sock = request.environ.get("gunicorn.socket")
+    if isinstance(sock, socket.socket):
+        return sock
+    return None
+
+
+_SSE_PREAMBLE = (
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: text/event-stream\r\n"
+    "Cache-Control: no-cache\r\n"
+    "X-Accel-Buffering: no\r\n"
+    "Transfer-Encoding: chunked\r\n"
+    "Connection: close\r\n"
+    "\r\n"
+)
+
+
+def _write_chunk(sock: socket.socket, payload: bytes) -> None:
+    """Write one chunked block. An empty payload ends the HTTP body.
+
+    Args:
+        sock: Detached browser socket.
+        payload: SSE bytes, or ``b""`` for the terminating chunk.
+    """
+    if not payload:
+        sock.sendall(b"0\r\n\r\n")
+        return
+    header = b"%X\r\n" % len(payload)
+    sock.sendall(header + payload + b"\r\n")
+
+
+def _serve_detached(
+    sock: socket.socket,
+    log: LiveNewsLog,
+    session_id: int,
+    audience: NewsAudience,
+    after_id: int,
+    hello_seq: int,
+    hold_s: float,
+    school: Any,
+) -> None:
+    """Write one SSE hold on a socket the request thread has released.
+
+    Args:
+        sock: Browser connection lifted off gunicorn.
+        log: Shared tape.
+        session_id: ``live_class_sessions.id``.
+        audience: Staff or student scope.
+        after_id: Resume cursor.
+        hello_seq: ``state_seq`` for the hello postcard.
+        hold_s: How long to tail before the browser reconnects.
+        school: SchoolDB for board-key refresh.
+    """
+    try:
+        sock.sendall(_SSE_PREAMBLE.encode("ascii"))
+        for frame in iter_sse(
+            log,
+            int(session_id),
+            audience=audience,
+            after_id=after_id,
+            hello_seq=hello_seq,
+            hold_s=hold_s,
+            school=school,
+        ):
+            _write_chunk(sock, frame.encode("utf-8"))
+        _write_chunk(sock, b"")
+    except OSError:
+        logger.debug("live news client closed session=%s", session_id)
+    except Exception:
+        logger.warning(
+            "live news detached stream ended session=%s",
+            session_id,
+            exc_info=True,
+        )
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+        _release_stream()
 
 
 def live_news_response(
@@ -1259,6 +1661,49 @@ def live_news_response(
         # this worker's stream slot until restart.
         _release_stream()
         raise
+
+    client_sock: socket.socket | None = None
+    try:
+        raw_sock = _request_gunicorn_socket()
+        if raw_sock is not None:
+            client_sock = detach_gunicorn_client(raw_sock)
+    except Exception:
+        logger.warning(
+            "live news detach failed session=%s", session_id, exc_info=True
+        )
+        client_sock = None
+    if client_sock is not None:
+        try:
+            threading.Thread(
+                target=_serve_detached,
+                args=(
+                    client_sock,
+                    log,
+                    int(session_id),
+                    audience,
+                    after_id,
+                    hello_seq,
+                    hold_s,
+                    school,
+                ),
+                name="live-news-seat",
+                daemon=True,
+            ).start()
+        except RuntimeError:
+            try:
+                client_sock.close()
+            except OSError:
+                pass
+            _release_stream()
+            raise
+        # gunicorn writes this empty body to the drain fd, then frees the
+        # gthread. The browser is already reading ``client_sock``.
+        return Response(
+            "",
+            status=200,
+            mimetype="text/event-stream",
+            headers=_sse_headers(),
+        )
 
     def generate() -> Iterator[str]:
         """Yield frames and always return the thread slot."""
