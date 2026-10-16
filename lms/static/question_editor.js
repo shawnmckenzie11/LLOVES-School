@@ -573,6 +573,8 @@ async function removeCurrent() {
       resolve(dialog.returnValue === "ok");
     };
     dialog.addEventListener("close", onClose);
+    // Esc reuses the last returnValue unless it is cleared before open.
+    dialog.returnValue = "";
     dialog.showModal();
   });
   if (!ok) {

@@ -637,6 +637,8 @@ async function confirmRemove(questions) {
     };
     const onClose = () => finish(removeDialog.returnValue === "ok");
     removeDialog.addEventListener("close", onClose);
+    // Esc reuses the last returnValue unless it is cleared before open.
+    removeDialog.returnValue = "";
     if (typeof removeDialog.showModal === "function") removeDialog.showModal();
     else finish(false);
   });

@@ -442,3 +442,19 @@ class QuestionBankGapTests(unittest.TestCase):
         )
         course_ids = {int(row["question_id"]) for row in course_union["items"]}
         self.assertNotIn(int(m0["id"]), course_ids)
+
+
+class RemoveDialogEscapeTests(unittest.TestCase):
+    """Esc after a confirmed remove must not delete again."""
+
+    def test_show_modal_clears_the_previous_return_value(self) -> None:
+        """Both remove callers blank returnValue before they open the dialog."""
+        banks = (LMS_DIR / "static" / "course_question_banks.js").read_text(encoding="utf-8")
+        editor = (LMS_DIR / "static" / "question_editor.js").read_text(encoding="utf-8")
+        self.assertLess(
+            banks.index('removeDialog.returnValue = ""'),
+            banks.index("removeDialog.showModal()"),
+        )
+        start = editor.index("async function removeCurrent()")
+        body = editor[start:editor.index("function bindEditor()", start)]
+        self.assertLess(body.index('dialog.returnValue = ""'), body.index("dialog.showModal()"))
