@@ -3813,7 +3813,10 @@ class LovesDB:
         """
         from live_deck_test_storage import test_deck_storage_slot
 
-        module_key, slot_key = self._require_live_lesson_token(module, slot)
+        try:
+            module_key, slot_key = self._require_live_lesson_token(module, slot)
+        except ValueError:
+            return str(module or "").strip().upper(), str(slot or "").strip().upper()
         if real_deck_only:
             return module_key, slot_key
         sid = live_session_id

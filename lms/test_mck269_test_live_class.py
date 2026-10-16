@@ -508,7 +508,7 @@ def _pg_admin_url() -> str:
 
 
 @unittest.skipUnless(_pg_admin_url(), "LIVE_PRESENCE_TEST_URL is not set")
-class TestLiveClassPostgresDeleteTests(TestLiveClassTests):
+class TestLiveClassPostgresDeleteTests(Base):
     """Delete test class against a real Postgres presence store."""
 
     def setUp(self) -> None:
@@ -602,7 +602,7 @@ class TestLiveClassPostgresDeleteTests(TestLiveClassTests):
                 "SELECT COUNT(*) AS n FROM live_presence_sessions WHERE id = %s",
                 (sid,),
             ).fetchone()
-            self.assertEqual(int(left["n"]), 0)
+            self.assertEqual(int(left[0]), 0)
 
 if __name__ == "__main__":
     unittest.main()
