@@ -22,6 +22,7 @@ import {
   showError,
   sortStudents,
 } from "/static/common.js";
+import { configureQuestionEditor, openQuestionEditor } from "/static/question_editor.js";
 import {
   bindSchoolDayPicker,
   defaultSchoolDay,
@@ -2247,6 +2248,8 @@ function paintGroupResultsInPlace(force = false) {
 
 
 let openResponsePromptId = 0;
+/** Award amount for the open responses dialog. A stored live default replaces +1. */
+let openAwardAmount = 1;
 
 let teacherStateInFlight = false;
 let lastTeacherMediaSrc = "";
@@ -5377,7 +5380,9 @@ function paintLiveQuestionCards() {
               item.title || item.text || card.text
             )}" data-question-type="${escapeHtml(item.type || card.type || "poll")}" data-has-answer-key="${
               hasAnswerKey ? "1" : ""
-            }" ${
+            }" data-live-points="${escapeHtml(
+              item.live_points == null || item.live_points === "" ? "" : item.live_points
+            )}" ${
               promptId ? "" : "disabled"
             }>Responses &amp; points</button>`;
       const playlistItemId = resolvePlaylistItemId(card, item);
@@ -6459,6 +6464,30 @@ function liveQuestionHasSingularKey(card) {
 }
 
 /**
+ * Label the award buttons with a question's live points, or +1.
+ * @param {number} amount
+ */
+function paintAwardButtonLabels(amount) {
+  const dialog = $("live-responses-dialog");
+  if (!(dialog instanceof HTMLElement)) return;
+  const points = Number.isFinite(amount) && amount !== 0 ? amount : 1;
+  const token = Number.isInteger(points) ? String(points) : String(points);
+  const labels = {
+    answered: `+${token} Everyone who answered`,
+    correct: `+${token} Everyone correct`,
+    manual: `+${token} Selected`,
+  };
+  for (const [key, label] of Object.entries(labels)) {
+    const button = dialog.querySelector(`[data-response-select="${key}"]`);
+    if (button instanceof HTMLButtonElement) button.textContent = label;
+  }
+  const commit = dialog.querySelector("[data-response-commit]");
+  if (commit instanceof HTMLButtonElement) {
+    commit.textContent = points === 1 ? "Award Points" : `Award +${token}`;
+  }
+}
+
+/**
  * Fetch and open the ephemeral response viewer for one prompt.
  * @param {number} promptId
  * @param {string} title
@@ -6473,6 +6502,7 @@ async function openQuestionResponses(promptId, title, questionType, hasAnswerKey
   responseLabelBook = loadHiddenLabelBook(result.run_key || `session-${sessionId}`);
   const heading = $("live-responses-title");
   if (heading) heading.textContent = title || "Responses";
+  paintAwardButtonLabels(openAwardAmount);
   paintQuestionResponses(result.responses);
   const dialog = $("live-responses-dialog");
   const correct = dialog?.querySelector('[data-response-select="correct"]');
@@ -12631,6 +12661,8 @@ $("live-question-list")?.addEventListener("click", async (event) => {
       return;
     }
     if (!(button instanceof HTMLButtonElement)) return;
+    const livePoints = Number(button.dataset.livePoints);
+    openAwardAmount = Number.isFinite(livePoints) && livePoints !== 0 ? livePoints : 1;
     await openQuestionResponses(
       Number(button.dataset.viewResponses) || 0,
       button.dataset.questionTitle || "Responses",
@@ -12670,7 +12702,7 @@ $("live-responses-dialog")?.addEventListener("click", async (event) => {
         body: JSON.stringify({
           mode: "manual",
           student_ids: studentIds,
-          amount: 1,
+          amount: openAwardAmount,
           replace: true,
           hide_names: hideResponseNames,
         }),
@@ -13450,408 +13482,44 @@ $("ap-media-caption")?.addEventListener("blur", () => {
 });
 
 /**
- * Show MC / numeric fields for the Add New dialog.
+ * Open Add New through the shared question editor.
+ * Live defaults stay off the POST until the teacher changes them.
  */
-function syncAddQuestionTypeFields() {
-  const selected = document.querySelector('input[name="live-add-q-type"]:checked');
-  const kind = String(selected?.value || "mc").toLowerCase();
-  const mc = $("live-add-q-mc-fields");
-  const numeric = $("live-add-q-numeric-fields");
-  const rank = $("live-add-q-rank-fields");
-  if (mc instanceof HTMLElement) mc.hidden = kind !== "mc";
-  if (numeric instanceof HTMLElement) numeric.hidden = kind !== "numeric";
-  if (rank instanceof HTMLElement) rank.hidden = kind !== "rank";
-  syncRankOptionRows();
-}
-
-/**
- * Show the first three rank rows and keep remove disabled at the minimum.
- */
-function syncRankOptionRows() {
-  const rows = [...document.querySelectorAll("#live-add-q-rank-list .live-add-rank-row")];
-  const visible = rows.filter((row) => row instanceof HTMLElement && !row.hidden);
-  rows.forEach((row) => {
-    const button = row.querySelector("[data-rank-remove]");
-    if (button instanceof HTMLButtonElement) button.disabled = visible.length <= 3;
-  });
-  const add = $("live-add-q-rank-add");
-  if (add instanceof HTMLButtonElement) add.disabled = visible.length >= 6;
-  syncRankKeyList();
-}
-
-/** MCK-172: Answer order as rank row numbers (0–5), right order first. */
-let rankKeyRows = [];
-
-/**
- * Rank rows that are shown and filled, in authored order.
- * @returns {number[]}
- */
-function filledRankRows() {
-  return [...document.querySelectorAll("#live-add-q-rank-list .live-add-rank-row")]
-    .map((row, index) => ({ row, index }))
-    .filter(
-      ({ row }) =>
-        row instanceof HTMLElement &&
-        !row.hidden &&
-        String(row.querySelector("input")?.value || "").trim()
-    )
-    .map(({ index }) => index);
-}
-
-/**
- * Keep the Answer order list in step with the options: drop removed rows,
- * add new ones at the end, and repaint the labels.
- */
-function syncRankKeyList() {
-  const on = $("live-add-q-rank-key-on");
-  const box = $("live-add-q-rank-key");
-  const list = $("live-add-q-rank-key-list");
-  const enabled = on instanceof HTMLInputElement && on.checked;
-  if (box instanceof HTMLElement) box.hidden = !enabled;
-  const filled = filledRankRows();
-  rankKeyRows = [
-    ...rankKeyRows.filter((row) => filled.includes(row)),
-    ...filled.filter((row) => !rankKeyRows.includes(row)),
-  ];
-  if (!(list instanceof HTMLElement) || !enabled) return;
-  list.innerHTML = rankKeyRows
-    .map((row) => {
-      const label = String($(`live-add-q-rank-${row}`)?.value || "").trim();
-      return `<li draggable="true" tabindex="0" data-rank-key-row="${row}" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown">${escapeHtml(label)}</li>`;
-    })
-    .join("");
-}
-
-/**
- * Move one Answer order row to a new position and repaint.
- * @param {number} row Rank row number being moved.
- * @param {number} to Target position in the list.
- */
-function moveRankKeyRow(row, to) {
-  const from = rankKeyRows.indexOf(row);
-  if (from < 0) return;
-  const next = rankKeyRows.filter((item) => item !== row);
-  next.splice(Math.max(0, Math.min(next.length, to)), 0, row);
-  rankKeyRows = next;
-  syncRankKeyList();
-  const moved = document.querySelector(`#live-add-q-rank-key-list [data-rank-key-row="${row}"]`);
-  if (moved instanceof HTMLElement) moved.focus();
-}
-
-/**
- * Answer order for the POST body as option indices, or null when unset.
- * @param {string[]} options Filled option labels in authored order.
- * @returns {number[] | null}
- */
-function rankKeyForSubmit(options) {
-  const on = $("live-add-q-rank-key-on");
-  if (!(on instanceof HTMLInputElement) || !on.checked) return null;
-  const filled = filledRankRows();
-  if (filled.length !== options.length) return null;
-  return rankKeyRows.map((row) => filled.indexOf(row));
-}
-
-const EQ_RENDER_ERROR = "Couldn't render this equation — check the TeX.";
-
-/**
- * Strip wrapping dollar signs so stored TeX matches the KaTeX span helper.
- * @param {unknown} raw
- * @returns {string}
- */
-function stripEquationLatex(raw) {
-  return String(raw || "").trim().replace(/^\$+|\$+$/g, "").trim();
-}
-
-/**
- * Insert a LaTeX snippet into the Add New equation field.
- * @param {string} snippet
- */
-function insertAddQuestionLatex(snippet) {
-  const field = $("live-add-q-equation");
-  if (!(field instanceof HTMLTextAreaElement)) return;
-  const start = field.selectionStart ?? field.value.length;
-  const end = field.selectionEnd ?? field.value.length;
-  const token = String(snippet || "");
-  field.value = `${field.value.slice(0, start)}${token}${field.value.slice(end)}`;
-  const cursor = start + token.length;
-  field.focus();
-  field.setSelectionRange(cursor, cursor);
-  paintAddQuestionEquationPreview();
-}
-
-/**
- * Typeset the Add New equation preview with the same KaTeX helper as live cards.
- * @returns {Promise<void>}
- */
-async function paintAddQuestionEquationPreview() {
-  const field = $("live-add-q-equation");
-  const preview = $("live-add-q-equation-preview");
-  if (!(preview instanceof HTMLElement)) return;
-  const latex = stripEquationLatex(
-    field instanceof HTMLTextAreaElement ? field.value : ""
-  );
-  if (!latex) {
-    preview.innerHTML = `<p class="hint compact">No equation yet.</p>`;
-    return;
-  }
-  preview.innerHTML = liveQuestionEquationHtml({ equation_latex: latex }, {});
-  await renderLiveQuestionMath(preview);
-  if (preview.querySelector(".katex-error")) {
-    preview.innerHTML = `<p class="error compact">${EQ_RENDER_ERROR}</p>`;
-  }
-}
-
-/**
- * True when the open live lesson has a module token M1–M8.
- * @returns {boolean}
- */
-function liveModuleScopeKnown() {
-  return /^M[1-8]$/.test(String(teacherState.live_module || "").trim().toUpperCase());
-}
-
-/**
- * Show Bank scope only while Save to bank is checked.
- */
-function syncAddQuestionBankFields() {
-  const save = $("live-add-q-save-bank");
-  const scope = $("live-add-q-bank-scope");
-  const select = $("live-add-q-bank-scope-select");
-  const hint = $("live-add-q-bank-scope-hint");
-  const enabled = save instanceof HTMLInputElement && save.checked;
-  if (scope instanceof HTMLElement) scope.hidden = !enabled;
-  if (select instanceof HTMLSelectElement) select.disabled = !enabled;
-  if (hint instanceof HTMLElement) {
-    hint.hidden = !enabled || liveModuleScopeKnown();
-  }
-}
-
-/**
- * Open the Add New question dialog for the current page.
- */
-function openAddQuestionDialog() {
-  const dialog = $("live-add-question-dialog");
-  const form = $("live-add-question-form");
-  const err = $("live-add-q-error");
-  if (form instanceof HTMLFormElement) form.reset();
-  rankKeyRows = [];
-  const mc = document.querySelector('input[name="live-add-q-type"][value="mc"]');
-  if (mc instanceof HTMLInputElement) mc.checked = true;
-  const select = $("live-add-q-bank-scope-select");
-  const currentModule = String(teacherState.live_module || "").trim().toUpperCase();
-  if (select instanceof HTMLSelectElement) {
-    select.value = /^M[1-8]$/.test(currentModule) ? currentModule : "M1";
-  }
-  if (err instanceof HTMLElement) {
-    err.hidden = true;
-    err.textContent = "";
-  }
-  syncAddQuestionTypeFields();
-  syncAddQuestionBankFields();
-  paintAddQuestionEquationPreview();
-  if (dialog instanceof HTMLDialogElement) dialog.showModal();
-}
-
-/**
- * Close the Add New question dialog.
- */
-function closeAddQuestionDialog() {
-  const dialog = $("live-add-question-dialog");
-  if (dialog instanceof HTMLDialogElement && dialog.open) dialog.close();
-}
-
-/**
- * Upload an optional question image and return its public URL.
- * @param {File} file
- * @returns {Promise<string>}
- */
-async function uploadLiveQuestionImage(file) {
-  if (!classId || !(file instanceof File) || !file.size) return "";
-  const body = new FormData();
-  body.append("image", file);
-  const response = await fetch(`/api/staff/class/${classId}/live-question-image`, {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { Accept: "application/json" },
-    body,
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload.ok === false) {
-    throw new Error(payload.error || `HTTP ${response.status}`);
-  }
-  return String(payload?.image_url || "").trim();
-}
-
-/**
- * POST one staff-authored question onto the current overlay page.
- * @returns {Promise<void>}
- */
-async function submitAddQuestion() {
-  const selected = document.querySelector('input[name="live-add-q-type"]:checked');
-  const kind = String(selected?.value || "mc").toLowerCase();
-  const text = String(($("live-add-q-text")?.value || "")).trim();
-  if (!text) throw new Error("Question text required.");
-  const equation = stripEquationLatex($("live-add-q-equation")?.value || "");
-  const imageInput = $("live-add-q-image");
-  const imageFile =
-    imageInput instanceof HTMLInputElement && imageInput.files?.[0]
-      ? imageInput.files[0]
-      : null;
-  const imageUrl = imageFile ? await uploadLiveQuestionImage(imageFile) : "";
-  const saveBank = $("live-add-q-save-bank");
-  const scope = $("live-add-q-bank-scope-select");
-  const bankKind = $("live-add-q-bank-kind");
-  const body = {
-    type: kind,
-    text,
-    equation,
-    image_url: imageUrl,
-    page_number: currentLivePageNumber(),
-    stage: String(teacherState.stage || "round"),
-    bank_kind: bankKind instanceof HTMLSelectElement ? String(bankKind.value || "") : "",
-    save_to_bank: Boolean(saveBank instanceof HTMLInputElement && saveBank.checked),
-    bank_scope: String(
-      scope instanceof HTMLSelectElement && scope.value
-        ? scope.value
-        : teacherState.live_module || "M1"
-    ),
-  };
-  if (kind === "mc") {
-    body.options = [0, 1, 2, 3].map((index) =>
-      String($(`live-add-q-opt-${index}`)?.value || "").trim()
+configureQuestionEditor({
+  classId: () => classId,
+  submitAdd: async (body) => {
+    const module = String(teacherState.live_module || "M1").toUpperCase();
+    const slot = String(teacherState.live_slot || "C1").toUpperCase();
+    if (!classId) throw new Error("Class is not loaded.");
+    const payload = await api(
+      `/api/staff/class/${classId}/live-lessons/${module}/${slot}/add-question`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...body,
+          page_number: currentLivePageNumber(),
+          stage: String(teacherState.stage || "round"),
+          bank_kind: body.bank_kind ?? "",
+        }),
+      }
     );
-    const key = document.querySelector('input[name="live-add-q-key"]:checked');
-    body.correct_index = Number(key?.value || 0);
-  }
-  if (kind === "numeric") {
-    body.correct_answer = String(($("live-add-q-numeric-answer")?.value || "")).trim();
-    body.tolerance = String(($("live-add-q-tolerance")?.value || "0")).trim();
-    body.tolerance_kind = String(($("live-add-q-tolerance-kind")?.value || "absolute"));
-  }
-  if (kind === "rank") {
-    body.options = [...document.querySelectorAll("#live-add-q-rank-list .live-add-rank-row")]
-      .filter((row) => row instanceof HTMLElement && !row.hidden)
-      .map((row) => String(row.querySelector("input")?.value || "").trim())
-      .filter(Boolean);
-    const rankKey = rankKeyForSubmit(body.options);
-    if (rankKey) body.rank_key = rankKey;
-  }
-  const module = String(teacherState.live_module || "M1").toUpperCase();
-  const slot = String(teacherState.live_slot || "C1").toUpperCase();
-  if (!classId) throw new Error("Class is not loaded.");
-  const payload = await api(
-    `/api/staff/class/${classId}/live-lessons/${module}/${slot}/add-question`,
-    { method: "POST", body: JSON.stringify(body) }
-  );
-  applyLiveMcImportPayload(payload);
-  paintLiveQuestionCards();
-  paintQuestionArtifact();
-  staffStateNeedsFull = true;
-  const sessionId = liveSessionId || readLiveSessionId();
-  if (sessionId) {
-    await pollLiveSessionAttendees({ full: true, force: true });
+    applyLiveMcImportPayload(payload);
     paintLiveQuestionCards();
-  }
-}
-
-$("live-add-question-btn")?.addEventListener("click", () => openAddQuestionDialog());
-document.querySelectorAll('input[name="live-add-q-type"]').forEach((input) => {
-  input.addEventListener("change", () => syncAddQuestionTypeFields());
-});
-$("live-add-q-rank-add")?.addEventListener("click", () => {
-  const hidden = document.querySelector("#live-add-q-rank-list .live-add-rank-row[hidden]");
-  if (hidden instanceof HTMLElement) hidden.hidden = false;
-  syncRankOptionRows();
-});
-document.querySelectorAll("#live-add-q-rank-list [data-rank-remove]").forEach((button) => {
-  button.addEventListener("click", () => {
-    const rows = [...document.querySelectorAll("#live-add-q-rank-list .live-add-rank-row")].filter(
-      (row) => row instanceof HTMLElement && !row.hidden
-    );
-    if (rows.length <= 3) return;
-    const row = button.closest(".live-add-rank-row");
-    if (!(row instanceof HTMLElement)) return;
-    const input = row.querySelector("input");
-    if (input instanceof HTMLInputElement) input.value = "";
-    row.hidden = true;
-    syncRankOptionRows();
-  });
-});
-document
-  .querySelectorAll("#live-add-q-rank-list input")
-  .forEach((input) => input.addEventListener("input", () => syncRankKeyList()));
-$("live-add-q-rank-key-on")?.addEventListener("change", () => syncRankKeyList());
-{
-  const keyList = $("live-add-q-rank-key-list");
-  let dragRow = -1;
-  const rowOf = (node) =>
-    Number(
-      (node instanceof Element ? node.closest("[data-rank-key-row]") : null)?.getAttribute(
-        "data-rank-key-row"
-      ) ?? -1
-    );
-  keyList?.addEventListener("dragstart", (event) => {
-    dragRow = rowOf(event.target);
-    if (event.target instanceof HTMLElement) event.target.classList.add("is-dragging");
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-  });
-  keyList?.addEventListener("dragover", (event) => {
-    if (dragRow >= 0) event.preventDefault();
-  });
-  keyList?.addEventListener("drop", (event) => {
-    event.preventDefault();
-    const target = rowOf(event.target);
-    if (dragRow < 0) return;
-    const to = target >= 0 ? rankKeyRows.indexOf(target) : rankKeyRows.length - 1;
-    moveRankKeyRow(dragRow, to);
-    dragRow = -1;
-  });
-  keyList?.addEventListener("dragend", () => {
-    dragRow = -1;
-    syncRankKeyList();
-  });
-  keyList?.addEventListener("keydown", (event) => {
-    if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
-    const row = rowOf(event.target);
-    if (row < 0) return;
-    event.preventDefault();
-    const at = rankKeyRows.indexOf(row);
-    moveRankKeyRow(row, event.key === "ArrowUp" ? at - 1 : at + 1);
-  });
-}
-document.querySelectorAll("[data-eq-insert]").forEach((button) => {
-  button.addEventListener("click", () => {
-    insertAddQuestionLatex(String(button.getAttribute("data-eq-insert") || ""));
-  });
-});
-$("live-add-q-equation")?.addEventListener("input", () => paintAddQuestionEquationPreview());
-$("live-add-q-save-bank")?.addEventListener("change", () => syncAddQuestionBankFields());
-$("live-add-question-form")?.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const err = $("live-add-q-error");
-  if (err instanceof HTMLElement) {
-    err.hidden = true;
-    err.textContent = "";
-  }
-  const btn = $("live-add-q-submit");
-  if (btn instanceof HTMLButtonElement) btn.disabled = true;
-  try {
-    await submitAddQuestion();
-    closeAddQuestionDialog();
-  } catch (error) {
-    if (err instanceof HTMLElement) {
-      err.hidden = false;
-      err.textContent = error instanceof Error ? error.message : String(error);
+    paintQuestionArtifact();
+    staffStateNeedsFull = true;
+    const sessionId = liveSessionId || readLiveSessionId();
+    if (sessionId) {
+      await pollLiveSessionAttendees({ full: true, force: true });
+      paintLiveQuestionCards();
     }
-  } finally {
-    if (btn instanceof HTMLButtonElement) btn.disabled = false;
-  }
+  },
 });
-$("live-add-question-dialog")?.addEventListener("click", (event) => {
-  if (
-    event.target instanceof HTMLElement &&
-    event.target.matches("[data-live-add-question-close]")
-  ) {
-    closeAddQuestionDialog();
-  }
+
+$("live-add-question-btn")?.addEventListener("click", () => {
+  const currentModule = String(teacherState.live_module || "").trim().toUpperCase();
+  openQuestionEditor({
+    mode: "add",
+    scope: /^M[1-8]$/.test(currentModule) ? currentModule : "M1",
+    scopeKnown: /^M[1-8]$/.test(currentModule),
+  });
 });
-$("live-add-question-dialog")?.addEventListener("cancel", () => closeAddQuestionDialog());

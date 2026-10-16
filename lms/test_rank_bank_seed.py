@@ -565,7 +565,7 @@ class OpsGateFindingsTests(unittest.TestCase):
         picker = (LMS_DIR / "static" / "bank_mc_picker.js").read_text(encoding="utf-8")
         self.assertIn('<span class="hint compact">Read-only</span>', picker)
         banks_tab = (LMS_DIR / "static" / "course_question_banks.js").read_text(encoding="utf-8")
-        self.assertIn("editMode && isRank(selected)", banks_tab)
+        self.assertIn("openQuestionEditor", banks_tab)
 
 
 class TeacherNoteNeverReachesStudentsTests(unittest.TestCase):

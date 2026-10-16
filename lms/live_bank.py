@@ -136,13 +136,44 @@ def create_live_bank_question(
         from lms.bank_kinds import apply_stored_bank_kind
 
     apply_stored_bank_kind(payload, body.get("bank_kind") or body.get("bankKind"))
+    equation = str(body.get("equation") or body.get("equation_latex") or "").strip().strip("$").strip()
+    if equation:
+        payload["equation"] = equation
+        payload["equation_latex"] = equation
+    image = str(body.get("image_url") or body.get("imageUrl") or "").strip()
+    if image:
+        payload["image_url"] = image
+    if kind == "numeric":
+        if body.get("tolerance") not in (None, ""):
+            try:
+                payload["tolerance"] = float(body.get("tolerance"))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("tolerance must be a number") from exc
+        kind_token = str(body.get("tolerance_kind") or body.get("toleranceKind") or "absolute").strip().lower()
+        if kind_token in {"absolute", "percent"}:
+            payload["tolerance_kind"] = kind_token
     school.update_library_question_payload(
         int(library_id),
         int(question["id"]),
         title=str(question.get("title") or "Staff question"),
         payload=payload,
     )
+    try:
+        from live_defaults import normalize_scope_token, parse_live_defaults
+    except ImportError:
+        from lms.live_defaults import normalize_scope_token, parse_live_defaults
+
+    try:
+        pinned = normalize_scope_token(scope)
+    except ValueError:
+        pinned = ""
+    if pinned:
+        school.set_question_bank_scope(int(library_id), int(question["id"]), pinned)
+    defaults = parse_live_defaults(body)
+    if defaults:
+        school.set_question_live_defaults(int(library_id), int(question["id"]), defaults)
+        question.update(defaults)
     question["payload"] = payload
     question["bank_id"] = bank_id
-    question["bank_scope"] = scope
+    question["bank_scope"] = pinned or scope
     return question

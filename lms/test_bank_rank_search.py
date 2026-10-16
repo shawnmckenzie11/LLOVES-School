@@ -355,7 +355,7 @@ class BankRankSearchTests(unittest.TestCase):
         self.assertIn("rankMetaHtml(item, optionList.length)", picker)
         banks = (LMS_DIR / "static" / "course_question_banks.js").read_text(encoding="utf-8")
         self.assertIn("function rankPeekHtml", banks)
-        self.assertIn("editMode && isRank(selected)", banks)
+        self.assertIn("openQuestionEditor", banks)
 
 
 if __name__ == "__main__":

@@ -2293,14 +2293,17 @@ class LiveShellTests(unittest.TestCase):
         )
 
         js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        editor = (LMS_DIR / "static" / "question_editor.js").read_text(encoding="utf-8")
         self.assertNotIn(
             'import { openBankMcPicker } from "/static/bank_mc_picker.js"', js
         )
         self.assertIn('import("/static/bank_mc_picker.js")', js)
-        self.assertIn("function stripEquationLatex(", js)
-        self.assertIn("Couldn't render this equation — check the TeX.", js)
-        self.assertIn("No equation yet.", js)
-        self.assertIn("live-add-q-bank-scope-select", js)
+        self.assertIn("function stripEquationLatex(", editor)
+        self.assertIn("Couldn't render this equation — check the TeX.", editor)
+        self.assertIn("No equation yet.", editor)
+        self.assertIn("live-add-q-bank-scope-select", editor)
+        self.assertIn("bank_kind", js)
+        self.assertIn("openQuestionEditor", js)
         self.assertIn('let currentStep = "validate"', js)
         self.assertIn("let setupPhase = true", js)
         self.assertIn("function classSetIsComplete(", js)
