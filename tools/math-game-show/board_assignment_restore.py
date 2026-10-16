@@ -1,14 +1,18 @@
-"""Helpers for game-show team restore using ``live_board_assignments``."""
+"""Helpers for game-show team restore using whiteboard board pins (MCK-218)."""
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
-from live_board_assignments import (
+from board_pins import (
     active_live_run_key,
     assignment_sort_orders,
     record_board_assignment,
+    team_sort_order,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def apply_team_lock_with_board_assignments(
@@ -45,10 +49,7 @@ def apply_team_lock_with_board_assignments(
     for team in spec.get("teams") or []:
         if not isinstance(team, dict):
             continue
-        try:
-            order = int(team.get("sort_order") or 0)
-        except (TypeError, ValueError):
-            order = 0
+        order = team_sort_order(team.get("sort_order"))
         name = str(team.get("name") or "").strip() or default_team_name(order)
         if name == "Class":
             continue
@@ -91,6 +92,12 @@ def apply_team_lock_with_board_assignments(
             continue
         team_id = team_by_order.get(int(order))
         if team_id is None:
+            logger.warning(
+                "board pin has no team: class_id=%s student_id=%s sort_order=%s",
+                class_id,
+                student_id,
+                order,
+            )
             continue
         conn.execute(
             """
@@ -131,10 +138,7 @@ def record_assignments_from_state(
     for team in game_state.get("teams") or []:
         if str(team.get("name") or "") == "Class":
             continue
-        try:
-            sort_order = int(team.get("sort_order") or 0)
-        except (TypeError, ValueError):
-            sort_order = 0
+        sort_order = team_sort_order(team.get("sort_order"))
         for member in team.get("members") or []:
             try:
                 sid = int(member.get("id"))

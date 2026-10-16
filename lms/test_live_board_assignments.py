@@ -195,6 +195,152 @@ class LiveBoardAssignmentTests(unittest.TestCase):
         )
         self.assertIsNone(key)
 
+    def _roster_by_codename(self) -> dict[str, int]:
+        """Begin attendance and return codename → roster id."""
+        begin = self.staff.post(
+            f"/api/classes/{self.class_id}/begin",
+            json={"meeting_date": "2026-09-09"},
+        )
+        self.assertEqual(begin.status_code, 200, begin.get_json())
+        return {
+            str(student["codename"]): int(student["id"])
+            for student in begin.get_json()["students"]
+        }
+
+    def _place_late_joiner_on_second_team(self, *, scoring_live: bool) -> int:
+        """Leave Team 2 smaller, then join the missing student through the screen path.
+
+        The student class-code screen and the dashboard rejoin both call
+        ``join_live_class_session``. Before Start Round the open game is
+        still ``names``, so that lands in ``_assign_joiner_if_teams_locked``.
+        After Start Round the game is ``live``, so it lands in
+        ``admit_late_joiner``.
+
+        Args:
+            scoring_live: When True, start a scoring round before the join.
+
+        Returns:
+            Roster id of the student who joined late.
+        """
+        roster = self._roster_by_codename()
+        present = [roster["Maple"], roster["Aspen"], roster["Birch"]]
+        self.staff.post(
+            f"/api/classes/{self.class_id}/game/attendance",
+            json={"present_ids": present, "meeting_date": "2026-09-09"},
+        )
+        assigned = self.staff.post(
+            f"/api/classes/{self.class_id}/game/assign",
+            json={
+                "n_teams": 2,
+                "mode": "manual",
+                "present_ids": present,
+                "assignments": [
+                    {"student_id": roster["Maple"], "team_index": 0},
+                    {"student_id": roster["Aspen"], "team_index": 0},
+                    {"student_id": roster["Birch"], "team_index": 1},
+                ],
+            },
+        )
+        self.assertEqual(assigned.status_code, 200, assigned.get_json())
+        first_key = assignment_board_key(
+            self.school.conn,
+            class_id=self.class_id,
+            run_key=self.run_key,
+            student_id=roster["Maple"],
+        )
+        self.assertEqual(first_key, board_key_for_sort_order(0))
+        if scoring_live:
+            self.school.game.start_live_with_rounds(
+                self.class_id, [{"kind": "open", "minutes": 20}]
+            )
+            self.assertEqual(
+                str(self.school.game._game_row(self.class_id)["status"]), "live"
+            )
+        late_id = roster["Cedar"]
+        self.school.join_live_class_session(
+            self.session_id, late_id, codename="Cedar"
+        )
+        return late_id
+
+    def _assert_late_joiner_pinned_to_second_team(self, late_id: int) -> None:
+        """The joiner's membership sort order and board pin are both 1."""
+        state = self.school.game.game_state(self.class_id)
+        home = next(
+            team
+            for team in state["teams"]
+            if any(int(member["id"]) == late_id for member in team["members"])
+        )
+        self.assertEqual(int(home["sort_order"]), 1)
+        key = assignment_board_key(
+            self.school.conn,
+            class_id=self.class_id,
+            run_key=self.run_key,
+            student_id=late_id,
+        )
+        self.assertEqual(key, "team:1")
+        self.assertEqual(
+            self.school.student_live_board_key(self.session_id, late_id), "team:1"
+        )
+
+    def test_locked_teams_late_join_pins_second_team(self) -> None:
+        """A joiner placed on sort_order 1 is pinned to team:1, not team:0."""
+        late_id = self._place_late_joiner_on_second_team(scoring_live=False)
+        self._assert_late_joiner_pinned_to_second_team(late_id)
+
+    def test_join_screen_after_scoring_writes_matching_pin(self) -> None:
+        """After Start Round, the class-code join writes a pin for that team.
+
+        ``join_live_class_session`` calls ``admit_late_joiner`` once the game
+        status is ``live``. That path has to insert the pin row itself.
+        """
+        late_id = self._place_late_joiner_on_second_team(scoring_live=True)
+        self._assert_late_joiner_pinned_to_second_team(late_id)
+
+    def test_reopen_app_keeps_sort_order_board_key(self) -> None:
+        """Closing the database and booting again keeps the same collab bucket."""
+        self._assign()
+        before = self.school.student_live_board_key(self.session_id, self.student_id)
+        self.assertTrue(str(before).startswith("team:"))
+        db_path = Path(self.tmp.name) / "lloves.sqlite"
+        data_dir = Path(self.tmp.name)
+        self.school.close()
+        reopened = create_app(db_path=db_path, data_dir=data_dir, testing=True)
+        self.school = reopened.config["SCHOOL_DB"]
+        after = self.school.student_live_board_key(self.session_id, self.student_id)
+        self.assertEqual(before, after)
+
+    def test_restore_logs_pin_for_missing_team(self) -> None:
+        """A pin whose sort order is gone is logged and does not raise."""
+        self._assign()
+        self.school.conn.execute(
+            """
+            UPDATE live_board_assignments
+            SET team_sort_order = 9, board_key = 'team:9'
+            WHERE class_id = ? AND student_id = ?
+            """,
+            (self.class_id, self.student_id),
+        )
+        self.school.conn.commit()
+        with self.school.game._lock:
+            game = self.school.game._game_row(self.class_id)
+            game_id = int(game["id"])
+            self.school.game.conn.execute(
+                "DELETE FROM game_memberships WHERE game_id = ?", (game_id,)
+            )
+            self.school.game.conn.execute(
+                "DELETE FROM game_teams WHERE game_id = ?", (game_id,)
+            )
+            self.school.game.conn.commit()
+        self.school.game._forget_team_index(class_id=self.class_id)
+        with self.assertLogs("board_assignment_restore", level="WARNING") as caught:
+            self.school.game.restore_team_lock(self.class_id, create=False)
+        self.assertTrue(
+            any(f"student_id={self.student_id}" in line and "sort_order=9" in line for line in caught.output)
+        )
+        self.assertIsNone(
+            self.school.student_team_id_for_class(self.class_id, self.student_id)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
