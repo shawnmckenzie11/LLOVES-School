@@ -309,7 +309,8 @@ function rowHtml(item) {
     ? `<span class="chip qbank-edited">${escapeHtml(CHIP_COPY)}</span>`
     : "";
   const checked = selectedRows.has(key);
-  return `<tr class="qbank-tr${checked ? " is-checked" : ""}" data-qbank-key="${escapeHtml(key)}">
+  const kindToken = String(item.kind || item.bank_kind || "");
+  return `<tr class="qbank-tr${checked ? " is-checked" : ""}" data-bank-kind="${escapeHtml(kindToken)}" data-qbank-key="${escapeHtml(key)}">
     <td class="qcell qcell-check"><input type="checkbox" data-qbank-check="${escapeHtml(key)}" aria-label="Select question"${checked ? " checked" : ""}></td>
     <td class="qcell qcell-question"><div class="qbank-line"><span class="chip qbank-type qbank-type-${escapeHtml(chip.token)}">${escapeHtml(chip.label)}</span><div class="qbank-stem">${formatQuestionHtml(stemSource)}</div>${mediaTagHtml(item)}${edited}</div></td>
     <td class="qcell">${escapeHtml(kindLabel(item))}</td>

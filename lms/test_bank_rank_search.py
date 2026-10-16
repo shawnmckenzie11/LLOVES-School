@@ -349,12 +349,12 @@ class BankRankSearchTests(unittest.TestCase):
 
 
     def test_ui_labels_rank_rows(self) -> None:
-        """Import picker shows a Rank meta; the banks tab keeps rank rows read-only."""
+        """Import picker shows a Rank meta; the banks table still labels rank rows."""
         picker = (LMS_DIR / "static" / "bank_mc_picker.js").read_text(encoding="utf-8")
         # MCK-169 S1: the meta carries an Answer order / Opinion chip.
         self.assertIn("rankMetaHtml(item, optionList.length)", picker)
         banks = (LMS_DIR / "static" / "course_question_banks.js").read_text(encoding="utf-8")
-        self.assertIn("function rankPeekHtml", banks)
+        self.assertIn('label: "Rank"', banks)
         self.assertIn("openQuestionEditor", banks)
 
 
