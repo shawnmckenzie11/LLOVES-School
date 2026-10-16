@@ -5,9 +5,8 @@ module stays expanded as the current module. Starting a later module
 while that current module is open asks the teacher to finish it first.
 
 Column labels use the stored module token. A blank module is not shown
-as ``M1``, and the number is not shifted down by one. The grid may pass
-a display module worked out from the class calendar; a session that
-still has no module stays in the ``Untagged`` band.
+as ``M1``, and the number is not shifted down by one. A session that
+still has no module stays in the ``Untagged`` band with its points.
 """
 
 from __future__ import annotations

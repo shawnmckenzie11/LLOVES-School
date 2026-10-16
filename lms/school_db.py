@@ -39477,17 +39477,6 @@ class SchoolDB(LovesDB):
         dash = self.game.dashboard(class_id, sort=sort)
         session_meta = self.participation_session_meta(class_id)
         dash = self._apply_participation_tab_dashboard(class_id, dash, session_meta)
-        session_meta = self._participation_schedule_labels(
-            class_id, dash.get("sessions") or [], session_meta
-        )
-        for column in dash.get("columns") or []:
-            if column.get("kind") != "session":
-                continue
-            info = session_meta.get(str(column.get("id"))) or {}
-            label = str(info.get("header_label") or "").strip()
-            if label and info.get("schedule_label"):
-                column["header_label"] = label
-                column["open_office"] = bool(info.get("open_office"))
         payload = dict(dash)
         payload["class"] = self.enrich_class(dash["class"])
         payload["session_meta"] = session_meta
@@ -39500,64 +39489,6 @@ class SchoolDB(LovesDB):
         payload["module_bands"] = self.participation_module_bands(class_id, payload)
         payload["ok"] = True
         return payload
-
-    def _participation_schedule_labels(
-        self,
-        class_id: int,
-        sessions: list[dict[str, Any]],
-        stored_meta: dict[Any, dict[str, Any]],
-    ) -> dict[str, dict[str, Any]]:
-        """Label blank participation columns from the class calendar.
-
-        Stored modules are copied through. A session with no module takes
-        the slot for its date, or ``Untagged`` when the date is not a
-        meeting. The database is not updated.
-
-        Args:
-            class_id: Class primary key.
-            sessions: Dashboard session rows still on the Participation tab.
-            stored_meta: ``participation_session_meta`` for this class.
-
-        Returns:
-            Display metadata keyed by session id.
-        """
-        from participation_schedule import (
-            course_module_slots,
-            label_sessions_from_schedule,
-            participation_date_slots,
-        )
-
-        days = ""
-        course = ""
-        if getattr(self, "game", None) is not None:
-            row = self.game.conn.execute(
-                "SELECT course_code, days, offering_id FROM classes WHERE id = ?",
-                (int(class_id),),
-            ).fetchone()
-            if row is not None:
-                course = str(row["course_code"] or "").strip()
-                days = str(row["days"] or "").strip()
-                offering_id = row["offering_id"]
-                if offering_id not in (None, ""):
-                    try:
-                        offering = self.get_offering(int(offering_id))
-                    except KeyError:
-                        offering = None
-                    if offering:
-                        course = str(offering.get("ontario_code") or course).strip()
-                        days = str(offering.get("live_days") or days).strip()
-        sched = self.live_class_schedule_for_class(class_id)
-        if sched and str(sched.get("live_days") or "").strip():
-            days = str(sched["live_days"]).strip()
-        if not days:
-            return {
-                str(key): dict(info) for key, info in (stored_meta or {}).items()
-            }
-        date_slots = participation_date_slots(
-            days,
-            module_slots=course_module_slots(course) if course else None,
-        )
-        return label_sessions_from_schedule(list(sessions or []), stored_meta, date_slots)
 
     def participation_module_bands(
         self, class_id: int, grid: dict[str, Any] | None = None
