@@ -4624,7 +4624,8 @@ body.staff-shell.course-live #live-frames,
 body.staff-shell.course-live #live-frames[data-pane="media"] {
   flex: 1 1 0;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
+  grid-template-rows: minmax(0, 1fr);
 }
 body.staff-shell.course-live .live-content-slot:not(.is-parked) {
   display: flex;

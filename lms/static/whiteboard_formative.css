@@ -350,18 +350,22 @@
   align-content: start;
 }
 
-#formative-live-board .wb-live-panel {
+#formative-live-board .wb-live-panel:not([hidden]) {
   min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
+#formative-live-board .wb-live-panel[hidden] {
+  display: none !important;
+}
+
 #formative-live-board .wb-live-panel-canvas {
   display: block;
   width: 100%;
   flex: 1 1 auto;
-  height: auto;
+  height: 1px;
   min-height: 0;
   max-height: none;
 }

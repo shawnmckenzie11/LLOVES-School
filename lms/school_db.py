@@ -866,8 +866,9 @@ CREATE TABLE IF NOT EXISTS live_board_assignments (
 CREATE INDEX IF NOT EXISTS idx_live_board_assignments_board
     ON live_board_assignments(class_id, run_key, board_key);
 
-CREATE INDEX IF NOT EXISTS idx_live_board_assignments_session
-    ON live_board_assignments(live_session_id);
+-- Session index is created in _ensure_board_assignment_session_column
+-- after older databases gain live_session_id. Creating it here fails boot
+-- when the table already exists without that column.
 
 -- MCK-116 S1: one Celebrations avatar reward per featured appearance.
 -- (class_id, student_id) is the roster row; no names are stored. source_ref

@@ -2335,30 +2335,32 @@ def _mck272_draw_and_measure(page: object) -> dict[str, object]:
           const canvas = document.getElementById('student-canvas');
           const stage = canvas && canvas.closest('.live-canvas-stage');
           const ink = stage && stage.querySelector('canvas.live-canvas-ink');
+          const hit = document.elementFromPoint(pointer.x, pointer.y);
           if (!canvas || !ink) return { error: 'missing ink layer' };
           const crect = canvas.getBoundingClientRect();
           const irect = ink.getBoundingClientRect();
-          const ctx = ink.getContext('2d');
-          const data = ctx.getImageData(0, 0, ink.width, ink.height).data;
-          const samples = [];
-          const step = 4;
-          for (let i = 3; i < data.length; i += 4 * step) {
-            if (data[i] < 24) continue;
-            const pixel = (i / 4) | 0;
-            const px = pixel % ink.width;
-            const py = Math.floor(pixel / ink.width);
-            samples.push({
-              cssX: irect.left + (px / ink.width) * irect.width,
-              cssY: irect.top + (py / ink.height) * irect.height,
-            });
-            if (samples.length > 400) break;
-          }
-          let near = 0;
-          for (const sample of samples) {
-            if (Math.abs(sample.cssY - pointer.y) <= 14 && Math.abs(sample.cssX - pointer.x) <= 140) {
-              near += 1;
+          const countNear = (layer, box) => {
+            const ctx = layer.getContext('2d');
+            if (!ctx || layer.width < 2 || layer.height < 2) return { n: 0, near: 0 };
+            const data = ctx.getImageData(0, 0, layer.width, layer.height).data;
+            let n = 0;
+            let near = 0;
+            const step = 4;
+            for (let i = 3; i < data.length; i += 4 * step) {
+              if (data[i] < 24) continue;
+              n += 1;
+              const pixel = (i / 4) | 0;
+              const px = pixel % layer.width;
+              const py = Math.floor(pixel / layer.width);
+              const cssX = box.left + (px / layer.width) * box.width;
+              const cssY = box.top + (py / layer.height) * box.height;
+              if (Math.abs(cssY - pointer.y) <= 14 && Math.abs(cssX - pointer.x) <= 140) near += 1;
+              if (n > 800) break;
             }
-          }
+            return { n, near };
+          };
+          const live = countNear(ink, irect);
+          const committed = countNear(canvas, crect);
           return {
             deltaX: irect.left - crect.left,
             deltaY: irect.top - crect.top,
@@ -2366,9 +2368,11 @@ def _mck272_draw_and_measure(page: object) -> dict[str, object]:
             deltaH: irect.height - crect.height,
             canvasH: crect.height,
             inkH: irect.height,
-            samples: samples.length,
-            near,
+            samples: live.n + committed.n,
+            near: live.near + committed.near,
+            liveNear: live.near,
             pointerY: pointer.y,
+            hit: hit ? (hit.id || hit.className || hit.tagName) : '',
           };
         }""",
         {"x": x + min(120, box["width"] * 0.25), "y": y},
@@ -2603,8 +2607,20 @@ def shoot_mck272(base: str, out_dir: Path, path: Path, state_path: Path) -> list
         staff.screenshot(path=str(gallery))
         shots.append(gallery)
 
-        staff.locator("#formative-live-board .wb-live-tile").first.click()
-        staff.locator("#wb-live-undo").wait_for(state="visible", timeout=15000)
+        opened = False
+        for _ in range(4):
+            tile = staff.locator("#formative-live-board .wb-live-tile").first
+            tile.click(timeout=5000)
+            try:
+                staff.locator("#wb-live-panel:not([hidden]) #wb-live-undo").wait_for(
+                    state="visible", timeout=4000
+                )
+                opened = True
+                break
+            except Exception:
+                continue
+        if not opened:
+            raise SystemExit("Opening a gallery card did not show the board tools.")
         for selector in ("#wb-live-pen", "#wb-live-text", "#wb-live-erase", "#wb-live-undo"):
             _mck272_box_in_view(staff, selector)
         panel = out_dir / "mck272-panel-1280x800.png"

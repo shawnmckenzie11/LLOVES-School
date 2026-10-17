@@ -805,9 +805,18 @@ export function bindWhiteboard(canvas, opts = {}) {
       }
       const bw = Math.max(1, Math.round(rect.width * dpr));
       const bh = Math.max(1, Math.round(rect.height * dpr));
+      const pinLiveLayer = () => {
+        const box = canvas.getBoundingClientRect();
+        liveCanvas.style.left = `${canvas.offsetLeft}px`;
+        liveCanvas.style.top = `${canvas.offsetTop}px`;
+        liveCanvas.style.width = `${box.width}px`;
+        liveCanvas.style.height = `${box.height}px`;
+        syncCursorLayerToCanvas();
+      };
       if (canvas.width === bw && canvas.height === bh && liveCanvas.width === bw) {
         applyTransform(ctx);
         applyTransform(liveCtx);
+        pinLiveLayer();
         return;
       }
       canvas.width = bw;
@@ -816,14 +825,12 @@ export function bindWhiteboard(canvas, opts = {}) {
       liveCanvas.height = bh;
       // The live layer must cover the drawing canvas, not the stage.
       // A stage that is taller than the canvas stretches this overlay
-      // and the in-progress stroke sits below the pointer.
-      liveCanvas.style.left = `${canvas.offsetLeft}px`;
-      liveCanvas.style.top = `${canvas.offsetTop}px`;
-      liveCanvas.style.width = `${rect.width}px`;
-      liveCanvas.style.height = `${rect.height}px`;
+      // and the in-progress stroke sits below the pointer. Re-read the
+      // box after the bitmap change, because that write can resize a
+      // canvas whose CSS height is still automatic.
+      pinLiveLayer();
       replayCommitted();
       paintLive();
-      syncCursorLayerToCanvas();
     } finally {
       fitting = false;
     }
@@ -1291,9 +1298,10 @@ commitEditor();
     syncButtons();
   });
 
-  if (typeof ResizeObserver === "function" && stage instanceof Element) {
+  if (typeof ResizeObserver === "function") {
     const observer = new ResizeObserver(() => fitBoard());
-    observer.observe(stage);
+    if (stage instanceof Element) observer.observe(stage);
+    observer.observe(canvas);
   }
   window.addEventListener("resize", () => fitBoard());
   fitBoard();
