@@ -84,6 +84,7 @@ import {
   defaultCopyDeck,
   defaultCopySource,
 } from "/static/deck_seed_help.js";
+import { setClassStartFields, setClassSummaryLine } from "/static/set_class_mode.js";
 import { overlayClassListPresence } from "/static/class_list_presence.js";
 import {
   GROUP_SETUP_COPY,
@@ -547,6 +548,7 @@ function paintDeckSeedPicker() {
   if (from) from.hidden = deckSeedMode !== "course";
   paintDeckSeedHelp();
   paintDeckCopyConfirm();
+  paintSetClassSummary();
 }
 
 /**
@@ -3472,32 +3474,63 @@ function openOfficeNextMap() {
 }
 
 /**
- * Helper line under Session type. Open office adds the switch clause.
+ * Show the class and deck steps for a live or test class, and the open-office
+ * line when that start choice is selected.
  */
 function paintSetClassNotes() {
-  const helper = $("set-class-default-note");
   const office = $("set-class-office-note");
-  const defaults = readSetClassDefaultsFromDom();
-  const label = defaults?.label || "";
-  if (helper && label) {
-    helper.textContent =
-      setClassKind === "office"
-        ? `Defaulted to the next class (${label}) — switched to Open office`
-        : `Defaulted to the next class (${label})`;
+  const officeNext = $("set-class-office-next");
+  const officeLabel = $("set-class-office-next-label");
+  const which = $("set-class-which");
+  const deckStep = $("set-class-deck-step");
+  const onOffice = setClassKind === "office";
+  if (which) which.hidden = onOffice;
+  if (deckStep) deckStep.hidden = onOffice;
+  if (office) office.hidden = !onOffice;
+  if (officeNext) officeNext.hidden = !onOffice;
+  if (officeLabel && onOffice) {
+    const module = String($("live-module-select")?.value || teacherState.live_module || "M1").toUpperCase();
+    const slot = String(openOfficeNextMap()[module] || $("live-class-select")?.value || "O1").toUpperCase();
+    officeLabel.textContent = `${module} ${slot}`;
   }
-  if (office) office.hidden = setClassKind !== "office";
   const title = $("set-class-slides-title");
   const module = String($("live-module-select")?.value || teacherState.live_module || "M1");
   const number = module.replace(/^M/i, "");
   if (title && number) title.textContent = `Lesson Slides · Module ${number}`;
-  const liveBtn = $("set-class-kind-live");
-  const officeBtn = $("set-class-kind-office");
-  const onOffice = setClassKind === "office";
-  liveBtn?.classList.toggle("is-on", !onOffice);
-  officeBtn?.classList.toggle("is-on", onOffice);
-  liveBtn?.setAttribute("aria-pressed", onOffice ? "false" : "true");
-  officeBtn?.setAttribute("aria-pressed", onOffice ? "true" : "false");
   syncSetClassRunKindUi();
+}
+
+/**
+ * Footer line for the current start choice, class, and deck chip.
+ */
+function paintSetClassSummary() {
+  const line = $("set-class-summary");
+  if (!line) return;
+  const module = String($("live-module-select")?.value || teacherState.live_module || "M1").toUpperCase();
+  const slot = String($("live-class-select")?.value || teacherState.live_slot || "C1").toUpperCase();
+  const mode = setClassKind === "office" ? "office" : selectedRunKind() === "test" ? "test" : "live";
+  const selected = document.querySelector('input[name="live-deck-seed"]:checked');
+  const deck = String(selected?.value || deckSeedMode || "current");
+  line.textContent = setClassSummaryLine({ mode, module, slot, deck });
+}
+
+/**
+ * Apply one "What are you starting?" choice onto the existing kind and run.
+ * @param {"live"|"test"|"office"} mode
+ */
+function chooseSetClassStart(mode) {
+  const flags = setClassStartFields(mode);
+  const testBtn = $("set-class-run-kind-test");
+  const wantTest = flags.run === "test";
+  testBtn?.classList.toggle("is-on", wantTest);
+  testBtn?.setAttribute("aria-pressed", wantTest ? "true" : "false");
+  if (setClassKind !== flags.kind) {
+    chooseSetClassKind(flags.kind);
+  } else {
+    paintSetClassNotes();
+  }
+  const current = gridSelectedIso($("ap-day-grid")) || String($("ap-valid-date")?.value || "");
+  showValidateGrid(current);
 }
 
 /**
@@ -8575,36 +8608,53 @@ function selectedRunKind() {
  * @param {"live"|"test"} kind
  */
 function chooseSetClassRunKind(kind) {
-  const test = kind === "test";
-  const liveBtn = $("set-class-run-kind-live");
   const testBtn = $("set-class-run-kind-test");
-  liveBtn?.classList.toggle("is-on", !test);
+  const test = kind === "test";
   testBtn?.classList.toggle("is-on", test);
-  liveBtn?.setAttribute("aria-pressed", test ? "false" : "true");
   testBtn?.setAttribute("aria-pressed", test ? "true" : "false");
+  if (test && setClassKind === "office") {
+    chooseSetClassKind("live");
+    return;
+  }
   syncSetClassRunKindUi();
 }
 
 /**
- * Mobbin Set Class: Run as beside session type; test hides open office.
+ * Paint the one start control: live, test, or open office.
+ * Test replaces the deck chips. Office hides the class and deck steps.
  */
 function syncSetClassRunKindUi() {
   const test = selectedRunKind() === "test";
+  const onOffice = setClassKind === "office";
+  const liveBtn = $("set-class-kind-live");
+  const testBtn = $("set-class-run-kind-test");
   const officeBtn = $("set-class-kind-office");
   const kindWrap = $("set-class-kind");
   const deckSeed = $("live-deck-seed");
   const startBtn = $("set-class-start");
   const testDeckNote = $("set-class-test-deck-note");
-  const runNote = $("set-class-run-kind-note");
-  if (startBtn) {
-    startBtn.textContent = test ? "Start test session" : "Start session";
-  }
-  if (officeBtn instanceof HTMLButtonElement) {
-    officeBtn.hidden = test;
-    officeBtn.disabled = test;
-  }
-  if (test && setClassKind === "office") {
+  if (test && onOffice) {
     chooseSetClassKind("live");
+    return;
+  }
+  const paintBtn = (btn, on) => {
+    btn?.classList.toggle("is-on", on);
+    btn?.setAttribute("aria-pressed", on ? "true" : "false");
+  };
+  paintBtn(liveBtn, !test && !onOffice);
+  paintBtn(testBtn, test);
+  paintBtn(officeBtn, onOffice);
+  if (officeBtn instanceof HTMLButtonElement) {
+    officeBtn.hidden = false;
+    officeBtn.disabled = false;
+  }
+  if (startBtn) {
+    startBtn.classList.toggle("is-test", test);
+    startBtn.textContent = test
+      ? "Start test class"
+      : onOffice
+        ? "Start open office"
+        : "Start live class";
   }
   if (kindWrap instanceof HTMLElement) {
     kindWrap.classList.toggle("is-test-run", test);
@@ -8616,15 +8666,14 @@ function syncSetClassRunKindUi() {
   if (test) {
     $("live-deck-copy-from-field")?.setAttribute("hidden", "");
     $("live-deck-seed-picker")?.setAttribute("hidden", "");
+  } else {
+    paintDeckSeedPicker();
   }
   if (testDeckNote instanceof HTMLElement) {
     if (test) testDeckNote.removeAttribute("hidden");
     else testDeckNote.setAttribute("hidden", "");
   }
-  if (runNote instanceof HTMLElement) {
-    if (test) runNote.removeAttribute("hidden");
-    else runNote.setAttribute("hidden", "");
-  }
+  paintSetClassSummary();
   if (test) {
     showValidateGrid(gridSelectedIso($("ap-day-grid")) || String($("ap-valid-date")?.value || ""));
   }
@@ -12345,24 +12394,17 @@ $("live-class-select")?.addEventListener("change", () => {
 });
 
 $("set-class-kind-live")?.addEventListener("click", () => {
-  chooseSetClassKind("live");
+  chooseSetClassStart("live");
 });
 $("set-class-kind-office")?.addEventListener("click", () => {
-  chooseSetClassKind("office");
+  chooseSetClassStart("office");
 });
 $("set-class-start")?.addEventListener("click", () => {
   const reservedWin = reserveLiveSessionOverlay();
   applyValidateDateChoice({ reservedWin }).catch((err) => showError("#ap-overlay-error", err));
 });
-$("set-class-run-kind-live")?.addEventListener("click", () => {
-  chooseSetClassRunKind("live");
-  const current = gridSelectedIso($("ap-day-grid")) || String($("ap-valid-date")?.value || "");
-  showValidateGrid(current);
-});
 $("set-class-run-kind-test")?.addEventListener("click", () => {
-  chooseSetClassRunKind("test");
-  const current = gridSelectedIso($("ap-day-grid")) || String($("ap-valid-date")?.value || "");
-  showValidateGrid(current);
+  chooseSetClassStart("test");
 });
 syncSetClassRunKindUi();
 bindStaffInfoPopovers();

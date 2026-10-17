@@ -2,12 +2,15 @@
  * Teacher switch for roster rows flagged is_test_student.
  *
  * Default is hidden. Turning it on sets a staff cookie and reloads with
- * an explicit query value so exports and the page agree.
+ * an explicit query value so exports and the page agree. One cookie, so
+ * the same switch on every list stays in step.
  */
 (function () {
-  var box = document.getElementById("show-test-students");
-  if (!box) return;
-  box.addEventListener("change", function () {
+  if (window.__llovesShowTestStudentsBound) return;
+  window.__llovesShowTestStudentsBound = true;
+  document.addEventListener("change", function (event) {
+    var box = event.target;
+    if (!box || !box.matches || !box.matches("[data-show-test-students]")) return;
     var on = box.checked;
     if (on) {
       document.cookie = "lloves_show_test_students=1; Path=/; SameSite=Lax";
