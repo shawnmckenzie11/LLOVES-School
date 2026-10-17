@@ -92,7 +92,7 @@
   background: #0f172a;
   border: 1px solid #334155;
   border-radius: 0.65rem;
-  min-height: 360px;
+  min-height: 0;
 }
 
 .wb-formative-chips {
@@ -137,11 +137,7 @@
 }
 
 .wb-formative-toggles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  margin: 0.35rem 0.75rem;
-  font-size: 0.85rem;
+  display: none;
 }
 
 .canvas-text-editor.wb-formative-text {
@@ -322,11 +318,90 @@
   color: #ecfdf5;
 }
 
-#canvas-zone:has(#formative-live-board.is-on) .live-canvas-toolbar,
-#canvas-zone:has(#formative-live-board.is-on) .live-canvas-stage,
-#canvas-zone:has(#formative-live-board.is-on) #live-canvas-ephemeral-flag,
-#canvas-zone:has(#formative-live-board.is-on) #live-whiteboard-formative-toggles {
-  display: none;
+#canvas-zone {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+#formative-live-board:not([hidden]) {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin-top: 0.35rem;
+}
+
+#formative-live-board:not([hidden]) .wb-live-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+#formative-live-board .wb-live-grid {
+  overflow: auto;
+  min-height: 0;
+  align-content: start;
+}
+
+#formative-live-board .wb-live-panel {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+#formative-live-board .wb-live-panel-canvas {
+  display: block;
+  width: 100%;
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+}
+
+#formative-live-board .wb-live-panel-tools {
+  flex: 0 0 auto;
+}
+
+.canvas-pane:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  height: auto;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+body.student-home:has(#canvas-pane:not([hidden])) {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
+.canvas-pane .live-canvas-toolbar {
+  flex: 0 0 auto;
+}
+
+.canvas-pane .live-canvas-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  overflow: hidden;
+}
+
+.canvas-pane .student-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
 .wb-phone {

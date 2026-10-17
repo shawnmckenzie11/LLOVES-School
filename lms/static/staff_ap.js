@@ -2395,8 +2395,8 @@ function adoptTeacherState(next) {
   syncTeacherBoardCollab();
   if (teacherBoard?.setFormative) {
     teacherBoard.setFormative({
-      alwaysShowNames: Boolean(teacherState.whiteboard_always_show_names),
-      projectorShowNames: Boolean(teacherState.whiteboard_projector_names),
+      alwaysShowNames: true,
+      projectorShowNames: false,
     });
     teacherBoard.refreshFormative?.();
   }
@@ -13389,8 +13389,8 @@ function applyTeacherBoardFormative(meta) {
   if (!meta || !teacherBoard || typeof teacherBoard.setFormative !== "function") return;
   teacherBoard.setFormative({
     members: meta.members || [],
-    alwaysShowNames: Boolean(meta.always_show_names),
-    projectorShowNames: Boolean(meta.projector_show_names),
+    alwaysShowNames: true,
+    projectorShowNames: false,
   });
   teacherBoard.refreshFormative?.();
 }

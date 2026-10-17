@@ -1274,8 +1274,8 @@ function bindStudentCanvas() {
   if (!(studentCanvas instanceof HTMLCanvasElement)) return;
   let lastAlign = "student";
   const board = bindWhiteboard(studentCanvas, {
+    penBtn: document.getElementById("student-canvas-pen"),
     undoBtn: document.getElementById("student-canvas-undo"),
-    redoBtn: document.getElementById("student-canvas-redo"),
     eraseBtn: document.getElementById("student-canvas-erase"),
     textBtn: document.getElementById("student-canvas-text"),
     cursorLayer: canvasCursors,

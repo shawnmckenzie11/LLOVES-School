@@ -38,10 +38,19 @@ MAX_OPS_PER_BATCH = 32
 # Stable lock id for board_ops DDL. Not a presence-table lock.
 _BOARD_DDL_LOCK = 87421301
 _BOARD_KEY = re.compile(
-    r"^(teacher|shared|team:[0-9]+|solo:[A-Za-z0-9_-]{1,80}|student:[0-9]+|fb:[0-9]+)$"
+    r"^(teacher|shared|team:[0-9]+|solo:[A-Za-z0-9_-]{1,80})$"
 )
+# MCK-272: the duplicate per-student board used these prefixes.
+_REMOVED_BOARD_PREFIXES = ("student:", "fb:")
 _OP_TYPES = frozenset(
-    {"stroke_add", "pts_append", "stroke_end", "stroke_remove", "text_upsert"}
+    {
+        "stroke_add",
+        "pts_append",
+        "stroke_end",
+        "stroke_remove",
+        "text_upsert",
+        "feedback_release",
+    }
 )
 
 _SQLITE_DDL = """
@@ -179,8 +188,7 @@ def normalize_board_key(raw: Any) -> str:
 
     Args:
         raw: ``teacher``, ``shared``, ``team:<id>``, ``solo:<owner>``,
-            ``student:<id>``, ``fb:<id>``, or the route alias ``mine``
-            (resolved by the caller).
+            or the route alias ``mine`` (resolved by the caller).
 
     Returns:
         The key with surrounding space removed.
@@ -296,40 +304,70 @@ def fold_to_public_blob(rows: list[dict[str, Any]]) -> dict[str, Any]:
             team_key = "shared" if key == "shared" else key.split(":", 1)[1]
             bucket = blob["strokes"]["teams"].setdefault(team_key, [])
             bucket.extend(strokes)
+        elif key.startswith("solo:"):
+            solos = blob["strokes"].setdefault("solos", {})
+            solos.setdefault(key, []).extend(strokes)
         blob["texts"].extend(texts)
         for owner, cursor in cursors.items():
             blob["cursors"][owner] = cursor
     return blob
 
 
-def fold_one_board(rows: list[dict[str, Any]]) -> dict[str, Any]:
+def fold_one_board(
+    rows: list[dict[str, Any]], *, include_feedback: bool | None = None
+) -> dict[str, Any]:
     """Replay one board's rows into strokes and texts.
-
-    ``student:<id>`` and ``fb:<id>`` are not team buckets, so they do not
-    go through ``fold_to_public_blob``.
 
     Args:
         rows: Stored rows for a single board, any order.
+        include_feedback: True shows teacher feedback ink. False hides it.
+            None shows it only after a ``feedback_release`` op on this board.
 
     Returns:
         ``{strokes, texts}`` in the shape the whiteboard paints.
     """
     ordered = sorted(rows, key=lambda item: int(item.get("board_seq") or 0))
-    strokes, texts, _cursors = _fold_board(ordered)
+    strokes, texts, _cursors = _fold_board(
+        ordered, include_feedback=include_feedback
+    )
     return {"strokes": strokes, "texts": texts}
+
+
+def feedback_released(rows: list[dict[str, Any]]) -> bool:
+    """True when this board has a teacher feedback release op.
+
+    Args:
+        rows: Stored rows for one board, any order. Each row's ``op`` is
+            a JSON string or an already-decoded dict.
+    """
+    for row in rows:
+        raw = row.get("op") if isinstance(row, dict) else None
+        op = raw if isinstance(raw, dict) else _loads(raw)
+        if not isinstance(op, dict) and isinstance(row, dict) and row.get("type"):
+            op = row
+        if isinstance(op, dict) and str(op.get("type") or "") == "feedback_release":
+            return True
+    return False
 
 
 def _fold_board(
     items: list[dict[str, Any]],
+    *,
+    include_feedback: bool | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, dict[str, Any]]]:
     """Replay one board's ops into strokes, texts, and cursors.
 
     Args:
         items: Rows for a single ``board_key``, oldest sequence first.
+        include_feedback: True keeps feedback-layer ink. False drops it.
+            None keeps it only after ``feedback_release``.
 
     Returns:
         Stroke list, text list, and cursors keyed by owner.
     """
+    show_feedback = (
+        feedback_released(items) if include_feedback is None else bool(include_feedback)
+    )
     strokes: dict[str, dict[str, Any]] = {}
     order: list[str] = []
     texts: dict[str, dict[str, Any]] = {}
@@ -338,6 +376,10 @@ def _fold_board(
     for row in items:
         op = _loads(row.get("op"))
         if op is None:
+            continue
+        if str(op.get("type") or "") == "feedback_release":
+            continue
+        if str(op.get("layer") or "") == "feedback" and not show_feedback:
             continue
         _note_cursor(cursors, op, str(row.get("owner") or ""))
         kind = str(op.get("type") or "")
@@ -1067,6 +1109,23 @@ class _BoardStore:
 
         self._transaction(work)
 
+    def drop_removed_board_keys(self) -> None:
+        """Delete ops left by the removed per-student whiteboard.
+
+        ``student:`` and ``fb:`` keys belonged to the duplicate board.
+        Team, solo, shared, and teacher boards stay.
+        """
+
+        def work(exec_: Exec) -> None:
+            for table in ("board_ops", "board_counters", "board_batches"):
+                exec_(
+                    f"DELETE FROM {table} WHERE board_key LIKE 'student:%' "
+                    "OR board_key LIKE 'fb:%'",
+                    (),
+                )
+
+        self._transaction(work)
+
     def purge(self, run_key: str) -> None:
         """Close the session and delete its ops, counters, and batches.
 
@@ -1323,41 +1382,51 @@ class _BoardStore:
                     continue
                 prepared.append({"type": "stroke_remove", "id": sid, "owner": owner})
                 continue
+            if kind == "feedback_release":
+                if owner != "teacher":
+                    continue
+                prepared.append(
+                    {"type": "feedback_release", "id": sid, "owner": owner}
+                )
+                continue
+            layer = "feedback" if owner == "teacher" and str(raw.get("layer") or "") == "feedback" else ""
             if kind == "text_upsert":
                 current = _text_owner(exec_, run_key, board_key, sid)
                 if current is not None and current != owner:
                     continue
-                prepared.append(
-                    {
-                        "type": "text_upsert",
-                        "id": sid,
-                        "owner": owner,
-                        "name": str(raw.get("name") or owner),
-                        "text": str(raw.get("text") or ""),
-                        "x": raw.get("x"),
-                        "y": raw.get("y"),
-                        "color": str(raw.get("color") or "") or cursor_color_for(owner),
-                        "team_id": raw.get("team_id"),
-                    }
-                )
+                text_op = {
+                    "type": "text_upsert",
+                    "id": sid,
+                    "owner": owner,
+                    "name": str(raw.get("name") or owner),
+                    "text": str(raw.get("text") or ""),
+                    "x": raw.get("x"),
+                    "y": raw.get("y"),
+                    "color": str(raw.get("color") or "") or cursor_color_for(owner),
+                    "team_id": raw.get("team_id"),
+                }
+                if layer:
+                    text_op["layer"] = layer
+                prepared.append(text_op)
                 continue
             state = _stroke_state(exec_, run_key, board_key, sid)
             if state is not None and state.get("alive") and str(state.get("owner") or "") != owner:
                 raise BoardOpRejected("only the owner can extend a stroke")
             points = raw.get("points") if isinstance(raw.get("points"), list) else []
-            prepared.append(
-                {
-                    "type": kind,
-                    "id": sid,
-                    "owner": owner,
-                    "name": str(raw.get("name") or owner),
-                    "color": str(raw.get("color") or "") or cursor_color_for(owner),
-                    "team_id": raw.get("team_id"),
-                    "points": _batch_points(points),
-                    "x": raw.get("x"),
-                    "y": raw.get("y"),
-                }
-            )
+            stroke_op = {
+                "type": kind,
+                "id": sid,
+                "owner": owner,
+                "name": str(raw.get("name") or owner),
+                "color": str(raw.get("color") or "") or cursor_color_for(owner),
+                "team_id": raw.get("team_id"),
+                "points": _batch_points(points),
+                "x": raw.get("x"),
+                "y": raw.get("y"),
+            }
+            if layer:
+                stroke_op["layer"] = layer
+            prepared.append(stroke_op)
         return prepared
 
     def _session_closed(self, exec_: Exec, run_key: str) -> bool:

@@ -97,6 +97,54 @@ def record_board_assignment(
     if not key or not _has_table(conn, "live_board_assignments"):
         return
     board_key = board_key_for_sort_order(int(team_sort_order))
+    columns = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(live_board_assignments)")
+    }
+    session_id = None
+    if "live_session_id" in columns and _has_table(conn, "live_class_sessions"):
+        found = conn.execute(
+            """
+            SELECT id FROM live_class_sessions
+            WHERE class_id = ?
+              AND (
+                run_key = ?
+                OR ? LIKE run_key || '~g%'
+              )
+            ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, id DESC
+            LIMIT 1
+            """,
+            (int(class_id), key, key),
+        ).fetchone()
+        if found is not None:
+            try:
+                session_id = int(found["id"])
+            except (TypeError, ValueError, KeyError):
+                session_id = None
+    if "live_session_id" in columns:
+        conn.execute(
+            """
+            INSERT INTO live_board_assignments (
+                class_id, run_key, board_key, student_id, team_sort_order,
+                live_session_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(class_id, run_key, student_id) DO UPDATE SET
+                live_session_id = COALESCE(
+                    excluded.live_session_id,
+                    live_board_assignments.live_session_id
+                )
+            """,
+            (
+                int(class_id),
+                key,
+                board_key,
+                int(student_id),
+                int(team_sort_order),
+                session_id,
+            ),
+        )
+        return
     conn.execute(
         """
         INSERT INTO live_board_assignments (

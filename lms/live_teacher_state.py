@@ -242,9 +242,8 @@ def default_teacher_state() -> dict[str, Any]:
         "page_id": "",
         "text_ride": default_text_ride(),
         "question_views": default_question_views(),
-        "whiteboard_always_show_names": False,
-        "whiteboard_projector_names": False,
         "whiteboard_projected_student_id": None,
+        "whiteboard_projected_board": None,
     }
 
 
@@ -843,8 +842,6 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
         "timer_closes_answers",
         "class_set",
         "eyes_up",
-        "whiteboard_always_show_names",
-        "whiteboard_projector_names",
     ):
         parsed = _as_bool(stored.get(key))
         if parsed is not None:
@@ -855,6 +852,9 @@ def public_teacher_state(stored: dict[str, Any] | None) -> dict[str, Any]:
             base["whiteboard_projected_student_id"] = int(projected)
         except (TypeError, ValueError):
             base["whiteboard_projected_student_id"] = None
+    projected_board = str(stored.get("whiteboard_projected_board") or "").strip()
+    if projected_board.startswith(("team:", "solo:")):
+        base["whiteboard_projected_board"] = projected_board[:80]
     if not base["groups_configured"]:
         base["run_as_group"] = False
     base["teams_mode"] = "teams" if base["run_as_group"] else "individual"
@@ -1010,9 +1010,8 @@ def apply_teacher_state_update(
     page_id: Any = None,
     text_ride: Any = None,
     question_views: Any = None,
-    whiteboard_always_show_names: Any = None,
-    whiteboard_projector_names: Any = None,
     whiteboard_projected_student_id: Any = None,
+    whiteboard_projected_board: Any = None,
     gamification_on: Any = None,
 ) -> dict[str, Any]:
     """Patch the thin teacher channel. Never persists canvas pixels.
@@ -1156,16 +1155,6 @@ def apply_teacher_state_update(
         if paused is None:
             raise ValueError("eyes_up must be a boolean")
         base["eyes_up"] = paused
-    if whiteboard_always_show_names is not None:
-        show = _as_bool(whiteboard_always_show_names)
-        if show is None:
-            raise ValueError("whiteboard_always_show_names must be a boolean")
-        base["whiteboard_always_show_names"] = show
-    if whiteboard_projector_names is not None:
-        proj = _as_bool(whiteboard_projector_names)
-        if proj is None:
-            raise ValueError("whiteboard_projector_names must be a boolean")
-        base["whiteboard_projector_names"] = proj
     if whiteboard_projected_student_id is not None:
         if whiteboard_projected_student_id in ("", 0, "0", False):
             base["whiteboard_projected_student_id"] = None
@@ -1178,6 +1167,14 @@ def apply_teacher_state_update(
                 raise ValueError(
                     "whiteboard_projected_student_id must be an integer"
                 ) from exc
+    if whiteboard_projected_board is not None:
+        text = str(whiteboard_projected_board or "").strip()
+        if not text:
+            base["whiteboard_projected_board"] = None
+        elif text.startswith(("team:", "solo:")):
+            base["whiteboard_projected_board"] = text[:80]
+        else:
+            raise ValueError("whiteboard_projected_board must be a board key")
     if gamification_on is not None:
         opened = _as_bool(gamification_on)
         if opened is None:

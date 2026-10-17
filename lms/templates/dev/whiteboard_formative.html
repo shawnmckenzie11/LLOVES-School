@@ -11,8 +11,6 @@
   <span class="wb-formative-badge">EXAMPLE DATA</span>
   <p class="wb-formative-context">MCR3U · M3 · C1 · Group 2 whiteboard</p>
   <div class="wb-formative-toggles" id="wb-toggles" hidden>
-    <label><input type="checkbox" id="wb-always-names" /> Always show names</label>
-    <label><input type="checkbox" id="wb-projector-names" /> Names on projector</label>
   </div>
   <div class="wb-formative-layout" id="wb-layout">
     <aside class="wb-formative-groups" id="wb-groups" hidden></aside>
@@ -38,7 +36,6 @@
     if (isTeacher) {
       document.getElementById("wb-layout").classList.add("is-teacher");
       document.getElementById("wb-groups").hidden = false;
-      document.getElementById("wb-toggles").hidden = false;
       const groups = [
         { id: 1, label: "Group 1", members: 4 },
         { id: 2, label: "Group 2", members: 4 },
@@ -79,18 +76,11 @@
         members,
         isTeacher,
         isPhone,
-        alwaysShowNames: false,
+        alwaysShowNames: true,
         projectorShowNames: false,
       },
     });
     board.setCollab(true);
-
-    document.getElementById("wb-always-names")?.addEventListener("change", (e) => {
-      board.setFormative?.({ alwaysShowNames: e.target.checked });
-    });
-    document.getElementById("wb-projector-names")?.addEventListener("change", (e) => {
-      board.setFormative?.({ projectorShowNames: e.target.checked });
-    });
 
     window.__wbFormativeSeed = (rows) => {
       const strokes = [];

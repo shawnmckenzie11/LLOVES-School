@@ -471,6 +471,7 @@ export function createPresenceQueue(opts) {
  *   lineWidth?: number,
  *   undoBtn?: HTMLElement | null,
  *   redoBtn?: HTMLElement | null,
+ *   penBtn?: HTMLElement | null,
  *   eraseBtn?: HTMLElement | null,
  *   textBtn?: HTMLElement | null,
  *   cursorLayer?: HTMLElement | null,
@@ -813,6 +814,13 @@ export function bindWhiteboard(canvas, opts = {}) {
       canvas.height = bh;
       liveCanvas.width = bw;
       liveCanvas.height = bh;
+      // The live layer must cover the drawing canvas, not the stage.
+      // A stage that is taller than the canvas stretches this overlay
+      // and the in-progress stroke sits below the pointer.
+      liveCanvas.style.left = `${canvas.offsetLeft}px`;
+      liveCanvas.style.top = `${canvas.offsetTop}px`;
+      liveCanvas.style.width = `${rect.width}px`;
+      liveCanvas.style.height = `${rect.height}px`;
       replayCommitted();
       paintLive();
       syncCursorLayerToCanvas();
@@ -899,8 +907,13 @@ export function bindWhiteboard(canvas, opts = {}) {
     if (opts.undoBtn instanceof HTMLButtonElement) opts.undoBtn.disabled = !strokes.length;
     if (opts.redoBtn instanceof HTMLButtonElement) opts.redoBtn.disabled = !redoStack.length;
     if (opts.eraseBtn instanceof HTMLButtonElement) opts.eraseBtn.disabled = !strokes.length;
+    if (opts.penBtn instanceof HTMLButtonElement) {
+      opts.penBtn.setAttribute("aria-pressed", tool === "draw" ? "true" : "false");
+      opts.penBtn.classList.toggle("is-on", tool === "draw");
+    }
     if (opts.textBtn instanceof HTMLButtonElement) {
       opts.textBtn.setAttribute("aria-pressed", tool === "text" ? "true" : "false");
+      opts.textBtn.classList.toggle("is-on", tool === "text");
     }
   };
 
@@ -1246,6 +1259,12 @@ commitEditor();
       opts.onRedo(next);
     }
     replayCommitted();
+    syncButtons();
+  });
+  opts.penBtn?.addEventListener("click", () => {
+    tool = "draw";
+    if (!editor.hidden) commitEditor();
+    canvas.style.cursor = "crosshair";
     syncButtons();
   });
   opts.eraseBtn?.addEventListener("click", () => {
