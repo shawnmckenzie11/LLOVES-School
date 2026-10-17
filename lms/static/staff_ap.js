@@ -2501,6 +2501,37 @@ function paintStageRail() {
   if (deleteBtn instanceof HTMLButtonElement) {
     deleteBtn.disabled = setupPhase || pages.length <= 1;
   }
+  if (setupPhase) holdSetClassForwardActions();
+}
+
+/**
+ * Keep the old header Start and Advance off while Set Class is open.
+ * Choosing live, test, or office must not reveal them. A running class
+ * releases the attribute; the legacy clip still hides them as before.
+ */
+function holdSetClassForwardActions() {
+  for (const id of ["live-start", "live-advance"]) {
+    const btn = $(id);
+    if (!(btn instanceof HTMLElement)) continue;
+    btn.classList.add("live-legacy-control");
+    btn.hidden = true;
+    btn.setAttribute("aria-hidden", "true");
+  }
+}
+
+/**
+ * Restore header Start and Advance to the running-class toolbar.
+ * They stay in the legacy clip, which is how the live toolbar ships them.
+ */
+function releaseSetClassForwardActions() {
+  for (const id of ["live-start", "live-advance"]) {
+    const btn = $(id);
+    if (!(btn instanceof HTMLElement)) continue;
+    btn.classList.add("live-legacy-control");
+    btn.hidden = false;
+    btn.removeAttribute("hidden");
+    btn.removeAttribute("aria-hidden");
+  }
 }
 
 /**
@@ -2514,6 +2545,8 @@ function lockClassListPane() {
     root.dataset.setup = setupPhase ? "1" : "0";
     root.classList.toggle("is-set-class", setupPhase);
   }
+  if (setupPhase) holdSetClassForwardActions();
+  else releaseSetClassForwardActions();
   const hideChrome = setupPhase;
   for (const id of [
     "live-shell-left",
@@ -8677,6 +8710,7 @@ function syncSetClassRunKindUi() {
   if (test) {
     showValidateGrid(gridSelectedIso($("ap-day-grid")) || String($("ap-valid-date")?.value || ""));
   }
+  if (setupPhase) holdSetClassForwardActions();
 }
 
 /**

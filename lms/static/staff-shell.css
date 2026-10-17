@@ -1876,6 +1876,20 @@ body.staff-shell .live-shell-ia-v2.is-set-class > .live-options-strip,
 body.staff-shell .live-shell-ia-v2.is-set-class > .live-shell-body {
   display: none !important;
 }
+/* MCK-271: Set Class keeps one forward action. */
+body.staff-shell .live-shell-ia-v2.is-set-class #live-stage-prev,
+body.staff-shell .live-shell-ia-v2.is-set-class #live-stage-next,
+body.staff-shell .live-shell-ia-v2.is-set-class #live-add-page,
+body.staff-shell .live-shell-ia-v2.is-set-class #live-delete-page,
+body.staff-shell .live-shell-ia-v2.is-set-class #live-eyes-up,
+body.staff-shell .live-shell-ia-v2.is-set-class #live-student-view,
+body.staff-shell .live-shell-ia-v2.is-set-class #live-end-class,
+body.staff-shell .live-shell-ia-v2.is-set-class .live-end-class-form,
+body.staff-shell .live-shell-ia-v2.is-set-class #live-start,
+body.staff-shell .live-shell-ia-v2.is-set-class #live-advance {
+  display: none !important;
+}
+/* MCK-271 end */
 body.staff-shell .live-shell-ia-v2:not(.is-set-class) > .live-date-panel {
   display: none !important;
 }
@@ -8675,6 +8689,14 @@ body.staff-shell .set-class-deck-control {
   flex-direction: column;
   align-items: flex-start;
   gap: 0.45rem;
+}
+body.staff-shell .set-class-day-control {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.45rem;
+}
+body.staff-shell .set-class-day-control #ap-validate-hint {
+  margin: 0;
 }
 /* The deck fieldset used to sit in a horizontal pack row, where
    flex-basis 22rem was its width. Inside this column it would become

@@ -169,6 +169,69 @@ class SetClassFlowPageTests(unittest.TestCase):
         self.assertIn("roster-names-switch", home)
         self.assertNotIn(SUMMARY_EXAMPLE, live)
 
+    def test_set_class_keeps_one_forward_button(self) -> None:
+        """Which day sits above Start, and header Start and Advance stay off."""
+        html = self._page(tab="live")
+        self.assertIn("Which day?", html)
+        self.assertLess(html.index("Which deck?"), html.index("Which day?"))
+        self.assertLess(html.index('id="set-class-day-step"'), html.index('id="set-class-footer"'))
+        self.assertLess(html.index('id="ap-day-grid"'), html.index('id="set-class-start"'))
+        day = html[html.index('id="set-class-day-step"') : html.index('id="set-class-footer"')]
+        self.assertIn('id="ap-validate-hint"', day)
+        self.assertIn('id="ap-day-grid"', day)
+        self.assertIn(">Start live class<", html)
+        start = html[html.index('id="live-start"') : html.index('id="live-start"') + 160]
+        advance = html[html.index('id="live-advance"') : html.index('id="live-advance"') + 180]
+        self.assertIn("live-legacy-control", start)
+        self.assertIn("live-legacy-control", advance)
+        self.assertIn(">Quit<", html)
+
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        hide = css[
+            css.index("/* MCK-271: Set Class keeps one forward action. */") : css.index(
+                "/* MCK-271 end */"
+            )
+        ]
+        self.assertIn(".is-set-class", hide)
+        for token in (
+            "#live-stage-prev",
+            "#live-stage-next",
+            "#live-add-page",
+            "#live-delete-page",
+            "#live-eyes-up",
+            "#live-student-view",
+            "#live-end-class",
+            "#live-start",
+            "#live-advance",
+        ):
+            self.assertIn(token, hide)
+        self.assertNotIn("#live-quit-class", hide)
+
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertNotIn('classList.remove("live-legacy-control")', js)
+        self.assertNotIn('$("live-start").hidden = false', js)
+        self.assertNotIn('$("live-advance").hidden = false', js)
+        hold = js[
+            js.index("function holdSetClassForwardActions()") : js.index(
+                "function releaseSetClassForwardActions()"
+            )
+        ]
+        self.assertIn('classList.add("live-legacy-control")', hold)
+        self.assertIn("btn.hidden = true", hold)
+        lock = js[
+            js.index("function lockClassListPane()") : js.index(
+                "function optionCardHasVisibleControls("
+            )
+        ]
+        self.assertIn("holdSetClassForwardActions()", lock)
+        self.assertIn("releaseSetClassForwardActions()", lock)
+        sync = js[
+            js.index("function syncSetClassRunKindUi()") : js.index(
+                "function validateLogContext()"
+            )
+        ]
+        self.assertIn("holdSetClassForwardActions()", sync)
+
 
 if __name__ == "__main__":
     unittest.main()

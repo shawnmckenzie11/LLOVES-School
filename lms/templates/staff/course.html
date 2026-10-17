@@ -528,14 +528,20 @@
               </div>
             </div>
           </div>
+          <div class="set-class-step" id="set-class-day-step">
+            <span class="set-class-step-num" aria-hidden="true">4</span>
+            <div class="set-class-step-q">Which day?</div>{# copy: Wonder #}
+            <div class="set-class-step-control set-class-day-control">
+              <p class="hint" id="ap-validate-hint">Pick a valid school day in the current semester.</p>
+              <div id="ap-day-grid" class="ap-day-grid-wrap"></div>
+              <input type="hidden" id="ap-valid-date" class="ap-date-input">
+            </div>
+          </div>
         </div>
-        <div class="set-class-footer">
+        <div class="set-class-footer" id="set-class-footer">
           <p class="set-class-summary" id="set-class-summary">Starting live class: Module {{ set_class.module[1:] }}, Class {{ set_class.slot[1:] }}, current deck.</p>{# copy: Wonder #}
           <button type="button" class="set-class-start" id="set-class-start">Start live class</button>{# copy: Wonder #}
         </div>
-        <p class="hint" id="ap-validate-hint">Pick a valid school day in the current semester.</p>
-        <div id="ap-day-grid" class="ap-day-grid-wrap"></div>
-        <input type="hidden" id="ap-valid-date" class="ap-date-input">
       </section>
 
       <section class="card set-class-slides" id="set-class-slides" aria-label="Lesson slides">
