@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""MCK-171 Team challenge (b): projector lanes on the teacher's rank card.
+"""MCK-171 Team challenge (b): projector lane builder and teacher shell.
 
 Runs the node harness for ``static/rank_challenge_view.js`` and checks the
-teacher shell wiring (lanes replace the stack until Close, the light poll
-carries the lanes, Lock in / Skip confirm by team name, reduced motion).
+teacher shell wiring. MCK-274: the open teacher card is the compact stack,
+not the projector lanes. Lock in / Skip confirm by team name, and reduced
+motion on the lane CSS, stay covered here.
 """
 
 from __future__ import annotations
@@ -33,16 +34,21 @@ class LaneViewTests(unittest.TestCase):
     def test_staff_shell_wiring(self) -> None:
         staff = (STATIC / "staff_ap.js").read_text(encoding="utf-8")
         self.assertIn('from "/static/rank_challenge_view.js"', staff)
-        # Lanes replace the stack while open; the light poll carries them.
+        # Open card falls through to the compact stack; the light poll
+        # still carries the race block.
         self.assertIn("rankRaceTeacherHtml(result, revealed, itemId)", staff)
         self.assertIn("{ race: entry.race }", staff)
+        fn = staff.split("function rankRaceTeacherHtml")[1].split("\nfunction ")[0]
+        self.assertIn("if (!revealed) return", fn)
+        self.assertNotIn("raceLanesHtml", fn)
         # Teacher controls confirm by team, never by student.
         self.assertIn("RACE_COPY.lockForConfirm, { team }", staff)
         self.assertIn("RACE_COPY.skipConfirm, { team }", staff)
         self.assertIn("/rank-lock`", staff)
         self.assertIn("RACE_COPY.view", staff)
-        # No separate Reveal in the strip while "Close & reveal" shows.
-        self.assertIn("result?.race && !raceViewOff.has(liveItemId)", staff)
+        # MCK-274: a race block does not hide the strip Reveal.
+        showing = staff.split("const raceLanesShowing")[1].split(";")[0]
+        self.assertNotIn("result?.race", showing)
         self.assertIn("? raceLanesShowing\n            ? moveOnHtml", staff)
 
     def test_projector_css(self) -> None:
