@@ -567,7 +567,7 @@ class FormativeLiveBoardTests(unittest.TestCase):
         self.assertEqual(self.school.boards.count_run_ops(run_key), 0)
 
     def test_cleanup_removes_board_rows(self) -> None:
-        """End-of-session cleanup deletes assignment rows with the board ops."""
+        """End deletes board ink and keeps the team-board assignment rows."""
         self._publish("individual")
         self.school.append_live_board_ops(
             self.session_id,
@@ -584,7 +584,7 @@ class FormativeLiveBoardTests(unittest.TestCase):
             "SELECT COUNT(*) AS n FROM live_board_assignments WHERE live_session_id = ?",
             (self.session_id,),
         ).fetchone()
-        self.assertEqual(int(left["n"] or 0), 0)
+        self.assertGreater(int(left["n"] or 0), 0)
         self.assertEqual(self.school.boards.count_run_ops(run_key), 0)
 
 

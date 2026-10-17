@@ -1113,18 +1113,47 @@ class _BoardStore:
         """Delete ops left by the removed per-student whiteboard.
 
         ``student:`` and ``fb:`` keys belonged to the duplicate board.
-        Team, solo, shared, and teacher boards stay.
+        Team, solo, shared, and teacher boards stay. The patterns are
+        bound values. A literal percent sign in the SQL is a Postgres
+        placeholder and crashes boot.
         """
 
         def work(exec_: Exec) -> None:
             for table in ("board_ops", "board_counters", "board_batches"):
                 exec_(
-                    f"DELETE FROM {table} WHERE board_key LIKE 'student:%' "
-                    "OR board_key LIKE 'fb:%'",
-                    (),
+                    f"DELETE FROM {table} WHERE board_key LIKE ? "
+                    "OR board_key LIKE ?",
+                    ("student:%", "fb:%"),
                 )
 
         self._transaction(work)
+
+    def count_generation_ops(self, run_key: str) -> int:
+        """Count Fresh-board ink stored beside one run key.
+
+        Fresh board keeps earlier ink under ``run_key~g<n>``. The pattern
+        is a bound value so this count works on sqlite and Postgres.
+
+        Args:
+            run_key: Base run key, without a generation suffix.
+
+        Returns:
+            Rows whose ``run_key`` matches that key plus ``~g``.
+        """
+        token = str(run_key or "").strip()
+        if not token:
+            return 0
+
+        def work(exec_: Exec) -> int:
+            """Count generation rows for this base key."""
+            cursor = exec_(
+                "SELECT COUNT(*) AS n FROM board_ops WHERE run_key LIKE ?",
+                (token + "~g%",),
+            )
+            row = _row_dict(cursor.fetchone())
+            return int(row.get("n") or 0)
+
+        return int(self._read(work))
 
     def purge(self, run_key: str) -> None:
         """Close the session and delete its ops, counters, and batches.

@@ -31474,33 +31474,19 @@ class SchoolDB(LovesDB):
         )
 
     def _delete_live_board_feedback(self, session_id: int) -> None:
-        """Delete team-board assignment rows for one live session.
+        """Leave team-board pins in place when a live class ends.
 
-        The duplicate per-student feedback table is gone. Assignment rows
-        are the index of the surviving team boards, so they go with the
-        session and with every board run key that session has used.
+        The per-student ``live_board_feedback`` table is dropped at boot,
+        so End has no feedback rows to delete. ``live_board_assignments``
+        stays. Main never deleted those rows on End, and they hold the
+        team-board pin plus sent and Done status. Test-class delete
+        removes them on its own path.
 
         Args:
-            session_id: ``live_class_sessions.id``.
+            session_id: ``live_class_sessions.id``. Accepted so existing
+                callers stay unchanged.
         """
-        sid = int(session_id)
-        keys: list[str] = []
-        try:
-            keys = [str(key) for key in self.live_board_generation_keys(sid)]
-        except KeyError:
-            keys = []
-        with self._lock:
-            self.conn.execute(
-                "DELETE FROM live_board_assignments WHERE live_session_id = ?",
-                (sid,),
-            )
-            for key in keys:
-                token = str(key or "").strip()
-                if token:
-                    self.conn.execute(
-                        "DELETE FROM live_board_assignments WHERE run_key = ?",
-                        (token,),
-                    )
+        _ = int(session_id)
 
     def _count_board_ops_for_run(self, run_key: str) -> int:
         """Count board-op rows stored under one run key.
@@ -32042,8 +32028,8 @@ class SchoolDB(LovesDB):
     def purge_board_ops(self, session_id: int) -> None:
         """Delete board ops, the seq counter, and the close flag for this run.
 
-        Every board generation of the run is purged (MCK-174). Formative
-        Done / feedback rows for the session go with them.
+        Every board generation of the run is purged (MCK-174).
+        ``live_board_assignments`` stays with the run.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -39427,8 +39413,8 @@ class SchoolDB(LovesDB):
         """Raise when any row for this test session is still stored.
 
         ``live_board_assignments`` and ``board_ops`` for ``run_key`` are
-        counted here, before ``presence.delete_session_tree``. Team boards
-        live in ``board_ops`` under the same run key.
+        counted here, before ``presence.delete_session_tree``. Fresh-board
+        ink under ``run_key~g`` is counted on sqlite and Postgres.
         """
         sid = int(session_id)
         leftover = 0
@@ -39475,13 +39461,9 @@ class SchoolDB(LovesDB):
             leftover += int(assign_left["n"] or 0)
             leftover += self._count_board_ops_for_run(key)
             boards = getattr(self, "boards", None)
-            board_conn = getattr(boards, "conn", None)
-            if board_conn is not None:
-                extra = board_conn.execute(
-                    "SELECT COUNT(*) AS n FROM board_ops WHERE run_key LIKE ?",
-                    (key + "~g%",),
-                ).fetchone()
-                leftover += int(extra["n"] or 0)
+            count_generations = getattr(boards, "count_generation_ops", None)
+            if count_generations is not None:
+                leftover += int(count_generations(key))
         if tracker_ids:
             for tid in tracker_ids:
                 row = self.conn.execute(
