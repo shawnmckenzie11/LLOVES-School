@@ -511,5 +511,153 @@ class OneCodeTests(Base):
         result = self.school.catchup_sign_in(token, self.first, numeric)
         self.assertEqual(result["reason"], "looks_like_join_code")
 
+    def test_closed_code_does_not_join_the_next_live_class(self) -> None:
+        """A closed or expired catch-up code does not join the next live class."""
+        self.school.set_student_pin(self.class_id, self.students[0], "4321")
+        self._assert_stored_code_stays_out_of_live("M8", "C1", close="expired")
+        self._assert_stored_code_stays_out_of_live("M8", "C2", close="closed")
+
+    def _assert_stored_code_stays_out_of_live(
+        self, module: str, slot: str, *, close: str
+    ) -> None:
+        """Store a catch-up code, close it, and refuse it at the next live class.
+
+        The code stays on the row and stays reserved. The class's new join
+        code still reaches the live class. After the PIN, the student sees
+        the usual catch-up-closed heading.
+
+        Args:
+            module: Live module key, such as ``M8``.
+            slot: Live slot key, such as ``C1``.
+            close: ``expired`` backdates the run; ``closed`` sets ``is_open`` to 0.
+        """
+        from catchup_landing import COPY_CLOSED_HEADING, COPY_LIVE_JOINING
+
+        old, stored = self._end_with_answer(module, slot)
+        self.assertTrue(_same(old, stored), "catch-up code was not stored")
+        run_key = str(
+            self.school.conn.execute(
+                """
+                SELECT run_key FROM catchup_links
+                WHERE class_id = ? AND live_module = ? AND live_slot = ?
+                  AND COALESCE(is_test, 0) = 0
+                """,
+                (self.class_id, module, slot),
+            ).fetchone()["run_key"]
+        )
+        if close == "expired":
+            # Start wipes a celebrating session. The open-until date then
+            # comes from the result snapshot, so both have to be in the past.
+            self.school.conn.execute(
+                """
+                UPDATE live_class_sessions
+                SET ended_at = ?
+                WHERE class_id = ? AND run_key = ?
+                """,
+                ("2020-01-15T15:00:00", self.class_id, run_key),
+            )
+            self.school.conn.execute(
+                """
+                UPDATE live_result_snapshots
+                SET snapshot_at = ?
+                WHERE class_id = ? AND run_key = ?
+                """,
+                ("2020-01-15T15:00:00", self.class_id, run_key),
+            )
+        elif close == "closed":
+            self.school.conn.execute(
+                """
+                UPDATE catchup_links
+                SET is_open = 0
+                WHERE class_id = ? AND live_module = ? AND live_slot = ?
+                  AND COALESCE(is_test, 0) = 0
+                """,
+                (self.class_id, module, slot),
+            )
+        else:
+            raise AssertionError("close must be expired or closed")
+        self.school.conn.commit()
+        link = dict(
+            self.school.conn.execute(
+                """
+                SELECT * FROM catchup_links
+                WHERE class_id = ? AND live_module = ? AND live_slot = ?
+                  AND COALESCE(is_test, 0) = 0
+                """,
+                (self.class_id, module, slot),
+            ).fetchone()
+        )
+        self.assertFalse(link_still_open(self.school, link))
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        new_code = str(live["session_code"] or "")
+        self.assertNotEqual(old.upper(), new_code.upper())
+        client = self.app.test_client()
+        rv = client.post(
+            "/auth/student-code",
+            data={"code": old.lower(), "name": self.first},
+            environ_base={"REMOTE_ADDR": f"10.8.0.{1 if close == 'expired' else 2}"},
+            follow_redirects=False,
+        )
+        self.assertFalse(
+            link_still_open(
+                self.school,
+                dict(
+                    self.school.conn.execute(
+                        """
+                        SELECT * FROM catchup_links
+                        WHERE class_id = ? AND live_module = ? AND live_slot = ?
+                          AND COALESCE(is_test, 0) = 0
+                        """,
+                        (self.class_id, module, slot),
+                    ).fetchone()
+                ),
+            )
+        )
+        self.assertEqual(rv.status_code, 302)
+        location = rv.headers.get("Location") or ""
+        self.assertIn("/student/catchup", location)
+        self.assertIn("state=closed", location)
+        self.assertNotIn("/student/mood", location)
+        self.assertNotIn(COPY_LIVE_JOINING, rv.get_data(as_text=True))
+        seated = self.school.conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM live_session_attendees
+            WHERE live_session_id = ? AND student_id = ?
+            """,
+            (int(live["id"]), int(self.students[0])),
+        ).fetchone()["n"]
+        self.assertEqual(seated, 0)
+        self.assertTrue(self.school.catchup_join_code_reserved(old))
+        kept = self.school.resolve_catchup_link_by_portal_code(old)
+        self.assertIsNotNone(kept)
+        self.assertTrue(
+            _same(str(kept["portal_join_code"] or ""), old),
+            "closed catch-up code was cleared",
+        )
+        pin_page = client.get(location).get_data(as_text=True)
+        self.assertIn('id="landing_pin"', pin_page)
+        self.assertNotIn(COPY_CLOSED_HEADING, pin_page)
+        after_pin = client.post(
+            "/student/catchup/landing",
+            data={"action": "pin", "pin": "4321"},
+            environ_base={"REMOTE_ADDR": f"10.8.0.{1 if close == 'expired' else 2}"},
+            follow_redirects=True,
+        )
+        self.assertIn(COPY_CLOSED_HEADING, after_pin.get_data(as_text=True))
+        self.assertNotIn(COPY_LIVE_JOINING, after_pin.get_data(as_text=True))
+        fresh = self.app.test_client()
+        live_rv = fresh.post(
+            "/auth/student-code",
+            data={"code": new_code.lower(), "name": self.first},
+            environ_base={"REMOTE_ADDR": f"10.8.1.{1 if close == 'expired' else 2}"},
+            follow_redirects=False,
+        )
+        self.assertEqual(live_rv.status_code, 302)
+        self.assertIn("/student/mood", live_rv.headers.get("Location") or "")
+        self.school.end_live_class_session(int(live["id"]))
+
+
 if __name__ == "__main__":
     unittest.main()
