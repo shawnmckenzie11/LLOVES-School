@@ -80,7 +80,10 @@
         if (checked) return;
         var codeInput = document.getElementById("code");
         var raw = codeInput ? String(codeInput.value || "").replace(/\s/g, "") : "";
-        if (/^[A-Za-z0-9]{5}$/.test(raw)) {
+        // MCK-273: the catch-up code is the live join code (4, 5, 6, or 8
+        // characters). Submit it even when no class is live so the server
+        // can open catch-up. The no-class check stays for anything else.
+        if (/^[A-Za-z0-9]{4,6}$/.test(raw) || /^[A-Za-z0-9]{8}$/.test(raw)) {
           checked = true;
           form.submit();
           return;

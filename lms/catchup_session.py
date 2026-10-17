@@ -48,14 +48,12 @@ def clear_global_student_keys(session: Any) -> None:
         session.pop("role", None)
 
 
-def clear_catchup_browser_session(session: Any) -> str:
+def clear_catchup_browser_session(session: Any) -> None:
     """Clear landing, identity, legacy link keys, PIN-later flags, and student globals.
 
-    Returns:
-        Portal join code from the landing session when present (for sign-out redirect).
+    The join code is dropped with the session. Callers must not put it on a URL.
     """
-    held = session.pop(CATCHUP_LANDING_SESSION_KEY, None) or {}
-    portal_code = str(held.get("portal_code") or "").strip()
+    session.pop(CATCHUP_LANDING_SESSION_KEY, None)
     session.pop(CATCHUP_IDENTITY_KEY, None)
     for key in _legacy_catchup_keys(session):
         session.pop(key, None)
@@ -65,7 +63,6 @@ def clear_catchup_browser_session(session: Any) -> str:
     for key in _pin_later_keys(session):
         session.pop(key, None)
     clear_global_student_keys(session)
-    return portal_code
 
 
 def peek_catchup_identity(session: Any, school: Any) -> dict[str, Any] | None:

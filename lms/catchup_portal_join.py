@@ -18,7 +18,7 @@ from catchup_landing import (
 )
 from catchup_portal_code import (
     decode_portal_join_code,
-    normalize_portal_code,
+    normalize_stored_join_code,
     structured_codes_enabled,
 )
 
@@ -44,22 +44,20 @@ def try_portal_code_join(
     set_rejoin_cookie: Any,
     first_name_only: Any,
 ) -> Any | None:
-    """Handle a structured catch-up portal code on ``/auth/student-code``.
+    """Handle a catch-up code on ``/auth/student-code``.
 
+    Call this only after an active live session did not match. A stored
+    live join code and an older structured catch-up code both resolve.
     Returns a Flask response when this path owns the request, else ``None``.
     """
-    if not structured_codes_enabled():
-        return None
-    normalized = normalize_portal_code(code)
-    if not normalized or len(normalized) != 5:
-        return None
-    if decode_portal_join_code(normalized) is None:
-        # Five- and six-character live session codes share this shape; only
-        # checksum-valid portal codes are handled here.
+    normalized = normalize_stored_join_code(code)
+    if not normalized:
         return None
 
     link = db.resolve_catchup_link_by_portal_code(normalized)
     if link is None:
+        if not structured_codes_enabled() or decode_portal_join_code(normalized) is None:
+            return None
         return _portal_fail(
             COPY_WRONG_CODE,
             code=code,
