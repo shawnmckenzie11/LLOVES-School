@@ -29,6 +29,7 @@ from codes import (
     is_offensive_code,
     normalize_live_access_code,
     pick_session_code,
+    session_code_charset_ok,
     session_code_start_length,
 )
 
@@ -47,9 +48,32 @@ class SessionCodeUnitTests(unittest.TestCase):
         picks = {pick_session_code(lambda _c: False) for _ in range(300)}
         for code in picks:
             self.assertEqual(len(code), 4)
-            self.assertTrue(set(code) <= set(SESSION_CODE_ALPHABET), code)
+            self.assertTrue(session_code_charset_ok(code))
+            self.assertTrue(any(ch.isalpha() for ch in code))
+            self.assertTrue(set(code) <= set(SESSION_CODE_ALPHABET))
             self.assertEqual(normalize_live_access_code(code), code)
         self.assertGreater(len(picks), 250)
+
+    def test_pick_skips_digits_only_and_lookalikes(self) -> None:
+        """A new join code has a letter and skips O, 0, I, L, and 1."""
+        for ch in "0O1IL":
+            self.assertNotIn(ch, SESSION_CODE_ALPHABET)
+            self.assertFalse(session_code_charset_ok("AB" + ch + "C"))
+        self.assertFalse(session_code_charset_ok("2345"))
+        self.assertFalse(session_code_charset_ok("8888"))
+        letter = next(ch for ch in SESSION_CODE_ALPHABET if ch.isalpha())
+        digit = next(ch for ch in SESSION_CODE_ALPHABET if ch.isdigit())
+        good = letter + digit + letter + digit
+        self.assertTrue(session_code_charset_ok(good))
+        offered = iter([digit * 4, letter + "0" + digit + letter, good.lower()])
+        seen: list[str] = []
+        picked = pick_session_code(
+            lambda candidate: seen.append(candidate) or False,
+            generate=lambda _length: next(offered),
+        )
+        self.assertEqual(picked, good)
+        self.assertEqual(seen, [good])
+        self.assertEqual(normalize_live_access_code(good.lower()), good)
 
     def test_start_length_grows_with_active_sessions(self) -> None:
         self.assertEqual(SESSION_CODE_LENGTHS, (4, 5, 6))
@@ -66,13 +90,17 @@ class SessionCodeUnitTests(unittest.TestCase):
     def test_collisions_retry_then_grow(self) -> None:
         tried: list[str] = []
 
+        def make(length: int) -> str:
+            """One letter-bearing code of the requested length."""
+            return "B2" + ("B" * (length - 2))
+
         def taken(code: str) -> bool:
             tried.append(code)
             return len(code) < 6
 
-        with patch.object(codes, "is_offensive_code", return_value=False):
-            code = pick_session_code(taken)
+        code = pick_session_code(taken, generate=make)
         self.assertEqual(len(code), 6)
+        self.assertTrue(any(ch.isalpha() for ch in code))
         lengths = [len(c) for c in tried]
         tries = SESSION_CODE_TRIES_PER_LENGTH
         self.assertEqual(lengths, [4] * tries + [5] * tries + [6])
@@ -95,16 +123,19 @@ class SessionCodeUnitTests(unittest.TestCase):
         """Past 6 characters it tries 8; then a ValueError, never a 500."""
         tried: list[int] = []
 
+        def make(length: int) -> str:
+            """One letter-bearing code of the requested length."""
+            return "B2" + ("B" * (length - 2))
+
         def taken(code: str) -> bool:
             tried.append(len(code))
             return len(code) < SESSION_CODE_FALLBACK_LENGTH
 
-        with patch.object(codes, "is_offensive_code", return_value=False):
-            self.assertEqual(len(pick_session_code(taken)), 8)
-            tries = SESSION_CODE_TRIES_PER_LENGTH
-            self.assertEqual(tried, [4] * tries + [5] * tries + [6] * (2 * tries) + [8])
-            with self.assertRaises(SessionCodeUnavailable) as caught:
-                pick_session_code(lambda _c: True)
+        self.assertEqual(len(pick_session_code(taken, generate=make)), 8)
+        tries = SESSION_CODE_TRIES_PER_LENGTH
+        self.assertEqual(tried, [4] * tries + [5] * tries + [6] * (2 * tries) + [8])
+        with self.assertRaises(SessionCodeUnavailable) as caught:
+            pick_session_code(lambda _c: True, generate=make)
         self.assertIsInstance(caught.exception, ValueError)
         self.assertIn("Press Start again", str(caught.exception))
 
@@ -178,7 +209,9 @@ class SessionCodeJoinTests(test_auth.AuthTests):
     def test_started_session_gets_four_character_code(self) -> None:
         code = str(self.live["session_code"])
         self.assertEqual(len(code), 4)
-        self.assertTrue(set(code) <= set(SESSION_CODE_ALPHABET), code)
+        self.assertTrue(session_code_charset_ok(code))
+        self.assertTrue(any(ch.isalpha() for ch in code))
+        self.assertTrue(set(code) <= set(SESSION_CODE_ALPHABET))
         offering = self.school.get_offering(int(self.live["offering_id"]))
         self.assertEqual(len(offering["live_access_code"]), 8)
 
@@ -260,6 +293,15 @@ class SessionCodeJoinTests(test_auth.AuthTests):
         finder = _InputFinder()
         finder.feed(page)
         attrs = finder.attrs
+        self.assertEqual(attrs.get("type"), "text")
+        self.assertEqual(attrs.get("inputmode"), "text")
+        self.assertNotEqual(attrs.get("inputmode"), "numeric")
+        self.assertEqual(attrs.get("autocapitalize"), "characters")
+        self.assertEqual(attrs.get("autocorrect"), "off")
+        self.assertEqual(attrs.get("spellcheck"), "false")
+        self.assertNotEqual(attrs.get("type"), "number")
+        self.assertIn("A-Za-z", attrs["pattern"])
+        self.assertNotIn("[0-9]", attrs["pattern"].replace("[A-Za-z0-9]", ""))
         self.assertEqual(attrs.get("minlength"), "4")
         self.assertNotIn("8-character", page)
         self.assertIn("4 to 6", attrs["title"])

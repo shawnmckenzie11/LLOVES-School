@@ -14863,12 +14863,14 @@ class SchoolDB(LovesDB):
 
         MCK-117: 4 characters, growing to 5 then 6 when many sessions are
         active or picks keep colliding (``codes.pick_session_code``). Also
-        avoids durable offering or class join codes so join resolution
-        stays unambiguous.
+        avoids durable offering or class join codes, and any code still
+        stored on a catch-up row, including after that row expires or
+        closes (MCK-273). Every new code has a letter and no look-alike
+        character (O, 0, I, L, 1).
 
         Returns:
-            Uppercase code from ``codes.SESSION_CODE_ALPHABET``, never one on
-            ``codes.OFFENSIVE_CODE_PARTS``.
+            Uppercase code from ``codes.SESSION_CODE_ALPHABET``, with at
+            least one letter, never one on ``codes.OFFENSIVE_CODE_PARTS``.
 
         Raises:
             codes.SessionCodeUnavailable: A ``ValueError``; Start shows it as
@@ -14880,9 +14882,49 @@ class SchoolDB(LovesDB):
             from lms.codes import pick_session_code
 
         def taken(code: str) -> bool:
-            return self.active_session_code_taken(code) or self.class_live_code_taken(code)
+            return (
+                self.active_session_code_taken(code)
+                or self.class_live_code_taken(code)
+                or self.catchup_join_code_reserved(code)
+            )
 
         return pick_session_code(taken, self.count_active_live_sessions())
+
+    def catchup_join_code_reserved(self, session_code: str) -> bool:
+        """True when Start must not hand out this live join code.
+
+        An open catch-up link reserves its code for the catch-up window
+        (default 7 days after the run ended). A code still stored on any
+        catch-up row is reserved too: the column is unique, End copies the
+        live code onto that row, and existing rows are not rewritten.
+
+        Args:
+            session_code: Candidate live join code.
+
+        Returns:
+            True when the candidate is empty or already stored.
+        """
+        code = (session_code or "").strip().upper()
+        if not code:
+            return True
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM catchup_links
+                WHERE portal_join_code = ?
+                LIMIT 1
+                """,
+                (code,),
+            ).fetchone()
+        if row is None:
+            return False
+        try:
+            from catchup_landing import link_still_open
+        except ImportError:
+            from lms.catchup_landing import link_still_open
+        if link_still_open(self, dict(row)):
+            return True
+        return str(row["portal_join_code"] or "").strip() != ""
 
     def telemetry_class_course(
         self,
@@ -33334,6 +33376,7 @@ class SchoolDB(LovesDB):
                 is_test=True,
                 live_session_id=sid,
                 require_items=False,
+                join_code=session_code,
             )
             self._upsert_lesson_slides_latest_unlocked(
                 sid,
@@ -33363,7 +33406,13 @@ class SchoolDB(LovesDB):
             )
         if offered is not None and answered is not None and is_real:
             self._upsert_real_catchup_link_unlocked(
-                class_id, run_key, module, slot, now=now, live_session_id=sid
+                class_id,
+                run_key,
+                module,
+                slot,
+                now=now,
+                live_session_id=sid,
+                join_code=session_code,
             )
             self._upsert_lesson_slides_latest_unlocked(
                 sid,
@@ -33961,19 +34010,31 @@ class SchoolDB(LovesDB):
         is_test: bool = False,
         live_session_id: int | None = None,
         require_items: bool = True,
+        join_code: str | None = None,
     ) -> None:
         """One catch-up row per lesson slot and run kind.
 
         A test row does not replace the real row for the same slot. Join
         codes are stored and never written to the log.
 
+        When ``join_code`` is the live session code (End), that value is
+        stored and replaces the code already on this slot. Callers that
+        omit it keep a code that is already stored.
+
         Args:
             is_test: True for a rehearsal run (MCK-269).
             live_session_id: ``live_class_sessions.id`` that owns the row.
             require_items: Real runs need offered items. A test run still
                 gets a code when nothing was published.
+            join_code: Live session join code to store. Empty keeps the
+                previous mint-if-missing behaviour.
         """
         from participation import new_token
+
+        try:
+            from catchup_portal_code import normalize_stored_join_code
+        except ImportError:
+            from lms.catchup_portal_code import normalize_stored_join_code
 
         cid = int(class_id)
         key = str(run_key or "").strip()
@@ -33982,6 +34043,7 @@ class SchoolDB(LovesDB):
         mod = str(module or "")
         sl = str(slot or "")
         flag = 1 if is_test else 0
+        supplied = normalize_stored_join_code(join_code)
         existing = self.conn.execute(
             """
             SELECT token, portal_join_code FROM catchup_links
@@ -33991,9 +34053,14 @@ class SchoolDB(LovesDB):
             (cid, mod, sl, flag),
         ).fetchone()
         token = str(existing["token"]) if existing else new_token()
-        portal_code = str(existing["portal_join_code"] or "").strip() if existing else ""
-        if not portal_code:
-            portal_code = self._mint_unique_portal_join_code(cid, mod, sl)
+        if supplied:
+            portal_code = supplied
+            replace_code = 1
+        else:
+            portal_code = str(existing["portal_join_code"] or "").strip() if existing else ""
+            if not portal_code:
+                portal_code = self._mint_unique_portal_join_code(cid, mod, sl)
+            replace_code = 0
         self.conn.execute(
             """
             INSERT INTO catchup_links (
@@ -34005,10 +34072,13 @@ class SchoolDB(LovesDB):
                 is_open = 1,
                 updated_at = excluded.updated_at,
                 live_session_id = excluded.live_session_id,
-                portal_join_code = COALESCE(
-                    NULLIF(TRIM(catchup_links.portal_join_code), ''),
-                    excluded.portal_join_code
-                )
+                portal_join_code = CASE
+                    WHEN ? = 1 THEN excluded.portal_join_code
+                    ELSE COALESCE(
+                        NULLIF(TRIM(catchup_links.portal_join_code), ''),
+                        excluded.portal_join_code
+                    )
+                END
             """,
             (
                 token,
@@ -34021,6 +34091,7 @@ class SchoolDB(LovesDB):
                 now,
                 flag,
                 int(live_session_id) if live_session_id else None,
+                replace_code,
             ),
         )
 
@@ -34047,10 +34118,19 @@ class SchoolDB(LovesDB):
         return ""
 
     def resolve_catchup_link_by_portal_code(self, raw_code: str) -> dict[str, Any] | None:
-        """Look up an open catch-up link row from a structured portal join code."""
-        from catchup_portal_code import decode_portal_join_code, normalize_portal_code
+        """Look up a catch-up link from a live join code or a stored catch-up code.
 
-        code = normalize_portal_code(raw_code)
+        Exact matches cover the live join code copied at End and older
+        structured codes already stored. Structured decode remains only
+        for a five-character code that is not stored yet.
+        """
+        from catchup_portal_code import (
+            decode_portal_join_code,
+            normalize_stored_join_code,
+            structured_codes_enabled,
+        )
+
+        code = normalize_stored_join_code(raw_code)
         if not code:
             return None
         with self._lock:
@@ -34060,6 +34140,8 @@ class SchoolDB(LovesDB):
             ).fetchone()
         if row is not None:
             return self.resolve_catchup_link(str(row["token"]))
+        if not structured_codes_enabled():
+            return None
         decoded = decode_portal_join_code(code)
         if decoded is None:
             return None
@@ -35913,7 +35995,8 @@ class SchoolDB(LovesDB):
         One PIN per student for the whole course, reused on every catch-up
         link. A new hash changes ``catchup_pin_stamp``, which ends the
         student's open catch-up sessions. Clears any stored default-PIN
-        ciphertext (MCK-204). Never logs the raw PIN.
+        ciphertext (MCK-204). Refuses the same codes catch-up sign-in
+        refuses: codes currently open for this class. Never logs the raw PIN.
         """
         from participation import (
             PIN_SET_BY_STUDENT,
@@ -35923,18 +36006,9 @@ class SchoolDB(LovesDB):
             validate_chosen_pin,
         )
 
-        active = [
-            r[0]
-            for r in self.conn.execute(
-                "SELECT session_code FROM live_class_sessions WHERE status = 'active'"
-            ).fetchall()
-        ]
-        class_row = self.game.conn.execute(
-            "SELECT live_access_code FROM classes WHERE id = ?", (int(class_id),)
-        ).fetchone()
-        if class_row and class_row[0]:
-            active = list(active) + [str(class_row[0])]
-        validate_chosen_pin(pin, active_join_codes=active)
+        validate_chosen_pin(
+            pin, active_join_codes=self._join_codes_blocked_as_pin(int(class_id))
+        )
         setter = (
             pin_set_by
             if pin_set_by in (PIN_SET_BY_STUDENT, PIN_SET_BY_TEACHER, "default")
@@ -36704,6 +36778,52 @@ class SchoolDB(LovesDB):
             ).fetchall()
         return {int(r[0]): str(r[1]).strip() for r in rows}
 
+    def _join_codes_blocked_as_pin(self, class_id: int) -> list[str]:
+        """Join codes this class's course PIN must not copy.
+
+        Only codes currently open for this class: an active live session
+        code, and a catch-up code whose link is still inside the open
+        window. A closed or expired row, and another class's code, are
+        not included. Sign-in and PIN setting both use this list.
+        Comparison only. Do not log the values.
+
+        Args:
+            class_id: The student's class.
+
+        Returns:
+            Codes a student in this class must not enter as a course PIN.
+        """
+        cid = int(class_id)
+        with self._lock:
+            live_rows = self.conn.execute(
+                """
+                SELECT session_code AS code FROM live_class_sessions
+                WHERE class_id = ? AND status = 'active'
+                  AND TRIM(COALESCE(session_code, '')) <> ''
+                """,
+                (cid,),
+            ).fetchall()
+            links = self.conn.execute(
+                """
+                SELECT * FROM catchup_links
+                WHERE class_id = ?
+                  AND portal_join_code IS NOT NULL
+                  AND TRIM(portal_join_code) <> ''
+                """,
+                (cid,),
+            ).fetchall()
+        codes = [str(row["code"]) for row in live_rows if row["code"]]
+        try:
+            from catchup_landing import link_still_open
+        except ImportError:
+            from lms.catchup_landing import link_still_open
+        for link in links:
+            if link_still_open(self, dict(link)):
+                code = str(link["portal_join_code"] or "").strip()
+                if code:
+                    codes.append(code)
+        return codes
+
     def catchup_verify_student_pin(
         self, class_id: int, student_id: int, pin: str | None
     ) -> dict[str, Any]:
@@ -36719,15 +36839,8 @@ class SchoolDB(LovesDB):
                 "SELECT pin_hash FROM students WHERE id = ? AND class_id = ?",
                 (sid, cid),
             ).fetchone()
-        with self._lock:
-            active = [
-                r[0]
-                for r in self.conn.execute(
-                    "SELECT session_code FROM live_class_sessions WHERE status = 'active'"
-                ).fetchall()
-            ]
         stored = str(pin_row[0] or "") if pin_row is not None else ""
-        if looks_like_join_code(pin, active):
+        if looks_like_join_code(pin, self._join_codes_blocked_as_pin(cid)):
             return {"ok": False, "reason": "looks_like_join_code", "student_id": sid}
         if not stored:
             return {"ok": False, "reason": "not_set", "student_id": sid}
@@ -36776,15 +36889,8 @@ class SchoolDB(LovesDB):
             pin_row = self.game.conn.execute(
                 "SELECT pin_hash FROM students WHERE id = ? AND class_id = ?", (stu, class_id)
             ).fetchone()
-        with self._lock:
-            active = [
-                r[0]
-                for r in self.conn.execute(
-                    "SELECT session_code FROM live_class_sessions WHERE status = 'active'"
-                ).fetchall()
-            ]
         stored = str(pin_row[0] or "") if pin_row is not None else ""
-        if looks_like_join_code(pin, active):
+        if looks_like_join_code(pin, self._join_codes_blocked_as_pin(class_id)):
             return {"ok": False, "reason": "looks_like_join_code", "student_id": stu}
         if not stored:
             return {"ok": False, "reason": "not_set", "student_id": stu}
