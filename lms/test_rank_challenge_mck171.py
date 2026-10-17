@@ -520,6 +520,7 @@ class NoLeakTests(ChallengeHarness):
         self.assertNotIn("Race", ben)
 
     def test_teacher_lanes_and_stack_carry_no_orders_until_close(self) -> None:
+        """Race lanes stay order-free; the teacher stack keeps places (MCK-274)."""
         item = self._challenge()
         self._order("Ava", item, KEY_IDS)
         for name in ("Ava", "Cy", "Eli"):
@@ -532,8 +533,13 @@ class NoLeakTests(ChallengeHarness):
         self.assertNotIn("order", json.dumps(race))
         self.assertNotIn("finalized", json.dumps(race))
         self.assertEqual([lane["slot"] for lane in race["teams"]], [0, 1])
-        self.assertTrue(all(team["order"] is None for team in view["rank"]["teams"]))
-        self.assertEqual(view["rank"]["class_order"], [])
+        # MCK-274: the teacher stack keeps places so the compact card can
+        # paint. The race block above still has no orders.
+        submitted = next(t for t in view["rank"]["teams"] if t["status"] == "submitted")
+        waiting = next(t for t in view["rank"]["teams"] if t["status"] == "waiting")
+        self.assertEqual(self._pos(item, submitted["order"]), KEY_IDS)
+        self.assertIsNone(waiting["order"])
+        self.assertEqual(len(view["rank"]["class_order"]), 4)
         self.assertEqual(view["rank"]["teams"][0]["status"], "submitted")
         # Light poll carries the lanes and repaints on an agree.
         light = self.school.light_group_results(self.session_id)[str(item["id"])]

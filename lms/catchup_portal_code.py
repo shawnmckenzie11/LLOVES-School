@@ -42,6 +42,27 @@ def normalize_portal_code(raw: Any) -> str:
     return text
 
 
+# Live join codes are 4–6 characters (8 for older sessions). Structured
+# catch-up codes are 5. Lookup accepts every length already stored.
+_STORED_JOIN_LENGTHS = frozenset({4, 5, 6, 8})
+_STORED_JOIN_RE = re.compile(r"^[A-Z0-9]{4,8}$")
+
+
+def normalize_stored_join_code(raw: Any) -> str:
+    """Uppercase a live join code or a stored catch-up code.
+
+    Args:
+        raw: Typed or stored code.
+
+    Returns:
+        The code when its length is 4, 5, 6, or 8. Empty otherwise.
+    """
+    text = str(raw or "").strip().upper().replace(" ", "")
+    if len(text) not in _STORED_JOIN_LENGTHS or not _STORED_JOIN_RE.fullmatch(text):
+        return ""
+    return text
+
+
 def _checksum_char(prefix: str) -> str:
     """One check character from the first four code characters."""
     total = 0

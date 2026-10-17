@@ -18,7 +18,7 @@ from catchup_landing import (
 )
 from catchup_portal_code import (
     decode_portal_join_code,
-    normalize_portal_code,
+    normalize_stored_join_code,
     structured_codes_enabled,
 )
 
@@ -44,22 +44,22 @@ def try_portal_code_join(
     set_rejoin_cookie: Any,
     first_name_only: Any,
 ) -> Any | None:
-    """Handle a structured catch-up portal code on ``/auth/student-code``.
+    """Handle a catch-up code on ``/auth/student-code``.
 
+    Call this only after an active live session did not match. An open
+    catch-up row can still open catch-up, or join that class when it is
+    live. A code that only sits on a closed or expired row does not join
+    the class's next live session; the student sees catch-up closed.
     Returns a Flask response when this path owns the request, else ``None``.
     """
-    if not structured_codes_enabled():
-        return None
-    normalized = normalize_portal_code(code)
-    if not normalized or len(normalized) != 5:
-        return None
-    if decode_portal_join_code(normalized) is None:
-        # Five- and six-character live session codes share this shape; only
-        # checksum-valid portal codes are handled here.
+    normalized = normalize_stored_join_code(code)
+    if not normalized:
         return None
 
     link = db.resolve_catchup_link_by_portal_code(normalized)
     if link is None:
+        if not structured_codes_enabled() or decode_portal_join_code(normalized) is None:
+            return None
         return _portal_fail(
             COPY_WRONG_CODE,
             code=code,
@@ -151,7 +151,10 @@ def try_portal_code_join(
         clear_catchup_browser_session(session)
 
     live = db.get_active_live_session_for_class(class_id)
-    if live is not None:
+    open_now = link_still_open(db, link)
+    # Only an open catch-up code may enter the class's current live session.
+    # A closed or expired code stays stored and reserved, and does not join.
+    if live is not None and open_now:
         return _join_live_from_portal(
             db,
             session,
@@ -172,7 +175,6 @@ def try_portal_code_join(
             set_rejoin_cookie=set_rejoin_cookie,
         )
 
-    open_now = link_still_open(db, link)
     if not open_now:
         set_landing_session(
             session,

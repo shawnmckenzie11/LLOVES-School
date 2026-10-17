@@ -6546,13 +6546,16 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
 
     @app.route("/student/catchup/sign-out")
     def student_catchup_landing_sign_out():
-        """Clear catch-up landing session; return to sign-in with code prefilled."""
+        """Clear the catch-up session and return to sign-in.
+
+        The join code is not placed on the URL.
+        """
         from catchup_session import clear_catchup_browser_session
 
-        code = clear_catchup_browser_session(session)
+        clear_catchup_browser_session(session)
         # MCK-42: signed_out=1 tells the landing page to clear the device's
         # unsent-answer outbox (localStorage) for the next student.
-        return redirect(url_for("landing", student_code=code, signed_out=1))
+        return redirect(url_for("landing", signed_out=1))
 
     @app.route("/api/student/catchup-landing")
     def api_student_catchup_landing():

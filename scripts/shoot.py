@@ -2683,6 +2683,296 @@ def shoot_mck272(base: str, out_dir: Path, path: Path, state_path: Path) -> list
     return shots
 
 
+def _mck273_publish_one_answer(school, session_id: int, module: str, slot: str, student_id: int) -> None:
+    """Publish one individual item and one roster answer. Does not log codes."""
+    now = "2026-10-14T13:20:00"
+    conn = school.conn
+    conn.execute(
+        """
+        UPDATE live_class_sessions
+        SET teacher_state_json = ?
+        WHERE id = ?
+        """,
+        (json.dumps({"live_module": module, "live_slot": slot}), int(session_id)),
+    )
+    prompt_id = conn.execute(
+        """
+        INSERT INTO live_session_prompts (
+            live_session_id, slide_index, kind, payload, created_at, updated_at
+        ) VALUES (?, 1, 'poll', '{}', ?, ?)
+        """,
+        (int(session_id), now, now),
+    ).lastrowid
+    conn.execute(
+        """
+        INSERT INTO live_session_items (
+            live_session_id, placement_key, item_id, stage, kind, item_json,
+            prompt_id, status, publish_mode, response_mode, published_at,
+            created_at, updated_at
+        ) VALUES (?, 'q0', 'q0', 'round', 'poll', ?, ?, 'closed',
+                  'individual', 'individual', ?, ?, ?)
+        """,
+        (
+            int(session_id),
+            json.dumps({"text": "q0", "type": "mc", "options": [{"text": "A"}]}),
+            prompt_id,
+            now,
+            now,
+            now,
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO live_session_responses (
+            prompt_id, student_id, response_json, created_at, updated_at
+        ) VALUES (?, ?, '{}', ?, ?)
+        """,
+        (int(prompt_id), int(student_id), now, now),
+    )
+    conn.commit()
+
+
+def _mck273_end_with_answer(
+    school, class_id: int, teacher_id: int, student_id: int, module: str, slot: str, *, is_test: bool
+) -> str:
+    """Start, publish one answer, and End. Return the live join code."""
+    active = school.get_active_live_session_for_class(int(class_id))
+    if active is not None:
+        school.end_live_class_session(int(active["id"]))
+    live = school.start_live_class_session(int(class_id), int(teacher_id), is_test=is_test)
+    _mck273_publish_one_answer(school, int(live["id"]), module, slot, student_id)
+    join_code = str(live.get("session_code") or "")
+    school.finish_live_class(
+        int(class_id),
+        save_attendance=True,
+        save_participation=True,
+        celebrate=True,
+        live_run=True,
+    )
+    return join_code
+
+
+def _mck273_stored_code(school, class_id: int, module: str, slot: str, *, is_test: bool) -> str:
+    """Catch-up code stored for one slot. Empty when the row is missing."""
+    row = school.conn.execute(
+        """
+        SELECT portal_join_code FROM catchup_links
+        WHERE class_id = ? AND live_module = ? AND live_slot = ?
+          AND COALESCE(is_test, 0) = ?
+        """,
+        (int(class_id), module, slot, 1 if is_test else 0),
+    ).fetchone()
+    if row is None:
+        return ""
+    return str(row["portal_join_code"] or "")
+
+
+def _mck273_session_shaped_code() -> str:
+    """A structured catch-up code that is also a legal live join code."""
+    sys.path.insert(0, str(LMS_DIR))
+    from catchup_portal_code import decode_portal_join_code, mint_portal_join_code
+    from codes import SESSION_CODE_ALPHABET, is_offensive_code
+
+    for module in ("M2", "M3", "M4", "M5", "M6", "M7", "M8", "M9"):
+        for slot in ("C2", "C3", "C4"):
+            for _ in range(12):
+                code = mint_portal_join_code("MCF3M", module, slot)
+                if (
+                    decode_portal_join_code(code) is not None
+                    and all(ch in SESSION_CODE_ALPHABET for ch in code)
+                    and not is_offensive_code(code)
+                ):
+                    return code
+    raise SystemExit("could not mint a session-shaped catch-up code")
+
+
+def _mck273_course_pin(school, class_id: int, student_id: int, blocked: str) -> str:
+    """Set a 4-digit course PIN that is not the join code. Do not log it."""
+    import secrets
+
+    sys.path.insert(0, str(LMS_DIR))
+    from codes import SESSION_CODE_ALPHABET
+
+    digits = "".join(ch for ch in SESSION_CODE_ALPHABET if ch.isdigit())
+    pin = blocked
+    while pin == blocked or len(pin) != 4:
+        pin = "".join(secrets.choice(digits) for _ in range(4))
+    school.set_student_pin(int(class_id), int(student_id), pin, pin_set_by="teacher")
+    school.conn.execute(
+        "UPDATE classes SET require_catchup_pin_change = 0 WHERE id = ?",
+        (int(class_id),),
+    )
+    school.conn.commit()
+    return pin
+
+
+def shoot_mck273(base: str, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
+    """Start and end a class, then open catch-up with that same join code.
+
+    Also checks rerun, collision, live-before-catch-up, test-class delete,
+    and sign-out. Join codes and PINs are not written to the log or filenames.
+
+    Args:
+        base: Loopback origin.
+        out_dir: Artifact directory.
+        path: LMS sqlite path.
+        widths: Viewport widths in pixels.
+
+    Returns:
+        PNG paths written.
+    """
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    school = _mck208_school(path)
+    class_id = shawn_class_id(path)
+    teacher = school.get_user_by_email(SHAWN_EMAIL)
+    student = school.game.find_student_by_codename(class_id, "Maple")
+    if teacher is None or student is None:
+        raise SystemExit("MCK-273 shoot needs Shawn's class and Maple. Run with --seed.")
+    teacher_id = int(teacher["id"])
+    student_id = int(student["id"])
+    notes: list[str] = []
+
+    join_code = _mck273_end_with_answer(
+        school, class_id, teacher_id, student_id, "M8", "C2", is_test=False
+    )
+    stored = _mck273_stored_code(school, class_id, "M8", "C2", is_test=False)
+    if not join_code or join_code != stored:
+        raise SystemExit("catch-up code did not match the live join code")
+    notes.append("end stores the live join code")
+
+    pin = _mck273_course_pin(school, class_id, student_id, join_code)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    width = int(widths[0]) if widths else 1280
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        context = browser.new_context(viewport={"width": width, "height": 900})
+        page = context.new_page()
+
+        def _blocked(dialog) -> None:
+            """Fail if the join form alerts instead of sending the code."""
+            dialog.dismiss()
+            raise SystemExit("join form blocked the code before the server saw it")
+
+        page.on("dialog", _blocked)
+        page.goto(f"{origin}/", wait_until="domcontentloaded")
+        page.locator("#code").fill(join_code)
+        page.locator("#student-name").fill("Maple")
+        page.locator("form#student-code-panel button[type='submit']").click()
+        page.wait_for_url("**/student/catchup**", timeout=30000)
+        landing_pin = page.locator("#landing_pin")
+        if landing_pin.count():
+            landing_pin.fill(pin)
+            page.locator(".catchup-landing button.cl-btn-primary").click()
+        page.get_by_text("Pick a class to catch up on").wait_for(state="visible", timeout=30000)
+        dashboard = out_dir / f"mck273-catchup-dashboard-{width}.png"
+        page.screenshot(path=str(dashboard), full_page=True)
+        written.append(dashboard)
+        notes.append("same code opens the catch-up dashboard")
+
+        page.goto(f"{origin}/student/catchup/sign-out", wait_until="domcontentloaded")
+        page.locator("#code").wait_for(state="visible", timeout=30000)
+        if "student_code=" in page.url or "code=" in page.url:
+            raise SystemExit("sign-out URL still carries a join code")
+        if page.locator("#code").input_value().strip():
+            raise SystemExit("sign-out left a code in the join field")
+        signed_out = out_dir / f"mck273-sign-out-landing-{width}.png"
+        page.screenshot(path=str(signed_out), full_page=True)
+        written.append(signed_out)
+        notes.append("sign-out URL has no join code")
+        context.close()
+
+        replacement = _mck273_end_with_answer(
+            school, class_id, teacher_id, student_id, "M8", "C2", is_test=False
+        )
+        stored_again = _mck273_stored_code(school, class_id, "M8", "C2", is_test=False)
+        if replacement == join_code or replacement != stored_again:
+            raise SystemExit("rerun did not replace the catch-up code")
+        if school.resolve_catchup_link_by_portal_code(join_code) is not None:
+            raise SystemExit("the replaced catch-up code still resolves")
+        notes.append("rerun replaces the catch-up code")
+
+        sys.path.insert(0, str(LMS_DIR))
+        from codes import SESSION_CODE_ALPHABET, is_offensive_code, pick_session_code
+        import secrets
+
+        calls = {"n": 0}
+
+        def generate(length: int) -> str:
+            """Offer the open catch-up code once, then a different code."""
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return stored_again
+            while True:
+                nxt = "".join(secrets.choice(SESSION_CODE_ALPHABET) for _ in range(int(length)))
+                if nxt != stored_again and not is_offensive_code(nxt):
+                    return nxt
+
+        minted = pick_session_code(
+            lambda candidate: school.catchup_join_code_reserved(candidate)
+            or school.active_session_code_taken(candidate)
+            or school.class_live_code_taken(candidate),
+            school.count_active_live_sessions(),
+            generate=generate,
+        )
+        if minted == stored_again or calls["n"] < 2:
+            raise SystemExit("join code collided with an open catch-up code")
+        notes.append("open catch-up code is not reissued")
+
+        live = school.start_live_class_session(class_id, teacher_id, is_test=False)
+        shaped = _mck273_session_shaped_code()
+        school.conn.execute(
+            "UPDATE live_class_sessions SET session_code = ? WHERE id = ?",
+            (shaped, int(live["id"])),
+        )
+        school.conn.commit()
+        live_context = browser.new_context(viewport={"width": width, "height": 900})
+        live_page = live_context.new_page()
+        live_page.goto(f"{origin}/", wait_until="domcontentloaded")
+        live_page.locator("#code").fill(shaped)
+        live_page.locator("#student-name").fill("Maple")
+        live_page.locator("form#student-code-panel button[type='submit']").click()
+        live_page.wait_for_url("**/student/mood**", timeout=30000)
+        if "/student/catchup" in live_page.url:
+            raise SystemExit("live join code was treated as catch-up")
+        live_page.locator("#mood-form").wait_for(state="visible", timeout=30000)
+        mood = out_dir / f"mck273-live-code-wins-{width}.png"
+        live_page.screenshot(path=str(mood), full_page=True)
+        written.append(mood)
+        notes.append("live join code wins at sign-in")
+        live_context.close()
+        school.end_live_class_session(int(live["id"]))
+
+        test_code = _mck273_end_with_answer(
+            school, class_id, teacher_id, student_id, "M8", "C3", is_test=True
+        )
+        test_stored = _mck273_stored_code(school, class_id, "M8", "C3", is_test=True)
+        if not test_code or test_code != test_stored:
+            raise SystemExit("test-class catch-up code did not match")
+        if school.resolve_catchup_link_by_portal_code(test_code) is None:
+            raise SystemExit("test-class code did not resolve")
+        session_row = school.conn.execute(
+            """
+            SELECT id FROM live_class_sessions
+            WHERE class_id = ? AND COALESCE(is_test, 0) = 1
+            ORDER BY id DESC LIMIT 1
+            """,
+            (class_id,),
+        ).fetchone()
+        school.delete_test_live_class(class_id, int(session_row["id"]))
+        if school.resolve_catchup_link_by_portal_code(test_code) is not None:
+            raise SystemExit("deleting the test class left the code working")
+        notes.append("deleting the test class revokes the code")
+        browser.close()
+
+    log_path = out_dir / "mck273-checks.log"
+    log_path.write_text("\n".join(notes) + "\n", encoding="utf-8")
+    written.append(log_path)
+    return written
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry: seed, log in once, then shoot URLs or the catch-up scenario."""
     parser = argparse.ArgumentParser(description="Headless local LMS screenshots.")
@@ -2716,13 +3006,15 @@ def main(argv: list[str] | None = None) -> int:
             "mck217-student-view",
             "mck242",
             "mck272",
+            "mck273",
         ),
         default="",
         help=(
             "Built-in catch-up, MCK-62 quiet-dot, engagement override, "
             "MCK-207 roster/PIN, run-class toggle, MCK-208 dashboard, "
             "avatar-reward pop-up, MCK-216 Team challenge rank lock-in, "
-            "MCK-220/230/215/222/219 scenarios, MCK-217 Student view Questions, or MCK-242 Team Draw."
+            "MCK-220/230/215/222/219 scenarios, MCK-217 Student view Questions, "
+            "MCK-242 Team Draw, or MCK-273 one join code."
         ),
     )
     args = parser.parse_args(argv)
@@ -2790,6 +3082,9 @@ def main(argv: list[str] | None = None) -> int:
             written.extend(shoot_mck242(args.base, state, out, path, widths))
         if args.scenario == "mck272":
             written.extend(shoot_mck272(args.base, out, path, state))
+        if args.scenario == "mck273":
+            widths = [int(part) for part in args.widths.split(",") if part.strip()]
+            written.extend(shoot_mck273(args.base, out, path, widths))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(
@@ -2807,7 +3102,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
                 "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
-                "mck217-student-view|mck242|mck272."
+                "mck217-student-view|mck242|mck272|mck273."
             )
         for item in written:
             print(item)

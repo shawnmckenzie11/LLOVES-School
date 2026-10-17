@@ -109,9 +109,7 @@ import {
   RESULTS_COPY,
   fill as raceFill,
   lastResultsStep,
-  raceLanesHtml,
   rankAuthoredOptionLabels,
-  raceOptionLabels,
   raceResultsHtml,
   raceStem,
   scoreTeamsButtonHtml,
@@ -1558,13 +1556,6 @@ const turnSkipNotes = new Map();
 const raceViewOff = new Set();
 
 /**
- * MCK-171: team ids whose lock-in check pop already played, per item, so
- * the 300 ms pop runs once (lanes already locked on first paint never pop).
- * @type {Map<number, Set<number>>}
- */
-const racePopped = new Map();
-
-/**
  * MCK-171: last server step seen per closed challenge (the server owns the
  * step; Next asks for exactly step+1): 0..n rows revealed, n+1 points,
  * n+2 podium.
@@ -1591,22 +1582,14 @@ function skipTeacherRaceRevealFor(liveItemId, entry) {
  * @param {any} race Teacher ``race`` block.
  * @returns {Set<number>}
  */
-function racePoppedFor(liveItemId, race) {
-  let seen = racePopped.get(liveItemId);
-  if (!seen) {
-    seen = new Set(
-      (Array.isArray(race?.teams) ? race.teams : [])
-        .filter((lane) => lane?.locked)
-        .map((lane) => Number(lane.team_id) || 0)
-    );
-    racePopped.set(liveItemId, seen);
-  }
-  return seen;
-}
-
 /**
- * MCK-171: the Team challenge part of a group rank card, or "" when the
- * normal stack should show (no challenge, or the teacher exited the view).
+ * Team-challenge chrome on a group rank card, or "" when the compact
+ * stack should show.
+ *
+ * MCK-274: while the question is open the teacher card is the MCK-154
+ * stack. Projector lanes (large type, team shapes) are not that card.
+ * After Close, hand-scored ranks still skip the projector reveal
+ * (MCK-219) so Score teams (MCK-185) can open.
  * @param {any} result
  * @param {boolean} revealed
  * @param {number} liveItemId
@@ -1616,25 +1599,18 @@ function rankRaceTeacherHtml(result, revealed, liveItemId) {
   const race = result?.race;
   if (!race || typeof race !== "object") return "";
   if (raceViewOff.has(liveItemId)) return "";
-  if (revealed) {
-    if (!race.results) return "";
-    // MCK-219: hand-scored ranks skip the teacher reveal entirely.
-    if (teacherSkipsRaceReveal(race.results)) return "";
-    return raceResultsHtml(race.results, liveItemId, {
-      step: raceStepFor(liveItemId, race.results),
-      stem: raceStem(result?.item),
-      busy: raceStepInFlight.has(liveItemId),
-      // MCK-185: the full-order line under the results (names only).
-      footHtml: fullOrderHtml(result?.full_order),
-    });
-  }
-  // MCK-185: spots results exist only after Close; the open card is unchanged.
-  if (race.challenge === false) return "";
-  return `${raceLanesHtml(race, liveItemId, {
-    popped: racePoppedFor(liveItemId, race),
+  // MCK-274: published team rank stays on the compact stack.
+  if (!revealed) return "";
+  if (!race.results) return "";
+  // MCK-219: hand-scored ranks skip the teacher reveal entirely.
+  if (teacherSkipsRaceReveal(race.results)) return "";
+  return raceResultsHtml(race.results, liveItemId, {
+    step: raceStepFor(liveItemId, race.results),
     stem: raceStem(result?.item),
-    options: raceOptionLabels(result?.item),
-  })}${fullOrderHtml(result?.full_order)}`;
+    busy: raceStepInFlight.has(liveItemId),
+    // MCK-185: the full-order line under the results (names only).
+    footHtml: fullOrderHtml(result?.full_order),
+  });
 }
 
 /**
@@ -5097,7 +5073,8 @@ function groupSubmitTeacherHtml(result, revealed, liveItemId) {
     return `${open}${teamDrawStatusBoardHtml(result)}</div>`;
   }
   if (result?.rank) {
-    // MCK-171: a Team challenge shows lanes (no orders) instead.
+    // MCK-274: open team rank is the compact stack. rankRaceTeacherHtml
+    // is empty until Close, then Score teams when the reveal is skipped.
     const itemId = Number(result?.item?.id) || hostId;
     const race = rankRaceTeacherHtml(result, revealed, itemId);
     if (race) return `${open}${race}</div>`;
@@ -5494,9 +5471,9 @@ function paintLiveQuestionCards() {
         active && groupChrome && result?.any_picking
           ? `<button type="button" class="secondary live-q-btn" data-end-voting="${liveItemId}">${PICKS_COPY.moveOn}</button>`
           : "";
-      // MCK-171: the challenge view's "Close & reveal" is the only reveal
-      // while the lanes are showing (no second Reveal in the strip).
-      const raceLanesShowing = Boolean(active && result?.race && !raceViewOff.has(liveItemId));
+      // MCK-274: projector lanes are not the open card, so the strip
+      // Reveal stays. It closes the item; Score teams follows (MCK-185).
+      const raceLanesShowing = false;
       const revealHtml =
         active && groupChrome
           ? raceLanesShowing
