@@ -599,6 +599,19 @@ def _text_owner(exec_: Exec, run_key: str, board_key: str, text_id: str) -> str 
     return str(state.get("owner") or "") or None
 
 
+def _ensure_board_flags(exec_: Exec) -> None:
+    """Create the one-row boot flag table when this store does not have it.
+
+    Args:
+        exec_: Statement runner for the open board connection.
+    """
+    exec_(
+        "CREATE TABLE IF NOT EXISTS board_flags ("
+        "name TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        (),
+    )
+
+
 class _BoardStore:
     """Shared append, read, and fold logic for sqlite and Postgres.
 
@@ -1109,24 +1122,50 @@ class _BoardStore:
 
         self._transaction(work)
 
+
     def drop_removed_board_keys(self) -> None:
-        """Delete ops left by the removed per-student whiteboard.
+        """Delete ops left by the removed per-student whiteboard, once.
 
         ``student:`` and ``fb:`` keys belonged to the duplicate board.
         Team, solo, shared, and teacher boards stay. The patterns are
         bound values. A literal percent sign in the SQL is a Postgres
-        placeholder and crashes boot.
+        placeholder and crashes boot. The first run records a flag on
+        this store. Later boots see the flag and do not scan again.
         """
+        if self._removed_board_keys_dropped():
+            return
 
         def work(exec_: Exec) -> None:
+            _ensure_board_flags(exec_)
             for table in ("board_ops", "board_counters", "board_batches"):
                 exec_(
                     f"DELETE FROM {table} WHERE board_key LIKE ? "
                     "OR board_key LIKE ?",
                     ("student:%", "fb:%"),
                 )
+            exec_(
+                "INSERT INTO board_flags (name, value) VALUES (?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+                ("mck272_removed_keys", "1"),
+            )
 
         self._transaction(work)
+
+    def _removed_board_keys_dropped(self) -> bool:
+        """True after this store has already deleted ``student:`` and ``fb:`` keys."""
+
+        def read(exec_: Exec) -> bool:
+            _ensure_board_flags(exec_)
+            row = exec_(
+                "SELECT value FROM board_flags WHERE name = ?",
+                ("mck272_removed_keys",),
+            ).fetchone()
+            if row is None:
+                return False
+            value = row["value"] if hasattr(row, "keys") else row[0]
+            return str(value) == "1"
+
+        return bool(self._read(read))
 
     def count_generation_ops(self, run_key: str) -> int:
         """Count Fresh-board ink stored beside one run key.

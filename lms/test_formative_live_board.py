@@ -342,6 +342,93 @@ class FormativeLiveBoardTests(unittest.TestCase):
         )
         self.assertEqual(gone.status_code, 404)
 
+    def _board_keys(self, run_key: str) -> list[str]:
+        """Distinct board keys stored for one run.
+
+        Args:
+            run_key: Board partition key for the live session.
+        """
+
+        def read(exec_) -> list[str]:
+            rows = exec_(
+                "SELECT DISTINCT board_key FROM board_ops WHERE run_key = ?",
+                (run_key,),
+            ).fetchall()
+            found: list[str] = []
+            for row in rows:
+                found.append(str(row["board_key"] if hasattr(row, "keys") else row[0]))
+            return found
+
+        return list(self.school.boards._read(read))
+
+    def test_individual_pen_lands_on_solo_and_survives_migration(self) -> None:
+        """An Individual pen stroke is stored on ``solo:<id>`` only.
+
+        The client posts that stroke through canvas presence. Boot deletes
+        ``student:`` and ``fb:`` keys, including when the migration runs
+        again, and leaves the solo stroke in place. The teacher gallery
+        tile for that student carries the stroke.
+        """
+        source = (LMS_DIR / "static" / "student-portal.js").read_text()
+        self.assertIn(
+            'if (align !== "team" && align !== "student") return;',
+            source,
+        )
+        self._publish("individual")
+        run_key = self.school.live_board_run_key(self.session_id)
+        posted = self.maple.post(
+            "/api/student/canvas-presence",
+            json={
+                "x": 0.22,
+                "y": 0.41,
+                "points": [[0.22, 0.41], [0.34, 0.52]],
+                "stroke_id": "maple-solo-pen",
+                "ended": True,
+                "run_key": run_key,
+            },
+            headers=self._student_headers(self.maple_token),
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_data(as_text=True))
+        keys = self._board_keys(run_key)
+        solo = f"solo:{self.maple_id}"
+        self.assertIn(solo, keys)
+        self.assertFalse(any(key.startswith("student:") or key.startswith("fb:") for key in keys))
+        gallery = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery"
+        )
+        self.assertEqual(gallery.status_code, 200, gallery.get_data(as_text=True))
+        body = gallery.get_json()
+        maple = next(
+            tile
+            for tile in body["tiles"]
+            if int(tile.get("student_id") or 0) == self.maple_id
+        )
+        self.assertEqual(maple["board_key"], solo)
+        ink = json.dumps(
+            {
+                "canvas_view": maple.get("canvas_view"),
+                "ops": maple.get("ops"),
+            }
+        )
+        self.assertIn("maple-solo-pen", ink)
+        self.assertGreater(int(maple.get("board_seq") or 0), 0)
+        self.school.boards._transaction(
+            lambda exec_: exec_(
+                "DELETE FROM board_flags WHERE name = ?",
+                ("mck272_removed_keys",),
+            )
+        )
+        self.school._migrate_mck272_whiteboard()
+        self.assertIn(solo, self._board_keys(run_key))
+        self.assertFalse(
+            any(
+                key.startswith("student:") or key.startswith("fb:")
+                for key in self._board_keys(run_key)
+            )
+        )
+        self.school._migrate_mck272_whiteboard()
+        self.assertIn(solo, self._board_keys(run_key))
+
     def test_gallery_uses_roster_name_not_first_name(self) -> None:
         """Cards show the roster name column, even when first_name differs."""
         self.school.conn.execute(

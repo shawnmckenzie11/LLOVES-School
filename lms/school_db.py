@@ -31269,8 +31269,10 @@ class SchoolDB(LovesDB):
         the per-student feedback table, and deletes ``student:`` / ``fb:``
         ink from the active board store.
 
-        Fresh databases already match the current schema. This still runs
-        so leftover ink from the removed board is deleted.
+        Fresh databases already match the current schema. The board store
+        deletes leftover ``student:`` and ``fb:`` ink on the first boot,
+        then records that the delete has run so later boots do not scan
+        those tables again.
         """
         self._ensure_board_assignment_session_column()
         with self._lock:
@@ -31501,11 +31503,11 @@ class SchoolDB(LovesDB):
     def _delete_live_board_feedback(self, session_id: int) -> None:
         """Leave team-board pins in place when a live class ends.
 
-        The per-student ``live_board_feedback`` table is dropped at boot,
-        so End has no feedback rows to delete. ``live_board_assignments``
-        stays. Main never deleted those rows on End, and they hold the
-        team-board pin plus sent and Done status. Test-class delete
-        removes them on its own path.
+        ``live_board_assignments`` has no Sent or Done columns. Sent is
+        the ``feedback_release`` op in ``board_ops``, and End clears that
+        ink with the rest of the board. The MCK-270 Done flag no longer
+        exists. Assignment rows stay. Main never deleted them on End.
+        Test-class delete removes them on its own path.
 
         Args:
             session_id: ``live_class_sessions.id``. Accepted so existing

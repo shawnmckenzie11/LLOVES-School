@@ -326,6 +326,7 @@
   height: 100%;
   max-height: 100%;
   overflow: hidden;
+  position: relative;
 }
 
 #formative-live-board:not([hidden]) {
@@ -340,7 +341,9 @@
 #formative-live-board:not([hidden]) .wb-live-body {
   flex: 1 1 auto;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
+  align-items: stretch;
   grid-template-rows: minmax(0, 1fr);
 }
 
@@ -351,10 +354,28 @@
 }
 
 #formative-live-board .wb-live-panel:not([hidden]) {
+  position: fixed;
+  right: 0.5rem;
+  bottom: 0;
+  width: min(560px, 46vw);
+  height: calc(100dvh - 12.75rem);
+  z-index: 5;
   min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+#formative-live-board .wb-live-panel-bar,
+#formative-live-board .wb-live-age,
+#formative-live-board .wb-live-panel-tools {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+#formative-live-board:has(.wb-live-panel:not([hidden])) .wb-live-grid {
+  padding-right: min(560px, 48%);
 }
 
 #formative-live-board .wb-live-panel[hidden] {
@@ -364,9 +385,9 @@
 #formative-live-board .wb-live-panel-canvas {
   display: block;
   width: 100%;
-  flex: 1 1 auto;
-  height: 1px;
-  min-height: 0;
+  flex: 1 0 auto;
+  height: calc(100dvh - 20.5rem);
+  min-height: max(320px, calc(100dvh - 20.5rem));
   max-height: none;
 }
 

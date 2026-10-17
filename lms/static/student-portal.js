@@ -1239,7 +1239,7 @@ function postStudentCanvas(p, extra) {
     });
     return;
   }
-  if (align !== "team") return;
+  if (align !== "team" && align !== "student") return;
   const samples = Array.isArray(p) ? p : [p];
   const points = [];
   for (const sample of samples) {
