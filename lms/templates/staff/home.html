@@ -46,7 +46,7 @@
     {% if not offerings %}
     <p>No course is assigned to you for the active semester. Ask Admin to assign an Ontario course code.</p>
     {% else %}
-    {% include "staff/_show_test_students.html" %}
+    {% set roster_switch = namespace(placed=false) %}
     <section id="course-dash" class="course-dash">
       {% for o in offerings %}
       {% set cls = o.classes[0] if o.classes else none %}
@@ -152,9 +152,10 @@
           {% endif %}
         </div>
         {% if cls %}
-        {% with roster_students=cls.roster, roster_class_id=cls.id, roster_open=false %}
+        {% with roster_students=cls.roster, roster_class_id=cls.id, roster_open=false, roster_test_switch=true, show_test_switch_id=not roster_switch.placed %}
         {% include "staff/_roster_names.html" %}
         {% endwith %}
+        {% set roster_switch.placed = true %}
         {% endif %}
         <div class="course-card-pack-progress"{% if not o.pack_busy and not o.pack_error %} hidden{% endif %}>
           <progress class="course-card-pack-bar" max="100"{% if not o.pack_busy %} value="100"{% endif %}></progress>

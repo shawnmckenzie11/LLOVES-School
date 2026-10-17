@@ -84,8 +84,6 @@
       })();
     </script>
 
-    {% include "staff/_show_test_students.html" %}
-
     {% if tab == 'modules' %}
     <div class="layout" id="modules-root" data-class-id="{{ cls.id }}">
       <aside class="card module-nav-pane">
@@ -435,94 +433,107 @@
              data-next-label="{{ set_class.label }}"
              data-open-office-next='{{ set_class.open_office_next | tojson }}'
              data-slots-by-module='{{ (packs.slots_by_module or {"M1": ["C1", "C2", "C3", "C4"]}) | tojson }}'>
-          <label class="live-pack-field" for="live-course-select">
+          <label class="live-pack-field" for="live-course-select" hidden>
             <span>Course code</span>
             <select id="live-course-select" aria-label="Course code">
               <option value="{{ set_class.course or packs.course or 'MCF3M' }}" selected>{{ set_class.course or packs.course or 'MCF3M' }}</option>
             </select>
           </label>
-          <label class="live-pack-field" for="live-module-select"{% if course_simple %} hidden{% endif %}>
-            <span>Module</span>
-            <select id="live-module-select" aria-label="Module">
-              {% set live_module_ns = namespace(mods=packs.modules or ['M1']) %}
-              {% if 'M0' not in live_module_ns.mods %}
-              {% set live_module_ns.mods = ['M0'] + live_module_ns.mods %}
-              {% endif %}
-              {% for mod in live_module_ns.mods %}
-              <option value="{{ mod }}"{% if mod == set_class.module %} selected{% endif %}>{{ mod }}</option>
-              {% endfor %}
-            </select>
-          </label>
-          <label class="live-pack-field" for="live-class-select"{% if course_simple %} hidden{% endif %}>
-            <span>Class</span>
-            <select id="live-class-select" aria-label="Class">
-              {% for slot in (packs.slots_by_module or {}).get(set_class.module, ['C1', 'C2', 'C3', 'C4']) %}
-              <option value="{{ slot }}"{% if slot == set_class.slot %} selected{% endif %}>{{ set_class.module }} {{ slot }}</option>
-              {% endfor %}
-            </select>
-          </label>
-          <div class="set-class-type-row">
-            <div class="live-pack-field set-class-kind" id="set-class-kind">
-              <span>Session type</span>
-              <div class="set-class-kind-toggle" role="group" aria-label="Session type">
+          <div class="set-class-step">
+            <span class="set-class-step-num" aria-hidden="true">1</span>
+            <div class="set-class-step-q">What are you starting?</div>{# copy: Wonder #}
+            <div class="set-class-step-control">
+              <div class="set-class-kind-toggle set-class-run-kind-toggle" id="set-class-kind" role="group" aria-label="What are you starting?">
                 <button type="button" id="set-class-kind-live" class="is-on" aria-pressed="true">Live class</button>
+                <button type="button" id="set-class-run-kind-test" aria-pressed="false">Test class</button>
                 <button type="button" id="set-class-kind-office" aria-pressed="false">Open office</button>
-              </div>
-            </div>
-            <div class="live-pack-field set-class-run-kind" id="set-class-run-kind">
-              <span>Run as</span>
-              <div class="set-class-run-kind-toggle set-class-kind-toggle" role="group" aria-label="Run as">
-                <button type="button" id="set-class-run-kind-live" class="is-on" aria-pressed="true">Live</button>
-                <button type="button" id="set-class-run-kind-test" aria-pressed="false">Test</button>
               </div>
               <button type="button" class="staff-info-trigger" id="set-class-run-kind-info" aria-controls="info-popover-test-run-kind" aria-expanded="false" aria-label="What's a test class?">ⓘ</button>
             </div>
           </div>
-          <p class="hint compact" id="set-class-run-kind-note" hidden>A test class can run any school day. It saves like a real class, stays out of totals, and you can delete it later.</p>
-          <p class="hint compact" id="set-class-test-deck-note" hidden>Test uses a copy of the class deck for this challenge. Open office is not available for test runs.</p>
-          <fieldset class="live-deck-seed" id="live-deck-seed" aria-describedby="live-deck-seed-previous-note">
-            <legend>Live deck</legend>
-            <div class="live-add-type-chip-row live-deck-seed-seg">
-              <label class="live-add-type-chip live-deck-seed-choice" id="live-deck-seed-previous-label" title="Copy previous challenge deck">
-                <input type="radio" name="live-deck-seed" id="live-deck-seed-previous" value="previous">
-                <span>Previous</span>
+          <div class="set-class-step" id="set-class-which">
+            <span class="set-class-step-num" aria-hidden="true">2</span>
+            <div class="set-class-step-q">Which class?<small>Defaulted to the next class</small></div>{# copy: Wonder #}
+            <div class="set-class-step-control set-class-which-fields">
+              <label class="live-pack-field" for="live-module-select"{% if course_simple %} hidden{% endif %}>
+                <span>Module</span>
+                <select id="live-module-select" aria-label="Module">
+                  {% set live_module_ns = namespace(mods=packs.modules or ['M1']) %}
+                  {% if 'M0' not in live_module_ns.mods %}
+                  {% set live_module_ns.mods = ['M0'] + live_module_ns.mods %}
+                  {% endif %}
+                  {% for mod in live_module_ns.mods %}
+                  <option value="{{ mod }}"{% if mod == set_class.module %} selected{% endif %}>{{ mod }}</option>
+                  {% endfor %}
+                </select>
               </label>
-              <label class="live-add-type-chip live-deck-seed-choice" title="Copy another deck from this course">
-                <input type="radio" name="live-deck-seed" id="live-deck-seed-course" value="course">
-                <span>Course deck</span>
-              </label>
-              <label class="live-add-type-chip live-deck-seed-choice" id="live-deck-seed-current-label" title="Keeps the deck already set for this class">
-                <input type="radio" name="live-deck-seed" id="live-deck-seed-current" value="current" checked>
-                <span>Use current</span>
+              <label class="live-pack-field" for="live-class-select"{% if course_simple %} hidden{% endif %}>
+                <span>Class</span>
+                <select id="live-class-select" aria-label="Class">
+                  {% for slot in (packs.slots_by_module or {}).get(set_class.module, ['C1', 'C2', 'C3', 'C4']) %}
+                  <option value="{{ slot }}"{% if slot == set_class.slot %} selected{% endif %}>{{ set_class.module }} {{ slot }}</option>
+                  {% endfor %}
+                </select>
               </label>
             </div>
-            <p class="hint compact live-deck-seed-note" id="live-deck-seed-previous-note" aria-live="polite">Loading decks…</p>
-          </fieldset>
-          {# MCK-132: step 1 of Course deck. This teacher's current sections of the course. copy: Wonder #}
-          <label class="live-pack-field live-deck-copy-from" id="live-deck-copy-from-field" for="live-deck-copy-from" hidden>
-            <span>From</span>{# copy: Wonder #}
-            <select id="live-deck-copy-from" aria-label="Copy from section"></select>{# copy: Wonder #}
-          </label>
-          <label class="live-pack-field live-deck-seed-picker" id="live-deck-seed-picker" for="live-deck-seed-source" hidden>
-            <span>Source deck</span>
-            <select id="live-deck-seed-source" aria-label="Deck to copy"></select>{# copy: Wonder #}
-          </label>
-        </div>
-        {# MCK-132: inline confirm / success strip for a Course deck copy. Text is set by deckCopyConfirmState (copy: Wonder). #}
-        <div class="live-deck-copy-confirm" id="live-deck-copy-confirm" role="group" aria-label="Copy deck" hidden>
-          <p class="live-deck-copy-text" id="live-deck-copy-text" aria-live="polite"></p>
-          <div class="live-deck-copy-actions">
-            <button type="button" class="btn" id="live-deck-copy-go" hidden>Copy deck</button>{# copy: Wonder #}
-            <button type="button" class="secondary" id="live-deck-copy-keep" hidden>Keep current</button>{# copy: Wonder #}
+          </div>
+          <p class="set-class-office-next" id="set-class-office-next" hidden>
+            Next open office: <span id="set-class-office-next-label"></span>
+          </p>
+          <p class="set-class-office-note" id="set-class-office-note" hidden>
+            <span class="set-class-office-icon" aria-hidden="true">i</span>
+            <span>Open office sessions record attendance and slides, but they aren't copied into the course template.</span>
+          </p>
+          <div class="set-class-step" id="set-class-deck-step">
+            <span class="set-class-step-num" aria-hidden="true">3</span>
+            <div class="set-class-step-q">Which deck?</div>{# copy: Wonder #}
+            <div class="set-class-step-control set-class-deck-control">
+              <fieldset class="live-deck-seed" id="live-deck-seed" aria-describedby="live-deck-seed-previous-note">
+                <legend>Live deck</legend>
+                <div class="live-add-type-chip-row live-deck-seed-seg">
+                  <label class="live-add-type-chip live-deck-seed-choice" id="live-deck-seed-current-label" title="Keeps the deck already set for this class">
+                    <input type="radio" name="live-deck-seed" id="live-deck-seed-current" value="current" checked>
+                    <span>Use current</span>
+                  </label>
+                  <label class="live-add-type-chip live-deck-seed-choice" id="live-deck-seed-previous-label" title="Copy previous challenge deck">
+                    <input type="radio" name="live-deck-seed" id="live-deck-seed-previous" value="previous">
+                    <span>Previous</span>
+                  </label>
+                  <label class="live-add-type-chip live-deck-seed-choice" title="Copy another deck from this course">
+                    <input type="radio" name="live-deck-seed" id="live-deck-seed-course" value="course">
+                    <span>Course deck</span>
+                  </label>
+                </div>
+                <p class="hint compact live-deck-seed-note" id="live-deck-seed-previous-note" aria-live="polite">Loading decks…</p>
+              </fieldset>
+              <p class="hint compact" id="set-class-test-deck-note" hidden>Test classes use a copy of this deck, so your real deck won't change.</p>{# copy: Wonder #}
+              <div class="set-class-deck-extra">
+                {# MCK-132: step 1 of Course deck. This teacher's current sections of the course. copy: Wonder #}
+                <label class="live-pack-field live-deck-copy-from" id="live-deck-copy-from-field" for="live-deck-copy-from" hidden>
+                  <span>From</span>{# copy: Wonder #}
+                  <select id="live-deck-copy-from" aria-label="Copy from section"></select>{# copy: Wonder #}
+                </label>
+                <label class="live-pack-field live-deck-seed-picker" id="live-deck-seed-picker" for="live-deck-seed-source" hidden>
+                  <span>Source deck</span>
+                  <select id="live-deck-seed-source" aria-label="Deck to copy"></select>{# copy: Wonder #}
+                </label>
+              </div>
+              {# MCK-132: inline confirm / success strip for a Course deck copy. Text is set by deckCopyConfirmState (copy: Wonder). #}
+              <div class="live-deck-copy-confirm" id="live-deck-copy-confirm" role="group" aria-label="Copy deck" hidden>
+                <p class="live-deck-copy-text" id="live-deck-copy-text" aria-live="polite"></p>
+                <div class="live-deck-copy-actions">
+                  <button type="button" class="btn" id="live-deck-copy-go" hidden>Copy deck</button>{# copy: Wonder #}
+                  <button type="button" class="secondary" id="live-deck-copy-keep" hidden>Keep current</button>{# copy: Wonder #}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-        <p class="set-class-default-note" id="set-class-default-note">Defaulted to the next class ({{ set_class.label }})</p>
-        <p class="set-class-office-note" id="set-class-office-note" hidden>
-          <span class="set-class-office-icon" aria-hidden="true">i</span>
-          <span>Open office sessions record attendance and slides, but they aren't copied into the course template.</span>
-        </p>
-        <button type="button" class="set-class-start" id="set-class-start">Start session</button>
-        <p class="hint" id="ap-validate-hint">Pick a valid school day in the current semester, then Next.</p>
+        <div class="set-class-footer">
+          <p class="set-class-summary" id="set-class-summary">Starting live class: Module {{ set_class.module[1:] }}, Class {{ set_class.slot[1:] }}, current deck.</p>{# copy: Wonder #}
+          <button type="button" class="set-class-start" id="set-class-start">Start live class</button>{# copy: Wonder #}
+        </div>
+        <p class="hint" id="ap-validate-hint">Pick a valid school day in the current semester.</p>
         <div id="ap-day-grid" class="ap-day-grid-wrap"></div>
         <input type="hidden" id="ap-valid-date" class="ap-date-input">
       </section>
@@ -538,16 +549,17 @@
             <section id="ap-panel-att" class="ap-panel" data-step="att">
               <div class="class-list-head">
                 <h2 class="live-pane-title">Class List <span id="ap-att-summary" class="live-pane-meta">(0)</span></h2>
-                <div class="class-list-toggles">
-                  <label class="ap-guest-toggle" for="live-hide-absent">
-                    <input type="checkbox" id="live-hide-absent">
-                    <span>Hide Absent</span>
-                  </label>
-                  <label class="ap-guest-toggle" id="ap-guest-toggle">
-                    <input type="checkbox" id="ap-allow-guests">
-                    <span>Guests</span>
-                  </label>
-                </div>
+                {% include "staff/_show_test_students.html" %}
+              </div>
+              <div class="class-list-toggles">
+                <label class="ap-guest-toggle" for="live-hide-absent">
+                  <input type="checkbox" id="live-hide-absent">
+                  <span>Hide Absent</span>
+                </label>
+                <label class="ap-guest-toggle" id="ap-guest-toggle">
+                  <input type="checkbox" id="ap-allow-guests">
+                  <span>Guests</span>
+                </label>
               </div>
               <p class="ap-guest-on-chip" id="ap-guest-on-chip" hidden>Guests on</p>
               <input type="hidden" id="ap-meeting-date" value="">
@@ -929,6 +941,7 @@
     <script type="module" src="/static/staff_lesson_slides.js"></script>
     {% elif tab == 'ap' %}
     <div id="ap-root" data-class-id="{{ cls.id }}" data-ap-view="{{ ap_view }}" data-take="0" data-participate="0" data-live-session-id="">
+      <div class="ap-tab-head">
       <nav class="ap-subtabs" aria-label="Attendance and Participation">
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}"
            class="{{ 'on' if ap_view == 'attendance' else '' }}">Attendance</a>
@@ -941,6 +954,8 @@
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='roster') }}"
            class="{{ 'on' if ap_view == 'roster' else '' }}">Roster</a>
       </nav>
+      {% include "staff/_show_test_students.html" %}
+      </div>
 
       {% if ap_view == 'attendance' %}
       <div id="attendance-root" data-class-id="{{ cls.id }}">
@@ -1213,6 +1228,10 @@
     </div>
     {% elif tab == 'gradebook' %}
     <div id="gradebook-root" data-class-id="{{ cls.id }}">
+      <div class="list-filter-head">
+        <h2 class="list-filter-title">Grades</h2>
+        {% include "staff/_show_test_students.html" %}
+      </div>
       <div id="gradebook-error" class="error" hidden></div>
       <div class="sheet-wrap">
         <table class="sheet" id="gradebook-sheet">

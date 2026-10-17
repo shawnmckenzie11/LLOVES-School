@@ -1,5 +1,6 @@
-<label class="show-test-students hint">
-  <input type="checkbox" id="show-test-students"{% if show_test_students %} checked{% endif %}>
-  Show test students
+<label class="show-test-students">
+  <input type="checkbox" class="show-test-students-input"{% if show_test_switch_id | default(true) %} id="show-test-students"{% endif %}{% if show_test_students %} checked{% endif %} data-show-test-students>
+  <span class="show-test-students-track" aria-hidden="true"></span>
+  <span class="show-test-students-label">Show test students</span>
 </label>
 <script src="/static/show_test_students.js"></script>

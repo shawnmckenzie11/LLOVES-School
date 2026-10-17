@@ -1557,8 +1557,8 @@ body.staff-shell .set-class-type-row .set-class-run-kind {
   gap: 0.45rem 0.55rem;
 }
 body.staff-shell .set-class-run-kind-toggle button.is-on#set-class-run-kind-test {
-  background: #f59e0b;
-  color: #1a1204;
+  background: #b45309;
+  color: #fff;
 }
 body.staff-shell .set-class-run-kind .staff-info-trigger {
   margin-left: 0;
@@ -8615,6 +8615,215 @@ body.staff-shell .set-class-start {
   padding: 0.55rem 0.95rem;
   font-weight: 650;
   cursor: pointer;
+  margin-left: auto;
+  white-space: nowrap;
+}
+body.staff-shell .set-class-start.is-test {
+  background: #b45309;
+  color: #fff;
+}
+body.staff-shell .live-set-class-card .live-pack-strip {
+  display: block;
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+body.staff-shell .set-class-step {
+  display: grid;
+  grid-template-columns: 28px 11.25rem minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 12px 0;
+  border-top: 1px solid #eef2f7;
+}
+body.staff-shell .set-class-step[hidden] {
+  display: none !important;
+}
+body.staff-shell .set-class-step-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #1d4ed8;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+body.staff-shell .set-class-step-q {
+  font-weight: 650;
+  padding-top: 2px;
+  color: #12202e;
+}
+body.staff-shell .set-class-step-q small {
+  display: block;
+  font-weight: 400;
+  color: #64748b;
+  font-size: 0.8rem;
+}
+body.staff-shell .set-class-step-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+body.staff-shell .set-class-which-fields {
+  align-items: flex-end;
+}
+body.staff-shell .set-class-deck-control {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.45rem;
+}
+/* The deck fieldset used to sit in a horizontal pack row, where
+   flex-basis 22rem was its width. Inside this column it would become
+   a 22rem height. Size it to the chips and the one-line note instead. */
+body.staff-shell .live-set-class-card .set-class-step .live-deck-seed {
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  min-inline-size: 0;
+}
+body.staff-shell .live-set-class-card .set-class-step .live-deck-seed legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  float: none;
+}
+body.staff-shell .live-set-class-card .set-class-step .live-deck-seed-seg {
+  clear: none;
+}
+body.staff-shell .set-class-deck-extra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+}
+body.staff-shell .set-class-deck-extra:not(:has(:not([hidden]))) {
+  display: none;
+}
+body.staff-shell .set-class-office-next {
+  margin: 0.35rem 0 0.35rem;
+  color: #334155;
+  font-weight: 650;
+}
+body.staff-shell .set-class-office-next[hidden] {
+  display: none !important;
+}
+body.staff-shell .set-class-footer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 14px;
+  margin-top: 4px;
+}
+body.staff-shell .set-class-summary {
+  margin: 0;
+  color: #475569;
+}
+body.staff-shell .show-test-students {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #475569;
+  cursor: pointer;
+}
+body.staff-shell .show-test-students input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  border: 0;
+}
+body.staff-shell .show-test-students-track {
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  background: #cbd5e1;
+  position: relative;
+  flex: none;
+}
+body.staff-shell .show-test-students-track::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+}
+body.staff-shell .show-test-students input:checked + .show-test-students-track {
+  background: #1d4ed8;
+}
+body.staff-shell .show-test-students input:checked + .show-test-students-track::after {
+  left: 16px;
+}
+body.staff-shell .show-test-students input:focus-visible + .show-test-students-track {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
+}
+body.staff-shell .ap-tab-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.75rem 0 1rem;
+  border-bottom: 1px solid #cbd5e1;
+}
+body.staff-shell .ap-tab-head .ap-subtabs {
+  margin: 0;
+  flex: 1 1 auto;
+  border-bottom: 0;
+  padding-bottom: 0.35rem;
+}
+body.staff-shell .list-filter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.25rem 0 0.75rem;
+}
+body.staff-shell .list-filter-title {
+  margin: 0;
+  font-size: 1.15rem;
+}
+body.staff-shell .roster-names-block {
+  position: relative;
+  margin-top: 0.85rem;
+}
+body.staff-shell .roster-names-block .roster-names {
+  margin-top: 0;
+}
+body.staff-shell .roster-names-switch {
+  position: absolute;
+  right: 0;
+  top: 0;
+  z-index: 2;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+body.staff-shell .roster-names-block .roster-names summary {
+  padding-right: 12.5rem;
+}
+body.staff-shell #class-list-pane .class-list-head {
+  flex-wrap: wrap;
+}
+body.staff-shell #class-list-pane .class-list-toggles {
+  justify-content: flex-end;
+  margin: 0 0 0.2rem;
 }
 body.staff-shell .live-shell-ia-v2.is-set-class > .set-class-slides {
   grid-row: 3;
