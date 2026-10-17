@@ -21731,13 +21731,12 @@ class SchoolDB(LovesDB):
                 view["rank_mode"] = "turns"
                 view["turns"] = self._rank_turns_teacher_rows(session_id, item)
             if self._rank_race_on(item):
-                # MCK-171: the race block carries no orders, and until Close
-                # neither does the rank stack (the card may be on the
-                # projector), so no team can read another's order.
+                # MCK-171: the race block carries lock state only (no orders).
+                # MCK-274: the open teacher card is the compact stack, so
+                # this collate keeps class order and team places. Students
+                # never receive this view.
                 view["race"] = self._rank_race_teacher_block(session_id, item)
-                if not revealed:
-                    view["rank"] = self._rank_collate_without_orders(view["rank"])
-                else:
+                if revealed:
                     view["race"]["results"] = self._rank_race_results(session_id, item)
             elif revealed and self._rank_results_mode(item) == "spots":
                 # MCK-185: after Close, the same coloured results as a Team
@@ -21802,22 +21801,6 @@ class SchoolDB(LovesDB):
             if thin and "quiet_dots" in thin:
                 team_row["quiet_dots"] = list(thin["quiet_dots"])
         return str(entry.get("response_seq") or "")
-
-    @staticmethod
-    def _rank_collate_without_orders(rank: dict[str, Any]) -> dict[str, Any]:
-        """MCK-171: a rank collate with every team order and the class order
-        removed (status only), for a Team challenge before Close.
-
-        Args:
-            rank: ``_rank_group_collate`` output.
-        """
-        out = dict(rank)
-        out["teams"] = [
-            {**team, "order": None, "order_label": ""} for team in rank.get("teams") or []
-        ]
-        out["class_order"] = []
-        out["seq"] = rank_fingerprint([], int(rank.get("responded") or 0))
-        return out
 
     def _rank_group_collate(
         self, session_id: int, item: dict[str, Any]
