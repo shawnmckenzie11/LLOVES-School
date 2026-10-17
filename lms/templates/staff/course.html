@@ -748,21 +748,6 @@
                 <p class="hint compact live-reopen-toast" id="live-canvas-reopen-toast" hidden role="status"></p>
                 <div class="live-group-setup-opts-host" data-group-setup-opts-host="canvas" hidden></div>
                 <p class="hint compact">Whiteboard lasts for this live class. Text stays until the class ends.</p>
-                <div class="wb-formative-toggles" id="live-whiteboard-formative-toggles" hidden>
-                  <label><input type="checkbox" id="live-whiteboard-always-names" /> Always show names</label>
-                  <label id="live-whiteboard-projector-wrap" hidden><input type="checkbox" id="live-whiteboard-projector-names" /> Names on projector</label>
-                </div>
-                <div class="live-canvas-toolbar" role="toolbar" aria-label="Whiteboard tools">
-                  <button type="button" id="live-canvas-undo">Undo</button>
-                  <button type="button" id="live-canvas-redo">Redo</button>
-                  <button type="button" id="live-canvas-erase">Erase</button>
-                  <button type="button" id="live-canvas-text" aria-pressed="false">Text</button>
-                </div>
-                <div class="live-canvas-stage">
-                  <canvas id="live-canvas-stub" class="live-canvas-stub" aria-label="Ephemeral whiteboard"></canvas>
-                  <div id="live-canvas-cursors" class="canvas-cursors" aria-hidden="true"></div>
-                </div>
-                <p class="hint compact" id="live-canvas-ephemeral-flag">canvas_ephemeral: true</p>
                 <section id="formative-live-board" class="wb-live" hidden>
                   <header class="wb-live-head">
                     <div>
@@ -770,8 +755,6 @@
                       <p id="wb-live-context" class="wb-live-context"></p>
                     </div>
                     <div class="wb-live-controls">
-                      <label><input type="checkbox" id="wb-live-always-names"> Always show names</label>
-                      <label><input type="checkbox" id="wb-live-projector-names"> Names on projector</label>
                       <label>Tiles/row
                         <select id="wb-live-cols" aria-label="Tiles per row">
                           <option value="3">3</option>
@@ -791,20 +774,21 @@
                       <div class="wb-live-panel-bar">
                         <button type="button" id="wb-live-prev" aria-label="Previous board">←</button>
                         <button type="button" id="wb-live-next" aria-label="Next board">→</button>
-                        <strong id="wb-live-panel-name">Student</strong>
+                        <strong id="wb-live-panel-name">Board</strong>
                         <span id="wb-live-panel-team" class="wb-live-team"></span>
                         <button type="button" id="wb-live-close" aria-label="Close board">×</button>
                       </div>
                       <p id="wb-live-panel-age" class="wb-live-age"></p>
-                      <canvas id="wb-live-panel-canvas" class="wb-live-panel-canvas" width="720" height="360" aria-label="Student board"></canvas>
-                      <div class="wb-live-panel-tools" role="toolbar" aria-label="Feedback tools">
-                        <button type="button" id="wb-live-pen">Feedback pen</button>
+                      <div class="wb-live-panel-tools" role="toolbar" aria-label="Whiteboard tools">
+                        <button type="button" id="wb-live-pen" class="is-on" aria-pressed="true">Pen</button>
                         <button type="button" id="wb-live-text" aria-pressed="false">Text</button>
+                        <button type="button" id="wb-live-erase">Erase</button>
                         <button type="button" id="wb-live-undo">Undo</button>
                         <button type="button" id="wb-live-show" class="wb-live-show">Show to class</button>
                         <button type="button" id="wb-live-send">Send feedback</button>
-                        <button type="button" id="wb-live-clear">Clear student's board</button>
+                        <button type="button" id="wb-live-clear">Clear board</button>
                       </div>
+                      <canvas id="wb-live-panel-canvas" class="wb-live-panel-canvas" width="720" height="360" aria-label="Whiteboard"></canvas>
                     </aside>
                   </div>
                 </section>

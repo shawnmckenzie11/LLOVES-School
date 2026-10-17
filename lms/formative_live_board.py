@@ -1,8 +1,8 @@
-"""Per-student formative whiteboard keys and public payloads.
+"""Teacher gallery payloads for the one live whiteboard.
 
-Ink stays in ``board_ops`` (``student:<id>`` and ``fb:<id>``). This module
-only shapes keys and the JSON a teacher or student is allowed to see.
-It does not write the gradebook.
+Ink stays on the surviving boards (``team:<sort>`` and ``solo:<id>``).
+This module only shapes the JSON a teacher is allowed to see. It does
+not write the gradebook.
 """
 
 from __future__ import annotations
@@ -32,37 +32,19 @@ _TAG_RE = re.compile(r"<[^>]+>")
 _SPACE_RE = re.compile(r"\s+")
 
 
-def student_ink_key(student_id: int) -> str:
-    """Board key for one student's own ink.
+_GALLERY_KEY = re.compile(r"^(?:team:[0-9]+|solo:[A-Za-z0-9_-]{1,80})$")
+
+
+def gallery_board_key(raw: str) -> str:
+    """Return a surviving board key, or raise ``ValueError``.
 
     Args:
-        student_id: Roster id from the live-session attendee row.
+        raw: Path token such as ``team:0`` or ``solo:12``.
     """
-    return f"student:{int(student_id)}"
-
-
-def feedback_ink_key(student_id: int) -> str:
-    """Board key for teacher pen feedback on one student's board.
-
-    Args:
-        student_id: Roster id the feedback belongs to.
-    """
-    return f"fb:{int(student_id)}"
-
-
-def blank_codename(codename: str, *, show: bool) -> str:
-    """Return the attendee codename, or an empty string when names are off.
-
-    The caller must already have read ``live_session_attendees.codename``.
-    A hidden name is blank on the server. The client may say "Student N".
-
-    Args:
-        codename: Codename stored on the attendee row.
-        show: True when the relevant names toggle is on.
-    """
-    if not show:
-        return ""
-    return str(codename or "").strip()
+    text = str(raw or "").strip()
+    if not _GALLERY_KEY.fullmatch(text):
+        raise ValueError("unknown board")
+    return text
 
 
 def team_fields(sort_order: int | None) -> dict[str, Any]:
@@ -239,155 +221,49 @@ def _delta_view(delta: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
-def build_tile(
+def build_gallery_tile(
     *,
-    student_id: int,
-    codename: str,
-    show_names: bool,
+    board_key: str,
+    name: str,
     team_sort_order: int | None,
-    submitted_at: str | None,
-    left_at: str | None,
-    anon_index: int,
-    student_delta: dict[str, Any] | None,
-    feedback_delta: dict[str, Any] | None,
+    away: bool,
+    delta: dict[str, Any] | None,
+    student_ids: list[int] | None = None,
 ) -> dict[str, Any]:
-    """One teacher-grid tile. Names are blank when the toggle is off.
+    """One teacher-gallery card.
+
+    ``name`` is the roster name or the team name. A blank name stays
+    blank. This card never invents a numbered stand-in.
 
     Args:
-        student_id: Roster id.
-        codename: ``live_session_attendees.codename`` only.
-        show_names: Stored ``whiteboard_always_show_names`` flag.
-        team_sort_order: Pin suffix, including ``0``.
-        submitted_at: Done timestamp, or None.
-        left_at: Attendee leave time, or None.
-        anon_index: 1-based join order for the "Student N" label.
-        student_delta: Since-seq delta for ``student:<id>``.
-        feedback_delta: Since-seq delta for ``fb:<id>``.
+        board_key: ``team:<sort>`` or ``solo:<id>``.
+        name: Label already read from the roster or the team row.
+        team_sort_order: Team suffix, including ``0``. None on a solo card.
+        away: True when every student on the card has left.
+        delta: Since-seq delta for this board, feedback included.
+        student_ids: Roster ids on the card. Omitted from the public copy
+            when empty.
     """
-    submitted = bool(str(submitted_at or "").strip())
-    away = bool(str(left_at or "").strip())
-    ink = _delta_view(student_delta)
-    feedback = _delta_view(feedback_delta)
-    tile = {
-        "student_id": int(student_id),
-        "codename": blank_codename(codename, show=show_names),
-        "anon_index": int(anon_index),
-        "board_key": student_ink_key(student_id),
-        "feedback_key": feedback_ink_key(student_id),
-        "submitted": submitted,
-        "away": away,
-        "drawing": not submitted and not away,
-        "last_stroke_at": ink["last_stroke_at"] or feedback["last_stroke_at"],
-        "board_seq": ink["board_seq"],
-        "feedback_seq": feedback["board_seq"],
-        "snapshot": bool(ink["snapshot"] or feedback["snapshot"]),
-        "ops": ink["ops"],
-        "feedback_ops": feedback["ops"],
-        "canvas_view": ink["canvas_view"],
-        "feedback_view": feedback["canvas_view"],
-    }
-    tile.update(team_fields(team_sort_order))
-    return public_board_payload(tile)
-
-
-def build_student_view(
-    *,
-    student_id: int,
-    team_sort_order: int | None,
-    submitted_at: str | None,
-    question: str,
-    context: str,
-    student_delta: dict[str, Any] | None,
-    feedback_delta: dict[str, Any] | None,
-    released_at: str | None,
-) -> dict[str, Any]:
-    """The signed-in student's board. Feedback is omitted until release.
-
-    Args:
-        student_id: Roster id taken from the session, never from the query.
-        team_sort_order: That student's pin.
-        submitted_at: Done timestamp, or None.
-        question: Active prompt text.
-        context: Course / module / slot / question line.
-        student_delta: Since-seq delta for this student's ink.
-        feedback_delta: Teacher ink. Ignored until ``released_at`` is set.
-        released_at: When the teacher pressed Send feedback.
-    """
-    ink = _delta_view(student_delta)
-    body: dict[str, Any] = {
-        "ok": True,
-        "visible": True,
-        "student_id": int(student_id),
-        "board_key": student_ink_key(student_id),
-        "submitted": bool(str(submitted_at or "").strip()),
-        "question": question,
-        "context": context,
+    ink = _delta_view(delta)
+    tile: dict[str, Any] = {
+        "board_key": gallery_board_key(board_key),
+        "name": str(name or "").strip(),
+        "away": bool(away),
+        "drawing": not away,
+        "last_stroke_at": ink["last_stroke_at"],
         "board_seq": ink["board_seq"],
         "snapshot": bool(ink["snapshot"]),
         "ops": ink["ops"],
         "canvas_view": ink["canvas_view"],
-        "saved": True,
     }
-    body.update(team_fields(team_sort_order))
-    if str(released_at or "").strip():
-        feedback = _delta_view(feedback_delta)
-        body["feedback"] = {
-            "released_at": str(released_at),
-            "board_seq": feedback["board_seq"],
-            "snapshot": bool(feedback["snapshot"]),
-            "ops": feedback["ops"],
-            "canvas_view": feedback["canvas_view"],
-        }
-    return public_board_payload(body)
-
-
-def build_projection(
-    *,
-    student_id: int,
-    codename: str,
-    show_names: bool,
-    team_sort_order: int | None,
-    question: str,
-    context: str,
-    student_delta: dict[str, Any] | None,
-    feedback_delta: dict[str, Any] | None,
-    include_feedback: bool = True,
-) -> dict[str, Any]:
-    """Show-on-board payload. The projector names toggle blanks the codename.
-
-    The feedback layer is omitted until the teacher has released it.
-    The side panel passes ``include_feedback`` true so unreleased marks
-    stay on the teacher's own screen.
-
-    Args:
-        student_id: Board being projected.
-        codename: Attendee codename.
-        show_names: Stored ``whiteboard_projector_names`` flag.
-        team_sort_order: Pin suffix.
-        question: Active prompt text.
-        context: Header line.
-        student_delta: Full or since-seq student ink.
-        feedback_delta: Teacher ink. Used only when ``include_feedback``.
-        include_feedback: True once ``released_at`` is set for Show to class.
-    """
-    ink = _delta_view(student_delta)
-    body: dict[str, Any] = {
-        "ok": True,
-        "projected": True,
-        "student_id": int(student_id),
-        "codename": blank_codename(codename, show=show_names),
-        "board_key": student_ink_key(student_id),
-        "question": question,
-        "context": context,
-        "board_seq": ink["board_seq"],
-        "ops": ink["ops"],
-        "canvas_view": ink["canvas_view"],
-    }
-    if include_feedback:
-        feedback = _delta_view(feedback_delta)
-        body["feedback_key"] = feedback_ink_key(student_id)
-        body["feedback_seq"] = feedback["board_seq"]
-        body["feedback_ops"] = feedback["ops"]
-        body["feedback_view"] = feedback["canvas_view"]
-    body.update(team_fields(team_sort_order))
-    return public_board_payload(body)
+    if student_ids:
+        tile["student_ids"] = [int(sid) for sid in student_ids]
+        if len(student_ids) == 1 and str(board_key).startswith("solo:"):
+            tile["student_id"] = int(student_ids[0])
+    tile.update(team_fields(team_sort_order))
+    if team_sort_order is None:
+        tile["team_label"] = ""
+        tile["team_board"] = ""
+    elif str(name or "").strip():
+        tile["team_label"] = str(name).strip()
+    return public_board_payload(tile)

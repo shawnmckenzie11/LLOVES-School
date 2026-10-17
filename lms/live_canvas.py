@@ -178,6 +178,20 @@ def public_canvas_sync(raw: Any) -> dict[str, Any]:
             break
     base["strokes"]["teacher"] = teacher_strokes
     base["strokes"]["teams"] = teams
+    raw_solos = strokes.get("solos") if isinstance(strokes.get("solos"), dict) else {}
+    solos: dict[str, list[dict[str, Any]]] = {}
+    for key, rows in raw_solos.items():
+        bucket: list[dict[str, Any]] = []
+        if not isinstance(rows, list):
+            continue
+        for item in rows:
+            cleaned = _clean_stroke(item)
+            if cleaned is not None:
+                bucket.append(cleaned)
+        if bucket:
+            solos[str(key)] = bucket
+    if solos:
+        base["strokes"]["solos"] = solos
     base["cursors"] = cursors
     base["texts"] = texts
     return base
@@ -475,8 +489,10 @@ def canvas_view_for(
             for row in texts
             if viewer and str(row.get("owner") or "") == str(viewer)
         ]
+        solos = blob["strokes"].get("solos") if isinstance(blob["strokes"].get("solos"), dict) else {}
+        own_strokes = list(solos.get(f"solo:{viewer}") or []) if viewer else []
         return {
-            "strokes": [],
+            "strokes": own_strokes,
             "cursors": [],
             "texts": _mark_text_ownership(own, viewer),
         }

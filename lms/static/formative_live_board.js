@@ -1,8 +1,8 @@
 /**
- * Formative live whiteboard: one board per student, teacher grid, phone tools.
+ * Teacher gallery for the one live whiteboard.
  *
- * Strokes go to the server as board ops. This file does not keep a second
- * copy of Done, release, or names. Those come back on the next poll.
+ * Cards stay hidden until a whiteboard question is published. Labels come
+ * from the server. Strokes stay in board ops.
  */
 
 import { bindWhiteboard, normalizeBoardPoint } from "./live_whiteboard.js";
@@ -66,16 +66,13 @@ export async function postOpsWithFreshRun({ runKey, post, refetch }) {
 }
 
 /**
- * Label from the server codename, or "Student N" when that field is blank.
+ * Label from the server. A blank name stays blank.
  *
- * @param {{codename?: string, anon_index?: number}} tile
+ * @param {{name?: string}} tile
  * @returns {string}
  */
 function tileName(tile) {
-  const name = String(tile?.codename || "").trim();
-  if (name) return name;
-  const index = Number(tile?.anon_index) || 0;
-  return index > 0 ? `Student ${index}` : "Student";
+  return String(tile?.name || "").trim();
 }
 
 /**
@@ -217,13 +214,13 @@ function strokeOps(canvas, openIds, points, ended, strokeId, color) {
   const ops = [];
   if (!openIds.has(id)) {
     if (!samples.length) return [];
-    ops.push({ type: "stroke_add", id, points: samples, color });
+    ops.push({ type: "stroke_add", id, points: samples, color, layer: "feedback" });
     openIds.add(id);
   } else if (samples.length) {
-    ops.push({ type: "pts_append", id, points: samples, color });
+    ops.push({ type: "pts_append", id, points: samples, color, layer: "feedback" });
   }
   if (ended) {
-    ops.push({ type: "stroke_end", id, color });
+    ops.push({ type: "stroke_end", id, color, layer: "feedback" });
     openIds.delete(id);
   }
   return ops;
@@ -248,38 +245,37 @@ export function mountTeacherGrid(root) {
   /** @type {any[]} */
   let tiles = [];
   let filter = "all";
-  let openId = 0;
+  let openKey = "";
   let session = 0;
   let tileTimer = 0;
   let panelTimer = 0;
   let panelSince = 0;
-  let feedbackSince = 0;
   let runKey = "";
   const openStrokes = new Set();
-  const alwaysNames = root.querySelector("#wb-live-always-names");
-  const projectorNames = root.querySelector("#wb-live-projector-names");
   const cols = root.querySelector("#wb-live-cols");
 
   const board = bindWhiteboard(canvas, {
+    penBtn: root.querySelector("#wb-live-pen"),
     textBtn: root.querySelector("#wb-live-text"),
+    eraseBtn: root.querySelector("#wb-live-erase"),
     undoBtn: root.querySelector("#wb-live-undo"),
     formative: {
       enabled: true,
       members: [],
       isTeacher: true,
       isPhone: false,
-      alwaysShowNames: false,
+      alwaysShowNames: true,
       projectorShowNames: false,
     },
     owner: () => "teacher",
     color: TEACHER_INK,
     onPoints: (points, ended, strokeId) => {
-      if (!openId) return;
+      if (!openKey) return;
       const ops = strokeOps(canvas, openStrokes, points, ended, strokeId, TEACHER_INK);
       if (ops.length) postFeedback(ops);
     },
     onText: (label) => {
-      if (!openId) return;
+      if (!openKey) return;
       const norm = normalizeBoardPoint(canvas, label);
       if (!norm) return;
       postFeedback([
@@ -290,11 +286,12 @@ export function mountTeacherGrid(root) {
           x: norm.x,
           y: norm.y,
           color: TEACHER_INK,
+          layer: "feedback",
         },
       ]);
     },
     onUndo: (stroke) => {
-      if (!openId || !stroke?.id) return;
+      if (!openKey || !stroke?.id) return;
       postFeedback([{ type: "stroke_remove", id: stroke.id }]);
     },
   });
@@ -309,6 +306,16 @@ export function mountTeacherGrid(root) {
   }
 
   /**
+   * @param {string} id
+   * @param {string} key
+   * @param {string} [suffix]
+   * @returns {string}
+   */
+  function boardUrl(id, key, suffix) {
+    return `/api/live-sessions/${id}/whiteboard-gallery/${encodeURIComponent(key)}${suffix || ""}`;
+  }
+
+  /**
    * @param {boolean} on
    */
   function showGrid(on) {
@@ -316,30 +323,6 @@ export function mountTeacherGrid(root) {
     root.classList.toggle("is-on", on);
   }
 
-  /**
-   * @param {Record<string, any>} patch
-   */
-  function patchNames(patch) {
-    const id = sessionId();
-    if (!id) return;
-    fetch(`/api/live-sessions/${id}/teacher-state`, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    }).catch(() => {});
-  }
-
-  if (alwaysNames instanceof HTMLInputElement) {
-    alwaysNames.addEventListener("change", () => {
-      patchNames({ whiteboard_always_show_names: alwaysNames.checked });
-    });
-  }
-  if (projectorNames instanceof HTMLInputElement) {
-    projectorNames.addEventListener("change", () => {
-      patchNames({ whiteboard_projector_names: projectorNames.checked });
-    });
-  }
   if (cols instanceof HTMLSelectElement) {
     cols.addEventListener("change", () => {
       grid.style.setProperty("--wb-live-cols", cols.value || "4");
@@ -349,30 +332,24 @@ export function mountTeacherGrid(root) {
   /**
    * @param {Record<string, any>[]} ops
    */
-  /**
-   * @param {Record<string, any>[]} ops
-   */
   function postFeedback(ops) {
     const id = sessionId();
-    const studentId = openId;
-    if (!id || !studentId || !ops.length) return;
+    const key = openKey;
+    if (!id || !key || !ops.length) return;
     const claimed = runKey;
     postOpsWithFreshRun({
       runKey: claimed,
-      post: async (key) => {
-        const res = await fetch(
-          `/api/live-sessions/${id}/formative-boards/${studentId}/feedback`,
-          {
-            method: "POST",
-            credentials: "same-origin",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              ops,
-              client_batch_id: batchId(),
-              run_key: key,
-            }),
-          }
-        );
+      post: async (run) => {
+        const res = await fetch(boardUrl(id, key, "/feedback"), {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ops,
+            client_batch_id: batchId(),
+            run_key: run,
+          }),
+        });
         let data = null;
         try {
           data = await res.json();
@@ -383,7 +360,7 @@ export function mountTeacherGrid(root) {
       },
       refetch: async () => {
         const data = await readJson(
-          `/api/live-sessions/${id}/formative-boards?cursors=${encodeURIComponent(JSON.stringify(cursors))}`,
+          `/api/live-sessions/${id}/whiteboard-gallery?cursors=${encodeURIComponent(JSON.stringify(cursors))}`,
           { credentials: "same-origin" }
         );
         return String(data?.run_key || "");
@@ -407,21 +384,18 @@ export function mountTeacherGrid(root) {
     const visible = rows.filter((tile) => filter === "all" || tile.team_board === filter);
     grid.replaceChildren();
     for (const tile of visible) {
+      const key = String(tile.board_key || "");
       const button = document.createElement("button");
       button.type = "button";
       button.className = "wb-live-tile";
-      if (Number(tile.student_id) === openId) button.classList.add("is-open");
-      button.dataset.studentId = String(tile.student_id);
+      if (key && key === openKey) button.classList.add("is-open");
+      button.dataset.boardKey = key;
       const stage = document.createElement("canvas");
       stage.width = 280;
       stage.height = 160;
       stage.className = "wb-live-tile-canvas";
-      const studentKey = String(tile.board_key || "");
-      const feedbackKey = String(tile.feedback_key || "");
-      const studentInk = ink[studentKey] || emptyInk();
-      const feedbackInk = ink[feedbackKey] || emptyInk();
-      paintTile(stage, studentInk.strokes, studentInk.texts, STUDENT_INK);
-      paintTileOverlay(stage, feedbackInk);
+      const bag = ink[key] || emptyInk();
+      paintTile(stage, bag.strokes, bag.texts, STUDENT_INK);
       const meta = document.createElement("span");
       meta.className = "wb-live-tile-meta";
       const dot = document.createElement("span");
@@ -430,50 +404,13 @@ export function mountTeacherGrid(root) {
       const name = document.createElement("span");
       name.className = "wb-live-name";
       name.textContent = tileName(tile);
-      if (tile.submitted) name.append(" ✓");
       const team = document.createElement("span");
       team.className = "wb-live-team";
-      team.textContent = String(tile.team_label || "");
+      team.textContent = tile.team_sort_order == null ? "" : "";
       meta.append(dot, name, team);
       button.append(stage, meta);
-      button.addEventListener("click", () => openStudent(Number(tile.student_id)));
+      button.addEventListener("click", () => openBoard(key));
       grid.appendChild(button);
-    }
-  }
-
-  /**
-   * Draw feedback ink on top of a tile that already has student ink.
-   *
-   * @param {HTMLCanvasElement} stage
-   * @param {{strokes: Record<string, any>, texts: Record<string, any>}} feedbackInk
-   */
-  function paintTileOverlay(stage, feedbackInk) {
-    const ctx = stage.getContext("2d");
-    if (!ctx) return;
-    const w = stage.width;
-    const h = stage.height;
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = TEACHER_INK;
-    ctx.fillStyle = TEACHER_INK;
-    for (const stroke of Object.values(feedbackInk.strokes)) {
-      const points = Array.isArray(stroke.points) ? stroke.points : [];
-      if (!points.length) continue;
-      ctx.beginPath();
-      ctx.strokeStyle = String(stroke.color || TEACHER_INK);
-      points.forEach((pt, index) => {
-        const x = Number(pt[0]) * w;
-        const y = Number(pt[1]) * h;
-        if (index === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      });
-      ctx.stroke();
-    }
-    ctx.font = "12px sans-serif";
-    for (const label of Object.values(feedbackInk.texts)) {
-      const body = String(label.text || "").trim();
-      if (!body) continue;
-      ctx.fillStyle = String(label.color || TEACHER_INK);
-      ctx.fillText(body, Number(label.x) * w, Number(label.y) * h + 14);
     }
   }
 
@@ -481,20 +418,15 @@ export function mountTeacherGrid(root) {
    * @param {any} payload
    */
   function applyTiles(payload) {
-    if (!payload || payload.ended) {
-      showGrid(false);
+    const visible = Boolean(payload && payload.visible && !payload.ended);
+    showGrid(visible);
+    if (!visible) {
+      tiles = [];
       return;
     }
-    showGrid(true);
     tiles = Array.isArray(payload.tiles) ? payload.tiles : [];
     if (context) context.textContent = String(payload.context || "");
     if (summary) summary.textContent = String(payload.summary || "");
-    if (alwaysNames instanceof HTMLInputElement && document.activeElement !== alwaysNames) {
-      alwaysNames.checked = Boolean(payload.always_show_names);
-    }
-    if (projectorNames instanceof HTMLInputElement && document.activeElement !== projectorNames) {
-      projectorNames.checked = Boolean(payload.names_on_projector);
-    }
     if (filters instanceof HTMLElement) {
       filters.replaceChildren();
       for (const chip of payload.filters || []) {
@@ -514,55 +446,40 @@ export function mountTeacherGrid(root) {
       }
     }
     for (const tile of tiles) {
-      const studentKey = String(tile.board_key || "");
-      const feedbackKey = String(tile.feedback_key || "");
-      if (!ink[studentKey]) ink[studentKey] = emptyInk();
-      if (!ink[feedbackKey]) ink[feedbackKey] = emptyInk();
-      foldDelta(ink[studentKey], tile, STUDENT_INK);
-      foldDelta(
-        ink[feedbackKey],
-        {
-          snapshot: tile.snapshot && tile.feedback_view,
-          canvas_view: tile.feedback_view,
-          ops: tile.feedback_ops,
-        },
-        TEACHER_INK
-      );
-      if (tile.board_seq != null) cursors[studentKey] = Number(tile.board_seq) || 0;
-      if (tile.feedback_seq != null) cursors[feedbackKey] = Number(tile.feedback_seq) || 0;
+      const key = String(tile.board_key || "");
+      if (!key) continue;
+      if (!ink[key]) ink[key] = emptyInk();
+      foldDelta(ink[key], tile, STUDENT_INK);
+      if (tile.board_seq != null) cursors[key] = Number(tile.board_seq) || 0;
     }
     paintGrid(tiles);
     const status = root.querySelector("#wb-live-projected");
     if (status) {
       const projected = tiles.find(
-        (tile) => Number(tile.student_id) === Number(payload.projected_student_id)
+        (tile) => String(tile.board_key || "") === String(payload.projected_board || "")
       );
       status.textContent = projected ? `On the board · ${tileName(projected)}` : "";
     }
   }
 
   /**
-   * @param {number} studentId
+   * @param {string} boardKey
    */
-  function openStudent(studentId) {
-    openId = studentId;
+  function openBoard(boardKey) {
+    openKey = String(boardKey || "");
     panelSince = 0;
-    feedbackSince = 0;
     openStrokes.clear();
     if (panel instanceof HTMLElement) panel.hidden = false;
-    const tile = tiles.find((row) => Number(row.student_id) === studentId);
+    const tile = tiles.find((row) => String(row.board_key || "") === openKey);
     const title = root.querySelector("#wb-live-panel-name");
     const age = root.querySelector("#wb-live-panel-age");
     const team = root.querySelector("#wb-live-panel-team");
-    if (title) title.textContent = tile ? tileName(tile) : "Student";
+    if (title) title.textContent = tile ? tileName(tile) : "Board";
     if (age) age.textContent = tile ? strokeAge(tile.last_stroke_at) : "";
-    if (team) team.textContent = tile ? String(tile.team_label || "") : "";
+    if (team) team.textContent = tile && tile.team_sort_order != null ? tileName(tile) : "";
     board.setFormative?.({
-      members: [
-        { id: String(studentId), name: "", color: STUDENT_INK, slot: 0 },
-        { id: "teacher", name: "", color: TEACHER_INK, slot: 1 },
-      ],
-      alwaysShowNames: false,
+      members: [{ id: "teacher", name: "", color: TEACHER_INK, slot: 0 }],
+      alwaysShowNames: true,
     });
     paintGrid(tiles);
     refreshPanel();
@@ -570,7 +487,7 @@ export function mountTeacherGrid(root) {
   }
 
   function closePanel() {
-    openId = 0;
+    openKey = "";
     if (panel instanceof HTMLElement) panel.hidden = true;
     paintGrid(tiles);
   }
@@ -581,33 +498,27 @@ export function mountTeacherGrid(root) {
   function stepPanel(step) {
     const visible = tiles.filter((tile) => filter === "all" || tile.team_board === filter);
     if (!visible.length) return;
-    const index = visible.findIndex((tile) => Number(tile.student_id) === openId);
+    const index = visible.findIndex((tile) => String(tile.board_key || "") === openKey);
     const next = visible[(index + step + visible.length) % visible.length];
-    if (next) openStudent(Number(next.student_id));
+    if (next) openBoard(String(next.board_key || ""));
   }
 
   async function refreshPanel() {
     const id = sessionId();
-    if (!id || !openId) return;
+    if (!id || !openKey) return;
     const data = await readJson(
-      `/api/live-sessions/${id}/formative-boards/${openId}?since=${panelSince}&feedback_since=${feedbackSince}`,
+      `${boardUrl(id, openKey)}?since=${panelSince}`,
       { credentials: "same-origin" }
     );
-    if (!data || Number(data.student_id) !== openId) return;
+    if (!data || String(data.board_key || "") !== openKey) return;
     const title = root.querySelector("#wb-live-panel-name");
-    if (title) title.textContent = String(data.codename || "").trim() || title.textContent;
-    if (data.snapshot && data.canvas_view && panelSince === 0) {
+    if (title) title.textContent = String(data.name || "").trim() || title.textContent;
+    if (data.snapshot && data.canvas_view) {
       board.resetRun?.(data.canvas_view);
     } else if (Array.isArray(data.ops) && data.ops.length) {
       board.applyDelta?.({ ops: data.ops });
     }
-    if (data.feedback_view && feedbackSince === 0) {
-      board.applyDelta?.({ snapshot: true, canvas_view: data.feedback_view });
-    } else if (Array.isArray(data.feedback_ops) && data.feedback_ops.length) {
-      board.applyDelta?.({ ops: data.feedback_ops });
-    }
     panelSince = Number(data.board_seq) || panelSince;
-    feedbackSince = Number(data.feedback_seq) || feedbackSince;
   }
 
   async function pollTiles() {
@@ -626,7 +537,7 @@ export function mountTeacherGrid(root) {
     }
     const query = encodeURIComponent(JSON.stringify(cursors));
     const data = await readJson(
-      `/api/live-sessions/${id}/formative-boards?cursors=${query}`,
+      `/api/live-sessions/${id}/whiteboard-gallery?cursors=${query}`,
       { credentials: "same-origin" }
     );
     if (!data) return;
@@ -638,24 +549,18 @@ export function mountTeacherGrid(root) {
   root.querySelector("#wb-live-prev")?.addEventListener("click", () => stepPanel(-1));
   root.querySelector("#wb-live-next")?.addEventListener("click", () => stepPanel(1));
   root.querySelector("#wb-live-close")?.addEventListener("click", closePanel);
-  root.querySelector("#wb-live-pen")?.addEventListener("click", () => {
-    const textBtn = root.querySelector("#wb-live-text");
-    if (textBtn instanceof HTMLButtonElement && textBtn.getAttribute("aria-pressed") === "true") {
-      textBtn.click();
-    }
-  });
   root.querySelector("#wb-live-send")?.addEventListener("click", () => {
     const id = sessionId();
-    if (!id || !openId) return;
-    fetch(`/api/live-sessions/${id}/formative-boards/${openId}/release`, {
+    if (!id || !openKey) return;
+    fetch(boardUrl(id, openKey, "/release"), {
       method: "POST",
       credentials: "same-origin",
     }).catch(() => {});
   });
   root.querySelector("#wb-live-clear")?.addEventListener("click", () => {
     const id = sessionId();
-    if (!id || !openId) return;
-    fetch(`/api/live-sessions/${id}/formative-boards/${openId}/clear`, {
+    if (!id || !openKey) return;
+    fetch(boardUrl(id, openKey, "/clear"), {
       method: "POST",
       credentials: "same-origin",
     })
@@ -667,8 +572,8 @@ export function mountTeacherGrid(root) {
   });
   root.querySelector("#wb-live-show")?.addEventListener("click", () => {
     const id = sessionId();
-    if (!id || !openId) return;
-    fetch(`/api/live-sessions/${id}/formative-boards/${openId}/show`, {
+    if (!id || !openKey) return;
+    fetch(boardUrl(id, openKey, "/show"), {
       method: "POST",
       credentials: "same-origin",
     })
@@ -686,243 +591,13 @@ export function mountTeacherGrid(root) {
   pollTiles();
   tileTimer = window.setInterval(pollTiles, TILE_POLL_MS);
   panelTimer = window.setInterval(() => {
-    if (openId) refreshPanel();
+    if (openKey) refreshPanel();
   }, PANEL_POLL_MS);
   void tileTimer;
   void panelTimer;
 }
 
-/**
- * Latest teacher text on a released feedback payload.
- *
- * @param {any} feedback
- * @returns {string}
- */
-function feedbackLine(feedback) {
-  if (!feedback || typeof feedback !== "object") return "";
-  const labels = [];
-  const view = feedback.canvas_view;
-  if (view && Array.isArray(view.texts)) labels.push(...view.texts);
-  for (const op of feedback.ops || []) {
-    if (op && op.type === "text_upsert" && String(op.text || "").trim()) labels.push(op);
-  }
-  const last = labels[labels.length - 1];
-  const text = String(last?.text || "").trim();
-  return text ? `Teacher: ${text}` : "Teacher feedback";
-}
-
-/**
- * Phone board for the signed-in student. The server decides who they are.
- *
- * @param {HTMLElement} root
- */
-export function mountStudentBoard(root) {
-  const canvas = root.querySelector("#wb-phone-canvas");
-  if (!(canvas instanceof HTMLCanvasElement)) return;
-  const openStrokes = new Set();
-  let since = 0;
-  let feedbackSince = 0;
-  let sawFeedback = false;
-  let studentOwner = "student";
-  let runKey = "";
-
-  const board = bindWhiteboard(canvas, {
-    undoBtn: root.querySelector("#wb-phone-undo"),
-    eraseBtn: root.querySelector("#wb-phone-erase"),
-    textBtn: root.querySelector("#wb-phone-text"),
-    formative: {
-      enabled: true,
-      members: [],
-      isTeacher: false,
-      isPhone: true,
-      alwaysShowNames: false,
-      projectorShowNames: false,
-    },
-    owner: () => studentOwner,
-    color: STUDENT_INK,
-    onPoints: (points, ended, strokeId) => {
-      const ops = strokeOps(canvas, openStrokes, points, ended, strokeId, STUDENT_INK);
-      if (ops.length) postOps(ops);
-    },
-    onText: (label) => {
-      const norm = normalizeBoardPoint(canvas, label);
-      if (!norm) return;
-      postOps([
-        {
-          type: "text_upsert",
-          id: label.id,
-          text: label.text,
-          x: norm.x,
-          y: norm.y,
-          color: STUDENT_INK,
-        },
-      ]);
-    },
-    onUndo: (stroke) => {
-      if (!stroke?.id) return;
-      postOps([{ type: "stroke_remove", id: stroke.id }]);
-    },
-    onClear: (gone) => {
-      const ops = [];
-      for (const stroke of gone || []) {
-        if (stroke?.id) ops.push({ type: "stroke_remove", id: stroke.id });
-      }
-      if (ops.length) postOps(ops);
-    },
-  });
-  board.setCollab(true);
-
-  /**
-   * @param {RequestInit} [init]
-   * @returns {RequestInit}
-   */
-  function withVisit(init) {
-    const merge = window.studentVisitFetchInit;
-    if (typeof merge === "function") return merge(init || {});
-    return init || {};
-  }
-
-  /**
-   * @param {Record<string, any>[]} ops
-   */
-  /**
-   * @param {Record<string, any>[]} ops
-   */
-  function postOps(ops) {
-    const claimed = runKey;
-    postOpsWithFreshRun({
-      runKey: claimed,
-      post: async (key) => {
-        const res = await fetch(
-          "/api/student/formative-board/ops",
-          withVisit({
-            method: "POST",
-            credentials: "same-origin",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              ops,
-              client_batch_id: batchId(),
-              since,
-              feedback_since: feedbackSince,
-              run_key: key,
-            }),
-          })
-        );
-        let data = null;
-        try {
-          data = await res.json();
-        } catch (_err) {
-          data = null;
-        }
-        return { status: res.status, data };
-      },
-      refetch: async () => {
-        const data = await readJson(
-          `/api/student/formative-board?since=${since}&feedback_since=${feedbackSince}`,
-          withVisit({ credentials: "same-origin" })
-        );
-        return String(data?.run_key || "");
-      },
-    })
-      .then((result) => {
-        const fromBody = String(result?.data?.run_key || "").trim();
-        if (fromBody) runKey = fromBody;
-        else if (result.sent.length > 1) {
-          const fresh = String(result.sent[result.sent.length - 1] || "").trim();
-          if (fresh) runKey = fresh;
-        }
-      })
-      .catch(() => {});
-  }
-
-  /**
-   * @param {any} data
-   */
-  function paint(data) {
-    if (!data || !data.visible) {
-      root.hidden = true;
-      return;
-    }
-    root.hidden = false;
-    const question = root.querySelector("#wb-phone-question");
-    if (question) question.textContent = String(data.question || data.context || "Whiteboard");
-    const team = root.querySelector("#wb-phone-team");
-    if (team) team.textContent = String(data.team_label || "");
-    const done = root.querySelector("#wb-phone-done");
-    if (done instanceof HTMLButtonElement) done.classList.toggle("is-on", Boolean(data.submitted));
-    const chip = root.querySelector("#wb-phone-feedback");
-    if (chip instanceof HTMLElement) {
-      if (data.feedback) {
-        chip.hidden = false;
-        chip.textContent = feedbackLine(data.feedback);
-      } else {
-        chip.hidden = true;
-        chip.textContent = "";
-      }
-    }
-    studentOwner = String(data.student_id || studentOwner);
-    const nextRun = String(data.run_key || "").trim();
-    if (nextRun) runKey = nextRun;
-    board.setFormative?.({
-      members: [
-        { id: studentOwner, name: "", color: STUDENT_INK, slot: 0 },
-        { id: "teacher", name: "", color: TEACHER_INK, slot: 1 },
-      ],
-      alwaysShowNames: false,
-    });
-    if (data.snapshot && data.canvas_view && since === 0) {
-      board.resetRun?.(data.canvas_view);
-    } else if (Array.isArray(data.ops) && data.ops.length) {
-      board.applyDelta?.({ ops: data.ops });
-    }
-    if (!sawFeedback && data.feedback?.canvas_view) {
-      board.applyDelta?.({ snapshot: true, canvas_view: data.feedback.canvas_view });
-      sawFeedback = true;
-    } else if (Array.isArray(data.feedback?.ops) && data.feedback.ops.length) {
-      board.applyDelta?.({ ops: data.feedback.ops });
-      sawFeedback = true;
-    }
-    since = Number(data.board_seq) || since;
-    if (data.feedback) feedbackSince = Number(data.feedback.board_seq) || feedbackSince;
-  }
-
-  async function poll() {
-    const data = await readJson(
-      `/api/student/formative-board?since=${since}&feedback_since=${feedbackSince}`,
-      withVisit({ credentials: "same-origin" })
-    );
-    if (data) paint(data);
-  }
-
-  root.querySelector("#wb-phone-pen")?.addEventListener("click", () => {
-    const textBtn = root.querySelector("#wb-phone-text");
-    if (textBtn instanceof HTMLButtonElement && textBtn.getAttribute("aria-pressed") === "true") {
-      textBtn.click();
-    }
-    root.querySelector("#wb-phone-pen")?.classList.add("is-on");
-    root.querySelector("#wb-phone-text")?.classList.remove("is-on");
-    root.querySelector("#wb-phone-erase")?.classList.remove("is-on");
-  });
-  root.querySelector("#wb-phone-question")?.addEventListener("click", () => {
-    root.querySelector("#wb-phone-question")?.classList.toggle("is-collapsed");
-  });
-  root.querySelector("#wb-phone-done")?.addEventListener("click", () => {
-    fetch(
-      "/api/student/formative-board/done",
-      withVisit({ method: "POST", credentials: "same-origin" })
-    )
-      .then(() => poll())
-      .catch(() => {});
-  });
-
-  poll();
-  window.setInterval(poll, TILE_POLL_MS);
-}
-
 if (typeof document !== "undefined") {
   const teacherRoot = document.getElementById("formative-live-board");
   if (teacherRoot instanceof HTMLElement) mountTeacherGrid(teacherRoot);
-
-  const studentRoot = document.getElementById("student-formative-board");
-  if (studentRoot instanceof HTMLElement) mountStudentBoard(studentRoot);
 }

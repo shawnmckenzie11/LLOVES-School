@@ -313,9 +313,7 @@ def formative_meta_for_board(
         )
     return {
         "members": members,
-        "always_show_names": bool(teacher.get("whiteboard_always_show_names")),
-        # The projector-names control is hidden for the whole collab
-        # session. A saved true must not keep labeling ink.
+        "always_show_names": True,
         "projector_show_names": False,
         "viewer_is_teacher": bool(as_teacher),
     }

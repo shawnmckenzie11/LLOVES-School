@@ -852,31 +852,23 @@ CREATE TABLE IF NOT EXISTS live_seq_floors (
 );
 
 -- MCK-218: stable whiteboard buckets per live run (team:<sort_order>, not game_teams.id).
+-- live_session_id ties the bucket to the live class that owns the ink (MCK-272).
 CREATE TABLE IF NOT EXISTS live_board_assignments (
     class_id INTEGER NOT NULL,
     run_key TEXT NOT NULL,
     board_key TEXT NOT NULL,
     student_id INTEGER NOT NULL,
     team_sort_order INTEGER NOT NULL,
+    live_session_id INTEGER,
     PRIMARY KEY (class_id, run_key, student_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_live_board_assignments_board
     ON live_board_assignments(class_id, run_key, board_key);
 
--- MCK-270: Done and released teacher feedback for one student's board.
--- Ink itself stays in board_ops under student:<id> and fb:<id>.
-CREATE TABLE IF NOT EXISTS live_board_feedback (
-    live_session_id INTEGER NOT NULL,
-    run_key TEXT NOT NULL,
-    student_id INTEGER NOT NULL,
-    released_at TEXT,
-    submitted_at TEXT,
-    PRIMARY KEY (live_session_id, student_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_live_board_feedback_run
-    ON live_board_feedback(run_key);
+-- Session index is created in _ensure_board_assignment_session_column
+-- after older databases gain live_session_id. Creating it here fails boot
+-- when the table already exists without that column.
 
 -- MCK-116 S1: one Celebrations avatar reward per featured appearance.
 -- (class_id, student_id) is the roster row; no names are stored. source_ref
@@ -30042,8 +30034,11 @@ class SchoolDB(LovesDB):
 
         Unique-per-student alignment stores cursors only. Frozen-to-teacher
         publishes teacher strokes. Shared-within-group publishes team
-        strokes plus named cursors. ``points`` is the batched payload;
-        ``point`` remains the single-sample payload.
+        strokes plus named cursors. An active Individual whiteboard
+        accepts student ink the same way Group does, even when ROUND
+        has collapsed the student canvas, and stores it on ``solo:<id>``
+        only. ``points`` is the batched payload; ``point`` remains the
+        single-sample payload.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -30061,8 +30056,14 @@ class SchoolDB(LovesDB):
         """
         teacher = self.live_session_teacher_state_payload(session_id)
         align = str(teacher.get("canvas_align") or "student")
-        if self._whiteboard_collab_active(session_id):
+        published = self._active_whiteboard_item(session_id)
+        mode = str((published or {}).get("publish_mode") or "")
+        if mode == "group_shared":
             align = "team"
+        elif mode == "individual" and not as_teacher:
+            # ROUND stores canvas_align as teacher. Individual publish
+            # still keeps this student's strokes, on solo:<id> only.
+            align = "student"
         publish = False
         bucket = "teacher"
         if align == "teacher" and as_teacher:
@@ -30071,6 +30072,9 @@ class SchoolDB(LovesDB):
         elif align == "team":
             publish = True
             bucket = "teacher" if as_teacher else "team"
+        elif align == "student" and not as_teacher and str(owner).isdigit():
+            publish = True
+            bucket = "solo"
         if not publish:
             return self.live_session_canvas_view(
                 session_id,
@@ -30084,6 +30088,8 @@ class SchoolDB(LovesDB):
             and str(who).isdigit()
         ):
             key = self.student_live_board_key(int(session_id), int(who))
+        elif bucket == "solo" and str(who).isdigit():
+            key = f"solo:{int(who)}"
         else:
             key = self._ink_board_key(
                 as_teacher=as_teacher,
@@ -30374,6 +30380,97 @@ class SchoolDB(LovesDB):
             "write": {collab, solo},
         }
 
+    def _student_feedback_delta(
+        self, session_id: int, board_key: str, delta: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Hide unreleased teacher marks on a student read.
+
+        A release in this window forces a snapshot so marks the student
+        already skipped are painted with the folded board.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            board_key: Board the student is allowed to read.
+            delta: ``since`` result for that board.
+        """
+        from board_ops import feedback_released
+
+        ops = list(delta.get("ops") or [])
+
+        def hidden(op: dict[str, Any]) -> bool:
+            """True for teacher feedback ink and the release marker."""
+            return (
+                str(op.get("layer") or "") == "feedback"
+                or str(op.get("type") or "") == "feedback_release"
+            )
+
+        if delta.get("snapshot") or not any(hidden(op) for op in ops if isinstance(op, dict)):
+            return delta
+        try:
+            rows = self._board_rows(int(session_id), str(board_key))
+        except KeyError:
+            rows = []
+        cleaned = dict(delta)
+        if not feedback_released(rows):
+            cleaned["ops"] = [op for op in ops if not (isinstance(op, dict) and hidden(op))]
+            return cleaned
+        if any(isinstance(op, dict) and str(op.get("type") or "") == "feedback_release" for op in ops):
+            cleaned["snapshot"] = True
+            cleaned["ops"] = []
+        return cleaned
+
+    def _with_released_feedback_ink(
+        self, session_id: int, board_key: str, view: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Add released teacher marks that a solo snapshot would otherwise drop.
+
+        Team snapshots already keep teacher-owned labels. A solo snapshot
+        keeps only that student's own labels, so released feedback text
+        is merged from this board alone.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            board_key: Board the snapshot was asked for.
+            view: Filtered canvas view for the student.
+        """
+        from board_ops import feedback_released, fold_one_board
+
+        if not isinstance(view, dict) or not str(board_key).startswith("solo:"):
+            return view
+        try:
+            rows = self._board_rows(int(session_id), str(board_key))
+        except KeyError:
+            return view
+        if not feedback_released(rows):
+            return view
+        folded = fold_one_board(rows, include_feedback=True)
+        merged = dict(view)
+        strokes = list(merged.get("strokes") or [])
+        texts = list(merged.get("texts") or [])
+        seen_strokes = {str(item.get("id") or "") for item in strokes if isinstance(item, dict)}
+        seen_texts = {str(item.get("id") or "") for item in texts if isinstance(item, dict)}
+        for stroke in folded.get("strokes") or []:
+            if not isinstance(stroke, dict):
+                continue
+            if str(stroke.get("owner") or "") != "teacher":
+                continue
+            sid = str(stroke.get("id") or "")
+            if sid and sid not in seen_strokes:
+                strokes.append(stroke)
+                seen_strokes.add(sid)
+        for label in folded.get("texts") or []:
+            if not isinstance(label, dict):
+                continue
+            if str(label.get("owner") or "") != "teacher":
+                continue
+            sid = str(label.get("id") or "")
+            if sid and sid not in seen_texts:
+                texts.append(label)
+                seen_texts.add(sid)
+        merged["strokes"] = strokes
+        merged["texts"] = texts
+        return merged
+
     def board_delta(
         self,
         session_id: int,
@@ -30398,14 +30495,23 @@ class SchoolDB(LovesDB):
         delta = self.boards.since(
             self.live_board_run_key(session_id), board_key, int(since_seq)
         )
+        if not as_teacher:
+            delta = self._student_feedback_delta(
+                int(session_id), str(board_key), delta
+            )
         if delta.get("snapshot"):
-            delta["canvas_view"] = self.live_session_canvas_view(
+            view = self.live_session_canvas_view(
                 int(session_id),
                 student_id=student_id,
                 as_teacher=as_teacher,
                 board_key=board_key,
             )
-            delta["canvas_sync"] = delta["canvas_view"]
+            if not as_teacher:
+                view = self._with_released_feedback_ink(
+                    int(session_id), str(board_key), view
+                )
+            delta["canvas_view"] = view
+            delta["canvas_sync"] = view
         return delta
 
     def remove_live_board_stroke(
@@ -30841,6 +30947,7 @@ class SchoolDB(LovesDB):
                     (int(session_id), *scoped_ids),
                 ).fetchall()
         out: list[dict[str, Any]] = []
+        roster_names = self._student_display_names(class_id)
         for row in rows:
             sid = int(row["student_id"])
             raw_team = by_student.get(sid)
@@ -30856,10 +30963,11 @@ class SchoolDB(LovesDB):
                 order is None or order != int(team_sort_order)
             ):
                 continue
+            roster_name = roster_names.get(sid, "")
             payload: dict[str, Any] = {
                 "student_id": sid,
-                "codename": str(row["codename"] or ""),
-                "name": str(row["codename"] or ""),
+                "codename": roster_name,
+                "name": roster_name,
                 "left_at": row["left_at"],
                 "team_id": row_team,
             }
@@ -31162,6 +31270,79 @@ class SchoolDB(LovesDB):
         key, gen = self._live_board_base_run_key(session_id)
         return self.board_generation_key(key, gen)
 
+    def _migrate_mck272_whiteboard(self) -> None:
+        """Tie team boards to the live session and drop the removed board.
+
+        Adds ``live_board_assignments.live_session_id`` when an older
+        database lacks it, fills that column from the live session, drops
+        the per-student feedback table, and deletes ``student:`` / ``fb:``
+        ink from the active board store.
+
+        Fresh databases already match the current schema. The board store
+        deletes leftover ``student:`` and ``fb:`` ink on the first boot,
+        then records that the delete has run so later boots do not scan
+        those tables again.
+        """
+        self._ensure_board_assignment_session_column()
+        with self._lock:
+            self.conn.execute("DROP TABLE IF EXISTS live_board_feedback")
+        boards = getattr(self, "boards", None)
+        drop = getattr(boards, "drop_removed_board_keys", None)
+        if drop is not None:
+            drop()
+
+    def _ensure_board_assignment_session_column(self) -> None:
+        """Add and backfill ``live_session_id`` on team-board assignments.
+
+        The column is optional for a game-show-only database that has not
+        created the assignment table. When it exists, each row is tied to
+        the live session whose run key owns that bucket.
+        """
+        with self._lock:
+            found = self.conn.execute(
+                """
+                SELECT 1 FROM sqlite_master
+                WHERE type = 'table' AND name = 'live_board_assignments'
+                """
+            ).fetchone()
+            if found is None:
+                return
+            cols = {
+                str(row["name"])
+                for row in self.conn.execute(
+                    "PRAGMA table_info(live_board_assignments)"
+                )
+            }
+            if "live_session_id" not in cols:
+                self.conn.execute(
+                    "ALTER TABLE live_board_assignments "
+                    "ADD COLUMN live_session_id INTEGER"
+                )
+            self.conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_live_board_assignments_session
+                ON live_board_assignments(live_session_id)
+                """
+            )
+            self.conn.execute(
+                """
+                UPDATE live_board_assignments
+                SET live_session_id = (
+                    SELECT s.id FROM live_class_sessions s
+                    WHERE s.class_id = live_board_assignments.class_id
+                      AND (
+                        s.run_key = live_board_assignments.run_key
+                        OR live_board_assignments.run_key
+                           LIKE s.run_key || '~g%'
+                      )
+                    ORDER BY CASE WHEN s.status = 'active' THEN 0 ELSE 1 END,
+                             s.id DESC
+                    LIMIT 1
+                )
+                WHERE live_session_id IS NULL
+                """
+            )
+
     def _install_sqlite_board_ops(self) -> None:
         """Install sqlite board ops, then the group ink tap.
 
@@ -31170,6 +31351,7 @@ class SchoolDB(LovesDB):
         """
         super()._install_sqlite_board_ops()
         self._wire_board_ink_tap()
+        self._migrate_mck272_whiteboard()
 
     def _install_postgres_board_ops(self, presence: Any) -> None:
         """Install Postgres board ops, then the group ink tap.
@@ -31179,6 +31361,7 @@ class SchoolDB(LovesDB):
         """
         super()._install_postgres_board_ops(presence)
         self._wire_board_ink_tap()
+        self._migrate_mck272_whiteboard()
 
     def _wire_board_ink_tap(self) -> None:
         """Point the board store at this school's ink tap.
@@ -31327,32 +31510,19 @@ class SchoolDB(LovesDB):
         )
 
     def _delete_live_board_feedback(self, session_id: int) -> None:
-        """Delete formative Done and feedback rows for one live session.
+        """Leave team-board pins in place when a live class ends.
 
-        Rows are removed by session id and by every board run key that
-        session has used. Safe to call more than once.
+        ``live_board_assignments`` has no Sent or Done columns. Sent is
+        the ``feedback_release`` op in ``board_ops``, and End clears that
+        ink with the rest of the board. The MCK-270 Done flag no longer
+        exists. Assignment rows stay. Main never deleted them on End.
+        Test-class delete removes them on its own path.
 
         Args:
-            session_id: ``live_class_sessions.id``.
+            session_id: ``live_class_sessions.id``. Accepted so existing
+                callers stay unchanged.
         """
-        sid = int(session_id)
-        keys: list[str] = []
-        try:
-            keys = [str(key) for key in self.live_board_generation_keys(sid)]
-        except KeyError:
-            keys = []
-        with self._lock:
-            self.conn.execute(
-                "DELETE FROM live_board_feedback WHERE live_session_id = ?",
-                (sid,),
-            )
-            for key in keys:
-                token = str(key or "").strip()
-                if token:
-                    self.conn.execute(
-                        "DELETE FROM live_board_feedback WHERE run_key = ?",
-                        (token,),
-                    )
+        _ = int(session_id)
 
     def _count_board_ops_for_run(self, run_key: str) -> int:
         """Count board-op rows stored under one run key.
@@ -31364,6 +31534,48 @@ class SchoolDB(LovesDB):
         if boards is None:
             return 0
         return int(boards.count_run_ops(str(run_key or "")))
+
+    def _formative_deltas(
+        self,
+        session_id: int,
+        cursors: dict[str, int],
+        *,
+        include_feedback: bool = True,
+    ) -> dict[str, dict[str, Any]]:
+        """One since-seq read for every requested board.
+
+        A board whose gap is too wide gets a folded canvas view from one
+        follow-up load of just those keys.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            cursors: Board key to last sequence. Built by the caller from
+                the roster, not from an unchecked client list.
+            include_feedback: True keeps teacher feedback ink in a snapshot.
+        """
+        from board_ops import fold_one_board
+
+        if not cursors:
+            return {}
+        run_key = self.live_board_run_key(int(session_id))
+        deltas = self.boards.since_many(run_key, cursors)
+        snap_keys = [
+            key for key, delta in deltas.items() if delta.get("snapshot")
+        ]
+        if not snap_keys:
+            return deltas
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in self.boards.load_keys(run_key, snap_keys):
+            grouped.setdefault(str(row.get("board_key") or ""), []).append(row)
+        for key in snap_keys:
+            slot = deltas.get(key)
+            if slot is None:
+                continue
+            slot["canvas_view"] = fold_one_board(
+                grouped.get(key) or [], include_feedback=include_feedback
+            )
+            slot["ops"] = []
+        return deltas
 
     def _formative_sort_orders(self, session_id: int, class_id: int) -> dict[int, int]:
         """Pin map for this run: student id to ``team:<sort_order>`` suffix.
@@ -31434,60 +31646,81 @@ class SchoolDB(LovesDB):
             raise KeyError(f"student {int(student_id)}")
         return dict(row)
 
-    def _formative_feedback_map(self, session_id: int) -> dict[int, dict[str, Any]]:
-        """Done and release timestamps keyed by student id.
+    def _student_display_names(self, class_id: int) -> dict[int, str]:
+        """Roster names from ``students.codename`` only.
+
+        Roster and attendance already show this column. ``first_name`` is
+        a different field and is not read. A blank name stays blank.
 
         Args:
-            session_id: ``live_class_sessions.id``.
+            class_id: Game-show ``classes.id``.
         """
-        with self._lock:
-            rows = self.conn.execute(
-                """
-                SELECT student_id, released_at, submitted_at
-                FROM live_board_feedback
-                WHERE live_session_id = ?
-                """,
-                (int(session_id),),
-            ).fetchall()
-        out: dict[int, dict[str, Any]] = {}
+        try:
+            with self._lock:
+                rows = self.conn.execute(
+                    "SELECT id, codename FROM students WHERE class_id = ?",
+                    (int(class_id),),
+                ).fetchall()
+        except sqlite3.Error:
+            return {}
+        out: dict[int, str] = {}
         for row in rows:
-            out[int(row["student_id"])] = dict(row)
+            try:
+                out[int(row["id"])] = str(row["codename"] or "").strip()
+            except (TypeError, ValueError):
+                continue
         return out
 
-    def _upsert_formative_feedback_row(
-        self, session_id: int, student_id: int
-    ) -> str:
-        """Ensure a feedback row exists and return the current run key.
+    def _team_display_names(self, class_id: int) -> dict[int, str]:
+        """Team names keyed by sort order. The Class bucket is skipped.
 
         Args:
-            session_id: ``live_class_sessions.id``.
-            student_id: Roster id.
-
-        Returns:
-            The run key ink for this session is stored under.
+            class_id: Game-show ``classes.id``.
         """
-        run_key = self.live_board_run_key(int(session_id))
-        with self._lock:
-            self.conn.execute(
-                """
-                INSERT INTO live_board_feedback (
-                    live_session_id, run_key, student_id, released_at, submitted_at
-                ) VALUES (?, ?, ?, NULL, NULL)
-                ON CONFLICT(live_session_id, student_id)
-                DO UPDATE SET run_key = excluded.run_key
-                """,
-                (int(session_id), run_key, int(student_id)),
-            )
-        return run_key
+        try:
+            state = self.game.game_state(int(class_id))
+        except Exception:  # noqa: BLE001 - a class with no game has no teams
+            return {}
+        out: dict[int, str] = {}
+        for team in state.get("teams") or []:
+            if not isinstance(team, dict):
+                continue
+            name = str(team.get("name") or "").strip()
+            if not name or name == "Class":
+                continue
+            raw = team.get("sort_order")
+            try:
+                order = 0 if raw in (None, "") else int(raw)
+            except (TypeError, ValueError):
+                order = 0
+            out[order] = name
+        return out
 
-    def _formative_context(self, session_id: int) -> tuple[str, str, bool, bool]:
-        """Question line, context line, and the two name toggles.
+    def _active_whiteboard_item(self, session_id: int) -> dict[str, Any] | None:
+        """The published whiteboard row, or None when the board is hidden.
 
         Args:
             session_id: ``live_class_sessions.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT id, publish_mode, status
+                FROM live_session_items
+                WHERE live_session_id = ? AND kind = 'whiteboard'
+                  AND status = 'active'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (int(session_id),),
+            ).fetchone()
+        return dict(row) if row is not None else None
 
-        Returns:
-            ``(question, context, always_show_names, projector_names)``.
+    def _whiteboard_context(self, session_id: int) -> tuple[str, str]:
+        """Question line and the course / module / slot header.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
         """
         from formative_live_board import context_line, question_text
 
@@ -31513,438 +31746,326 @@ class SchoolDB(LovesDB):
             str(teacher.get("live_slot") or ""),
             question,
         )
-        return (
-            question,
-            context,
-            bool(teacher.get("whiteboard_always_show_names")),
-            bool(teacher.get("whiteboard_projector_names")),
-        )
+        return question, context
 
-    def _formative_deltas(
-        self, session_id: int, cursors: dict[str, int]
-    ) -> dict[str, dict[str, Any]]:
-        """One since-seq read for every requested board.
+    def _gallery_cards(self, session_id: int) -> list[dict[str, Any]]:
+        """Cards for the published whiteboard. Empty until one is active.
 
-        A board whose gap is too wide gets a folded ``canvas_view`` from
-        one follow-up load of just those keys.
+        A group publish is one card per team. An individual publish is one
+        card per joined student. The label is the team name or the roster
+        name column, never a numbered stand-in.
 
         Args:
             session_id: ``live_class_sessions.id``.
-            cursors: Board key to last sequence. Built by the caller from
-                the roster, not from an unchecked client list.
         """
-        from board_ops import fold_one_board
-
-        if not cursors:
-            return {}
-        run_key = self.live_board_run_key(int(session_id))
-        deltas = self.boards.since_many(run_key, cursors)
-        snap_keys = [
-            key for key, delta in deltas.items() if delta.get("snapshot")
-        ]
-        if not snap_keys:
-            return deltas
-        grouped: dict[str, list[dict[str, Any]]] = {}
-        for row in self.boards.load_keys(run_key, snap_keys):
-            grouped.setdefault(str(row.get("board_key") or ""), []).append(row)
-        for key in snap_keys:
-            slot = deltas.get(key)
-            if slot is None:
+        item = self._active_whiteboard_item(int(session_id))
+        if item is None:
+            return []
+        session_row = self.get_live_session(int(session_id))
+        if session_row is None:
+            return []
+        class_id = int(session_row["class_id"])
+        attendees = self._formative_attendees(int(session_id))
+        names = self._student_display_names(class_id)
+        group = str(item.get("publish_mode") or "") == "group_shared"
+        if not group:
+            cards: list[dict[str, Any]] = []
+            for row in attendees:
+                sid = int(row["student_id"])
+                cards.append(
+                    {
+                        "board_key": f"solo:{sid}",
+                        "name": names.get(sid, ""),
+                        "student_ids": [sid],
+                        "team_sort_order": None,
+                        "away": bool(str(row.get("left_at") or "").strip()),
+                    }
+                )
+            return cards
+        team_names = self._team_display_names(class_id)
+        buckets: dict[int, list[dict[str, Any]]] = {}
+        for row in self.list_live_session_team_members(int(session_id), None):
+            order = row.get("team_sort_order")
+            if order is None:
                 continue
-            slot["canvas_view"] = fold_one_board(grouped.get(key) or [])
-            slot["ops"] = []
-        return deltas
+            buckets.setdefault(int(order), []).append(row)
+        cards = []
+        for order in sorted(buckets):
+            members = buckets[order]
+            cards.append(
+                {
+                    "board_key": f"team:{order}",
+                    "name": team_names.get(order, ""),
+                    "student_ids": [int(row["student_id"]) for row in members],
+                    "team_sort_order": order,
+                    "away": all(
+                        bool(str(row.get("left_at") or "").strip()) for row in members
+                    ),
+                }
+            )
+        return cards
 
-    def formative_tile_poll(
+    def _require_gallery_card(self, session_id: int, board_key: str) -> dict[str, Any]:
+        """Return one published card, or raise ``KeyError``.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            board_key: ``team:<sort>`` or ``solo:<id>``.
+        """
+        from formative_live_board import gallery_board_key
+
+        key = gallery_board_key(board_key)
+        for card in self._gallery_cards(int(session_id)):
+            if str(card.get("board_key") or "") == key:
+                return card
+        raise KeyError(key)
+
+    def _board_rows(self, session_id: int, board_key: str) -> list[dict[str, Any]]:
+        """Stored ops for one surviving board.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            board_key: Canonical board key.
+        """
+        run_key = self.live_board_run_key(int(session_id))
+        return list(self.boards.load_keys(run_key, [str(board_key)]))
+
+    def whiteboard_gallery(
         self, session_id: int, cursors: dict[str, int] | None = None
     ) -> dict[str, Any]:
-        """Teacher grid: one delta query for every student board and feedback.
-
-        Codename is blank when Always show names is off. The flag is read
-        from stored teacher state, not from the request.
+        """Teacher gallery. Hidden until a whiteboard question is published.
 
         Args:
             session_id: ``live_class_sessions.id``.
-            cursors: Optional per-board sequences. Roster keys default to 0.
+            cursors: Optional per-board sequences. Known cards default to 0.
 
         Returns:
-            Public tile payload. ``ended`` when the session is not active.
+            Public gallery payload. ``visible`` is false before publish.
+            ``ended`` when the session is not active.
         """
-        from formative_live_board import (
-            build_tile,
-            feedback_ink_key,
-            public_board_payload,
-            student_ink_key,
-            summary_line,
-            team_filters,
-        )
+        from formative_live_board import build_gallery_tile, public_board_payload, summary_line, team_filters
 
         session_row = self.get_live_session(int(session_id))
         if session_row is None:
             raise KeyError(f"live session {session_id}")
         if str(session_row.get("status") or "") != "active":
-            return {"ok": True, "ended": True, "tiles": []}
-        attendees = self._formative_attendees(int(session_id))
-        feedback = self._formative_feedback_map(int(session_id))
-        orders = self._formative_sort_orders(
-            int(session_id), int(session_row["class_id"])
-        )
+            return {"ok": True, "ended": True, "visible": False, "tiles": []}
+        cards = self._gallery_cards(int(session_id))
+        if not cards:
+            return {"ok": True, "ended": False, "visible": False, "tiles": []}
         supplied = cursors or {}
-        query: dict[str, int] = {}
-        for row in attendees:
-            sid = int(row["student_id"])
-            ink_key = student_ink_key(sid)
-            mark_key = feedback_ink_key(sid)
-            query[ink_key] = int(supplied.get(ink_key) or 0)
-            query[mark_key] = int(supplied.get(mark_key) or 0)
-        deltas = self._formative_deltas(int(session_id), query)
-        _question, context, show_names, projector_names = self._formative_context(
-            int(session_id)
-        )
-        tiles = []
-        for index, row in enumerate(attendees, start=1):
-            sid = int(row["student_id"])
-            mark = feedback.get(sid) or {}
-            order = orders.get(sid)
-            tiles.append(
-                build_tile(
-                    student_id=sid,
-                    codename=str(row.get("codename") or ""),
-                    show_names=show_names,
-                    team_sort_order=order,
-                    submitted_at=mark.get("submitted_at"),
-                    left_at=row.get("left_at"),
-                    anon_index=index,
-                    student_delta=deltas.get(student_ink_key(sid)),
-                    feedback_delta=deltas.get(feedback_ink_key(sid)),
-                )
+        query = {
+            str(card["board_key"]): int(supplied.get(str(card["board_key"])) or 0)
+            for card in cards
+        }
+        deltas = self._formative_deltas(int(session_id), query, include_feedback=True)
+        _question, context = self._whiteboard_context(int(session_id))
+        tiles = [
+            build_gallery_tile(
+                board_key=str(card["board_key"]),
+                name=str(card.get("name") or ""),
+                team_sort_order=card.get("team_sort_order"),
+                away=bool(card.get("away")),
+                delta=deltas.get(str(card["board_key"])),
+                student_ids=list(card.get("student_ids") or []),
             )
+            for card in cards
+        ]
         teacher = self.live_session_teacher_state_payload(int(session_id))
         return public_board_payload(
             {
                 "ok": True,
                 "ended": False,
+                "visible": True,
                 "run_key": self.live_board_run_key(int(session_id)),
                 "context": context,
-                "always_show_names": show_names,
-                "names_on_projector": projector_names,
                 "summary": summary_line(tiles),
                 "filters": team_filters(tiles),
-                "projected_student_id": teacher.get("whiteboard_projected_student_id"),
+                "projected_board": str(teacher.get("whiteboard_projected_board") or ""),
                 "tiles": tiles,
             }
         )
 
-    def formative_open_board(
-        self,
-        session_id: int,
-        student_id: int,
-        *,
-        since: int = 0,
-        feedback_since: int = 0,
+    def whiteboard_open_board(
+        self, session_id: int, board_key: str, *, since: int = 0
     ) -> dict[str, Any]:
-        """Teacher side panel for one student, including unreleased feedback.
+        """Teacher side panel for one board, including unreleased feedback.
 
         Args:
             session_id: ``live_class_sessions.id``.
-            student_id: Roster id.
-            since: Last sequence on ``student:<id>``.
-            feedback_since: Last sequence on ``fb:<id>``.
+            board_key: ``team:<sort>`` or ``solo:<id>``.
+            since: Last sequence the panel has applied.
         """
-        from formative_live_board import (
-            build_projection,
-            feedback_ink_key,
-            student_ink_key,
-        )
+        from board_ops import feedback_released, fold_one_board
+        from formative_live_board import public_board_payload
 
-        attendee = self._require_formative_attendee(int(session_id), int(student_id))
-        session_row = self.get_live_session(int(session_id))
-        if session_row is None:
-            raise KeyError(f"live session {session_id}")
-        orders = self._formative_sort_orders(
-            int(session_id), int(session_row["class_id"])
-        )
-        question, context, show_names, _projector = self._formative_context(
-            int(session_id)
-        )
-        ink_key = student_ink_key(int(student_id))
-        mark_key = feedback_ink_key(int(student_id))
+        card = self._require_gallery_card(int(session_id), board_key)
+        key = str(card["board_key"])
+        question, context = self._whiteboard_context(int(session_id))
+        rows = self._board_rows(int(session_id), key)
         deltas = self._formative_deltas(
-            int(session_id),
-            {ink_key: int(since), mark_key: int(feedback_since)},
+            int(session_id), {key: int(since)}, include_feedback=True
         )
-        # The side panel is the teacher's own screen. Always-show names
-        # controls it. Show on board uses the projector toggle instead.
-        body = build_projection(
-            student_id=int(student_id),
-            codename=str(attendee.get("codename") or ""),
-            show_names=show_names,
-            team_sort_order=orders.get(int(student_id)),
-            question=question,
-            context=context,
-            student_delta=deltas.get(ink_key),
-            feedback_delta=deltas.get(mark_key),
-        )
-        mark = self._formative_feedback_map(int(session_id)).get(int(student_id)) or {}
-        body["submitted"] = bool(str(mark.get("submitted_at") or "").strip())
-        body["released"] = bool(str(mark.get("released_at") or "").strip())
-        body["away"] = bool(str(attendee.get("left_at") or "").strip())
-        body["run_key"] = self.live_board_run_key(int(session_id))
-        return body
+        delta = deltas.get(key) or {}
+        view = delta.get("canvas_view")
+        if not isinstance(view, dict):
+            view = fold_one_board(rows, include_feedback=True)
+        body = {
+            "ok": True,
+            "board_key": key,
+            "name": str(card.get("name") or ""),
+            "team_label": str(card.get("name") or "")
+            if card.get("team_sort_order") is not None
+            else "",
+            "question": question,
+            "context": context,
+            "released": feedback_released(rows),
+            "away": bool(card.get("away")),
+            "run_key": self.live_board_run_key(int(session_id)),
+            "board_seq": int(delta.get("board_seq") or 0),
+            "snapshot": bool(delta.get("snapshot")) or int(since) == 0,
+            "ops": [] if int(since) == 0 or delta.get("snapshot") else list(delta.get("ops") or []),
+            "canvas_view": view if int(since) == 0 or delta.get("snapshot") else None,
+        }
+        return public_board_payload(body)
 
-    def formative_student_payload(
+    def append_whiteboard_feedback(
         self,
         session_id: int,
-        student_id: int,
-        *,
-        since: int = 0,
-        feedback_since: int = 0,
-    ) -> dict[str, Any]:
-        """One student's board. Feedback is included only after Send feedback.
-
-        ``student_id`` must already be the id from the visit, not a query.
-
-        Args:
-            session_id: ``live_class_sessions.id``.
-            student_id: Roster id from the session.
-            since: Last sequence on this student's ink.
-            feedback_since: Last sequence on released feedback.
-        """
-        from formative_live_board import (
-            build_student_view,
-            feedback_ink_key,
-            student_ink_key,
-        )
-
-        attendee = self._require_formative_attendee(int(session_id), int(student_id))
-        session_row = self.get_live_session(int(session_id))
-        if session_row is None:
-            raise KeyError(f"live session {session_id}")
-        if str(session_row.get("status") or "") != "active":
-            return {"ok": True, "ended": True, "visible": False, "run_key": ""}
-        orders = self._formative_sort_orders(
-            int(session_id), int(session_row["class_id"])
-        )
-        question, context, _show, _projector = self._formative_context(int(session_id))
-        mark = self._formative_feedback_map(int(session_id)).get(int(student_id)) or {}
-        released_at = str(mark.get("released_at") or "").strip()
-        ink_key = student_ink_key(int(student_id))
-        cursors = {ink_key: int(since)}
-        if released_at:
-            cursors[feedback_ink_key(int(student_id))] = int(feedback_since)
-        deltas = self._formative_deltas(int(session_id), cursors)
-        view = build_student_view(
-            student_id=int(student_id),
-            team_sort_order=orders.get(int(student_id)),
-            submitted_at=mark.get("submitted_at"),
-            question=question,
-            context=context,
-            student_delta=deltas.get(ink_key),
-            feedback_delta=deltas.get(feedback_ink_key(int(student_id)))
-            if released_at
-            else None,
-            released_at=released_at or None,
-        )
-        view["run_key"] = self.live_board_run_key(int(session_id))
-        return view
-
-    def formative_projection(self, session_id: int, student_id: int) -> dict[str, Any]:
-        """Show-to-class payload. Projector names are blanked on the server.
-
-        Teacher ink is included only after ``released_at`` is set. The
-        side panel still receives unreleased marks.
-
-        Args:
-            session_id: ``live_class_sessions.id``.
-            student_id: Board to project.
-        """
-        from formative_live_board import (
-            build_projection,
-            feedback_ink_key,
-            student_ink_key,
-        )
-
-        attendee = self._require_formative_attendee(int(session_id), int(student_id))
-        session_row = self.get_live_session(int(session_id))
-        if session_row is None:
-            raise KeyError(f"live session {session_id}")
-        orders = self._formative_sort_orders(
-            int(session_id), int(session_row["class_id"])
-        )
-        question, context, _show, projector_names = self._formative_context(
-            int(session_id)
-        )
-        ink_key = student_ink_key(int(student_id))
-        mark_key = feedback_ink_key(int(student_id))
-        mark = self._formative_feedback_map(int(session_id)).get(int(student_id)) or {}
-        released = bool(str(mark.get("released_at") or "").strip())
-        cursors = {ink_key: 0}
-        if released:
-            cursors[mark_key] = 0
-        deltas = self._formative_deltas(int(session_id), cursors)
-        body = build_projection(
-            student_id=int(student_id),
-            codename=str(attendee.get("codename") or ""),
-            show_names=projector_names,
-            team_sort_order=orders.get(int(student_id)),
-            question=question,
-            context=context,
-            student_delta=deltas.get(ink_key),
-            feedback_delta=deltas.get(mark_key) if released else None,
-            include_feedback=released,
-        )
-        body["run_key"] = self.live_board_run_key(int(session_id))
-        return body
-
-    def append_formative_student_ops(
-        self,
-        session_id: int,
-        student_id: int,
+        board_key: str,
         ops: list[dict[str, Any]],
         *,
         client_batch_id: str | None = None,
         claimed_run_key: str | None = None,
     ) -> dict[str, Any]:
-        """Append ink to ``student:<id>``. The owner is the session student.
+        """Append teacher feedback on the surviving board.
 
         Args:
             session_id: ``live_class_sessions.id``.
-            student_id: Roster id from the session.
-            ops: Client ops. Names and secrets are stripped.
-            client_batch_id: Retry token.
-            claimed_run_key: Run key the client last read.
-        """
-        from formative_live_board import scrub_op, student_ink_key
-
-        self._require_formative_attendee(int(session_id), int(student_id))
-        cleaned = [scrub_op(op) for op in ops if isinstance(op, dict)]
-        return self.append_live_board_ops(
-            int(session_id),
-            student_ink_key(int(student_id)),
-            owner=str(int(student_id)),
-            ops=cleaned,
-            client_batch_id=client_batch_id,
-            claimed_run_key=claimed_run_key,
-        )
-
-    def append_formative_feedback_ops(
-        self,
-        session_id: int,
-        student_id: int,
-        ops: list[dict[str, Any]],
-        *,
-        client_batch_id: str | None = None,
-        claimed_run_key: str | None = None,
-    ) -> dict[str, Any]:
-        """Append teacher pen feedback on ``fb:<id>``.
-
-        Args:
-            session_id: ``live_class_sessions.id``.
-            student_id: Student whose board is being marked.
+            board_key: Card the teacher is marking.
             ops: Teacher ops. Names and secrets are stripped.
             client_batch_id: Retry token.
             claimed_run_key: Run key the client last read.
         """
-        from formative_live_board import feedback_ink_key, scrub_op
+        from formative_live_board import scrub_op
 
-        self._require_formative_attendee(int(session_id), int(student_id))
-        cleaned = [scrub_op(op) for op in ops if isinstance(op, dict)]
+        card = self._require_gallery_card(int(session_id), board_key)
+        cleaned: list[dict[str, Any]] = []
+        for op in ops:
+            if not isinstance(op, dict):
+                continue
+            item = scrub_op(op)
+            kind = str(item.get("type") or "")
+            if kind in {"text_upsert", "stroke_add", "pts_append", "stroke_end"}:
+                item["layer"] = "feedback"
+            cleaned.append(item)
         return self.append_live_board_ops(
             int(session_id),
-            feedback_ink_key(int(student_id)),
+            str(card["board_key"]),
             owner="teacher",
             ops=cleaned,
             client_batch_id=client_batch_id,
             claimed_run_key=claimed_run_key,
         )
 
-    def mark_formative_done(self, session_id: int, student_id: int) -> dict[str, Any]:
-        """Set the Done flag. The board stays editable and is not graded.
-
-        Args:
-            session_id: ``live_class_sessions.id``.
-            student_id: Roster id from the session.
-        """
-        self._require_formative_attendee(int(session_id), int(student_id))
-        self._upsert_formative_feedback_row(int(session_id), int(student_id))
-        with self._lock:
-            self.conn.execute(
-                """
-                UPDATE live_board_feedback
-                SET submitted_at = COALESCE(submitted_at, ?)
-                WHERE live_session_id = ? AND student_id = ?
-                """,
-                (_now(), int(session_id), int(student_id)),
-            )
-        return {"ok": True, "submitted": True}
-
-    def release_formative_feedback(
-        self, session_id: int, student_id: int
+    def release_whiteboard_feedback(
+        self, session_id: int, board_key: str
     ) -> dict[str, Any]:
-        """Mark teacher feedback visible to that student (Send feedback).
+        """Make teacher feedback on this board visible to the class.
 
         Args:
             session_id: ``live_class_sessions.id``.
-            student_id: Student who may now see ``fb:<id>``.
+            board_key: Card whose marks should be released.
         """
-        self._require_formative_attendee(int(session_id), int(student_id))
-        self._upsert_formative_feedback_row(int(session_id), int(student_id))
-        stamp = _now()
-        with self._lock:
-            self.conn.execute(
-                """
-                UPDATE live_board_feedback
-                SET released_at = ?
-                WHERE live_session_id = ? AND student_id = ?
-                """,
-                (stamp, int(session_id), int(student_id)),
-            )
-        return {"ok": True, "released_at": stamp}
+        card = self._require_gallery_card(int(session_id), board_key)
+        self.append_live_board_ops(
+            int(session_id),
+            str(card["board_key"]),
+            owner="teacher",
+            ops=[{"type": "feedback_release", "id": "release"}],
+        )
+        return {"ok": True, "released": True, "board_key": str(card["board_key"])}
 
-    def clear_formative_response(
-        self, session_id: int, student_id: int
+    def clear_whiteboard_board(
+        self, session_id: int, board_key: str
     ) -> dict[str, Any]:
-        """Erase one student's ink and clear Done. Feedback strokes stay.
+        """Erase student ink on one board. Teacher feedback stays.
 
         Args:
             session_id: ``live_class_sessions.id``.
-            student_id: Roster id whose response is cleared.
+            board_key: Card to clear.
         """
-        from formative_live_board import student_ink_key
-
-        self._require_formative_attendee(int(session_id), int(student_id))
+        card = self._require_gallery_card(int(session_id), board_key)
+        key = str(card["board_key"])
         run_key = self.live_board_run_key(int(session_id))
-        self.boards.purge_board_key(run_key, student_ink_key(int(student_id)))
-        with self._lock:
-            self.conn.execute(
-                """
-                UPDATE live_board_feedback
-                SET submitted_at = NULL
-                WHERE live_session_id = ? AND student_id = ?
-                """,
-                (int(session_id), int(student_id)),
+        kept: list[dict[str, Any]] = []
+        for row in self._board_rows(int(session_id), key):
+            raw = row.get("op")
+            if isinstance(raw, str):
+                try:
+                    op = json.loads(raw)
+                except (TypeError, ValueError):
+                    continue
+            else:
+                op = raw
+            if not isinstance(op, dict):
+                continue
+            kind = str(op.get("type") or "")
+            if str(op.get("layer") or "") == "feedback" or kind == "feedback_release":
+                kept.append(op)
+        self.boards.purge_board_key(run_key, key)
+        if kept:
+            self.append_live_board_ops(
+                int(session_id),
+                key,
+                owner="teacher",
+                ops=kept,
             )
-        return {"ok": True, "cleared": True}
+        return {"ok": True, "cleared": True, "board_key": key}
 
-    def show_formative_board(self, session_id: int, student_id: int) -> dict[str, Any]:
-        """Project one board and return it with projector names applied.
+    def show_whiteboard_board(
+        self, session_id: int, board_key: str
+    ) -> dict[str, Any]:
+        """Project one board. Feedback ink is included only after release.
 
         Args:
             session_id: ``live_class_sessions.id``.
-            student_id: Board to put on the projector.
+            board_key: Card to put on the projector.
         """
-        self._require_formative_attendee(int(session_id), int(student_id))
+        from board_ops import feedback_released, fold_one_board
+        from formative_live_board import public_board_payload
+
+        card = self._require_gallery_card(int(session_id), board_key)
+        key = str(card["board_key"])
+        question, context = self._whiteboard_context(int(session_id))
+        rows = self._board_rows(int(session_id), key)
+        released = feedback_released(rows)
+        view = fold_one_board(rows, include_feedback=released)
         self.set_live_session_teacher_state(
             int(session_id),
-            whiteboard_projected_student_id=int(student_id),
+            whiteboard_projected_board=key,
         )
-        return self.formative_projection(int(session_id), int(student_id))
+        body = {
+            "ok": True,
+            "projected": True,
+            "board_key": key,
+            "name": str(card.get("name") or ""),
+            "question": question,
+            "context": context,
+            "released": released,
+            "canvas_view": view,
+            "run_key": self.live_board_run_key(int(session_id)),
+        }
+        if released:
+            body["feedback_view"] = view
+        return public_board_payload(body)
+
 
     def purge_board_ops(self, session_id: int) -> None:
         """Delete board ops, the seq counter, and the close flag for this run.
 
-        Every board generation of the run is purged (MCK-174). Formative
-        Done / feedback rows for the session go with them.
+        Every board generation of the run is purged (MCK-174).
+        ``live_board_assignments`` stays with the run.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -39214,15 +39335,18 @@ class SchoolDB(LovesDB):
 
         sid = int(session_id)
         key = str(run_key or "").strip()
-        # Formative Done / feedback rows share this session and run key.
+        # Team-board assignment rows share this session and run key.
         self.conn.execute(
-            "DELETE FROM live_board_feedback WHERE live_session_id = ?",
+            "DELETE FROM live_board_assignments WHERE live_session_id = ?",
             (sid,),
         )
         if key:
             self.conn.execute(
-                "DELETE FROM live_board_feedback WHERE run_key = ?",
-                (key,),
+                """
+                DELETE FROM live_board_assignments
+                WHERE run_key = ? OR run_key LIKE ? || '~g%'
+                """,
+                (key, key),
             )
         session_row = self.conn.execute(
             "SELECT class_id FROM live_class_sessions WHERE id = ?",
@@ -39388,8 +39512,9 @@ class SchoolDB(LovesDB):
     ) -> None:
         """Raise when any row for this test session is still stored.
 
-        ``live_board_feedback`` and ``board_ops`` for ``run_key`` are
-        counted here, before ``presence.delete_session_tree``.
+        ``live_board_assignments`` and ``board_ops`` for ``run_key`` are
+        counted here, before ``presence.delete_session_tree``. Fresh-board
+        ink under ``run_key~g`` is counted on sqlite and Postgres.
         """
         sid = int(session_id)
         leftover = 0
@@ -39425,15 +39550,20 @@ class SchoolDB(LovesDB):
                 (key,),
             ).fetchone()
             leftover += int(slides["n"] or 0)
-            feedback_left = self.conn.execute(
+            assign_left = self.conn.execute(
                 """
-                SELECT COUNT(*) AS n FROM live_board_feedback
-                WHERE run_key = ?
+                SELECT COUNT(*) AS n FROM live_board_assignments
+                WHERE run_key = ? OR run_key LIKE ? || '~g%'
+                   OR live_session_id = ?
                 """,
-                (key,),
+                (key, key, sid),
             ).fetchone()
-            leftover += int(feedback_left["n"] or 0)
+            leftover += int(assign_left["n"] or 0)
             leftover += self._count_board_ops_for_run(key)
+            boards = getattr(self, "boards", None)
+            count_generations = getattr(boards, "count_generation_ops", None)
+            if count_generations is not None:
+                leftover += int(count_generations(key))
         if tracker_ids:
             for tid in tracker_ids:
                 row = self.conn.execute(

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""MCK-270 per-student formative boards.
+"""One live whiteboard: gallery on team and solo boards.
 
-Strokes stay in board_ops. Done and release stay in live_board_feedback.
-These tests cover the data rules: spoofed ids, hidden feedback, test-class
-delete, and names blanked on the server.
+Strokes stay in board_ops. Teacher feedback is a layer on that same board
+and stays hidden until the teacher sends it. These tests cover spoofed
+ids, hidden feedback, test-class delete (including team boards), and
+roster names.
 """
 
 from __future__ import annotations
@@ -222,6 +223,22 @@ class FormativeLiveBoardTests(unittest.TestCase):
             "color": "#2563eb",
         }
 
+    def _publish(self, mode: str) -> None:
+        """Publish the session whiteboard in ``individual`` or ``group_shared``.
+
+        Args:
+            mode: Publish mode stored on the whiteboard row.
+        """
+        self.school.ensure_live_session_items(self.session_id)
+        whiteboard = next(
+            row
+            for row in self.school.list_live_session_items(self.session_id)
+            if str(row.get("kind") or "") == "whiteboard"
+        )
+        self.school.publish_live_session_item(
+            self.session_id, int(whiteboard["id"]), publish_mode=mode
+        )
+
     def _participation_rows(self) -> int:
         """Count gradebook participation rows. Boards must not add any."""
         total = 0
@@ -237,40 +254,41 @@ class FormativeLiveBoardTests(unittest.TestCase):
         return total
 
     def test_student_id_in_the_query_is_ignored(self) -> None:
-        """A caller cannot read or write another student's board by id."""
+        """A caller cannot read or write another student's solo board."""
+        self._publish("individual")
+        cedar_key = f"solo:{self.cedar_id}"
+        maple_key = f"solo:{self.maple_id}"
+        run_key = self.school.live_board_run_key(self.session_id)
         cedar_ink = self.cedar_client.post(
-            "/api/student/formative-board/ops",
+            f"/api/student/board/{cedar_key}/ops",
             json={
                 "student_id": self.maple_id,
+                "run_key": run_key,
                 "ops": [self._text_op("cedar-secret-ink", "cedar-ink")],
             },
             headers=self._student_headers(self.cedar_token),
         )
         self.assertEqual(cedar_ink.status_code, 200, cedar_ink.get_data(as_text=True))
         spoofed = self.maple.get(
-            f"/api/student/formative-board?student_id={self.cedar_id}",
+            f"/api/student/board/{cedar_key}",
             headers=self._student_headers(self.maple_token),
         )
-        self.assertEqual(spoofed.status_code, 200, spoofed.get_data(as_text=True))
-        body = spoofed.get_json()
-        self.assertEqual(body["student_id"], self.maple_id)
-        self.assertEqual(body["board_key"], f"student:{self.maple_id}")
-        self.assertNotIn("cedar-secret-ink", json.dumps(body))
-        maple_ink = self.maple.post(
-            "/api/student/formative-board/ops",
+        self.assertEqual(spoofed.status_code, 403, spoofed.get_data(as_text=True))
+        own = self.maple.get(
+            f"/api/student/board/{maple_key}",
+            headers=self._student_headers(self.maple_token),
+        )
+        self.assertEqual(own.status_code, 200, own.get_data(as_text=True))
+        self.assertNotIn("cedar-secret-ink", json.dumps(own.get_json()))
+        denied_write = self.maple.post(
+            f"/api/student/board/{cedar_key}/ops",
             json={
-                "student_id": self.cedar_id,
+                "run_key": run_key,
                 "ops": [self._text_op("maple-only-ink", "maple-ink")],
             },
             headers=self._student_headers(self.maple_token),
         )
-        self.assertEqual(maple_ink.status_code, 200, maple_ink.get_data(as_text=True))
-        self.assertIn("maple-only-ink", json.dumps(maple_ink.get_json()))
-        cedar_view = self.cedar_client.get(
-            "/api/student/formative-board",
-            headers=self._student_headers(self.cedar_token),
-        )
-        self.assertNotIn("maple-only-ink", json.dumps(cedar_view.get_json()))
+        self.assertEqual(denied_write.status_code, 403)
         for key in (f"fb:{self.cedar_id}", f"student:{self.cedar_id}"):
             denied = self.maple.get(
                 f"/api/student/board/{key}",
@@ -279,50 +297,195 @@ class FormativeLiveBoardTests(unittest.TestCase):
             self.assertEqual(denied.status_code, 403, key)
 
     def test_feedback_stays_hidden_until_release(self) -> None:
-        """Send feedback is what makes teacher ink visible to that student."""
+        """Send feedback is what makes teacher ink visible on that board."""
+        self._publish("individual")
+        key = f"solo:{self.maple_id}"
         posted = self.staff.post(
-            f"/api/live-sessions/{self.session_id}/formative-boards/{self.maple_id}/feedback",
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}/feedback",
             json={"ops": [self._text_op("check vertex", "fb-vertex")]},
         )
         self.assertEqual(posted.status_code, 200, posted.get_data(as_text=True))
         hidden = self.maple.get(
-            "/api/student/formative-board",
+            f"/api/student/board/{key}",
             headers=self._student_headers(self.maple_token),
         )
-        hidden_body = hidden.get_json()
-        self.assertNotIn("feedback", hidden_body)
-        self.assertNotIn("check vertex", json.dumps(hidden_body))
+        self.assertEqual(hidden.status_code, 200, hidden.get_data(as_text=True))
+        self.assertNotIn("check vertex", json.dumps(hidden.get_json()))
         released = self.staff.post(
-            f"/api/live-sessions/{self.session_id}/formative-boards/{self.maple_id}/release"
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}/release"
         )
         self.assertEqual(released.status_code, 200, released.get_data(as_text=True))
         shown = self.maple.get(
-            "/api/student/formative-board",
+            f"/api/student/board/{key}",
             headers=self._student_headers(self.maple_token),
         )
-        shown_body = shown.get_json()
-        self.assertIn("check vertex", json.dumps(shown_body.get("feedback")))
+        self.assertEqual(shown.status_code, 200, shown.get_data(as_text=True))
+        self.assertIn("check vertex", json.dumps(shown.get_json()))
 
-    def test_done_does_not_write_the_gradebook(self) -> None:
-        """Done sets submitted_at and leaves participation rows alone."""
+    def test_board_ink_does_not_write_the_gradebook(self) -> None:
+        """Drawing on the whiteboard does not add participation rows."""
+        self._publish("individual")
         before = self._participation_rows()
-        done = self.maple.post(
+        posted = self.maple.post(
+            f"/api/student/board/solo:{self.maple_id}/ops",
+            json={
+                "run_key": self.school.live_board_run_key(self.session_id),
+                "ops": [self._text_op("ungraded", "grade-ink")],
+            },
+            headers=self._student_headers(self.maple_token),
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_data(as_text=True))
+        self.assertEqual(self._participation_rows(), before)
+        gone = self.maple.post(
             "/api/student/formative-board/done",
             headers=self._student_headers(self.maple_token),
         )
-        self.assertEqual(done.status_code, 200, done.get_data(as_text=True))
-        self.assertEqual(self._participation_rows(), before)
-        row = self.school.conn.execute(
-            """
-            SELECT submitted_at FROM live_board_feedback
-            WHERE live_session_id = ? AND student_id = ?
-            """,
-            (self.session_id, self.maple_id),
-        ).fetchone()
-        self.assertTrue(str(row["submitted_at"] or "").strip())
+        self.assertEqual(gone.status_code, 404)
 
-    def test_names_are_blanked_on_the_server(self) -> None:
-        """Tiles and Show on board use the attendee codename, or nothing."""
+    def _board_keys(self, run_key: str) -> list[str]:
+        """Distinct board keys stored for one run.
+
+        Args:
+            run_key: Board partition key for the live session.
+        """
+
+        def read(exec_) -> list[str]:
+            rows = exec_(
+                "SELECT DISTINCT board_key FROM board_ops WHERE run_key = ?",
+                (run_key,),
+            ).fetchall()
+            found: list[str] = []
+            for row in rows:
+                found.append(str(row["board_key"] if hasattr(row, "keys") else row[0]))
+            return found
+
+        return list(self.school.boards._read(read))
+
+    def test_individual_pen_lands_on_solo_and_survives_migration(self) -> None:
+        """An Individual pen stroke is stored on ``solo:<id>`` only.
+
+        The client posts that stroke through canvas presence. Boot deletes
+        ``student:`` and ``fb:`` keys, including when the migration runs
+        again, and leaves the solo stroke in place. The teacher gallery
+        tile for that student carries the stroke.
+        """
+        source = (LMS_DIR / "static" / "student-portal.js").read_text()
+        self.assertIn(
+            'if (align !== "team" && align !== "student") return;',
+            source,
+        )
+        self._publish("individual")
+        run_key = self.school.live_board_run_key(self.session_id)
+        posted = self.maple.post(
+            "/api/student/canvas-presence",
+            json={
+                "x": 0.22,
+                "y": 0.41,
+                "points": [[0.22, 0.41], [0.34, 0.52]],
+                "stroke_id": "maple-solo-pen",
+                "ended": True,
+                "run_key": run_key,
+            },
+            headers=self._student_headers(self.maple_token),
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_data(as_text=True))
+        keys = self._board_keys(run_key)
+        solo = f"solo:{self.maple_id}"
+        self.assertIn(solo, keys)
+        self.assertFalse(any(key.startswith("student:") or key.startswith("fb:") for key in keys))
+        gallery = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery"
+        )
+        self.assertEqual(gallery.status_code, 200, gallery.get_data(as_text=True))
+        body = gallery.get_json()
+        maple = next(
+            tile
+            for tile in body["tiles"]
+            if int(tile.get("student_id") or 0) == self.maple_id
+        )
+        self.assertEqual(maple["board_key"], solo)
+        ink = json.dumps(
+            {
+                "canvas_view": maple.get("canvas_view"),
+                "ops": maple.get("ops"),
+            }
+        )
+        self.assertIn("maple-solo-pen", ink)
+        self.assertGreater(int(maple.get("board_seq") or 0), 0)
+        self.school.boards._transaction(
+            lambda exec_: exec_(
+                "DELETE FROM board_flags WHERE name = ?",
+                ("mck272_removed_keys",),
+            )
+        )
+        self.school._migrate_mck272_whiteboard()
+        self.assertIn(solo, self._board_keys(run_key))
+        self.assertFalse(
+            any(
+                key.startswith("student:") or key.startswith("fb:")
+                for key in self._board_keys(run_key)
+            )
+        )
+        self.school._migrate_mck272_whiteboard()
+        self.assertIn(solo, self._board_keys(run_key))
+
+    def test_individual_pen_persists_during_round(self) -> None:
+        """An Individual board stores solo strokes while ROUND hides the canvas.
+
+        ROUND sets ``canvas_align`` to teacher, which used to accept the
+        stroke and save nothing. Group already overrides that. Individual
+        publish does too, and the rows stay on ``solo:<id>``.
+        """
+        self.school.set_live_session_teacher_state(self.session_id, stage="round")
+        self._publish("individual")
+        teacher = self.school.live_session_teacher_state_payload(self.session_id)
+        self.assertEqual(str(teacher.get("stage") or ""), "round")
+        self.assertEqual(str(teacher.get("canvas_align") or ""), "teacher")
+        run_key = self.school.live_board_run_key(self.session_id)
+        pine = self.app.test_client()
+        pine_token = self._visit_token(self.pine_id)
+        writers = (
+            (self.maple, self.maple_token, self.maple_id, "maple-round-pen"),
+            (self.cedar_client, self.cedar_token, self.cedar_id, "cedar-round-pen"),
+            (pine, pine_token, self.pine_id, "pine-round-pen"),
+        )
+        for client, token, _student_id, stroke_id in writers:
+            posted = client.post(
+                "/api/student/canvas-presence",
+                json={
+                    "x": 0.22,
+                    "y": 0.41,
+                    "points": [[0.22, 0.41], [0.34, 0.52]],
+                    "stroke_id": stroke_id,
+                    "ended": True,
+                    "run_key": run_key,
+                },
+                headers=self._student_headers(token),
+            )
+            self.assertEqual(posted.status_code, 200, posted.get_data(as_text=True))
+        keys = self._board_keys(run_key)
+        self.assertFalse(
+            any(key.startswith("student:") or key.startswith("fb:") for key in keys)
+        )
+        gallery = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery"
+        )
+        self.assertEqual(gallery.status_code, 200, gallery.get_data(as_text=True))
+        tiles = gallery.get_json()["tiles"]
+        for _client, _token, student_id, stroke_id in writers:
+            solo = f"solo:{student_id}"
+            self.assertIn(solo, keys)
+            self.assertNotIn(f"team:{student_id}", keys)
+            tile = next(
+                row for row in tiles if int(row.get("student_id") or 0) == student_id
+            )
+            self.assertEqual(tile["board_key"], solo)
+            ink = json.dumps({"canvas_view": tile.get("canvas_view"), "ops": tile.get("ops")})
+            self.assertIn(stroke_id, ink)
+            self.assertGreater(int(tile.get("board_seq") or 0), 0)
+
+    def test_gallery_uses_roster_name_not_first_name(self) -> None:
+        """Cards show the roster name column, even when first_name differs."""
         self.school.conn.execute(
             """
             UPDATE students
@@ -333,72 +496,98 @@ class FormativeLiveBoardTests(unittest.TestCase):
         )
         self.school.conn.commit()
         hidden = self.staff.get(
-            f"/api/live-sessions/{self.session_id}/formative-boards"
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery"
         )
         self.assertEqual(hidden.status_code, 200, hidden.get_data(as_text=True))
         hidden_body = hidden.get_json()
+        self.assertFalse(hidden_body["visible"])
+        self.assertEqual(hidden_body["tiles"], [])
+        self._publish("individual")
+        named = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery"
+        )
+        self.assertEqual(named.status_code, 200, named.get_data(as_text=True))
+        body = named.get_json()
+        self.assertTrue(body["visible"])
         maple = next(
             tile
-            for tile in hidden_body["tiles"]
-            if int(tile["student_id"]) == self.maple_id
+            for tile in body["tiles"]
+            if int(tile.get("student_id") or 0) == self.maple_id
         )
-        self.assertEqual(maple["codename"], "")
-        hidden_blob = json.dumps(hidden_body)
-        self.assertNotIn("Secretfirst", hidden_blob)
-        self.assertNotIn("NotThis", hidden_blob)
-        self.assertNotIn("Maple", hidden_blob)
+        self.assertEqual(maple["name"], "Maple")
+        blob = json.dumps(body)
+        self.assertNotIn("Secretfirst", blob)
+        self.assertNotIn("NotThis", blob)
+        self.assertNotIn("Student 1", blob)
+        self.assertNotIn("first_name", blob)
         if self.session_code:
-            self.assertNotIn(self.session_code, hidden_blob)
-        self.school.set_live_session_teacher_state(
-            self.session_id, whiteboard_always_show_names=True
+            self.assertNotIn(self.session_code, blob)
+        self.school.conn.execute(
+            "UPDATE students SET codename = ? WHERE id = ?",
+            ("Renamed", self.maple_id),
         )
-        named = self.staff.get(
-            f"/api/live-sessions/{self.session_id}/formative-boards"
+        self.school.conn.commit()
+        renamed = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery"
         ).get_json()
-        maple_named = next(
+        maple_now = next(
             tile
-            for tile in named["tiles"]
-            if int(tile["student_id"]) == self.maple_id
+            for tile in renamed["tiles"]
+            if int(tile.get("student_id") or 0) == self.maple_id
         )
-        self.assertEqual(maple_named["codename"], "Maple")
-        named_blob = json.dumps(named)
-        self.assertNotIn("Secretfirst", named_blob)
-        self.assertNotIn("NotThis", named_blob)
-        self.school.set_live_session_teacher_state(
-            self.session_id, whiteboard_projector_names=False
+        self.assertEqual(maple_now["name"], "Renamed")
+        self.assertNotIn("Secretfirst", json.dumps(renamed))
+        self.school.conn.execute(
+            "UPDATE students SET codename = '' WHERE id = ?",
+            (self.cedar_id,),
         )
-        off = self.staff.post(
-            f"/api/live-sessions/{self.session_id}/formative-boards/{self.maple_id}/show"
-        )
-        self.assertEqual(off.status_code, 200, off.get_data(as_text=True))
-        self.assertEqual(off.get_json()["codename"], "")
-        self.school.set_live_session_teacher_state(
-            self.session_id, whiteboard_projector_names=True
-        )
-        on = self.staff.post(
-            f"/api/live-sessions/{self.session_id}/formative-boards/{self.maple_id}/show"
+        self.school.conn.commit()
+        blanked = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery"
         ).get_json()
-        self.assertEqual(on["codename"], "Maple")
-        self.assertNotIn("first_name", on)
-        self.assertNotIn("session_code", on)
-        if self.session_code:
-            self.assertNotIn(self.session_code, json.dumps(on))
+        cedar = next(
+            tile
+            for tile in blanked["tiles"]
+            if int(tile.get("student_id") or 0) == self.cedar_id
+        )
+        self.assertEqual(cedar["name"], "")
+        self.assertNotIn("Student ", json.dumps(blanked))
+
+    def test_group_cards_use_team_names(self) -> None:
+        """A group whiteboard is one card per team, labeled with the team name."""
+        self._publish("group_shared")
+        body = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery"
+        ).get_json()
+        self.assertTrue(body["visible"])
+        self.assertEqual(len(body["tiles"]), 2)
+        names = sorted(str(tile["name"]) for tile in body["tiles"])
+        self.assertTrue(all(names))
+        self.assertNotIn("Maple", names)
+        self.assertNotIn("Secretfirst", json.dumps(body))
+        blob = json.dumps(body)
+        self.assertNotIn("Student 1", blob)
+        self.assertNotIn("Student 2", blob)
+        for tile in body["tiles"]:
+            self.assertTrue(str(tile["board_key"]).startswith("team:"))
 
     def test_tile_poll_and_show_are_teacher_only(self) -> None:
-        """A joined student cannot poll the grid or project a board."""
+        """A joined student cannot poll the gallery or project a board."""
+        self._publish("individual")
         tiles = self.maple.get(
-            f"/api/live-sessions/{self.session_id}/formative-boards",
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery",
             headers=self._student_headers(self.maple_token),
         )
         show = self.maple.post(
-            f"/api/live-sessions/{self.session_id}/formative-boards/{self.cedar_id}/show",
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/solo:{self.cedar_id}/show",
             headers=self._student_headers(self.maple_token),
         )
         self.assertIn(tiles.status_code, (401, 403))
         self.assertIn(show.status_code, (401, 403))
 
     def test_tile_poll_reads_every_board_in_one_query(self) -> None:
-        """The grid delta is one since_many call and one UNION statement."""
+        """The gallery delta is one since_many call and one UNION statement."""
+        self._publish("individual")
         calls = {"fn": 0, "sql": 0}
         original = self.school.boards.since_many
         real_exec = self.school.boards._exec
@@ -421,7 +610,7 @@ class FormativeLiveBoardTests(unittest.TestCase):
         self.school.boards.since_many = wrapped
         try:
             response = self.staff.get(
-                f"/api/live-sessions/{self.session_id}/formative-boards"
+                f"/api/live-sessions/{self.session_id}/whiteboard-gallery"
             )
         finally:
             self.school.boards.since_many = original
@@ -433,69 +622,85 @@ class FormativeLiveBoardTests(unittest.TestCase):
 
     def test_show_hides_feedback_until_release(self) -> None:
         """Show to class includes the feedback layer only after release."""
+        self._publish("individual")
+        key = f"solo:{self.maple_id}"
         mark = self._text_op("check vertex", "fb-show")
         posted = self.staff.post(
-            f"/api/live-sessions/{self.session_id}/formative-boards/{self.maple_id}/feedback",
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}/feedback",
             json={"ops": [mark]},
         )
         self.assertEqual(posted.status_code, 200, posted.get_data(as_text=True))
         panel = self.staff.get(
-            f"/api/live-sessions/{self.session_id}/formative-boards/{self.maple_id}"
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}"
         )
         self.assertIn("check vertex", json.dumps(panel.get_json()))
         hidden = self.staff.post(
-            f"/api/live-sessions/{self.session_id}/formative-boards/{self.maple_id}/show"
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}/show"
         )
         self.assertEqual(hidden.status_code, 200, hidden.get_data(as_text=True))
         hidden_body = hidden.get_json()
-        hidden_blob = json.dumps(hidden_body)
-        self.assertNotIn("check vertex", hidden_blob)
-        self.assertNotIn("feedback_ops", hidden_body)
+        self.assertNotIn("check vertex", json.dumps(hidden_body))
         self.assertNotIn("feedback_view", hidden_body)
-        self.school.release_formative_feedback(self.session_id, self.maple_id)
+        self.assertEqual(hidden_body["name"], "Maple")
+        self.school.release_whiteboard_feedback(self.session_id, key)
         shown = self.staff.post(
-            f"/api/live-sessions/{self.session_id}/formative-boards/{self.maple_id}/show"
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}/show"
         )
         self.assertEqual(shown.status_code, 200, shown.get_data(as_text=True))
-        self.assertIn("check vertex", json.dumps(shown.get_json()))
-        self.assertIn("feedback_ops", shown.get_json())
+        shown_body = shown.get_json()
+        self.assertIn("check vertex", json.dumps(shown_body))
+        self.assertIn("feedback_view", shown_body)
 
-    def test_delete_test_run_drops_ink_and_released_feedback(self) -> None:
-        """Delete-test removes student ink and released feedback for that run."""
+    def test_delete_test_run_drops_team_boards(self) -> None:
+        """Delete-test removes solo ink, team ink, and assignment rows."""
         self.school.end_live_class_session(self.session_id)
         test = self.school.start_live_class_session(
             self.class_id, int(self.teacher["id"]), is_test=True
         )
         sid = int(test["id"])
         self.school.join_live_class_session(sid, self.maple_id, codename="Maple")
-        self.school.append_formative_student_ops(
-            sid,
-            self.maple_id,
-            [self._text_op("keep-until-delete", "del-ink")],
+        self.school.ensure_live_session_items(sid)
+        whiteboard = next(
+            row
+            for row in self.school.list_live_session_items(sid)
+            if str(row.get("kind") or "") == "whiteboard"
         )
-        self.school.append_formative_feedback_ops(
+        self.school.publish_live_session_item(
+            sid, int(whiteboard["id"]), publish_mode="individual"
+        )
+        self.school.append_live_board_ops(
             sid,
-            self.maple_id,
+            f"solo:{self.maple_id}",
+            owner=str(self.maple_id),
+            ops=[self._text_op("keep-until-delete", "del-ink")],
+        )
+        self.school.append_whiteboard_feedback(
+            sid,
+            f"solo:{self.maple_id}",
             [self._text_op("released mark", "fb-del")],
         )
-        self.school.release_formative_feedback(sid, self.maple_id)
+        self.school.release_whiteboard_feedback(sid, f"solo:{self.maple_id}")
+        self.school.record_live_board_assignment_for_student(sid, self.maple_id, 0)
+        self.school.append_live_board_ops(
+            sid,
+            "team:0",
+            owner=str(self.maple_id),
+            ops=[self._text_op("team ink", "team-del")],
+        )
         run_key = self.school.live_board_run_key(sid)
         self.assertGreater(self.school.boards.count_run_ops(run_key), 0)
-        released = self.school.conn.execute(
-            """
-            SELECT COUNT(*) AS n FROM live_board_feedback
-            WHERE live_session_id = ? AND released_at IS NOT NULL
-            """,
+        assigned = self.school.conn.execute(
+            "SELECT COUNT(*) AS n FROM live_board_assignments WHERE live_session_id = ?",
             (sid,),
         ).fetchone()
-        self.assertGreater(int(released["n"] or 0), 0)
+        self.assertGreater(int(assigned["n"] or 0), 0)
         with self.assertRaises(KeyError):
             self.school.delete_test_live_class(self.class_id + 99, sid)
         deleted = self.school.delete_test_live_class(self.class_id, sid)
         self.assertEqual(deleted["deleted_session_id"], sid)
         left = self.school.conn.execute(
             """
-            SELECT COUNT(*) AS n FROM live_board_feedback
+            SELECT COUNT(*) AS n FROM live_board_assignments
             WHERE live_session_id = ? OR run_key = ?
             """,
             (sid, run_key),
@@ -503,21 +708,25 @@ class FormativeLiveBoardTests(unittest.TestCase):
         self.assertEqual(int(left["n"] or 0), 0)
         self.assertEqual(self.school.boards.count_run_ops(run_key), 0)
 
-    def test_cleanup_removes_feedback_rows(self) -> None:
-        """End-of-session cleanup deletes the new table with the board ops."""
-        self.school.mark_formative_done(self.session_id, self.maple_id)
-        self.maple.post(
-            "/api/student/formative-board/ops",
-            json={"ops": [self._text_op("gone-on-cleanup", "clean-ink")]},
-            headers=self._student_headers(self.maple_token),
+    def test_cleanup_removes_board_rows(self) -> None:
+        """End deletes board ink and keeps the team-board assignment rows."""
+        self._publish("individual")
+        self.school.append_live_board_ops(
+            self.session_id,
+            f"solo:{self.maple_id}",
+            owner=str(self.maple_id),
+            ops=[self._text_op("gone-on-cleanup", "clean-ink")],
+        )
+        self.school.record_live_board_assignment_for_student(
+            self.session_id, self.maple_id, 0
         )
         run_key = self.school.live_board_run_key(self.session_id)
         self.school.cleanup_live_session_response_data(self.session_id)
         left = self.school.conn.execute(
-            "SELECT COUNT(*) AS n FROM live_board_feedback WHERE live_session_id = ?",
+            "SELECT COUNT(*) AS n FROM live_board_assignments WHERE live_session_id = ?",
             (self.session_id,),
         ).fetchone()
-        self.assertEqual(int(left["n"] or 0), 0)
+        self.assertGreater(int(left["n"] or 0), 0)
         self.assertEqual(self.school.boards.count_run_ops(run_key), 0)
 
 

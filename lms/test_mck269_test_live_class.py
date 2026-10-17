@@ -626,6 +626,133 @@ class TestLiveClassPostgresDeleteTests(Base):
             ).fetchone()
             self.assertEqual(int(attendees[0]), 0)
 
+    def test_boot_migration_deletes_removed_board_keys(self) -> None:
+        """Postgres boot deletes leftover student: and fb: ink once.
+
+        The LIKE patterns are bound parameters. A literal percent in the
+        SQL crashes psycopg inside ``_migrate_mck272_whiteboard``. A
+        ``solo:`` row stays. The next boot sees the done flag and does
+        not delete a key inserted after the first run.
+        """
+        import psycopg
+
+        store = self.school.presence
+        self.assertIsNotNone(store)
+        run_key = "mck272-boot-migration"
+        with psycopg.connect(store.dsn) as conn:
+            conn.execute(
+                "DELETE FROM board_flags WHERE name = %s",
+                ("mck272_removed_keys",),
+            )
+            for key, seq in (("student:1", 1), ("fb:1", 1), ("team:0", 1), ("solo:9", 1)):
+                conn.execute(
+                    """
+                    INSERT INTO board_ops (
+                        run_key, board_key, board_seq, op, owner, created_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        run_key,
+                        key,
+                        seq,
+                        '{"type":"stroke_end","id":"x"}',
+                        "teacher",
+                        "2026-10-17T00:00:00",
+                    ),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO board_counters (run_key, board_key, next_seq)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (run_key, key, seq),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO board_batches (
+                        run_key, board_key, owner, client_batch_id, first_seq, last_seq
+                    ) VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (run_key, key, "teacher", f"batch-{key}", 1, seq),
+                )
+            conn.commit()
+        self.school._migrate_mck272_whiteboard()
+        with psycopg.connect(store.dsn) as conn:
+            ops = conn.execute(
+                "SELECT board_key FROM board_ops WHERE run_key = %s ORDER BY board_key",
+                (run_key,),
+            ).fetchall()
+            counters = conn.execute(
+                "SELECT board_key FROM board_counters WHERE run_key = %s ORDER BY board_key",
+                (run_key,),
+            ).fetchall()
+            batches = conn.execute(
+                "SELECT board_key FROM board_batches WHERE run_key = %s ORDER BY board_key",
+                (run_key,),
+            ).fetchall()
+        self.assertEqual([row[0] for row in ops], ["solo:9", "team:0"])
+        self.assertEqual([row[0] for row in counters], ["solo:9", "team:0"])
+        self.assertEqual([row[0] for row in batches], ["solo:9", "team:0"])
+        with psycopg.connect(store.dsn) as conn:
+            conn.execute(
+                """
+                INSERT INTO board_ops (
+                    run_key, board_key, board_seq, op, owner, created_at
+                ) VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    run_key,
+                    "student:2",
+                    1,
+                    '{"type":"stroke_end","id":"later"}',
+                    "teacher",
+                    "2026-10-17T00:00:00",
+                ),
+            )
+            conn.commit()
+        self.school._migrate_mck272_whiteboard()
+        with psycopg.connect(store.dsn) as conn:
+            again = conn.execute(
+                "SELECT board_key FROM board_ops WHERE run_key = %s ORDER BY board_key",
+                (run_key,),
+            ).fetchall()
+        self.assertEqual(
+            [row[0] for row in again],
+            ["solo:9", "student:2", "team:0"],
+        )
+
+    def test_delete_counts_postgres_fresh_board_ink(self) -> None:
+        """A Fresh-board row on Postgres is leftover after delete-test."""
+        import psycopg
+
+        test = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"]), is_test=True
+        )
+        sid = int(test["id"])
+        run_key = self.school.live_board_run_key(sid)
+        store = self.school.presence
+        self.assertIsNotNone(store)
+        with psycopg.connect(store.dsn) as conn:
+            conn.execute(
+                """
+                INSERT INTO board_ops (
+                    run_key, board_key, board_seq, op, owner, created_at
+                ) VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    run_key + "~g9",
+                    "team:0",
+                    1,
+                    '{"type":"stroke_end","id":"fresh"}',
+                    "teacher",
+                    "2026-10-17T00:00:00",
+                ),
+            )
+            conn.commit()
+        with self.assertRaises(RuntimeError) as caught:
+            self.school.delete_test_live_class(self.class_id, sid)
+        self.assertIn("still has rows", str(caught.exception))
+
 if __name__ == "__main__":
     unittest.main()
 

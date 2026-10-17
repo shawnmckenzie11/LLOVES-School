@@ -201,8 +201,8 @@ class FormativeIntegrationTests(unittest.TestCase):
         self.school.close()
         self.tmp.cleanup()
 
-    def test_teacher_can_set_whiteboard_name_toggles(self) -> None:
-        """Staff POST persists formative projector / always-show toggles."""
+    def test_teacher_name_toggles_are_ignored(self) -> None:
+        """The removed name checkboxes are not stored on teacher state."""
         rv = self.staff.post(
             f"/api/live-sessions/{self.session_id}/teacher-state",
             json={
@@ -213,14 +213,14 @@ class FormativeIntegrationTests(unittest.TestCase):
         body = rv.get_json()
         self.assertEqual(rv.status_code, 200, body)
         state = body.get("teacher_state") or {}
-        self.assertTrue(state.get("whiteboard_always_show_names"))
-        self.assertTrue(state.get("whiteboard_projector_names"))
+        self.assertNotIn("whiteboard_always_show_names", state)
+        self.assertNotIn("whiteboard_projector_names", state)
 
     def test_student_cannot_post_teacher_state_toggles(self) -> None:
-        """Students cannot patch teacher-only whiteboard toggles."""
+        """Students cannot patch teacher-only whiteboard state."""
         rv = self.student.post(
             f"/api/live-sessions/{self.session_id}/teacher-state",
-            json={"whiteboard_always_show_names": True},
+            json={"eyes_up": True},
         )
         self.assertIn(rv.status_code, (302, 401, 403))
 
@@ -590,14 +590,8 @@ class FormativeIntegrationTests(unittest.TestCase):
         self.assertEqual(len(pairs(present)), len(set(pairs(present))))
         self.assertEqual(len(enrolled), 10)
 
-    def test_collab_ignores_saved_projector_names(self) -> None:
-        """A stored projector-names flag does not label a collab board."""
-        self.school.set_live_session_teacher_state(
-            self.session_id,
-            whiteboard_projector_names=True,
-        )
-        stored = self.school.live_session_teacher_state_payload(self.session_id)
-        self.assertTrue(stored.get("whiteboard_projector_names"))
+    def test_collab_always_shows_names(self) -> None:
+        """Collab boards label ink with names. The old toggles are gone."""
         access = self.school.student_board_access(self.session_id, self.maple_id)
         student = self.school.read_board(
             self.session_id,
@@ -611,7 +605,9 @@ class FormativeIntegrationTests(unittest.TestCase):
             0,
             as_teacher=True,
         )
+        self.assertTrue(student["formative"].get("always_show_names"))
         self.assertFalse(student["formative"].get("projector_show_names"))
+        self.assertTrue(teacher["formative"].get("always_show_names"))
         self.assertFalse(teacher["formative"].get("projector_show_names"))
 
     def test_team_board_poll_does_not_load_the_whole_session(self) -> None:

@@ -2162,14 +2162,15 @@ def prepare_mck218_group_whiteboard(path: Path) -> tuple[int, int, str]:
         if str(row.get("kind") or "") == "whiteboard"
     )
     school.publish_live_session_item(
-        session_id, int(wb["id"]), publish_mode="group_shared"
+        session_id, int(wb["id"]), publish_mode=mode
     )
+    grouped = mode == "group_shared"
     school.set_live_session_teacher_state(
         session_id,
         class_set=True,
-        run_as_group=True,
+        run_as_group=grouped,
         groups_configured=True,
-        canvas_align="team",
+        canvas_align="team" if grouped else "student",
         active_tab="canvas",
     )
     team_id = school.student_team_id_for_class(class_id, int(maple["id"]))
@@ -2221,11 +2222,12 @@ def shoot_mck218(base: str, out_dir: Path, path: Path, state_path: Path) -> list
         staff = staff_ctx.new_page()
         staff.goto(staff_url, wait_until="domcontentloaded")
         staff.locator('.live-content-tab[data-tab="canvas"]').click(timeout=15000)
-        staff.locator("#live-canvas-stub").wait_for(state="visible", timeout=60000)
-        box = staff.locator("#live-canvas-stub").bounding_box()
-        if box:
-            staff.mouse.move(box["x"] + 60, box["y"] + 80)
-            staff.wait_for_timeout(200)
+        staff.locator("#formative-live-board .wb-live-name").first.wait_for(
+            state="visible", timeout=60000
+        )
+        staff.locator("#formative-live-board .wb-live-tile").first.click()
+        staff.locator("#wb-live-panel:not([hidden])").wait_for(state="visible", timeout=15000)
+        staff.locator("#wb-live-undo").wait_for(state="visible", timeout=15000)
         teacher_path = out_dir / "mck218-teacher-1280.png"
         staff.screenshot(path=str(teacher_path), full_page=True)
         shots.append(teacher_path)
@@ -2265,6 +2267,591 @@ def shoot_mck218(base: str, out_dir: Path, path: Path, state_path: Path) -> list
         student_ctx.close()
         browser.close()
     return shots
+
+
+def _mck272_open_student(page: object, origin: str, visit_token: str) -> None:
+    """Land a student on the live home. Does not print the visit token."""
+    page.goto(f"{origin}/student/s/{visit_token}", wait_until="domcontentloaded")  # type: ignore[attr-defined]
+    for _ in range(12):
+        _mck215_dismiss_catchup_pin(page)
+        if "/student/home" in page.url and page.locator("#live-response").count():  # type: ignore[attr-defined]
+            break
+        if "/student/mood" in page.url:  # type: ignore[attr-defined]
+            page.locator('button[name="skip"]').click()  # type: ignore[attr-defined]
+        elif "/student/character" in page.url:  # type: ignore[attr-defined]
+            pick = page.locator('label:has(input[type="radio"])').first  # type: ignore[attr-defined]
+            if pick.count():
+                pick.click()
+            page.locator('button[type="submit"]').click()  # type: ignore[attr-defined]
+        page.wait_for_timeout(1000)  # type: ignore[attr-defined]
+    _mck215_dismiss_catchup_pin(page)
+    page.locator("#live-response").wait_for(state="visible", timeout=90000)  # type: ignore[attr-defined]
+
+
+def _mck272_box_in_view(page: object, selector: str) -> dict[str, float]:
+    """Return a control's box and whether it sits inside the viewport."""
+    box = page.locator(selector).bounding_box()  # type: ignore[attr-defined]
+    if not box:
+        raise SystemExit(f"Missing box for {selector}")
+    size = page.viewport_size or {"width": 0, "height": 0}  # type: ignore[attr-defined]
+    bottom = float(box["y"] + box["height"])
+    right = float(box["x"] + box["width"])
+    metrics = {
+        "x": float(box["x"]),
+        "y": float(box["y"]),
+        "width": float(box["width"]),
+        "height": float(box["height"]),
+        "bottom": bottom,
+        "right": right,
+        "viewport_width": float(size["width"]),
+        "viewport_height": float(size["height"]),
+    }
+    if box["y"] < -1 or box["x"] < -1 or bottom > size["height"] + 1 or right > size["width"] + 1:
+        raise SystemExit(f"{selector} is outside the viewport: {metrics}")
+    return metrics
+
+
+
+def _mck272_assert_open_panel(page: object, label: str) -> dict[str, float]:
+    """Require a tall canvas, Undo in view, and no page scroll.
+
+    The canvas fills the space under the toolbar down to the window.
+    Its height stays at least 320px.
+
+    Args:
+        page: Playwright page with the teacher panel open.
+        label: Viewport label used when a check fails.
+
+    Returns:
+        Measured canvas and scroll figures.
+    """
+    metrics = page.evaluate(  # type: ignore[attr-defined]
+        """() => {
+          const canvas = document.querySelector('#wb-live-panel-canvas');
+          const undo = document.querySelector('#wb-live-undo');
+          const slot = document.querySelector('#canvas-zone');
+          const c = canvas.getBoundingClientRect();
+          const u = undo.getBoundingClientRect();
+          const root = document.scrollingElement;
+          return {
+            canvasH: c.height,
+            canvasBottom: c.bottom,
+            innerH: window.innerHeight,
+            canvasCss: getComputedStyle(canvas).height,
+            panelCss: getComputedStyle(canvas.parentElement).height,
+            panelPos: getComputedStyle(canvas.parentElement).position,
+            undoTop: u.top,
+            undoBottom: u.bottom,
+            undoH: u.height,
+            scrollTop: root ? root.scrollTop : 0,
+            docExtra: root ? root.scrollHeight - window.innerHeight : 0,
+            slotExtra: slot ? slot.scrollHeight - slot.clientHeight : 0,
+          };
+        }"""
+    )
+    print("mck272 panel", label, metrics)
+    if float(metrics["canvasH"]) < 320:
+        raise SystemExit(f"{label} canvas is shorter than 320px: {metrics}")
+    if (
+        float(metrics["undoH"]) < 1
+        or float(metrics["undoTop"]) < -1
+        or float(metrics["undoBottom"]) > float(metrics["innerH"]) + 1
+    ):
+        raise SystemExit(f"{label} Undo is outside the window: {metrics}")
+    if (
+        float(metrics["scrollTop"]) > 1
+        or float(metrics["docExtra"]) > 2
+        or float(metrics["slotExtra"]) > 2
+    ):
+        raise SystemExit(f"{label} page scrolls: {metrics}")
+    gap = float(metrics["innerH"]) - float(metrics["canvasBottom"])
+    if gap > 40 or gap < -12:
+        raise SystemExit(f"{label} canvas does not meet the window bottom: {metrics}")
+    return metrics
+
+
+def _mck272_draw_and_measure(page: object) -> dict[str, object]:
+    """Drag a stroke and report whether live ink sits on the pointer.
+
+    Args:
+        page: Playwright page with ``#student-canvas`` visible.
+
+    Returns:
+        Rect delta plus the live-layer sample around the pointer.
+    """
+    canvas = page.locator("#student-canvas")  # type: ignore[attr-defined]
+    canvas.wait_for(state="visible", timeout=30000)
+    box = canvas.bounding_box()
+    if not box or box["height"] < 40 or box["width"] < 40:
+        raise SystemExit(f"Student board has no drawable box: {box}")
+    x = box["x"] + box["width"] * 0.35
+    y = box["y"] + box["height"] * 0.42
+    page.mouse.move(x, y)  # type: ignore[attr-defined]
+    page.mouse.down()  # type: ignore[attr-defined]
+    page.mouse.move(x + min(120, box["width"] * 0.25), y, steps=12)  # type: ignore[attr-defined]
+    page.wait_for_timeout(180)  # type: ignore[attr-defined]
+    metrics = page.evaluate(  # type: ignore[attr-defined]
+        """(pointer) => {
+          const canvas = document.getElementById('student-canvas');
+          const stage = canvas && canvas.closest('.live-canvas-stage');
+          const ink = stage && stage.querySelector('canvas.live-canvas-ink');
+          const hit = document.elementFromPoint(pointer.x, pointer.y);
+          if (!canvas || !ink) return { error: 'missing ink layer' };
+          const crect = canvas.getBoundingClientRect();
+          const irect = ink.getBoundingClientRect();
+          const countNear = (layer, box) => {
+            const ctx = layer.getContext('2d');
+            if (!ctx || layer.width < 2 || layer.height < 2) return { n: 0, near: 0 };
+            const data = ctx.getImageData(0, 0, layer.width, layer.height).data;
+            let n = 0;
+            let near = 0;
+            const step = 4;
+            for (let i = 3; i < data.length; i += 4 * step) {
+              if (data[i] < 24) continue;
+              n += 1;
+              const pixel = (i / 4) | 0;
+              const px = pixel % layer.width;
+              const py = Math.floor(pixel / layer.width);
+              const cssX = box.left + (px / layer.width) * box.width;
+              const cssY = box.top + (py / layer.height) * box.height;
+              if (Math.abs(cssY - pointer.y) <= 14 && Math.abs(cssX - pointer.x) <= 140) near += 1;
+              if (n > 800) break;
+            }
+            return { n, near };
+          };
+          const live = countNear(ink, irect);
+          const committed = countNear(canvas, crect);
+          return {
+            deltaX: irect.left - crect.left,
+            deltaY: irect.top - crect.top,
+            deltaW: irect.width - crect.width,
+            deltaH: irect.height - crect.height,
+            canvasH: crect.height,
+            inkH: irect.height,
+            samples: live.n + committed.n,
+            near: live.near + committed.near,
+            liveNear: live.near,
+            pointerY: pointer.y,
+            hit: hit ? (hit.id || hit.className || hit.tagName) : '',
+          };
+        }""",
+        {"x": x + min(120, box["width"] * 0.25), "y": y},
+    )
+    page.mouse.up()  # type: ignore[attr-defined]
+    page.wait_for_timeout(200)  # type: ignore[attr-defined]
+    if not isinstance(metrics, dict) or metrics.get("error"):
+        raise SystemExit(f"Ink probe failed: {metrics}")
+    if abs(float(metrics["deltaY"])) > 2 or abs(float(metrics["deltaH"])) > 2:
+        raise SystemExit(f"Live ink layer is not pinned to the board: {metrics}")
+    if int(metrics["near"]) < 1:
+        raise SystemExit(f"Live ink is not under the pointer: {metrics}")
+    return metrics
+
+
+def _mck272_opaque_count(page: object) -> int:
+    """Count painted pixels on the student board (committed or live)."""
+    count = page.evaluate(  # type: ignore[attr-defined]
+        """() => {
+          const canvas = document.getElementById('student-canvas');
+          const stage = canvas && canvas.closest('.live-canvas-stage');
+          const layers = [];
+          if (canvas) layers.push(canvas);
+          const ink = stage && stage.querySelector('canvas.live-canvas-ink');
+          if (ink) layers.push(ink);
+          let n = 0;
+          for (const layer of layers) {
+            const ctx = layer.getContext('2d');
+            if (!ctx || layer.width < 2) continue;
+            const data = ctx.getImageData(0, 0, layer.width, layer.height).data;
+            for (let i = 3; i < data.length; i += 16) {
+              if (data[i] > 24) n += 1;
+            }
+          }
+          return n;
+        }"""
+    )
+    return int(count or 0)
+
+
+def prepare_mck272(path: Path) -> dict[str, object]:
+    """Start a live class with two teammates and no whiteboard published yet.
+
+    Visit tokens stay in the returned dict for navigation. Callers must not
+    print them.
+
+    Args:
+        path: LMS sqlite path used by the running dev server.
+
+    Returns:
+        Class id, session id, and visit tokens keyed by roster name.
+    """
+    sys.path.insert(0, str(LMS_DIR))
+    os.environ["LLOVES_DB"] = str(path)
+    os.environ.setdefault("LOCAL_DEV_LOGIN", "1")
+    from app import create_app
+
+    app = create_app(db_path=path, testing=True)
+    school = app.config["SCHOOL_DB"]
+    class_id = shawn_class_id(path)
+    teacher = school.get_user_by_email(staff_shawn_email(path))
+    if teacher is None:
+        raise SystemExit("Shawn staff user missing. Run with --seed first.")
+    _mck208_end_active_live(school, class_id)
+    try:
+        school.game.end_game(class_id)
+    except (KeyError, ValueError):
+        pass
+    live = school.start_live_class_session(class_id, int(teacher["id"]))
+    session_id = int(live["id"])
+    rows = {}
+    for name in ("Maple", "Cedar", "Pine"):
+        row = school.game.find_student_by_codename(class_id, name)
+        if row is None:
+            school.game.add_student(class_id, codename=name)
+            row = school.game.find_student_by_codename(class_id, name)
+        if row is None:
+            raise SystemExit(f"Demo roster is missing {name}.")
+        rows[name] = row
+    school.game.begin_game(class_id)
+    school.game.clear_team_lock(class_id)
+    for row in rows.values():
+        school.join_live_class_session(
+            session_id,
+            int(row["id"]),
+            codename=str(row["codename"]),
+        )
+    school.setup_live_session_groups(
+        session_id,
+        n_teams=2,
+        mode="manual",
+        present_ids=[int(rows[name]["id"]) for name in ("Maple", "Cedar", "Pine")],
+        assignments=[
+            {"student_id": int(rows["Maple"]["id"]), "team_index": 0},
+            {"student_id": int(rows["Cedar"]["id"]), "team_index": 0},
+            {"student_id": int(rows["Pine"]["id"]), "team_index": 1},
+        ],
+    )
+    school.ensure_live_session_items(session_id)
+    school.set_live_session_teacher_state(
+        session_id,
+        class_set=True,
+        run_as_group=True,
+        groups_configured=True,
+        active_tab="canvas",
+    )
+    tokens: dict[str, str] = {}
+    for name, row in rows.items():
+        found = school.conn.execute(
+            """
+            SELECT visit_token FROM live_session_attendees
+            WHERE live_session_id = ? AND student_id = ?
+            ORDER BY id DESC LIMIT 1
+            """,
+            (session_id, int(row["id"])),
+        ).fetchone()
+        tokens[name] = str(found["visit_token"] if found else "")
+    return {
+        "class_id": class_id,
+        "session_id": session_id,
+        "tokens": tokens,
+    }
+
+
+def publish_mck272_whiteboard(
+    path: Path, session_id: int, *, mode: str = "group_shared"
+) -> None:
+    """Publish the session whiteboard to the group or to each student.
+
+    Args:
+        path: LMS sqlite path used by the running dev server.
+        session_id: Active live class session.
+        mode: ``group_shared`` or ``individual``.
+    """
+    sys.path.insert(0, str(LMS_DIR))
+    os.environ["LLOVES_DB"] = str(path)
+    os.environ.setdefault("LOCAL_DEV_LOGIN", "1")
+    from app import create_app
+
+    app = create_app(db_path=path, testing=True)
+    school = app.config["SCHOOL_DB"]
+    wb = next(
+        row
+        for row in school.list_live_session_items(session_id)
+        if str(row.get("kind") or "") == "whiteboard"
+    )
+    school.publish_live_session_item(
+        session_id, int(wb["id"]), publish_mode="group_shared"
+    )
+    school.set_live_session_teacher_state(
+        session_id,
+        class_set=True,
+        run_as_group=True,
+        groups_configured=True,
+        canvas_align="team",
+        active_tab="canvas",
+    )
+
+
+def shoot_mck272(base: str, out_dir: Path, path: Path, state_path: Path) -> list[Path]:
+    """MCK-272: one board, hidden until publish, fitted, named, in sync.
+
+    Args:
+        base: Loopback origin.
+        out_dir: Directory for PNG files.
+        path: LMS sqlite path.
+        state_path: Staff storageState.
+
+    Returns:
+        Written screenshot paths.
+    """
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    prepared = prepare_mck272(path)
+    class_id = int(prepared["class_id"])
+    session_id = int(prepared["session_id"])
+    tokens = prepared["tokens"]
+    if not isinstance(tokens, dict):
+        raise SystemExit("Demo visit tokens were not prepared.")
+    staff_url = f"{origin}/staff/class/{class_id}?tab=live"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    shots: list[Path] = []
+    gone = (
+        "#live-canvas-stub",
+        "#live-whiteboard-always-names",
+        "#live-whiteboard-projector-names",
+        "#wb-live-always-names",
+    )
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        staff_ctx = browser.new_context(
+            viewport={"width": 1280, "height": 800},
+            storage_state=str(state_path) if state_path.exists() else None,
+        )
+        staff = staff_ctx.new_page()
+        staff.goto(staff_url, wait_until="domcontentloaded")
+        staff.locator('.live-content-tab[data-tab="canvas"]').click(timeout=15000)
+        staff.locator('[data-surface-publish="canvas"]').wait_for(state="visible", timeout=30000)
+        staff.wait_for_timeout(2500)
+        if staff.locator("#formative-live-board:not([hidden])").count():
+            raise SystemExit("Whiteboard is visible before Publish.")
+        for selector in gone:
+            if staff.locator(selector).count():
+                raise SystemExit(f"Removed control is still in the page: {selector}")
+        before = out_dir / "mck272-before-publish-1280x800.png"
+        staff.screenshot(path=str(before))
+        shots.append(before)
+
+        maple_ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+        cedar_ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+        maple = maple_ctx.new_page()
+        cedar = cedar_ctx.new_page()
+        _mck272_open_student(maple, origin, str(tokens["Maple"]))
+        _mck272_open_student(cedar, origin, str(tokens["Cedar"]))
+        maple.wait_for_timeout(1500)
+        if maple.locator("#canvas-pane:not([hidden])").count():
+            raise SystemExit("Student board is visible before Publish.")
+        hidden_student = out_dir / "mck272-student-before-publish-1280x800.png"
+        maple.screenshot(path=str(hidden_student))
+        shots.append(hidden_student)
+
+        publish_mck272_whiteboard(path, session_id)
+        staff.locator("#formative-live-board:not([hidden]) .wb-live-name").first.wait_for(
+            state="visible", timeout=30000
+        )
+        names = staff.locator("#formative-live-board .wb-live-name").all_inner_texts()
+        labels = [part.strip() for part in names if part.strip()]
+        if labels != ["Team 1", "Team 2"] and sorted(labels) != ["Team 1", "Team 2"]:
+            raise SystemExit(f"Gallery labels are not the team names: {labels}")
+        for label in labels:
+            if label.startswith("Student "):
+                raise SystemExit(f"Gallery used a placeholder name: {label}")
+        gallery = out_dir / "mck272-gallery-1280x800.png"
+        staff.screenshot(path=str(gallery))
+        shots.append(gallery)
+
+        opened = False
+        for _ in range(4):
+            tile = staff.locator("#formative-live-board .wb-live-tile").first
+            tile.click(timeout=5000)
+            try:
+                staff.locator("#wb-live-panel:not([hidden]) #wb-live-undo").wait_for(
+                    state="visible", timeout=4000
+                )
+                opened = True
+                break
+            except Exception:
+                continue
+        if not opened:
+            raise SystemExit("Opening a gallery card did not show the board tools.")
+        for selector in ("#wb-live-pen", "#wb-live-text", "#wb-live-erase", "#wb-live-undo"):
+            _mck272_box_in_view(staff, selector)
+        _mck272_assert_open_panel(staff, "team-1280x800")
+        panel = out_dir / "mck272-panel-1280x800.png"
+        staff.screenshot(path=str(panel))
+        shots.append(panel)
+
+        staff.set_viewport_size({"width": 1366, "height": 768})
+        staff.wait_for_timeout(400)
+        for selector in ("#wb-live-pen", "#wb-live-text", "#wb-live-erase", "#wb-live-undo"):
+            _mck272_box_in_view(staff, selector)
+        _mck272_assert_open_panel(staff, "team-1366x768")
+        short = out_dir / "mck272-panel-1366x768.png"
+        staff.screenshot(path=str(short))
+        shots.append(short)
+
+        maple.locator("#canvas-pane:not([hidden]) #student-canvas").wait_for(
+            state="visible", timeout=30000
+        )
+        cedar.locator("#canvas-pane:not([hidden]) #student-canvas").wait_for(
+            state="visible", timeout=30000
+        )
+        for student, width, height, tag in (
+            (maple, 1280, 800, "1280x800"),
+            (maple, 1366, 768, "1366x768"),
+        ):
+            student.set_viewport_size({"width": width, "height": height})
+            student.wait_for_timeout(300)
+            for selector in (
+                "#student-canvas-pen",
+                "#student-canvas-text",
+                "#student-canvas-erase",
+                "#student-canvas-undo",
+            ):
+                _mck272_box_in_view(student, selector)
+            if tag == "1366x768":
+                fitted = out_dir / f"mck272-student-toolbar-{tag}.png"
+                student.screenshot(path=str(fitted))
+                shots.append(fitted)
+        maple.set_viewport_size({"width": 1280, "height": 800})
+        cedar.set_viewport_size({"width": 1280, "height": 800})
+        ink = _mck272_draw_and_measure(maple)
+        print("mck272 ink", {key: ink[key] for key in ("deltaX", "deltaY", "deltaW", "deltaH", "near", "samples")})
+        drawing = out_dir / "mck272-student-ink-1280x800.png"
+        maple.screenshot(path=str(drawing))
+        shots.append(drawing)
+        synced = False
+        for _ in range(12):
+            if _mck272_opaque_count(cedar) > 0:
+                synced = True
+                break
+            cedar.wait_for_timeout(1000)
+        if not synced:
+            raise SystemExit("Teammate board did not receive the shared stroke.")
+        team = out_dir / "mck272-team-sync-1280x800.png"
+        cedar.screenshot(path=str(team))
+        shots.append(team)
+
+        _mck272_republish(staff, origin, path, session_id, "individual")
+        staff.set_viewport_size({"width": 1280, "height": 800})
+        staff.reload(wait_until="domcontentloaded")
+        staff.locator('.live-content-tab[data-tab="canvas"]').click(timeout=15000)
+        staff.locator("#formative-live-board .wb-live-name").first.wait_for(
+            state="visible", timeout=30000
+        )
+        individual_names = [
+            part.strip()
+            for part in staff.locator("#formative-live-board .wb-live-name").all_inner_texts()
+            if part.strip()
+        ]
+        print("mck272 individual names", individual_names)
+        maple_tile = staff.locator("#formative-live-board .wb-live-tile", has_text="Maple").first
+        maple_tile.wait_for(state="visible", timeout=15000)
+        maple_tile.click()
+        staff.locator("#wb-live-panel:not([hidden]) #wb-live-undo").wait_for(
+            state="visible", timeout=15000
+        )
+        for width, height, tag in ((1280, 800, "1280x800"), (1366, 768, "1366x768")):
+            staff.set_viewport_size({"width": width, "height": height})
+            staff.wait_for_timeout(400)
+            for selector in ("#wb-live-pen", "#wb-live-text", "#wb-live-erase", "#wb-live-undo"):
+                _mck272_box_in_view(staff, selector)
+            _mck272_assert_open_panel(staff, f"individual-{tag}")
+            panel_shot = out_dir / f"mck272-individual-panel-{tag}.png"
+            staff.screenshot(path=str(panel_shot))
+            shots.append(panel_shot)
+
+        maple.set_viewport_size({"width": 1280, "height": 800})
+        _mck272_open_student(maple, origin, str(tokens["Maple"]))
+        maple.locator("#canvas-pane:not([hidden]) #student-canvas").wait_for(
+            state="visible", timeout=30000
+        )
+        solo_ink = _mck272_draw_and_measure(maple)
+        print(
+            "mck272 solo ink",
+            {key: solo_ink[key] for key in ("deltaX", "deltaY", "deltaW", "deltaH", "near", "samples")},
+        )
+        solo_shot = out_dir / "mck272-individual-ink-1280x800.png"
+        maple.screenshot(path=str(solo_shot))
+        shots.append(solo_shot)
+        solo_keys: list[str] = []
+        import sqlite3
+
+        for _ in range(12):
+            with sqlite3.connect(path) as conn:
+                rows = conn.execute(
+                    "SELECT DISTINCT board_key FROM board_ops"
+                ).fetchall()
+            keys = [str(row[0]) for row in rows]
+            solo_keys = [key for key in keys if key.startswith("solo:")]
+            banned = [key for key in keys if key.startswith("student:") or key.startswith("fb:")]
+            if banned:
+                raise SystemExit(f"Individual ink used a removed board key: {banned}")
+            if solo_keys:
+                break
+            maple.wait_for_timeout(1000)
+        if not solo_keys:
+            raise SystemExit("Individual stroke did not save a solo: board key.")
+        print("mck272 solo keys", solo_keys)
+        staff.set_viewport_size({"width": 1280, "height": 800})
+        staff.reload(wait_until="domcontentloaded")
+        staff.locator('.live-content-tab[data-tab="canvas"]').click(timeout=15000)
+        staff.locator("#formative-live-board .wb-live-tile", has_text="Maple").first.wait_for(
+            state="visible", timeout=30000
+        )
+        staff.wait_for_timeout(1500)
+        gallery_shot = out_dir / "mck272-individual-gallery-1280x800.png"
+        staff.screenshot(path=str(gallery_shot))
+        shots.append(gallery_shot)
+        maple_ctx.close()
+        cedar_ctx.close()
+        staff_ctx.close()
+        browser.close()
+    return shots
+
+
+
+def _mck272_republish(page: object, origin: str, path: Path, session_id: int, mode: str) -> None:
+    """Ask the running server to publish the whiteboard again.
+
+    A second process writing sqlite does not update the server's copy of
+    the live item. This posts to the staff publish route instead.
+
+    Args:
+        page: Logged-in staff page. Its request context carries the cookie.
+        origin: Loopback origin.
+        path: LMS sqlite path.
+        session_id: Active live class session.
+        mode: ``individual`` or ``group_shared``.
+    """
+    with sqlite3.connect(path) as conn:
+        row = conn.execute(
+            """
+            SELECT id FROM live_session_items
+            WHERE live_session_id = ? AND kind = 'whiteboard'
+            ORDER BY id DESC LIMIT 1
+            """,
+            (int(session_id),),
+        ).fetchone()
+    if row is None:
+        raise SystemExit("Whiteboard item is missing.")
+    response = page.request.post(  # type: ignore[attr-defined]
+        f"{origin}/api/live-sessions/{int(session_id)}/items/{int(row[0])}/publish",
+        data=json.dumps({"publish_mode": mode}),
+        headers={"Content-Type": "application/json"},
+    )
+    if response.status != 200:
+        raise SystemExit(f"Republish {mode} failed with status {response.status}.")
 
 
 def _mck273_publish_one_answer(school, session_id: int, module: str, slot: str, student_id: int) -> None:
@@ -2589,6 +3176,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck233-end-live",
             "mck217-student-view",
             "mck242",
+            "mck272",
             "mck273",
         ),
         default="",
@@ -2597,7 +3185,7 @@ def main(argv: list[str] | None = None) -> int:
             "MCK-207 roster/PIN, run-class toggle, MCK-208 dashboard, "
             "avatar-reward pop-up, MCK-216 Team challenge rank lock-in, "
             "MCK-220/230/215/222/219 scenarios, MCK-217 Student view Questions, "
-            "MCK-242 Team Draw, or MCK-273 one join code."
+            "MCK-242 Team Draw, MCK-272 whiteboard, or MCK-273 one join code."
         ),
     )
     args = parser.parse_args(argv)
@@ -2663,6 +3251,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "mck242":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck242(args.base, state, out, path, widths))
+        if args.scenario == "mck272":
+            written.extend(shoot_mck272(args.base, out, path, state))
         if args.scenario == "mck273":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck273(args.base, out, path, widths))
@@ -2683,7 +3273,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
                 "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
-                "mck217-student-view|mck242|mck273."
+                "mck217-student-view|mck242|mck272|mck273."
             )
         for item in written:
             print(item)

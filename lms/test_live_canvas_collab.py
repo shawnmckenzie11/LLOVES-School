@@ -403,7 +403,7 @@ class WhiteboardCollabTests(unittest.TestCase):
         student = (LMS_DIR / "templates" / "student" / "home.html").read_text(
             encoding="utf-8"
         )
-        self.assertIn('id="live-canvas-text"', staff)
+        self.assertIn('id="wb-live-text"', staff)
         self.assertIn('id="student-canvas-text"', student)
         script = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
         self.assertIn("text_id", script)
