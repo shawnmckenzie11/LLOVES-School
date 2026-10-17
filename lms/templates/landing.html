@@ -41,7 +41,7 @@
     {% if student_error %}<div class="error" id="error">{{ student_error }}</div>{% endif %}
     <form class="student-code-panel" id="student-code-panel" method="post" action="{{ url_for('auth_student_code') }}">
       <label class="field" for="code">Join code</label>
-      <input id="code" name="code" minlength="4" maxlength="24" pattern="\s*(?:(?:[A-Za-z0-9]\s*){4,6}|(?:[A-Za-z0-9]\s*){8})" title="The code on your teacher's screen: 4 to 6 letters and numbers (older codes have 8)" autocomplete="off" autocapitalize="characters" spellcheck="false" required value="{{ student_code or '' }}">
+      <input id="code" name="code" type="text" inputmode="text" minlength="4" maxlength="24" pattern="\s*(?:(?:[A-Za-z0-9]\s*){4,6}|(?:[A-Za-z0-9]\s*){8})" title="The code on your teacher's screen: 4 to 6 letters and numbers (older codes have 8)" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" required value="{{ student_code or '' }}">
       <label class="field" for="student-name">Name</label>
       <input id="student-name" name="name" autocomplete="given-name" required value="{{ student_name or '' }}">
       {% if student_candidates %}

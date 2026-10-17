@@ -24,7 +24,17 @@ from catchup_portal_code import (  # noqa: E402
     decode_portal_join_code,
     mint_portal_join_code,
 )
-from codes import SESSION_CODE_ALPHABET, is_offensive_code  # noqa: E402
+from catchup_landing import link_still_open  # noqa: E402
+from codes import (  # noqa: E402
+    SESSION_CODE_ALPHABET,
+    SESSION_CODE_FALLBACK_LENGTH,
+    SESSION_CODE_LENGTHS,
+    SESSION_CODE_TRIES_PER_LENGTH,
+    SessionCodeUnavailable,
+    is_offensive_code,
+    session_code_charset_ok,
+    session_code_start_length,
+)
 from test_participation_mck198 import Base  # noqa: E402
 
 
@@ -128,12 +138,13 @@ class OneCodeTests(Base):
         """After End, catch-up uses the code students typed to join live."""
         join_code, stored = self._end_with_answer("M1", "C1")
         self.assertTrue(_same(join_code, stored), "catch-up code did not match the live join code")
-        resolved = self.school.resolve_catchup_link_by_portal_code(join_code)
+        self.assertTrue(session_code_charset_ok(join_code))
+        resolved = self.school.resolve_catchup_link_by_portal_code(join_code.lower())
         self.assertIsNotNone(resolved)
         client = self.app.test_client()
         rv = client.post(
             "/auth/student-code",
-            data={"code": join_code, "name": self.first},
+            data={"code": join_code.lower(), "name": self.first},
             environ_base={"REMOTE_ADDR": "127.0.0.1"},
             follow_redirects=False,
         )
@@ -164,7 +175,11 @@ class OneCodeTests(Base):
                 return reserved
             while True:
                 nxt = "".join(secrets.choice(SESSION_CODE_ALPHABET) for _ in range(int(length)))
-                if nxt != reserved and not is_offensive_code(nxt):
+                if (
+                    nxt != reserved
+                    and session_code_charset_ok(nxt)
+                    and not is_offensive_code(nxt)
+                ):
                     return nxt
 
         with mock.patch.object(codes, "generate_live_access_code", side_effect=generate):
@@ -328,6 +343,156 @@ class OneCodeTests(Base):
         self.assertIn("/^[A-Za-z0-9]{4,6}$/", gate)
         self.assertIn("/^[A-Za-z0-9]{8}$/", gate)
 
+    def test_expired_catchup_code_stays_reserved(self) -> None:
+        """Start never reissues a code on an expired or closed catch-up row."""
+        code, stored = self._end_with_answer("M9", "C4")
+        self.assertTrue(_same(code, stored), "catch-up code was not stored")
+        self.assertTrue(session_code_charset_ok(code))
+        row = self.school.conn.execute(
+            """
+            SELECT run_key FROM catchup_links
+            WHERE class_id = ? AND live_module = 'M9' AND live_slot = 'C4'
+            """,
+            (self.class_id,),
+        ).fetchone()
+        run_key = str(row["run_key"])
+        self.school.conn.execute(
+            """
+            UPDATE live_class_sessions
+            SET ended_at = ?
+            WHERE class_id = ? AND run_key = ?
+            """,
+            ("2020-01-15T15:00:00", self.class_id, run_key),
+        )
+        self.school.conn.commit()
+        expired = dict(
+            self.school.conn.execute(
+                "SELECT * FROM catchup_links WHERE class_id = ? AND run_key = ?",
+                (self.class_id, run_key),
+            ).fetchone()
+        )
+        self.assertFalse(link_still_open(self.school, expired))
+        self.assertTrue(self.school.catchup_join_code_reserved(code))
+        self.school.conn.execute(
+            "UPDATE catchup_links SET is_open = 0 WHERE class_id = ? AND run_key = ?",
+            (self.class_id, run_key),
+        )
+        self.school.conn.commit()
+        self.assertTrue(self.school.catchup_join_code_reserved(code))
+        calls = {"n": 0}
+
+        def generate(length: int, alphabet: str = "") -> str:
+            """Always offer the reserved code. Length is ignored."""
+            del length, alphabet
+            calls["n"] += 1
+            return code
+
+        start = session_code_start_length(0)
+        lengths = [n for n in SESSION_CODE_LENGTHS if n >= start]
+        lengths.append(SESSION_CODE_LENGTHS[-1])
+        lengths.append(SESSION_CODE_FALLBACK_LENGTH)
+        expected = len(lengths) * SESSION_CODE_TRIES_PER_LENGTH
+        with self.assertRaises(SessionCodeUnavailable) as caught:
+            with mock.patch.object(codes, "generate_live_access_code", side_effect=generate):
+                self.school.mint_unique_active_session_code()
+        self.assertIn("Press Start again", str(caught.exception))
+        self.assertEqual(calls["n"], expected)
+
+    def test_closed_or_other_class_digit_code_still_signs_in(self) -> None:
+        """PIN setting and sign-in ignore a closed or other-class all-digit code."""
+        self._end_with_answer("M7", "C2")
+        sign_in = self.school.conn.execute(
+            """
+            SELECT token FROM catchup_links
+            WHERE class_id = ? AND live_module = 'M7' AND live_slot = 'C2'
+            """,
+            (self.class_id,),
+        ).fetchone()
+        token = str(sign_in["token"])
+        digits = "".join(ch for ch in SESSION_CODE_ALPHABET if ch.isdigit())
+        numeric = "".join(secrets.choice(digits) for _ in range(4))
+        now = "2026-10-14T13:20:00"
+        self.school.conn.execute(
+            """
+            INSERT INTO catchup_links (
+                token, class_id, run_key, live_module, live_slot, is_open,
+                portal_join_code, created_at, updated_at, is_test
+            ) VALUES (?, ?, ?, 'M1', 'C1', 1, ?, ?, ?, 0)
+            """,
+            ("other-class-row", 99991, "other-class-run", numeric, now, now),
+        )
+        self.school.conn.commit()
+        self.school.set_student_pin(self.class_id, self.students[0], numeric)
+        signed = self.school.catchup_sign_in(token, self.first, numeric)
+        self.assertTrue(signed.get("ok"), signed.get("reason"))
+        checked = self.school.catchup_verify_student_pin(
+            self.class_id, self.students[0], numeric
+        )
+        self.assertTrue(checked.get("ok"), checked.get("reason"))
+        self.school.conn.execute("DELETE FROM catchup_links WHERE class_id = ?", (99991,))
+        self._end_with_answer("M7", "C3")
+        self.school.conn.execute(
+            """
+            UPDATE catchup_links
+            SET portal_join_code = ?
+            WHERE class_id = ? AND live_module = 'M7' AND live_slot = 'C3'
+            """,
+            (numeric, self.class_id),
+        )
+        run_key = str(
+            self.school.conn.execute(
+                """
+                SELECT run_key FROM catchup_links
+                WHERE class_id = ? AND live_module = 'M7' AND live_slot = 'C3'
+                """,
+                (self.class_id,),
+            ).fetchone()["run_key"]
+        )
+        self.school.conn.execute(
+            """
+            UPDATE live_class_sessions
+            SET ended_at = ?
+            WHERE class_id = ? AND run_key = ?
+            """,
+            ("2020-01-15T15:00:00", self.class_id, run_key),
+        )
+        self.school.conn.commit()
+        expired = dict(
+            self.school.conn.execute(
+                "SELECT * FROM catchup_links WHERE class_id = ? AND run_key = ?",
+                (self.class_id, run_key),
+            ).fetchone()
+        )
+        self.assertFalse(link_still_open(self.school, expired))
+        self.school.set_student_pin(self.class_id, self.students[0], numeric)
+        still = self.school.catchup_sign_in(token, self.first, numeric)
+        self.assertTrue(still.get("ok"), still.get("reason"))
+        self.school.conn.execute(
+            """
+            UPDATE live_class_sessions
+            SET ended_at = ?
+            WHERE class_id = ? AND run_key = ?
+            """,
+            ("2026-10-14T13:20:00", self.class_id, run_key),
+        )
+        self.school.conn.commit()
+        reopened = dict(
+            self.school.conn.execute(
+                "SELECT * FROM catchup_links WHERE class_id = ? AND run_key = ?",
+                (self.class_id, run_key),
+            ).fetchone()
+        )
+        self.assertTrue(link_still_open(self.school, reopened))
+        with self.assertRaises(ValueError) as caught:
+            self.school.set_student_pin(self.class_id, self.students[0], numeric)
+        self.assertIn("join code", str(caught.exception).lower())
+        refused = self.school.catchup_sign_in(token, self.first, numeric)
+        self.assertEqual(refused["reason"], "looks_like_join_code")
+        landing = self.school.catchup_verify_student_pin(
+            self.class_id, self.students[0], numeric
+        )
+        self.assertEqual(landing["reason"], refused["reason"])
+
     def test_digit_catchup_code_is_refused_as_a_pin(self) -> None:
         """The stored catch-up code is not accepted on the PIN screen."""
         self._end_with_answer("M7", "C1")
@@ -345,7 +510,6 @@ class OneCodeTests(Base):
         token = str(self.school.list_catchup_links(self.class_id)[0]["token"])
         result = self.school.catchup_sign_in(token, self.first, numeric)
         self.assertEqual(result["reason"], "looks_like_join_code")
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -25,7 +25,9 @@ from typing import Callable
 # Durable 8-character codes: no 0/O or 1/I. Kept as is so stored codes stay valid.
 ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 # Live-session join codes also drop L (reads as 1/I on a projector): 31 symbols.
+# No O, 0, I, L, or 1. Every new code also needs a letter (``session_code_charset_ok``).
 SESSION_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+SESSION_CODE_LOOKALIKES = frozenset("O0IL1")
 # Session code lengths, shortest first. 31**4 is about 923k codes.
 SESSION_CODE_LENGTHS: tuple[int, ...] = (4, 5, 6)
 # Start one length longer once this many sessions are active at that length.
@@ -75,6 +77,26 @@ def is_offensive_code(code: str) -> bool:
     return any(part in reading for reading in readings for part in OFFENSIVE_CODE_PARTS)
 
 
+def session_code_charset_ok(code: str) -> bool:
+    """True when a new session code has a letter and no look-alike characters.
+
+    Look-alikes are O, 0, I, L, and 1. The check is case-insensitive.
+    An all-digit code is rejected so it cannot be typed as a course PIN.
+
+    Args:
+        code: Candidate session join code.
+
+    Returns:
+        True when the code may be issued.
+    """
+    text = str(code or "").strip().upper()
+    if not text or any(ch in SESSION_CODE_LOOKALIKES for ch in text):
+        return False
+    if any(ch not in SESSION_CODE_ALPHABET for ch in text):
+        return False
+    return any(ch.isalpha() for ch in text)
+
+
 class SessionCodeUnavailable(ValueError):
     """Start could not find a free join code. A ``ValueError`` so the Start
     routes show it as a normal 400 message instead of a 500."""
@@ -120,7 +142,8 @@ def pick_session_code(
     ``SESSION_CODE_TRIES_PER_LENGTH`` rejected picks it moves to the next
     length; the longest gets the budget twice, then
     ``SESSION_CODE_FALLBACK_LENGTH`` gets one more. A pick on the
-    ``OFFENSIVE_CODE_PARTS`` blocklist is re-picked and uses up one try.
+    ``OFFENSIVE_CODE_PARTS`` blocklist, an all-digit code, or a code with
+    a look-alike (O, 0, I, L, 1) is re-picked and uses up one try.
 
     Args:
         taken: True when a candidate is already in use.
@@ -134,17 +157,23 @@ def pick_session_code(
     Raises:
         SessionCodeUnavailable: If every try at every length was rejected.
     """
-    make = generate or (
-        lambda length: generate_live_access_code(length, SESSION_CODE_ALPHABET)
-    )
+    def _draw(length: int) -> str:
+        """Draw one session code that has a letter and no look-alikes."""
+        for _ in range(48):
+            drawn = generate_live_access_code(length, SESSION_CODE_ALPHABET)
+            if session_code_charset_ok(drawn) and not is_offensive_code(drawn):
+                return drawn
+        return generate_live_access_code(length, SESSION_CODE_ALPHABET)
+
+    make = generate or _draw
     start = session_code_start_length(active_sessions)
     lengths = [n for n in SESSION_CODE_LENGTHS if n >= start]
     lengths.append(SESSION_CODE_LENGTHS[-1])
     lengths.append(SESSION_CODE_FALLBACK_LENGTH)
     for length in lengths:
         for _ in range(SESSION_CODE_TRIES_PER_LENGTH):
-            code = make(length)
-            if is_offensive_code(code):
+            code = str(make(length) or "").strip().upper()
+            if not session_code_charset_ok(code) or is_offensive_code(code):
                 continue
             if not taken(code):
                 return code
