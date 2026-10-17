@@ -30034,8 +30034,11 @@ class SchoolDB(LovesDB):
 
         Unique-per-student alignment stores cursors only. Frozen-to-teacher
         publishes teacher strokes. Shared-within-group publishes team
-        strokes plus named cursors. ``points`` is the batched payload;
-        ``point`` remains the single-sample payload.
+        strokes plus named cursors. An active Individual whiteboard
+        accepts student ink the same way Group does, even when ROUND
+        has collapsed the student canvas, and stores it on ``solo:<id>``
+        only. ``points`` is the batched payload; ``point`` remains the
+        single-sample payload.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -30053,8 +30056,14 @@ class SchoolDB(LovesDB):
         """
         teacher = self.live_session_teacher_state_payload(session_id)
         align = str(teacher.get("canvas_align") or "student")
-        if self._whiteboard_collab_active(session_id):
+        published = self._active_whiteboard_item(session_id)
+        mode = str((published or {}).get("publish_mode") or "")
+        if mode == "group_shared":
             align = "team"
+        elif mode == "individual" and not as_teacher:
+            # ROUND stores canvas_align as teacher. Individual publish
+            # still keeps this student's strokes, on solo:<id> only.
+            align = "student"
         publish = False
         bucket = "teacher"
         if align == "teacher" and as_teacher:

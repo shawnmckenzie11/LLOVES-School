@@ -88,6 +88,10 @@ CREATE TABLE IF NOT EXISTS board_sessions (
     run_key TEXT PRIMARY KEY,
     closed INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS board_flags (
+    name TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 _POSTGRES_DDL = """
@@ -124,6 +128,10 @@ CREATE TABLE IF NOT EXISTS board_batches (
 CREATE TABLE IF NOT EXISTS board_sessions (
     run_key TEXT PRIMARY KEY,
     closed BIGINT NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS board_flags (
+    name TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 """
 
@@ -597,19 +605,6 @@ def _text_owner(exec_: Exec, run_key: str, board_key: str, text_id: str) -> str 
     if state is None or not state.get("alive"):
         return None
     return str(state.get("owner") or "") or None
-
-
-def _ensure_board_flags(exec_: Exec) -> None:
-    """Create the one-row boot flag table when this store does not have it.
-
-    Args:
-        exec_: Statement runner for the open board connection.
-    """
-    exec_(
-        "CREATE TABLE IF NOT EXISTS board_flags ("
-        "name TEXT PRIMARY KEY, value TEXT NOT NULL)",
-        (),
-    )
 
 
 class _BoardStore:
@@ -1129,14 +1124,14 @@ class _BoardStore:
         ``student:`` and ``fb:`` keys belonged to the duplicate board.
         Team, solo, shared, and teacher boards stay. The patterns are
         bound values. A literal percent sign in the SQL is a Postgres
-        placeholder and crashes boot. The first run records a flag on
-        this store. Later boots see the flag and do not scan again.
+        placeholder and crashes boot. ``board_flags`` is created with
+        the other board tables. The first run records that this delete
+        has run. Later boots see that row and do not scan again.
         """
         if self._removed_board_keys_dropped():
             return
 
         def work(exec_: Exec) -> None:
-            _ensure_board_flags(exec_)
             for table in ("board_ops", "board_counters", "board_batches"):
                 exec_(
                     f"DELETE FROM {table} WHERE board_key LIKE ? "
@@ -1155,7 +1150,6 @@ class _BoardStore:
         """True after this store has already deleted ``student:`` and ``fb:`` keys."""
 
         def read(exec_: Exec) -> bool:
-            _ensure_board_flags(exec_)
             row = exec_(
                 "SELECT value FROM board_flags WHERE name = ?",
                 ("mck272_removed_keys",),

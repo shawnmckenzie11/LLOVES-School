@@ -306,6 +306,10 @@ class SqliteBoardOpsTests(unittest.TestCase):
             "SELECT name FROM sqlite_master WHERE name = 'board_sessions'"
         ).fetchone()
         self.assertIsNotNone(row)
+        flags = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE name = 'board_flags'"
+        ).fetchone()
+        self.assertIsNotNone(flags)
 
     def test_purge_and_a_racing_write_do_not_reuse_a_sequence(self) -> None:
         """Writers that overlap a purge raise closed, and leave no orphan rows."""
@@ -2274,6 +2278,76 @@ class BareLovesDbTests(unittest.TestCase):
         finally:
             db.close()
             root.cleanup()
+
+
+class PostgresBoardSchemaRaceTests(unittest.TestCase):
+    """Four workers creating board tables on one Postgres database."""
+
+    def test_concurrent_init_creates_board_flags(self) -> None:
+        """Booting board schema together does not fail, and ``board_flags`` exists.
+
+        Production starts four gunicorn workers. ``board_flags`` is created
+        in the same locked DDL pass as the other board tables, so a cold
+        boot cannot collide on ``pg_type``.
+        """
+        import uuid
+        from urllib.parse import urlsplit, urlunsplit
+
+        admin = (os.environ.get("LIVE_PRESENCE_TEST_URL") or "").strip()
+        if not admin:
+            self.skipTest("LIVE_PRESENCE_TEST_URL is not set")
+        import psycopg
+
+        from board_ops import PostgresBoardOps
+        from live_presence import LivePresenceStore
+
+        db_name = f"lloves_mck272_{uuid.uuid4().hex[:8]}"
+        with psycopg.connect(admin, autocommit=True) as conn:
+            conn.execute(f'CREATE DATABASE "{db_name}"')
+        parts = urlsplit(admin)
+        dsn = urlunsplit((parts.scheme, parts.netloc, f"/{db_name}", parts.query, ""))
+
+        def drop() -> None:
+            """Remove the throwaway database after the workers finish."""
+            with psycopg.connect(admin, autocommit=True) as conn:
+                conn.execute(f'DROP DATABASE IF EXISTS "{db_name}" WITH (FORCE)')
+
+        self.addCleanup(drop)
+        workers = 4
+        start = threading.Barrier(workers)
+        errors: list[BaseException] = []
+        errors_lock = threading.Lock()
+
+        def boot() -> None:
+            """Wait with the other workers, then create the board tables."""
+            try:
+                start.wait(timeout=30)
+                presence = LivePresenceStore(dsn, pool_size=1)
+                try:
+                    PostgresBoardOps(presence).ensure_schema()
+                finally:
+                    presence.close()
+            except BaseException as exc:
+                with errors_lock:
+                    errors.append(exc)
+
+        threads = [threading.Thread(target=boot) for _ in range(workers)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=60)
+            self.assertFalse(thread.is_alive(), "board schema init did not finish")
+        self.assertEqual(errors, [])
+        with psycopg.connect(dsn) as check:
+            found = check.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = current_schema()
+                  AND table_name = 'board_flags'
+                """
+            ).fetchall()
+        self.assertEqual(len(found), 1)
 
 
 if __name__ == "__main__":

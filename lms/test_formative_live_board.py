@@ -429,6 +429,61 @@ class FormativeLiveBoardTests(unittest.TestCase):
         self.school._migrate_mck272_whiteboard()
         self.assertIn(solo, self._board_keys(run_key))
 
+    def test_individual_pen_persists_during_round(self) -> None:
+        """An Individual board stores solo strokes while ROUND hides the canvas.
+
+        ROUND sets ``canvas_align`` to teacher, which used to accept the
+        stroke and save nothing. Group already overrides that. Individual
+        publish does too, and the rows stay on ``solo:<id>``.
+        """
+        self.school.set_live_session_teacher_state(self.session_id, stage="round")
+        self._publish("individual")
+        teacher = self.school.live_session_teacher_state_payload(self.session_id)
+        self.assertEqual(str(teacher.get("stage") or ""), "round")
+        self.assertEqual(str(teacher.get("canvas_align") or ""), "teacher")
+        run_key = self.school.live_board_run_key(self.session_id)
+        pine = self.app.test_client()
+        pine_token = self._visit_token(self.pine_id)
+        writers = (
+            (self.maple, self.maple_token, self.maple_id, "maple-round-pen"),
+            (self.cedar_client, self.cedar_token, self.cedar_id, "cedar-round-pen"),
+            (pine, pine_token, self.pine_id, "pine-round-pen"),
+        )
+        for client, token, _student_id, stroke_id in writers:
+            posted = client.post(
+                "/api/student/canvas-presence",
+                json={
+                    "x": 0.22,
+                    "y": 0.41,
+                    "points": [[0.22, 0.41], [0.34, 0.52]],
+                    "stroke_id": stroke_id,
+                    "ended": True,
+                    "run_key": run_key,
+                },
+                headers=self._student_headers(token),
+            )
+            self.assertEqual(posted.status_code, 200, posted.get_data(as_text=True))
+        keys = self._board_keys(run_key)
+        self.assertFalse(
+            any(key.startswith("student:") or key.startswith("fb:") for key in keys)
+        )
+        gallery = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery"
+        )
+        self.assertEqual(gallery.status_code, 200, gallery.get_data(as_text=True))
+        tiles = gallery.get_json()["tiles"]
+        for _client, _token, student_id, stroke_id in writers:
+            solo = f"solo:{student_id}"
+            self.assertIn(solo, keys)
+            self.assertNotIn(f"team:{student_id}", keys)
+            tile = next(
+                row for row in tiles if int(row.get("student_id") or 0) == student_id
+            )
+            self.assertEqual(tile["board_key"], solo)
+            ink = json.dumps({"canvas_view": tile.get("canvas_view"), "ops": tile.get("ops")})
+            self.assertIn(stroke_id, ink)
+            self.assertGreater(int(tile.get("board_seq") or 0), 0)
+
     def test_gallery_uses_roster_name_not_first_name(self) -> None:
         """Cards show the roster name column, even when first_name differs."""
         self.school.conn.execute(
