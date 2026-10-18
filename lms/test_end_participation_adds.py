@@ -317,7 +317,8 @@ class EndParticipationAddsTests(shell.LiveShellTests):
             second = self.client.post(f"/staff/class/{self.class_id}/end-live")
         finally:
             self.school.get_active_live_session_for_teacher = real  # type: ignore[method-assign]
-        self.assertEqual(second.status_code, 302)
+        self.assertEqual(second.status_code, 409)
+        self.assertIn(b"This class already ended.", second.data)
         self.assertEqual(self._columns(), columns, "phantom class-day column")
 
     def test_end_with_no_live_run_begins_no_game(self) -> None:

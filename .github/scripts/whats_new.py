@@ -203,12 +203,6 @@ def check_body(body: str | None) -> list[str]:
             continue
         if note["none"]:
             continue
-        if note["kind"] == "fix":
-            # A fix line is allowed in the PR and is not published. It still
-            # has to name a place and stay within the word limit.
-            for problem in note_problems(note["text"]):
-                errors.append(f"\"What's new: {note['text']}\" {problem}.")
-            continue
         if note["kind"] not in PUBLISHED_KINDS:
             errors.append(
                 f"\"What's new: {note['text']}\" is not marked as a feature or a workflow change. "

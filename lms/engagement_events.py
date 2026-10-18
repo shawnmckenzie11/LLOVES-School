@@ -160,40 +160,57 @@ def engagement_match(
     return "(" + " OR ".join(parts) + ")", tuple(params)
 
 
-def engagement_match_reuse_safe(
-    session_ids: Sequence[int], run_keys: Sequence[str]
+def engagement_match_owned(
+    class_id: int,
+    session_ids: Sequence[int],
+    run_keys: Sequence[str],
+    *,
+    require_session: bool,
 ) -> tuple[str, tuple[Any, ...]] | None:
-    """SQL predicate for one run when session ids can be reused.
+    """SQL predicate for one class's run, safe when session ids are reused.
 
-    Matches a non-empty run key, or a live session whose run key is blank
-    or one of these keys. A different run that still carries this session
-    id stays. Quit uses this. Test-class delete uses ``engagement_match``.
+    A run key matches only with this class. Quit also requires the session
+    id, so an earlier run that shares the id stays. A blank run key matches
+    only this class and these session ids.
 
     Args:
+        class_id: Game-show ``classes.id``.
         session_ids: ``live_class_sessions.id`` values.
         run_keys: Run keys for those sessions.
+        require_session: Quit. Keyed rows must also match the session id.
 
     Returns:
         ``(clause, params)`` or ``None`` when there is nothing to match.
     """
+    cid = int(class_id)
     ids = [int(sid) for sid in session_ids]
     keys = [str(key).strip() for key in run_keys if str(key or "").strip()]
+    blank = "(run_key IS NULL OR TRIM(run_key) = '')"
+    if require_session:
+        if not ids:
+            return None
+        id_ph = ",".join("?" * len(ids))
+        if keys:
+            key_ph = ",".join("?" * len(keys))
+            clause = (
+                f"(class_id = ? AND live_session IN ({id_ph}) "
+                f"AND (run_key IN ({key_ph}) OR {blank}))"
+            )
+            return clause, (cid, *ids, *keys)
+        return (
+            f"(class_id = ? AND live_session IN ({id_ph}) AND {blank})",
+            (cid, *ids),
+        )
     parts: list[str] = []
     params: list[Any] = []
     if keys:
-        parts.append("run_key IN (" + ",".join("?" * len(keys)) + ")")
-        params.extend(keys)
+        key_ph = ",".join("?" * len(keys))
+        parts.append(f"(class_id = ? AND run_key IN ({key_ph}))")
+        params.extend([cid, *keys])
     if ids:
-        blank = "(run_key IS NULL OR TRIM(run_key) = '')"
-        id_clause = "live_session IN (" + ",".join("?" * len(ids)) + ")"
-        if keys:
-            key_clause = "run_key IN (" + ",".join("?" * len(keys)) + ")"
-            parts.append(f"({id_clause} AND ({blank} OR {key_clause}))")
-            params.extend(ids)
-            params.extend(keys)
-        else:
-            parts.append(f"({id_clause} AND {blank})")
-            params.extend(ids)
+        id_ph = ",".join("?" * len(ids))
+        parts.append(f"(class_id = ? AND live_session IN ({id_ph}) AND {blank})")
+        params.extend([cid, *ids])
     if not parts:
         return None
     return "(" + " OR ".join(parts) + ")", tuple(params)
@@ -243,23 +260,23 @@ class _Store:
         session_ids: Sequence[int],
         run_keys: Sequence[str],
         *,
-        reuse_safe: bool = False,
+        class_id: int,
+        require_session: bool,
     ) -> None:
-        """Delete engagement events and rollup rows for these sessions.
+        """Delete engagement events and rollup rows for this class's run.
 
-        Quit passes ``reuse_safe`` so a reused session id does not take
-        another run's rows. Test-class delete matches the session id too.
-        Staff only.
+        Quit sets ``require_session`` so the session id and the run key
+        both have to match. Test-class delete matches the run key and
+        class, and blank keys only on this class. Staff only.
 
         Args:
             session_ids: ``live_class_sessions.id`` values.
             run_keys: Run keys for those sessions.
-            reuse_safe: Match this run key, not every row on the session id.
+            class_id: Game-show ``classes.id``.
+            require_session: Quit. Keyed rows must also match the session id.
         """
-        matched = (
-            engagement_match_reuse_safe(session_ids, run_keys)
-            if reuse_safe
-            else engagement_match(session_ids, run_keys)
+        matched = engagement_match_owned(
+            class_id, session_ids, run_keys, require_session=require_session
         )
         if matched is None:
             return
@@ -268,18 +285,30 @@ class _Store:
         self._write(f"DELETE FROM engagement_rollup WHERE {clause}", params)
 
     def count_session_rows(
-        self, session_ids: Sequence[int], run_keys: Sequence[str]
+        self,
+        session_ids: Sequence[int],
+        run_keys: Sequence[str],
+        *,
+        class_id: int | None = None,
+        require_session: bool = False,
     ) -> int:
         """Count engagement events plus rollup rows for these sessions.
 
         Args:
             session_ids: ``live_class_sessions.id`` values.
             run_keys: Run keys for those sessions.
+            class_id: When set, count only this class's owned rows.
+            require_session: With ``class_id``, also require the session id.
 
         Returns:
             Combined row count. ``0`` when nothing matches.
         """
-        matched = engagement_match(session_ids, run_keys)
+        if class_id is None:
+            matched = engagement_match(session_ids, run_keys)
+        else:
+            matched = engagement_match_owned(
+                class_id, session_ids, run_keys, require_session=require_session
+            )
         if matched is None:
             return 0
         clause, params = matched

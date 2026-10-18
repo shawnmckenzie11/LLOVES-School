@@ -37670,46 +37670,59 @@ class SchoolDB(LovesDB):
             )
 
     def _delete_observation_history_unlocked(
-        self, session_ids: list[int], run_keys: list[str]
+        self, class_id: int, session_ids: list[int], run_keys: list[str]
     ) -> None:
-        """Delete kept notes for these runs. Caller holds ``self._lock``.
+        """Delete kept notes for this quit run. Caller holds ``self._lock``.
 
-        Quit only. Match the run key, not the session id. Sqlite reuses
-        that id, and an earlier ended run's notes stay under its own key.
+        Match this class, this session id, and this run key together.
+        An earlier ended run that sqlite stored under the same id stays.
         A session with no run key uses the keep-insert fallback
-        ``session:<id>``.
+        ``session:<id>`` and still stays inside this class.
 
         Args:
-            session_ids: ``live_class_sessions.id`` values.
+            class_id: Game-show ``classes.id``.
+            session_ids: ``live_class_sessions.id`` values for the quit run.
             run_keys: Run keys for those sessions.
         """
+        if not session_ids:
+            return
         keys = [str(key).strip() for key in run_keys if str(key or "").strip()]
         seen = set(keys)
-        if session_ids:
-            placeholders = ",".join("?" * len(session_ids))
-            rows = self.conn.execute(
+        placeholders = ",".join("?" * len(session_ids))
+        ids = [int(sid) for sid in session_ids]
+        rows = self.conn.execute(
+            f"""
+            SELECT id, run_key FROM live_class_sessions
+            WHERE id IN ({placeholders})
+            """,
+            ids,
+        ).fetchall()
+        for row in rows:
+            token = str(row["run_key"] or "").strip()
+            if not token:
+                token = f"session:{int(row['id'])}"
+            if token not in seen:
+                keys.append(token)
+                seen.add(token)
+        blank = "(run_key IS NULL OR TRIM(run_key) = '')"
+        id_ph = ",".join("?" * len(ids))
+        if keys:
+            key_ph = ",".join("?" * len(keys))
+            self.conn.execute(
                 f"""
-                SELECT id, run_key FROM live_class_sessions
-                WHERE id IN ({placeholders})
+                DELETE FROM observation_history
+                WHERE class_id = ? AND live_session IN ({id_ph})
+                  AND (run_key IN ({key_ph}) OR {blank})
                 """,
-                [int(sid) for sid in session_ids],
-            ).fetchall()
-            for row in rows:
-                token = str(row["run_key"] or "").strip()
-                if not token:
-                    token = f"session:{int(row['id'])}"
-                if token not in seen:
-                    keys.append(token)
-                    seen.add(token)
-        if not keys:
+                [int(class_id), *ids, *keys],
+            )
             return
-        placeholders = ",".join("?" * len(keys))
         self.conn.execute(
             f"""
             DELETE FROM observation_history
-            WHERE run_key IN ({placeholders})
+            WHERE class_id = ? AND live_session IN ({id_ph}) AND {blank}
             """,
-            keys,
+            [int(class_id), *ids],
         )
 
     def _delete_engagement_rows(
@@ -37717,29 +37730,26 @@ class SchoolDB(LovesDB):
         session_ids: list[int],
         run_keys: list[str],
         *,
-        reuse_safe: bool = False,
+        class_id: int,
+        require_session: bool,
     ) -> None:
-        """Delete engagement events and rollup rows for these sessions.
+        """Delete engagement events and rollup rows for this class's run.
 
         Sqlite rows are deleted on the school connection. When the log
-        lives on Postgres, those rows are deleted there too. Quit passes
-        ``reuse_safe`` so a reused session id does not take another run.
+        lives on Postgres, those rows are deleted there too. Quit requires
+        the session id and the run key. Test-class delete matches the run
+        key and class. Blank keys match only this class.
 
         Args:
             session_ids: ``live_class_sessions.id`` values.
             run_keys: Run keys for those sessions.
-            reuse_safe: Match this run key, not every row on the session id.
+            class_id: Game-show ``classes.id``.
+            require_session: Quit. Keyed rows must also match the session id.
         """
-        from engagement_events import (
-            PostgresEngagementEvents,
-            engagement_match,
-            engagement_match_reuse_safe,
-        )
+        from engagement_events import PostgresEngagementEvents, engagement_match_owned
 
-        matched = (
-            engagement_match_reuse_safe(session_ids, run_keys)
-            if reuse_safe
-            else engagement_match(session_ids, run_keys)
+        matched = engagement_match_owned(
+            int(class_id), session_ids, run_keys, require_session=require_session
         )
         if matched is None:
             return
@@ -37748,23 +37758,47 @@ class SchoolDB(LovesDB):
         self.conn.execute(f"DELETE FROM engagement_rollup WHERE {clause}", params)
         store = getattr(self, "engagement", None)
         if isinstance(store, PostgresEngagementEvents):
-            store.delete_session_rows(session_ids, run_keys, reuse_safe=reuse_safe)
+            store.delete_session_rows(
+                session_ids,
+                run_keys,
+                class_id=int(class_id),
+                require_session=require_session,
+            )
 
     def _count_engagement_rows(
-        self, session_ids: list[int], run_keys: list[str]
+        self,
+        session_ids: list[int],
+        run_keys: list[str],
+        *,
+        class_id: int | None = None,
+        require_session: bool = False,
     ) -> int:
         """Count engagement events and rollup rows for these sessions.
 
         Args:
             session_ids: ``live_class_sessions.id`` values.
             run_keys: Run keys for those sessions.
+            class_id: When set, count only this class's owned rows.
+            require_session: With ``class_id``, also require the session id.
 
         Returns:
             Combined count on sqlite and, when attached, Postgres.
         """
-        from engagement_events import PostgresEngagementEvents, engagement_match
+        from engagement_events import (
+            PostgresEngagementEvents,
+            engagement_match,
+            engagement_match_owned,
+        )
 
-        matched = engagement_match(session_ids, run_keys)
+        if class_id is None:
+            matched = engagement_match(session_ids, run_keys)
+        else:
+            matched = engagement_match_owned(
+                int(class_id),
+                session_ids,
+                run_keys,
+                require_session=require_session,
+            )
         if matched is None:
             return 0
         clause, params = matched
@@ -37776,7 +37810,12 @@ class SchoolDB(LovesDB):
             total += int(row["n"] or 0)
         store = getattr(self, "engagement", None)
         if isinstance(store, PostgresEngagementEvents):
-            total += store.count_session_rows(session_ids, run_keys)
+            total += store.count_session_rows(
+                session_ids,
+                run_keys,
+                class_id=class_id,
+                require_session=require_session,
+            )
         return total
 
     def wipe_live_sessions_for_class(
@@ -37861,9 +37900,14 @@ class SchoolDB(LovesDB):
                 if purge_kept:
                     # Quit drops notes and engagement. A reused session id
                     # must not inherit them. This overrides keep-on-Quit.
-                    self._delete_observation_history_unlocked(session_ids, run_keys)
+                    self._delete_observation_history_unlocked(
+                        int(class_id), session_ids, run_keys
+                    )
                     self._delete_engagement_rows(
-                        session_ids, run_keys, reuse_safe=True
+                        session_ids,
+                        run_keys,
+                        class_id=int(class_id),
+                        require_session=True,
                     )
                 else:
                     # Next Start after End still keeps notes from that run.
@@ -38976,7 +39020,8 @@ class SchoolDB(LovesDB):
 
         Returns:
             Celebration payload, wipe payload, ``already_ended``, or
-            ``already_finished`` when the other of End and Quit won.
+            ``already_ended`` when the run is already closed, or
+            ``finish_busy`` when a finish claim is still open.
         """
         resolved_live = live_run
         session_is_test = False
@@ -39012,13 +39057,13 @@ class SchoolDB(LovesDB):
             return {"ok": True, "class_id": int(class_id), "already_ended": True}
         if not self._claim_class_finish(int(class_id)):
             logger.info(
-                "End or Quit for class=%s did nothing: the other request finished it",
+                "End or Quit for class=%s waited: a finish claim is still open",
                 class_id,
             )
             return {
                 "ok": True,
                 "class_id": int(class_id),
-                "already_finished": True,
+                "finish_busy": True,
             }
         try:
             return self._finish_live_class_claimed(
@@ -39132,9 +39177,27 @@ class SchoolDB(LovesDB):
                 )
             )
         else:
+            if not active_key:
+                return {
+                    "ok": True,
+                    "class_id": int(class_id),
+                    "already_ended": True,
+                }
+            quit_ids = [
+                int(row["id"])
+                for row in self.list_live_sessions_for_class(int(class_id))
+                if str(row.get("status") or "") == "active"
+                and str(row.get("run_key") or "").strip() == str(active_key).strip()
+            ]
+            if not quit_ids:
+                return {
+                    "ok": True,
+                    "class_id": int(class_id),
+                    "already_ended": True,
+                }
             result = retry_if_db_locked(
                 lambda: self.wipe_live_sessions_for_class(
-                    int(class_id), purge_kept=True
+                    int(class_id), session_ids=quit_ids, purge_kept=True
                 )
             )
         self.game.clear_team_lock(int(class_id))
@@ -39603,10 +39666,12 @@ class SchoolDB(LovesDB):
                 self.conn.execute("COMMIT")
             self.conn.execute("BEGIN IMMEDIATE")
             try:
-                self._delete_test_school_rows_unlocked(sid, run_key)
+                self._delete_test_school_rows_unlocked(int(class_id), sid, run_key)
                 if owned_tracker or run_key:
                     self._delete_test_tracker_rows(run_key, owned_tracker)
-                self._assert_test_session_gone_unlocked(sid, run_key, owned_tracker)
+                self._assert_test_session_gone_unlocked(
+                    int(class_id), sid, run_key, owned_tracker
+                )
                 if presence is not None:
                     presence.delete_session_tree(sid)
             except BaseException:
@@ -39668,8 +39733,16 @@ class SchoolDB(LovesDB):
                 names.append(name)
         return names
 
-    def _delete_test_school_rows_unlocked(self, session_id: int, run_key: str) -> None:
-        """Delete school rows for one test session. Caller holds the write txn."""
+    def _delete_test_school_rows_unlocked(
+        self, class_id: int, session_id: int, run_key: str
+    ) -> None:
+        """Delete school rows for one test session. Caller holds the write txn.
+
+        Args:
+            class_id: Game-show ``classes.id`` that owns the test run.
+            session_id: ``live_class_sessions.id``.
+            run_key: That session's run key, possibly blank.
+        """
         from live_deck_test_storage import test_deck_storage_slot
 
         sid = int(session_id)
@@ -39779,15 +39852,21 @@ class SchoolDB(LovesDB):
             pending = still
         if pending:
             raise RuntimeError(f"test class {sid} still has rows after delete")
+        hist_sql, hist_params = self._owned_history_match(int(class_id), sid, key)
         self.conn.execute(
-            "DELETE FROM observation_history WHERE live_session = ?",
-            (sid,),
+            f"DELETE FROM observation_history WHERE {hist_sql}",
+            hist_params,
         )
-        self._delete_engagement_rows([sid], [key] if key else [])
+        self._delete_engagement_rows(
+            [sid],
+            [key] if key else [],
+            class_id=int(class_id),
+            require_session=False,
+        )
         if key:
             self.conn.execute(
-                "DELETE FROM observation_history WHERE run_key = ?",
-                (key,),
+                "DELETE FROM observation_history WHERE class_id = ? AND run_key = ?",
+                (int(class_id), key),
             )
             for table in (
                 "participation_answers",
@@ -39847,8 +39926,37 @@ class SchoolDB(LovesDB):
             )
             self.conn.execute("DELETE FROM sessions WHERE id = ?", (int(tid),))
 
+    def _owned_history_match(
+        self, class_id: int, session_id: int, run_key: str
+    ) -> tuple[str, tuple[Any, ...]]:
+        """History rows that belong to this class's test run.
+
+        A run key matches only with this class. A blank key matches only
+        this class and this session id, so a reused id cannot take another
+        class's notes.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            session_id: ``live_class_sessions.id``.
+            run_key: That session's run key, possibly blank.
+
+        Returns:
+            ``(clause, params)`` for ``observation_history``.
+        """
+        key = str(run_key or "").strip()
+        blank = "(run_key IS NULL OR TRIM(run_key) = '')"
+        if key:
+            return (
+                f"class_id = ? AND (run_key = ? OR (live_session = ? AND {blank}))",
+                (int(class_id), key, int(session_id)),
+            )
+        return (
+            f"class_id = ? AND live_session = ? AND {blank}",
+            (int(class_id), int(session_id)),
+        )
+
     def _assert_test_session_gone_unlocked(
-        self, session_id: int, run_key: str, tracker_ids: set[int]
+        self, class_id: int, session_id: int, run_key: str, tracker_ids: set[int]
     ) -> None:
         """Raise when any row for this test session is still stored.
 
@@ -39866,13 +39974,19 @@ class SchoolDB(LovesDB):
                 (sid,),
             ).fetchone()
             leftover += int(row["n"] or 0)
+        hist_sql, hist_params = self._owned_history_match(int(class_id), sid, str(run_key or ""))
         hist = self.conn.execute(
-            "SELECT COUNT(*) AS n FROM observation_history WHERE live_session = ?",
-            (sid,),
+            f"SELECT COUNT(*) AS n FROM observation_history WHERE {hist_sql}",
+            hist_params,
         ).fetchone()
         leftover += int(hist["n"] or 0)
         key = str(run_key or "").strip()
-        leftover += self._count_engagement_rows([sid], [key] if key else [])
+        leftover += self._count_engagement_rows(
+            [sid],
+            [key] if key else [],
+            class_id=int(class_id),
+            require_session=False,
+        )
         if key:
             for table in (
                 "participation_answers",

@@ -516,10 +516,10 @@ class EndAlwaysSavesTests(Base):
                             f"/staff/class/{self.class_id}/end-live",
                             follow_redirects=False,
                         )
-                    self.assertTrue(other.get("already_finished"))
+                    self.assertTrue(other.get("finish_busy"))
                     self.assertEqual(response.status_code, 409)
                     self.assertIn(
-                        "This class was already ended or quit.",
+                        "Try again in a moment.",
                         response.get_data(as_text=True),
                     )
                     self.assertIsNotNone(self.school.get_live_session(sid))
@@ -619,6 +619,377 @@ class EndAlwaysSavesTests(Base):
             self.class_id, "M9", include_individual=True, include_group=False
         )
         self.assertEqual(class_offered, 1)
+
+
+    def _note(self, sid: int, text: str) -> None:
+        """Store one teacher note on this live session.
+
+        Args:
+            sid: ``live_class_sessions.id``.
+            text: Note text.
+        """
+        self.school.create_observation(
+            live_session_id=sid,
+            class_id=self.class_id,
+            observer_user_id=int(self.teacher["id"]),
+            scope="student",
+            note=text,
+            student_ids=[int(self.students[0])],
+        )
+
+    def _rollup(self, sid: int, run_key: str) -> None:
+        """Store one engagement rollup cell for this run.
+
+        Args:
+            sid: ``live_class_sessions.id``.
+            run_key: That session's run key.
+        """
+        self.school.engagement.insert_rollup_batch(
+            [
+                {
+                    "class_id": int(self.class_id),
+                    "live_session": int(sid),
+                    "run_key": str(run_key),
+                    "rolled_at": "2026-10-17T13:20:00",
+                    "scope": "class",
+                    "signal": "present",
+                    "count": 1,
+                }
+            ]
+        )
+
+    def _rollup_count(self, run_key: str) -> int:
+        """Count rollup cells for one run key on this class.
+
+        Args:
+            run_key: ``live_class_sessions.run_key``.
+
+        Returns:
+            Row count on sqlite plus Postgres when the log lives there.
+        """
+        rows = self.school.engagement._fetch(
+            "SELECT COUNT(*) AS n FROM engagement_rollup WHERE class_id = ? AND run_key = ?",
+            (int(self.class_id), str(run_key)),
+        )
+        if not rows:
+            return 0
+        row = rows[0]
+        try:
+            return int(row["n"])
+        except (TypeError, KeyError, IndexError):
+            return int(row[0])
+
+    def test_end_then_quit_keeps_the_ended_run(self) -> None:
+        """Quit after End deletes nothing and says the class already ended."""
+        sid = self._arm(is_test=False, module="M3", slot="C1")
+        key = str(self.school.get_live_session(sid)["run_key"] or "")
+        self._note(sid, "ended note")
+        self.school.record_engagement_event(
+            "present.join", session_id=sid, student_id=int(self.students[0])
+        )
+        self._rollup(sid, key)
+        self._post_end()
+        notes_before = self._count(
+            "SELECT COUNT(*) AS n FROM observations WHERE live_session_id = ?",
+            (sid,),
+        )
+        events_before = len(
+            self.school.list_engagement_events(self.class_id, run_key=key)
+        )
+        rolls_before = self._rollup_count(key)
+        self.assertGreater(notes_before, 0)
+        self.assertGreater(events_before, 0)
+        self.assertGreater(rolls_before, 0)
+        response = self.client.post(
+            f"/staff/class/{self.class_id}/quit-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("This class already ended.", response.get_data(as_text=True))
+        self.assertEqual(
+            self._count(
+                "SELECT COUNT(*) AS n FROM observations WHERE live_session_id = ?",
+                (sid,),
+            ),
+            notes_before,
+        )
+        self.assertEqual(
+            len(self.school.list_engagement_events(self.class_id, run_key=key)),
+            events_before,
+        )
+        self.assertEqual(self._rollup_count(key), rolls_before)
+        leftover = self.school.get_live_session(sid)
+        self.assertIsNotNone(leftover)
+        self.assertEqual(leftover["status"], "ended")
+
+    def test_quit_leaves_older_ended_runs(self) -> None:
+        """Quit of the live run leaves an earlier ended run's notes and log."""
+        first = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        first_id = int(first["id"])
+        first_key = str(first["run_key"] or "")
+        self._note(first_id, "older note")
+        self.school.record_engagement_event(
+            "present.join", session_id=first_id, student_id=int(self.students[0])
+        )
+        self._rollup(first_id, first_key)
+        self.school.finish_live_class(self.class_id, celebrate=True, run_key=first_key)
+        second = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        second_id = int(second["id"])
+        second_key = str(second["run_key"] or "")
+        self._note(second_id, "live note")
+        self.school.record_engagement_event(
+            "present.join", session_id=second_id, student_id=int(self.students[0])
+        )
+        self._rollup(second_id, second_key)
+        response = self.client.post(
+            f"/staff/class/{self.class_id}/quit-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        kept = sorted(
+            row["note"] for row in self.school.list_observation_history(self.class_id)
+        )
+        self.assertEqual(kept, ["older note"])
+        older_kinds = [
+            row["kind"]
+            for row in self.school.list_engagement_events(self.class_id, run_key=first_key)
+        ]
+        self.assertIn("present.join", older_kinds)
+        self.assertGreater(self._rollup_count(first_key), 0)
+        self.assertEqual(
+            self.school.list_engagement_events(self.class_id, run_key=second_key),
+            [],
+        )
+        self.assertEqual(self._rollup_count(second_key), 0)
+
+    def test_test_delete_reused_id_keeps_the_other_class(self) -> None:
+        """A reused session id does not take another class's log or notes."""
+        other = int(
+            self.school.game.create_class(
+                year="2026/27",
+                semester="Semester 1",
+                course_code="MCR3U",
+                days_preset="M/W/F",
+                time_label="3:15pm",
+                codenames=["Cam", "Dee"],
+                offering_id=int(self.school.game.get_class(self.class_id)["offering_id"]),
+                teacher_user_id=int(self.teacher["id"]),
+            )["id"]
+        )
+        kept = self.school.start_live_class_session(
+            other, int(self.teacher["id"])
+        )
+        kept_id = int(kept["id"])
+        kept_key = str(kept["run_key"] or "")
+        self.school.record_engagement_event(
+            "present.join", session_id=kept_id, student_id=int(self.students[0])
+        )
+        self.school.engagement.insert_rollup_batch(
+            [
+                {
+                    "class_id": other,
+                    "live_session": kept_id,
+                    "run_key": kept_key,
+                    "rolled_at": "2026-10-17T13:20:00",
+                    "scope": "class",
+                    "signal": "present",
+                    "count": 1,
+                }
+            ]
+        )
+        self.school.engagement.append(
+            {
+                "class_id": other,
+                "live_session": kept_id,
+                "run_key": "",
+                "student_id": int(self.students[0]),
+                "first_name": "Ava",
+                "team_id": None,
+                "item_ref": "",
+                "kind": "present.join",
+                "ts": "2026-10-17T13:21:00",
+                "payload": "{}",
+            }
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO observation_history (
+                source_observation_id, live_session, run_key, class_id,
+                created_at, scope, note, kept_at, student_ids_json, process_keys_json
+            ) VALUES (?, ?, ?, ?, 't', 'class', 'other class note', 't', '[]', '[]')
+            """,
+            (900000 + kept_id, kept_id, kept_key, other),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO observation_history (
+                source_observation_id, live_session, run_key, class_id,
+                created_at, scope, note, kept_at, student_ids_json, process_keys_json
+            ) VALUES (?, ?, '', ?, 't', 'class', 'blank key note', 't', '[]', '[]')
+            """,
+            (910000 + kept_id, kept_id, other),
+        )
+        self.school.conn.commit()
+        self.school.conn.execute(
+            "DELETE FROM live_class_sessions WHERE id = ?",
+            (kept_id,),
+        )
+        self.school.conn.commit()
+        test = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"]), is_test=True
+        )
+        test_id = int(test["id"])
+        self.assertEqual(test_id, kept_id)
+        self.school.record_engagement_event(
+            "present.join", session_id=test_id, student_id=int(self.students[0])
+        )
+        self.school.delete_test_live_class(self.class_id, test_id)
+        self.assertEqual(
+            [
+                row["note"]
+                for row in self.school.list_observation_history(other)
+            ],
+            ["other class note", "blank key note"],
+        )
+        kept_events = self.school.list_engagement_events(other, run_key=kept_key)
+        self.assertEqual([row["kind"] for row in kept_events], ["present.join"])
+        blank = self.school.engagement._fetch(
+            """
+            SELECT COUNT(*) AS n FROM engagement_events
+            WHERE class_id = ? AND live_session = ? AND TRIM(run_key) = ''
+            """,
+            (other, kept_id),
+        )
+        blank_row = blank[0]
+        try:
+            blank_n = int(blank_row["n"])
+        except (TypeError, KeyError, IndexError):
+            blank_n = int(blank_row[0])
+        self.assertEqual(blank_n, 1)
+        self.assertEqual(
+            self.school._count_engagement_rows(
+                [test_id],
+                [str(test["run_key"] or "")],
+                class_id=self.class_id,
+                require_session=False,
+            ),
+            0,
+        )
+
+    def test_fresh_finish_claim_says_try_again(self) -> None:
+        """A claim left by a crashed worker tells the teacher to try again."""
+        from datetime import datetime, timedelta, timezone
+
+        sid = self._arm(is_test=False, module="M4", slot="C2")
+        self._note(sid, "still here")
+        stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self.school.game._lock:
+            self.school.game.conn.execute(
+                "INSERT INTO live_end_claims (run_key, claimed_at) VALUES (?, ?)",
+                (f"finish:{int(self.class_id)}", stamp),
+            )
+        ended = self.client.post(
+            f"/staff/class/{self.class_id}/end-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(ended.status_code, 409)
+        self.assertIn("Try again in a moment.", ended.get_data(as_text=True))
+        quit = self.client.post(
+            f"/staff/class/{self.class_id}/quit-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(quit.status_code, 409)
+        self.assertIn("Try again in a moment.", quit.get_data(as_text=True))
+        still = self.school.get_live_session(sid)
+        self.assertIsNotNone(still)
+        self.assertEqual(still["status"], "active")
+        self.assertEqual(
+            self._count(
+                "SELECT COUNT(*) AS n FROM observations WHERE live_session_id = ?",
+                (sid,),
+            ),
+            1,
+        )
+        aged = (datetime.now(timezone.utc) - timedelta(seconds=301)).isoformat(
+            timespec="seconds"
+        )
+        with self.school.game._lock:
+            self.school.game.conn.execute(
+                "UPDATE live_end_claims SET claimed_at = ? WHERE run_key = ?",
+                (aged, f"finish:{int(self.class_id)}"),
+            )
+        proceeded = self.client.post(
+            f"/staff/class/{self.class_id}/end-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(proceeded.status_code, 302)
+        closed = self.school.get_live_session(sid)
+        self.assertIsNotNone(closed)
+        self.assertEqual(closed["status"], "ended")
+
+
+
+def _pg_admin_url() -> str:
+    """Postgres admin URL for the live-presence tests, or empty."""
+    return (os.environ.get("LIVE_PRESENCE_TEST_URL") or "").strip()
+
+
+@unittest.skipUnless(_pg_admin_url(), "LIVE_PRESENCE_TEST_URL is not set")
+class PostgresQuitScopeTests(EndAlwaysSavesTests):
+    """The quit-scope cases again with the engagement log on Postgres."""
+
+    def setUp(self) -> None:
+        import uuid
+        from urllib.parse import urlsplit, urlunsplit
+
+        import psycopg
+
+        admin = _pg_admin_url()
+        self.pg_db = f"lloves_mck275_{uuid.uuid4().hex[:8]}"
+        with psycopg.connect(admin, autocommit=True) as conn:
+            conn.execute(f'CREATE DATABASE "{self.pg_db}"')
+        self.addCleanup(self._drop_pg, admin)
+        parts = urlsplit(admin)
+        os.environ["LIVE_DATABASE_URL"] = urlunsplit(
+            (parts.scheme, parts.netloc, f"/{self.pg_db}", parts.query, "")
+        )
+        try:
+            super().setUp()
+        finally:
+            os.environ.pop("LIVE_DATABASE_URL", None)
+        self.assertIsNotNone(self.school.presence)
+
+    def _drop_pg(self, admin: str) -> None:
+        """Drop this test's Postgres database.
+
+        Args:
+            admin: Admin connection string.
+        """
+        import psycopg
+
+        school = getattr(self, "school", None)
+        if school is not None:
+            try:
+                school.close()
+            except Exception:
+                pass
+        with psycopg.connect(admin, autocommit=True) as conn:
+            conn.execute(f'DROP DATABASE IF EXISTS "{self.pg_db}" WITH (FORCE)')
+
+    def tearDown(self) -> None:
+        school = getattr(self, "school", None)
+        if school is not None:
+            try:
+                school.close()
+            except Exception:
+                pass
+            self.school = None
+        super().tearDown()
+
 
 
 if __name__ == "__main__":

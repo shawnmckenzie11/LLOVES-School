@@ -107,18 +107,14 @@ class ParseAndCheckTests(unittest.TestCase):
         self.assertEqual(wn.check_body(f"What's new (feature, Both): {BOTH}\nWhat's new: none"), [])
         self.assertEqual(wn.check_body(f"What's new (change): {GOOD}"), [])
 
-    def test_check_rejects_unmarked_and_accepts_a_fix_line(self) -> None:
-        """An unmarked line never passes. A fix line may, and it is not published."""
+    def test_check_rejects_unmarked_and_fix_lines(self) -> None:
+        """A fix or an unmarked line never passes the gate (MCK-268)."""
         unmarked = wn.check_body(f"What's new: {GOOD}")
         self.assertEqual(len(unmarked), 1, unmarked)
         self.assertIn("feature", unmarked[0])
-        fix = wn.check_body(
-            "What's new (fix, Teacher): Quit in Run Live Class also removes that class's teacher notes."
-        )
-        self.assertEqual(fix, [])
-        vague = wn.check_body("What's new (fix): The chart is right again.")
-        self.assertEqual(len(vague), 1, vague)
-        self.assertIn("where in the app", vague[0])
+        fix = wn.check_body("What's new (fix): In Run Live Class, the chart is right again.")
+        self.assertEqual(len(fix), 1, fix)
+        self.assertIn("none", fix[0])
         old_both = wn.check_body(f"What's new (Both): {BOTH}")
         self.assertEqual(len(old_both), 1, old_both)
 

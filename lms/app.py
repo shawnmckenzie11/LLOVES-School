@@ -3950,21 +3950,43 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         )
         return resp
 
-    def _already_finished_page():
-        """Say the other of End Class and Quit already finished this class.
+    def _already_ended_page():
+        """Say this class already ended and this request changed nothing.
 
         Returns:
-            A short HTML page and status 409. Nothing was changed by this request.
+            A short HTML page and status 409.
         """
         back = url_for("staff_home")
         body = (
             "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-            "<title>Already finished</title>"
+            "<title>Already ended</title>"
             "<link rel=\"stylesheet\" href=\"/static/lloves.css\"></head>"
-            "<body><div class=\"wrap\"><h1>Already finished</h1>"
-            "<p class=\"sub\">This class was already ended or quit. "
+            "<body><div class=\"wrap\"><h1>Already ended</h1>"
+            "<p class=\"sub\">This class already ended. "
             "Nothing else was changed.</p>"
+            f"<p><a class=\"btn\" href=\"{html_escape(back)}\">Back to classes</a></p>"
+            "</div></body></html>"
+        )
+        return body, 409, {"Content-Type": "text/html; charset=utf-8"}
+
+    def _finish_busy_page():
+        """Say a finish is still open and the teacher should try again.
+
+        A crashed worker can hold the finish claim for up to five minutes.
+        This request did not End or Quit.
+
+        Returns:
+            A short HTML page and status 409.
+        """
+        back = url_for("staff_home")
+        body = (
+            "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+            "<title>Try again in a moment</title>"
+            "<link rel=\"stylesheet\" href=\"/static/lloves.css\"></head>"
+            "<body><div class=\"wrap\"><h1>Try again in a moment</h1>"
+            "<p class=\"sub\">Nothing was changed. Try again in a moment.</p>"
             f"<p><a class=\"btn\" href=\"{html_escape(back)}\">Back to classes</a></p>"
             "</div></body></html>"
         )
@@ -3994,7 +4016,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             abort(403)
         active = school.get_active_live_session_for_teacher(int(user["id"]))
         if active is None or int(active["class_id"]) != int(class_id):
-            return redirect(url_for("staff_home"))
+            return _already_ended_page()
         # Test or Live was chosen at Start. A posted end-time run_mode is ignored.
         live_run = True
         # The run this request saw as active. If another End closes it
@@ -4005,8 +4027,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             run_key=str(active.get("run_key") or "") or None,
             live_run=live_run,
         )
-        if isinstance(ended, dict) and ended.get("already_finished"):
-            return _already_finished_page()
+        if isinstance(ended, dict) and ended.get("already_ended"):
+            return _already_ended_page()
+        if isinstance(ended, dict) and ended.get("finish_busy"):
+            return _finish_busy_page()
         if isinstance(ended, dict) and ended.get("in_progress"):
             # Another End holds this run and the game is still open (it is
             # stuck, or its worker died mid-write). The session stays open
@@ -4053,8 +4077,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         Same ownership rules as End Class. Attendance, participation,
         and a catch-up link are not written. Responses, attendees, board
         assignments, engagement events, and teacher notes for this
-        session are deleted here, not on the next Start. If End Class
-        already won the same moment, this request changes nothing.
+        active session are deleted here, not on the next Start. Quit
+        after End changes nothing and says the class already ended.
         """
         user = current_user()
         assert user is not None
@@ -4066,14 +4090,15 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             int(row["id"]): teacher_state_seq(school, int(row["id"]))
             for row in school.list_live_sessions_for_class(int(class_id))
         }
-        if active is not None and int(active["class_id"]) == int(class_id):
-            ended = school.finish_live_class(
-                int(class_id), persist=False, celebrate=False
-            )
-            if isinstance(ended, dict) and ended.get("already_finished"):
-                return _already_finished_page()
-        else:
-            school.wipe_live_sessions_for_class(int(class_id), purge_kept=True)
+        if active is None or int(active["class_id"]) != int(class_id):
+            return _already_ended_page()
+        ended = school.finish_live_class(
+            int(class_id), persist=False, celebrate=False
+        )
+        if isinstance(ended, dict) and ended.get("already_ended"):
+            return _already_ended_page()
+        if isinstance(ended, dict) and ended.get("finish_busy"):
+            return _finish_busy_page()
         # Open tabs (often on the End celebration) fetch now and leave,
         # instead of waiting for the safety poll.
         for quit_sid, quit_seq in quit_seqs.items():
