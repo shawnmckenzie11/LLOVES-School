@@ -57,9 +57,9 @@ export const PAGES = {
     },
     {
       id: "end_live",
-      selector: '[aria-label="End Live Class"]',
-      text: "End Live Class",
-      copy: "Click <b>End Live Class</b>. Leave Save Attendance and Save Participation ticked to keep them.",
+      selector: '[aria-label="End Class"]',
+      text: "End Class",
+      copy: "Click <b>End Class</b>. Attendance and participation are saved.",
     },
   ],
   ap: [
@@ -935,7 +935,7 @@ export function initTour(env) {
     }, true);
     doc.addEventListener("submit", (event) => {
       const form = event && event.target;
-      if (!form || typeof form.closest !== "function" || !form.closest("#end-live-dialog")) return;
+      if (!form || (form.id !== "live-end-class-form" && form.id !== "end-live-form")) return;
       const ended = applySignals(state, {
         runType: String((body.dataset && body.dataset.tourRunType) || ""),
         live: true,

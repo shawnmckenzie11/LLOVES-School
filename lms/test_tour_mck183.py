@@ -80,7 +80,7 @@ class TourPageTests(unittest.TestCase):
             "Click <b>Run Live Class</b>. Share the join code with your students.",
             "<b>Ask a quick question.</b> Pick a question and click <b>Publish</b>.",
             "<b>Answers show up here.</b> Each one counts toward participation.",
-            "Click <b>End Live Class</b>. Leave Save Attendance and Save Participation ticked to keep them.",
+            "Click <b>End Class</b>. Attendance and participation are saved.",
             "<b>Check who came.</b> Click <b>Take Attendance</b>.",
             "<b>See who took part.</b> Open <b>Participation</b>.",
         ):

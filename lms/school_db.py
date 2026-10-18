@@ -37201,16 +37201,21 @@ class SchoolDB(LovesDB):
         return True
 
     def cleanup_live_session_response_data(
-        self, session_id: int, *, live_run: bool = True
+        self, session_id: int, *, live_run: bool = True, discard: bool = False
     ) -> None:
         """Delete ephemeral individual votes, group responses, and board ops.
 
         Every answer is first copied to ``live_result_snapshots`` in the
         same transaction (MCK-45), so End leaves a results record.
 
+        Quit passes ``discard=True``. That deletes responses, attendees,
+        and board ops immediately and does not copy answers, participation,
+        or a catch-up link. The clear does not wait for the next Start.
+
         Args:
             session_id: ``live_class_sessions.id``.
             live_run: When False, skip Live-run persistence (MCK-233 Test toggle).
+            discard: Quit. Drop the live rows and write nothing.
         """
 
         self.purge_board_ops(int(session_id))
@@ -37221,42 +37226,54 @@ class SchoolDB(LovesDB):
                 self.conn.execute("COMMIT")
             self.conn.execute("BEGIN IMMEDIATE")
             try:
-                # A snapshot failure must never block End: roll back just the
-                # snapshot and delete as before.
-                self.conn.execute("SAVEPOINT live_result_snapshot")
-                try:
-                    self._snapshot_live_results_unlocked(
-                        int(session_id), live_run=bool(live_run)
-                    )
-                except Exception:  # noqa: BLE001
-                    self.conn.execute("ROLLBACK TO live_result_snapshot")
-                    logger.exception(
-                        "live result snapshot failed session=%s", session_id
-                    )
-                self.conn.execute("RELEASE live_result_snapshot")
-                # MCK-198: own savepoint, so a capture error never undoes the
-                # MCK-45 snapshot above. A failed capture keeps the response
-                # rows: deleting them would lose the only copy of who answered.
-                self.conn.execute("SAVEPOINT participation_capture")
-                captured = True
-                try:
-                    self._capture_participation_unlocked(
-                        int(session_id), live_run=bool(live_run)
-                    )
-                except Exception:  # noqa: BLE001
-                    captured = False
-                    self.conn.execute("ROLLBACK TO participation_capture")
-                    logger.exception(
-                        "participation capture failed session=%s; keeping response rows",
-                        session_id,
-                    )
-                self.conn.execute("RELEASE participation_capture")
-                if captured:
+                if discard:
                     self._delete_live_session_response_rows_unlocked(int(session_id))
+                    self.conn.execute(
+                        """
+                        DELETE FROM live_session_attendees
+                        WHERE live_session_id = ?
+                        """,
+                        (int(session_id),),
+                    )
+                else:
+                    # A snapshot failure must never block End: roll back just the
+                    # snapshot and delete as before.
+                    self.conn.execute("SAVEPOINT live_result_snapshot")
+                    try:
+                        self._snapshot_live_results_unlocked(
+                            int(session_id), live_run=bool(live_run)
+                        )
+                    except Exception:  # noqa: BLE001
+                        self.conn.execute("ROLLBACK TO live_result_snapshot")
+                        logger.exception(
+                            "live result snapshot failed session=%s", session_id
+                        )
+                    self.conn.execute("RELEASE live_result_snapshot")
+                    # MCK-198: own savepoint, so a capture error never undoes the
+                    # MCK-45 snapshot above. A failed capture keeps the response
+                    # rows: deleting them would lose the only copy of who answered.
+                    self.conn.execute("SAVEPOINT participation_capture")
+                    captured = True
+                    try:
+                        self._capture_participation_unlocked(
+                            int(session_id), live_run=bool(live_run)
+                        )
+                    except Exception:  # noqa: BLE001
+                        captured = False
+                        self.conn.execute("ROLLBACK TO participation_capture")
+                        logger.exception(
+                            "participation capture failed session=%s; keeping response rows",
+                            session_id,
+                        )
+                    self.conn.execute("RELEASE participation_capture")
+                    if captured:
+                        self._delete_live_session_response_rows_unlocked(int(session_id))
             except BaseException:
                 self.conn.execute("ROLLBACK")
                 raise
             self.conn.execute("COMMIT")
+        if discard:
+            return
         try:
             self._rollup_engagement_for_session(int(session_id))
         except Exception:  # noqa: BLE001 - rollup must never block End
@@ -37601,10 +37618,13 @@ class SchoolDB(LovesDB):
             ]
         for sid in session_ids:
             self.release_eyes_up(int(sid))
+            # Moods need the attendee list. The discard clear below
+            # deletes those rows, plus responses and board ops, now.
+            self.clear_attendee_moods_and_characters(sid)
+            self.cleanup_live_session_response_data(int(sid), discard=True)
             self.purge_board_ops(sid)
             self._purge_team_draw_images(int(sid))
             self.purge_session_votes(int(sid))
-            self.clear_attendee_moods_and_characters(sid)
         try:
             self.game.clear_class_moods_and_characters(int(class_id))
         except Exception:  # noqa: BLE001 — roster moods are best-effort
@@ -38642,34 +38662,36 @@ class SchoolDB(LovesDB):
         class_id: int,
         *,
         persist: bool | None = None,
-        save_attendance: bool = True,
-        save_participation: bool = True,
         celebrate: bool | None = None,
         run_key: str | None = None,
         live_run: bool | None = None,
     ) -> dict[str, Any]:
-        """End Live Class (keep student celebration) or Quit (wipe).
+        """End Class (keep student celebration) or Quit (wipe).
 
-        The End Live Class dialog can save attendance, participation,
-        both, or neither. Students keep the scoreboard, winner graphic,
-        and How-was-class until Quit wipes the SID.
+        End Class always writes attendance and participation, for a live
+        class, a test class, and an open office. Quit writes neither and
+        does not create a catch-up link. There is no save checkbox: an
+        old tab cannot skip the write. Students keep the scoreboard,
+        winner graphic, and How-was-class until Quit wipes the session.
+
+        Classes already ended without a gradebook write are left as they
+        are. This does not backfill them.
 
         Args:
             class_id: Game-show ``classes.id``.
-            persist: Legacy Quit/Save flag. When set, both attendance
-                and participation follow this value (Quit is ``False``).
-            save_attendance: Write the attendance column.
-            save_participation: Write +1/question participation.
-            celebrate: True for End Live Class; False for Quit. Default
+            persist: Legacy Quit flag. ``False`` with no ``celebrate``
+                is Quit (save nothing). It cannot turn an End off.
+            celebrate: True for End Class; False for Quit. Default
                 follows ``persist`` (Quit is ``persist=False``).
             run_key: The run the caller saw as active (the End route passes
                 it). When that run is no longer the class's active run, a
                 concurrent End already closed it, so this one does nothing
                 (MCK-72 follow-up: a late End used to begin a new column).
-            live_run: Legacy end-time test flag (MCK-233). A session with
-                ``is_test`` set at Start still saves attendance, participation,
-                the deck row, and a catch-up code (MCK-269). When omitted on a
-                non-test session, follow the schedule-window default.
+            live_run: Legacy end-time flag (MCK-233). It no longer turns
+                the gradebook write off. A session with ``is_test`` set at
+                Start still saves attendance, participation, the deck row,
+                and a catch-up link (MCK-269). When omitted on a non-test
+                session, follow the schedule-window default.
 
         Returns:
             Celebration payload or wipe payload, or ``already_ended``.
@@ -38698,9 +38720,6 @@ class SchoolDB(LovesDB):
                 resolved_live = mode == "live"
             else:
                 resolved_live = True
-        if not session_is_test and not resolved_live:
-            save_attendance = False
-            save_participation = False
         active_key = self._live_class_run_key(int(class_id))
         expected = str(run_key or "").strip()
         if expected and active_key != expected:
@@ -38710,24 +38729,23 @@ class SchoolDB(LovesDB):
             )
             return {"ok": True, "class_id": int(class_id), "already_ended": True}
         # MCK-171: a closed Team challenge never stepped to its points pays
-        # now, before the winner snapshot (End Live Class and Quit alike).
+        # now, before the winner snapshot (End Class and Quit alike).
         # Same idempotent ledger as the points step and End Game.
         self.award_pending_rank_races_for_class(int(class_id))
-        if persist is not None:
-            save_attendance = bool(persist)
-            save_participation = bool(persist)
         if celebrate is None:
             celebrate = persist is not False
+        # End always saves both columns. Quit saves nothing.
+        saving = bool(celebrate)
         present_ids = self.present_student_ids_for_live_class(class_id)
         winner = self.snapshot_live_winner(int(class_id)) if celebrate else None
         credits = (
             self.participation_round_credits_for_class(class_id)
-            if save_participation
+            if saving
             else {}
         )
         run_key = active_key
         wrote = None
-        if save_attendance or save_participation:
+        if saving:
             deadline = time.monotonic() + LIVE_END_BUSY_WAIT_SECONDS
             while True:
                 try:
@@ -38735,8 +38753,8 @@ class SchoolDB(LovesDB):
                         int(class_id),
                         present_ids,
                         credits,
-                        include_attendance=bool(save_attendance),
-                        include_participation=bool(save_participation),
+                        include_attendance=True,
+                        include_participation=True,
                         run_key=run_key,
                         # No live run: never begin a new game (phantom column).
                         create_game=run_key is not None,
@@ -38778,12 +38796,7 @@ class SchoolDB(LovesDB):
                 )
                 if self.conn.in_transaction:
                     self.conn.commit()
-        if wrote is None and not save_attendance and not save_participation:
-            try:
-                self.game.cancel_setup(int(class_id))
-            except Exception:  # noqa: BLE001 — no open game is fine
-                pass
-        elif wrote is None and not save_participation:
+        if not saving:
             try:
                 self.game.cancel_setup(int(class_id))
             except Exception:  # noqa: BLE001 — no open game is fine

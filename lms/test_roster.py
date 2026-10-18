@@ -488,12 +488,12 @@ class RosterTests(unittest.TestCase):
         self.assertIn("Live Class in Progress", live_home)
         self.assertNotIn("Run Live Class", live_home)
         self.assertIn(f"/staff/class/{class_id}/end-live", live_home)
-        self.assertIn(">End Live Class<", live_home)
+        self.assertIn(">End Class<", live_home)
         self.assertNotIn(">Save and End Class<", live_home)
         self.assertNotIn(">End<", live_home)
-        self.assertIn('name="save_attendance"', live_home)
-        self.assertIn('name="save_participation"', live_home)
-        self.assertIn('id="end-live-dialog"', live_home)
+        self.assertNotIn('name="save_attendance"', live_home)
+        self.assertNotIn('name="save_participation"', live_home)
+        self.assertNotIn('id="end-live-dialog"', live_home)
         self.assertNotIn("return confirm(this.dataset.confirm)", live_home)
         ended = self.client.post(
             f"/staff/class/{class_id}/end-live",
@@ -510,7 +510,7 @@ class RosterTests(unittest.TestCase):
         self.assertIn("Run Live Class", idle_home)
         self.assertNotIn("Live Class in Progress", idle_home)
         # The End control and dialog are gone (the MCK-183 tour text may name it).
-        self.assertNotIn('aria-label="End Live Class"', idle_home)
+        self.assertNotIn('aria-label="End Class"', idle_home)
         self.assertNotIn("<h2>End Live Class</h2>", idle_home)
 
     def test_staff_home_end_live_targets_active_session_on_other_cards(self) -> None:
@@ -550,7 +550,7 @@ class RosterTests(unittest.TestCase):
         self.client.post(f"/staff/class/{class_a}/run-live")
         both_cards = self.client.get("/staff").get_data(as_text=True)
         self.assertEqual(both_cards.count(">Live Class in Progress<"), 2)
-        self.assertEqual(both_cards.count('aria-label="End Live Class"'), 2)
+        self.assertEqual(both_cards.count('aria-label="End Class"'), 2)
         # Shared End dialog posts once; cards only open it.
         self.assertEqual(both_cards.count(f"/staff/class/{class_a}/end-live"), 1)
         self.assertNotIn(f"/staff/class/{class_b}/end-live", both_cards)
@@ -562,11 +562,11 @@ class RosterTests(unittest.TestCase):
         self.assertNotIn(f"/staff/class/{class_a}?", orphan_card)
         self.assertNotIn(f"/staff/class/{class_a}\"", orphan_card)
         self.assertIn(">Live Class in Progress<", orphan_card)
-        self.assertIn(">End Live Class<", orphan_card)
+        self.assertIn(">End Class<", orphan_card)
         self.assertIn(f"/staff/class/{class_a}/end-live", orphan_card)
         self.assertNotIn(f"/staff/class/{class_b}/end-live", orphan_card)
         self.assertEqual(orphan_card.count(">Live Class in Progress<"), 1)
-        self.assertEqual(orphan_card.count('aria-label="End Live Class"'), 1)
+        self.assertEqual(orphan_card.count('aria-label="End Class"'), 1)
 
         ended = self.client.post(
             f"/staff/class/{class_a}/end-live",
@@ -578,7 +578,7 @@ class RosterTests(unittest.TestCase):
         self.assertIn("Run Live Class", idle)
         self.assertNotIn("Live Class in Progress", idle)
         # The End control and dialog are gone (the MCK-183 tour text may name it).
-        self.assertNotIn('aria-label="End Live Class"', idle)
+        self.assertNotIn('aria-label="End Class"', idle)
         self.assertNotIn("<h2>End Live Class</h2>", idle)
 
     def test_ungamified_live_scoring(self) -> None:

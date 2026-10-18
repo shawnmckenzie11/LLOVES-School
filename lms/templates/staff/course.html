@@ -273,13 +273,10 @@
           <button type="button" class="live-header-eyes-up live-header-student-view secondary" id="live-student-view"
                   aria-pressed="false"
                   title="Hide names and points so you can share your screen"><svg class="student-view-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M2.1 3.5 3.5 2.1l18.4 18.4-1.4 1.4-3.3-3.3A10.9 10.9 0 0 1 12 20C6.5 20 2.7 16.3 1 12c.8-2 2.1-3.8 3.8-5.2L2.1 3.5zm5.1 5.1A4.9 4.9 0 0 0 7 12a5 5 0 0 0 6.9 4.6l-1.6-1.6A3 3 0 0 1 9 11.7L7.2 8.6zM12 4c5.5 0 9.3 3.7 11 8a12 12 0 0 1-3.2 4.6l-2.9-2.9A5 5 0 0 0 10.3 7.1L8.1 4.8C9.3 4.3 10.6 4 12 4z"/></svg> Student view</button>{# copy: Wonder #}
-          <div class="live-end-class-form">
-            <button type="button" class="live-header-end danger" id="live-end-class" data-open-end-live aria-label="End Live Class">End Live Class</button>
-          </div>
-          <form class="live-quit-class-form" id="live-quit-class-form" method="post" action="{{ url_for('staff_quit_live_class', class_id=cls.id) }}"
-                data-confirm="Quit without saving attendance or participation?">
-            <button type="submit" class="live-header-quit secondary" id="live-quit-class" aria-label="Quit">Quit</button>
+          <form class="live-end-class-form" id="live-end-class-form" method="post" action="{{ url_for('staff_end_live_class', class_id=cls.id) }}">
+            <button type="submit" class="live-header-end danger" id="live-end-class" aria-label="End Class">End Class</button>
           </form>
+          <button type="button" class="live-header-quit" id="live-quit-class" aria-label="Quit" aria-haspopup="dialog" aria-controls="quit-live-dialog">Quit</button>
           <button type="button" id="live-start" class="live-header-start live-legacy-control">Start</button>
           <button type="button" id="live-advance" class="live-header-advance live-legacy-control">Advance</button>
         </div>
@@ -724,7 +721,7 @@
                     </section>
                     <div class="live-pane-footer">
                       <button type="button" class="secondary track-nav-prev" data-track-nav="prev" disabled>← Prev</button>
-                      <button type="button" class="secondary track-nav-quit" id="ap-score-cancel" data-track-nav="quit">Quit</button>
+                      <button type="button" class="live-quit-button track-nav-quit" id="ap-score-cancel" data-track-nav="quit">Quit</button>
                       <button type="button" class="secondary" id="ap-add-round-btn">Add Round</button>
                       <button type="button" class="danger track-nav-next" id="ap-score-end" data-track-nav="end">End Class</button>
                     </div>
@@ -1399,24 +1396,13 @@
   </div>
   <div id="score-pop-layer" class="score-pop-layer" aria-hidden="true"></div>
   {% include "staff/_tour.html" %}
-  <dialog id="end-live-dialog" class="end-live-dialog" data-end-live-default="{{ end_live_default_mode }}">
-    <form class="end-live-dialog-form" method="post" action="{{ url_for('staff_end_live_class', class_id=cls.id) }}">
-      <h2>End Live Class</h2>
-      <p>Choose what to save before ending this class.</p>
-      <input type="hidden" name="end_options" value="1">
-      <div class="end-live-options">
-        <label class="end-live-option">
-          <input type="checkbox" name="save_attendance" value="1" checked>
-          <span>Save attendance</span>
-        </label>
-        <label class="end-live-option">
-          <input type="checkbox" name="save_participation" value="1" checked>
-          <span>Save participation</span>
-        </label>
-      </div>
+  <dialog id="quit-live-dialog" class="end-live-dialog" aria-labelledby="quit-live-title">
+    <form class="end-live-dialog-form live-quit-class-form" id="live-quit-class-form" method="post" action="{{ url_for('staff_quit_live_class', class_id=cls.id) }}">
+      <h2 id="quit-live-title">Quit without saving?</h2>
+      <p>Nothing from this class will be saved, including attendance, participation and the catch-up code. This can't be undone.</p>
       <div class="end-live-dialog-actions">
-        <button type="button" class="secondary" data-close-end-live>Cancel</button>
-        <button type="submit">End class</button>
+        <button type="button" class="secondary" data-close-quit-live autofocus>Go back</button>
+        <button type="submit" class="btn-danger">Quit and delete</button>
       </div>
     </form>
   </dialog>
