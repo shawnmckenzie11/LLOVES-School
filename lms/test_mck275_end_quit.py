@@ -1116,6 +1116,214 @@ class EndAlwaysSavesTests(Base):
             self.school.get_active_live_session_for_teacher(int(self.teacher["id"]))
         )
 
+    def _open_signed_in(self, session_id: int, student_id: int):
+        """Open the browser that student already joined with.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster ``students.id``.
+
+        Returns:
+            A test client sitting on that student's live home.
+        """
+        self.school.game.set_character(self.class_id, int(student_id), "fox")
+        attendee = self.school.get_live_session_attendee(
+            int(session_id), int(student_id)
+        )
+        self.assertIsNotNone(attendee)
+        client = self.app.test_client()
+        resumed = client.get(
+            "/student/s/" + str(attendee.get("visit_token") or ""),
+            follow_redirects=True,
+        )
+        self.assertEqual(resumed.status_code, 200)
+        self.assertEqual(resumed.request.path, "/student/home")
+        return client
+
+    def _saved_rows(self, session_id: int) -> dict:
+        """Counts Done must leave unchanged.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        tracker = self._tracker_id(session_id)
+        scores = self.school.game.conn.execute(
+            "SELECT COUNT(*) AS n FROM session_scores WHERE session_id = ?",
+            (tracker,),
+        ).fetchone()
+        rows = {
+            "status": str(self.school.get_live_session(session_id)["status"]),
+            "celebrate": bool(self.school.session_is_celebrating(session_id)),
+            "attendees": self._count(
+                "SELECT COUNT(*) AS n FROM live_session_attendees WHERE live_session_id = ?",
+                (session_id,),
+            ),
+            "left": self._count(
+                """
+                SELECT COUNT(*) AS n FROM live_session_attendees
+                WHERE live_session_id = ? AND left_at IS NOT NULL
+                """,
+                (session_id,),
+            ),
+            "events": self._count("SELECT COUNT(*) AS n FROM engagement_events"),
+            "history": self._count("SELECT COUNT(*) AS n FROM observation_history"),
+            "links": self._count("SELECT COUNT(*) AS n FROM catchup_links"),
+            "columns": self._gradebook_columns(),
+            "scores": int(scores["n"] or 0),
+        }
+        presence = getattr(self.school, "presence", None)
+        if presence is not None:
+            rows["present"] = int(presence.present_count(session_id))
+        return rows
+
+    def _one_link(self) -> dict:
+        """The catch-up row End wrote for this class."""
+        rows = self.school.list_catchup_links(self.class_id)
+        self.assertEqual(len(rows), 1)
+        return rows[0]
+
+    def _portal_code(self) -> str:
+        """Catch-up code for the one link End just wrote. Not for logging."""
+        code = str(self._one_link().get("portal_join_code") or "").strip()
+        self.assertTrue(bool(code), "catch-up code missing")
+        return code
+
+    def _catchup_path(self) -> str:
+        """Canonical catch-up path. The caller must not log it."""
+        link = self._one_link()
+        return self.catchup_url(str(link.get("token") or ""))
+
+    def _assert_code_box(self, client) -> None:
+        """Home shows the join form and not the celebration."""
+        page = client.get("/", follow_redirects=True)
+        self.assertEqual(page.status_code, 200)
+        html = page.get_data(as_text=True)
+        self.assertTrue('id="student-code-panel"' in html, "code box missing")
+        self.assertTrue("How was class?" not in html, "still on celebration")
+        self.assertTrue('id="celebration-done"' not in html, "Done still showing")
+
+    def _assert_catchup_reachable(self, client) -> None:
+        """The same browser can open the PIN prompt and the catch-up link."""
+        code = self._portal_code()
+        posted = client.post(
+            "/auth/student-code",
+            data={"code": code, "name": "Ava"},
+            follow_redirects=False,
+        )
+        self.assertEqual(posted.status_code, 302)
+        self.assertIn("/student/catchup", posted.headers.get("Location") or "")
+        pin = client.get("/student/catchup")
+        pin_html = pin.get_data(as_text=True)
+        self.assertTrue('id="landing_pin"' in pin_html, "pin prompt missing")
+        self.assertTrue("How was class?" not in pin_html, "pin page bounced")
+        link = client.get(self._catchup_path(), follow_redirects=True)
+        link_html = link.get_data(as_text=True)
+        self.assertTrue('id="celebration-done"' not in link_html, "catch-up link bounced")
+        self.assertTrue(
+            'id="landing_pin"' in link_html
+            or 'id="student-code-panel"' in link_html
+            or "Your 4-digit PIN" in link_html,
+            "catch-up link did not open",
+        )
+
+    def _press_done(self, client, session_id: int, *, submitted: bool) -> None:
+        """Show Done, optionally skip How-was-class, then press Done.
+
+        The row snapshot is taken after How-was-class so that skip can
+        write its own event. Done itself must not change the snapshot.
+
+        Args:
+            client: The celebrating student's browser.
+            session_id: ``live_class_sessions.id``.
+            submitted: When True, skip How-was-class before Done.
+        """
+        home = client.get("/student/home")
+        html = home.get_data(as_text=True)
+        self.assertIn(">Done<", html)
+        self.assertIn('id="celebration-done"', html)
+        if submitted:
+            skipped = client.post(
+                "/api/student/exit-feedback",
+                json={"skip": "1"},
+            )
+            self.assertEqual(skipped.status_code, 200)
+            still = client.get("/student/home").get_data(as_text=True)
+            self.assertIn(">Done<", still)
+        before = self._saved_rows(session_id)
+        blocked = client.post(
+            "/student/celebration-done",
+            headers={"Sec-Fetch-Site": "cross-site"},
+            follow_redirects=False,
+        )
+        self.assertEqual(blocked.status_code, 403)
+        self.assertIn(">Done<", client.get("/student/home").get_data(as_text=True))
+        done = client.post("/student/celebration-done", follow_redirects=False)
+        self.assertEqual(done.status_code, 302)
+        self.assertEqual(done.headers.get("Location"), "/")
+        from student_portal import REJOIN_COOKIE_NAME
+
+        self.assertIsNone(client.get_cookie(REJOIN_COOKIE_NAME))
+        self.assertEqual(self._saved_rows(session_id), before)
+
+    def test_done_is_hidden_and_refused_while_class_is_live(self) -> None:
+        """A live class has no Done button, and the route refuses."""
+        sid = self._arm(is_test=False, module="M1", slot="C1")
+        student = self._open_signed_in(sid, int(self.students[0]))
+        html = student.get("/student/home").get_data(as_text=True)
+        self.assertNotIn('id="celebration-done"', html)
+        self.assertNotIn(">Done<", html)
+        refused = student.post(
+            "/student/celebration-done", follow_redirects=False
+        )
+        self.assertEqual(refused.status_code, 403)
+        self.assertEqual(student.get("/student/home").status_code, 200)
+
+    def _check_done_after_end(self, *, submitted: bool, quit_after: bool) -> None:
+        """End, optionally Quit, then Done on one browser only.
+
+        Args:
+            submitted: When True, skip How-was-class before Done.
+            quit_after: When True, Quit after End and expect the 409 page.
+        """
+        sid = self._arm(is_test=False, module="M1", slot="C1")
+        self.school.join_live_class_session(
+            sid, int(self.students[1]), codename="Ben"
+        )
+        ava = self._open_signed_in(sid, int(self.students[0]))
+        ben = self._open_signed_in(sid, int(self.students[1]))
+        self._post_end()
+        if quit_after:
+            quit_response = self.client.post(
+                f"/staff/class/{self.class_id}/quit-live",
+                follow_redirects=False,
+            )
+            self.assertEqual(quit_response.status_code, 409)
+        stuck = ava.get("/", follow_redirects=True)
+        stuck_html = stuck.get_data(as_text=True)
+        self.assertIn('id="celebration-done"', stuck_html)
+        self.assertNotIn('id="student-code-panel"', stuck_html)
+        landing = ava.get("/student/catchup", follow_redirects=True)
+        self.assertIn('id="celebration-done"', landing.get_data(as_text=True))
+        link_before = ava.get(self._catchup_path(), follow_redirects=True)
+        self.assertIn('id="celebration-done"', link_before.get_data(as_text=True))
+        self._press_done(ava, sid, submitted=submitted)
+        self._assert_code_box(ava)
+        self._assert_catchup_reachable(ava)
+        ben_html = ben.get("/", follow_redirects=True).get_data(as_text=True)
+        self.assertIn('id="celebration-done"', ben_html)
+        self.assertNotIn('id="student-code-panel"', ben_html)
+
+    def test_done_signs_out_after_end_without_feedback(self) -> None:
+        """Done after End signs out a student who has not sent How-was-class."""
+        self._check_done_after_end(submitted=False, quit_after=False)
+
+    def test_done_signs_out_after_end_with_feedback(self) -> None:
+        """Done after End still signs out once How-was-class was skipped."""
+        self._check_done_after_end(submitted=True, quit_after=False)
+
+    def test_done_works_after_end_then_quit(self) -> None:
+        """End then Quit is a 409, and Done still signs that browser out."""
+        self._check_done_after_end(submitted=False, quit_after=True)
 
 
 def _pg_admin_url() -> str:

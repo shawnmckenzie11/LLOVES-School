@@ -5330,8 +5330,37 @@ async function submitMvpVote(codename) {
 }
 
 /**
+ * Show or remove Done. It exists only after the class has ended.
+ * @param {boolean} show
+ */
+function syncCelebrationDone(show) {
+  const host = document.getElementById("student-celebrate");
+  if (!(host instanceof HTMLElement)) return;
+  const existing = document.getElementById("celebration-done");
+  if (!show) {
+    if (existing) existing.remove();
+    return;
+  }
+  if (existing instanceof HTMLElement) {
+    existing.hidden = false;
+    return;
+  }
+  const form = document.createElement("form");
+  form.id = "celebration-done";
+  form.className = "celebration-done";
+  form.method = "post";
+  form.action = host.getAttribute("data-done-action") || "/student/celebration-done";
+  const button = document.createElement("button");
+  button.type = "submit";
+  button.textContent = "Done";
+  form.appendChild(button);
+  host.appendChild(form);
+}
+
+/**
  * Keep the scoreboard up with winner graffiti + How-was-class after End Live.
- * Quit wipes the SID and this overlay disappears with the redirect.
+ * Done signs this browser out once the class has ended. A live summary
+ * winner does not get that button.
  * @param {any} payload
  */
 function paintCelebrate(payload) {
@@ -5354,6 +5383,7 @@ function paintCelebrate(payload) {
     if (winnerNameEl) winnerNameEl.textContent = "";
     if (winnerPlayersEl) winnerPlayersEl.textContent = "";
     document.body.classList.remove("is-celebrating", "is-summary-winner");
+    syncCelebrationDone(false);
     return;
   }
   host.hidden = false;
@@ -5375,6 +5405,7 @@ function paintCelebrate(payload) {
     form.hidden = !Boolean(payload.exit_feedback && payload.exit_feedback.pending);
     form.dataset.token = (payload.exit_feedback && payload.exit_feedback.token) || "";
   }
+  syncCelebrationDone(Boolean(payload.celebrate));
   if (celebratePainted || !(graffiti instanceof HTMLElement)) return;
   celebratePainted = true;
   graffiti.innerHTML = "";

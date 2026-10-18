@@ -6739,6 +6739,34 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return None
         return offering, int(class_id), int(student_id)
 
+    @app.route("/student/celebration-done", methods=["POST"])
+    def student_celebration_done():
+        """Sign this browser out of a finished class celebration.
+
+        Done is only for a class that has already ended. The POST clears
+        this browser's student session and rejoin cookie, then returns to
+        the home page code box. It does not change the class, the live
+        session, other students, attendance, participation, the gradebook,
+        or catch-up rows.
+        """
+        if not _same_origin_post():
+            return "Forbidden", 403
+        ctx = _student_live_context()
+        live_id = int((ctx or {}).get("live_session_id") or 0)
+        session_row = school.get_live_session(live_id) if live_id else None
+        status = str((session_row or {}).get("status") or "")
+        if (
+            session_row is None
+            or status == "active"
+            or not school.session_is_celebrating(live_id)
+        ):
+            return "Class is still running.", 403
+        session.pop(EXIT_FEEDBACK_SESSION_KEY, None)
+        clear_student_session_keys(session)
+        resp = redirect(url_for("landing"))
+        clear_rejoin_cookie(resp)
+        return resp
+
     @app.route("/student/home")
     @student_required
     def student_home():
