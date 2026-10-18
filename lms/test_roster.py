@@ -1311,18 +1311,13 @@ class RosterTests(unittest.TestCase):
             f"/staff/class/{class_id}/quit-live",
             follow_redirects=False,
         )
-        self.assertEqual(wiped.status_code, 302)
-        self.assertIsNone(self.school.get_live_session(first_id))
-        self.assertIsNone(self.school.get_live_session(second_id))
-        self.assertIsNone(self.school.get_active_live_session_for_class(class_id))
-        self.assertEqual(self.school.list_live_sessions_for_class(class_id), [])
-        self.assertEqual(
-            self._count_session_children([first_id, second_id]),
-            {"attendees": 0, "prompts": 0, "responses": 0, "observations": 0},
+        self.assertEqual(wiped.status_code, 409)
+        self.assertIn("This class already ended.", wiped.get_data(as_text=True))
+        self.assertIsNotNone(self.school.get_live_session(first_id))
+        self.assertIsNotNone(self.school.get_live_session(second_id))
+        self.assertGreater(
+            self._count_session_children([first_id, second_id])["observations"], 0
         )
-        maple = self.school.game.find_student_by_codename(class_id, "Maple")
-        assert maple is not None
-        self.assertIsNone(self.school.game.get_mood(class_id, int(maple["id"])))
         self.assertIsNotNone(self.school.get_live_session(other_id))
         self.assertGreater(
             self._count_session_children([other_id])["attendees"], 0
@@ -1337,7 +1332,10 @@ class RosterTests(unittest.TestCase):
         self.assertIsNotNone(fresh)
         assert fresh is not None
         self.assertEqual(fresh["status"], "active")
-        self.assertEqual(len(self.school.list_live_sessions_for_class(class_id)), 1)
+        ids = [int(row["id"]) for row in self.school.list_live_sessions_for_class(class_id)]
+        self.assertIn(first_id, ids)
+        self.assertIn(int(fresh["id"]), ids)
+        self.assertEqual(len(ids), 2)
         children = self._count_session_children([int(fresh["id"])])
         self.assertEqual(children["attendees"], 0)
         self.assertEqual(children["responses"], 0)

@@ -259,6 +259,7 @@ from student_portal import (  # noqa: E402
     resolve_student_live_context,
     set_rejoin_cookie,
     student_url_with_token,
+    explicit_visit_token_from_request,
     visit_token_from_request,
 )
 import syllabus as syllabus_mod  # noqa: E402
@@ -3527,12 +3528,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         active_live_session = school.get_active_live_session_for_teacher(
             int(user["id"])
         )
-        end_live_default_mode = "test"
-        if active_live_session is not None:
-            end_live_default_mode = school.default_end_live_run_mode_for_class(
-                int(active_live_session["class_id"]),
-                str(active_live_session.get("started_at") or ""),
-            )
         # MCK-124: hold the What's new panel while any class this teacher
         # teaches is live (they may be projecting the Dashboard). Decided
         # here, so the page never carries the panel or its script.
@@ -3567,7 +3562,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             offerings=offerings,
             classes=classes,
             active_live_session=active_live_session,
-            end_live_default_mode=end_live_default_mode,
             catchup_pin_alerts=catchup_pin_alerts,
             whats_new_hold=whats_new_hold,
             show_test_students=_include_test_students(),
@@ -3957,6 +3951,48 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         )
         return resp
 
+    def _already_ended_page():
+        """Say this class already ended and this request changed nothing.
+
+        Returns:
+            A short HTML page and status 409.
+        """
+        back = url_for("staff_home")
+        body = (
+            "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+            "<title>Already ended</title>"
+            "<link rel=\"stylesheet\" href=\"/static/lloves.css\"></head>"
+            "<body><div class=\"wrap\"><h1>Already ended</h1>"
+            "<p class=\"sub\">This class already ended. "
+            "Nothing else was changed.</p>"
+            f"<p><a class=\"btn\" href=\"{html_escape(back)}\">Back to classes</a></p>"
+            "</div></body></html>"
+        )
+        return body, 409, {"Content-Type": "text/html; charset=utf-8"}
+
+    def _finish_busy_page():
+        """Say a finish is still open and the teacher should try again.
+
+        A crashed worker can hold the finish claim for up to five minutes.
+        This request did not End or Quit.
+
+        Returns:
+            A short HTML page and status 409.
+        """
+        back = url_for("staff_home")
+        body = (
+            "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+            "<title>Try again in a moment</title>"
+            "<link rel=\"stylesheet\" href=\"/static/lloves.css\"></head>"
+            "<body><div class=\"wrap\"><h1>Try again in a moment</h1>"
+            "<p class=\"sub\">Nothing was changed. Try again in a moment.</p>"
+            f"<p><a class=\"btn\" href=\"{html_escape(back)}\">Back to classes</a></p>"
+            "</div></body></html>"
+        )
+        return body, 409, {"Content-Type": "text/html; charset=utf-8"}
+
     @app.route("/staff/class/<int:class_id>/end-live", methods=["POST"])
     @staff_required
     def staff_end_live_class(class_id: int):
@@ -3981,7 +4017,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             abort(403)
         active = school.get_active_live_session_for_teacher(int(user["id"]))
         if active is None or int(active["class_id"]) != int(class_id):
-            return redirect(url_for("staff_home"))
+            return _already_ended_page()
         # Test or Live was chosen at Start. A posted end-time run_mode is ignored.
         live_run = True
         # The run this request saw as active. If another End closes it
@@ -3992,6 +4028,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             run_key=str(active.get("run_key") or "") or None,
             live_run=live_run,
         )
+        if isinstance(ended, dict) and ended.get("already_ended"):
+            return _already_ended_page()
+        if isinstance(ended, dict) and ended.get("finish_busy"):
+            return _finish_busy_page()
         if isinstance(ended, dict) and ended.get("in_progress"):
             # Another End holds this run and the game is still open (it is
             # stuck, or its worker died mid-write). The session stays open
@@ -4036,8 +4076,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """Quit: save nothing, then clear this session's live rows now.
 
         Same ownership rules as End Class. Attendance, participation,
-        and a catch-up link are not written. Responses, attendees, and
-        board ops are deleted here, not on the next Start.
+        and a catch-up link are not written. Responses, attendees, board
+        assignments, engagement events, and teacher notes for this
+        active session are deleted here, not on the next Start. Quit
+        after End changes nothing and says the class already ended.
         """
         user = current_user()
         assert user is not None
@@ -4049,10 +4091,15 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             int(row["id"]): teacher_state_seq(school, int(row["id"]))
             for row in school.list_live_sessions_for_class(int(class_id))
         }
-        if active is not None and int(active["class_id"]) == int(class_id):
-            school.finish_live_class(int(class_id), persist=False, celebrate=False)
-        else:
-            school.wipe_live_sessions_for_class(int(class_id))
+        if active is None or int(active["class_id"]) != int(class_id):
+            return _already_ended_page()
+        ended = school.finish_live_class(
+            int(class_id), persist=False, celebrate=False
+        )
+        if isinstance(ended, dict) and ended.get("already_ended"):
+            return _already_ended_page()
+        if isinstance(ended, dict) and ended.get("finish_busy"):
+            return _finish_busy_page()
         # Open tabs (often on the End celebration) fetch now and leave,
         # instead of waiting for the safety poll.
         for quit_sid, quit_seq in quit_seqs.items():
@@ -4159,11 +4206,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         }:
             live_step = ""
         active_live = school.get_active_live_session_for_class(class_id)
-        end_live_default_mode = "test"
-        if active_live is not None:
-            end_live_default_mode = school.default_end_live_run_mode_for_class(
-                int(class_id), str(active_live.get("started_at") or "")
-            )
         live_session_id = request.args.get("live_session_id") or ""
         if not live_session_id and active_live is not None:
             live_session_id = str(active_live["id"])
@@ -4270,7 +4312,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             live_run_key=live_run_key,
             live_session_code=live_session_code,
             live_step=live_step,
-            end_live_default_mode=end_live_default_mode,
             school_name=SCHOOL_NAME,
             roster_pin_slips=roster_pin_slips,
             roster_pin_alerts=roster_pin_alerts,
@@ -6211,6 +6252,75 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         )
 
 
+    def _code_box_refusal():
+        """Send this browser to the home code box without saving.
+
+        A stale visit token must not 500 and must not submit How-was-class.
+        API callers get a JSON redirect; a form post navigates.
+
+        Returns:
+            Flask response that lands on the code box.
+        """
+        session.pop(EXIT_FEEDBACK_SESSION_KEY, None)
+        clear_student_session_keys(session)
+        if request.path.startswith("/api/"):
+            resp = jsonify({"ok": False, "redirect": url_for("landing")})
+            resp.status_code = 401
+        else:
+            resp = redirect(url_for("landing"))
+        resp.headers["Cache-Control"] = "no-store"
+        clear_rejoin_cookie(resp)
+        return resp
+
+    def _exit_feedback_visit_matches(row: dict[str, Any], resolved: dict[str, Any]) -> bool:
+        """True when this feedback row belongs to the resolved visit.
+
+        Args:
+            row: ``live_class_feedback`` row.
+            resolved: ``resolve_student_visit_token`` payload.
+        """
+        if int(row.get("class_id") or 0) != int(resolved.get("class_id") or 0):
+            return False
+        row_sid = row.get("student_id")
+        visit_sid = resolved.get("student_id")
+        if row_sid not in (None, "") and visit_sid not in (None, ""):
+            return int(row_sid) == int(visit_sid)
+        row_pid = str(row.get("participant_uuid") or "")
+        visit_pid = str(resolved.get("participant_uuid") or "")
+        if row_pid and visit_pid:
+            return row_pid == visit_pid
+        return True
+
+    def _exit_feedback_refusal(row: dict[str, Any] | None):
+        """Refuse How-was-class when the visit token is stale or unmatched.
+
+        A request that presents a visit token must still resolve to this
+        feedback row. After Done, the old token does not resolve, so the
+        answer is not saved. A session that is still signed in, with no
+        visit token on the request, keeps the existing submit path.
+
+        Args:
+            row: Pending feedback row, when one was found.
+
+        Returns:
+            A code-box response, or ``None`` when the submit may continue.
+        """
+        presented = explicit_visit_token_from_request() or rejoin_token_from_cookie()
+        if presented:
+            resolved = school.resolve_student_visit_token(presented, allow_left=True)
+            if resolved is None:
+                return _code_box_refusal()
+            if row is not None and not _exit_feedback_visit_matches(row, resolved):
+                return _code_box_refusal()
+            return None
+        if (
+            session.get("student_id")
+            or session.get("student_live_session_id")
+            or session.get(EXIT_FEEDBACK_SESSION_KEY)
+        ):
+            return None
+        return _code_box_refusal()
+
     @app.route("/api/student/exit-feedback", methods=["POST"])
     def api_student_exit_feedback():
         """Submit How-was-class from the celebrating student home overlay."""
@@ -6219,6 +6329,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             data.get("token") or session.get(EXIT_FEEDBACK_SESSION_KEY) or ""
         ).strip()
         row = school.get_exit_feedback_by_token(token) if token else None
+        refused = _exit_feedback_refusal(row)
+        if refused is not None:
+            return refused
         if row is None or row.get("submitted_at"):
             return jsonify({"ok": False, "error": "No pending feedback."}), 404
         skip = str(data.get("skip") or "").strip() in {"1", "true", "yes"}
@@ -6243,6 +6356,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return redirect(url_for("landing"))
         error = None
         if request.method == "POST":
+            refused = _exit_feedback_refusal(row)
+            if refused is not None:
+                return refused
             skip = (request.form.get("skip") or "").strip() in {"1", "true", "yes"}
             mood = (request.form.get("mood") or "").strip()
             comment = request.form.get("comment") or ""
@@ -6699,6 +6815,67 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return None
         return offering, int(class_id), int(student_id)
 
+    def _done_visit_tokens() -> list[str]:
+        """Visit tokens this Done POST can revoke.
+
+        The page may be signed in by cookie, by the Flask session, or by
+        the visit token alone. Empty values are dropped. Tokens are not
+        logged.
+
+        Returns:
+            Unique tokens in the order they were found.
+        """
+        found: list[str] = []
+        for candidate in (
+            explicit_visit_token_from_request(),
+            rejoin_token_from_cookie(),
+            str(session.get("student_visit_token") or ""),
+        ):
+            cleaned = str(candidate or "").strip()
+            if cleaned and cleaned not in found:
+                found.append(cleaned)
+        ctx = _student_live_context()
+        cleaned = str((ctx or {}).get("visit_token") or "").strip()
+        if cleaned and cleaned not in found:
+            found.append(cleaned)
+        return found
+
+    @app.route("/student/celebration-done", methods=["POST"])
+    def student_celebration_done():
+        """Sign this browser out of a finished class celebration.
+
+        Done rotates this student's visit token, clears this browser's
+        student session and rejoin cookie, and returns to the home page
+        code box. A class that is still live is refused. When the class
+        has already ended or the session is gone, the same sign-out runs
+        without claiming the class is still running.
+
+        The rotation touches only this attendee's visit token. It does
+        not change the class, the live session, other students,
+        attendance, participation, the gradebook, or catch-up rows.
+        """
+        if not _same_origin_post():
+            return "Forbidden", 403
+        tokens = _done_visit_tokens()
+        ctx = _student_live_context()
+        live_id = int((ctx or {}).get("live_session_id") or 0)
+        if not live_id:
+            live_id = int(session.get("student_live_session_id") or 0)
+        session_row = school.get_live_session(live_id) if live_id else None
+        status = str((session_row or {}).get("status") or "")
+        if status == "active" or any(
+            school.session_status_for_visit_token(token) == "active" for token in tokens
+        ):
+            return "Class is still running.", 403
+        for token in tokens:
+            school.revoke_student_visit_token(token)
+        session.pop(EXIT_FEEDBACK_SESSION_KEY, None)
+        clear_student_session_keys(session)
+        resp = redirect(url_for("landing"))
+        resp.headers["Cache-Control"] = "no-store"
+        clear_rejoin_cookie(resp)
+        return resp
+
     @app.route("/student/home")
     @student_required
     def student_home():
@@ -6774,17 +6951,21 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         tester_feedback = _viewer_is_stmtg_tester(offering, student_id)
         if tester_feedback:
             payload = _redact_tester_payload(payload, offering, class_id, student_id)
-        return render_template(
-            "student/home.html",
-            offering=offering,
-            payload=payload,
-            school_name=SCHOOL_NAME,
-            visit_token=visit_token,
-            codename=str(ctx.get("codename") or payload.get("me", {}).get("codename") or ""),
-            reward=reward,
-            reward_next_url="",
-            tester_feedback=tester_feedback,
+        resp = app.make_response(
+            render_template(
+                "student/home.html",
+                offering=offering,
+                payload=payload,
+                school_name=SCHOOL_NAME,
+                visit_token=visit_token,
+                codename=str(ctx.get("codename") or payload.get("me", {}).get("codename") or ""),
+                reward=reward,
+                reward_next_url="",
+                tester_feedback=tester_feedback,
+            )
         )
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
 
     @app.route("/student/tester-feedback", methods=["POST"])
     @student_required

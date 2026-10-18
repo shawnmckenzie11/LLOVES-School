@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""MCK-108 follow-up #2: End, Quit, then Start, and the reused id's tape.
+"""MCK-108 follow-up #2: End, then Start, and the reused id's tape.
 
-Quit deletes every ``live_class_sessions`` row for the class. The Start
-floor from follow-up #1 read those rows, so after Quit it fell to 0 and
-the new run began below the seq old tabs still held. Those tabs stayed on
-the celebration. Quit also sent no postcard, and Start left the old run's
-postcards on the reused id's tape, where a first connect replayed them.
+Quit after End changes nothing. The next Start still reads the celebration
+rows for the seq floor, then clears that session so a first connect does
+not replay the old postcards.
 """
 
 from __future__ import annotations
@@ -27,12 +25,16 @@ class QuitStartSeqTests(EndStartSeqTests):
         self.assertEqual(quit_resp.status_code, 302)
 
     def test_end_quit_start_reaches_the_old_tab(self) -> None:
-        """Quit between End and Start must not reset the seq floor."""
+        """Quit after End changes nothing. The next Start still reaches the old tab."""
         sid, student_id, held = self._end_with_old_tab()
         old_seq = int(held["state_seq"])
         self.assertGreaterEqual(old_seq, 2)
-        self._quit()
-        self.assertEqual(self.school.list_live_sessions_for_class(self.class_id), [])
+        quit_resp = self.client.post(
+            f"/staff/class/{self.class_id}/quit-live", follow_redirects=False
+        )
+        self.assertEqual(quit_resp.status_code, 409)
+        self.assertIn("This class already ended.", quit_resp.get_data(as_text=True))
+        self.assertTrue(self.school.list_live_sessions_for_class(self.class_id))
 
         live = self.school.start_live_class_session(
             self.class_id, int(self.teacher["id"])
@@ -51,18 +53,20 @@ class QuitStartSeqTests(EndStartSeqTests):
         got = _run_guards([{"body": body, "last": old_seq}])
         self.assertTrue(got[0]["apply"], "poll tab drops the new class body")
 
-    def test_quit_sends_a_postcard_above_the_held_seq(self) -> None:
-        """A streaming tab on the celebration fetches as soon as Quit lands."""
+    def test_quit_after_end_sends_no_postcard(self) -> None:
+        """Quit after End leaves the celebration and sends no postcard."""
         sid, _student_id, held = self._end_with_old_tab()
         old_seq = int(held["state_seq"])
         cursor = max([int(row["id"]) for row in self._tape(sid)] or [0])
-        self._quit()
+        quit_resp = self.client.post(
+            f"/staff/class/{self.class_id}/quit-live", follow_redirects=False
+        )
+        self.assertEqual(quit_resp.status_code, 409)
+        self.assertIn("This class already ended.", quit_resp.get_data(as_text=True))
         news = [row for row in self._tape(sid, cursor) if row["type"] == "state_seq"]
-        self.assertTrue(news, "Quit sent no postcard")
-        self.assertGreater(int(news[-1]["state_seq"]), old_seq)
-        got = _run_guards([{"body": news[-1], "last": old_seq}])
-        self.assertFalse(got[0]["stale"])
-        self.assertTrue(got[0]["fetch"])
+        self.assertEqual(news, [])
+        self.assertTrue(self.school.session_is_celebrating(sid))
+        self.assertGreaterEqual(int(held["state_seq"]), old_seq)
 
     def test_quit_on_an_active_run_also_sends_a_postcard(self) -> None:
         """Quit without End: tabs in the running class leave at once too."""
@@ -78,7 +82,10 @@ class QuitStartSeqTests(EndStartSeqTests):
     def test_start_clears_the_reused_ids_tape(self) -> None:
         """A first connect on the new run must not replay the old run."""
         sid, _student_id, _held = self._end_with_old_tab()
-        self._quit()
+        quit_resp = self.client.post(
+            f"/staff/class/{self.class_id}/quit-live", follow_redirects=False
+        )
+        self.assertEqual(quit_resp.status_code, 409)
         old_ids = [int(row["id"]) for row in self._tape(sid)]
         self.assertTrue(old_ids, "fixture left no postcards to replay")
         live = self.school.start_live_class_session(

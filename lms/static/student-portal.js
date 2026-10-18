@@ -5330,8 +5330,62 @@ async function submitMvpVote(codename) {
 }
 
 /**
+ * Show or remove Done. It exists only after the class has ended.
+ * @param {boolean} show
+ */
+/**
+ * Hidden field so Done can resolve this student from the page token alone.
+ * @returns {HTMLInputElement}
+ */
+function celebrationVisitTokenInput() {
+  const input = document.createElement("input");
+  input.type = "hidden";
+  input.name = "visit_token";
+  const body = document.body;
+  input.value = body && body.dataset ? body.dataset.visitToken || "" : "";
+  return input;
+}
+
+/**
+ * Add the visit-token field when a polled celebration builds Done itself.
+ * @param {HTMLElement} form
+ */
+function ensureCelebrationVisitToken(form) {
+  if (!(form instanceof HTMLElement)) return;
+  if (form.querySelector('input[name="visit_token"]')) return;
+  form.appendChild(celebrationVisitTokenInput());
+}
+
+function syncCelebrationDone(show) {
+  const host = document.getElementById("student-celebrate");
+  if (!(host instanceof HTMLElement)) return;
+  const existing = document.getElementById("celebration-done");
+  if (!show) {
+    if (existing) existing.remove();
+    return;
+  }
+  if (existing instanceof HTMLElement) {
+    existing.hidden = false;
+    ensureCelebrationVisitToken(existing);
+    return;
+  }
+  const form = document.createElement("form");
+  form.id = "celebration-done";
+  form.className = "celebration-done";
+  form.method = "post";
+  form.action = host.getAttribute("data-done-action") || "/student/celebration-done";
+  form.appendChild(celebrationVisitTokenInput());
+  const button = document.createElement("button");
+  button.type = "submit";
+  button.textContent = "Done";
+  form.appendChild(button);
+  host.appendChild(form);
+}
+
+/**
  * Keep the scoreboard up with winner graffiti + How-was-class after End Live.
- * Quit wipes the SID and this overlay disappears with the redirect.
+ * Done signs this browser out once the class has ended. A live summary
+ * winner does not get that button.
  * @param {any} payload
  */
 function paintCelebrate(payload) {
@@ -5354,6 +5408,7 @@ function paintCelebrate(payload) {
     if (winnerNameEl) winnerNameEl.textContent = "";
     if (winnerPlayersEl) winnerPlayersEl.textContent = "";
     document.body.classList.remove("is-celebrating", "is-summary-winner");
+    syncCelebrationDone(false);
     return;
   }
   host.hidden = false;
@@ -5375,6 +5430,7 @@ function paintCelebrate(payload) {
     form.hidden = !Boolean(payload.exit_feedback && payload.exit_feedback.pending);
     form.dataset.token = (payload.exit_feedback && payload.exit_feedback.token) || "";
   }
+  syncCelebrationDone(Boolean(payload.celebrate));
   if (celebratePainted || !(graffiti instanceof HTMLElement)) return;
   celebratePainted = true;
   graffiti.innerHTML = "";
@@ -5417,6 +5473,10 @@ async function submitExitFeedback(opts = {}) {
       })
     );
     const data = await res.json();
+    if (data && data.redirect) {
+      window.location.assign(data.redirect);
+      return;
+    }
     if (data && data.ok) {
       form.hidden = true;
     }

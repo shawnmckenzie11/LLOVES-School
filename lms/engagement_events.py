@@ -1,8 +1,8 @@
 """Teacher-only engagement event log (MCK-52 P0.1-P0.3).
 
-One append-only table, ``engagement_events``, that records who did what in
-a live class: votes, submits, draft edits, ink batches, presence changes and
-so on. End Live Class and Quit purge the live tables; this log is kept.
+One table, ``engagement_events``, that records who did what in a live
+class: votes, submits, draft edits, ink batches, presence changes and so
+on. End keeps the log. Quit deletes that session's rows.
 
 Rules the code enforces:
 
@@ -130,6 +130,92 @@ def first_name_only(name: Any) -> str:
     return parts[0][:40] if parts else ""
 
 
+def engagement_match(
+    session_ids: Sequence[int], run_keys: Sequence[str]
+) -> tuple[str, tuple[Any, ...]] | None:
+    """SQL predicate for one session's engagement rows.
+
+    Matches ``live_session`` or a non-empty ``run_key``. An empty key is
+    not a match, so a blank run cannot delete another class's rows.
+
+    Args:
+        session_ids: ``live_class_sessions.id`` values.
+        run_keys: Run keys for those sessions.
+
+    Returns:
+        ``(clause, params)`` or ``None`` when there is nothing to match.
+    """
+    parts: list[str] = []
+    params: list[Any] = []
+    ids = [int(sid) for sid in session_ids]
+    keys = [str(key).strip() for key in run_keys if str(key or "").strip()]
+    if ids:
+        parts.append("live_session IN (" + ",".join("?" * len(ids)) + ")")
+        params.extend(ids)
+    if keys:
+        parts.append("run_key IN (" + ",".join("?" * len(keys)) + ")")
+        params.extend(keys)
+    if not parts:
+        return None
+    return "(" + " OR ".join(parts) + ")", tuple(params)
+
+
+def engagement_match_owned(
+    class_id: int,
+    session_ids: Sequence[int],
+    run_keys: Sequence[str],
+    *,
+    require_session: bool,
+) -> tuple[str, tuple[Any, ...]] | None:
+    """SQL predicate for one class's run, safe when session ids are reused.
+
+    A run key matches only with this class. Quit also requires the session
+    id, so an earlier run that shares the id stays. A blank run key matches
+    only this class and these session ids.
+
+    Args:
+        class_id: Game-show ``classes.id``.
+        session_ids: ``live_class_sessions.id`` values.
+        run_keys: Run keys for those sessions.
+        require_session: Quit. Keyed rows must also match the session id.
+
+    Returns:
+        ``(clause, params)`` or ``None`` when there is nothing to match.
+    """
+    cid = int(class_id)
+    ids = [int(sid) for sid in session_ids]
+    keys = [str(key).strip() for key in run_keys if str(key or "").strip()]
+    blank = "(run_key IS NULL OR TRIM(run_key) = '')"
+    if require_session:
+        if not ids:
+            return None
+        id_ph = ",".join("?" * len(ids))
+        if keys:
+            key_ph = ",".join("?" * len(keys))
+            clause = (
+                f"(class_id = ? AND live_session IN ({id_ph}) "
+                f"AND (run_key IN ({key_ph}) OR {blank}))"
+            )
+            return clause, (cid, *ids, *keys)
+        return (
+            f"(class_id = ? AND live_session IN ({id_ph}) AND {blank})",
+            (cid, *ids),
+        )
+    parts: list[str] = []
+    params: list[Any] = []
+    if keys:
+        key_ph = ",".join("?" * len(keys))
+        parts.append(f"(class_id = ? AND run_key IN ({key_ph}))")
+        params.extend([cid, *keys])
+    if ids:
+        id_ph = ",".join("?" * len(ids))
+        parts.append(f"(class_id = ? AND live_session IN ({id_ph}) AND {blank})")
+        params.extend([cid, *ids])
+    if not parts:
+        return None
+    return "(" + " OR ".join(parts) + ")", tuple(params)
+
+
 class _Store:
     """Shared append/read logic over an ``exec`` callable."""
 
@@ -168,6 +254,77 @@ class _Store:
             (str(run_key), int(student_id), str(item_ref), *kinds),
         )
         return bool(rows)
+
+    def delete_session_rows(
+        self,
+        session_ids: Sequence[int],
+        run_keys: Sequence[str],
+        *,
+        class_id: int,
+        require_session: bool,
+    ) -> None:
+        """Delete engagement events and rollup rows for this class's run.
+
+        Quit sets ``require_session`` so the session id and the run key
+        both have to match. Test-class delete matches the run key and
+        class, and blank keys only on this class. Staff only.
+
+        Args:
+            session_ids: ``live_class_sessions.id`` values.
+            run_keys: Run keys for those sessions.
+            class_id: Game-show ``classes.id``.
+            require_session: Quit. Keyed rows must also match the session id.
+        """
+        matched = engagement_match_owned(
+            class_id, session_ids, run_keys, require_session=require_session
+        )
+        if matched is None:
+            return
+        clause, params = matched
+        self._write(f"DELETE FROM engagement_events WHERE {clause}", params)
+        self._write(f"DELETE FROM engagement_rollup WHERE {clause}", params)
+
+    def count_session_rows(
+        self,
+        session_ids: Sequence[int],
+        run_keys: Sequence[str],
+        *,
+        class_id: int | None = None,
+        require_session: bool = False,
+    ) -> int:
+        """Count engagement events plus rollup rows for these sessions.
+
+        Args:
+            session_ids: ``live_class_sessions.id`` values.
+            run_keys: Run keys for those sessions.
+            class_id: When set, count only this class's owned rows.
+            require_session: With ``class_id``, also require the session id.
+
+        Returns:
+            Combined row count. ``0`` when nothing matches.
+        """
+        if class_id is None:
+            matched = engagement_match(session_ids, run_keys)
+        else:
+            matched = engagement_match_owned(
+                class_id, session_ids, run_keys, require_session=require_session
+            )
+        if matched is None:
+            return 0
+        clause, params = matched
+        total = 0
+        for table in ("engagement_events", "engagement_rollup"):
+            rows = self._fetch(
+                f"SELECT COUNT(*) AS n FROM {table} WHERE {clause}", params
+            )
+            if not rows:
+                continue
+            row = rows[0]
+            try:
+                total += int(row["n"])
+            except (TypeError, KeyError, IndexError):
+                total += int(row[0])
+        return total
 
     _ROLLUP_COLS = (
         "class_id, live_session, run_key, rolled_at, scope, student_id, team_id, "

@@ -2102,6 +2102,25 @@ body.student-home.is-waiting-room .student-wait {
   margin: 0 0 0.35rem;
   font-size: 1.05rem;
 }
+.student-celebrate .celebration-done {
+  pointer-events: auto;
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 3;
+  margin: 0;
+}
+.student-celebrate .celebration-done button {
+  min-height: 44px;
+  min-width: 6.5rem;
+  padding: 0.55rem 1.2rem;
+  border: 0;
+  border-radius: 999px;
+  background: #f5c518;
+  color: #12202e;
+  font-weight: 800;
+  cursor: pointer;
+}
 .student-celebrate .mood-row {
   display: flex;
   justify-content: space-between;

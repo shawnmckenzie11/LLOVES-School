@@ -709,7 +709,10 @@ def student_required(f: Callable) -> Callable:
             if resolved is not None:
                 return f(*args, **kwargs)
         if not session.get("student_offering_id") and not session.get("student_class_id"):
-            return redirect(url_for("landing"))
+            response = redirect(url_for("landing"))
+            if request.path.startswith("/student/home"):
+                response.headers["Cache-Control"] = "no-store"
+            return response
         return f(*args, **kwargs)
 
     return decorated

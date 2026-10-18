@@ -119,7 +119,7 @@
     <div id="class-board" class="student-scoreboard"></div>
     <div id="score-pop-layer" class="score-pop-layer" aria-hidden="true"></div>
   </footer>
-  <div id="student-celebrate" class="student-celebrate" hidden>
+  <div id="student-celebrate" class="student-celebrate" hidden data-done-action="{{ url_for('student_celebration_done') }}">
     <div class="student-winner-banner" id="student-winner-banner" hidden>
       <p class="student-winner-kicker">Winner</p>
       <p class="student-winner-name" id="student-winner-name"></p>
@@ -142,6 +142,12 @@
         <button type="button" id="exit-feedback-send">Send</button>
       </div>
     </section>
+    {% if payload.celebrate %}
+    <form id="celebration-done" class="celebration-done" method="post" action="{{ url_for('student_celebration_done') }}">
+      <input type="hidden" name="visit_token" value="{{ visit_token or '' }}">
+      <button type="submit">Done</button>
+    </form>
+    {% endif %}
   </div>
   {% if tester_feedback %}
   <section class="card tester-feedback" id="tester-feedback" aria-label="Tester feedback">

@@ -2394,8 +2394,8 @@ class LiveShellTests(unittest.TestCase):
         self.assertTrue(all(row["question_key"] for row in mine))
         self.assertTrue(all(row["snapshot_at"] for row in mine))
 
-    def test_end_then_quit_closes_student_celebration(self) -> None:
-        """Quit after End Live drops celebration and unsubmitted How-was-class."""
+    def test_end_then_quit_leaves_the_ended_run(self) -> None:
+        """Quit after End changes nothing and says the class already ended."""
         sid, student_id = self._open_live_with_aspen_answers()
         self._bind_aspen_live_session(sid, student_id)
         ended = self.client.post(
@@ -2413,15 +2413,15 @@ class LiveShellTests(unittest.TestCase):
             f"/staff/class/{self.class_id}/quit-live",
             follow_redirects=False,
         )
-        self.assertEqual(quit.status_code, 302)
-        self.assertIsNone(
+        self.assertEqual(quit.status_code, 409)
+        self.assertIn("This class already ended.", quit.get_data(as_text=True))
+        self.assertIsNotNone(
             self.school.pending_exit_feedback(
                 class_id=self.class_id, student_id=student_id
             )
         )
         gone = self.client.get("/api/student/state").get_json()
-        self.assertIn(gone.get("status"), {"ended", "waiting"})
-        self.assertFalse(gone.get("celebrate"))
+        self.assertTrue(gone.get("celebrate"))
 
 
     def test_beat30_module_and_live_class_dropdown(self) -> None:

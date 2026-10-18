@@ -64,7 +64,7 @@ class Base(unittest.TestCase):
 
 
 class StoreTests(Base):
-    """P0.1: store, privacy, poll budget, survives End/Quit."""
+    """P0.1: store, privacy, poll budget. End keeps the log. Quit drops it."""
 
     def test_first_name_only_and_no_answer_text(self) -> None:
         ok = self.school.record_engagement_event(
@@ -88,13 +88,14 @@ class StoreTests(Base):
         serve_capacity._poll_budget.deadline = None
         self.assertEqual(self.events(), [])
 
-    def test_log_survives_end_and_quit(self) -> None:
+    def test_log_survives_end_and_quit_drops_it(self) -> None:
         self.school.record_engagement_event(
             "answer.submit", session_id=self.session_id, student_id=self.students[1]
         )
         self.school.cleanup_live_session_response_data(self.session_id)
-        self.school.wipe_live_sessions_for_class(self.class_id)
         self.assertEqual(len(self.events("answer.submit")), 1)
+        self.school.finish_live_class(self.class_id, persist=False, celebrate=False)
+        self.assertEqual(self.events("answer.submit"), [])
 
     def test_helpers(self) -> None:
         self.assertEqual(first_name_only("  Ava  Marie Smith "), "Ava")
@@ -234,19 +235,16 @@ class DraftEditorTests(Base):
 
 
 class KeepAcrossRunsTests(Base):
-    """P0.5: Run / Quit keep earlier notes and mood history."""
+    """P0.5: a celebrating wipe keeps notes. Quit does not. Mood history stays."""
 
-    def test_notes_kept_after_quit(self) -> None:
+    def test_quit_drops_notes(self) -> None:
         self.school.create_observation(
             live_session_id=self.session_id, class_id=self.class_id,
             observer_user_id=int(self.teacher["id"]), scope="student",
-            note="kept note", student_ids=[self.students[0]],
+            note="dropped note", student_ids=[self.students[0]],
         )
-        self.school.wipe_live_sessions_for_class(self.class_id)
-        self.school.wipe_live_sessions_for_class(self.class_id)
-        kept = self.school.list_observation_history(self.class_id)
-        self.assertEqual([k["note"] for k in kept], ["kept note"])
-        self.assertIn(str(self.students[0]), kept[0]["student_ids_json"])
+        self.school.finish_live_class(self.class_id, persist=False, celebrate=False)
+        self.assertEqual(self.school.list_observation_history(self.class_id), [])
 
     def test_subset_wipe_keeps_other_sessions(self) -> None:
         other = self.session_id
@@ -283,14 +281,31 @@ class ReusedIdTests(Base):
     def _run(self) -> int:
         return int(self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))["id"])
 
-    def test_h1_run_end_run_quit_keeps_both_notes(self) -> None:
+    def test_h1_quit_drops_that_run_and_keeps_the_ended_run(self) -> None:
         self._note(self.session_id, "run one")
+        first = self.school.get_live_session(self.session_id)
+        first_key = str(first["run_key"] or "")
+        self.school.record_engagement_event(
+            "present.join", session_id=self.session_id, student_id=self.students[0]
+        )
         self.school.finish_live_class(self.class_id, celebrate=True)
         second = self._run()
+        second_key = str(self.school.get_live_session(second)["run_key"] or "")
         self._note(second, "run two")
+        self.school.record_engagement_event(
+            "present.join", session_id=second, student_id=self.students[0]
+        )
         self.school.finish_live_class(self.class_id, persist=False, celebrate=False)
         kept = sorted(k["note"] for k in self.school.list_observation_history(self.class_id))
-        self.assertEqual(kept, ["run one", "run two"])
+        self.assertEqual(kept, ["run one"])
+        self.assertEqual(
+            [r["kind"] for r in self.school.list_engagement_events(self.class_id, run_key=first_key)],
+            ["note", "present.join"],
+        )
+        self.assertEqual(
+            self.school.list_engagement_events(self.class_id, run_key=second_key),
+            [],
+        )
 
     def test_h1_same_ids_twice_are_both_kept(self) -> None:
         self._note(self.session_id, "first")
