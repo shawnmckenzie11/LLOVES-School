@@ -105,11 +105,16 @@ def mint_portal_join_code(course_code: str, live_module: str, live_slot: str) ->
 def decode_portal_join_code(code: str) -> dict[str, str] | None:
     """Decode a structured portal code when the checksum matches.
 
+    A character outside the portal alphabet is not a match. Callers treat
+    ``None`` as an unknown code.
+
     Returns:
         ``{course_code, live_module, live_slot}`` or ``None``.
     """
     text = normalize_portal_code(code)
     if not text or not structured_codes_enabled():
+        return None
+    if any(ch not in _PORTAL_PREFIX_CHARSET for ch in text):
         return None
     prefix, check = text[:4], text[4]
     if _checksum_char(prefix) != check:
