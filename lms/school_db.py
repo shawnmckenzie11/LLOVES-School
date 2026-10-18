@@ -2765,14 +2765,24 @@ class LovesDB:
         Start drops them again before the first mirror, because a reused
         session id would otherwise show the quit run's attendees as present.
 
+        A down presence store is the same blip as the session mirror.
+        Start and Quit continue, and the miss is logged once.
+
         Args:
             session_ids: ``live_class_sessions.id`` values.
         """
         presence = getattr(self, "presence", None)
         if presence is None or not session_ids:
             return
+        from live_presence import LivePresenceUnavailable, note_presence_blip
+
         for sid in session_ids:
-            presence.delete_session_tree(int(sid))
+            try:
+                presence.delete_session_tree(int(sid))
+            except Exception as exc:
+                if not isinstance(exc, LivePresenceUnavailable):
+                    raise
+                note_presence_blip("presence delete failed")
 
     def _apply_presence(self, row: dict[str, Any]) -> dict[str, Any]:
         """Overlay Postgres heartbeat fields onto a sqlite attendee row.

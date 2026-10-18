@@ -1064,6 +1064,58 @@ class EndAlwaysSavesTests(Base):
             1,
         )
 
+    def test_start_and_quit_continue_when_presence_is_down(self) -> None:
+        """A down presence store does not stop Start or Quit."""
+        from unittest import mock
+
+        from live_presence import LivePresenceUnavailable
+
+        class _Down:
+            """Presence stand-in that reports the store is down."""
+
+            def delete_session_tree(self, session_id: int) -> None:
+                """Raise the error a dead Postgres pool raises.
+
+                Args:
+                    session_id: ``live_class_sessions.id``.
+                """
+                raise LivePresenceUnavailable("live presence store unavailable")
+
+            def upsert_session(self, session_row: dict) -> None:
+                """Skip the mirror write while the store is down.
+
+                Args:
+                    session_row: ``live_class_sessions`` mapping.
+                """
+                return None
+
+            def close(self) -> None:
+                """No pool to close."""
+                return None
+
+        self.school.presence = _Down()
+        with mock.patch("live_presence.note_presence_blip") as blip:
+            started = self.client.post(
+                f"/staff/class/{self.class_id}/run-live",
+                follow_redirects=False,
+            )
+            self.assertEqual(started.status_code, 302)
+            live = self.school.get_active_live_session_for_teacher(
+                int(self.teacher["id"])
+            )
+            self.assertIsNotNone(live)
+            self.assertEqual(int(live["class_id"]), int(self.class_id))
+            quit_response = self.client.post(
+                f"/staff/class/{self.class_id}/quit-live",
+                follow_redirects=False,
+            )
+            self.assertEqual(quit_response.status_code, 302)
+        details = [str(call.args[0]) for call in blip.call_args_list if call.args]
+        self.assertGreaterEqual(details.count("presence delete failed"), 2)
+        self.assertIsNone(
+            self.school.get_active_live_session_for_teacher(int(self.teacher["id"]))
+        )
+
 
 
 def _pg_admin_url() -> str:
