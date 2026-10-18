@@ -9876,11 +9876,6 @@ function selectTrackMode(mode) {
 }
 
 /**
- * Confirm Quit, close the Zoom-share overlay, then let the caller submit.
- * @param {HTMLFormElement|null|undefined} form
- * @returns {boolean} false when the teacher cancelled the confirm
- */
-/**
  * Open the Quit confirm dialog, or close the overlay once it is confirmed.
  * @param {HTMLFormElement|null|undefined} form
  * @returns {boolean} false when the teacher has not confirmed yet

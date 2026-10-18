@@ -3527,12 +3527,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         active_live_session = school.get_active_live_session_for_teacher(
             int(user["id"])
         )
-        end_live_default_mode = "test"
-        if active_live_session is not None:
-            end_live_default_mode = school.default_end_live_run_mode_for_class(
-                int(active_live_session["class_id"]),
-                str(active_live_session.get("started_at") or ""),
-            )
         # MCK-124: hold the What's new panel while any class this teacher
         # teaches is live (they may be projecting the Dashboard). Decided
         # here, so the page never carries the panel or its script.
@@ -3567,7 +3561,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             offerings=offerings,
             classes=classes,
             active_live_session=active_live_session,
-            end_live_default_mode=end_live_default_mode,
             catchup_pin_alerts=catchup_pin_alerts,
             whats_new_hold=whats_new_hold,
             show_test_students=_include_test_students(),
@@ -3957,6 +3950,26 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         )
         return resp
 
+    def _already_finished_page():
+        """Say the other of End Class and Quit already finished this class.
+
+        Returns:
+            A short HTML page and status 409. Nothing was changed by this request.
+        """
+        back = url_for("staff_home")
+        body = (
+            "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+            "<title>Already finished</title>"
+            "<link rel=\"stylesheet\" href=\"/static/lloves.css\"></head>"
+            "<body><div class=\"wrap\"><h1>Already finished</h1>"
+            "<p class=\"sub\">This class was already ended or quit. "
+            "Nothing else was changed.</p>"
+            f"<p><a class=\"btn\" href=\"{html_escape(back)}\">Back to classes</a></p>"
+            "</div></body></html>"
+        )
+        return body, 409, {"Content-Type": "text/html; charset=utf-8"}
+
     @app.route("/staff/class/<int:class_id>/end-live", methods=["POST"])
     @staff_required
     def staff_end_live_class(class_id: int):
@@ -3992,6 +4005,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             run_key=str(active.get("run_key") or "") or None,
             live_run=live_run,
         )
+        if isinstance(ended, dict) and ended.get("already_finished"):
+            return _already_finished_page()
         if isinstance(ended, dict) and ended.get("in_progress"):
             # Another End holds this run and the game is still open (it is
             # stuck, or its worker died mid-write). The session stays open
@@ -4036,8 +4051,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """Quit: save nothing, then clear this session's live rows now.
 
         Same ownership rules as End Class. Attendance, participation,
-        and a catch-up link are not written. Responses, attendees, and
-        board ops are deleted here, not on the next Start.
+        and a catch-up link are not written. Responses, attendees, board
+        assignments, engagement events, and teacher notes for this
+        session are deleted here, not on the next Start. If End Class
+        already won the same moment, this request changes nothing.
         """
         user = current_user()
         assert user is not None
@@ -4050,9 +4067,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             for row in school.list_live_sessions_for_class(int(class_id))
         }
         if active is not None and int(active["class_id"]) == int(class_id):
-            school.finish_live_class(int(class_id), persist=False, celebrate=False)
+            ended = school.finish_live_class(
+                int(class_id), persist=False, celebrate=False
+            )
+            if isinstance(ended, dict) and ended.get("already_finished"):
+                return _already_finished_page()
         else:
-            school.wipe_live_sessions_for_class(int(class_id))
+            school.wipe_live_sessions_for_class(int(class_id), purge_kept=True)
         # Open tabs (often on the End celebration) fetch now and leave,
         # instead of waiting for the safety poll.
         for quit_sid, quit_seq in quit_seqs.items():
@@ -4159,11 +4180,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         }:
             live_step = ""
         active_live = school.get_active_live_session_for_class(class_id)
-        end_live_default_mode = "test"
-        if active_live is not None:
-            end_live_default_mode = school.default_end_live_run_mode_for_class(
-                int(class_id), str(active_live.get("started_at") or "")
-            )
         live_session_id = request.args.get("live_session_id") or ""
         if not live_session_id and active_live is not None:
             live_session_id = str(active_live["id"])
@@ -4270,7 +4286,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             live_run_key=live_run_key,
             live_session_code=live_session_code,
             live_step=live_step,
-            end_live_default_mode=end_live_default_mode,
             school_name=SCHOOL_NAME,
             roster_pin_slips=roster_pin_slips,
             roster_pin_alerts=roster_pin_alerts,

@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import unittest
 from pathlib import Path
 
@@ -395,6 +396,229 @@ class EndAlwaysSavesTests(Base):
         self.assertIn("quit-live-dialog", script)
         self.assertIn("dialog.showModal()", script)
         self.assertNotIn("wireEndLiveDialog", script)
+
+    def test_quit_purges_notes_engagement_and_board_assignments(self) -> None:
+        """Quit leaves no notes, engagement rows, or board assignments."""
+        sid = self._arm(is_test=False, module="M1", slot="C4")
+        self.school.record_engagement_event(
+            "present.join", session_id=sid, student_id=int(self.students[0])
+        )
+        self.school.create_observation(
+            live_session_id=sid,
+            class_id=self.class_id,
+            observer_user_id=int(self.teacher["id"]),
+            scope="student",
+            note="office note",
+            student_ids=[int(self.students[0])],
+        )
+        self.school.record_live_board_assignment_for_student(
+            sid, int(self.students[0]), 0
+        )
+        self.assertGreater(self.school._count_engagement_rows([sid], []), 0)
+        self.assertGreater(
+            self._count(
+                "SELECT COUNT(*) AS n FROM live_board_assignments WHERE live_session_id = ?",
+                (sid,),
+            ),
+            0,
+        )
+        response = self.client.post(
+            f"/staff/class/{self.class_id}/quit-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.school._count_engagement_rows([sid], []), 0)
+        self.assertEqual(self.school.list_observation_history(self.class_id), [])
+        self.assertEqual(
+            self._count(
+                "SELECT COUNT(*) AS n FROM observation_history WHERE live_session = ?",
+                (sid,),
+            ),
+            0,
+        )
+        self.assertEqual(
+            self._count(
+                "SELECT COUNT(*) AS n FROM live_board_assignments WHERE live_session_id = ?",
+                (sid,),
+            ),
+            0,
+        )
+
+    def test_delete_test_removes_engagement_rows(self) -> None:
+        """Deleting a test class removes its engagement events and rollup."""
+        sid = self._arm(is_test=True, module="M4", slot="C1")
+        self.school.record_engagement_event(
+            "present.join", session_id=sid, student_id=int(self.students[0])
+        )
+        self._post_end()
+        self.assertGreater(self.school._count_engagement_rows([sid], []), 0)
+        self.school.delete_test_live_class(self.class_id, sid)
+        self.assertEqual(self.school._count_engagement_rows([sid], []), 0)
+
+    def test_end_and_quit_at_once_have_one_outcome(self) -> None:
+        """Whichever of End or Quit claims the class, the other changes nothing."""
+        for winner in ("end", "quit"):
+            with self.subTest(winner=winner):
+                sid = self._arm(is_test=False, module="M2", slot="C2")
+                columns = self._gradebook_columns()
+                key = str(self.school.get_live_session(sid)["run_key"] or "")
+                self.school.record_engagement_event(
+                    "present.join", session_id=sid, student_id=int(self.students[0])
+                )
+                self.school.record_live_board_assignment_for_student(
+                    sid, int(self.students[0]), 0
+                )
+                held = threading.Event()
+                release = threading.Event()
+                original = self.school._claim_class_finish
+                box: dict[str, object] = {}
+
+                def claim(class_id: int) -> bool:
+                    """Hold the winner inside the claim so the other request loses."""
+                    ok = original(class_id)
+                    if ok:
+                        held.set()
+                        release.wait(timeout=5)
+                    return ok
+
+                def run_winner() -> None:
+                    """Finish as the request that owns the claim."""
+                    try:
+                        if winner == "end":
+                            box["result"] = self.school.finish_live_class(
+                                self.class_id, celebrate=True, run_key=key
+                            )
+                        else:
+                            box["result"] = self.school.finish_live_class(
+                                self.class_id, persist=False, celebrate=False
+                            )
+                    except Exception as exc:  # noqa: BLE001 — surfaced below
+                        box["error"] = exc
+
+                self.school._claim_class_finish = claim
+                worker = threading.Thread(target=run_winner)
+                worker.start()
+                try:
+                    self.assertTrue(held.wait(timeout=5))
+                    if winner == "end":
+                        other = self.school.finish_live_class(
+                            self.class_id, persist=False, celebrate=False
+                        )
+                        response = self.client.post(
+                            f"/staff/class/{self.class_id}/quit-live",
+                            follow_redirects=False,
+                        )
+                    else:
+                        other = self.school.finish_live_class(
+                            self.class_id, celebrate=True, run_key=key
+                        )
+                        response = self.client.post(
+                            f"/staff/class/{self.class_id}/end-live",
+                            follow_redirects=False,
+                        )
+                    self.assertTrue(other.get("already_finished"))
+                    self.assertEqual(response.status_code, 409)
+                    self.assertIn(
+                        "This class was already ended or quit.",
+                        response.get_data(as_text=True),
+                    )
+                    self.assertIsNotNone(self.school.get_live_session(sid))
+                    self.assertEqual(self._gradebook_columns(), columns)
+                finally:
+                    release.set()
+                    worker.join(timeout=5)
+                    self.school._claim_class_finish = original
+                self.assertFalse(worker.is_alive())
+                self.assertNotIn("error", box)
+                if winner == "end":
+                    self.assertGreater(self._gradebook_columns(), columns)
+                    self.assertIsNotNone(self.school.get_live_session(sid))
+                    self.assertGreater(self.school._count_engagement_rows([sid], []), 0)
+                else:
+                    self.assertEqual(self._gradebook_columns(), columns)
+                    self.assertIsNone(self.school.get_live_session(sid))
+                    self.assertEqual(self.school._count_engagement_rows([], [key]), 0)
+                    self.assertEqual(
+                        self._count(
+                            "SELECT COUNT(*) AS n FROM live_board_assignments WHERE live_session_id = ?",
+                            (sid,),
+                        ),
+                        0,
+                    )
+                    self.assertEqual(
+                        self._count(
+                            "SELECT COUNT(*) AS n FROM catchup_links WHERE live_session_id = ?",
+                            (sid,),
+                        ),
+                        0,
+                    )
+
+    def _seed_module_answer(self, module: str, slot: str, question_key: str) -> None:
+        """Store one live answer in a module slot, with no class-slot run link.
+
+        Args:
+            module: Module label, such as ``M8``.
+            slot: ``C1`` or an open-office slot such as ``O1``.
+            question_key: Participation question key for this row only.
+        """
+        now = "2026-10-17T14:00:00"
+        run_key = f"module-{slot.lower()}"
+        self.school.conn.execute(
+            """
+            INSERT INTO participation_runs (
+                class_id, run_key, is_real, auto_is_real, discarded
+            ) VALUES (?, ?, 1, 1, 0)
+            """,
+            (self.class_id, run_key),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO participation_items (
+                class_id, run_key, live_module, live_slot, question_key,
+                item_json, prompt_kind, offered_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'poll', ?)
+            """,
+            (
+                self.class_id,
+                run_key,
+                module,
+                slot,
+                question_key,
+                json.dumps({"type": "mc", "item_id": question_key}),
+                now,
+            ),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO participation_answers (
+                class_id, run_key, live_module, question_key, student_id,
+                source, answer_json, answered_at
+            ) VALUES (?, ?, ?, ?, ?, 'live', '{}', ?)
+            """,
+            (self.class_id, run_key, module, question_key, int(self.students[1]), now),
+        )
+        self.school.conn.commit()
+
+    def test_open_office_only_module_is_not_zero_of_one(self) -> None:
+        """A module with only an open office does not offer a class question."""
+        self._seed_module_answer("M8", "O1", "q-office")
+        offered = self.school.participation_module_offered(
+            self.class_id, "M8", include_individual=True, include_group=False
+        )
+        self.assertEqual(offered, 0)
+        cell = self.school.student_module_participation(
+            self.class_id, int(self.students[0]), "M8"
+        )
+        self.assertEqual((cell["answered"], cell["offered"]), (0, 0))
+        modules = [
+            row["module"] for row in self.school.class_participation(self.class_id)["modules"]
+        ]
+        self.assertNotIn("M8", modules)
+        self._seed_module_answer("M9", "C1", "q-class")
+        class_offered = self.school.participation_module_offered(
+            self.class_id, "M9", include_individual=True, include_group=False
+        )
+        self.assertEqual(class_offered, 1)
 
 
 if __name__ == "__main__":

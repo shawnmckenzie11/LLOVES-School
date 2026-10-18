@@ -762,49 +762,6 @@ def shoot_mck275_end_quit(
     return shots
 
 
-def shoot_mck233_end_live_dialog(
-    base: str, state_path: Path, out_dir: Path, path: Path, widths: list[int]
-) -> list[Path]:
-    """MCK-233: End Live Class dialog Test/Live toggle."""
-    from playwright.sync_api import sync_playwright
-
-    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
-    school = _mck208_school(path)
-    class_id = shawn_class_id(path)
-    teacher = school.get_user_by_email(SHAWN_EMAIL)
-    if teacher is None:
-        raise SystemExit("Shawn staff user missing. Run with --seed first.")
-    _mck208_end_active_live(school, class_id)
-    school.start_live_class_session(class_id, int(teacher["id"]))
-    url = f"{origin}/staff/class/{class_id}?tab=live"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    shots: list[Path] = []
-    with sync_playwright() as playwright:
-        browser = _launch(playwright)
-        for width in widths:
-            context = browser.new_context(
-                storage_state=str(state_path), viewport={"width": int(width), "height": 900}
-            )
-            page = context.new_page()
-            page.goto(url, wait_until="domcontentloaded")
-            page.locator("[data-open-end-live]").first.click()
-            dialog = page.locator("#end-live-dialog")
-            dialog.wait_for(state="visible", timeout=30000)
-            dest = out_dir / f"mck233-end-live-default-{width}.png"
-            page.screenshot(path=str(dest), full_page=True)
-            shots.append(dest)
-            dest2 = out_dir / f"mck233-end-live-test-selected-{width}.png"
-            page.locator('input[name="run_mode"][value="test"]').check()
-            page.screenshot(path=str(dest2), full_page=True)
-            shots.append(dest2)
-            dest3 = out_dir / f"mck233-end-live-live-selected-{width}.png"
-            page.locator('input[name="run_mode"][value="live"]').check()
-            page.screenshot(path=str(dest3), full_page=True)
-            shots.append(dest3)
-            context.close()
-        browser.close()
-    return shots
-
 def shoot_mck207(base: str, state_path: Path, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
     """MCK-207: roster tab, catch-up sign-in, header, PIN pop-up."""
     from playwright.sync_api import sync_playwright
@@ -3223,7 +3180,6 @@ def main(argv: list[str] | None = None) -> int:
             "mck215",
             "mck222",
             "mck219",
-            "mck233-end-live",
             "mck217-student-view",
             "mck242",
             "mck272",
@@ -3292,9 +3248,6 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "mck222":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck222(args.base, out, path, widths))
-        if args.scenario == "mck233-end-live":
-            widths = [int(part) for part in args.widths.split(",") if part.strip()]
-            written.extend(shoot_mck233_end_live_dialog(args.base, state, out, path, widths))
         if args.scenario == "mck219":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck219(args.base, state, out, widths))
