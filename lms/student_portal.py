@@ -145,14 +145,18 @@ def rejoin_token_from_cookie(req: Any | None = None) -> str:
     return str(req.cookies.get(REJOIN_COOKIE_NAME) or "").strip()
 
 
-def visit_token_from_request(req: Any | None = None) -> str:
-    """Read opaque visit token from query, form, header, or JSON body.
+def explicit_visit_token_from_request(req: Any | None = None) -> str:
+    """Read a visit token the page sent, ignoring the rejoin cookie.
+
+    Done rotates the stored token. A later request that still carries the
+    old token in the URL, header, form, or JSON must be refused even after
+    the cookie is gone. The token is not logged.
 
     Args:
         req: Flask ``request``; defaults to the active request when omitted.
 
     Returns:
-        Trimmed token string, or ``""`` when absent.
+        Trimmed token, or ``""`` when this request did not send one.
     """
     from flask import request as flask_request
 
@@ -166,9 +170,24 @@ def visit_token_from_request(req: Any | None = None) -> str:
             return token
     payload = req.get_json(silent=True) or {}
     if isinstance(payload, dict):
-        token = (payload.get("visit_token") or "").strip()
+        token = str(payload.get("visit_token") or "").strip()
         if token:
             return token
+    return ""
+
+
+def visit_token_from_request(req: Any | None = None) -> str:
+    """Read opaque visit token from query, form, header, JSON, or cookie.
+
+    Args:
+        req: Flask ``request``; defaults to the active request when omitted.
+
+    Returns:
+        Trimmed token string, or ``""`` when absent.
+    """
+    token = explicit_visit_token_from_request(req)
+    if token:
+        return token
     return rejoin_token_from_cookie(req)
 
 

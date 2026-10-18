@@ -144,6 +144,7 @@
     </section>
     {% if payload.celebrate %}
     <form id="celebration-done" class="celebration-done" method="post" action="{{ url_for('student_celebration_done') }}">
+      <input type="hidden" name="visit_token" value="{{ visit_token or '' }}">
       <button type="submit">Done</button>
     </form>
     {% endif %}

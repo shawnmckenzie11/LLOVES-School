@@ -259,6 +259,7 @@ from student_portal import (  # noqa: E402
     resolve_student_live_context,
     set_rejoin_cookie,
     student_url_with_token,
+    explicit_visit_token_from_request,
     visit_token_from_request,
 )
 import syllabus as syllabus_mod  # noqa: E402
@@ -6251,6 +6252,75 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         )
 
 
+    def _code_box_refusal():
+        """Send this browser to the home code box without saving.
+
+        A stale visit token must not 500 and must not submit How-was-class.
+        API callers get a JSON redirect; a form post navigates.
+
+        Returns:
+            Flask response that lands on the code box.
+        """
+        session.pop(EXIT_FEEDBACK_SESSION_KEY, None)
+        clear_student_session_keys(session)
+        if request.path.startswith("/api/"):
+            resp = jsonify({"ok": False, "redirect": url_for("landing")})
+            resp.status_code = 401
+        else:
+            resp = redirect(url_for("landing"))
+        resp.headers["Cache-Control"] = "no-store"
+        clear_rejoin_cookie(resp)
+        return resp
+
+    def _exit_feedback_visit_matches(row: dict[str, Any], resolved: dict[str, Any]) -> bool:
+        """True when this feedback row belongs to the resolved visit.
+
+        Args:
+            row: ``live_class_feedback`` row.
+            resolved: ``resolve_student_visit_token`` payload.
+        """
+        if int(row.get("class_id") or 0) != int(resolved.get("class_id") or 0):
+            return False
+        row_sid = row.get("student_id")
+        visit_sid = resolved.get("student_id")
+        if row_sid not in (None, "") and visit_sid not in (None, ""):
+            return int(row_sid) == int(visit_sid)
+        row_pid = str(row.get("participant_uuid") or "")
+        visit_pid = str(resolved.get("participant_uuid") or "")
+        if row_pid and visit_pid:
+            return row_pid == visit_pid
+        return True
+
+    def _exit_feedback_refusal(row: dict[str, Any] | None):
+        """Refuse How-was-class when the visit token is stale or unmatched.
+
+        A request that presents a visit token must still resolve to this
+        feedback row. After Done, the old token does not resolve, so the
+        answer is not saved. A session that is still signed in, with no
+        visit token on the request, keeps the existing submit path.
+
+        Args:
+            row: Pending feedback row, when one was found.
+
+        Returns:
+            A code-box response, or ``None`` when the submit may continue.
+        """
+        presented = explicit_visit_token_from_request() or rejoin_token_from_cookie()
+        if presented:
+            resolved = school.resolve_student_visit_token(presented, allow_left=True)
+            if resolved is None:
+                return _code_box_refusal()
+            if row is not None and not _exit_feedback_visit_matches(row, resolved):
+                return _code_box_refusal()
+            return None
+        if (
+            session.get("student_id")
+            or session.get("student_live_session_id")
+            or session.get(EXIT_FEEDBACK_SESSION_KEY)
+        ):
+            return None
+        return _code_box_refusal()
+
     @app.route("/api/student/exit-feedback", methods=["POST"])
     def api_student_exit_feedback():
         """Submit How-was-class from the celebrating student home overlay."""
@@ -6259,6 +6329,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             data.get("token") or session.get(EXIT_FEEDBACK_SESSION_KEY) or ""
         ).strip()
         row = school.get_exit_feedback_by_token(token) if token else None
+        refused = _exit_feedback_refusal(row)
+        if refused is not None:
+            return refused
         if row is None or row.get("submitted_at"):
             return jsonify({"ok": False, "error": "No pending feedback."}), 404
         skip = str(data.get("skip") or "").strip() in {"1", "true", "yes"}
@@ -6283,6 +6356,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return redirect(url_for("landing"))
         error = None
         if request.method == "POST":
+            refused = _exit_feedback_refusal(row)
+            if refused is not None:
+                return refused
             skip = (request.form.get("skip") or "").strip() in {"1", "true", "yes"}
             mood = (request.form.get("mood") or "").strip()
             comment = request.form.get("comment") or ""
@@ -6739,31 +6815,64 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             return None
         return offering, int(class_id), int(student_id)
 
+    def _done_visit_tokens() -> list[str]:
+        """Visit tokens this Done POST can revoke.
+
+        The page may be signed in by cookie, by the Flask session, or by
+        the visit token alone. Empty values are dropped. Tokens are not
+        logged.
+
+        Returns:
+            Unique tokens in the order they were found.
+        """
+        found: list[str] = []
+        for candidate in (
+            explicit_visit_token_from_request(),
+            rejoin_token_from_cookie(),
+            str(session.get("student_visit_token") or ""),
+        ):
+            cleaned = str(candidate or "").strip()
+            if cleaned and cleaned not in found:
+                found.append(cleaned)
+        ctx = _student_live_context()
+        cleaned = str((ctx or {}).get("visit_token") or "").strip()
+        if cleaned and cleaned not in found:
+            found.append(cleaned)
+        return found
+
     @app.route("/student/celebration-done", methods=["POST"])
     def student_celebration_done():
         """Sign this browser out of a finished class celebration.
 
-        Done is only for a class that has already ended. The POST clears
-        this browser's student session and rejoin cookie, then returns to
-        the home page code box. It does not change the class, the live
-        session, other students, attendance, participation, the gradebook,
-        or catch-up rows.
+        Done rotates this student's visit token, clears this browser's
+        student session and rejoin cookie, and returns to the home page
+        code box. A class that is still live is refused. When the class
+        has already ended or the session is gone, the same sign-out runs
+        without claiming the class is still running.
+
+        The rotation touches only this attendee's visit token. It does
+        not change the class, the live session, other students,
+        attendance, participation, the gradebook, or catch-up rows.
         """
         if not _same_origin_post():
             return "Forbidden", 403
+        tokens = _done_visit_tokens()
         ctx = _student_live_context()
         live_id = int((ctx or {}).get("live_session_id") or 0)
+        if not live_id:
+            live_id = int(session.get("student_live_session_id") or 0)
         session_row = school.get_live_session(live_id) if live_id else None
         status = str((session_row or {}).get("status") or "")
-        if (
-            session_row is None
-            or status == "active"
-            or not school.session_is_celebrating(live_id)
+        if status == "active" or any(
+            school.session_status_for_visit_token(token) == "active" for token in tokens
         ):
             return "Class is still running.", 403
+        for token in tokens:
+            school.revoke_student_visit_token(token)
         session.pop(EXIT_FEEDBACK_SESSION_KEY, None)
         clear_student_session_keys(session)
         resp = redirect(url_for("landing"))
+        resp.headers["Cache-Control"] = "no-store"
         clear_rejoin_cookie(resp)
         return resp
 
@@ -6842,17 +6951,21 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         tester_feedback = _viewer_is_stmtg_tester(offering, student_id)
         if tester_feedback:
             payload = _redact_tester_payload(payload, offering, class_id, student_id)
-        return render_template(
-            "student/home.html",
-            offering=offering,
-            payload=payload,
-            school_name=SCHOOL_NAME,
-            visit_token=visit_token,
-            codename=str(ctx.get("codename") or payload.get("me", {}).get("codename") or ""),
-            reward=reward,
-            reward_next_url="",
-            tester_feedback=tester_feedback,
+        resp = app.make_response(
+            render_template(
+                "student/home.html",
+                offering=offering,
+                payload=payload,
+                school_name=SCHOOL_NAME,
+                visit_token=visit_token,
+                codename=str(ctx.get("codename") or payload.get("me", {}).get("codename") or ""),
+                reward=reward,
+                reward_next_url="",
+                tester_feedback=tester_feedback,
+            )
         )
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
 
     @app.route("/student/tester-feedback", methods=["POST"])
     @student_required

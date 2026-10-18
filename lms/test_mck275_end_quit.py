@@ -1116,6 +1116,23 @@ class EndAlwaysSavesTests(Base):
             self.school.get_active_live_session_for_teacher(int(self.teacher["id"]))
         )
 
+
+    def _visit_token(self, session_id: int, student_id: int) -> str:
+        """Current visit token for one attendee.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster ``students.id``.
+
+        Returns:
+            The token. Callers must not log or assert its text.
+        """
+        attendee = self.school.get_live_session_attendee(
+            int(session_id), int(student_id)
+        )
+        self.assertIsNotNone(attendee)
+        return str((attendee or {}).get("visit_token") or "")
+
     def _open_signed_in(self, session_id: int, student_id: int):
         """Open the browser that student already joined with.
 
@@ -1241,6 +1258,8 @@ class EndAlwaysSavesTests(Base):
         html = home.get_data(as_text=True)
         self.assertIn(">Done<", html)
         self.assertIn('id="celebration-done"', html)
+        self.assertIn('name="visit_token"', html)
+        self.assertIn("no-store", home.headers.get("Cache-Control") or "")
         if submitted:
             skipped = client.post(
                 "/api/student/exit-feedback",
@@ -1260,6 +1279,7 @@ class EndAlwaysSavesTests(Base):
         done = client.post("/student/celebration-done", follow_redirects=False)
         self.assertEqual(done.status_code, 302)
         self.assertEqual(done.headers.get("Location"), "/")
+        self.assertIn("no-store", done.headers.get("Cache-Control") or "")
         from student_portal import REJOIN_COOKIE_NAME
 
         self.assertIsNone(client.get_cookie(REJOIN_COOKIE_NAME))
@@ -1272,10 +1292,15 @@ class EndAlwaysSavesTests(Base):
         html = student.get("/student/home").get_data(as_text=True)
         self.assertNotIn('id="celebration-done"', html)
         self.assertNotIn(">Done<", html)
+        token = self._visit_token(sid, int(self.students[0]))
         refused = student.post(
             "/student/celebration-done", follow_redirects=False
         )
         self.assertEqual(refused.status_code, 403)
+        self.assertEqual(refused.get_data(as_text=True), "Class is still running.")
+        self.assertIsNotNone(
+            self.school.resolve_student_visit_token(token, allow_left=True)
+        )
         self.assertEqual(student.get("/student/home").status_code, 200)
 
     def _check_done_after_end(self, *, submitted: bool, quit_after: bool) -> None:
@@ -1325,6 +1350,140 @@ class EndAlwaysSavesTests(Base):
         """End then Quit is a 409, and Done still signs that browser out."""
         self._check_done_after_end(submitted=False, quit_after=True)
 
+
+
+    def test_done_revokes_the_visit_token(self) -> None:
+        """Done then the old visit token cannot reopen home or save feedback."""
+        sid = self._arm(is_test=False, module="M1", slot="C1")
+        self.school.join_live_class_session(
+            sid, int(self.students[1]), codename="Ben"
+        )
+        ava_token = self._visit_token(sid, int(self.students[0]))
+        ben_token = self._visit_token(sid, int(self.students[1]))
+        ava = self._open_signed_in(sid, int(self.students[0]))
+        ben = self._open_signed_in(sid, int(self.students[1]))
+        self._post_end()
+        before_rows = self._saved_rows(sid)
+        feedback_before = self._count("SELECT COUNT(*) AS n FROM live_class_feedback")
+        submitted_before = self._count(
+            """
+            SELECT COUNT(*) AS n FROM live_class_feedback
+            WHERE submitted_at IS NOT NULL
+            """
+        )
+        pending = self.school.pending_exit_feedback(
+            class_id=self.class_id, student_id=int(self.students[0])
+        )
+        self.assertIsNotNone(pending)
+        feedback_token = str((pending or {}).get("token") or "")
+        self._press_done(ava, sid, submitted=False)
+        self.assertEqual(self._saved_rows(sid), before_rows)
+        fresh = self.app.test_client()
+        refused = fresh.get(
+            "/student/home",
+            query_string={"v": ava_token},
+            follow_redirects=False,
+        )
+        self.assertEqual(refused.status_code, 302)
+        self.assertEqual(refused.headers.get("Location"), "/")
+        self.assertIn("no-store", refused.headers.get("Cache-Control") or "")
+        landed = fresh.get(
+            "/student/home",
+            query_string={"v": ava_token},
+            follow_redirects=True,
+        )
+        landed_html = landed.get_data(as_text=True)
+        self.assertIn('id="student-code-panel"', landed_html)
+        self.assertNotIn('id="celebration-done"', landed_html)
+        posted = fresh.post(
+            "/api/student/exit-feedback",
+            json={
+                "mood": "ok",
+                "comment": "after done",
+                "token": feedback_token,
+                "visit_token": ava_token,
+            },
+            headers={"X-Student-Visit-Token": ava_token},
+        )
+        self.assertEqual(posted.status_code, 401)
+        self.assertEqual(
+            self._count("SELECT COUNT(*) AS n FROM live_class_feedback"),
+            feedback_before,
+        )
+        self.assertEqual(
+            self._count(
+                """
+                SELECT COUNT(*) AS n FROM live_class_feedback
+                WHERE submitted_at IS NOT NULL
+                """
+            ),
+            submitted_before,
+        )
+        self.assertFalse(
+            any(
+                (row.get("comment") or "") == "after done"
+                for row in self.school.list_exit_feedback_for_class(self.class_id)
+            )
+        )
+        other = self.app.test_client()
+        ben_page = other.get(
+            "/student/home",
+            query_string={"v": ben_token},
+            follow_redirects=True,
+        )
+        self.assertEqual(ben_page.status_code, 200)
+        self.assertIn('id="celebration-done"', ben_page.get_data(as_text=True))
+        self.assertIn(
+            'id="celebration-done"', ben.get("/student/home").get_data(as_text=True)
+        )
+        self._assert_catchup_reachable(ava)
+        again = fresh.post(
+            "/student/celebration-done",
+            data={"visit_token": ava_token},
+            follow_redirects=False,
+        )
+        self.assertEqual(again.status_code, 302)
+        self.assertEqual(again.headers.get("Location"), "/")
+        self.assertNotIn("still running", again.get_data(as_text=True).lower())
+
+    def test_done_works_from_a_token_only_page(self) -> None:
+        """Done resolves the student from the visit token when no cookie is set."""
+        sid = self._arm(is_test=False, module="M1", slot="C1")
+        self.school.game.set_character(self.class_id, int(self.students[0]), "fox")
+        token = self._visit_token(sid, int(self.students[0]))
+        self._post_end()
+        viewer = self.app.test_client()
+        page = viewer.get("/student/home", query_string={"v": token})
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(">Done<", page.get_data(as_text=True))
+        self.assertIn("no-store", page.headers.get("Cache-Control") or "")
+        client = self.app.test_client()
+        before = self._saved_rows(sid)
+        done = client.post(
+            "/student/celebration-done",
+            data={"visit_token": token},
+            follow_redirects=False,
+        )
+        self.assertEqual(done.status_code, 302)
+        self.assertEqual(done.headers.get("Location"), "/")
+        self.assertIn("no-store", done.headers.get("Cache-Control") or "")
+        self.assertEqual(self._saved_rows(sid), before)
+        refused = client.get(
+            "/student/home",
+            query_string={"v": token},
+            follow_redirects=False,
+        )
+        self.assertEqual(refused.status_code, 302)
+        self.assertEqual(refused.headers.get("Location"), "/")
+        self._assert_catchup_reachable(client)
+
+    def test_done_signs_out_when_the_class_is_gone(self) -> None:
+        """A missing class does not claim the class is still running."""
+        client = self.app.test_client()
+        done = client.post("/student/celebration-done", follow_redirects=False)
+        self.assertEqual(done.status_code, 302)
+        self.assertEqual(done.headers.get("Location"), "/")
+        self.assertNotIn("still running", done.get_data(as_text=True).lower())
 
 def _pg_admin_url() -> str:
     """Postgres admin URL for the live-presence tests, or empty."""

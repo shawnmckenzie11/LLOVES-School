@@ -15627,6 +15627,80 @@ class SchoolDB(LovesDB):
                 return self._resume_live_attendee(attendee)
         return dict(attendee)
 
+    def session_status_for_visit_token(self, token: str) -> str:
+        """Return the live-session status bound to this visit token.
+
+        Args:
+            token: ``live_session_attendees.visit_token``.
+
+        Returns:
+            ``active``, ``ended``, or ``""`` when the token matches nobody.
+            The token itself is never logged.
+        """
+        cleaned = (token or "").strip()
+        if not cleaned:
+            return ""
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT live_session_id FROM live_session_attendees
+                WHERE visit_token = ?
+                LIMIT 1
+                """,
+                (cleaned,),
+            ).fetchone()
+        if row is None:
+            return ""
+        session_row = self.get_live_session(int(row["live_session_id"]))
+        if not session_row:
+            return ""
+        return str(session_row.get("status") or "")
+
+    def revoke_student_visit_token(self, token: str) -> bool:
+        """Rotate one attendee's visit token so the old token stops resolving.
+
+        Done uses this so Back, and the next person on a shared device,
+        cannot reopen that student's celebration or submit How-was-class
+        as them. Only this row's ``visit_token`` changes. Other attendees,
+        the class, catch-up, attendance, participation, and the gradebook
+        stay as they are. A down presence store is logged and does not
+        fail the sign-out. The token is never logged.
+
+        Args:
+            token: The visit token this browser is leaving with.
+
+        Returns:
+            True when a row was rotated.
+        """
+        cleaned = (token or "").strip()
+        if not cleaned:
+            return False
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT * FROM live_session_attendees
+                WHERE visit_token = ?
+                LIMIT 1
+                """,
+                (cleaned,),
+            ).fetchone()
+            if row is None:
+                return False
+            new_token = secrets.token_urlsafe(24)
+            self.conn.execute(
+                """
+                UPDATE live_session_attendees
+                SET visit_token = ?
+                WHERE id = ? AND visit_token = ?
+                """,
+                (new_token, int(row["id"]), cleaned),
+            )
+            self.conn.commit()
+            stored = dict(row)
+        stored["visit_token"] = new_token
+        self._mirror_presence_attendee(stored)
+        return True
+
     def resolve_student_visit_token(
         self, token: str, *, allow_left: bool = False
     ) -> dict[str, Any] | None:
