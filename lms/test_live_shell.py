@@ -730,7 +730,9 @@ class LiveShellTests(unittest.TestCase):
         self.assertEqual(home.status_code, 200)
         home_html = home.get_data(as_text=True)
         self.assertIn("End Class", home_html)
-        self.assertIn("Choose what to save before ending this class.", home_html)
+        self.assertNotIn("Choose what to save before ending this class.", home_html)
+        self.assertNotIn('name="save_attendance"', home_html)
+        self.assertNotIn('name="save_participation"', home_html)
         self.assertIn(f"/staff/class/{self.class_id}/end-live", home_html)
         self.assertIn("course-action-live-row", home_html)
 

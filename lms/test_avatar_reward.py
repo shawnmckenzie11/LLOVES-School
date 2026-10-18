@@ -125,6 +125,17 @@ class AvatarRewardTests(unittest.TestCase):
         self.staff.post(f"/staff/class/{self.class_id}/end-live", data={"end_options": "1"})
         self.assertIsNone(self.school.get_active_live_session_for_class(self.class_id))
 
+    def _quit_live(self) -> None:
+        """Close the live class without a gradebook or catch-up write."""
+        self.staff.post(f"/staff/class/{self.class_id}/quit-live")
+        self.assertIsNone(self.school.get_active_live_session_for_class(self.class_id))
+
+    def _rejoin_without_saving(self, name: str):
+        """Quit, start again, and log in. End Class would save the day."""
+        self._quit_live()
+        self._run_live()
+        return self._login(name)
+
     def _login(self, name: str):
         """A fresh student login (new browser): code, then mood skip."""
         client = self.app.test_client()
@@ -333,12 +344,12 @@ class AvatarRewardTests(unittest.TestCase):
         client = self._login("Maple")
         self._landing(client)
         for _ in range(2):
-            self._landing(self._next_login("Maple"))
+            self._landing(self._rejoin_without_saving("Maple"))
         first = self._grants(self.maple)
         self.assertEqual(len(first), 1)
         self.assertNotIn(":p", first[0]["source_ref"])
         self.assertTrue(first[0]["source_ref"].endswith(":MCF3M"))
-        self._end_live()
+        self._quit_live()
         clock = patch.object(
             celebration_periods, "school_now", return_value=datetime(2026, 9, 10, 8, 0)
         )
@@ -355,7 +366,7 @@ class AvatarRewardTests(unittest.TestCase):
         self._run_live()
         self._landing(self._login("Maple"))
         self.assertEqual(len(self._grants(self.maple)), 1)
-        self._end_live()
+        self._quit_live()
         # Maple wins the new period at its first saved class.
         self._log_day("2026-09-11", [self.maple])
         clear_public_celebration_memo()
