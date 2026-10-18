@@ -2213,23 +2213,6 @@ def prepare_mck218_group_whiteboard(path: Path) -> tuple[int, int, str]:
     return class_id, session_id, token
 
 
-def _focus_canvas_pane(page) -> None:
-    """Show the live whiteboard pane after the Content tab is hidden.
-
-    Older shots clicked ``data-tab="canvas"``. A session whose teacher
-    state is already canvas unparks ``#canvas-zone`` on paint; wait for
-    that when the button is absent.
-
-    Args:
-        page: Playwright page on the staff live class.
-    """
-    tab = page.locator('.live-content-tab[data-tab="canvas"]')
-    if tab.count():
-        tab.click(timeout=15000)
-        return
-    page.locator("#canvas-zone:not(.is-parked)").wait_for(state="visible", timeout=15000)
-
-
 def shoot_mck218(base: str, out_dir: Path, path: Path, state_path: Path) -> list[Path]:
     """MCK-218 formative whiteboard on real staff/student shells."""
     from playwright.sync_api import sync_playwright
@@ -2247,7 +2230,7 @@ def shoot_mck218(base: str, out_dir: Path, path: Path, state_path: Path) -> list
         )
         staff = staff_ctx.new_page()
         staff.goto(staff_url, wait_until="domcontentloaded")
-        _focus_canvas_pane(staff)
+        staff.locator('.live-content-tab[data-tab="canvas"]').click(timeout=15000)
         staff.locator("#formative-live-board .wb-live-name").first.wait_for(
             state="visible", timeout=60000
         )
@@ -2656,7 +2639,7 @@ def shoot_mck272(base: str, out_dir: Path, path: Path, state_path: Path) -> list
         )
         staff = staff_ctx.new_page()
         staff.goto(staff_url, wait_until="domcontentloaded")
-        _focus_canvas_pane(staff)
+        staff.locator('.live-content-tab[data-tab="canvas"]').click(timeout=15000)
         staff.locator('[data-surface-publish="canvas"]').wait_for(state="visible", timeout=30000)
         staff.wait_for_timeout(2500)
         if staff.locator("#formative-live-board:not([hidden])").count():
@@ -2771,7 +2754,7 @@ def shoot_mck272(base: str, out_dir: Path, path: Path, state_path: Path) -> list
         _mck272_republish(staff, origin, path, session_id, "individual")
         staff.set_viewport_size({"width": 1280, "height": 800})
         staff.reload(wait_until="domcontentloaded")
-        _focus_canvas_pane(staff)
+        staff.locator('.live-content-tab[data-tab="canvas"]').click(timeout=15000)
         staff.locator("#formative-live-board .wb-live-name").first.wait_for(
             state="visible", timeout=30000
         )
@@ -2831,7 +2814,7 @@ def shoot_mck272(base: str, out_dir: Path, path: Path, state_path: Path) -> list
         print("mck272 solo keys", solo_keys)
         staff.set_viewport_size({"width": 1280, "height": 800})
         staff.reload(wait_until="domcontentloaded")
-        _focus_canvas_pane(staff)
+        staff.locator('.live-content-tab[data-tab="canvas"]').click(timeout=15000)
         staff.locator("#formative-live-board .wb-live-tile", has_text="Maple").first.wait_for(
             state="visible", timeout=30000
         )
