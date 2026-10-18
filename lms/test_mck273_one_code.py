@@ -103,8 +103,6 @@ class OneCodeTests(Base):
         join_code = str(live["session_code"] or "")
         self.school.finish_live_class(
             self.class_id,
-            save_attendance=True,
-            save_participation=True,
             celebrate=True,
             live_run=True,
         )

@@ -9880,12 +9880,38 @@ function selectTrackMode(mode) {
  * @param {HTMLFormElement|null|undefined} form
  * @returns {boolean} false when the teacher cancelled the confirm
  */
+/**
+ * Open the Quit confirm dialog, or close the overlay once it is confirmed.
+ * @param {HTMLFormElement|null|undefined} form
+ * @returns {boolean} false when the teacher has not confirmed yet
+ */
 function confirmQuitAndCloseOverlay(form) {
   if (!(form instanceof HTMLFormElement)) return false;
-  if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return false;
+  const dialog = document.getElementById("quit-live-dialog");
+  if (dialog instanceof HTMLDialogElement && !dialog.open) {
+    dialog.showModal();
+    return false;
+  }
   closeLiveSessionOverlay();
   return true;
 }
+
+/**
+ * Show the Quit dialog. Nothing is deleted until Quit and delete is pressed.
+ */
+function openQuitDialog() {
+  const dialog = document.getElementById("quit-live-dialog");
+  if (dialog instanceof HTMLDialogElement) dialog.showModal();
+}
+
+$("live-quit-class")?.addEventListener("click", () => {
+  openQuitDialog();
+});
+
+document.querySelector("[data-close-quit-live]")?.addEventListener("click", () => {
+  const dialog = document.getElementById("quit-live-dialog");
+  if (dialog instanceof HTMLDialogElement) dialog.close();
+});
 
 $("live-quit-class-form")?.addEventListener("submit", (event) => {
   const form = event.currentTarget;
@@ -13488,23 +13514,6 @@ function spawnScorePop(name) {
   window.setTimeout(() => chip.remove(), 5000);
 }
 
-/**
- * Open / close the End Live Class save-options dialog.
- */
-function wireEndLiveDialog() {
-  const dialog = document.getElementById("end-live-dialog");
-  if (!(dialog instanceof HTMLDialogElement)) return;
-  document.querySelectorAll("[data-open-end-live]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      dialog.showModal();
-    });
-  });
-  dialog.querySelector("[data-close-end-live]")?.addEventListener("click", () => {
-    dialog.close();
-  });
-}
-
-wireEndLiveDialog();
 if (
   liveSessionId
   && new URLSearchParams(window.location.search).get("tab") === "live"

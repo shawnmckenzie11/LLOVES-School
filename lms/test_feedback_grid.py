@@ -165,22 +165,22 @@ class FeedbackGridTests(unittest.TestCase):
         hint = html.split('class="hint">', 1)[1].split("</p>", 1)[0]
         self.assertNotIn("icon", hint.lower())
         self.assertIn("−1", hint)
-        self.assertIn("end-live-options", html)
-        self.assertIn('name="save_attendance"', html)
-        self.assertIn('name="save_participation"', html)
-        self.assertIn('name="end_options"', html)
+        self.assertNotIn("end-live-options", html)
+        self.assertNotIn('name="save_attendance"', html)
+        self.assertNotIn('name="save_participation"', html)
+        self.assertIn("Quit without saving?", html)
         home = (LMS_DIR / "templates" / "staff" / "home.html").read_text(
             encoding="utf-8"
         )
         course = (LMS_DIR / "templates" / "staff" / "course.html").read_text(
             encoding="utf-8"
         )
-        self.assertIn('class="end-live-options"', home)
-        self.assertIn('class="end-live-options"', course)
-        self.assertIn('class="end-live-option"', home)
-        self.assertIn('class="end-live-option"', course)
-        self.assertIn('name="save_attendance" value="1" checked', home)
-        self.assertIn('name="save_participation" value="1" checked', course)
+        self.assertNotIn('class="end-live-options"', home)
+        self.assertNotIn('class="end-live-options"', course)
+        self.assertNotIn('name="save_attendance"', home)
+        self.assertNotIn('name="save_participation"', course)
+        self.assertIn(">End Class<", home)
+        self.assertIn("Quit without saving?", course)
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
         self.assertIn("grid-template-columns: 20px minmax(0, 1fr)", css)
         self.assertIn("min-height: 44px", css)

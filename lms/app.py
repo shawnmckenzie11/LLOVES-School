@@ -3960,7 +3960,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/class/<int:class_id>/end-live", methods=["POST"])
     @staff_required
     def staff_end_live_class(class_id: int):
-        """End Live Class: persist chosen A&P columns, then wipe the SID.
+        """End Class: always save attendance and participation.
 
         Staff may only terminate a class they own (IT in-tenant included via
         ``teacher_owns_class``), and only their one active session
@@ -3968,9 +3968,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         Dashboard cards always post this route with the active session's
         ``class_id``, even when that class is not the card being rendered.
 
-        The dialog posts ``end_options`` plus optional ``save_attendance``
-        / ``save_participation`` checkboxes. A bare POST (tests / old
-        clients) still saves both.
+        Posted ``save_attendance`` / ``save_participation`` fields are
+        ignored. An old tab cannot skip either write. Live, test, and
+        open office classes all save both.
 
         After a save, staff land on Attendance & Participation so the
         new class-day column is visible.
@@ -3982,21 +3982,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         active = school.get_active_live_session_for_teacher(int(user["id"]))
         if active is None or int(active["class_id"]) != int(class_id):
             return redirect(url_for("staff_home"))
-        form = request.form
-        if str(form.get("end_options") or "") == "1":
-            save_attendance = str(form.get("save_attendance") or "") == "1"
-            save_participation = str(form.get("save_participation") or "") == "1"
-        else:
-            save_attendance = True
-            save_participation = True
         # Test or Live was chosen at Start. A posted end-time run_mode is ignored.
         live_run = True
         # The run this request saw as active. If another End closes it
         # first, this one is a no-op instead of a new column (MCK-72).
         ended = school.finish_live_class(
             int(class_id),
-            save_attendance=save_attendance,
-            save_participation=save_participation,
             celebrate=True,
             run_key=str(active.get("run_key") or "") or None,
             live_run=live_run,
@@ -4013,7 +4004,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 "<link rel=\"stylesheet\" href=\"/static/lloves.css\"></head>"
                 "<body><div class=\"wrap\"><h1>End in progress, try again</h1>"
                 "<p class=\"sub\">The class is still open and nothing was lost. "
-                "Wait a moment, then press End Live Class again.</p>"
+                "Wait a moment, then press End Class again.</p>"
                 f"<p><a class=\"btn\" href=\"{html_escape(back)}\">Back to the class</a></p>"
                 "</div></body></html>"
             )
@@ -4042,10 +4033,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/class/<int:class_id>/quit-live", methods=["POST"])
     @staff_required
     def staff_quit_live_class(class_id: int):
-        """Quit: discard attendance and participation, wipe the SID.
+        """Quit: save nothing, then clear this session's live rows now.
 
-        Same ownership rules as End Live Class. Nothing is written to
-        the attendance column. Meet taps and live QH are discarded.
+        Same ownership rules as End Class. Attendance, participation,
+        and a catch-up link are not written. Responses, attendees, and
+        board ops are deleted here, not on the next Start.
         """
         user = current_user()
         assert user is not None

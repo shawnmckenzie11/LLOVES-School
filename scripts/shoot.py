@@ -710,6 +710,58 @@ def shoot_mck207_run_toggle(
     return shots
 
 
+def shoot_mck275_end_quit(
+    base: str, state_path: Path, out_dir: Path, path: Path
+) -> list[Path]:
+    """MCK-275: End Class controls and the Quit confirm dialog at 1280x800.
+
+    The join billboard text is blanked before the shot so a class code
+    is not stored in the image.
+    """
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    school = _mck208_school(path)
+    class_id = shawn_class_id(path)
+    teacher = school.get_user_by_email(SHAWN_EMAIL)
+    if teacher is None:
+        raise SystemExit("Shawn staff user missing. Run with --seed first.")
+    _mck208_end_active_live(school, class_id)
+    school.start_live_class_session(class_id, int(teacher["id"]))
+    url = f"{origin}/staff/class/{class_id}?tab=live"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    shots: list[Path] = []
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        context = browser.new_context(
+            storage_state=str(state_path), viewport={"width": 1280, "height": 800}
+        )
+        page = context.new_page()
+        page.goto(url, wait_until="domcontentloaded")
+        page.locator("#live-end-class").wait_for(state="visible", timeout=30000)
+        page.evaluate(
+            """() => {
+              const code = document.querySelector("#ap-join-billboard-code");
+              if (code) code.textContent = "····";
+            }"""
+        )
+        controls = out_dir / "mck275-end-class-controls-1280.png"
+        page.screenshot(path=str(controls), full_page=False)
+        shots.append(controls)
+        page.locator("#live-quit-class").click()
+        dialog = page.locator("#quit-live-dialog")
+        dialog.wait_for(state="visible", timeout=30000)
+        page.locator("#quit-live-title", has_text="Quit without saving?").wait_for(
+            state="visible", timeout=30000
+        )
+        confirm = out_dir / "mck275-quit-confirm-1280.png"
+        page.screenshot(path=str(confirm), full_page=False)
+        shots.append(confirm)
+        context.close()
+        browser.close()
+    return shots
+
+
 def shoot_mck233_end_live_dialog(
     base: str, state_path: Path, out_dir: Path, path: Path, widths: list[int]
 ) -> list[Path]:
@@ -2915,8 +2967,6 @@ def _mck273_end_with_answer(
     join_code = str(live.get("session_code") or "")
     school.finish_live_class(
         int(class_id),
-        save_attendance=True,
-        save_participation=True,
         celebrate=True,
         live_run=True,
     )
@@ -3178,6 +3228,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck242",
             "mck272",
             "mck273",
+            "mck275",
         ),
         default="",
         help=(
@@ -3185,7 +3236,8 @@ def main(argv: list[str] | None = None) -> int:
             "MCK-207 roster/PIN, run-class toggle, MCK-208 dashboard, "
             "avatar-reward pop-up, MCK-216 Team challenge rank lock-in, "
             "MCK-220/230/215/222/219 scenarios, MCK-217 Student view Questions, "
-            "MCK-242 Team Draw, MCK-272 whiteboard, or MCK-273 one join code."
+            "MCK-242 Team Draw, MCK-272 whiteboard, MCK-273 one join code, "
+            "or MCK-275 End Class and Quit."
         ),
     )
     args = parser.parse_args(argv)
@@ -3256,6 +3308,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "mck273":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck273(args.base, out, path, widths))
+        if args.scenario == "mck275":
+            written.extend(shoot_mck275_end_quit(args.base, state, out, path))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(
@@ -3273,7 +3327,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
                 "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
-                "mck217-student-view|mck242|mck272|mck273."
+                "mck217-student-view|mck242|mck272|mck273|mck275."
             )
         for item in written:
             print(item)
