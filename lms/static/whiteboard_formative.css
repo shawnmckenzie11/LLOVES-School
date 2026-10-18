@@ -318,7 +318,9 @@
   color: #ecfdf5;
 }
 
-#canvas-zone {
+/* MCK-277: an unscoped #canvas-zone position/height beat .is-parked
+   and kept the hidden board in the grid, squeezing the visible pane. */
+#canvas-zone:not(.is-parked) {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -327,6 +329,17 @@
   max-height: 100%;
   overflow: hidden;
   position: relative;
+}
+
+#canvas-zone.is-parked {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  max-height: none;
+  flex: none;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  pointer-events: none;
 }
 
 #formative-live-board:not([hidden]) {
