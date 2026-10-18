@@ -453,6 +453,41 @@ class LiveShellTests(unittest.TestCase):
         self.assertNotIn('patchTeacherState({ stage })', js)
         self.assertIn("Stage pills are display-only", js)
 
+    def test_content_tabs_hide_whiteboard_and_parked_canvas_leaves_the_grid(self) -> None:
+        """Content tabs are Media, Questions, and Slides.
+
+        The canvas zone stays in the page so an existing whiteboard page can
+        still render. A parked canvas must not keep a relative position that
+        splits the Content grid.
+        """
+        html = self.client.get(
+            f"/staff/class/{self.class_id}?tab=live"
+        ).get_data(as_text=True)
+        tabs = html[html.index('id="live-content-tabs"') : html.index('id="live-frames"')]
+        self.assertIn('data-tab="media"', tabs)
+        self.assertIn('data-tab="questions"', tabs)
+        self.assertIn('data-tab="slides"', tabs)
+        self.assertNotIn('data-tab="canvas"', tabs)
+        self.assertNotIn(">Whiteboard<", tabs)
+        self.assertIn('id="canvas-zone"', html)
+        self.assertIn('id="formative-live-board"', html)
+        self.assertIn('id="wb-live-pen"', html)
+        canvas = html[html.index('id="canvas-zone"') : html.index('id="canvas-zone"') + 240]
+        self.assertIn("is-parked", canvas)
+        slides = html[html.index('id="slides-zone"') : html.index('id="slides-zone"') + 200]
+        self.assertIn("is-parked", slides)
+        css = (LMS_DIR / "static" / "whiteboard_formative.css").read_text(encoding="utf-8")
+        self.assertIn("#canvas-zone.is-parked", css)
+        self.assertIn("#canvas-zone:not(.is-parked)", css)
+        parked = css[css.index("#canvas-zone.is-parked") : css.index("#canvas-zone.is-parked") + 320]
+        self.assertIn("position: absolute", parked)
+        self.assertNotRegex(css, r"(?m)^#canvas-zone\s*\{[^}]*position:\s*relative")
+        js = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("function currentPageHasWhiteboard(", js)
+        pane = js[js.index("function teacherPaneContent(") : js.index("function teacherPanePreset(")]
+        self.assertIn("currentPageHasWhiteboard()", pane)
+        self.assertIn('name === "canvas"', pane)
+
     def test_live_tab_preserves_existing_control_ids(self) -> None:
         """Attendance, teams, meet, rounds, media, and scoring IDs stay wired."""
         page = self.client.get(f"/staff/class/{self.class_id}?tab=live")
