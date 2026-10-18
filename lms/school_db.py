@@ -2757,6 +2757,23 @@ class LovesDB:
                 raise
             note_presence_blip("attendee mirror failed")
 
+    def _delete_presence_sessions(self, session_ids: list[int]) -> None:
+        """Delete Postgres presence rows for these live session ids.
+
+        Names and student ids live in ``live_presence_sessions`` and
+        ``live_presence_attendees``. Quit drops them with the session.
+        Start drops them again before the first mirror, because a reused
+        session id would otherwise show the quit run's attendees as present.
+
+        Args:
+            session_ids: ``live_class_sessions.id`` values.
+        """
+        presence = getattr(self, "presence", None)
+        if presence is None or not session_ids:
+            return
+        for sid in session_ids:
+            presence.delete_session_tree(int(sid))
+
     def _apply_presence(self, row: dict[str, Any]) -> dict[str, Any]:
         """Overlay Postgres heartbeat fields onto a sqlite attendee row.
 
@@ -34863,15 +34880,25 @@ class SchoolDB(LovesDB):
 
     @staticmethod
     def _module_class_slot_sql(column: str = "p.live_slot") -> str:
-        """SQL fragment: module totals count class slots, not an open office.
+        """SQL fragment: module totals skip an open office.
+
+        A blank or missing slot still counts as a class slot. Only
+        ``O1``, ``O2``, and later open-office labels are left out, so an
+        older row saved with no slot stays in the module total.
 
         Args:
             column: Slot column, qualified with its table alias.
 
         Returns:
-            A boolean expression for ``C1`` through ``C4``.
+            A boolean expression.
         """
-        return f"UPPER({column}) IN ('C1', 'C2', 'C3', 'C4')"
+        slot = f"UPPER(TRIM({column}))"
+        office = (
+            f"({slot} GLOB 'O[1-9]' "
+            f"OR {slot} GLOB 'O[1-9][0-9]' "
+            f"OR {slot} GLOB 'O[1-9][0-9][0-9]')"
+        )
+        return f"(COALESCE(TRIM({column}), '') = '' OR NOT {office})"
 
     def _participation_counts(
         self, class_id: int, module: str | None = None, student_id: int | None = None
@@ -34888,7 +34915,7 @@ class SchoolDB(LovesDB):
         if module is not None:
             where += " AND p.live_module = ?"
             params.append(str(module))
-        # Module totals are class slots. An open office stays on its own column.
+        # Module totals skip an open office. A blank slot still counts.
         where += f" AND {self._module_class_slot_sql()}"
         from participation_exclusion import sql_exclude_non_counted_participation_run
         from participation_real_students import exclude_participation_answer_student_ids
@@ -35084,10 +35111,11 @@ class SchoolDB(LovesDB):
         include_individual: bool,
         include_group: bool,
     ) -> int:
-        """Count MC items in one class slot of a module that have live answers.
+        """Count MC items in one module that have live answers.
 
-        Open-office slots are not included. A module whose only class is an
-        open office stays at zero offered, so the module cell is not 0/1.
+        Open-office slots are not included. A blank slot counts as a class
+        slot. A module whose only class is an open office stays at zero
+        offered, so the module cell is not 0/1.
         """
         from participation_weight import count_participation_opportunities
 
@@ -37833,9 +37861,10 @@ class SchoolDB(LovesDB):
         gradebook, and lesson-slide decks stay intact.
 
         Quit passes ``purge_kept=True``. That deletes this session's
-        engagement events, engagement rollup, and observation history,
-        and does not copy notes forward. A celebrating wipe on the next
-        Start still copies notes (MCK-52) for a class that was ended.
+        engagement events, engagement rollup, observation history, and
+        Postgres presence rows, and does not copy notes forward. A
+        celebrating wipe on the next Start still copies notes (MCK-52)
+        for a class that was ended.
         Board assignment rows are always removed: the next Start can
         reuse the session id, and a stale row would match it.
 
@@ -37951,6 +37980,11 @@ class SchoolDB(LovesDB):
                     session_ids,
                 )
             self._remember_seq_floors_unlocked(int(class_id))
+            if purge_kept and session_ids:
+                # Names and student ids sit in Postgres presence. Delete
+                # them before the session row so a failed delete can be
+                # retried while the session is still the live run.
+                self._delete_presence_sessions(session_ids)
             if session_ids:
                 # MCK-52 P0.5: a subset wipe (celebrating sessions at Run)
                 # no longer drops every session of the class, which used to
@@ -39177,18 +39211,21 @@ class SchoolDB(LovesDB):
                 )
             )
         else:
-            if not active_key:
-                return {
-                    "ok": True,
-                    "class_id": int(class_id),
-                    "already_ended": True,
-                }
-            quit_ids = [
-                int(row["id"])
+            active_rows = [
+                row
                 for row in self.list_live_sessions_for_class(int(class_id))
                 if str(row.get("status") or "") == "active"
-                and str(row.get("run_key") or "").strip() == str(active_key).strip()
             ]
+            if active_key:
+                quit_ids = [
+                    int(row["id"])
+                    for row in active_rows
+                    if str(row.get("run_key") or "").strip() == str(active_key).strip()
+                ]
+            else:
+                # A live session can have no run key. Quit still clears
+                # that session, and only the active sessions of this class.
+                quit_ids = [int(row["id"]) for row in active_rows]
             if not quit_ids:
                 return {
                     "ok": True,
@@ -40292,6 +40329,8 @@ class SchoolDB(LovesDB):
         boards = getattr(self, "boards", None)
         if boards is not None:
             boards.forget_closed_runs()
+        # A reused session id can still hold the previous run's attendees.
+        self._delete_presence_sessions([int(session_id)])
         self._mirror_presence_session(session_row)
         first_state = public_teacher_state(None)
         if seq_floor > 0:

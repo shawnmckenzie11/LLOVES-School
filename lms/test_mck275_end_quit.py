@@ -931,6 +931,139 @@ class EndAlwaysSavesTests(Base):
         self.assertIsNotNone(closed)
         self.assertEqual(closed["status"], "ended")
 
+    def test_blank_slot_stays_in_the_module_total(self) -> None:
+        """A participation row with no slot still counts. An open office does not."""
+        self._seed_module_answer("M7", "", "q-blank")
+        offered, answered = self.school._participation_counts(self.class_id, "M7")
+        self.assertEqual(offered.get("M7"), 1)
+        self.assertEqual(answered[(int(self.students[1]), "M7")]["n"], 1)
+        modules = [
+            row["module"] for row in self.school.class_participation(self.class_id)["modules"]
+        ]
+        self.assertIn("M7", modules)
+        self._seed_module_answer("M8", "O1", "q-office-blank")
+        office, _answered_office = self.school._participation_counts(self.class_id, "M8")
+        self.assertNotIn("M8", office)
+
+    def test_quit_without_a_run_key_clears_only_that_session(self) -> None:
+        """A live session with no run key still quits, and only that session."""
+        sid = self._arm(is_test=False, module="M1", slot="C3")
+        self.school.conn.execute(
+            "UPDATE live_class_sessions SET run_key = '' WHERE id = ?",
+            (sid,),
+        )
+        self.school.conn.commit()
+        self.assertTrue(
+            self.school.record_engagement_event(
+                "present.join", session_id=sid, student_id=int(self.students[0])
+            )
+        )
+        other_sid = int(sid) + 1000
+        self.school.engagement.append(
+            {
+                "class_id": int(self.class_id),
+                "live_session": other_sid,
+                "run_key": "",
+                "student_id": int(self.students[1]),
+                "kind": "present.join",
+                "ts": "2026-10-17T13:21:00",
+            }
+        )
+        response = self.client.post(
+            f"/staff/class/{self.class_id}/quit-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNone(self.school.get_live_session(sid))
+        self.assertEqual(
+            self.school._count_engagement_rows(
+                [sid], [], class_id=int(self.class_id), require_session=True
+            ),
+            0,
+        )
+        self.assertEqual(
+            self.school._count_engagement_rows(
+                [other_sid], [], class_id=int(self.class_id), require_session=True
+            ),
+            1,
+        )
+
+    def test_quit_drops_fresh_board_ink(self) -> None:
+        """Quit deletes Fresh-board ink stored under the run key's ~g suffix."""
+        sid = self._arm(is_test=False, module="M2", slot="C1")
+        self.school.conn.execute(
+            "UPDATE live_class_sessions SET board_gen = 1 WHERE id = ?",
+            (sid,),
+        )
+        self.school.conn.commit()
+        base = str(self.school.get_live_session(sid)["run_key"] or "")
+        fresh = f"{base}~g1"
+        stroke = [{"type": "stroke_add", "id": "mark", "points": [[0.1, 0.2]]}]
+        self.school.boards.append_ops(base, "shared", owner="teacher", ops=stroke)
+        self.school.boards.append_ops(
+            fresh,
+            "shared",
+            owner="teacher",
+            ops=[{"type": "stroke_add", "id": "fresh", "points": [[0.3, 0.4]]}],
+        )
+        self.assertGreater(self.school.boards.count_generation_ops(base), 0)
+        response = self.client.post(
+            f"/staff/class/{self.class_id}/quit-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.school.boards.count_run_ops(base), 0)
+        self.assertEqual(self.school.boards.count_run_ops(fresh), 0)
+        self.assertEqual(self.school.boards.count_generation_ops(base), 0)
+
+    def test_quit_drops_a_team_draw_image(self) -> None:
+        """Quit deletes a team draw image stored for that session."""
+        sid = self._arm(is_test=False, module="M2", slot="C2")
+        self.school.conn.execute(
+            """
+            INSERT INTO live_team_draw_images (
+                live_session_id, live_item_id, team_id, image_png, updated_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (sid, 1, 1, b"\x89PNG\r\n", "2026-10-17T13:20:00"),
+        )
+        kept_sid = int(sid) + 1000
+        self.school.conn.execute(
+            """
+            INSERT INTO live_team_draw_images (
+                live_session_id, live_item_id, team_id, image_png, updated_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (kept_sid, 1, 1, b"\x89PNG\r\n", "2026-10-17T13:20:00"),
+        )
+        self.school.conn.commit()
+        self.assertEqual(
+            self._count(
+                "SELECT COUNT(*) AS n FROM live_team_draw_images WHERE live_session_id = ?",
+                (sid,),
+            ),
+            1,
+        )
+        response = self.client.post(
+            f"/staff/class/{self.class_id}/quit-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            self._count(
+                "SELECT COUNT(*) AS n FROM live_team_draw_images WHERE live_session_id = ?",
+                (sid,),
+            ),
+            0,
+        )
+        self.assertEqual(
+            self._count(
+                "SELECT COUNT(*) AS n FROM live_team_draw_images WHERE live_session_id = ?",
+                (kept_sid,),
+            ),
+            1,
+        )
+
 
 
 def _pg_admin_url() -> str:
@@ -979,6 +1112,48 @@ class PostgresQuitScopeTests(EndAlwaysSavesTests):
                 pass
         with psycopg.connect(admin, autocommit=True) as conn:
             conn.execute(f'DROP DATABASE IF EXISTS "{self.pg_db}" WITH (FORCE)')
+
+    def _presence_count(self, table: str, session_id: int) -> int:
+        """Count presence rows for one session.
+
+        Args:
+            table: ``live_presence_sessions`` or ``live_presence_attendees``.
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            Row count.
+        """
+        import psycopg
+
+        column = "id" if table == "live_presence_sessions" else "live_session_id"
+        with psycopg.connect(self.school.presence.dsn) as conn:
+            row = conn.execute(
+                f"SELECT COUNT(*) AS n FROM {table} WHERE {column} = %s",
+                (int(session_id),),
+            ).fetchone()
+        return int(row[0] or 0)
+
+    def test_quit_clears_presence_and_the_next_start_is_empty(self) -> None:
+        """Quit leaves no presence rows, and the next Start shows nobody present."""
+        sid = self._arm(is_test=False, module="M1", slot="C1")
+        presence = self.school.presence
+        self.assertGreater(presence.present_count(sid), 0)
+        self.assertEqual(self._presence_count("live_presence_sessions", sid), 1)
+        self.assertGreater(self._presence_count("live_presence_attendees", sid), 0)
+        response = self.client.post(
+            f"/staff/class/{self.class_id}/quit-live",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self._presence_count("live_presence_sessions", sid), 0)
+        self.assertEqual(self._presence_count("live_presence_attendees", sid), 0)
+        nxt = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"]), is_test=False
+        )
+        nxt_id = int(nxt["id"])
+        self.assertEqual(nxt_id, sid)
+        self.assertEqual(presence.present_count(nxt_id), 0)
+        self.assertEqual(self._presence_count("live_presence_attendees", nxt_id), 0)
 
     def tearDown(self) -> None:
         school = getattr(self, "school", None)
