@@ -50,6 +50,15 @@ class PortalCodeTests(unittest.TestCase):
         code = mint_portal_join_code("MCF3M", "M2", "C2")
         self.assertEqual(normalize_portal_code(code.lower()), code)
 
+    def test_decode_returns_none_for_excluded_characters(self) -> None:
+        """A five-character code outside the portal alphabet is not a match.
+
+        Synthetic only. ``0``, ``I``, ``L``, and ``O`` are absent from the
+        portal alphabet, so the checksum must not raise on them.
+        """
+        for code in ("0IL0O", "0il0o", "AAAA0", "RRRRI", "MMMML", "ZZZZO"):
+            self.assertIsNone(decode_portal_join_code(code), code)
+
 
 class CatchupLandingFlowTests(Base):
     """Portal sign-in, landing page, and tier cells."""

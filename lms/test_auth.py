@@ -288,6 +288,23 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(rv.status_code, 401)
         self.assertIn(b"No live class is running", rv.data)
 
+    def test_excluded_alphabet_code_is_unrecognised(self) -> None:
+        """MCK-278: excluded characters, symbols, and odd lengths are not a 500.
+
+        A five-character value that matches no stored code and uses a
+        character outside the portal alphabet used to raise in the checksum.
+        Synthetic codes only.
+        """
+        samples = ("0IL0O", "0il0o", "AB!12", "AB", "ABCDEFG")
+        for code in samples:
+            rv = self.client.post(
+                "/auth/student-code",
+                data={"code": code, "name": "Maple"},
+                environ_base={"REMOTE_ADDR": "127.0.0.9"},
+            )
+            self.assertEqual(rv.status_code, 401, code)
+            self.assertIn(b"No live class is running", rv.data)
+
     def test_unknown_student_name_401(self) -> None:
         """A valid session code with an unknown roster name is rejected."""
         self.school.activate_from_semester_json()
