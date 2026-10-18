@@ -88,8 +88,8 @@
               <span>Live Class in Progress</span>
             </button>
             <div class="course-action-end-form">
-              <button type="button" class="course-action course-action-end secondary" data-open-end-live aria-label="End Live Class">
-                <span>End Live Class</span>
+              <button type="submit" form="end-live-form" class="course-action course-action-end" aria-label="End Class">
+                <span>End Class</span>
               </button>
             </div>
           </div>
@@ -300,27 +300,7 @@
     {% endif %}
   </div>
   {% if active_live_session %}
-  <dialog id="end-live-dialog" class="end-live-dialog" data-end-live-default="{{ end_live_default_mode }}">
-    <form class="end-live-dialog-form" method="post" action="{{ url_for('staff_end_live_class', class_id=active_live_session.class_id) }}">
-      <h2>End Live Class</h2>
-      <p>Choose what to save before ending this class.</p>
-      <input type="hidden" name="end_options" value="1">
-      <div class="end-live-options">
-        <label class="end-live-option">
-          <input type="checkbox" name="save_attendance" value="1" checked>
-          <span>Save attendance</span>
-        </label>
-        <label class="end-live-option">
-          <input type="checkbox" name="save_participation" value="1" checked>
-          <span>Save participation</span>
-        </label>
-      </div>
-      <div class="end-live-dialog-actions">
-        <button type="button" class="secondary" data-close-end-live>Cancel</button>
-        <button type="submit">End class</button>
-      </div>
-    </form>
-  </dialog>
+  <form id="end-live-form" method="post" action="{{ url_for('staff_end_live_class', class_id=active_live_session.class_id) }}"></form>
   {% endif %}
   <script type="module" src="/static/staff_home.js"></script>
   <script type="module" src="/static/staff_roster_names.js"></script>

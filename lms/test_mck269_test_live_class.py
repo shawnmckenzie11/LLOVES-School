@@ -142,8 +142,6 @@ class TestLiveClassTests(Base):
         self._publish_one_answer(int(real["id"]), "M1", "C1")
         self.school.finish_live_class(
             self.class_id,
-            save_attendance=True,
-            save_participation=True,
             celebrate=True,
             live_run=True,
         )
@@ -180,8 +178,6 @@ class TestLiveClassTests(Base):
         self.assertEqual(self.school.game._current_class_id(), current_before)
         self.school.finish_live_class(
             self.class_id,
-            save_attendance=True,
-            save_participation=True,
             celebrate=True,
             live_run=False,
         )
@@ -257,8 +253,6 @@ class TestLiveClassTests(Base):
         self.school.begin_or_resume_live_game(self.class_id)
         self.school.finish_live_class(
             self.class_id,
-            save_attendance=True,
-            save_participation=True,
             celebrate=True,
             live_run=True,
         )
@@ -312,8 +306,6 @@ class TestLiveClassTests(Base):
         self._publish_one_answer(int(real["id"]), "M1", "C1")
         self.school.finish_live_class(
             self.class_id,
-            save_attendance=True,
-            save_participation=True,
             celebrate=True,
             live_run=True,
         )
@@ -325,8 +317,6 @@ class TestLiveClassTests(Base):
         self._publish_one_answer(int(test["id"]), "M2", "C2")
         self.school.finish_live_class(
             self.class_id,
-            save_attendance=True,
-            save_participation=True,
             celebrate=True,
             live_run=True,
         )
@@ -386,8 +376,6 @@ class TestLiveClassTests(Base):
         self._publish_one_answer(int(test["id"]), "M1", "C2")
         self.school.finish_live_class(
             self.class_id,
-            save_attendance=True,
-            save_participation=True,
             celebrate=True,
             live_run=True,
         )
@@ -416,8 +404,10 @@ class TestLiveClassTests(Base):
         self.assertNotIn('name="run_mode"', body)
         self.assertIn("Delete this test class?", body)
         self.assertIn("info-popover-test-run-kind", body)
-        self.assertIn('name="save_attendance"', body)
-        self.assertIn('name="save_participation"', body)
+        self.assertNotIn('name="save_attendance"', body)
+        self.assertNotIn('name="save_participation"', body)
+        self.assertIn(">End Class<", body)
+        self.assertIn("Quit without saving?", body)
 
 
 

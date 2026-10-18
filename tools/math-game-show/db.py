@@ -4144,19 +4144,18 @@ class GameShowDB:
         run_key: str | None = None,
         create_game: bool = True,
     ) -> dict[str, Any] | None:
-        """Write optional attendance / +1/question participation, then end.
+        """Write attendance and +1/question participation, then end.
 
-        Used by End Live Class (teacher picks which columns to keep) and
-        Quit (attendance only). Creates an open game when none exists and
-        there is something to persist.
+        End Class always passes both includes. Quit does not call this.
+        Creates an open game when none exists and there is something to persist.
 
         Args:
             class_id: Classes primary key.
             present_ids: Roster ids marked present.
             credits: ``student_id → iterable of question keys or a count``.
             include_attendance: When False, skip the attendance write.
-            include_participation: When False (Quit / unchecked), zero
-                live points so only attendance remains.
+            include_participation: When False, zero live points so only
+                attendance remains. End Class passes True.
             run_key: Live class run. The credit is added on top of the
                 points already in the column (manual awards stay), once
                 per run: a repeat adds only the change (MCK-72).

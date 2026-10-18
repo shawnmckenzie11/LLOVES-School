@@ -902,8 +902,6 @@ class BoardRouteTests(unittest.TestCase):
         self.school.finish_live_class(
             self.class_id,
             celebrate=True,
-            save_attendance=False,
-            save_participation=False,
         )
         live = self.school.start_live_class_session(
             self.class_id, int(self.teacher["id"])
@@ -982,8 +980,6 @@ class BoardRouteTests(unittest.TestCase):
         self.school.finish_live_class(
             self.class_id,
             celebrate=True,
-            save_attendance=False,
-            save_participation=False,
         )
         live = self.school.start_live_class_session(
             self.class_id, int(self.teacher["id"])
