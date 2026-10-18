@@ -329,6 +329,7 @@
   max-height: 100%;
   overflow: hidden;
   position: relative;
+  visibility: visible;
 }
 
 #canvas-zone.is-parked {
@@ -340,6 +341,7 @@
   overflow: hidden;
   clip: rect(0 0 0 0);
   pointer-events: none;
+  visibility: hidden;
 }
 
 #formative-live-board:not([hidden]) {

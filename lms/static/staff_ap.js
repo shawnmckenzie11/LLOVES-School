@@ -2910,67 +2910,15 @@ async function closeSurface(surface) {
 }
 
 /**
- * Whether one metadata or lifecycle row is an authored whiteboard on a page.
- *
- * The seeded live-class workspace has no page number. Matching only a
- * positive page number keeps that row from taking over Questions.
- * @param {any} row
- * @param {number} pageNumber
- * @returns {boolean}
- */
-function whiteboardRowMatchesPage(row, pageNumber) {
-  if (!row || typeof row !== "object") return false;
-  const nested = row.item && typeof row.item === "object" ? row.item : {};
-  const ref = String(
-    row.ref || row.item_ref || nested.ref || nested.item_ref || ""
-  ).trim();
-  if (ref === "universal/whiteboard/live-workspace") return false;
-  const kind = String(
-    row.item_type ||
-      row.kind ||
-      row.type ||
-      nested.item_type ||
-      nested.type ||
-      nested.kind ||
-      ""
-  )
-    .trim()
-    .toLowerCase();
-  if (kind !== "whiteboard") return false;
-  const n = Number(row.page_number ?? nested.page_number);
-  return Number.isFinite(n) && n > 0 && n === pageNumber;
-}
-
-/**
- * True when the current named page places an authored whiteboard.
- *
- * Decks saved before the Content tab was hidden still carry those pages.
- * The universal live-workspace row is not a page, so it does not match.
- * @returns {boolean}
- */
-function currentPageHasWhiteboard() {
-  const pageNumber = Number(currentLivePageRow()?.page_number || 0);
-  if (!pageNumber) return false;
-  const pools = [];
-  if (Array.isArray(lastLiveMetadata?.items)) pools.push(...lastLiveMetadata.items);
-  if (Array.isArray(lastLiveItems)) pools.push(...lastLiveItems);
-  return pools.some((row) => whiteboardRowMatchesPage(row, pageNumber));
-}
-
-/**
  * Map a teacher content tab to the single pane it owns.
- *
- * ``canvas`` stays a stored tab so an open session still shows the board.
- * Questions on a page that already has a whiteboard shows that board.
  * @param {string} [tab]
  * @returns {"media"|"questions"|"canvas"|"slides"}
  */
 function teacherPaneContent(tab) {
   const name = String(tab || teacherState.active_tab || "questions");
-  if (name === "canvas") return "canvas";
-  if (name === "questions" && currentPageHasWhiteboard()) return "canvas";
-  if (name === "slides") return "slides";
   if (name === "questions") return "questions";
+  if (name === "canvas") return "canvas";
+  if (name === "slides") return "slides";
   return "media";
 }
 
@@ -3009,7 +2957,7 @@ function paintFrames() {
     btn.classList.toggle("is-active", btn.getAttribute("data-preset") === preset);
   });
   document.querySelectorAll("#live-content-tabs [data-tab]").forEach((btn) => {
-    const on = btn.getAttribute("data-tab") === content;
+    const on = btn.getAttribute("data-tab") === teacherState.active_tab;
     btn.classList.toggle("is-active", on);
     if (on) btn.setAttribute("aria-current", "page");
     else btn.removeAttribute("aria-current");
@@ -3858,7 +3806,6 @@ function applyLivePageDeckPayload(payload) {
   }
   paintStageRail();
   paintLiveQuestionCards();
-  paintFrames();
   paintQuestionArtifact();
   if (liveClassSeedMedia()) paintActiveMediaStatus(null);
 }
@@ -4184,7 +4131,6 @@ async function refreshLessonDeckMetadata() {
   );
   if (payload?.live_metadata) {
     lastLiveMetadata = payload.live_metadata;
-    paintFrames();
   }
 }
 
@@ -7550,10 +7496,7 @@ async function pollLiveSessionAttendees(opts = {}) {
     if (payload?.active_prompt !== undefined) {
       lastActivePrompt = payload.active_prompt || null;
     }
-    if (payload?.live_metadata) {
-      lastLiveMetadata = payload.live_metadata;
-      paintFrames();
-    }
+    if (payload?.live_metadata) lastLiveMetadata = payload.live_metadata;
     if (Array.isArray(payload?.question_cards)) {
       lastQuestionCards = questionCardsFromMetadata(payload.question_cards);
     }
@@ -12402,7 +12345,6 @@ async function loadSavedLiveLesson(moduleId, slot) {
       lastLiveMetadata = payload.live_metadata;
       paintStageRail();
       paintLiveQuestionCards();
-      paintFrames();
       staffStateNeedsFull = true;
       paintSlidesMetadata();
     }
