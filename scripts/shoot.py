@@ -428,8 +428,6 @@ def shoot_urls(
     return written
 
 
-
-
 def shoot_mck249(
     base: str,
     state_path: Path,
@@ -1032,8 +1030,6 @@ def _mck208_answer_all_catchup(school, class_id: int, student_id: int) -> None:
             school.submit_catchup_answer(
                 tok, int(student_id), str(question["question_key"]), "A"
             )
-
-
 
 
 def _mck208_ensure_past_modules(school, class_id: int, student_id: int) -> None:
@@ -2399,7 +2395,6 @@ def _mck272_box_in_view(page: object, selector: str) -> dict[str, float]:
     return metrics
 
 
-
 def _mck272_assert_open_panel(page: object, label: str) -> dict[str, float]:
     """Require a tall canvas, Undo in view, and no page scroll.
 
@@ -2949,7 +2944,6 @@ def shoot_mck272(base: str, out_dir: Path, path: Path, state_path: Path) -> list
         staff_ctx.close()
         browser.close()
     return shots
-
 
 
 def _mck272_republish(page: object, origin: str, path: Path, session_id: int, mode: str) -> None:
@@ -3700,50 +3694,6 @@ def shoot_mck289(base: str, state_path: Path, out_dir: Path, path: Path, widths:
             context.close()
         browser.close()
     return written
-
-
-
-def mark_second_teammate_drew_and_left(path: Path, session_id: int) -> None:
-    """Second student on the first team draws, then leaves.
-
-    The shown legend should still list them. This does not print names
-    or visit tokens.
-
-    Args:
-        path: LMS sqlite path used by the running dev server.
-        session_id: Active live class session.
-    """
-    sys.path.insert(0, str(LMS_DIR))
-    os.environ["LLOVES_DB"] = str(path)
-    os.environ.setdefault("LOCAL_DEV_LOGIN", "1")
-    from app import create_app
-
-    app = create_app(db_path=path, testing=True)
-    school = app.config["SCHOOL_DB"]
-    rows = school.list_live_session_team_members(int(session_id), 0)
-    ids = [
-        int(row["student_id"])
-        for row in rows
-        if row.get("student_id") not in (None, "")
-    ]
-    if len(ids) < 2:
-        raise SystemExit("The first team needs two students before a leave.")
-    leaver = ids[1]
-    school.append_live_board_ops(
-        int(session_id),
-        "team:0",
-        owner=str(leaver),
-        ops=[
-            {
-                "type": "text_upsert",
-                "id": "kept-ink",
-                "text": "kept",
-                "x": 0.55,
-                "y": 0.62,
-            }
-        ],
-    )
-    school.mark_live_session_attendee_left(int(session_id), student_id=leaver)
 
 
 def shoot_mck280(base: str, out_dir: Path, path: Path, state_path: Path) -> list[Path]:
