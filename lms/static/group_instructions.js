@@ -3,8 +3,8 @@
  * the open-ended "who are we waiting for" copy.
  *
  * Copy: Wonder v1 + v2 (/workspace/mobbin-sites/group-questions-copy-wonder-v2.md).
- * PR C: group MC runs option B ("pick alone, then agree"), and rank can
- * "Take turns". The line follows the card's step and the rank Group mode.
+ * PR C: group MC runs option B ("pick alone, then agree"). Group rank
+ * is always Take turns (MCK-281), including a card saved as Rank together.
  *
  * Pure: no DOM, so the node harness can import it.
  */
@@ -12,7 +12,6 @@
 /** Final copy. */
 export const GROUP_INSTRUCTION_COPY = Object.freeze({
   open: "Everyone writes their own answer first. Then your group sends one answer together.",
-  rank: "Rank these together. Anyone can move them.",
   rank_turns: "Take turns. Each person places one item, then passes.",
   // Gate MED-2: an item published before option B keeps the one-step copy.
   mc: "Talk it over. One person sends your group's answer and why.",
@@ -29,7 +28,7 @@ export const GROUP_INSTRUCTION_COPY = Object.freeze({
  * Which instruction a group card gets.
  * @param {{response_mode?: string, group_submit?: any}} item Live item.
  * @param {{type?: string, kind?: string}} [content] Item content.
- * @returns {"open"|"rank"|"rank_turns"|"mc"|"mc_pick"|"mc_agree"|""} Empty for
+ * @returns {"open"|"rank_turns"|"mc"|"mc_pick"|"mc_agree"|""} Empty for
  *   individual items.
  */
 export function groupInstructionKey(item, content = {}) {
@@ -38,7 +37,8 @@ export function groupInstructionKey(item, content = {}) {
   const group = item?.group_submit || {};
   if (mode === "group_consensus") return "open";
   if (mode !== "group_submit") return "";
-  if (type === "rank") return String(group.rank_mode || "") === "turns" ? "rank_turns" : "rank";
+  // MCK-281: a saved Rank together card still instructs Take turns.
+  if (type === "rank") return "rank_turns";
   if (Object.keys(group).length && String(group.flow || "") !== "pick_then_agree") return "mc";
   return group.pick_step === false ? "mc_agree" : "mc_pick";
 }

@@ -33,7 +33,8 @@ check(RACE_COPY.skipConfirm === "Skip the waiting turn for {team}?", "race.skip.
 check(RACE_COPY.exit === "Exit challenge view", "race.exit");
 check(RACE_COPY.view === "Team challenge view", "race.view");
 check(RACE_COPY.close === "Close & reveal", "race.close");
-check(RACE_COPY.chipTogether === "● Group · rank together · challenge", "race.chip.together");
+check(RACE_COPY.chipTurns === "● Group · take turns · challenge", "race.chip.turns");
+check(!("chipTogether" in RACE_COPY), "no rank together chip");
 const everything = JSON.stringify(RACE_COPY);
 check(!/race/i.test(everything), "no 'race' in copy");
 check(!/\bsent\b/i.test(everything.replace("sent_count", "")), "no 'Sent'");
@@ -83,12 +84,12 @@ const html = raceLanesHtml(race, 7, { popped, stem: "Put these in order.", optio
 const shuffledHead = raceLanesHtml({ ...race, options: [{ id: "o2", label: "0.3" }, { id: "o1", label: "¼" }] }, 7, { stem: "Q", options: ["¼", "0.3"] });
 check(shuffledHead.includes("0.3 · ¼ · "), "header follows race.options order");
 check(html.includes("1 of 3 teams locked in"), "count line");
-check(html.includes("Put these in order.") && html.includes("¼ · 0.3 · ● Group · rank together · challenge"), "header");
-check(html.includes("0 of 3 agree"), "0 of 3 lane");
+check(html.includes("Put these in order.") && html.includes("¼ · 0.3 · ● Group · take turns · challenge"), "header");
+check(html.includes("Thinking"), "open lane is take turns");
+check(!html.includes("Rank together") && !html.includes("data-race-lock"), "no rank together lock");
 check(html.includes('data-close-live-item="7"') && html.includes("Close &amp; reveal"), "close & reveal");
 check(html.indexOf("Tangents") < html.indexOf("Cosines") && html.indexOf("Cosines") < html.indexOf("Radians"), "fixed order");
 check(html.includes("Cosines &lt;b&gt;") && !html.includes("<b>"), "escaped");
-check(html.includes('data-race-lock="7" data-team-id="12"') && html.includes("Lock in for Cosines &lt;b&gt;"), "lock in for team");
 check(!html.includes('data-team-id="11" data-team-name="Tangents">Lock'), "no lock on locked lane");
 check(html.includes("is-popping") && popped.has(11), "pop once");
 check(!raceLanesHtml(race, 7, { popped }).includes("is-popping"), "no second pop");

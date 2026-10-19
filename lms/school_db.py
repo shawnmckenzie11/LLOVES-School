@@ -19645,7 +19645,10 @@ class SchoolDB(LovesDB):
     # ------------------------------------------------------------------
 
     def _group_rank_mode(self, item: dict[str, Any]) -> str:
-        """``together`` (today's shared order) or ``turns``.
+        """``turns`` for a rank question. Non-rank stays off the turns path.
+
+        Stored ``group_rank_mode`` of ``together`` is left on the row and
+        read as Take turns (MCK-281). This method does not write.
 
         Args:
             item: Lifecycle row.

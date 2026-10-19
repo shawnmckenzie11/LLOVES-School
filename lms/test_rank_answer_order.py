@@ -242,8 +242,25 @@ class RankKeyLiveTests(unittest.TestCase):
         )
         self.assertEqual(bad.status_code, 400)
 
+    def _place(self, item: dict[str, Any], names: tuple[str, ...], order: list[str]) -> None:
+        """Place ``order`` one spot at a time on one team.
+
+        Args:
+            item: Published lifecycle row.
+            names: That team's roster.
+            order: Option ids (real ids are accepted).
+        """
+        for token in order:
+            last = None
+            for name in names:
+                last = self._post(name, item, "rank-turn", {"option_id": token})
+                if last.status_code == 200:
+                    break
+            else:
+                self.fail(last.get_data(as_text=True)[:200] if last is not None else str(token))
+
     def test_students_never_see_the_key_rank_together(self) -> None:
-        """Group rank (together): state, prompt, page, draft, send, metadata."""
+        """Group rank saved as together: state, prompt, page, and places stay keyless."""
         row = self._keyed_row()
         item = self._publish(row)
         staff = self.school.get_live_session_item(self.session_id, int(item["id"]))
@@ -251,13 +268,10 @@ class RankKeyLiveTests(unittest.TestCase):
         ids = self._ids(row)
         texts = self._student_texts(item)
         self.assertIn("Order the steps.", texts["Ava state"])
-        for opt in ids[:2]:
-            rv = self._post("Ava", item, "group-draft", {"tap": opt})
+        for name, opt in zip(("Ava", "Cy", "Ava", "Cy"), ids):
+            rv = self._post(name, item, "rank-turn", {"option_id": opt})
             self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
-            texts[f"draft {opt}"] = rv.get_data(as_text=True)
-        rv = self._post("Ava", item, "group-submit", {"order": ids})
-        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
-        texts["submit"] = rv.get_data(as_text=True)
+            texts[f"turn {name}"] = rv.get_data(as_text=True)
         texts.update({f"after {k}": v for k, v in self._student_texts(item).items()})
         self._assert_no_key(texts)
 
@@ -300,9 +314,8 @@ class RankKeyLiveTests(unittest.TestCase):
             item = self._publish(row)
             ids = self._ids(row)
             labels = {opt["id"]: opt["label"] for opt in row["item"]["rank_options"]}
-            for name, order in zip(("Ava", "Ben"), orders):
-                rv = self._post(name, item, "group-submit", {"order": [ids[i] for i in order]})
-                self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+            for names, order in zip((("Ava", "Cy"), ("Ben", "Dee")), orders):
+                self._place(item, names, [ids[i] for i in order])
             rank = self._view(item)["rank"]
             results.append([(labels[r["option_id"]], r["points"], r["rank"]) for r in rank["class_order"]])
             self.client.post(f"/api/live-sessions/{self.session_id}/items/{item['id']}/close")

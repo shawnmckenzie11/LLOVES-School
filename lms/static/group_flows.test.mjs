@@ -13,7 +13,7 @@ import {
   stillChoosingLine,
   turnsCardIsStale,
 } from "./group_flows.js";
-import { groupSetupHtml, groupSetupOptionsHtml, groupSubmitVariant, rankModeHtml } from "./group_setup.js";
+import { groupSetupHtml, groupSetupOptionsHtml, groupSubmitVariant } from "./group_setup.js";
 
 let failures = 0;
 function check(cond, msg) {
@@ -125,20 +125,19 @@ check(!done.includes("data-rank-turn="), "no options when done");
 const note = rankTurnsHtml({ turns: { total: 3, can_place: true } }, { options, itemId: 9, note: "Ava just placed that one. Pick another." });
 check(note.includes('role="status"') && note.includes("Ava just placed that one."), "conflict note");
 
-// Teacher Group mode control (rank only, before Publish).
+// Teacher group rank is Take turns (no Rank together control).
 check(groupSubmitVariant({ type: "mc" }) === "mc", "mc variant");
 check(groupSubmitVariant({ type: "rank" }, { item: { group_rank_mode: "turns" } }) === "rank_turns", "turns variant");
-check(groupSubmitVariant({ type: "rank" }) === "rank_together", "together variant");
-const seg = rankModeHtml("q:5", "turns");
-check(seg.includes("Group mode") && seg.includes("Rank together") && seg.includes("Take turns"), "labels");
-check(seg.includes('value="turns" data-group-rank-mode="q:5" checked'), "turns checked");
+check(groupSubmitVariant({ type: "rank" }, { item: { group_rank_mode: "together" } }) === "rank_turns", "saved together still take turns");
+check(groupSubmitVariant({ type: "rank" }) === "rank_turns", "rank defaults to take turns");
 const base = { key: "q:5", style: "submit", status: "inactive", mode: "group", teamsReady: true };
 const rankOpts = groupSetupOptionsHtml({ ...base, variant: "rank_turns" });
 check(rankOpts.includes("Each person places one item, then passes."), "turns helper line");
-check(rankOpts.includes("data-group-rank-mode"), "rank mode control");
+check(!rankOpts.includes("Rank together") && !rankOpts.includes("data-group-rank-mode"), "no rank together control");
 check(!groupSetupOptionsHtml({ ...base, variant: "mc" }).includes("data-group-rank-mode"), "no control for MC");
 check(groupSetupOptionsHtml({ ...base, variant: "mc" }).includes("Everyone picks, then each group agrees on one."), "mc style line");
 check(groupSetupHtml({ ...base, status: "active", variant: "rank_turns" }).includes("● Group · take turns"), "turns chip");
+check(groupSetupHtml({ ...base, status: "active", variant: "rank_together" }).includes("● Group · take turns"), "stale together variant is take turns");
 check(groupSetupHtml({ ...base, status: "active", variant: "mc" }).includes("● Group · pick, then agree"), "mc chip");
 check(groupSetupHtml({ ...base, status: "active" }).includes("● Group · one answer each"), "old chip unchanged");
 

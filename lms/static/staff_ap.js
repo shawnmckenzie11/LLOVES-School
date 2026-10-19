@@ -1515,9 +1515,6 @@ function groupPicksHtml(row) {
   return `<span class="group-picks" aria-label="${escapeHtml(PICKS_COPY.label)}">${progress}${list}</span>`;
 }
 
-/** MCK-155 PR C: optimistic rank Group mode picks, by live item id. @type {Map<number, string>} */
-const rankModeIntent = new Map();
-
 /**
  * MCK-171: optimistic Team challenge ticks, by live item id, until the
  * settings PATCH lands.
@@ -1851,7 +1848,7 @@ $("rank-score-dialog")?.addEventListener("change", (event) => {
 });
 
 /**
- * MCK-171: teacher "Lock in for {team}" (Rank together challenge).
+ * MCK-171: teacher "Lock in for {team}" on a Team challenge.
  * @param {number} liveItemId
  * @param {number} teamId
  */
@@ -5404,15 +5401,8 @@ function paintLiveQuestionCards() {
             : "";
       const teamsReady = Boolean(teacherState.groups_configured);
       const groupKey = `q:${liveItemId}`;
-      // MCK-155 PR C: MC = pick, then agree; rank = together or take turns.
-      const groupVariant =
-        groupStyle === "submit"
-          ? rankModeIntent.has(liveItemId) && isRank
-            ? rankModeIntent.get(liveItemId) === "turns"
-              ? "rank_turns"
-              : "rank_together"
-            : groupSubmitVariant(item, card)
-          : "";
+      // MCK-155 / MCK-281: MC = pick, then agree; rank = Take turns.
+      const groupVariant = groupStyle === "submit" ? groupSubmitVariant(item, card) : "";
       // MCK-171: Team challenge (optimistic while the PATCH lands).
       const raceSettings = { ...rankRaceSettings(item, card), ...(rankRaceIntent.get(liveItemId) || {}) };
       const groupSetup = liveItemId
@@ -6162,29 +6152,6 @@ async function skipRankTurn(liveItemId, teamId) {
       placed: Number(row?.placed) || 0,
       text: TURNS_COPY.skipped.replace("{names}", who),
     });
-  }
-  paintLiveQuestionCards();
-}
-
-/**
- * MCK-155 PR C: save the rank Group mode (Rank together / Take turns).
- * @param {number} liveItemId
- * @param {"together"|"turns"} mode
- */
-async function persistRankMode(liveItemId, mode) {
-  const sessionId = liveSessionId || readLiveSessionId();
-  if (!sessionId || !liveItemId) return;
-  rankModeIntent.set(liveItemId, mode);
-  paintLiveQuestionCards();
-  try {
-    const result = await api(`/api/live-sessions/${sessionId}/items/${liveItemId}/settings`, {
-      method: "PATCH",
-      body: JSON.stringify({ group_rank_mode: mode }),
-    });
-    adoptLiveItem(result?.item);
-  } catch (_err) {
-    rankModeIntent.delete(liveItemId);
-    showError("#ap-overlay-error", new Error(GROUP_SETUP_COPY.saveFailed));
   }
   paintLiveQuestionCards();
 }
@@ -12642,13 +12609,6 @@ async function onGroupSetupChange(event) {
   if (raceBox instanceof HTMLInputElement) {
     const [, raceId] = String(raceBox.getAttribute("data-group-rank-race") || "").split(":");
     await persistRankRace(Number(raceId) || 0, raceBox.checked);
-    return;
-  }
-  const rankMode = target?.closest("input[data-group-rank-mode]");
-  if (rankMode instanceof HTMLInputElement) {
-    if (!rankMode.checked) return;
-    const [, rankId] = String(rankMode.getAttribute("data-group-rank-mode") || "").split(":");
-    await persistRankMode(Number(rankId) || 0, rankMode.value === "turns" ? "turns" : "together");
     return;
   }
   const radio = target?.closest("input[data-group-setup]");

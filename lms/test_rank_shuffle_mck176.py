@@ -232,16 +232,31 @@ class RankShuffleLiveTests(unittest.TestCase):
         self.assertEqual(saved["response"]["order"], key)
         self.assertEqual(rank_race_score(saved["response"]["order"], prompt["payload"]["rank_key"])["right"], 4)
 
+    def _place(self, item: dict[str, Any], names: tuple[str, ...], order: list[str]) -> None:
+        """Place ``order`` one spot at a time on one team.
+
+        Args:
+            item: Published lifecycle row.
+            names: That team's roster, in turn order.
+            order: Student-facing option ids.
+        """
+        for token in order:
+            last = None
+            for name in names:
+                last = self._post(name, item, "rank-turn", {"option_id": token})
+                if last.status_code == 200:
+                    break
+            else:
+                self.fail(last.get_data(as_text=True)[:200] if last is not None else token)
+
     def test_rank_together_submission_scores_against_the_key(self) -> None:
         item = self._publish(self._keyed())
         live = self.school.get_live_session_item(self.session_id, int(item["id"]))
         key = live["item"]["rank_key"]
         self.assertEqual(key, self._key(item))
-        rv = self._post("Ava", item, "group-submit", {"order": self._to_student(item, key)})
-        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        self._place(item, ("Ava", "Cy"), self._to_student(item, key))
         wrong = self._ids(item)
-        rv = self._post("Ben", item, "group-submit", {"order": self._to_student(item, wrong)})
-        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        self._place(item, ("Ben", "Dee"), self._to_student(item, wrong))
         teams = self._view(item)["rank"]["teams"]
         orders = sorted((t["order"] for t in teams if t["status"] == "submitted"), key=lambda o: o != key)
         self.assertEqual(orders, [key, wrong])
@@ -658,14 +673,6 @@ class OptionAliasTests(unittest.TestCase):
             )
             self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
             replies["response"] = rv.get_json()
-        elif mode == "together":
-            for opt in order[:2]:
-                rv = self._post("Ava", live, "group-draft", {"tap": opt})
-                self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
-                replies[f"tap {opt}"] = rv.get_json()
-            rv = self._post("Cy", live, "group-submit", {"order": order})
-            self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
-            replies["submit"] = rv.get_json()
         else:
             for name, opt in zip(("Ava", "Cy", "Ava", "Cy"), order):
                 rv = self._post(name, live, "rank-turn", {"option_id": opt})
@@ -750,14 +757,10 @@ class OptionAliasTests(unittest.TestCase):
                     )
                     self.assertEqual(rv.status_code, 400, rv.get_data(as_text=True))
                     self.assertIsNone(self.school.get_live_prompt_response(int(prompt_id), self.ids["Ava"]))
-                elif mode == "together":
-                    self.assertEqual(self._post("Ava", live, "group-draft", {"tap": bad}).status_code, 400)
-                    self.assertEqual(self._post("Ava", live, "group-draft", {"order": order}).status_code, 400)
-                    self.assertEqual(self._post("Ava", live, "group-submit", {"order": order}).status_code, 400)
-                    self.assertFalse(self._card("Ava", live)["submitted"])
                 else:
                     self.assertEqual(self._post("Ava", live, "rank-turn", {"option_id": bad}).status_code, 400)
                     self.assertEqual(self._card("Ava", live)["order"], [])
+                    self.assertFalse(self._card("Ava", live)["submitted"])
             self.client.post(f"/api/live-sessions/{self.session_id}/items/{other['id']}/close")
             self.client.post(f"/api/live-sessions/{self.session_id}/items/{live['id']}/close")
 

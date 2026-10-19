@@ -26,7 +26,6 @@ export const RACE_COPY = Object.freeze({
   exit: "Exit challenge view", // race.exit
   view: "Team challenge view", // race.view
   close: "Close & reveal", // race.close
-  chipTogether: "● Group · rank together · challenge", // race.chip.together
   chipTurns: "● Group · take turns · challenge", // race.chip.turns
   // Reused unchanged from #231 (Take turns progress, screen readers).
   placed: "{k} of {n} placed",
@@ -237,7 +236,8 @@ export function raceOptionLabels(item) {
  */
 export function raceLanesHtml(race, liveItemId, opts = {}) {
   const C = RACE_COPY;
-  const mode = race?.mode === "turns" ? "turns" : "together";
+  // MCK-281: group rank is Take turns, including a payload saved as together.
+  const mode = "turns";
   const teams = Array.isArray(race?.teams) ? race.teams : [];
   const popped = opts.popped instanceof Set ? opts.popped : null;
   const id = Number(liveItemId) || 0;
@@ -288,7 +288,7 @@ export function raceLanesHtml(race, liveItemId, opts = {}) {
     ? race.options.map((row) => String(row?.label || "").trim())
     : Array.isArray(opts.options) ? opts.options : [];
   const optionLine = shown.filter(Boolean).join(" · ");
-  const chip = mode === "turns" ? C.chipTurns : C.chipTogether;
+  const chip = C.chipTurns;
   return `<section class="race-view" data-race-view="${id}" data-race-mode="${mode}" aria-label="Team challenge">
     <header class="race-view-head">
       <div class="race-view-q">

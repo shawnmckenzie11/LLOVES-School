@@ -27,10 +27,6 @@ export const GROUP_SETUP_COPY = Object.freeze({
     mc: "Everyone picks, then each group agrees on one.",
     rank_turns: "Each person places one item, then passes.",
   }),
-  // MCK-155 PR C: rank Group mode (Wonder v2).
-  groupModeLegend: "Group mode",
-  rankTogether: "Rank together",
-  rankTurns: "Take turns",
   groupQ: "Wait until teammates match",
   studentsSeeNothing: "Students see nothing until you publish.",
   noTeams: "Group work needs teams first.",
@@ -43,8 +39,7 @@ export const GROUP_SETUP_COPY = Object.freeze({
     individual: "● Individual",
     mc: "● Group · pick, then agree",
     rank_turns: "● Group · take turns",
-    // MCK-171 Team challenge (Wonder v3 race.chip.*).
-    rank_together_race: "● Group · rank together · challenge",
+    // MCK-171 Team challenge (Wonder v3 race.chip.*). Group rank is Take turns.
     rank_turns_race: "● Group · take turns · challenge",
   }),
   // MCK-171 Team challenge (Wonder v3; students never see "race").
@@ -245,16 +240,24 @@ function styleCopyKey(style, surface, variant) {
  * MCK-155 PR C: which group-submit flavour an item runs.
  * @param {any} item Question payload (``type``).
  * @param {any} [card] Lifecycle row (``item.group_rank_mode``).
- * @returns {"mc"|"rank_together"|"rank_turns"|""}
+ * @returns {"mc"|"rank_turns"|""}
  */
 export function groupSubmitVariant(item, card) {
   const type = String(item?.type || card?.type || card?.item?.type || "").toLowerCase();
   if (type === "mc") return "mc";
-  if (type === "rank") {
-    const mode = String(card?.item?.group_rank_mode || item?.group_rank_mode || "").toLowerCase();
-    return mode === "turns" ? "rank_turns" : "rank_together";
-  }
+  // MCK-281: a saved ``together`` token is not a choice. Rank is Take turns.
+  if (type === "rank") return "rank_turns";
   return "";
+}
+
+/**
+ * Map a stale rank-together variant onto Take turns.
+ * @param {unknown} variant
+ * @returns {string}
+ */
+function shownRankVariant(variant) {
+  const value = String(variant || "");
+  return value === "rank_together" || value === "rank_turns" ? "rank_turns" : value;
 }
 
 /**
@@ -293,13 +296,13 @@ export function groupSetupHtml(opts) {
   const group = opts.mode === "group";
   const liveSwitch = status === "active" && Boolean(opts.liveSwitch) && Boolean(opts.teamsReady);
   if (status === "active" && !liveSwitch) {
-    const variant = String(opts.variant || "");
+    const variant = shownRankVariant(opts.variant);
     const raceChip =
       group && opts.challenge && (variant === "rank_together" || variant === "rank_turns")
         ? C.liveChip[`${variant}_race`]
         : "";
     const text =
-      raceChip || (group ? C.liveChip[styleCopyKey(style, opts.surface, opts.variant)] : C.liveChip.individual);
+      raceChip || (group ? C.liveChip[styleCopyKey(style, opts.surface, variant)] : C.liveChip.individual);
     return `<span class="live-group-setup-chip is-live" role="status" data-group-setup-chip="${esc(key)}">${esc(text)}</span>`;
   }
   if (status === "closed") {
@@ -354,38 +357,19 @@ export function groupSetupOptionsHtml(opts) {
     opts.groupQ == null
       ? ""
       : `<label class="live-group-setup-groupq"><input type="checkbox" data-group-setup-groupq="${esc(key)}"${opts.groupQ ? " checked" : ""}><span>${esc(C.groupQ)}</span></label>`;
-  // MCK-155 PR C: Group mode for rank, set before Publish only.
-  const variant = String(opts.variant || "");
-  const rankMode =
-    status === "inactive" && (variant === "rank_together" || variant === "rank_turns")
-      ? rankModeHtml(key, variant === "rank_turns" ? "turns" : "together")
-      : "";
-  // MCK-171: Team challenge sits after Group mode, only with an answer order.
+  // MCK-281: no Group mode radios. Rank is Take turns; Team challenge stays.
+  const variant = shownRankVariant(opts.variant);
   const race =
-    rankMode && opts.race && opts.race.available ? rankRaceHtml(key, Boolean(opts.race.on)) : "";
+    status === "inactive" && variant === "rank_turns" && opts.race && opts.race.available
+      ? rankRaceHtml(key, Boolean(opts.race.on))
+      : "";
   // A Team challenge locks in by "I agree", so the race help replaces the
   // "Anyone in the group can send it" style line.
   const styleLine =
     race && opts.race.on
       ? ""
       : `<p class="live-group-setup-style">${esc(C.styleLine[styleCopyKey(style, opts.surface, variant)])}</p>`;
-  return `<div class="live-group-setup-opts" aria-live="polite" data-group-setup-opts="${esc(key)}">${rankMode}${race}${styleLine}${status === "inactive" ? teamsLine : ""}${groupQ}</div>`;
-}
-
-/**
- * ``Group mode: [ Rank together | Take turns ]`` (one radio group).
- * @param {string} key
- * @param {"together"|"turns"} mode
- * @returns {string}
- */
-export function rankModeHtml(key, mode) {
-  const C = GROUP_SETUP_COPY;
-  const name = `${esc(groupSetupRadioName(key))}-rank-mode`;
-  const choice = (value, label) => {
-    const on = value === mode;
-    return `<label class="live-group-setup-choice${on ? " is-on" : ""}"><input type="radio" name="${name}" value="${value}" data-group-rank-mode="${esc(key)}"${on ? " checked" : ""}><span>${esc(label)}</span></label>`;
-  };
-  return `<fieldset class="live-group-setup live-group-rank-mode" data-group-rank-mode-key="${esc(key)}"><legend>${esc(C.groupModeLegend)}</legend><span class="live-group-setup-seg">${choice("together", C.rankTogether)}${choice("turns", C.rankTurns)}</span></fieldset>`;
+  return `<div class="live-group-setup-opts" aria-live="polite" data-group-setup-opts="${esc(key)}">${race}${styleLine}${status === "inactive" ? teamsLine : ""}${groupQ}</div>`;
 }
 
 /**

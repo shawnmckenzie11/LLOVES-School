@@ -386,7 +386,6 @@ class AwardTests(PaysOnMixin, StepMixin, ChallengeHarness):
         row = self._rank_row()
         item = self._publish(row)
         self._order("Ava", item, KEY_IDS)
-        self._post("Ava", item, "group-submit", {"order": KEY_IDS})
         self._close(item)
         self.assertEqual(self._points("Ava"), 0)
         self.assertIsNone(self._row(item, "Ava").get("awarded_points"))

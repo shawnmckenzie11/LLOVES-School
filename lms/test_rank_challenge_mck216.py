@@ -23,14 +23,16 @@ class Mck216StudentLockTests(ChallengeHarness):
         self.assertTrue(card["race"]["locked"])
         self.assertEqual(self._row(item, "Ava")["submit_count"], 1)
 
-    def test_together_undo_last_editor_before_lock(self) -> None:
+    def test_take_turns_undo_last_placer_before_lock(self) -> None:
+        """The student who placed last can take that spot back before lock-in."""
         item = self._challenge()
-        self._order("Ava", item, KEY_IDS[:3])
-        self._order("Cy", item, KEY_IDS)
-        cy = self._card("Cy", item)
-        self.assertTrue(cy["race"]["can_undo"])
-        self.assertFalse(self._card("Ava", item)["race"].get("can_undo"))
-        rv = self._post("Cy", item, "group-draft", {"undo_last": True})
+        roster = self._turn_roster("Ava", item)
+        self._order("Ava", item, KEY_IDS)
+        last = roster[(len(KEY_IDS) - 1) % len(roster)]
+        other = next(name for name in roster if name != last)
+        self.assertTrue(self._card(last, item)["turns"]["can_undo"])
+        self.assertFalse(self._card(other, item)["turns"].get("can_undo"))
+        rv = self._post(last, item, "rank-turn", {"undo": True})
         self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
         self.assertFalse(rv.get_json()["group_submit"]["race"]["can_lock"])
 
