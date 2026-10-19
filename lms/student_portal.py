@@ -216,7 +216,18 @@ def resolve_student_live_context(
         if resolved is not None:
             attendee = resolved["attendee"]
             session_row = resolved["session"]
-            class_id = int(resolved["class_id"])
+            raw_class = resolved.get("class_id")
+            if raw_class in (None, ""):
+                row_map = session_row if isinstance(session_row, dict) else {}
+                raw_class = row_map.get("class_id")
+            if raw_class in (None, ""):
+                raw_class = session.get("student_class_id")
+            try:
+                class_id = int(raw_class)
+            except (TypeError, ValueError):
+                return None
+            if class_id <= 0:
+                return None
             student_id = resolved.get("student_id")
             live_session_id = int(resolved["live_session_id"])
             unmatched = bool(resolved.get("unmatched")) or student_id in (
@@ -555,7 +566,11 @@ def resolve_pin_portal_context(school: Any, session: Any) -> dict[str, Any] | No
     ident = peek_catchup_identity(session, school)
     if ident is None:
         return None
-    return {
-        "class_id": int(ident["class_id"]),
-        "student_id": int(ident["student_id"]),
-    }
+    try:
+        class_id = int(ident.get("class_id"))
+        student_id = int(ident.get("student_id"))
+    except (TypeError, ValueError):
+        return None
+    if class_id <= 0 or student_id <= 0:
+        return None
+    return {"class_id": class_id, "student_id": student_id}

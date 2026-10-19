@@ -15725,11 +15725,17 @@ class SchoolDB(LovesDB):
         session_row = self.get_live_session(int(attendee["live_session_id"]))
         if not self._session_open_for_student(session_row):
             return None
+        try:
+            class_id = int(session_row.get("class_id") or 0)
+        except (TypeError, ValueError):
+            return None
+        if class_id <= 0:
+            return None
         sid = attendee.get("student_id")
         return {
             "attendee": attendee,
             "session": session_row,
-            "class_id": int(session_row["class_id"]),
+            "class_id": class_id,
             "student_id": int(sid) if sid not in (None, "") else None,
             "live_session_id": int(attendee["live_session_id"]),
             "participant_uuid": str(attendee.get("participant_uuid") or ""),
@@ -36317,22 +36323,53 @@ class SchoolDB(LovesDB):
 
     def open_catchup_portal_url_for_class(self, class_id: int) -> str | None:
         """First open catch-up link path for a class (canonical when module/slot known)."""
-        cid = int(class_id)
+        try:
+            cid = int(class_id)
+        except (TypeError, ValueError):
+            return None
+        if cid <= 0:
+            return None
         for row in self.list_catchup_links(cid):
             if not int(row.get("is_open") or 0):
                 continue
-            return self.catchup_canonical_path_for_link(
+            path = self.catchup_canonical_path_for_link(
                 {**row, "class_id": row.get("class_id") or cid}
             )
+            if path:
+                return path
         return None
 
     def catchup_canonical_path_for_link(self, link: dict[str, Any]) -> str:
-        """Canonical ``/catchup/<COURSE>/<mN-cK>/<token>`` path for one link."""
+        """Canonical ``/catchup/<COURSE>/<mN-cK>/<token>`` path for one link.
+
+        ``class_id`` may be missing on ``link``. The stored row for ``token``
+        is the fallback. An unresolved class returns an empty path so a
+        student poll can skip the URL instead of raising.
+
+        Args:
+            link: Catch-up link mapping.
+
+        Returns:
+            Canonical path, or ``""`` when the class cannot be resolved.
+        """
         from participation import catchup_canonical_path
 
-        cid = int(link.get("class_id") or 0)
-        if not cid:
-            raise KeyError("class_id")
+        raw = link.get("class_id") if isinstance(link, dict) else None
+        try:
+            cid = int(raw or 0)
+        except (TypeError, ValueError):
+            cid = 0
+        if cid <= 0 and isinstance(link, dict):
+            token = str(link.get("token") or "").strip()
+            if token:
+                stored = self.get_catchup_link(token)
+                if isinstance(stored, dict):
+                    try:
+                        cid = int(stored.get("class_id") or 0)
+                    except (TypeError, ValueError):
+                        cid = 0
+        if cid <= 0:
+            return ""
         return catchup_canonical_path(
             self._course_code_for_class(cid),
             str(link.get("live_module") or ""),
