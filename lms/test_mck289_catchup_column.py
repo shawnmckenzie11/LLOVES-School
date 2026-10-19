@@ -300,6 +300,47 @@ class LessonSlidesCatchupTests(Base):
         self.assertIn(COPY_CLOSED_HEADING, after_pin.get_data(as_text=True))
         self.assertEqual(self._answer_count(), before)
 
+    def test_expired_direct_url_returns_403_on_get_and_post(self) -> None:
+        """A past deadline with is_open still 1 forbids the page and an answer POST."""
+        self._arm(is_test=False, module="M1", slot="C1")
+        self._post_end()
+        before = self._answer_count()
+        self.school.conn.execute(
+            """
+            UPDATE catchup_links
+            SET open_until = ?, is_open = 1
+            WHERE class_id = ? AND live_module = 'M1' AND live_slot = 'C1'
+              AND COALESCE(is_test, 0) = 0
+            """,
+            ("2020-01-22T15:00:00-05:00", self.class_id),
+        )
+        self.school.conn.commit()
+        row = self.school.conn.execute(
+            """
+            SELECT token FROM catchup_links
+            WHERE class_id = ? AND live_module = 'M1' AND live_slot = 'C1'
+              AND COALESCE(is_test, 0) = 0
+            """,
+            (self.class_id,),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.token = str(row["token"])
+        path = self.catchup_url()
+        student = self.app.test_client()
+        got = student.get(path, follow_redirects=False)
+        self.assertEqual(got.status_code, 403)
+        posted = student.post(
+            path,
+            data={"question_key": "item:q0", "answer": "A"},
+            follow_redirects=False,
+        )
+        self.assertEqual(posted.status_code, 403)
+        with self.assertRaises(PermissionError):
+            self.school.submit_catchup_answer(
+                self.token, self.students[0], "item:q0", "A"
+            )
+        self.assertEqual(self._answer_count(), before)
+
     def test_table_payload_and_page_omit_catchup_secrets(self) -> None:
         """The Lesson Slides payload and page do not carry a catch-up token."""
         self._arm(is_test=False, module="M1", slot="C1")

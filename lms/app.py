@@ -10529,7 +10529,12 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 "student/catchup.html", closed=COPY_CLOSED, **page_ctx
             ), 403
 
-        if not int(link["is_open"]):
+        from catchup_landing import link_still_open
+
+        # is_open alone stays 1 after the deadline. The stored open_until
+        # is what closes the direct URL and every POST on this page,
+        # including answer submit.
+        if not link_still_open(school, {**link, "class_id": class_id}):
             return closed()
         student_id = identity_for_class(session, school, class_id)
         action = request.form.get("action") if request.method == "POST" else None

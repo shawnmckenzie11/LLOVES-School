@@ -37784,9 +37784,17 @@ class SchoolDB(LovesDB):
     def submit_catchup_answer(
         self, token: str, student_id: int, question_key: str, answer: Any
     ) -> bool:
-        """Store one catch-up answer with ``source='catchup'``. Team points untouched."""
+        """Store one catch-up answer with ``source='catchup'``. Team points untouched.
+
+        A past ``open_until`` is closed even when ``is_open`` is still 1.
+        The token is not logged, and a refusal writes no answer row.
+        """
+        from catchup_landing import link_still_open
+
         link = self.get_catchup_link(token)
-        if link is None or not int(link["is_open"]):
+        if link is None or not link_still_open(
+            self, {**link, "class_id": int(link["class_id"])}
+        ):
             raise PermissionError("closed")
         allowed = {
             q["question_key"] for q in self.catchup_questions(token, student_id) if not q["answered"]
