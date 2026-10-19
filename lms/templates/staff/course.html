@@ -930,6 +930,13 @@
     <div class="card lesson-slides-table-card" id="lesson-slides-root" data-class-id="{{ cls.id }}">
       <h2>Lesson Slides</h2>
       <p class="hint">One row per live class. The latest real run is the deck and catch-up ground truth (join code, questions, completion counts).</p>
+      <form class="ls-catchup-setting" id="ls-catchup-setting" autocomplete="off">
+        <label for="ls-catchup-days">Close catch-up automatically after</label>
+        <input id="ls-catchup-days" name="days" type="number" inputmode="numeric" min="1" max="90" step="1" value="7" required>
+        <span>days</span>
+        <span class="hint compact" id="ls-catchup-days-status" hidden></span>
+      </form>
+      <p class="hint compact">Counted from when the live class ended. Classes that already ended keep their current window. Closing catch-up blocks access and keeps student answers.</p>
       <div class="ls-filter-bar" role="toolbar" aria-label="Question filters">
         <span class="ls-filter-label">Questions</span>
         <button type="button" class="secondary ls-filter on" data-ls-filter="all">All</button>

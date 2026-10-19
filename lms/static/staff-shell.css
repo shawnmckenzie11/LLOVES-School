@@ -2318,6 +2318,22 @@ body.staff-shell table.ls-run-table td {
   vertical-align: top;
   border-bottom: 1px solid var(--border, #d8dde6);
 }
+body.staff-shell .ls-catchup-setting {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.75rem 0 0.25rem;
+}
+body.staff-shell .ls-catchup-setting input {
+  width: 4.25rem;
+}
+body.staff-shell .ls-catchup-cell {
+  white-space: nowrap;
+}
+body.staff-shell .ls-catchup-label {
+  margin-right: 0.45rem;
+}
 body.staff-shell .ls-filter-bar {
   display: flex;
   flex-wrap: wrap;

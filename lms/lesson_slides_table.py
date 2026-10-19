@@ -101,6 +101,7 @@ def _question_summary_text(summary: dict[str, Any]) -> str:
     return " · ".join(parts)
 
 
+from catchup_landing import catchup_access_view
 from lesson_slides_run_policy import display_ended_at_from_latest, effective_run_is_real
 from participation_real_students import exclude_participation_answer_student_ids
 from set_class import (
@@ -195,9 +196,6 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
         elif catchup_run_visible_for_staff(school, cid, catchup):
             run_key = str(catchup["run_key"])
         has_run = bool(run_key)
-        catchup_url = ""
-        if catchup and has_run:
-            catchup_url = school.catchup_public_url(cid, catchup)
         deck_url = ""
         if latest and str(latest.get("presentation_url") or "").strip():
             deck_url = str(latest["presentation_url"])
@@ -230,11 +228,12 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
                 "summary": summary,
                 "questions": questions,
                 "deck_url": deck_url,
-                "catchup_url": catchup_url,
-                "catchup_enabled": has_run and bool(catchup_url),
+                "catchup_url": "",
+                "catchup_enabled": has_run and bool(catchup),
                 "run_key": run_key,
                 "is_test": False,
                 "live_session_id": None,
+                **catchup_access_view(school, catchup if has_run else None),
             }
         )
     seen = {(str(row["module"]), str(row["slot"])) for row in rows}
@@ -273,6 +272,7 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
                 "run_key": run_key,
                 "is_test": False,
                 "live_session_id": None,
+                **catchup_access_view(school, None),
             }
         )
     try:
@@ -299,12 +299,10 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
         run_key = str(latest.get("run_key") or "").strip()
         link = _test_catchup_for_run(school, cid, run_key, latest.get("live_session_id"))
         join_code = ""
-        catchup_url = ""
         if link:
             join_code = str(
                 link.get("portal_join_code") or link.get("token") or ""
             ).strip()
-            catchup_url = school.catchup_public_url(cid, link)
         if not join_code:
             join_code = str(latest.get("session_code") or "").strip()
         questions = school.lesson_slides_question_rows(
@@ -336,18 +334,24 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
                 "summary": summary,
                 "questions": questions,
                 "deck_url": str(latest.get("presentation_url") or "").strip(),
-                "catchup_url": catchup_url,
-                "catchup_enabled": bool(catchup_url),
+                "catchup_url": "",
+                "catchup_enabled": bool(link),
                 "run_key": run_key,
                 "is_test": True,
                 "live_session_id": latest.get("live_session_id"),
                 "status": "test",
                 "status_label": "TEST",
+                **catchup_access_view(school, link),
             }
         )
     rows.sort(key=_lesson_row_sort_key)
     _stamp_lesson_slide_status(rows)
-    return {"ok": True, "course": course, "rows": rows}
+    return {
+        "ok": True,
+        "course": course,
+        "catchup_auto_close_days": school.catchup_auto_close_days(cid),
+        "rows": rows,
+    }
 
 
 def _test_catchup_for_run(
