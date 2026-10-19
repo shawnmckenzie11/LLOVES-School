@@ -721,17 +721,27 @@ except GroupAnswerLocked:
         ).get_json()
         self.assertTrue(third.get("unchanged"), third)
 
-    def test_rank_together_is_unchanged(self) -> None:
+    def test_saved_rank_together_plays_as_take_turns(self) -> None:
+        """A row saved as Rank together opens as Take turns and is not rewritten."""
         row = self._rank_row()
+        rv = self.client.patch(
+            f"/api/live-sessions/{self.session_id}/items/{row['id']}/settings",
+            json={"group_rank_mode": "together", "publish_mode": "group_submit"},
+        )
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        before = self.school.get_live_session_item(self.session_id, int(row["id"]))
+        self.assertEqual(before["item"]["group_rank_mode"], "together")
         item = self._publish(row)
         o = self._opts(item)
         card = self._card("Ava", item)
-        self.assertEqual(card["rank_mode"], "together")
-        self.assertNotIn("turns", card)
+        self.assertEqual(card["rank_mode"], "turns")
+        self.assertIn("turns", card)
         rv = self._post("Ava", item, "group-draft", {"tap": o[0]})
-        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
-        rv = self._post("Cy", item, "rank-turn", {"option_id": o[1]})
         self.assertEqual(rv.status_code, 400)
+        rv = self._post("Ava", item, "rank-turn", {"option_id": o[0]})
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        after = self.school.get_live_session_item(self.session_id, int(item["id"]))
+        self.assertEqual(after["item"]["group_rank_mode"], "together")
 
 
 class GroupFlowsClientTests(unittest.TestCase):
@@ -755,7 +765,8 @@ class GroupFlowsClientTests(unittest.TestCase):
         self.assertIn('"group-pick", { choice', student)
         self.assertIn('"rank-turn", { option_id', student)
         self.assertIn("/rank-turn/skip", staff)
-        self.assertIn("group_rank_mode", staff)
+        self.assertNotIn("Rank together", staff)
+        self.assertNotIn("data-group-rank-mode", staff)
         self.assertIn("groupSubmitVariant", staff)
         # Wonder review: teacher labels for option B.
         self.assertIn('moveOn: "Start group step"', staff)

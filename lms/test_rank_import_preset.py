@@ -115,8 +115,12 @@ class RankImportPresetTests(unittest.TestCase):
         self.assertNotIn("group_rank_mode", stored)
         self.assertNotIn("import_group_preset", stored)
 
-    def test_teacher_can_change_the_preset_before_publish(self) -> None:
-        """Rank together, or Individual, sticks through a deck refresh and publishes."""
+    def test_saving_together_still_plays_as_take_turns(self) -> None:
+        """A settings write of together is stored, and the card still takes turns.
+
+        A deck refresh does not rewrite that token to turns. Individual
+        still sticks, and the mode stays locked once published.
+        """
         _placed, live = self._import(self._keyed_id(), 4)
         res = self.client.patch(
             f"/api/live-sessions/{self.session_id}/items/{live['id']}/settings",
@@ -125,12 +129,15 @@ class RankImportPresetTests(unittest.TestCase):
         self.assertEqual(res.status_code, 200, res.get_data(as_text=True))
         self.school.ensure_live_session_items(self.session_id)
         row = self.school.get_live_session_item(self.session_id, int(live["id"]))
-        self.assertEqual(self.school._group_rank_mode(row), "together")
+        self.assertEqual(row["item"]["group_rank_mode"], "together")
+        self.assertEqual(self.school._group_rank_mode(row), "turns")
         item = self._publish(live, "group_submit")
-        self.assertEqual(self._card("Ava", item)["rank_mode"], "together")
-        self.assertEqual(self._post("Ava", item, "group-draft", {"tap": self._opts(item)[0]}).status_code, 200)
+        self.assertEqual(self._card("Ava", item)["rank_mode"], "turns")
+        self.assertEqual(self._post("Ava", item, "group-draft", {"tap": self._opts(item)[0]}).status_code, 400)
+        self.assertEqual(self._post("Ava", item, "rank-turn", {"option_id": self._opts(item)[0]}).status_code, 200)
+        kept = self.school.get_live_session_item(self.session_id, int(item["id"]))
+        self.assertEqual(kept["item"]["group_rank_mode"], "together")
 
-        # A second keyed card switched to Individual publishes individually.
         keyed = [r for r in self._search_rank() if r.get("rank_key")]
         _p2, live2 = self._import(int(keyed[1]["question_id"]), 5)
         res = self.client.patch(
@@ -143,21 +150,22 @@ class RankImportPresetTests(unittest.TestCase):
         self.assertEqual((row2["response_mode"], row2["publish_mode"]), ("individual", "individual"))
         item2 = self._publish(live2, "individual")
         self.assertEqual(item2["response_mode"], "individual")
-        # Locked once published, as before.
         res = self.client.patch(
             f"/api/live-sessions/{self.session_id}/items/{item['id']}/settings",
             json={"group_rank_mode": "turns"},
         )
         self.assertEqual(res.status_code, 400)
 
-    def test_opinion_import_keeps_todays_default(self) -> None:
-        """No answer order: Individual, Rank together when switched to Group."""
+    def test_opinion_import_plays_as_take_turns_without_writing_a_mode(self) -> None:
+        """No answer order: Individual until Group, then Take turns, token unstored."""
         placed, live = self._import(self._opinion_row(), 4)
         self.assertNotIn("group_rank_mode", placed)
         self.assertNotIn("import_group_preset", placed)
         self.assertEqual((live["response_mode"], live["publish_mode"]), ("individual", "individual"))
         item = self._publish(live, "group_submit")
-        self.assertEqual(self._card("Ava", item)["rank_mode"], "together")
+        self.assertEqual(self._card("Ava", item)["rank_mode"], "turns")
+        row = self.school.get_live_session_item(self.session_id, int(item["id"]))
+        self.assertNotIn("group_rank_mode", row["item"])
 
     def test_reimport_adds_no_bank_rows_and_keeps_the_preset(self) -> None:
         """Importing the same item again is fine: no new bank rows, card still preset."""

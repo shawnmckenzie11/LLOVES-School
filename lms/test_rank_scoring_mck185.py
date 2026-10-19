@@ -89,8 +89,8 @@ class SpotsHarness(StepMixin, ChallengeHarness):
         return self._publish(row)
 
     def _submit(self, item: dict[str, Any], name: str, order: list[str]) -> None:
-        rv = self._post(name, item, "group-submit", {"order": order})
-        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        """Send ``order`` by Take turns. The last spot submits a plain rank."""
+        self._turns(item, tuple(self._turn_roster(name, item)), order)
 
     def _turns(self, item: dict[str, Any], names: tuple[str, ...], order: list[str]) -> None:
         """Place ``order`` one spot at a time; whoever's turn it is places."""
@@ -600,26 +600,26 @@ class FullOrderTests(SpotsHarness):
             out.append(rv.get_data(as_text=True))
         return "\n".join(out)
 
-    def test_rank_together_resend_loop_cannot_reveal_correctness_before_close(self) -> None:
-        """Gate MED-1 on f0a15be: a sent Rank together order can be changed
-        and resent, so under "lock" a team could resend until the line came.
-        Plain Rank together now waits for Close: no line in any phone's
-        state, or the teacher view, however often a team resends."""
+    def test_saved_together_plain_rank_cannot_hunt_by_resending(self) -> None:
+        """A deck saved as Rank together plays as Take turns.
+
+        The last spot sends once. A later place cannot replace that order,
+        so a team cannot hunt for the full-order line by resending. A wrong
+        order shows no line. A right order shows it at the last spot.
+        """
         self.assertEqual(rank_challenge.FULL_ORDER_WHEN, "lock")
-        item = self._spots()  # Rank together, not a Team challenge
-        tries = [SWAP, ["o2", "o1", "o3", "o4"], KEY_IDS, SWAP, KEY_IDS]
-        for n, order in enumerate(tries):
-            sender = TEAM_A[n % len(TEAM_A)]
-            self._submit(item, sender, order)
-            self._submit(item, "Ben", KEY_IDS if n % 2 else SWAP)
-            with self.subTest(send=n):
-                self.assertNotIn("full_order", self._all_phone_states())
-                for name in TEAM_A + TEAM_B:
-                    self.assertIsNone(self._notice(name, item))
-                self.assertNotIn("full_order", self._view(item))
-        self._close(item)  # the last sends were right: the line comes at Close
-        self.assertTrue(self._notice("Ava", item)["you"])
-        self.assertIn("full_order", self._all_phone_states())
+        wrong = self._spots()
+        self._submit(wrong, "Ava", SWAP)
+        self.assertIsNone(self._notice("Ava", wrong))
+        self.assertNotIn("full_order", self._view(wrong))
+        again = self._post("Ava", wrong, "rank-turn", {"option_id": KEY_IDS[0]})
+        self.assertEqual(again.status_code, 409)
+        self.assertEqual(self._row(wrong, "Ava")["submit_count"], 1)
+
+        right = self._spots()
+        self._submit(right, "Ava", KEY_IDS)
+        self.assertTrue(self._notice("Ava", right)["you"])
+        self.assertEqual(len(self._notice("Ben", right)["teams"]), 1)
 
     def test_lock_waits_for_close_with_live_results_off(self) -> None:
         row = self._rank_row()
@@ -655,11 +655,12 @@ class FullOrderTests(SpotsHarness):
         self.assertNotIn("full_order", self._view(item))
 
     def test_lock_timing_shows_as_soon_as_a_final_order_is_right(self) -> None:
-        """Take turns (not Team challenge) may show the line at the last spot."""
+        """A plain group rank shows the line at the last spot."""
         with mock.patch.object(rank_challenge, "FULL_ORDER_WHEN", "lock"):
-            item = self._spots()  # Rank together spots, not Team challenge
+            item = self._spots()
             self._submit(item, "Ava", KEY_IDS)
-            self.assertIsNone(self._notice("Ben", item))
+            self.assertTrue(self._notice("Ava", item)["you"])
+            self.assertEqual(len(self._notice("Ben", item)["teams"]), 1)
             self._close(item)
             self.assertTrue(self._notice("Ava", item)["you"])
             self.assertIn("full_order", self._view(item))

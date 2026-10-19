@@ -20,7 +20,7 @@ function check(cond, msg) {
 
 // One key per group type; individual has none.
 check(groupInstructionKey({ response_mode: "group_consensus" }, { type: "open" }) === "open", "open");
-check(groupInstructionKey({ response_mode: "group_submit" }, { type: "rank" }) === "rank", "rank");
+check(groupInstructionKey({ response_mode: "group_submit" }, { type: "rank" }) === "rank_turns", "rank");
 check(groupInstructionKey({ response_mode: "group_submit" }, { type: "mc" }) === "mc_pick", "mc step 1");
 check(
   groupInstructionKey({ response_mode: "group_submit", group_submit: { flow: "pick_then_agree", pick_step: true } }, { type: "mc" }) === "mc_pick",
@@ -35,9 +35,9 @@ check(
   "mc step 2"
 );
 check(
-  groupInstructionKey({ response_mode: "group_submit", group_submit: { rank_mode: "turns" } }, { type: "rank" }) ===
+  groupInstructionKey({ response_mode: "group_submit", group_submit: { rank_mode: "together" } }, { type: "rank" }) ===
     "rank_turns",
-  "rank turns"
+  "saved rank together still take turns"
 );
 check(groupInstructionKey({ response_mode: "individual" }, { type: "mc" }) === "", "individual");
 
@@ -47,18 +47,17 @@ check(
     "Everyone writes their own answer first. Then your group sends one answer together.",
   "open copy"
 );
-check(GROUP_INSTRUCTION_COPY.rank === "Rank these together. Anyone can move them.", "rank copy");
+check(GROUP_INSTRUCTION_COPY.rank_turns === "Take turns. Each person places one item, then passes.", "turns copy");
 check(GROUP_INSTRUCTION_COPY.mc_pick === "Pick your own answer first.", "mc step 1 copy (Wonder v2)");
 check(
   GROUP_INSTRUCTION_COPY.mc_agree === "Now agree on one answer. Whoever sends it writes why.",
   "mc step 2 copy (Wonder v2)"
 );
-check(GROUP_INSTRUCTION_COPY.rank_turns === "Take turns. Each person places one item, then passes.", "turns copy");
 
 // One line, only while active.
 const active = groupInstructionHtml({ response_mode: "group_submit", status: "active" }, { type: "rank" });
 check(active.split("<p").length - 1 === 1, "one line");
-check(active.includes('data-group-instruction="rank"'), "rank marker");
+check(active.includes('data-group-instruction="rank_turns"'), "rank marker");
 check(groupInstructionHtml({ response_mode: "group_submit", status: "closed" }, { type: "rank" }) === "", "none when closed");
 check(groupInstructionHtml({ response_mode: "individual", status: "active" }, { type: "mc" }) === "", "none individual");
 

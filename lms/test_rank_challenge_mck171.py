@@ -255,8 +255,52 @@ class ChallengeHarness(unittest.TestCase):
     def _leave(self, name: str) -> None:
         self.school.mark_live_session_attendee_left(self.session_id, student_id=self.ids[name])
 
+    def _turn_roster(self, name: str, item: dict[str, Any]) -> list[str]:
+        """Teammates still in the room, in roster order, for a Take turns rotation.
+
+        Args:
+            name: A student on the team.
+            item: Published lifecycle row.
+        """
+        team_id = self._team(name, item)
+        active = set(self.school._active_team_member_ids(self.session_id, int(team_id)))
+        by_id = {sid: who for who, sid in self.ids.items()}
+        names: list[str] = []
+        for team in self.school._named_teams_for_live_session(self.session_id):
+            if int(team.get("id") or 0) != int(team_id):
+                continue
+            for member in team.get("members") or []:
+                try:
+                    sid = int(member["id"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                who = by_id.get(sid)
+                if who and sid in active:
+                    names.append(who)
+        return names or [name]
+
     def _order(self, name: str, item: dict[str, Any], order: list[str]):
-        return self._post(name, item, "group-draft", {"order": order})
+        """Place ``order`` one spot at a time.
+
+        Group rank is Take turns (MCK-281). Spots already on the card are
+        left as they are. A locked team returns the refusal for another place.
+        """
+        roster = self._turn_roster(name, item)
+        card = self._card(name, item)
+        if (card.get("race") or {}).get("locked"):
+            return self._post(name, item, "rank-turn", {"option_id": order[0]})
+        placed = len(((card.get("turns") or {}).get("spots")) or [])
+        last = None
+        for index, opt in enumerate(order):
+            if index < placed:
+                continue
+            who = roster[index % len(roster)]
+            last = self._post(who, item, "rank-turn", {"option_id": opt})
+            if last.status_code != 200:
+                return last
+        if last is None:
+            return self._post(name, item, "rank-turn", {"option_id": order[-1]})
+        return last
 
     def _team(self, name: str, item: dict[str, Any]) -> int:
         return int(self._card(name, item)["team_id"])
@@ -338,29 +382,34 @@ class LockInTests(ChallengeHarness):
         rv = self._order("Cy", item, ["o1", "o2", "o3", "o4"])
         self.assertEqual(rv.status_code, 409)
         body = rv.get_json()
-        self.assertTrue(body["locked"])
-        self.assertEqual(body["error"], "Waiting for the reveal.")
+        self.assertEqual(body["reason"], "done")
+        self.assertEqual(body["error"], "Your group's order is already in.")
         self.assertTrue(body["group_submit"]["race"]["locked"])
         rv = self._post("Cy", item, "group-draft", {"clear": True})
-        self.assertEqual(rv.status_code, 409)
+        self.assertEqual(rv.status_code, 400)
         rv = self._post("Eli", item, "group-submit", {"order": ["o1", "o2", "o3", "o4"]})
-        self.assertEqual(rv.status_code, 409)
+        self.assertEqual(rv.status_code, 400)
         rv = self._post("Eli", item, "rank-agree", {"agree": False})
         self.assertEqual(rv.status_code, 400)
         # Agreeing again to the locked order is a quiet no-op.
         rv = self._post("Eli", item, "rank-agree", {"agree": True, "order": KEY_IDS})
         self.assertEqual(rv.status_code, 200)
         rv = self._post("Eli", item, "group-submit", {"order": KEY_IDS})
-        self.assertEqual(rv.status_code, 200)
+        self.assertEqual(rv.status_code, 400)
         row = self._row(item, "Ava")
         self.assertEqual(row["submit_count"], 1)
         self.assertEqual(row["finalized_at"], stamp)
         self.assertEqual(self._pos(item, row["final_answer"]["order"]), KEY_IDS)
 
     def test_send_is_explicit_lock(self) -> None:
+        """A shared send is refused. Lock in is the student's rank-agree tap."""
         item = self._challenge()
         self._order("Ava", item, KEY_IDS)
         rv = self._post("Ava", item, "group-submit", {"order": KEY_IDS})
+        self.assertEqual(rv.status_code, 400)
+        self.assertEqual(self._row(item, "Ava")["submit_count"], 0)
+        self.assertFalse(self._card("Ava", item)["race"]["locked"])
+        rv = self._post("Ava", item, "rank-agree", {"agree": True, "order": KEY_IDS})
         self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
         card = rv.get_json()["group_submit"]
         self.assertTrue(card["race"]["locked"])
@@ -388,34 +437,24 @@ class LockInTests(ChallengeHarness):
         self.assertTrue(rv.get_json()["group_submit"]["race"]["locked"])
 
     def test_teacher_lock_in_for_team(self) -> None:
+        """Teacher Lock in is refused. The team's draft is left as placed."""
         item = self._challenge()
         team = self._team("Ava", item)
         url = f"/api/live-sessions/{self.session_id}/items/{item['id']}/rank-lock"
-        self._order("Ava", item, KEY_IDS[:3])
-        lane = next(t for t in self._view(item)["race"]["teams"] if t["team_id"] == team)
-        self.assertFalse(lane["can_lock"])
+        self._order("Ava", item, KEY_IDS)
+        before = self._row(item, "Ava")
+        self.assertIsNone(before.get("finalized_at"))
         rv = self.client.post(url, json={"team_id": team})
         self.assertEqual(rv.status_code, 400)
-        self.assertEqual(rv.get_json()["error"], "This group hasn't placed every item yet.")
+        self.assertEqual(
+            rv.get_json()["error"],
+            "Lock in is for an open Team challenge (Rank together).",
+        )
         self.assertEqual(self.client.post(url, json={}).status_code, 400)
-        self._order("Ava", item, KEY_IDS)
-        lane = next(t for t in self._view(item)["race"]["teams"] if t["team_id"] == team)
-        self.assertTrue(lane["can_lock"])
-        with mock.patch.object(app_module, "emit_answer_landed") as emit:
-            rv = self.client.post(url, json={"team_id": team})
-            self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
-            self.assertEqual(emit.call_count, 1)
-        self.assertTrue(rv.get_json()["locked"])
-        row = self._row(item, "Ava")
-        self.assertEqual(row["final_answer"]["locked_by"], "teacher")
-        self.assertTrue(row["finalized_at"])
-        self.assertIsNone(row["last_submitter_student_id"])
-        self.assertEqual(self._card("Cy", item)["race"]["locked_by"], "teacher")
-        with mock.patch.object(app_module, "emit_answer_landed") as emit:
-            rv = self.client.post(url, json={"team_id": team})
-            self.assertEqual(rv.status_code, 200)
-            self.assertFalse(rv.get_json()["locked"])
-            self.assertEqual(emit.call_count, 0)
+        after = self._row(item, "Ava")
+        self.assertIsNone(after.get("finalized_at"))
+        self.assertEqual(after.get("submit_count") or 0, 0)
+        self.assertFalse(self._card("Cy", item)["race"]["locked"])
 
     def test_teacher_lock_is_for_rank_together_challenges_only(self) -> None:
         turns = self._challenge(mode="turns")
@@ -449,23 +488,26 @@ class LockInTests(ChallengeHarness):
 class AsTodayTests(ChallengeHarness):
     """Without Team challenge, group rank is byte-for-byte today's flow."""
 
-    def test_plain_rank_together_resends_and_has_no_race(self) -> None:
+    def test_plain_rank_together_sends_once_and_has_no_race(self) -> None:
+        """A plain rank sends on the last spot. A shared resend is refused."""
         item = self._publish(self._rank_row())  # key, but no Team challenge
-        self._order("Ava", item, KEY_IDS)
-        self.assertEqual(self._post("Ava", item, "group-submit", {"order": KEY_IDS}).status_code, 200)
-        rv = self._post("Cy", item, "group-submit", {"order": ["o1", "o2", "o3", "o4"]})
-        self.assertEqual(rv.status_code, 200)
+        rv = self._order("Ava", item, KEY_IDS)
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
         card = rv.get_json()["group_submit"]
         self.assertNotIn("race", card)
-        self.assertNotIn("locked", card)
+        self.assertTrue(card["turns"]["done"])
+        self.assertEqual(self._post("Ava", item, "group-submit", {"order": KEY_IDS}).status_code, 400)
+        rv = self._post("Cy", item, "group-submit", {"order": ["o1", "o2", "o3", "o4"]})
+        self.assertEqual(rv.status_code, 400)
         row = self._row(item, "Ava")
-        self.assertEqual(row["submit_count"], 2)
+        self.assertEqual(row["submit_count"], 1)
         self.assertIsNone(row["finalized_at"])
+        self.assertEqual(self._pos(item, row["final_answer"]["order"]), KEY_IDS)
         self.assertEqual(self._post("Ava", item, "rank-agree", {"agree": True}).status_code, 400)
         view = self._view(item)
         self.assertNotIn("race", view)
         team = next(t for t in view["rank"]["teams"] if t["team_id"] == self._team("Ava", item))
-        self.assertEqual(self._pos(item, team["order"]), ["o1", "o2", "o3", "o4"])  # teacher keeps orders live
+        self.assertEqual(self._pos(item, team["order"]), KEY_IDS)
         self.assertEqual(
             self.client.post(f"/api/live-sessions/{self.session_id}/items/{item['id']}/rank-lock", json={"team_id": 1}).status_code,
             400,
@@ -549,7 +591,8 @@ class NoLeakTests(ChallengeHarness):
         light = self.school.light_group_results(self.session_id)[str(item["id"])]
         self.assertNotEqual(light["response_seq"], seq)
         lane = next(t for t in light["race"]["teams"] if t["team_id"] == self._team("Ben", item))
-        self.assertTrue(lane["can_lock"])
+        self.assertEqual(lane["placed"], 4)
+        self.assertNotIn("can_lock", lane)
         self.assertFalse(lane["locked"])
         closed = self._close(item)
         view = self._view(closed)
@@ -614,7 +657,7 @@ class NoLeakTests(ChallengeHarness):
         self.assertTrue(ben["absent"])
         self.assertEqual(ben["present"], 0)
         self.assertEqual(ben["members"], 3)  # away pips (dashed) on the projector
-        self.assertFalse(ben["can_lock"])
+        self.assertNotIn("can_lock", ben)
         self.assertFalse(lanes[self._team("Ava", item)]["absent"])
 
     def test_count_is_present_teams_only(self) -> None:
@@ -811,8 +854,13 @@ class AliasTests(ChallengeHarness):
     def test_real_ids_from_an_old_tab_still_work(self) -> None:
         item = self._challenge()
         real = self._as_real(item, KEY_IDS)
-        rv = self.students["Ava"].post(f"/api/student/live-items/{item['id']}/group-draft", json={"order": real})
-        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        roster = self._turn_roster("Ava", item)
+        for index, opt in enumerate(real):
+            who = roster[index % len(roster)]
+            rv = self.students[who].post(
+                f"/api/student/live-items/{item['id']}/rank-turn", json={"option_id": opt}
+            )
+            self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
         for name in ("Ava", "Cy", "Eli"):
             rv = self.students[name].post(
                 f"/api/student/live-items/{item['id']}/rank-agree", json={"agree": True, "order": real}

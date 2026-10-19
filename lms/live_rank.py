@@ -661,13 +661,17 @@ class TurnConflict(ValueError):
 
 
 def normalize_rank_mode(raw: Any) -> str:
-    """Return ``together`` or ``turns`` (anything else is ``together``).
+    """Group rank always runs as Take turns.
+
+    A deck saved as ``together`` (MCK-281) is read as ``turns``. This does
+    not write the question or any answer back; callers must not persist the
+    result over ``group_rank_mode``.
 
     Args:
-        raw: Stored or posted mode token.
+        raw: Stored or posted mode token. Accepted and ignored.
     """
-    token = str(raw or "").strip().lower()
-    return RANK_MODE_TURNS if token == RANK_MODE_TURNS else RANK_MODE_TOGETHER
+    del raw
+    return RANK_MODE_TURNS
 
 
 def empty_turns_state() -> dict[str, Any]:

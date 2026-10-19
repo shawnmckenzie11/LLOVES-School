@@ -31,6 +31,7 @@ from live_rank import (  # noqa: E402
     parse_rank_order,
     toggle_rank_order,
 )
+from school_db import RankTurnConflict  # noqa: E402
 from test_live_class_backend_state import metadata_fixture  # noqa: E402
 
 RANK_OPTIONS = [
@@ -260,28 +261,38 @@ class RankLiveSessionTests(unittest.TestCase):
             self.session_id, int(row["id"]), publish_mode=mode
         )
 
-    def _submit_order(
-        self, item: dict[str, Any], student_id: int, order: list[str]
-    ) -> dict[str, Any]:
-        """Tap a full shared order, then submit it for the team."""
+    def _turn_roster(self, item: dict[str, Any], starter_id: int) -> list[int]:
+        """Present teammates, rotated so ``starter_id`` places first."""
 
-        for option_id in order:
-            self.school.save_group_mc_draft(
+        card = self.school.student_group_submit_state(item, starter_id)
+        assert card is not None
+        roster = self.school._active_team_member_ids(
+            self.session_id, int(card["team_id"])
+        )
+        if starter_id in roster:
+            index = roster.index(int(starter_id))
+            roster = roster[index:] + roster[:index]
+        return roster
+
+    def _place_order(
+        self, item: dict[str, Any], starter_id: int, order: list[str]
+    ) -> dict[str, Any]:
+        """Place one option per turn, rotating present teammates from the starter.
+
+        The last place of a full order sends it. A shorter list stays a draft.
+        """
+
+        roster = self._turn_roster(item, starter_id)
+        self.assertTrue(roster)
+        card: dict[str, Any] = {}
+        for index, option_id in enumerate(order):
+            card = self.school.rank_turn_place(
                 self.session_id,
                 int(item["id"]),
-                student_id,
-                choice="",
-                why="",
-                tap=option_id,
+                roster[index % len(roster)],
+                option_id=option_id,
             )
-        return self.school.submit_group_mc_answer(
-            self.session_id,
-            int(item["id"]),
-            student_id,
-            choice="",
-            why="",
-            order=order,
-        )
+        return card
 
     def test_allow_list_accepts_rank_and_rejects_junk(self) -> None:
         """Staff Add New stores rank option ids and still rejects essay."""
@@ -335,19 +346,19 @@ class RankLiveSessionTests(unittest.TestCase):
                 "run_as_group"
             ]
         )
-        first = self._submit_order(published, self.student_ids[0], ["o2", "o1", "o3"])
+        first = self._place_order(published, self.student_ids[0], ["o2", "o1", "o3"])
         self.assertEqual(first["phase"], "submitted")
         self.assertEqual(first["order"], ["o2", "o1", "o3"])
         self.assertNotIn("submitter_log", first)
-        again = self.school.submit_group_mc_answer(
+        # The finisher retrying their own last place is a no-op, not a second vote.
+        again = self.school.rank_turn_place(
             self.session_id,
             int(published["id"]),
             self.student_ids[0],
-            choice="",
-            why="",
-            order=["o2", "o1", "o3"],
+            option_id="o3",
         )
         self.assertEqual(again["phase"], "submitted")
+        self.assertEqual(again["order"], ["o2", "o1", "o3"])
         open_view = self.school.live_session_item_results(
             self.session_id, int(published["id"])
         )
@@ -409,11 +420,13 @@ class RankLiveSessionTests(unittest.TestCase):
         self.assertIsNone(state.get("mc_tally"))
 
     def test_light_poll_sees_a_new_group_rank_submission(self) -> None:
-        """A team submit moves the light-poll token and the teacher collate.
+        """A take-turns place moves the light-poll token. A finish counts one team.
 
         The staff light poll does not rebuild Borda. It reports how many
-        teams have submitted plus a revision that also moves on re-submit,
-        which is what makes the Questions card refetch within one tick.
+        teams have submitted plus a revision. A partial place keeps the
+        submitted-team count at 0. Finishing the order counts the team and
+        moves the revision. A place after the order is in changes nothing.
+        The other team's finish counts a second vote.
         """
 
         self._join(4)
@@ -426,7 +439,26 @@ class RankLiveSessionTests(unittest.TestCase):
         self.assertEqual(counts.get(item_id), 0)
         self.assertIn(item_id, revs)
         self.assertIsNone(before.get("mc_tally"))
-        self._submit_order(published, self.student_ids[0], ["o2", "o1", "o3"])
+        self.school.rank_turn_place(
+            self.session_id, item_id, self.student_ids[0], option_id="o2"
+        )
+        drafting = self.school.get_live_session_state(self.session_id, light=True)
+        self.assertEqual(
+            (drafting.get("lifecycle_response_counts") or {}).get(item_id),
+            0,
+        )
+        draft_card = self.school.student_group_submit_state(
+            published, self.student_ids[0]
+        )
+        assert draft_card is not None
+        self.assertEqual(draft_card["order"], ["o2"])
+        self.assertEqual(draft_card["phase"], "drafting")
+        self.school.rank_turn_place(
+            self.session_id, item_id, self.student_ids[2], option_id="o1"
+        )
+        self.school.rank_turn_place(
+            self.session_id, item_id, self.student_ids[0], option_id="o3"
+        )
         after = self.school.get_live_session_state(self.session_id, light=True)
         self.assertEqual(
             (after.get("lifecycle_response_counts") or {}).get(item_id),
@@ -434,7 +466,7 @@ class RankLiveSessionTests(unittest.TestCase):
         )
         self.assertNotEqual(
             str((after.get("lifecycle_rank_revs") or {}).get(item_id) or ""),
-            str(revs.get(item_id) or ""),
+            str((drafting.get("lifecycle_rank_revs") or {}).get(item_id) or ""),
         )
         view = self.school.live_session_item_results(self.session_id, item_id)
         submitted = [row for row in view["rank"]["teams"] if row.get("order")]
@@ -446,94 +478,110 @@ class RankLiveSessionTests(unittest.TestCase):
         self.assertEqual(waiting[0]["status"], "waiting")
         by_id = {row["option_id"]: row for row in view["rank"]["class_order"]}
         self.assertEqual(by_id["o2"]["points"], 2)
-        self._submit_order(published, self.student_ids[2], ["o3", "o2", "o1"])
+        with self.assertRaises(RankTurnConflict) as caught:
+            self.school.rank_turn_place(
+                self.session_id, item_id, self.student_ids[2], option_id="o1"
+            )
+        self.assertEqual(caught.exception.reason, "done")
+        refused = self.school.get_live_session_state(self.session_id, light=True)
+        self.assertEqual(
+            (refused.get("lifecycle_response_counts") or {}).get(item_id),
+            1,
+        )
+        self.assertEqual(
+            str((refused.get("lifecycle_rank_revs") or {}).get(item_id) or ""),
+            str((after.get("lifecycle_rank_revs") or {}).get(item_id) or ""),
+        )
+        held = self.school.live_session_item_results(self.session_id, item_id)
+        held_order = next(row for row in held["rank"]["teams"] if row.get("order"))
+        self.assertEqual(held_order["order"], ["o2", "o1", "o3"])
+        self._place_order(published, self.student_ids[1], ["o3", "o2", "o1"])
         revised = self.school.get_live_session_state(self.session_id, light=True)
         self.assertEqual(
             (revised.get("lifecycle_response_counts") or {}).get(item_id),
-            1,
+            2,
         )
         self.assertNotEqual(
             str((revised.get("lifecycle_rank_revs") or {}).get(item_id) or ""),
             str((after.get("lifecycle_rank_revs") or {}).get(item_id) or ""),
         )
         again = self.school.live_session_item_results(self.session_id, item_id)
-        voted = next(row for row in again["rank"]["teams"] if row.get("order"))
-        self.assertEqual(voted["order"], ["o3", "o2", "o1"])
+        orders = sorted(
+            tuple(row["order"]) for row in again["rank"]["teams"] if row.get("order")
+        )
+        self.assertEqual(orders, [("o2", "o1", "o3"), ("o3", "o2", "o1")])
         revised_points = {
             row["option_id"]: row["points"] for row in again["rank"]["class_order"]
         }
-        self.assertEqual(revised_points["o3"], 2)
+        self.assertEqual(revised_points["o2"], 3)
+        self.assertEqual(again["rank"]["responded"], 2)
         self.assertIsNone(revised.get("mc_tally"))
 
     def test_resubmit_overwrites_and_appends_the_staff_log(self) -> None:
-        """A changed shared order replaces the team vote and logs the editor."""
+        """The teammate who places the last spot is the staff-log submitter.
+
+        A later place does not replace the sent order or add a resubmit.
+        """
 
         self._join(4)
         self._teams(2)
         published = self._publish_rank("group_submit")
-        self._submit_order(published, self.student_ids[0], ["o1", "o2", "o3"])
-        revised = self._submit_order(published, self.student_ids[2], ["o3", "o2", "o1"])
-        self.assertEqual(revised["submitted_order"], ["o3", "o2", "o1"])
-        self.assertEqual(revised["last_submitter"], "Cedar")
+        sent = self._place_order(published, self.student_ids[2], ["o3", "o2", "o1"])
+        self.assertEqual(sent["submitted_order"], ["o3", "o2", "o1"])
+        self.assertEqual(sent["last_submitter"], "Cedar")
+        with self.assertRaises(RankTurnConflict) as caught:
+            self.school.rank_turn_place(
+                self.session_id,
+                int(published["id"]),
+                self.student_ids[0],
+                option_id="o1",
+            )
+        self.assertEqual(caught.exception.reason, "done")
         view = self.school.live_session_item_results(
             self.session_id, int(published["id"])
         )
         log = next(row for row in view["submitter_log"] if row["last_submitter"] == "Cedar")
-        self.assertEqual(log["resubmit_count"], 1)
+        self.assertEqual(log["resubmit_count"], 0)
         voted = next(row for row in view["rank"]["teams"] if row["order"])
         self.assertEqual(voted["order"], ["o3", "o2", "o1"])
         self.assertEqual(view["rank"]["responded"], 1)
 
     def test_resubmit_after_clear_changes_order_submitter_and_revision(self) -> None:
-        """Clear, then a new order, overwrites the team vote and the light token.
+        """Undo before the last spot leaves the team free to send a new order.
 
-        Ops: Change team order, Clear, tap a new order, Submit for team.
-        The clear must not freeze the submitted vote. The following submit
-        replaces ``submitted_order`` and ``last_submitter`` and moves
-        ``lifecycle_rank_revs`` so the teacher light poll refetches.
+        Taking back the latest place must not freeze the draft. Finishing a
+        different order sets ``submitted_order`` and ``last_submitter`` and
+        moves ``lifecycle_rank_revs``. Undo after the order is in is refused
+        and the sent order stays.
         """
 
         self._join(4)
         self._teams(2)
         published = self._publish_rank("group_submit")
         item_id = int(published["id"])
-        first = self._submit_order(published, self.student_ids[0], ["o1", "o2", "o3"])
-        self.assertEqual(first["submitted_order"], ["o1", "o2", "o3"])
-        self.assertEqual(first["last_submitter"], "Aspen")
-        cleared = self.school.save_group_mc_draft(
-            self.session_id,
-            item_id,
-            self.student_ids[2],
-            choice="",
-            why="",
-            clear=True,
+        started = self._place_order(published, self.student_ids[2], ["o1", "o2"])
+        self.assertEqual(started["order"], ["o1", "o2"])
+        self.assertEqual(started["phase"], "drafting")
+        self.assertEqual(started["submitted_order"], [])
+        cleared = self.school.rank_turn_place(
+            self.session_id, item_id, self.student_ids[0], undo=True
         )
-        self.assertEqual(cleared["order"], [])
-        self.assertEqual(cleared["submitted_order"], ["o1", "o2", "o3"])
-        self.assertEqual(cleared["last_submitter"], "Aspen")
-        drafted = {}
-        for option_id in ("o3", "o2", "o1"):
-            drafted = self.school.save_group_mc_draft(
-                self.session_id,
-                item_id,
-                self.student_ids[2],
-                choice="",
-                why="",
-                tap=option_id,
-            )
-        self.assertEqual(drafted["order"], ["o3", "o2", "o1"])
-        self.assertEqual(drafted["submitted_order"], ["o1", "o2", "o3"])
+        self.assertEqual(cleared["order"], ["o1"])
+        self.assertEqual(cleared["phase"], "drafting")
+        self.assertEqual(cleared["submitted_order"], [])
+        drafted = self.school.rank_turn_place(
+            self.session_id, item_id, self.student_ids[0], option_id="o3"
+        )
+        self.assertEqual(drafted["order"], ["o1", "o3"])
+        self.assertEqual(drafted["phase"], "drafting")
+        self.assertEqual(drafted["submitted_order"], [])
         before = self.school.get_live_session_state(self.session_id, light=True)
-        revised = self.school.submit_group_mc_answer(
-            self.session_id,
-            item_id,
-            self.student_ids[2],
-            choice="",
-            why="",
-            order=["o3", "o2", "o1"],
+        revised = self.school.rank_turn_place(
+            self.session_id, item_id, self.student_ids[2], option_id="o2"
         )
-        self.assertEqual(revised["submitted_order"], ["o3", "o2", "o1"])
+        self.assertEqual(revised["submitted_order"], ["o1", "o3", "o2"])
         self.assertEqual(revised["last_submitter"], "Cedar")
+        self.assertEqual(revised["phase"], "submitted")
         after = self.school.get_live_session_state(self.session_id, light=True)
         self.assertNotEqual(
             str((after.get("lifecycle_rank_revs") or {}).get(item_id) or ""),
@@ -541,9 +589,17 @@ class RankLiveSessionTests(unittest.TestCase):
         )
         view = self.school.live_session_item_results(self.session_id, item_id)
         log = next(row for row in view["submitter_log"] if row["last_submitter"] == "Cedar")
-        self.assertEqual(log["resubmit_count"], 1)
+        self.assertEqual(log["resubmit_count"], 0)
         voted = next(row for row in view["rank"]["teams"] if row["order"])
-        self.assertEqual(voted["order"], ["o3", "o2", "o1"])
+        self.assertEqual(voted["order"], ["o1", "o3", "o2"])
+        with self.assertRaises(RankTurnConflict) as caught:
+            self.school.rank_turn_place(
+                self.session_id, item_id, self.student_ids[2], undo=True
+            )
+        self.assertEqual(caught.exception.reason, "done")
+        stuck = self.school.student_group_submit_state(published, self.student_ids[2])
+        assert stuck is not None
+        self.assertEqual(stuck["submitted_order"], ["o1", "o3", "o2"])
 
     def test_change_mode_local_draft_beats_the_submitted_order(self) -> None:
         """An editing student's draft, including Clear, survives the next poll paint."""
@@ -597,7 +653,11 @@ if (JSON.stringify(teammate) !== JSON.stringify(["o2", "o1", "o3"])) {
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_simultaneous_taps_keep_a_valid_order(self) -> None:
-        """Two teammates tapping at once leave a unique order and no error."""
+        """Two teammates placing at once leave one unique order both can see.
+
+        A lost turn (``RankTurnConflict``) is the lock doing its job. Any
+        other exception fails the test.
+        """
 
         self._join(4)
         self._teams(2)
@@ -606,17 +666,17 @@ if (JSON.stringify(teammate) !== JSON.stringify(["o2", "o1", "o3"])) {
         taps = ["o1", "o2", "o3", "o1", "o2", "o3"]
 
         def tap(option_id: str, student_id: int) -> None:
-            """Apply one shared tap and record any failure."""
+            """Place one item. A lost turn is contention, not a failure."""
 
             try:
-                self.school.save_group_mc_draft(
+                self.school.rank_turn_place(
                     self.session_id,
                     int(published["id"]),
                     student_id,
-                    choice="",
-                    why="",
-                    tap=option_id,
+                    option_id=option_id,
                 )
+            except RankTurnConflict:
+                return
             except BaseException as exc:  # noqa: BLE001 — the test asserts none
                 errors.append(exc)
 
@@ -651,13 +711,11 @@ if (JSON.stringify(teammate) !== JSON.stringify(["o2", "o1", "o3"])) {
         )
         self._teams(2)
         published = self._publish_rank("group_submit")
-        self.school.save_group_mc_draft(
+        self.school.rank_turn_place(
             self.session_id,
             int(published["id"]),
             self.student_ids[0],
-            choice="",
-            why="",
-            tap="o2",
+            option_id="o2",
         )
         self.school.join_live_class_session(
             self.session_id, self.student_ids[2], codename="Cedar"
@@ -701,7 +759,7 @@ if (JSON.stringify(teammate) !== JSON.stringify(["o2", "o1", "o3"])) {
             )
             self.school.game.conn.commit()
         published = self._publish_rank("group_submit")
-        self._submit_order(published, self.student_ids[0], ["o3", "o1", "o2"])
+        self._place_order(published, self.student_ids[0], ["o3", "o1", "o2"])
         view = self.school.live_session_item_results(
             self.session_id, int(published["id"])
         )
@@ -779,7 +837,7 @@ if (JSON.stringify(teammate) !== JSON.stringify(["o2", "o1", "o3"])) {
         self.school.update_live_session_item_settings(
             self.session_id, int(published["id"]), show_live_results=False
         )
-        self._submit_order(published, self.student_ids[0], ["o1", "o2", "o3"])
+        self._place_order(published, self.student_ids[0], ["o1", "o2", "o3"])
         self.school.close_live_session_item(self.session_id, int(published["id"]))
         hidden = self.school.student_live_items_payload(
             self.session_id, self.student_ids[0]
@@ -804,15 +862,24 @@ if (JSON.stringify(teammate) !== JSON.stringify(["o2", "o1", "o3"])) {
         self._join(2)
         self._teams(2)
         published = self._publish_rank("group_submit")
-        self._submit_order(published, self.student_ids[0], ["o1", "o2", "o3"])
         with self.school._lock:
             self.school.conn.execute(
                 """
                 UPDATE live_group_responses
-                SET final_answer_json = ?
-                WHERE live_item_id = ?
+                SET status = 'submitted', submit_count = 1,
+                    final_answer_json = ?
+                WHERE live_item_id = ? AND team_id = (
+                    SELECT team_id FROM live_group_responses
+                    WHERE live_item_id = ?
+                    ORDER BY team_id ASC
+                    LIMIT 1
+                )
                 """,
-                (json.dumps({"kind": "rank", "order": ["o1", "o1"]}), int(published["id"])),
+                (
+                    json.dumps({"kind": "rank", "order": ["o1", "o1"]}),
+                    int(published["id"]),
+                    int(published["id"]),
+                ),
             )
             self.school.conn.commit()
         view = self.school.live_session_item_results(

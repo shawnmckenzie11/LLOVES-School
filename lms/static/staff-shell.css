@@ -7716,10 +7716,7 @@ body.staff-shell .rank-turn-skip-note {
   color: #475569;
   font-size: 0.8rem;
 }
-body.staff-shell .live-group-rank-mode {
-  margin-bottom: 0.35rem;
-}
-/* MCK-171 Team challenge toggle in the Group line (after Group mode). */
+/* MCK-171 Team challenge toggle in the Group line. */
 body.staff-shell .live-group-race {
   display: flex;
   flex-wrap: wrap;
