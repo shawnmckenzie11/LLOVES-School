@@ -5826,8 +5826,58 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """Return token- or cookie-scoped student live context."""
         return resolve_student_live_context(school, session)
 
+    def _positive_class_id(value: Any) -> int | None:
+        """Return a positive class id, or None when the value is unusable.
+
+        Args:
+            value: Raw class id from a dict, session, or database row.
+        """
+        if value in (None, ""):
+            return None
+        try:
+            cid = int(value)
+        except (TypeError, ValueError):
+            return None
+        return cid if cid > 0 else None
+
+    def _bound_student_class_id(ctx: dict[str, Any] | None) -> int | None:
+        """Resolve the signed-in student's class without a KeyError.
+
+        Order matches other student endpoints: the live context, then the
+        Flask session, then the live-session row.
+
+        Args:
+            ctx: ``resolve_student_live_context`` result, or None.
+
+        Returns:
+            Classes primary key, or None when every fallback is empty.
+        """
+        sources: list[Any] = []
+        if isinstance(ctx, dict):
+            sources.append(ctx.get("class_id"))
+        sources.append(session.get("student_class_id"))
+        for source in sources:
+            cid = _positive_class_id(source)
+            if cid is not None:
+                return cid
+        live_id = ctx.get("live_session_id") if isinstance(ctx, dict) else None
+        if not live_id:
+            live_id = session.get("student_live_session_id")
+        if not live_id:
+            return None
+        try:
+            row = school.get_live_session(int(live_id))
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(row, dict):
+            return None
+        return _positive_class_id(row.get("class_id"))
+
     def _student_identity() -> tuple[dict[str, Any], int, int] | None:
         """Return offering and roster ids when the student session is bound.
+
+        ``class_id`` is read with ``.get``. A missing key falls back to the
+        student session and then the live-session row.
 
         Returns:
             ``(offering, class_id, student_id)`` or ``None`` if incomplete.
@@ -5835,7 +5885,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         ctx = _student_live_context()
         if ctx is None:
             return None
-        return ctx["offering"], ctx["class_id"], ctx.get("student_id")
+        offering = ctx.get("offering")
+        class_id = _bound_student_class_id(ctx)
+        if not offering or class_id is None:
+            return None
+        return offering, class_id, ctx.get("student_id")
 
     def _can_access_class_live_asset(class_id: int) -> bool:
         """Return True when class staff, a bound live student, or a student
@@ -7142,6 +7196,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         denied = _require_active_live_attendee(as_json=True)
         if denied is not None:
             return denied
+        ctx = _student_live_context()
+        if ctx is not None and _bound_student_class_id(ctx) is None:
+            # Phone poll fallback: stay on JSON so the tab keeps polling.
+            return jsonify({"ok": True, "status": "waiting", "retry": True})
         ident = _student_identity()
         if ident is None:
             if session.get("student_codename"):
@@ -7158,9 +7216,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         _offering, class_id, student_id = ident
         ctx = _student_live_context()
-        live_session_id = int(
-            (ctx or {}).get("live_session_id") or session["student_live_session_id"]
+        live_raw = (ctx or {}).get("live_session_id") or session.get(
+            "student_live_session_id"
         )
+        try:
+            live_session_id = int(live_raw)
+        except (TypeError, ValueError):
+            return jsonify({"ok": True, "status": "waiting", "retry": True})
         pid = str((ctx or {}).get("participant_uuid") or "")
         unmatched = bool((ctx or {}).get("unmatched")) or student_id in (None, "")
         # Opt-in 0:00 close on the server clock, before the unchanged

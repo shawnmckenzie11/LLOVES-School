@@ -126,6 +126,72 @@ class StudentStateCatchupPinTests(Base):
         self.assertTrue(prompt.get("show"))
         self.assertIsNone(prompt.get("catchup_url"))
 
+    def test_student_state_missing_class_id_key_is_not_500(self) -> None:
+        """Poll stays JSON when context and the catch-up link omit class_id."""
+        offering_id = self.school.conn.execute(
+            "SELECT offering_id FROM classes WHERE id = ?", (self.class_id,)
+        ).fetchone()[0]
+        offering = self.school.get_offering(int(offering_id))
+        with self.client.session_transaction() as sess:
+            live_id = int(sess["student_live_session_id"])
+        ctx = {
+            "offering": offering,
+            "student_id": self.student_id,
+            "live_session_id": live_id,
+            "visit_token": "",
+            "participant_uuid": "test-uuid",
+            "codename": "Aspen",
+            "unmatched": False,
+        }
+        self.assertNotIn("class_id", ctx)
+
+        def _links_without_class(class_id: int) -> list[dict]:
+            rows = []
+            for row in type(self.school).list_catchup_links(self.school, class_id):
+                item = dict(row)
+                item.pop("class_id", None)
+                rows.append(item)
+            return rows
+
+        with patch(
+            "app.resolve_student_live_context", return_value=ctx
+        ), patch.object(
+            self.school, "list_catchup_links", side_effect=_links_without_class
+        ):
+            resp = self.client.get("/api/student/state")
+        self.assertNotEqual(resp.status_code, 500)
+        self.assertEqual(resp.status_code, 200)
+        body = resp.get_json()
+        self.assertIsInstance(body, dict)
+        self.assertTrue(body.get("ok"))
+        self.assertNotIn("portal_join_code", body)
+        self.assertNotEqual(body.get("redirect"), "/student/pick")
+
+        with self.client.session_transaction() as sess:
+            sess.pop("student_class_id", None)
+
+        def _session_without_class(session_id: int) -> dict | None:
+            row = type(self.school).get_live_session(self.school, session_id)
+            if isinstance(row, dict):
+                row = dict(row)
+                row.pop("class_id", None)
+            return row
+
+        with patch(
+            "app.resolve_student_live_context", return_value=ctx
+        ), patch.object(
+            self.school, "get_live_session", side_effect=_session_without_class
+        ):
+            unresolved = self.client.get("/api/student/state")
+        self.assertNotEqual(unresolved.status_code, 500)
+        self.assertEqual(unresolved.status_code, 200)
+        quiet = unresolved.get_json()
+        self.assertIsInstance(quiet, dict)
+        self.assertTrue(quiet.get("ok"))
+        self.assertEqual(quiet.get("status"), "waiting")
+        self.assertTrue(quiet.get("retry"))
+        self.assertNotIn("redirect", quiet)
+
 
 if __name__ == "__main__":
     unittest.main()
