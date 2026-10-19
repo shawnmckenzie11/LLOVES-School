@@ -163,14 +163,18 @@ class EndedLessonSlidesTests(EndLiveToggleTests):
         self.assertEqual(row["last_run_at"], "")
 
     def test_slot_outside_the_template_still_lists(self) -> None:
-        """A real end whose slot is not in the course files still gets a row."""
-        self._end_slot_with_no_answers("M9", "C9")
+        """A real end whose module is not in the course files still gets a row.
+
+        End keeps modules such as M9. A slot outside C1–C4 is stored as C1,
+        so this uses a real slot on a module the course files do not have.
+        """
+        self._end_slot_with_no_answers("M9", "C1")
         self.school.conn.execute(
             "DELETE FROM lesson_slides_latest WHERE class_id = ?",
             (self.class_id,),
         )
         self.school.conn.commit()
-        row = self._row("M9C9")
+        row = self._row("M9C1")
         self.assertTrue(row["has_run"])
         self.assertTrue(row["not_in_template"])
         self.assertEqual(row["status_label"], "Not in template")
