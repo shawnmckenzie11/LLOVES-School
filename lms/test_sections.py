@@ -230,12 +230,12 @@ class SectionTests(unittest.TestCase):
         profiles_at = course_html.find(">Profiles</a>")
         self.assertGreater(profiles_at, exp_at)
         self.assertIn("Attendance &amp; Participation", course_html)
-        # A&P and Grades sit beside Modules in the tab row.
+        # Primary tabs lead; Modules sits in More, after Grades.
         modules_at = course_html.find(">Modules</a>")
         ap_at = course_html.find("Attendance &amp; Participation")
         grades_at = course_html.find(">Grades</a>")
-        self.assertGreater(ap_at, modules_at)
-        self.assertGreater(grades_at, modules_at)
+        self.assertGreater(modules_at, ap_at)
+        self.assertGreater(modules_at, grades_at)
         self.assertLess(ap_at, grades_at)
         self.assertNotIn("Inherited curriculum expectations", course_html)
         expectations_page = self.client.get(

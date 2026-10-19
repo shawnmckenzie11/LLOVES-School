@@ -48,7 +48,7 @@ class NonMathTests(unittest.TestCase):
         class_id = self._class_for("SBI4U")
         html = self.client.get(f"/staff/class/{class_id}").get_data(as_text=True)
         tabs = self._tabs(html)
-        self.assertIn("Run Live Class", tabs)
+        self.assertIn("Live Class", tabs)
         self.assertIn("Attendance &amp; Participation", tabs)
         for tab in HIDDEN_TABS:
             self.assertNotIn(f"tab={tab}", tabs, tab)
@@ -96,13 +96,19 @@ class NonMathTests(unittest.TestCase):
         self.assertNotIn("Process evidence (this live session)", part)
 
     def test_math_course_without_pack_is_unchanged(self) -> None:
-        """Shawn's math courses keep every tab, Core Math, the pack strip and hints."""
+        """Math courses open on Live Class and keep the other sections under More."""
         class_id = self._class_for("MCF3M")
         html = self.client.get(f"/staff/class/{class_id}").get_data(as_text=True)
-        self.assertIn('<span class="course-tabs-toggle-label">Modules</span>', html)
+        self.assertIn('<span class="course-tabs-toggle-label">Live Class</span>', html)
         tabs = self._tabs(html)
-        for tab in HIDDEN_TABS:
+        for tab in ("lesson-slides", "modules", "gradebook", "question-banks", "syllabus", "expectations", "profiles"):
             self.assertIn(f"tab={tab}", tabs, tab)
+        self.assertIn("tab=library", tabs)
+        self.assertIn(">Content library<", tabs)
+        self.assertNotIn("tab=pages", tabs)
+        pages = self.client.get(f"/staff/class/{class_id}?tab=pages").get_data(as_text=True)
+        self.assertIn('data-kind="pages"', pages)
+        self.assertIn(">Content library<", pages)
         live = self.client.get(f"/staff/class/{class_id}?tab=live").get_data(as_text=True)
         self.assertIn('<label class="live-pack-field" for="live-module-select">', live)
         self.assertIn('<option value="" selected>Core Math</option>', live)

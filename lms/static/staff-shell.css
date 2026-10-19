@@ -4,6 +4,9 @@ html:has(body.staff-shell) {
   background: #e8eef4;
 }
 body.staff-shell {
+  --live-shell-gap: 12px;
+  --live-pane-bg: #f7f9fb;
+  --live-border: #d5dde6;
   background: #e8eef4;
   color: #12202e;
   font-family: "Segoe UI", system-ui, sans-serif;
@@ -96,35 +99,66 @@ body.staff-shell.staff-home .course-dash {
 body.staff-shell.staff-home .course-card {
   display: flex;
   flex-direction: column;
+  gap: var(--live-shell-gap);
   min-width: 0;
+  padding: 16px;
+  border-radius: 10px;
+  text-align: left;
   container-type: inline-size;
   container-name: course-card;
 }
+body.staff-shell.staff-home .course-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--live-shell-gap);
+  padding: 0.55rem 0.75rem;
+  background: var(--live-pane-bg);
+  border: 1px solid var(--live-border);
+  border-radius: 8px;
+  text-align: left;
+}
+body.staff-shell.staff-home .course-card-identity {
+  min-width: 0;
+}
 body.staff-shell.staff-home .course-card-code {
   margin: 0;
-  width: 100%;
-  font-size: 1.85rem;
+  width: auto;
+  font-size: 1.35rem;
+  font-weight: 700;
   line-height: 1.15;
   overflow-wrap: anywhere;
-  text-align: center;
+  text-align: left;
 }
+body.staff-shell.staff-home .course-card-meta,
 body.staff-shell.staff-home .course-card-schedule {
-  margin: 0.35rem 0 0;
+  margin: 0.2rem 0 0;
   min-height: 1.35em;
   color: #334155;
-  font-size: 0.925rem; /* 50% of the course-code size */
-  font-weight: 650;
-  letter-spacing: 0.02em;
-  text-align: center;
+  font-size: 0.88rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-align: left;
+}
+body.staff-shell.staff-home .course-live-chip {
+  flex: 0 0 auto;
+  border: 1px solid var(--live-border);
+  border-radius: 999px;
+  background: #fff;
+  color: #0f766e;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 0.28rem 0.55rem;
 }
 body.staff-shell.staff-home .course-card-schedule.is-placeholder {
   font-weight: 500;
   color: #64748b;
 }
 body.staff-shell.staff-home .course-card-join {
-  margin: 0.45rem 0 0;
+  margin: 0;
   min-height: 1.4em;
-  text-align: center;
+  text-align: left;
 }
 body.staff-shell.staff-home .course-card-join .live-code {
   font-size: 1rem;
@@ -133,8 +167,8 @@ body.staff-shell.staff-home .course-card-join .live-code {
 body.staff-shell.staff-home .course-card-actions {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
-  margin-top: 1rem;
+  gap: var(--live-shell-gap);
+  margin-top: 0;
 }
 body.staff-shell.staff-home .course-action-row,
 body.staff-shell.staff-home form.course-action-row {
@@ -212,6 +246,79 @@ body.staff-shell.staff-home .course-action-end {
 body.staff-shell.staff-home .course-action.is-disabled {
   pointer-events: none;
   opacity: 0.55;
+}
+body.staff-shell.staff-home a.course-action.course-action-live {
+  justify-content: flex-start;
+}
+body.staff-shell.staff-home .course-attend-row {
+  display: flex;
+  align-items: center;
+  gap: var(--live-shell-gap);
+  padding: 12px;
+  background: var(--live-pane-bg);
+  border: 1px solid var(--live-border);
+  border-radius: 8px;
+  text-align: left;
+}
+body.staff-shell.staff-home .course-attend-icon {
+  flex: 0 0 auto;
+  color: #334155;
+}
+body.staff-shell.staff-home .course-attend-copy {
+  min-width: 0;
+}
+body.staff-shell.staff-home .course-attend-label,
+body.staff-shell.staff-home .course-attend-help,
+body.staff-shell.staff-home .course-attend-last {
+  margin: 0;
+  text-align: left;
+}
+body.staff-shell.staff-home .course-attend-label {
+  font-weight: 700;
+  color: #12202e;
+}
+body.staff-shell.staff-home .course-attend-help,
+body.staff-shell.staff-home .course-attend-last {
+  color: #334155;
+  font-size: 0.88rem;
+}
+body.staff-shell.staff-home a.course-action.course-attend-go {
+  width: auto;
+  flex: 0 0 auto;
+  margin-left: auto;
+  background: #fff;
+  color: #0f766e;
+  border-color: #0f766e;
+  font-weight: 650;
+}
+body.staff-shell.staff-home .course-link-row {
+  display: flex;
+  align-items: center;
+  min-height: 2rem;
+}
+body.staff-shell.staff-home a.course-action.course-quiet-link,
+body.staff-shell.staff-home button.course-quiet-link.btn-populate {
+  display: inline-flex;
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #334155;
+  font-weight: 600;
+  text-align: left;
+  justify-content: flex-start;
+  box-shadow: none;
+}
+body.staff-shell.staff-home a.course-action.course-quiet-link:hover,
+body.staff-shell.staff-home button.course-quiet-link.btn-populate:hover {
+  color: #0f766e;
+  filter: none;
+}
+body.staff-shell.staff-home button.course-quiet-link:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 body.staff-shell.staff-home .course-card-pack-progress {
   margin-top: 0.75rem;
@@ -4745,9 +4852,11 @@ body.staff-shell .course-tabs-toggle {
 body.staff-shell .course-tabs-panel {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.35rem;
+  width: 100%;
 }
-body.staff-shell .course-tabs-panel a {
+body.staff-shell .course-tabs-panel > a.course-tab {
   background: #fff;
   color: #0f172a;
   border: 1px solid #94a3b8;
@@ -4756,10 +4865,165 @@ body.staff-shell .course-tabs-panel a {
   text-decoration: none;
   font-size: 0.92rem;
 }
-body.staff-shell .course-tabs-panel a.on {
+body.staff-shell .course-tabs-panel > a.course-tab.on,
+body.staff-shell .course-more-summary.on {
   background: #0f766e;
   color: #fff;
   border-color: #0b5f59;
+}
+body.staff-shell .course-more {
+  position: relative;
+  margin-left: auto;
+}
+body.staff-shell .course-more-summary {
+  list-style: none;
+  cursor: pointer;
+  background: #fff;
+  color: #0f172a;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.92rem;
+  font-weight: 650;
+}
+body.staff-shell .course-more-summary::-webkit-details-marker {
+  display: none;
+}
+body.staff-shell .course-more-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 30;
+  min-width: 14rem;
+  margin: 0;
+  padding: 0.35rem 0;
+  list-style: none;
+  background: #fff;
+  border: 1px solid var(--live-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+body.staff-shell .course-more-label {
+  padding: 0.45rem 0.85rem 0.15rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #64748b;
+}
+body.staff-shell .course-more-menu a {
+  display: block;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #12202e;
+  padding: 0.4rem 0.85rem;
+  text-decoration: none;
+  text-align: left;
+  font-size: 0.92rem;
+}
+body.staff-shell .course-more-menu a.on,
+body.staff-shell .course-more-menu a:hover {
+  background: var(--live-pane-bg);
+  color: #0f766e;
+}
+body.staff-shell .library-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0 0 0.75rem;
+}
+body.staff-shell .library-filters a {
+  background: #fff;
+  color: #0f172a;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+  padding: 0.35rem 0.7rem;
+  text-decoration: none;
+  font-size: 0.92rem;
+}
+body.staff-shell .library-filters a.on {
+  background: #0f766e;
+  color: #fff;
+  border-color: #0b5f59;
+}
+body.staff-shell .ap-roster-note {
+  max-width: 960px;
+  margin: 0 0 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.88rem;
+}
+body.staff-shell .ap-roster-settings {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--live-shell-gap);
+  max-width: 960px;
+  margin: 0 0 0.75rem;
+}
+body.staff-shell .ap-roster-table {
+  width: 100%;
+  max-width: 960px;
+  border-collapse: collapse;
+}
+body.staff-shell .ap-roster-table th,
+body.staff-shell .ap-roster-table td {
+  min-height: 44px;
+  padding: 12px;
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--live-border);
+}
+body.staff-shell .ap-roster-table th {
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: #334155;
+}
+body.staff-shell .ap-roster-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+body.staff-shell .ap-roster-table .actions {
+  text-align: right;
+  white-space: nowrap;
+}
+body.staff-shell .ap-roster-tag {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0 0.4rem;
+  border: 1px solid var(--live-border);
+  border-radius: 999px;
+  background: var(--live-pane-bg);
+  color: #334155;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+body.staff-shell .ap-roster-text {
+  margin: 0;
+  padding: 0 0.35rem;
+  border: 0;
+  background: transparent;
+  color: #0f766e;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+body.staff-shell .ap-roster-editor {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: 0.35rem;
+}
+body.staff-shell .ap-roster-editor[hidden] {
+  display: none;
+}
+body.staff-shell .ap-roster-editor input {
+  width: 4.5rem;
+}
+@media print {
+  .no-print { display: none !important; }
 }
 @media (max-width: 820px) {
   body.staff-shell .course-tabs-toggle {
