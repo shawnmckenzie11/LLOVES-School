@@ -1052,6 +1052,48 @@ class _BoardStore:
 
         return int(self._read(work))
 
+    def keys_with_owner(
+        self, run_key: str, keys: list[str], owner: str
+    ) -> set[str]:
+        """Board keys among ``keys`` that have at least one row for ``owner``.
+
+        One query. Callers use it for the Teacher wrote chip so a
+        since-seq delta cannot flicker the chip off.
+
+        Args:
+            run_key: Key minted when this live run started.
+            keys: Candidate board keys. An empty list returns an empty set.
+            owner: Stored ``board_ops.owner``, such as ``teacher``.
+
+        Returns:
+            Distinct board keys that have a matching row.
+        """
+        token = str(run_key or "").strip()
+        who = str(owner or "").strip()
+        cleaned = [normalize_board_key(key) for key in keys if str(key or "").strip()]
+        if not token or not who or not cleaned:
+            return set()
+
+        def work(exec_: Exec) -> set[str]:
+            """Select the distinct matching board keys."""
+            marks = ",".join("?" for _ in cleaned)
+            cursor = exec_(
+                f"""
+                SELECT DISTINCT board_key FROM board_ops
+                WHERE run_key = ? AND owner = ? AND board_key IN ({marks})
+                """,
+                (_run_key(token), who, *cleaned),
+            )
+            found: set[str] = set()
+            for row in cursor.fetchall():
+                item = _row_dict(row)
+                key = str(item.get("board_key") or "")
+                if key:
+                    found.add(key)
+            return found
+
+        return set(self._read(work))
+
     def load_keys(
         self, run_key: str, keys: list[str] | None
     ) -> list[dict[str, Any]]:

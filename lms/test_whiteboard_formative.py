@@ -26,7 +26,10 @@ from whiteboard_formative import (  # noqa: E402
     formative_whiteboard_enabled,
     first_name_only,
     member_color,
+    assign_board_colors,
+    drawing_owner_ids,
     roster_board_bucket,
+    student_ink_color,
 )
 
 
@@ -60,12 +63,47 @@ class FormativeHelperTests(unittest.TestCase):
         self.assertEqual(slots[2], 1)
         self.assertEqual(slots[3], 0)
 
+    def test_board_colours_bump_past_a_hash_clash(self) -> None:
+        """A hash clash takes the next free colour. The first id stays put."""
+        from live_canvas import CURSOR_COLORS, cursor_color_for
+
+        first = 1
+        target = cursor_color_for(first)
+        second = None
+        for candidate in range(2, 20000):
+            if cursor_color_for(candidate) == target:
+                second = candidate
+                break
+        self.assertIsNotNone(second)
+        assert second is not None
+        assigned = assign_board_colors([first, second])
+        self.assertEqual(assigned[str(first)], target)
+        self.assertNotEqual(assigned[str(second)], target)
+        self.assertEqual(len(set(assigned.values())), 2)
+        self.assertIn(assigned[str(second)], CURSOR_COLORS)
+        again = assign_board_colors([first, second, second + 1])
+        self.assertEqual(again[str(first)], assigned[str(first)])
+        self.assertEqual(again[str(second)], assigned[str(second)])
+        owners = drawing_owner_ids(
+            [
+                {"owner": "teacher", "op": "{\"type\":\"text_upsert\",\"text\":\"note\"}"},
+                {"owner": str(second), "op": {"type": "stroke_add", "id": "s"}},
+                {"owner": str(first), "op": "{\"type\":\"text_upsert\",\"text\":\"\"}"},
+                {"owner": "9", "op": "{\"type\":\"text_upsert\",\"text\":\"kept\"}"},
+            ]
+        )
+        self.assertEqual(owners, {str(second), "9"})
+
     def test_collab_js_ignores_projector_names_and_darkens_cursor_chips(self) -> None:
         """Collab name chips ignore a saved projector flag; cursor text is dark."""
         script = r"""
-import { collabForcesNames, cursorChipInkStyle } from './lms/static/whiteboard_formative.js';
+import { boardNameChipsEnabled, classBoardPaintMode, collabForcesNames, cursorChipInkStyle } from './lms/static/whiteboard_formative.js';
 if (collabForcesNames(false, true)) process.exit(1);
 if (!collabForcesNames(true, true)) process.exit(2);
+if (boardNameChipsEnabled()) process.exit(7);
+if (classBoardPaintMode('team:0', 'team:0') !== 'show-own') process.exit(8);
+if (classBoardPaintMode('team:1', 'team:0') !== 'show-class') process.exit(9);
+if (classBoardPaintMode('', 'team:0') !== 'show-class') process.exit(10);
 const style = cursorChipInkStyle('#2dd4bf');
 if (!style.includes('color:#0f172a')) process.exit(3);
 if (!style.includes('background:#fff')) process.exit(4);
@@ -348,7 +386,7 @@ class FormativeIntegrationTests(unittest.TestCase):
 
 
     def test_formative_colour_matches_session_slot_on_each_team(self) -> None:
-        """One join-order palette for teacher legend and every team board."""
+        """Legend colour follows the student id, and the slot stays put."""
         slots = formative_session_slot_map(self.school, self.session_id)
         pine_slot = slots[self.pine_id]
         team0 = formative_board_members(
@@ -365,9 +403,18 @@ class FormativeIntegrationTests(unittest.TestCase):
         self.assertTrue(team0)
         pine_team1 = next(m for m in team1_members if m["id"] == str(self.pine_id))
         pine_all = next(m for m in all_members if m["id"] == str(self.pine_id))
-        self.assertEqual(pine_team1["color"], pine_all["color"])
         self.assertEqual(pine_team1["slot"], pine_slot)
-        self.assertEqual(pine_team1["color"], member_color(pine_slot))
+        team_rows = self.school.list_live_session_team_members(self.session_id, pine_order)
+        all_rows = self.school.list_live_session_team_members(self.session_id, None)
+        team_colors = assign_board_colors(
+            [int(row["student_id"]) for row in team_rows if row.get("student_id") not in (None, "")]
+        )
+        all_colors = assign_board_colors(
+            [int(row["student_id"]) for row in all_rows if row.get("student_id") not in (None, "")]
+        )
+        self.assertEqual(pine_team1["color"], team_colors[str(self.pine_id)])
+        self.assertEqual(pine_all["color"], all_colors[str(self.pine_id)])
+        self.assertNotEqual(pine_team1["color"], "")
 
     def test_teacher_board_formative_drops_departed_student(self) -> None:
         """Teacher board polls refresh legend membership when someone leaves."""
@@ -482,12 +529,12 @@ class FormativeIntegrationTests(unittest.TestCase):
         return int(sid)
 
     def test_team_buckets_keep_distinct_ink_with_leaver_and_late_joiner(self) -> None:
-        """Teammates stay distinct when session join order is six apart.
+        """Slots stay put when session join order is six apart.
 
         Seven or more students sit on two teams. A leaver keeps their
         slot, and a late joiner takes the lowest index nobody on that
-        board, present or departed, has used. The teacher legend and
-        the student board use that same slot.
+        board, present or departed, has used. Ink colour is unique on that board. A late joiner bumps
+        to a free colour and does not shift anyone already there.
         """
         team_b = self.school.student_team_id_for_class(self.class_id, self.pine_id)
         self.assertIsNotNone(team_b)
@@ -520,9 +567,6 @@ class FormativeIntegrationTests(unittest.TestCase):
                     collided = True
         self.assertTrue(collided)
 
-        def pairs(members: list[dict[str, Any]]) -> list[tuple[str, bool]]:
-            return [(str(m["color"]), bool(m["dashed"])) for m in members]
-
         order_b = self.school._team_sort_order_for_team_id(self.class_id, int(team_b))
         self.assertIsNotNone(order_b)
         team_a = formative_board_members(
@@ -532,16 +576,39 @@ class FormativeIntegrationTests(unittest.TestCase):
         legend = formative_board_members(self.school, self.session_id, None)
         slots = formative_session_slot_map(self.school, self.session_id)
         self.assertGreaterEqual(len(team_a), 7)
-        self.assertEqual(len(pairs(team_a)), len(set(pairs(team_a))))
-        self.assertEqual(len(pairs(team_b_members)), len(set(pairs(team_b_members))))
         by_id = {str(m["id"]): m for m in legend}
+        a_colors = assign_board_colors(
+            [
+                int(row["student_id"])
+                for row in self.school.list_live_session_team_members(
+                    self.session_id, self.team_sort_order
+                )
+                if row.get("student_id") not in (None, "")
+            ]
+        )
+        b_colors = assign_board_colors(
+            [
+                int(row["student_id"])
+                for row in self.school.list_live_session_team_members(self.session_id, order_b)
+                if row.get("student_id") not in (None, "")
+            ]
+        )
+        legend_colors = assign_board_colors(
+            [int(row["student_id"]) for row in everyone if row.get("student_id") not in (None, "")]
+        )
+        board_colors = {}
+        for member in team_a:
+            board_colors[member["id"]] = a_colors[member["id"]]
+        for member in team_b_members:
+            board_colors[member["id"]] = b_colors[member["id"]]
         for member in team_a + team_b_members:
             other = by_id[str(member["id"])]
-            self.assertEqual(other["color"], member["color"])
             self.assertEqual(other["dashed"], member["dashed"])
             self.assertEqual(other["slot"], member["slot"])
             self.assertEqual(member["slot"], slots[int(member["id"])])
-            self.assertEqual(member["color"], member_color(int(member["slot"])))
+            self.assertEqual(member["color"], board_colors[member["id"]])
+            self.assertEqual(other["color"], legend_colors[member["id"]])
+        self.assertEqual(len({member["color"] for member in team_a}), min(len(team_a), 10))
         access = self.school.student_board_access(self.session_id, self.maple_id)
         student = self.school.read_board(
             self.session_id,
@@ -561,7 +628,8 @@ class FormativeIntegrationTests(unittest.TestCase):
         teacher_maple = next(
             m for m in teacher["formative"]["members"] if m["id"] == str(self.maple_id)
         )
-        self.assertEqual(student_maple["color"], teacher_maple["color"])
+        self.assertEqual(student_maple["color"], a_colors[str(self.maple_id)])
+        self.assertEqual(teacher_maple["color"], legend_colors[str(self.maple_id)])
         self.assertEqual(student_maple["dashed"], teacher_maple["dashed"])
         self.assertEqual(student_maple["slot"], by_id[str(self.maple_id)]["slot"])
 
@@ -585,13 +653,24 @@ class FormativeIntegrationTests(unittest.TestCase):
         self.assertNotEqual(late["slot"], int(leaver["slot"]))
         for member in present:
             if member["id"] == str(late_id):
+                late_rows = self.school.list_live_session_team_members(
+                    self.session_id, self.team_sort_order
+                )
+                late_colors = assign_board_colors(
+                    [
+                        int(row["student_id"])
+                        for row in late_rows
+                        if row.get("student_id") not in (None, "")
+                    ]
+                )
+                self.assertEqual(member["color"], late_colors[str(late_id)])
                 continue
             self.assertEqual(member["slot"], before[member["id"]]["slot"])
-        self.assertEqual(len(pairs(present)), len(set(pairs(present))))
+            self.assertEqual(member["color"], before[member["id"]]["color"])
         self.assertEqual(len(enrolled), 10)
 
     def test_collab_always_shows_names(self) -> None:
-        """Collab boards label ink with names. The old toggles are gone."""
+        """Collab boards keep the name flag. Labels live on the legend."""
         access = self.school.student_board_access(self.session_id, self.maple_id)
         student = self.school.read_board(
             self.session_id,
@@ -637,6 +716,93 @@ class FormativeIntegrationTests(unittest.TestCase):
             as_teacher=True,
         )
         self.assertEqual(seen, [None])
+
+    def test_idle_poll_skips_the_class_board_lookup(self) -> None:
+        """No projected board means no session or gallery read for it."""
+        state = self.school.live_session_teacher_state_payload(self.session_id)
+        self.assertFalse(str(state.get("whiteboard_projected_board") or "").strip())
+
+        def boom(*_args: Any, **_kwargs: Any) -> None:
+            raise AssertionError("class board looked up a session")
+
+        self.school.get_live_session = boom  # type: ignore[method-assign]
+        self.school.live_session_teacher_state_payload = boom  # type: ignore[method-assign]
+        self.school._require_gallery_card = boom  # type: ignore[method-assign]
+        self.assertIsNone(
+            self.school.whiteboard_class_board(self.session_id, teacher_state=state)
+        )
+
+    def test_student_poll_loads_teacher_state_once_when_nothing_is_shown(self) -> None:
+        """Formative meta reuses its teacher state. An idle class board does not load another."""
+        calls = {"n": 0}
+        original = self.school.live_session_teacher_state_payload
+
+        def wrapped(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            calls["n"] += 1
+            return original(*args, **kwargs)
+
+        self.school.live_session_teacher_state_payload = wrapped  # type: ignore[method-assign]
+        access = self.school.student_board_access(self.session_id, self.maple_id)
+        self.school.read_board(
+            self.session_id,
+            str(access["collab_key"]),
+            0,
+            student_id=self.maple_id,
+        )
+        self.assertEqual(calls["n"], 1)
+        self.assertIsNone(getattr(self.school, "_teacher_state_for_poll", None))
+
+    def test_state_poll_board_key_skips_the_unlocked_lookup(self) -> None:
+        """Student state uses the session it already loaded, under the lock."""
+        expected = self.school.student_live_board_key(self.session_id, self.maple_id)
+        self.assertTrue(str(expected).startswith("team:"))
+
+        def boom(*_args: Any, **_kwargs: Any) -> str:
+            raise AssertionError("poll called student_live_board_key")
+
+        self.school.student_live_board_key = boom  # type: ignore[method-assign]
+        payload = self.school.assemble_student_live_payload(
+            self.session_id, self.class_id, self.maple_id
+        )
+        self.assertEqual(payload.get("board_key"), expected)
+        self.assertIsNone(getattr(self.school, "_teacher_state_for_poll", None))
+
+    def test_ink_colour_cache_drops_when_a_student_changes_board(self) -> None:
+        """A team trade that keeps the head count still changes the colour stamp."""
+        before = self.school._attendee_membership_stamp(self.session_id)
+        target = int(self.team_sort_order)
+        self.school.conn.execute(
+            """
+            UPDATE live_board_assignments
+            SET team_sort_order = ?, board_key = ?
+            WHERE class_id = ? AND student_id = ?
+            """,
+            (target, f"team:{target}", self.class_id, self.pine_id),
+        )
+        self.school.conn.commit()
+        after = self.school._attendee_membership_stamp(self.session_id)
+        self.assertEqual(before[0], after[0])
+        self.assertNotEqual(before[1], after[1])
+
+    def test_shown_own_board_keeps_the_open_stroke_and_tools(self) -> None:
+        """Show to class on the viewer's board does not reset or disable tools."""
+        portal = (REPO_ROOT / "lms" / "static" / "student-portal.js").read_text(encoding="utf-8")
+        start = portal.index("function syncClassBoard")
+        chunk = portal[start:portal.index("function bindStudentCanvas")]
+        own = chunk.index('=== "show-own"')
+        reset = chunk.index("resetRun")
+        self.assertLess(own, reset)
+        own_branch = chunk[own:chunk.index('return "show-own"')]
+        self.assertNotIn("resetRun", own_branch)
+        self.assertNotIn("setViewOnly", own_branch)
+        home = (REPO_ROOT / "lms" / "templates" / "student" / "home.html").read_text(encoding="utf-8")
+        for token in (
+            "student-canvas-pen",
+            "student-canvas-text",
+            "student-canvas-erase",
+            "Name your masterpiece",
+        ):
+            self.assertIn(token, home)
 
 
 if __name__ == "__main__":

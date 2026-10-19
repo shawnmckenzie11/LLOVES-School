@@ -428,8 +428,6 @@ def shoot_urls(
     return written
 
 
-
-
 def shoot_mck249(
     base: str,
     state_path: Path,
@@ -1032,8 +1030,6 @@ def _mck208_answer_all_catchup(school, class_id: int, student_id: int) -> None:
             school.submit_catchup_answer(
                 tok, int(student_id), str(question["question_key"]), "A"
             )
-
-
 
 
 def _mck208_ensure_past_modules(school, class_id: int, student_id: int) -> None:
@@ -2399,7 +2395,6 @@ def _mck272_box_in_view(page: object, selector: str) -> dict[str, float]:
     return metrics
 
 
-
 def _mck272_assert_open_panel(page: object, label: str) -> dict[str, float]:
     """Require a tall canvas, Undo in view, and no page scroll.
 
@@ -2680,6 +2675,49 @@ def publish_mck272_whiteboard(
     )
 
 
+def mark_second_teammate_drew_and_left(path: Path, session_id: int) -> None:
+    """Second student on the first team draws, then leaves.
+
+    The shown legend should still list them. This does not print names
+    or visit tokens.
+
+    Args:
+        path: LMS sqlite path used by the running dev server.
+        session_id: Active live class session.
+    """
+    sys.path.insert(0, str(LMS_DIR))
+    os.environ["LLOVES_DB"] = str(path)
+    os.environ.setdefault("LOCAL_DEV_LOGIN", "1")
+    from app import create_app
+
+    app = create_app(db_path=path, testing=True)
+    school = app.config["SCHOOL_DB"]
+    rows = school.list_live_session_team_members(int(session_id), 0)
+    ids = [
+        int(row["student_id"])
+        for row in rows
+        if row.get("student_id") not in (None, "")
+    ]
+    if len(ids) < 2:
+        raise SystemExit("The first team needs two students before a leave.")
+    leaver = ids[1]
+    school.append_live_board_ops(
+        int(session_id),
+        "team:0",
+        owner=str(leaver),
+        ops=[
+            {
+                "type": "text_upsert",
+                "id": "kept-ink",
+                "text": "kept",
+                "x": 0.55,
+                "y": 0.62,
+            }
+        ],
+    )
+    school.mark_live_session_attendee_left(int(session_id), student_id=leaver)
+
+
 def shoot_mck272(base: str, out_dir: Path, path: Path, state_path: Path) -> list[Path]:
     """MCK-272: one board, hidden until publish, fitted, named, in sync.
 
@@ -2906,7 +2944,6 @@ def shoot_mck272(base: str, out_dir: Path, path: Path, state_path: Path) -> list
         staff_ctx.close()
         browser.close()
     return shots
-
 
 
 def _mck272_republish(page: object, origin: str, path: Path, session_id: int, mode: str) -> None:
@@ -3659,6 +3696,133 @@ def shoot_mck289(base: str, state_path: Path, out_dir: Path, path: Path, widths:
     return written
 
 
+def shoot_mck280(base: str, out_dir: Path, path: Path, state_path: Path) -> list[Path]:
+    """MCK-280: legend colours, no on-board names, show to class, no send.
+
+    Visit tokens are used only to open student pages. This does not print
+    them, or student names.
+
+    Args:
+        base: Loopback origin.
+        out_dir: Directory for PNG files.
+        path: LMS sqlite path.
+        state_path: Staff storageState.
+
+    Returns:
+        Written screenshot paths.
+    """
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    prepared = prepare_mck272(path)
+    class_id = int(prepared["class_id"])
+    session_id = int(prepared["session_id"])
+    tokens = prepared["tokens"]
+    if not isinstance(tokens, dict):
+        raise SystemExit("Demo visit tokens were not prepared.")
+    staff_url = f"{origin}/staff/class/{class_id}?tab=live"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    shots: list[Path] = []
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        staff_ctx = browser.new_context(
+            viewport={"width": 1280, "height": 800},
+            storage_state=str(state_path) if state_path.exists() else None,
+        )
+        staff = staff_ctx.new_page()
+        staff.goto(staff_url, wait_until="domcontentloaded")
+        staff.locator('.live-content-tab[data-tab="canvas"]').click(timeout=15000)
+        staff.locator('[data-surface-publish="canvas"]').wait_for(state="visible", timeout=30000)
+        if staff.locator("#wb-live-send").count():
+            raise SystemExit("Send feedback is still on the board.")
+        publish_mck272_whiteboard(path, session_id)
+        mark_second_teammate_drew_and_left(path, session_id)
+        staff.locator("#formative-live-board:not([hidden]) .wb-live-tile").first.wait_for(
+            state="visible", timeout=30000
+        )
+        posted = staff.evaluate(
+            """async () => {
+              const id = document.getElementById('ap-root')?.dataset.liveSessionId || '';
+              if (!id) return 'no-session';
+              const res = await fetch(`/api/live-sessions/${id}/whiteboard-gallery/team:0/feedback`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                  ops: [{type: 'text_upsert', id: 'm280', text: 'marked', x: 0.3, y: 0.4, color: '#dc2626'}],
+                }),
+              });
+              return res.ok ? 'ok' : 'fail';
+            }"""
+        )
+        if posted != "ok":
+            raise SystemExit("Teacher ink was not saved.")
+        staff.locator("#formative-live-board .wb-live-status").filter(
+            has_text="Teacher wrote"
+        ).first.wait_for(state="visible", timeout=15000)
+        if not staff.locator("#wb-live-filters").get_by_text("Teacher wrote", exact=True).count():
+            raise SystemExit("Teacher wrote filter is missing.")
+        gallery = out_dir / "mck280-gallery-1280x800.png"
+        staff.screenshot(path=str(gallery))
+        shots.append(gallery)
+
+        staff.locator("#formative-live-board .wb-live-tile").first.click()
+        staff.locator("#wb-live-panel:not([hidden]) #wb-live-show").wait_for(
+            state="visible", timeout=15000
+        )
+        staff.locator("#wb-live-legend .wb-legend-chip").nth(1).wait_for(
+            state="visible", timeout=15000
+        )
+        for selector in ("#wb-live-pen", "#wb-live-undo", "#wb-live-show", "#wb-live-prev", "#wb-live-next"):
+            staff.locator(selector).scroll_into_view_if_needed()
+            if not staff.locator(selector).is_visible():
+                raise SystemExit(f"Panel control is not visible: {selector}")
+        panel = out_dir / "mck280-panel-1280x800.png"
+        staff.locator("#wb-live-panel").screenshot(path=str(panel))
+        shots.append(panel)
+
+        maple_ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+        pine_ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+        maple = maple_ctx.new_page()
+        pine = pine_ctx.new_page()
+        _mck272_open_student(maple, origin, str(tokens["Maple"]))
+        maple.locator("#canvas-pane:not([hidden]) #class-board-legend .wb-legend-chip").first.wait_for(
+            state="visible", timeout=30000
+        )
+        if maple.locator(".name-chip").count():
+            raise SystemExit("A name label is still drawn on the student board.")
+        own = out_dir / "mck280-student-legend-1280x800.png"
+        maple.locator("#canvas-pane").screenshot(path=str(own))
+        shots.append(own)
+
+        staff.locator("#wb-live-show").click()
+        _mck272_open_student(pine, origin, str(tokens["Pine"]))
+        pine.locator("#canvas-pane:not([hidden])").wait_for(state="visible", timeout=30000)
+        pine.wait_for_function(
+            """async () => {
+              const res = await fetch('/api/student/board/mine?since=0&teacher_since=0', {credentials: 'same-origin'});
+              if (!res.ok) return false;
+              const data = await res.json();
+              const board = data && data.class_board;
+              if (!board || board.board_key !== 'team:0') return false;
+              const legend = Array.isArray(board.legend) ? board.legend : [];
+              if (legend.length < 2) return false;
+              return JSON.stringify(board).includes('marked');
+            }""",
+            timeout=30000,
+        )
+        pine.locator("#class-board-legend .wb-legend-chip").nth(1).wait_for(
+            state="visible", timeout=15000
+        )
+        if pine.locator(".name-chip").count():
+            raise SystemExit("A name label is still drawn on the projected board.")
+        shown = out_dir / "mck280-class-board-1280x800.png"
+        pine.locator("#canvas-pane").screenshot(path=str(shown))
+        shots.append(shown)
+        browser.close()
+    return shots
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry: seed, log in once, then shoot URLs or the catch-up scenario."""
     parser = argparse.ArgumentParser(description="Headless local LMS screenshots.")
@@ -3696,6 +3860,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck249",
             "mck281",
             "mck289",
+            "mck280",
         ),
         default="",
         help=(
@@ -3705,7 +3870,8 @@ def main(argv: list[str] | None = None) -> int:
             "MCK-220/230/215/222/219 scenarios, MCK-217 Student view Questions, "
             "MCK-242 Team Draw, MCK-272 whiteboard, MCK-273 one join code, "
             "MCK-275 End Class and Quit, MCK-249 teacher course tabs, "
-            "MCK-281 Take turns rank, or MCK-289 catch-up column."
+            "MCK-281 Take turns rank, MCK-289 catch-up column, "
+            "or MCK-280 whiteboard fixes."
         ),
     )
     args = parser.parse_args(argv)
@@ -3783,6 +3949,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "mck289":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck289(args.base, state, out, path, widths))
+        if args.scenario == "mck280":
+            written.extend(shoot_mck280(args.base, out, path, state))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(
@@ -3800,7 +3968,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
                 "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
-                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289."
+                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck280."
             )
         for item in written:
             print(item)

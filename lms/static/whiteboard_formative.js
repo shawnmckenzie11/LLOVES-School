@@ -56,6 +56,51 @@ export function collabForcesNames(alwaysShowNames, _projectorShowNames) {
 }
 
 /**
+ * On-board name labels stay off. The colour legend names the ink.
+ *
+ * @returns {boolean}
+ */
+export function boardNameChipsEnabled() {
+  return false;
+}
+
+/**
+ * How a student paints a board the teacher is showing.
+ *
+ * The owner's own board stays writable so an open stroke, Pen, Text,
+ * Erase, and the masterpiece title survive. Any other board is view only.
+ * @param {string} ownKey Board the viewer is drawing on.
+ * @param {string} shownKey Board the teacher projected.
+ * @returns {"show-own" | "show-class"}
+ */
+export function classBoardPaintMode(ownKey, shownKey) {
+  const shown = String(shownKey || "");
+  const own = String(ownKey || "");
+  if (shown && own && shown === own) return "show-own";
+  return "show-class";
+}
+
+/**
+ * Legend element already in the page, or a new one above the stage.
+ *
+ * @param {HTMLCanvasElement} canvas
+ * @param {HTMLElement} stage
+ * @returns {HTMLElement}
+ */
+function legendHost(canvas, stage) {
+  const root = canvas.closest("#formative-live-board, #canvas-pane") || stage.parentElement;
+  const found = root?.querySelector("#wb-live-legend, #class-board-legend");
+  if (found instanceof HTMLElement) {
+    found.classList.add("wb-formative-legend");
+    return found;
+  }
+  const created = document.createElement("div");
+  created.className = "wb-formative-legend";
+  stage.parentElement?.insertBefore(created, stage);
+  return created;
+}
+
+/**
  * Inline style for a cursor-name chip on the white student canvas.
  *
  * Text stays near-black on a white chip. The member colour is the
@@ -163,9 +208,7 @@ export function wireFormativeWhiteboard(boardApi, opts) {
   chipLayer.setAttribute("aria-hidden", "true");
   stage.appendChild(chipLayer);
 
-  const legend = document.createElement("div");
-  legend.className = "wb-formative-legend";
-  stage.parentElement?.insertBefore(legend, stage);
+  const legend = legendHost(canvas, stage);
 
   const membersById = {};
   for (const m of opts.members || []) {
@@ -195,59 +238,27 @@ export function wireFormativeWhiteboard(boardApi, opts) {
     chipLayer.style.bottom = "auto";
   }
 
-  function paintChips(items) {
+  function paintChips(_items) {
     chipLayer.innerHTML = "";
     syncChipLayerToCanvas();
-    const rect = canvas.getBoundingClientRect();
-    const lw = Number(canvas.dataset.logicalWidth) || canvas.width;
-    const lh = Number(canvas.dataset.logicalHeight) || canvas.height;
-    const now = Date.now();
-    const phone = Boolean(opts.isPhone);
-    const showAll = collabForcesNames(alwaysShow, projectorNames);
-    for (const item of items) {
-      const member = membersById[String(item.owner)] || {
-        name: String(item.owner || ""),
-        color: colorForOwner(membersById, item.owner),
-      };
-      let visible = showAll;
-      if (!visible && phone) {
-        visible = (phoneFlashUntil.get(item.id) || 0) > now;
-      }
-      if (!visible && !phone && hoverItemId === item.id) visible = true;
-      if (!visible) continue;
-
-      const chip = document.createElement("span");
-      chip.className = "name-chip";
-      chip.textContent = member.name || item.owner;
-      chip.style.backgroundColor = member.color || colorForOwner(membersById, item.owner);
-      let ax = 0;
-      let ay = 0;
-      if (item.kind === "stroke" && item.points?.length) {
-        ax = item.points[0].x;
-        ay = item.points[0].y;
-      } else if (item.kind === "text") {
-        ax = item.x * lw;
-        ay = item.y * lh;
-      }
-      const left = Math.max(8, Math.min(rect.width - 8, (ax / lw) * rect.width - 8));
-      const top = Math.max(8, Math.min(rect.height - 8, (ay / lh) * rect.height - 8));
-      chip.style.left = `${left}px`;
-      chip.style.top = `${top}px`;
-      chip.dataset.itemId = item.id;
-      chipLayer.appendChild(chip);
-    }
+    const showNames = collabForcesNames(alwaysShow, projectorNames);
+    if (!boardNameChipsEnabled() || !showNames) return;
   }
 
   function paintLegend() {
-    legend.innerHTML = (opts.members || [])
-      .map((m) => {
-        const dot = `<span class="wb-legend-dot" style="background:${m.color}"></span>`;
-        return `<button type="button" class="wb-legend-chip" data-member="${m.id}">${dot}${m.name}</button>`;
-      })
-      .join("");
-    legend.querySelectorAll("[data-member]").forEach((btn) => {
+    legend.replaceChildren();
+    const rows = (opts.members || []).filter((member) => String(member.name || "").trim());
+    for (const member of rows) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "wb-legend-chip";
+      btn.dataset.member = String(member.id || "");
+      const dot = document.createElement("span");
+      dot.className = "wb-legend-dot";
+      dot.style.background = String(member.color || "#94a3b8");
+      btn.append(dot, document.createTextNode(String(member.name || "")));
       btn.addEventListener("click", () => {
-        const id = btn.getAttribute("data-member") || "";
+        const id = btn.dataset.member || "";
         const items = boardItemsFromInk(
           opts.getInk?.().strokes || [],
           opts.getInk?.().texts || []
@@ -259,7 +270,9 @@ export function wireFormativeWhiteboard(boardApi, opts) {
         }
         refreshChips();
       });
-    });
+      legend.appendChild(btn);
+    }
+    legend.hidden = rows.length === 0;
   }
 
   function refreshChips() {

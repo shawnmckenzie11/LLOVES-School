@@ -128,7 +128,58 @@ def team_filters(tiles: list[dict[str, Any]]) -> list[dict[str, str]]:
     chips = [{"id": "all", "label": f"All {len(tiles)}"}]
     for order in orders:
         chips.append({"id": f"team:{order}", "label": f"Team {order + 1}"})
+    chips.append({"id": "teacher_wrote", "label": "Teacher wrote"})
     return chips
+
+
+def legend_entries(
+    school: Any, session_id: int, card: dict[str, Any]
+) -> list[dict[str, str]]:
+    """Colour dots and names for one gallery card.
+
+    Same rows the teacher panel and the shown board use
+    (``legend_member_rows``). Colours are unique on this board. A
+    student who drew and then left stays. Blank names are left out so
+    a teacher ink row does not become an empty chip.
+
+    Args:
+        school: Open ``SchoolDB``.
+        session_id: ``live_class_sessions.id``.
+        card: Gallery card with ``board_key``, ``team_sort_order``, and
+            ``student_ids``.
+
+    Returns:
+        ``{id, name, color}`` rows.
+    """
+    from whiteboard_formative import legend_member_rows
+
+    key = str(card.get("board_key") or "")
+    order = card.get("team_sort_order")
+    scope = None if order is None or key.startswith("solo:") else int(order)
+    members = legend_member_rows(
+        school, int(session_id), scope, board_key=key
+    )
+    if key.startswith("solo:"):
+        wanted = {
+            str(int(sid))
+            for sid in (card.get("student_ids") or [])
+            if sid not in (None, "")
+        }
+        if wanted:
+            members = [member for member in members if str(member.get("id")) in wanted]
+    out: list[dict[str, str]] = []
+    for member in members:
+        name = str(member.get("name") or "").strip()
+        if not name:
+            continue
+        out.append(
+            {
+                "id": str(member.get("id") or ""),
+                "name": name,
+                "color": str(member.get("color") or ""),
+            }
+        )
+    return out
 
 
 def parse_cursors(raw: Any) -> dict[str, int]:

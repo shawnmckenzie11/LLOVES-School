@@ -84,7 +84,7 @@ try {
   });
   await teacher.waitForTimeout(400);
   const hoverChips = await teacher.locator(".name-chip").count();
-  results.checks.teacher_hover_one_chip = hoverChips === 1;
+  results.checks.teacher_hover_no_name_chip = hoverChips === 0;
 
   const chipCount = hoverChips;
   const itemEstimate = await teacher.evaluate(() => {

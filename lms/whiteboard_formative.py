@@ -6,6 +6,7 @@ board ops; this module only shapes metadata and colours for collab boards.
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -37,6 +38,8 @@ def member_color(slot: int) -> str:
     """Colour for a member's join-order slot (0-based).
 
     A 7th+ member reuses the palette; clients draw dashed strokes.
+    Ink on the board does not use this. ``student_ink_color`` does,
+    so a late joiner cannot shift anyone else's colour.
 
     Args:
         slot: Join order index inside one board (``team:<sort_order>``).
@@ -44,6 +47,113 @@ def member_color(slot: int) -> str:
     if slot < 0:
         slot = 0
     return FORMATIVE_MEMBER_PALETTE[slot % len(FORMATIVE_MEMBER_PALETTE)]
+
+
+def student_ink_color(student_id: Any) -> str:
+    """Stable ink colour for one student, hashed from their id.
+
+    The colour does not depend on join order or list position. A late
+    joiner cannot shift anyone else. The palette is finite, so two
+    ids can hash to the same colour. A board legend uses
+    ``assign_board_colors`` to bump that clash. Stored strokes are
+    not rewritten.
+
+    Args:
+        student_id: Roster id, or any other stable token.
+    """
+    from live_canvas import cursor_color_for
+
+    return cursor_color_for(student_id)
+
+
+def assign_board_colors(student_ids: list[Any]) -> dict[str, str]:
+    """Stable unique ink colours for one board, in the caller's order.
+
+    Each id starts at ``cursor_color_for``. When that colour is already
+    claimed by an earlier id, the next free palette entry is used,
+    walking forward from the hash. A later id bumps. Earlier ids stay
+    put, including leavers who are only here so a departure does not
+    free their colour. More people than palette entries must reuse the
+    hash. Nothing is written to stored strokes.
+
+    Args:
+        student_ids: Join-ordered ids for this board, including leavers.
+
+    Returns:
+        Map of id string to a hex colour.
+    """
+    from live_canvas import CURSOR_COLORS, cursor_color_for
+
+    palette = tuple(CURSOR_COLORS)
+    size = len(palette)
+    if size == 0:
+        return {}
+    taken: set[str] = set()
+    out: dict[str, str] = {}
+    for raw in student_ids:
+        if raw in (None, ""):
+            continue
+        try:
+            sid = str(int(raw))
+        except (TypeError, ValueError):
+            sid = str(raw).strip()
+        if not sid or sid in out:
+            continue
+        preferred = cursor_color_for(sid)
+        try:
+            start = palette.index(preferred)
+        except ValueError:
+            start = 0
+            preferred = palette[0]
+        colour = preferred
+        if colour in taken:
+            for step in range(1, size):
+                candidate = palette[(start + step) % size]
+                if candidate not in taken:
+                    colour = candidate
+                    break
+        out[sid] = colour
+        if len(taken) < size:
+            taken.add(colour)
+    return out
+
+
+def drawing_owner_ids(rows: list[dict[str, Any]] | None) -> set[str]:
+    """Student ids who added a stroke or non-empty text on these ops.
+
+    Teacher rows are ignored. An empty text label does not count.
+    The op may be a dict or a JSON string. Rows are not rewritten.
+
+    Args:
+        rows: ``board_ops`` rows for one board.
+
+    Returns:
+        Student id strings.
+    """
+    owners: set[str] = set()
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        op = row.get("op")
+        if isinstance(op, str):
+            try:
+                op = json.loads(op)
+            except (TypeError, ValueError):
+                op = None
+        if not isinstance(op, dict):
+            op = row if row.get("type") else None
+        if not isinstance(op, dict):
+            continue
+        kind = str(op.get("type") or "")
+        who = str(row.get("owner") or op.get("owner") or "").strip()
+        if not who or who == "teacher" or not who.isdigit():
+            continue
+        drew = kind in {"stroke_add", "pts_append"} or (
+            kind == "text_upsert" and bool(str(op.get("text") or "").strip())
+        )
+        if drew:
+            owners.add(str(int(who)))
+    return owners
 
 
 def first_name_only(raw: str) -> str:
@@ -220,20 +330,25 @@ def formative_board_members(
     team_sort_order: int | None,
     *,
     rows: list[dict[str, Any]] | None = None,
+    keep_left: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Members on one ``team:<sort_order>`` board in stable join order.
 
     ``team_sort_order`` selects which roster to load. ``0`` is the first
     named team and must be passed through; only None loads every team.
-    Colour slots come from ``roster_board_bucket``, so the legend and a
-    team board agree. Pass ``rows`` when the caller already loaded that
-    scope, including leavers.
+    Colour slots come from ``roster_board_bucket`` and still decide the
+    dash pattern. Ink colour is ``assign_board_colors`` over the full
+    join order, including leavers, so a late joiner or a departure
+    cannot shift anyone else's colour. A leaver is listed only when
+    their id is in ``keep_left`` (they drew on this board). Pass
+    ``rows`` when the caller already loaded that scope, including leavers.
 
     Args:
         school: Open ``SchoolDB``.
         session_id: ``live_class_sessions.id``.
         team_sort_order: Board suffix, or None for every team.
         rows: Join-ordered attendee rows for this scope, including leavers.
+        keep_left: Student ids who drew and should stay after leaving.
 
     Returns:
         List of ``{id, name, color, slot, dashed}`` dicts.
@@ -242,25 +357,90 @@ def formative_board_members(
         load_order = None if team_sort_order is None else int(team_sort_order)
         rows = school.list_live_session_team_members(int(session_id), load_order)
     slot_map = formative_slot_map_from_rows(rows)
+    ordered: list[int] = []
+    for row in rows:
+        sid = row.get("student_id")
+        if sid in (None, ""):
+            continue
+        try:
+            ordered.append(int(sid))
+        except (TypeError, ValueError):
+            continue
+    colors = assign_board_colors(ordered)
+    staying = {str(item) for item in (keep_left or set())}
     out: list[dict[str, Any]] = []
     for row in rows:
         sid = row.get("student_id")
         if sid in (None, ""):
             continue
-        if row.get("left_at"):
+        sid_s = str(int(sid))
+        if row.get("left_at") and sid_s not in staying:
             continue
         slot = int(slot_map.get(int(sid), 0))
         name = first_name_only(str(row.get("codename") or row.get("name") or sid))
         out.append(
             {
-                "id": str(int(sid)),
+                "id": sid_s,
                 "name": name,
-                "color": member_color(slot),
+                "color": colors.get(sid_s) or student_ink_color(sid),
                 "slot": slot,
                 "dashed": slot >= len(FORMATIVE_MEMBER_PALETTE),
             }
         )
     return out
+
+
+def legend_member_rows(
+    school: Any,
+    session_id: int,
+    team_sort_order: int | None,
+    *,
+    board_key: str = "",
+    rows: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Legend members for one board, including leavers who drew on it.
+
+    Colour claims use the full join order, including leavers who are
+    not shown, so a departure does not move a teammate's colour. The
+    teacher board does not scan ink. A leaver with no stroke or
+    non-empty text on this board stays off the legend. Board ops are
+    read only when some row has already left.
+
+    Args:
+        school: Open ``SchoolDB``.
+        session_id: ``live_class_sessions.id``.
+        team_sort_order: Board suffix, or None to load every team.
+        board_key: ``team:<n>``, ``solo:<id>``, or ``teacher``.
+        rows: Join-ordered rows already loaded for this scope.
+
+    Returns:
+        ``formative_board_members`` rows for the legend.
+    """
+    key = str(board_key or "")
+    if rows is None:
+        load_order = None if team_sort_order is None else int(team_sort_order)
+        loaded = school.list_live_session_team_members(int(session_id), load_order)
+        rows = list(loaded or [])
+    else:
+        rows = list(rows)
+    if key.startswith("solo:"):
+        suffix = key.split(":", 1)[1]
+        rows = [row for row in rows if str(row.get("student_id") or "") == str(suffix)]
+    keep: set[str] = set()
+    if key.startswith(("team:", "solo:")) and any(row.get("left_at") for row in rows):
+        try:
+            stored = school._board_rows(int(session_id), key)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            stored = []
+        keep = drawing_owner_ids(stored)
+    scope = None if team_sort_order is None else int(team_sort_order)
+    return formative_board_members(
+        school,
+        int(session_id),
+        scope,
+        rows=rows,
+        keep_left=keep,
+    )
 
 
 def formative_meta_for_board(
@@ -295,20 +475,23 @@ def formative_meta_for_board(
         return None
     if not school._whiteboard_collab_active(int(session_id)):
         return None
-    teacher = school.live_session_teacher_state_payload(int(session_id))
+    key = str(board_key or "")
     if member_rows is None:
         team_sort_order = resolve_formative_bucket(
             school,
             int(session_id),
-            board_key=str(board_key or ""),
+            board_key=key,
             student_id=student_id,
         )
-        members = formative_board_members(school, int(session_id), team_sort_order)
+        members = legend_member_rows(
+            school, int(session_id), team_sort_order, board_key=key
+        )
     else:
-        members = formative_board_members(
+        members = legend_member_rows(
             school,
             int(session_id),
             bucket,
+            board_key=key,
             rows=member_rows,
         )
     return {

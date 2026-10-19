@@ -9744,7 +9744,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     )
     @login_required
     def api_whiteboard_gallery_feedback(session_id: int, board_key: str):
-        """Append teacher feedback on the surviving board."""
+        """Append live teacher ink. Does not create a feedback layer."""
         _row, denied = _teacher_formative_session(session_id)
         if denied is not None:
             return denied
@@ -9773,7 +9773,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     )
     @login_required
     def api_whiteboard_gallery_release(session_id: int, board_key: str):
-        """Send feedback: the class can see it after this."""
+        """Release feedback rows already stored. New ink does not use this."""
         _row, denied = _teacher_formative_session(session_id)
         if denied is not None:
             return denied
@@ -9789,7 +9789,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     )
     @login_required
     def api_whiteboard_gallery_clear(session_id: int, board_key: str):
-        """Clear student ink on one board. Teacher feedback stays."""
+        """Clear student ink on one board. Teacher ink stays."""
         _row, denied = _teacher_formative_session(session_id)
         if denied is not None:
             return denied
@@ -9805,7 +9805,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     )
     @login_required
     def api_whiteboard_gallery_show(session_id: int, board_key: str):
-        """Show one board to the class. Feedback waits for Send feedback."""
+        """Show one board to the class, including its colour legend."""
         _row, denied = _teacher_formative_session(session_id)
         if denied is not None:
             return denied

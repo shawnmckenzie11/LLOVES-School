@@ -976,7 +976,14 @@ export function bindWhiteboard(canvas, opts = {}) {
     if (!id) return;
     texts = texts.filter((label) => label.id !== id);
     if (body) {
-      texts.push({ id, x: left, y: top, text: body, color, mine: true });
+      texts.push({
+        id,
+        x: left,
+        y: top,
+        text: body,
+        color: strokeColor(ownerNow()),
+        mine: true,
+      });
     }
     replayCommitted();
     if (typeof opts.onText === "function") {

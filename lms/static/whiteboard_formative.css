@@ -280,6 +280,17 @@
   flex: 1;
 }
 
+.wb-live-status {
+  color: #fbbf24;
+  font-size: 0.75rem;
+}
+
+#canvas-pane .wb-legend-chip {
+  background: #f8fafc;
+  color: #0f172a;
+  border-color: #cbd5e1;
+}
+
 .wb-live-panel {
   background: #111827;
   border-radius: 12px;
