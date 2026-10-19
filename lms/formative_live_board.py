@@ -137,9 +137,10 @@ def legend_entries(
 ) -> list[dict[str, str]]:
     """Colour dots and names for one gallery card.
 
-    Colour is hashed from the student id, so a late joiner does not
-    move anyone else. Two students may share a colour. Blank names are
-    left out so a teacher ink row does not become an empty chip.
+    Same rows the teacher panel and the shown board use
+    (``legend_member_rows``). Colours are unique on this board. A
+    student who drew and then left stays. Blank names are left out so
+    a teacher ink row does not become an empty chip.
 
     Args:
         school: Open ``SchoolDB``.
@@ -150,21 +151,22 @@ def legend_entries(
     Returns:
         ``{id, name, color}`` rows.
     """
-    from whiteboard_formative import formative_board_members
+    from whiteboard_formative import legend_member_rows
 
     key = str(card.get("board_key") or "")
+    order = card.get("team_sort_order")
+    scope = None if order is None or key.startswith("solo:") else int(order)
+    members = legend_member_rows(
+        school, int(session_id), scope, board_key=key
+    )
     if key.startswith("solo:"):
         wanted = {
             str(int(sid))
             for sid in (card.get("student_ids") or [])
             if sid not in (None, "")
         }
-        members = formative_board_members(school, int(session_id), None)
-        members = [member for member in members if str(member.get("id")) in wanted]
-    else:
-        order = card.get("team_sort_order")
-        scope = None if order is None else int(order)
-        members = formative_board_members(school, int(session_id), scope)
+        if wanted:
+            members = [member for member in members if str(member.get("id")) in wanted]
     out: list[dict[str, str]] = []
     for member in members:
         name = str(member.get("name") or "").strip()

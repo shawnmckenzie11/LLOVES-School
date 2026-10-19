@@ -55,6 +55,7 @@ import {
   opsAboveCursor,
   showBoardRefreshCue,
 } from "/static/live_whiteboard.js";
+import { classBoardPaintMode } from "/static/whiteboard_formative.js";
 import { canvasToPngDataUrl, isTeamDrawItem } from "/static/team_draw.js";
 import { nameWithAvatar, paintAvatar } from "/static/student_avatars.js";
 import { rankStackHtml } from "/static/rank_stack.js";
@@ -1061,6 +1062,8 @@ function unmountStudentMedia() {
 let studentPresenceCollab = false;
 /** True while the teacher is showing a board to the class. */
 let classBoardHeld = false;
+/** Board key this tab is drawing on. A shown copy of it stays writable. */
+let studentOwnBoardKey = "";
 
 /** @type {ReturnType<typeof createPresenceQueue> | null} */
 let studentPresence = null;
@@ -1284,13 +1287,31 @@ function applyStudentBoardFormative(meta) {
 }
 
 /**
- * Paint or clear the read-only board the teacher is showing.
+ * Board this student is drawing on.
+ *
+ * A projected copy of that board must not replace the open stroke.
+ * @param {any} data
+ * @returns {string}
+ */
+function viewerBoardKey(data) {
+  const mine = data && data.board_key ? String(data.board_key) : "";
+  if (mine && mine !== "teacher") {
+    studentOwnBoardKey = mine;
+    return mine;
+  }
+  if (studentOwnBoardKey) return studentOwnBoardKey;
+  const me = Number(data?.me?.id || lastStudentPayload?.me?.id) || 0;
+  return me > 0 ? `solo:${me}` : "";
+}
+
+/**
+ * Paint or clear the board the teacher is showing.
  *
  * A missing ``class_board`` key keeps the current board. ``null`` clears
- * it. An object paints that canvas and its colour legend.
- *
+ * it. The owner's own board keeps the open stroke and leaves Pen, Text,
+ * Erase, and the masterpiece title usable. Another team's board is view only.
  * @param {any} data
- * @returns {"show-class" | "keep-class" | "clear-class" | "own"}
+ * @returns {"show-class" | "show-own" | "keep-class" | "clear-class" | "own"}
  */
 function syncClassBoard(data) {
   if (!data || !Object.prototype.hasOwnProperty.call(data, "class_board")) {
@@ -1298,7 +1319,6 @@ function syncClassBoard(data) {
   }
   const board = data.class_board;
   if (board && typeof board === "object" && board.canvas_view) {
-    classBoardHeld = true;
     const legend = Array.isArray(board.legend) ? board.legend : [];
     if (typeof bindStudentCanvas.applyFormativePatch === "function") {
       bindStudentCanvas.applyFormativePatch({
@@ -1307,6 +1327,13 @@ function syncClassBoard(data) {
         projector_show_names: false,
       });
     }
+    if (classBoardPaintMode(viewerBoardKey(data), board.board_key) === "show-own") {
+      classBoardHeld = false;
+      document.getElementById("canvas-pane")?.classList.remove("is-class-board");
+      if (teamDrawTitle) teamDrawTitle.disabled = false;
+      return "show-own";
+    }
+    classBoardHeld = true;
     if (typeof bindStudentCanvas.resetRun === "function") {
       bindStudentCanvas.resetRun(board.canvas_view);
     }

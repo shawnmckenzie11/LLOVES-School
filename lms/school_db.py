@@ -30276,6 +30276,87 @@ class SchoolDB(LovesDB):
             if self.conn.in_transaction:
                 self.conn.commit()
         self.game._forget_team_index(class_id=class_id)
+    def ink_color_for_new_stroke(
+        self, session_id: int, board_key: str, owner: str
+    ) -> str:
+        """Colour for a new stroke or text label on this board.
+
+        Solo boards and the teacher use the id hash. A team board walks
+        join order and bumps a hash clash to the next free palette entry.
+        The roster is loaded when the attendee count or leave count
+        changes, not on every point of a stroke. Stored ops are left
+        as they are.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            board_key: Board the new ink is written to.
+            owner: ``teacher`` or a roster id string.
+
+        Returns:
+            Hex colour for this new op.
+        """
+        from whiteboard_formative import assign_board_colors, formative_board_bucket
+
+        who = str(owner or "").strip()
+        if not who.isdigit():
+            return cursor_color_for(who)
+        key = str(board_key or "")
+        if not key.startswith("team:"):
+            return cursor_color_for(who)
+        scope = formative_board_bucket(key)
+        stamp = self._attendee_membership_stamp(int(session_id))
+        cache = getattr(self, "_board_ink_color_cache", None)
+        if not isinstance(cache, dict):
+            cache = {}
+            self._board_ink_color_cache = cache
+        cache_key = (int(session_id), key, stamp)
+        colors = cache.get(cache_key)
+        if not isinstance(colors, dict):
+            rows = self.list_live_session_team_members(int(session_id), scope)
+            ids = [
+                int(row["student_id"])
+                for row in rows
+                if row.get("student_id") not in (None, "")
+            ]
+            colors = assign_board_colors(ids)
+            if len(cache) > 32:
+                cache.clear()
+            cache[cache_key] = colors
+        return str(colors.get(who) or cursor_color_for(who))
+
+    def _attendee_membership_stamp(self, session_id: int) -> tuple[int, int]:
+        """Cheap roster stamp so ink colours reload only when membership changes.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            ``(attendee count, leaver count)`` from sqlite.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT COUNT(*) AS n,
+                       SUM(
+                         CASE
+                           WHEN left_at IS NOT NULL AND TRIM(left_at) != '' THEN 1
+                           ELSE 0
+                         END
+                       ) AS lefts
+                FROM live_session_attendees
+                WHERE live_session_id = ?
+                """,
+                (int(session_id),),
+            ).fetchone()
+        if row is None:
+            return (0, 0)
+        if hasattr(row, "keys"):
+            count = row["n"]
+            lefts = row["lefts"]
+        else:
+            count, lefts = row[0], row[1]
+        return (int(count or 0), int(lefts or 0))
+
     def apply_live_canvas_presence(
         self,
         session_id: int,
@@ -30366,7 +30447,7 @@ class SchoolDB(LovesDB):
             key,
             owner=who,
             name=name,
-            color=cursor_color_for(who),
+            color=self.ink_color_for_new_stroke(int(session_id), key, who),
             team_id=team_id,
             stroke_id=stroke_id,
             points=points if isinstance(points, list) else None,
@@ -30446,7 +30527,7 @@ class SchoolDB(LovesDB):
             text=text,
             x=x,
             y=y,
-            color=cursor_color_for(writer),
+            color=self.ink_color_for_new_stroke(int(session_id), key, writer),
             team_id=stored_team,
         )
         # Callers (and the text test) expect the full session blob, the
@@ -31375,6 +31456,7 @@ class SchoolDB(LovesDB):
             from lms.whiteboard_formative import resolve_formative_bucket
 
         teacher = self.live_session_teacher_state_payload(int(session_id))
+        self._teacher_state_for_poll = (int(session_id), teacher)
         state_seq = int(teacher.get("state_seq") or 0)
         bucket = resolve_formative_bucket(
             self,
@@ -32357,16 +32439,27 @@ class SchoolDB(LovesDB):
             body["feedback_view"] = view
         return public_board_payload(body)
 
-    def whiteboard_class_board(self, session_id: int) -> dict[str, Any] | None:
+    def whiteboard_class_board(
+        self,
+        session_id: int,
+        *,
+        teacher_state: dict[str, Any] | None = None,
+        session_row: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
         """Read-only board the teacher is showing, or None.
 
         Students receive this beside their own writable canvas. It does
         not grant a write. Live teacher ink is included. Rows already
         stored with ``layer=feedback`` stay hidden until a release that
         is already on the board. Nothing here deletes those rows.
+        When nothing is projected, this returns before loading the
+        session or the gallery. A teacher-state dict already loaded
+        for the poll is reused.
 
         Args:
             session_id: ``live_class_sessions.id``.
+            teacher_state: Teacher state already loaded for this poll.
+            session_row: Live session row already loaded for this poll.
 
         Returns:
             ``{board_key, name, legend, canvas_view}``, or None when no
@@ -32375,12 +32468,25 @@ class SchoolDB(LovesDB):
         from board_ops import feedback_released, fold_one_board
         from formative_live_board import legend_entries, public_board_payload
 
-        session_row = self.get_live_session(int(session_id))
-        if session_row is None or str(session_row.get("status") or "") != "active":
-            return None
-        teacher = self.live_session_teacher_state_payload(int(session_id))
+        teacher = teacher_state if isinstance(teacher_state, dict) else None
+        if teacher is None:
+            stashed = getattr(self, "_teacher_state_for_poll", None)
+            if (
+                isinstance(stashed, tuple)
+                and len(stashed) == 2
+                and int(stashed[0]) == int(session_id)
+                and isinstance(stashed[1], dict)
+            ):
+                teacher = stashed[1]
+        if teacher is None:
+            teacher = self.live_session_teacher_state_payload(int(session_id))
         key = str(teacher.get("whiteboard_projected_board") or "").strip()
         if not key:
+            return None
+        row = session_row if isinstance(session_row, dict) else None
+        if row is None or int(row.get("id") or 0) != int(session_id):
+            row = self.get_live_session(int(session_id))
+        if row is None or str(row.get("status") or "") != "active":
             return None
         try:
             card = self._require_gallery_card(int(session_id), key)
@@ -42545,7 +42651,26 @@ class SchoolDB(LovesDB):
         payload["gamification"] = self.gamification_winner_payload(
             int(live_session_id), int(class_id), sid
         )
-        payload["class_board"] = self.whiteboard_class_board(int(live_session_id))
+        shown = ""
+        if isinstance(payload.get("teacher_state"), dict):
+            shown = str(
+                payload["teacher_state"].get("whiteboard_projected_board") or ""
+            ).strip()
+        if shown:
+            payload["class_board"] = self.whiteboard_class_board(
+                int(live_session_id),
+                teacher_state=payload["teacher_state"],
+                session_row=session_row if isinstance(session_row, dict) else None,
+            )
+        else:
+            payload["class_board"] = None
+        if sid not in (None, "") and not payload.get("board_key"):
+            try:
+                payload["board_key"] = self.student_live_board_key(
+                    int(live_session_id), int(sid)
+                )
+            except (KeyError, TypeError, ValueError):
+                pass
         return payload
 
     def guest_student_live_payload(

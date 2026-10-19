@@ -26,7 +26,7 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 from app import create_app  # noqa: E402
 from board_ops import MAX_OPS_PER_BATCH  # noqa: E402
 from live_canvas import MAX_POINTS, MAX_STROKES  # noqa: E402
-from whiteboard_formative import student_ink_color  # noqa: E402
+from whiteboard_formative import assign_board_colors, student_ink_color  # noqa: E402
 
 
 class FormativeLimitTests(unittest.TestCase):
@@ -718,8 +718,16 @@ class FormativeLiveBoardTests(unittest.TestCase):
         self.assertIn("teacher note", dumped)
         self.assertIn("team sketch", dumped)
         colors = {row["id"]: row["color"] for row in board.get("legend") or []}
-        self.assertEqual(colors[str(self.maple_id)], student_ink_color(self.maple_id))
-        self.assertEqual(colors[str(self.cedar_id)], student_ink_color(self.cedar_id))
+        roster = self.school.list_live_session_team_members(self.session_id, 0)
+        expected = assign_board_colors(
+            [int(row["student_id"]) for row in roster if row.get("student_id") not in (None, "")]
+        )
+        self.assertEqual(colors[str(self.maple_id)], expected[str(self.maple_id)])
+        self.assertEqual(colors[str(self.cedar_id)], expected[str(self.cedar_id)])
+        panel = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/team:0"
+        )
+        self.assertEqual(panel.get_json().get("legend"), board.get("legend"))
         denied = pine.post(
             "/api/student/board/team:0/ops",
             json={
@@ -729,6 +737,42 @@ class FormativeLiveBoardTests(unittest.TestCase):
             headers=self._student_headers(self._visit_token(self.pine_id)),
         )
         self.assertEqual(denied.status_code, 403)
+
+    def test_shown_board_lists_a_teammate_who_drew_and_left(self) -> None:
+        """Team 1 keeps both students on the shown legend after one draws and leaves."""
+        self._publish("group_shared")
+        self.school.append_live_board_ops(
+            self.session_id,
+            "team:0",
+            owner=str(self.cedar_id),
+            ops=[self._text_op("kept", "cedar-kept")],
+        )
+        self.school.mark_live_session_attendee_left(
+            self.session_id, student_id=self.cedar_id
+        )
+        panel = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/team:0"
+        )
+        self.assertEqual(panel.status_code, 200, panel.get_data(as_text=True))
+        shown = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/team:0/show"
+        )
+        self.assertEqual(shown.status_code, 200, shown.get_data(as_text=True))
+        panel_legend = panel.get_json().get("legend") or []
+        shown_legend = shown.get_json().get("legend") or []
+        self.assertEqual(panel_legend, shown_legend)
+        ids = [row["id"] for row in shown_legend]
+        self.assertIn(str(self.maple_id), ids)
+        self.assertIn(str(self.cedar_id), ids)
+        self.assertEqual(len({row["color"] for row in shown_legend}), len(shown_legend))
+        pine = self.app.test_client()
+        seen = pine.get(
+            "/api/student/board/mine?since=0&teacher_since=0",
+            headers=self._student_headers(self._visit_token(self.pine_id)),
+        )
+        self.assertEqual(seen.status_code, 200, seen.get_data(as_text=True))
+        board = (seen.get_json() or {}).get("class_board") or {}
+        self.assertEqual(board.get("legend"), shown_legend)
 
     def test_teacher_wrote_and_clear_keeps_live_ink(self) -> None:
         """The chip follows teacher rows. Clear leaves that ink in place."""
