@@ -3699,8 +3699,9 @@ def shoot_mck289(base: str, state_path: Path, out_dir: Path, path: Path, widths:
 def prepare_mck290(path: Path) -> int:
     """Show one ended template class that has no stored Lesson Slides row.
 
-    The placeholder session code is masked before the screenshot. This does
-    not print codes or student names.
+    The session has a real participation run, which is what a real End
+    writes. The placeholder session code is masked before the screenshot.
+    This does not print codes or student names.
 
     Args:
         path: LMS sqlite path.
@@ -3766,6 +3767,28 @@ def prepare_mck290(path: Path) -> int:
             f"INSERT INTO live_class_sessions ({', '.join(fields)}) VALUES ({', '.join('?' for _ in fields)})",
             values,
         )
+        run_cols = {str(row[1]) for row in con.execute("PRAGMA table_info(participation_runs)")}
+        if "run_key" in run_cols and "is_real" in run_cols:
+            con.execute(
+                "DELETE FROM participation_runs WHERE class_id = ? AND run_key = ?",
+                (class_id, "mck290-ended"),
+            )
+            run_fields = ["class_id", "run_key", "is_real"]
+            run_values: list[object] = [class_id, "mck290-ended", 1]
+            if "discarded" in run_cols:
+                run_fields.append("discarded")
+                run_values.append(0)
+            if "auto_is_real" in run_cols:
+                run_fields.append("auto_is_real")
+                run_values.append(1)
+            if "ended_at" in run_cols:
+                run_fields.append("ended_at")
+                run_values.append("2026-10-19T19:15:00")
+            con.execute(
+                f"INSERT INTO participation_runs ({', '.join(run_fields)}) "
+                f"VALUES ({', '.join('?' for _ in run_fields)})",
+                run_values,
+            )
         con.commit()
     finally:
         con.close()

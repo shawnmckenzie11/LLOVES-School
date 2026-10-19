@@ -82,6 +82,37 @@ class EndedLessonSlidesTests(EndLiveToggleTests):
         payload = build_lesson_slides_table(self.school, self.class_id)
         return next(item for item in payload["rows"] if item["label"] == label)
 
+    def _start_open_slot(self, module: str, slot: str) -> int:
+        """Start a live class and leave it open. No End.
+
+        Args:
+            module: Teacher module, such as ``M5``.
+            slot: Teacher slot, such as ``C1``.
+
+        Returns:
+            ``live_class_sessions.id``.
+        """
+        live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
+        sid = int(live["id"])
+        self.school.conn.execute(
+            "UPDATE live_class_sessions SET teacher_state_json = ? WHERE id = ?",
+            (json.dumps({"live_module": module, "live_slot": slot}), sid),
+        )
+        self.school.conn.commit()
+        return sid
+
+    def _assert_not_run(self, label: str) -> None:
+        """The slot is not Delivered and has no last-run time.
+
+        Args:
+            label: Table label such as ``M5C1``.
+        """
+        row = self._row(label)
+        self.assertFalse(row["has_run"])
+        self.assertNotEqual(row["status_label"], "Delivered")
+        self.assertEqual(row["last_run_at"], "")
+        self.assertEqual(row["catchup_access"], "none")
+
     def test_end_with_no_published_question_writes_the_row(self) -> None:
         """End writes Lesson Slides even when no individual question was published."""
         self._end_slot_with_no_answers("M2", "C4", publish=False)
@@ -92,7 +123,82 @@ class EndedLessonSlidesTests(EndLiveToggleTests):
         self.assertFalse(self.school.list_catchup_links(self.class_id))
         row = self._row("M2C4")
         self.assertTrue(row["has_run"])
+        self.assertEqual(row["status_label"], "Delivered")
         self.assertEqual(row["catchup_access"], "none")
+
+    def test_real_end_without_answers_stays_delivered_after_the_row_is_gone(self) -> None:
+        """A real End with no individual answers still lists from its participation run."""
+        self._end_slot_with_no_answers("M2", "C3", publish=False)
+        self.school.conn.execute(
+            "DELETE FROM lesson_slides_latest WHERE class_id = ?",
+            (self.class_id,),
+        )
+        self.school.conn.commit()
+        row = self._row("M2C3")
+        self.assertTrue(row["has_run"])
+        self.assertEqual(row["status_label"], "Delivered")
+        self.assertEqual(row["catchup_access"], "none")
+
+    def test_second_close_keeps_a_real_end(self) -> None:
+        """Force-end after End Class does not remove the Delivered row."""
+        sid = self._end_slot_with_no_answers("M6", "C1", publish=False)
+        again = self.school.end_live_class_session(sid)
+        self.assertIsNotNone(again)
+        self.assertEqual(str(again["status"]), "ended")
+        row = self._row("M6C1")
+        self.assertTrue(row["has_run"])
+        self.assertEqual(row["status_label"], "Delivered")
+
+    def test_it_force_end_stays_not_run(self) -> None:
+        """IT force-end closes the session and does not mark the class Delivered.
+
+        The IT route calls ``end_live_class_session``.
+        """
+        sid = self._start_open_slot("M5", "C1")
+        ended = self.school.end_live_class_session(sid)
+        self.assertIsNotNone(ended)
+        self.assertEqual(str(ended["status"]), "ended")
+        runs = self.school.conn.execute(
+            """
+            SELECT COUNT(*) FROM participation_runs
+            WHERE class_id = ? AND COALESCE(is_real, 0) = 1
+              AND COALESCE(discarded, 0) = 0
+            """,
+            (self.class_id,),
+        ).fetchone()[0]
+        self.assertEqual(int(runs), 0)
+        self._assert_not_run("M5C1")
+
+    def _cancel_open_game(self, sid: int) -> None:
+        """Open a game, then post the cancel route that ends the live session.
+
+        Args:
+            sid: ``live_class_sessions.id`` that must end without a run.
+        """
+        self.school.game.begin_game(self.class_id)
+        resp = self.client.post(
+            f"/api/classes/{self.class_id}/game/cancel",
+            json={},
+        )
+        self.assertEqual(resp.status_code, 200)
+        status = self.school.conn.execute(
+            "SELECT status FROM live_class_sessions WHERE id = ?",
+            (sid,),
+        ).fetchone()
+        self.assertIsNotNone(status)
+        self.assertEqual(str(status["status"]), "ended")
+
+    def test_game_cancel_stays_not_run(self) -> None:
+        """The live-class cancel button posts ``/game/cancel`` and stays not run."""
+        sid = self._start_open_slot("M5", "C2")
+        self._cancel_open_game(sid)
+        self._assert_not_run("M5C2")
+
+    def test_close_card_without_saving_stays_not_run(self) -> None:
+        """Take Attendance 'Close the card without saving' posts ``/game/cancel``."""
+        sid = self._start_open_slot("M5", "C3")
+        self._cancel_open_game(sid)
+        self._assert_not_run("M5C3")
 
     def test_deleted_latest_row_still_lists_the_ended_session(self) -> None:
         """The table reads the ended session when ``lesson_slides_latest`` is stale."""

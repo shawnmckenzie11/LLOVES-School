@@ -172,18 +172,19 @@ def _ended_sort_key(iso: str) -> tuple[int, str]:
 def _run_kept_for_lesson_slides(is_real: Any, discarded: Any) -> bool:
     """True when a participation row may fill Lesson Slides.
 
-    A missing row (both arguments ``None``) is kept: End marked the
-    session ended before a run row was stored. An explicit test or
-    discarded run is not a real class.
+    A real End always stores ``participation_runs`` with ``is_real`` 1.
+    A session closed without End (IT force-end, cancel, or closing the
+    attendance card) has no such row. A missing run is not a class.
+    An explicit test or discarded run is not a real class either.
 
     Args:
-        is_real: ``participation_runs.is_real``, or ``None``.
+        is_real: ``participation_runs.is_real``, or ``None`` when no run exists.
         discarded: ``participation_runs.discarded``, or ``None``.
     """
+    if is_real is None:
+        return False
     if discarded is not None and int(discarded or 0):
         return False
-    if is_real is None:
-        return True
     return bool(int(is_real or 0))
 
 
@@ -229,9 +230,11 @@ def _remember_run(
 def _real_runs_outside_latest(school: Any, class_id: int) -> dict[tuple[str, str], dict[str, Any]]:
     """Ended real runs that may be missing from ``lesson_slides_latest``.
 
-    Quit deletes the session and writes no run, so it is absent. A legacy
-    end-time test (``is_real`` 0) is absent. The result is not written
-    back to the database.
+    Quit deletes the session and writes no run, so it is absent. A
+    session ended without a real participation run is absent too: IT
+    force-end, cancel, and closing the attendance card do not write one.
+    A legacy end-time test (``is_real`` 0) is absent. The result is not
+    written back to the database.
 
     Args:
         school: ``SchoolDB`` instance.
@@ -245,9 +248,12 @@ def _real_runs_outside_latest(school: Any, class_id: int) -> dict[tuple[str, str
             SELECT s.id AS live_session_id, s.run_key, s.session_code, s.ended_at,
                    s.teacher_state_json, r.is_real, r.discarded
             FROM live_class_sessions s
-            LEFT JOIN participation_runs r
-              ON r.class_id = s.class_id AND r.run_key = COALESCE(s.run_key, '')
+            JOIN participation_runs r
+              ON r.class_id = s.class_id AND r.run_key = s.run_key
             WHERE s.class_id = ? AND s.status = 'ended' AND COALESCE(s.is_test, 0) = 0
+              AND TRIM(COALESCE(s.run_key, '')) <> ''
+              AND COALESCE(r.is_real, 0) = 1
+              AND COALESCE(r.discarded, 0) = 0
             """,
             (cid,),
         ).fetchall()

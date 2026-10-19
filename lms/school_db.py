@@ -38152,7 +38152,12 @@ class SchoolDB(LovesDB):
         return True
 
     def cleanup_live_session_response_data(
-        self, session_id: int, *, live_run: bool = True, discard: bool = False
+        self,
+        session_id: int,
+        *,
+        live_run: bool = True,
+        discard: bool = False,
+        record_participation: bool = True,
     ) -> None:
         """Delete ephemeral individual votes, group responses, and board ops.
 
@@ -38167,6 +38172,11 @@ class SchoolDB(LovesDB):
             session_id: ``live_class_sessions.id``.
             live_run: When False, skip Live-run persistence (MCK-233 Test toggle).
             discard: Quit. Drop the live rows and write nothing.
+            record_participation: When False, snapshot answers and clear
+                the live rows without writing a participation run, catch-up
+                link, or Lesson Slides row. IT force-end, cancel, and
+                closing the attendance card use this. A real End leaves it
+                True.
         """
 
         self.purge_board_ops(int(session_id))
@@ -38200,25 +38210,30 @@ class SchoolDB(LovesDB):
                             "live result snapshot failed session=%s", session_id
                         )
                     self.conn.execute("RELEASE live_result_snapshot")
-                    # MCK-198: own savepoint, so a capture error never undoes the
-                    # MCK-45 snapshot above. A failed capture keeps the response
-                    # rows: deleting them would lose the only copy of who answered.
-                    self.conn.execute("SAVEPOINT participation_capture")
-                    captured = True
-                    try:
-                        self._capture_participation_unlocked(
-                            int(session_id), live_run=bool(live_run)
-                        )
-                    except Exception:  # noqa: BLE001
-                        captured = False
-                        self.conn.execute("ROLLBACK TO participation_capture")
-                        logger.exception(
-                            "participation capture failed session=%s; keeping response rows",
-                            session_id,
-                        )
-                    self.conn.execute("RELEASE participation_capture")
-                    if captured:
+                    # Closing without End must not create a real participation
+                    # run. That run is what Lesson Slides treats as Delivered.
+                    if not record_participation:
                         self._delete_live_session_response_rows_unlocked(int(session_id))
+                    else:
+                        # MCK-198: own savepoint, so a capture error never undoes the
+                        # MCK-45 snapshot above. A failed capture keeps the response
+                        # rows: deleting them would lose the only copy of who answered.
+                        self.conn.execute("SAVEPOINT participation_capture")
+                        captured = True
+                        try:
+                            self._capture_participation_unlocked(
+                                int(session_id), live_run=bool(live_run)
+                            )
+                        except Exception:  # noqa: BLE001
+                            captured = False
+                            self.conn.execute("ROLLBACK TO participation_capture")
+                            logger.exception(
+                                "participation capture failed session=%s; keeping response rows",
+                                session_id,
+                            )
+                        self.conn.execute("RELEASE participation_capture")
+                        if captured:
+                            self._delete_live_session_response_rows_unlocked(int(session_id))
             except BaseException:
                 self.conn.execute("ROLLBACK")
                 raise
@@ -38334,7 +38349,9 @@ class SchoolDB(LovesDB):
     def invalidate_live_session_code(self, session_id: int) -> dict[str, Any] | None:
         """Mark a session ended so its code is no longer joinable.
 
-        Idempotent: already-ended sessions are returned unchanged.
+        This is not End Class. It does not write a participation run or a
+        Lesson Slides row. Idempotent: already-ended sessions are returned
+        unchanged and a second close does not turn the session into a real run.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -38344,7 +38361,9 @@ class SchoolDB(LovesDB):
             return None
         self.release_eyes_up(int(session_id))
         if session_row.get("status") == "ended":
-            self.cleanup_live_session_response_data(session_id)
+            self.cleanup_live_session_response_data(
+                session_id, record_participation=False
+            )
             if self.presence is not None:
                 self.presence.mark_session_ended(
                     int(session_id),
@@ -38372,7 +38391,9 @@ class SchoolDB(LovesDB):
                 (ended_value, int(session_id)),
             )
             self.conn.commit()
-        self.cleanup_live_session_response_data(session_id)
+        self.cleanup_live_session_response_data(
+            session_id, record_participation=False
+        )
         if self.presence is not None:
             self.presence.mark_session_ended(int(session_id), ended_value)
         return self.get_live_session(session_id)
