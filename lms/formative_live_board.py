@@ -128,7 +128,56 @@ def team_filters(tiles: list[dict[str, Any]]) -> list[dict[str, str]]:
     chips = [{"id": "all", "label": f"All {len(tiles)}"}]
     for order in orders:
         chips.append({"id": f"team:{order}", "label": f"Team {order + 1}"})
+    chips.append({"id": "teacher_wrote", "label": "Teacher wrote"})
     return chips
+
+
+def legend_entries(
+    school: Any, session_id: int, card: dict[str, Any]
+) -> list[dict[str, str]]:
+    """Colour dots and names for one gallery card.
+
+    Colour is hashed from the student id, so a late joiner does not
+    move anyone else. Two students may share a colour. Blank names are
+    left out so a teacher ink row does not become an empty chip.
+
+    Args:
+        school: Open ``SchoolDB``.
+        session_id: ``live_class_sessions.id``.
+        card: Gallery card with ``board_key``, ``team_sort_order``, and
+            ``student_ids``.
+
+    Returns:
+        ``{id, name, color}`` rows.
+    """
+    from whiteboard_formative import formative_board_members
+
+    key = str(card.get("board_key") or "")
+    if key.startswith("solo:"):
+        wanted = {
+            str(int(sid))
+            for sid in (card.get("student_ids") or [])
+            if sid not in (None, "")
+        }
+        members = formative_board_members(school, int(session_id), None)
+        members = [member for member in members if str(member.get("id")) in wanted]
+    else:
+        order = card.get("team_sort_order")
+        scope = None if order is None else int(order)
+        members = formative_board_members(school, int(session_id), scope)
+    out: list[dict[str, str]] = []
+    for member in members:
+        name = str(member.get("name") or "").strip()
+        if not name:
+            continue
+        out.append(
+            {
+                "id": str(member.get("id") or ""),
+                "name": name,
+                "color": str(member.get("color") or ""),
+            }
+        )
+    return out
 
 
 def parse_cursors(raw: Any) -> dict[str, int]:

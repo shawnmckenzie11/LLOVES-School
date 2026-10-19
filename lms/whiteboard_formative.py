@@ -37,6 +37,8 @@ def member_color(slot: int) -> str:
     """Colour for a member's join-order slot (0-based).
 
     A 7th+ member reuses the palette; clients draw dashed strokes.
+    Ink on the board does not use this. ``student_ink_color`` does,
+    so a late joiner cannot shift anyone else's colour.
 
     Args:
         slot: Join order index inside one board (``team:<sort_order>``).
@@ -44,6 +46,22 @@ def member_color(slot: int) -> str:
     if slot < 0:
         slot = 0
     return FORMATIVE_MEMBER_PALETTE[slot % len(FORMATIVE_MEMBER_PALETTE)]
+
+
+def student_ink_color(student_id: Any) -> str:
+    """Stable ink colour for one student, hashed from their id.
+
+    The colour does not depend on join order or list position. A late
+    joiner cannot shift anyone else. The palette is finite, so two
+    students can share a colour. Stored strokes already use this same
+    hash (``cursor_color_for``).
+
+    Args:
+        student_id: Roster id, or any other stable token.
+    """
+    from live_canvas import cursor_color_for
+
+    return cursor_color_for(student_id)
 
 
 def first_name_only(raw: str) -> str:
@@ -225,9 +243,11 @@ def formative_board_members(
 
     ``team_sort_order`` selects which roster to load. ``0`` is the first
     named team and must be passed through; only None loads every team.
-    Colour slots come from ``roster_board_bucket``, so the legend and a
-    team board agree. Pass ``rows`` when the caller already loaded that
-    scope, including leavers.
+    Colour slots come from ``roster_board_bucket`` and still decide the
+    dash pattern. The ink colour is ``student_ink_color`` (the student
+    id), not the slot, so a late joiner cannot shift anyone else's
+    colour. Pass ``rows`` when the caller already loaded that scope,
+    including leavers.
 
     Args:
         school: Open ``SchoolDB``.
@@ -255,7 +275,7 @@ def formative_board_members(
             {
                 "id": str(int(sid)),
                 "name": name,
-                "color": member_color(slot),
+                "color": student_ink_color(sid),
                 "slot": slot,
                 "dashed": slot >= len(FORMATIVE_MEMBER_PALETTE),
             }

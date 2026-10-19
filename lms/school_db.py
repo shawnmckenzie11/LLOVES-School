@@ -31035,6 +31035,8 @@ class SchoolDB(LovesDB):
             )
             if meta is not None:
                 payload["formative"] = meta
+            if not as_teacher and student_id not in (None, ""):
+                payload["class_board"] = self.whiteboard_class_board(int(session_id))
             return payload
 
         if (
@@ -32134,6 +32136,20 @@ class SchoolDB(LovesDB):
             )
             for card in cards
         ]
+        wrote: set[str] = set()
+        try:
+            wrote = self.boards.keys_with_owner(
+                self.live_board_run_key(int(session_id)),
+                [str(card["board_key"]) for card in cards],
+                "teacher",
+            )
+        except (AttributeError, KeyError, TypeError, ValueError):
+            wrote = set()
+        for tile in tiles:
+            marked = str(tile.get("board_key") or "") in wrote
+            tile["teacher_wrote"] = marked
+            if marked:
+                tile["status"] = "Teacher wrote"
         teacher = self.live_session_teacher_state_payload(int(session_id))
         return public_board_payload(
             {
@@ -32160,7 +32176,7 @@ class SchoolDB(LovesDB):
             since: Last sequence the panel has applied.
         """
         from board_ops import feedback_released, fold_one_board
-        from formative_live_board import public_board_payload
+        from formative_live_board import legend_entries, public_board_payload
 
         card = self._require_gallery_card(int(session_id), board_key)
         key = str(card["board_key"])
@@ -32189,6 +32205,7 @@ class SchoolDB(LovesDB):
             "snapshot": bool(delta.get("snapshot")) or int(since) == 0,
             "ops": [] if int(since) == 0 or delta.get("snapshot") else list(delta.get("ops") or []),
             "canvas_view": view if int(since) == 0 or delta.get("snapshot") else None,
+            "legend": legend_entries(self, int(session_id), card),
         }
         return public_board_payload(body)
 
@@ -32201,7 +32218,13 @@ class SchoolDB(LovesDB):
         client_batch_id: str | None = None,
         claimed_run_key: str | None = None,
     ) -> dict[str, Any]:
-        """Append teacher feedback on the surviving board.
+        """Append live teacher ink on the surviving board.
+
+        New ops are not stored as a feedback layer, so students see them
+        on the next poll. A client ``layer`` is dropped. Rows already
+        saved with ``layer=feedback`` are left in place; this does not
+        delete or rewrite them. ``release_whiteboard_feedback`` still
+        reveals those older rows.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -32218,9 +32241,7 @@ class SchoolDB(LovesDB):
             if not isinstance(op, dict):
                 continue
             item = scrub_op(op)
-            kind = str(item.get("type") or "")
-            if kind in {"text_upsert", "stroke_add", "pts_append", "stroke_end"}:
-                item["layer"] = "feedback"
+            item.pop("layer", None)
             cleaned.append(item)
         return self.append_live_board_ops(
             int(session_id),
@@ -32252,7 +32273,10 @@ class SchoolDB(LovesDB):
     def clear_whiteboard_board(
         self, session_id: int, board_key: str
     ) -> dict[str, Any]:
-        """Erase student ink on one board. Teacher feedback stays.
+        """Erase student ink on one board. Teacher ink stays.
+
+        Live teacher ops and rows already stored as feedback stay. The
+        feedback rows are not deleted.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -32274,7 +32298,12 @@ class SchoolDB(LovesDB):
             if not isinstance(op, dict):
                 continue
             kind = str(op.get("type") or "")
-            if str(op.get("layer") or "") == "feedback" or kind == "feedback_release":
+            owner = str(row.get("owner") or "")
+            if (
+                str(op.get("layer") or "") == "feedback"
+                or kind == "feedback_release"
+                or owner == "teacher"
+            ):
                 kept.append(op)
         self.boards.purge_board_key(run_key, key)
         if kept:
@@ -32289,14 +32318,18 @@ class SchoolDB(LovesDB):
     def show_whiteboard_board(
         self, session_id: int, board_key: str
     ) -> dict[str, Any]:
-        """Project one board. Feedback ink is included only after release.
+        """Project one board, with its colour legend.
+
+        Live teacher ink is included. Rows already stored with
+        ``layer=feedback`` stay hidden until a release on this board.
+        Those rows are not deleted.
 
         Args:
             session_id: ``live_class_sessions.id``.
             board_key: Card to put on the projector.
         """
         from board_ops import feedback_released, fold_one_board
-        from formative_live_board import public_board_payload
+        from formative_live_board import legend_entries, public_board_payload
 
         card = self._require_gallery_card(int(session_id), board_key)
         key = str(card["board_key"])
@@ -32317,12 +32350,53 @@ class SchoolDB(LovesDB):
             "context": context,
             "released": released,
             "canvas_view": view,
+            "legend": legend_entries(self, int(session_id), card),
             "run_key": self.live_board_run_key(int(session_id)),
         }
         if released:
             body["feedback_view"] = view
         return public_board_payload(body)
 
+    def whiteboard_class_board(self, session_id: int) -> dict[str, Any] | None:
+        """Read-only board the teacher is showing, or None.
+
+        Students receive this beside their own writable canvas. It does
+        not grant a write. Live teacher ink is included. Rows already
+        stored with ``layer=feedback`` stay hidden until a release that
+        is already on the board. Nothing here deletes those rows.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            ``{board_key, name, legend, canvas_view}``, or None when no
+            board is projected.
+        """
+        from board_ops import feedback_released, fold_one_board
+        from formative_live_board import legend_entries, public_board_payload
+
+        session_row = self.get_live_session(int(session_id))
+        if session_row is None or str(session_row.get("status") or "") != "active":
+            return None
+        teacher = self.live_session_teacher_state_payload(int(session_id))
+        key = str(teacher.get("whiteboard_projected_board") or "").strip()
+        if not key:
+            return None
+        try:
+            card = self._require_gallery_card(int(session_id), key)
+        except (KeyError, ValueError):
+            return None
+        board_key = str(card["board_key"])
+        rows = self._board_rows(int(session_id), board_key)
+        view = fold_one_board(rows, include_feedback=feedback_released(rows))
+        return public_board_payload(
+            {
+                "board_key": board_key,
+                "name": str(card.get("name") or ""),
+                "legend": legend_entries(self, int(session_id), card),
+                "canvas_view": view,
+            }
+        )
 
     def purge_board_ops(self, session_id: int) -> None:
         """Delete board ops, the seq counter, and the close flag for this run.
@@ -42471,6 +42545,7 @@ class SchoolDB(LovesDB):
         payload["gamification"] = self.gamification_winner_payload(
             int(live_session_id), int(class_id), sid
         )
+        payload["class_board"] = self.whiteboard_class_board(int(live_session_id))
         return payload
 
     def guest_student_live_payload(

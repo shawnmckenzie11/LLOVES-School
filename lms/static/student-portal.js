@@ -1059,6 +1059,8 @@ function unmountStudentMedia() {
  */
 /** True while the student board is the shared group board. */
 let studentPresenceCollab = false;
+/** True while the teacher is showing a board to the class. */
+let classBoardHeld = false;
 
 /** @type {ReturnType<typeof createPresenceQueue> | null} */
 let studentPresence = null;
@@ -1179,6 +1181,16 @@ function studentPresenceQueue() {
      */
     onReply(data) {
       if (!data) return;
+      const classMode = syncClassBoard(data);
+      if (classMode === "show-class" || classMode === "keep-class") {
+        bindStudentCanvas.setViewOnly?.(true);
+        return;
+      }
+      if (classMode === "clear-class") {
+        bindStudentCanvas.setViewOnly?.(false);
+        refreshStudentBoard();
+        return;
+      }
       if (data.snapshot) {
         if (typeof data.board_seq === "number" && data.board_seq >= studentBoardSince) {
           studentBoardSince = data.board_seq;
@@ -1271,6 +1283,42 @@ function applyStudentBoardFormative(meta) {
   bindStudentCanvas.applyFormativePatch(meta);
 }
 
+/**
+ * Paint or clear the read-only board the teacher is showing.
+ *
+ * A missing ``class_board`` key keeps the current board. ``null`` clears
+ * it. An object paints that canvas and its colour legend.
+ *
+ * @param {any} data
+ * @returns {"show-class" | "keep-class" | "clear-class" | "own"}
+ */
+function syncClassBoard(data) {
+  if (!data || !Object.prototype.hasOwnProperty.call(data, "class_board")) {
+    return classBoardHeld ? "keep-class" : "own";
+  }
+  const board = data.class_board;
+  if (board && typeof board === "object" && board.canvas_view) {
+    classBoardHeld = true;
+    const legend = Array.isArray(board.legend) ? board.legend : [];
+    if (typeof bindStudentCanvas.applyFormativePatch === "function") {
+      bindStudentCanvas.applyFormativePatch({
+        members: legend,
+        always_show_names: true,
+        projector_show_names: false,
+      });
+    }
+    if (typeof bindStudentCanvas.resetRun === "function") {
+      bindStudentCanvas.resetRun(board.canvas_view);
+    }
+    document.getElementById("canvas-pane")?.classList.add("is-class-board");
+    return "show-class";
+  }
+  const wasHeld = classBoardHeld;
+  classBoardHeld = false;
+  document.getElementById("canvas-pane")?.classList.remove("is-class-board");
+  return wasHeld ? "clear-class" : "own";
+}
+
 function bindStudentCanvas() {
   if (!(studentCanvas instanceof HTMLCanvasElement)) return;
   let lastAlign = "student";
@@ -1326,6 +1374,13 @@ function bindStudentCanvas() {
     studentPresenceCollab = lastAlign === "team";
     board.setEnabled(lastAlign !== "teacher");
     board.setCollab(studentPresenceCollab);
+  };
+  /**
+   * Freeze drawing while a class board is on screen.
+   * @param {boolean} on
+   */
+  bindStudentCanvas.setViewOnly = (on) => {
+    board.setEnabled(!on && lastAlign !== "teacher");
   };
   /**
    * @param {any} view
@@ -1415,6 +1470,13 @@ function refreshStudentBoard() {
       return;
     }
     noteBoardRun(studentBoardRun, data.run_key);
+    const classMode = syncClassBoard(data);
+    if (classMode === "show-class" || classMode === "keep-class") {
+      bindStudentCanvas.setViewOnly?.(true);
+      studentBoardSince = Number(data.board_seq) || 0;
+      studentTeacherSince = Number(data.teacher_board_seq) || 0;
+      return;
+    }
     if (typeof bindStudentCanvas.resetRun === "function") {
       if (data.snapshot && data.canvas_view) {
         bindStudentCanvas.resetRun(data.canvas_view);
@@ -1484,7 +1546,7 @@ function ensureStudentBoardPoll() {
     isShown() {
       const pane = document.getElementById("canvas-pane");
       if (!(pane instanceof HTMLElement) || pane.hidden) return false;
-      return studentPresenceCollab;
+      return studentPresenceCollab || classBoardHeld;
     },
     /**
      * @returns {Promise<any>}
@@ -1537,6 +1599,16 @@ function ensureStudentBoardPoll() {
         return;
       }
       if (noteBoardRun(studentBoardRun, data && data.run_key) === "changed") {
+        refreshStudentBoard();
+        return;
+      }
+      const classMode = syncClassBoard(data);
+      if (classMode === "show-class" || classMode === "keep-class") {
+        bindStudentCanvas.setViewOnly?.(true);
+        return;
+      }
+      if (classMode === "clear-class") {
+        bindStudentCanvas.setViewOnly?.(false);
         refreshStudentBoard();
         return;
       }
@@ -1698,10 +1770,17 @@ async function loadStudentSoloLabels() {
 function paintStudentCanvas(payload) {
   const node = document.getElementById("student-canvas");
   if (node !== studentCanvas) return;
+  const classMode = syncClassBoard(payload);
   const proj = studentProjection(payload);
   if (typeof bindStudentCanvas.setAlign === "function") {
     bindStudentCanvas.setAlign(proj.canvasAlign);
   }
+  if (classMode === "show-class" || classMode === "keep-class") {
+    bindStudentCanvas.setViewOnly?.(true);
+    if (classMode === "show-class") kickStudentBoardDelta();
+    return;
+  }
+  bindStudentCanvas.setViewOnly?.(false);
   if (typeof bindStudentCanvas.importRemote !== "function") return;
   const view = payload.canvas_sync || payload.canvas_view || {};
   bindStudentCanvas.importRemote(view, proj.canvasAlign === "team");

@@ -27,6 +27,7 @@ from whiteboard_formative import (  # noqa: E402
     first_name_only,
     member_color,
     roster_board_bucket,
+    student_ink_color,
 )
 
 
@@ -63,9 +64,10 @@ class FormativeHelperTests(unittest.TestCase):
     def test_collab_js_ignores_projector_names_and_darkens_cursor_chips(self) -> None:
         """Collab name chips ignore a saved projector flag; cursor text is dark."""
         script = r"""
-import { collabForcesNames, cursorChipInkStyle } from './lms/static/whiteboard_formative.js';
+import { boardNameChipsEnabled, collabForcesNames, cursorChipInkStyle } from './lms/static/whiteboard_formative.js';
 if (collabForcesNames(false, true)) process.exit(1);
 if (!collabForcesNames(true, true)) process.exit(2);
+if (boardNameChipsEnabled()) process.exit(7);
 const style = cursorChipInkStyle('#2dd4bf');
 if (!style.includes('color:#0f172a')) process.exit(3);
 if (!style.includes('background:#fff')) process.exit(4);
@@ -348,7 +350,7 @@ class FormativeIntegrationTests(unittest.TestCase):
 
 
     def test_formative_colour_matches_session_slot_on_each_team(self) -> None:
-        """One join-order palette for teacher legend and every team board."""
+        """Legend colour follows the student id, and the slot stays put."""
         slots = formative_session_slot_map(self.school, self.session_id)
         pine_slot = slots[self.pine_id]
         team0 = formative_board_members(
@@ -367,7 +369,8 @@ class FormativeIntegrationTests(unittest.TestCase):
         pine_all = next(m for m in all_members if m["id"] == str(self.pine_id))
         self.assertEqual(pine_team1["color"], pine_all["color"])
         self.assertEqual(pine_team1["slot"], pine_slot)
-        self.assertEqual(pine_team1["color"], member_color(pine_slot))
+        self.assertEqual(pine_team1["color"], student_ink_color(self.pine_id))
+        self.assertNotEqual(pine_team1["color"], "")
 
     def test_teacher_board_formative_drops_departed_student(self) -> None:
         """Teacher board polls refresh legend membership when someone leaves."""
@@ -482,12 +485,13 @@ class FormativeIntegrationTests(unittest.TestCase):
         return int(sid)
 
     def test_team_buckets_keep_distinct_ink_with_leaver_and_late_joiner(self) -> None:
-        """Teammates stay distinct when session join order is six apart.
+        """Slots stay put when session join order is six apart.
 
         Seven or more students sit on two teams. A leaver keeps their
         slot, and a late joiner takes the lowest index nobody on that
-        board, present or departed, has used. The teacher legend and
-        the student board use that same slot.
+        board, present or departed, has used. Ink colour is the student
+        id, so that joiner does not shift anyone else's colour. Two
+        students may share a colour.
         """
         team_b = self.school.student_team_id_for_class(self.class_id, self.pine_id)
         self.assertIsNotNone(team_b)
@@ -520,9 +524,6 @@ class FormativeIntegrationTests(unittest.TestCase):
                     collided = True
         self.assertTrue(collided)
 
-        def pairs(members: list[dict[str, Any]]) -> list[tuple[str, bool]]:
-            return [(str(m["color"]), bool(m["dashed"])) for m in members]
-
         order_b = self.school._team_sort_order_for_team_id(self.class_id, int(team_b))
         self.assertIsNotNone(order_b)
         team_a = formative_board_members(
@@ -532,8 +533,6 @@ class FormativeIntegrationTests(unittest.TestCase):
         legend = formative_board_members(self.school, self.session_id, None)
         slots = formative_session_slot_map(self.school, self.session_id)
         self.assertGreaterEqual(len(team_a), 7)
-        self.assertEqual(len(pairs(team_a)), len(set(pairs(team_a))))
-        self.assertEqual(len(pairs(team_b_members)), len(set(pairs(team_b_members))))
         by_id = {str(m["id"]): m for m in legend}
         for member in team_a + team_b_members:
             other = by_id[str(member["id"])]
@@ -541,7 +540,7 @@ class FormativeIntegrationTests(unittest.TestCase):
             self.assertEqual(other["dashed"], member["dashed"])
             self.assertEqual(other["slot"], member["slot"])
             self.assertEqual(member["slot"], slots[int(member["id"])])
-            self.assertEqual(member["color"], member_color(int(member["slot"])))
+            self.assertEqual(member["color"], student_ink_color(int(member["id"])))
         access = self.school.student_board_access(self.session_id, self.maple_id)
         student = self.school.read_board(
             self.session_id,
@@ -585,13 +584,14 @@ class FormativeIntegrationTests(unittest.TestCase):
         self.assertNotEqual(late["slot"], int(leaver["slot"]))
         for member in present:
             if member["id"] == str(late_id):
+                self.assertEqual(member["color"], student_ink_color(late_id))
                 continue
             self.assertEqual(member["slot"], before[member["id"]]["slot"])
-        self.assertEqual(len(pairs(present)), len(set(pairs(present))))
+            self.assertEqual(member["color"], before[member["id"]]["color"])
         self.assertEqual(len(enrolled), 10)
 
     def test_collab_always_shows_names(self) -> None:
-        """Collab boards label ink with names. The old toggles are gone."""
+        """Collab boards keep the name flag. Labels live on the legend."""
         access = self.school.student_board_access(self.session_id, self.maple_id)
         student = self.school.read_board(
             self.session_id,

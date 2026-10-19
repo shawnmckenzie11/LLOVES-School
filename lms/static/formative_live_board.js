@@ -76,6 +76,19 @@ function tileName(tile) {
 }
 
 /**
+ * Whether a gallery card matches the selected filter chip.
+ *
+ * @param {any} tile
+ * @param {string} selected
+ * @returns {boolean}
+ */
+function tileMatches(tile, selected) {
+  if (selected === "all") return true;
+  if (selected === "teacher_wrote") return Boolean(tile?.teacher_wrote);
+  return tile?.team_board === selected;
+}
+
+/**
  * @param {string} iso
  * @returns {string}
  */
@@ -214,13 +227,13 @@ function strokeOps(canvas, openIds, points, ended, strokeId, color) {
   const ops = [];
   if (!openIds.has(id)) {
     if (!samples.length) return [];
-    ops.push({ type: "stroke_add", id, points: samples, color, layer: "feedback" });
+    ops.push({ type: "stroke_add", id, points: samples, color });
     openIds.add(id);
   } else if (samples.length) {
-    ops.push({ type: "pts_append", id, points: samples, color, layer: "feedback" });
+    ops.push({ type: "pts_append", id, points: samples, color });
   }
   if (ended) {
-    ops.push({ type: "stroke_end", id, color, layer: "feedback" });
+    ops.push({ type: "stroke_end", id, color });
     openIds.delete(id);
   }
   return ops;
@@ -286,7 +299,6 @@ export function mountTeacherGrid(root) {
           x: norm.x,
           y: norm.y,
           color: TEACHER_INK,
-          layer: "feedback",
         },
       ]);
     },
@@ -381,7 +393,7 @@ export function mountTeacherGrid(root) {
    * @param {any[]} rows
    */
   function paintGrid(rows) {
-    const visible = rows.filter((tile) => filter === "all" || tile.team_board === filter);
+    const visible = rows.filter((tile) => tileMatches(tile, filter));
     grid.replaceChildren();
     for (const tile of visible) {
       const key = String(tile.board_key || "");
@@ -408,6 +420,12 @@ export function mountTeacherGrid(root) {
       team.className = "wb-live-team";
       team.textContent = tile.team_sort_order == null ? "" : "";
       meta.append(dot, name, team);
+      if (tile.status) {
+        const wrote = document.createElement("span");
+        wrote.className = "wb-live-status";
+        wrote.textContent = String(tile.status);
+        meta.append(wrote);
+      }
       button.append(stage, meta);
       button.addEventListener("click", () => openBoard(key));
       grid.appendChild(button);
@@ -477,10 +495,7 @@ export function mountTeacherGrid(root) {
     if (title) title.textContent = tile ? tileName(tile) : "Board";
     if (age) age.textContent = tile ? strokeAge(tile.last_stroke_at) : "";
     if (team) team.textContent = tile && tile.team_sort_order != null ? tileName(tile) : "";
-    board.setFormative?.({
-      members: [{ id: "teacher", name: "", color: TEACHER_INK, slot: 0 }],
-      alwaysShowNames: true,
-    });
+    applyPanelLegend([]);
     paintGrid(tiles);
     refreshPanel();
     window.setTimeout(() => window.dispatchEvent(new Event("resize")), 0);
@@ -496,7 +511,7 @@ export function mountTeacherGrid(root) {
    * @param {number} step
    */
   function stepPanel(step) {
-    const visible = tiles.filter((tile) => filter === "all" || tile.team_board === filter);
+    const visible = tiles.filter((tile) => tileMatches(tile, filter));
     if (!visible.length) return;
     const index = visible.findIndex((tile) => String(tile.board_key || "") === openKey);
     const next = visible[(index + step + visible.length) % visible.length];
@@ -511,6 +526,7 @@ export function mountTeacherGrid(root) {
       { credentials: "same-origin" }
     );
     if (!data || String(data.board_key || "") !== openKey) return;
+    applyPanelLegend(data.legend);
     const title = root.querySelector("#wb-live-panel-name");
     if (title) title.textContent = String(data.name || "").trim() || title.textContent;
     if (data.snapshot && data.canvas_view) {
@@ -546,17 +562,24 @@ export function mountTeacherGrid(root) {
     applyTiles(data);
   }
 
+  /**
+   * Legend chips for the open board, plus a nameless teacher colour.
+   *
+   * @param {any[] | undefined} legend
+   */
+  function applyPanelLegend(legend) {
+    const members = Array.isArray(legend) ? legend.slice() : [];
+    members.push({ id: "teacher", name: "", color: TEACHER_INK, slot: 0 });
+    board.setFormative?.({
+      members,
+      alwaysShowNames: true,
+      projectorShowNames: false,
+    });
+  }
+
   root.querySelector("#wb-live-prev")?.addEventListener("click", () => stepPanel(-1));
   root.querySelector("#wb-live-next")?.addEventListener("click", () => stepPanel(1));
   root.querySelector("#wb-live-close")?.addEventListener("click", closePanel);
-  root.querySelector("#wb-live-send")?.addEventListener("click", () => {
-    const id = sessionId();
-    if (!id || !openKey) return;
-    fetch(boardUrl(id, openKey, "/release"), {
-      method: "POST",
-      credentials: "same-origin",
-    }).catch(() => {});
-  });
   root.querySelector("#wb-live-clear")?.addEventListener("click", () => {
     const id = sessionId();
     if (!id || !openKey) return;

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """One live whiteboard: gallery on team and solo boards.
 
-Strokes stay in board_ops. Teacher feedback is a layer on that same board
-and stays hidden until the teacher sends it. These tests cover spoofed
-ids, hidden feedback, test-class delete (including team boards), and
-roster names.
+Strokes stay in board_ops. New teacher ink is live. Rows already stored
+as a feedback layer stay hidden until a release, and those rows are not
+deleted. These tests cover spoofed ids, that split, test-class delete
+(including team boards), and roster names.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 from app import create_app  # noqa: E402
 from board_ops import MAX_OPS_PER_BATCH  # noqa: E402
 from live_canvas import MAX_POINTS, MAX_STROKES  # noqa: E402
+from whiteboard_formative import student_ink_color  # noqa: E402
 
 
 class FormativeLimitTests(unittest.TestCase):
@@ -297,7 +298,7 @@ class FormativeLiveBoardTests(unittest.TestCase):
             self.assertEqual(denied.status_code, 403, key)
 
     def test_feedback_stays_hidden_until_release(self) -> None:
-        """Send feedback is what makes teacher ink visible on that board."""
+        """New teacher ink is live. A stored feedback layer stays until release."""
         self._publish("individual")
         key = f"solo:{self.maple_id}"
         posted = self.staff.post(
@@ -305,12 +306,30 @@ class FormativeLiveBoardTests(unittest.TestCase):
             json={"ops": [self._text_op("check vertex", "fb-vertex")]},
         )
         self.assertEqual(posted.status_code, 200, posted.get_data(as_text=True))
+        live = self.maple.get(
+            f"/api/student/board/{key}",
+            headers=self._student_headers(self.maple_token),
+        )
+        self.assertEqual(live.status_code, 200, live.get_data(as_text=True))
+        self.assertIn("check vertex", json.dumps(live.get_json()))
+        stored = dict(self._text_op("stored mark", "fb-stored"))
+        stored["layer"] = "feedback"
+        self.school.append_live_board_ops(
+            self.session_id,
+            key,
+            owner="teacher",
+            ops=[stored],
+        )
         hidden = self.maple.get(
             f"/api/student/board/{key}",
             headers=self._student_headers(self.maple_token),
         )
-        self.assertEqual(hidden.status_code, 200, hidden.get_data(as_text=True))
-        self.assertNotIn("check vertex", json.dumps(hidden.get_json()))
+        hidden_body = json.dumps(hidden.get_json())
+        self.assertIn("check vertex", hidden_body)
+        self.assertNotIn("stored mark", hidden_body)
+        rows = json.dumps(self.school._board_rows(self.session_id, key))
+        self.assertIn("stored mark", rows)
+        self.assertIn("feedback", rows)
         released = self.staff.post(
             f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}/release"
         )
@@ -320,7 +339,7 @@ class FormativeLiveBoardTests(unittest.TestCase):
             headers=self._student_headers(self.maple_token),
         )
         self.assertEqual(shown.status_code, 200, shown.get_data(as_text=True))
-        self.assertIn("check vertex", json.dumps(shown.get_json()))
+        self.assertIn("stored mark", json.dumps(shown.get_json()))
 
     def test_board_ink_does_not_write_the_gradebook(self) -> None:
         """Drawing on the whiteboard does not add participation rows."""
@@ -621,7 +640,7 @@ class FormativeLiveBoardTests(unittest.TestCase):
         self.assertEqual(len(response.get_json()["tiles"]), 3)
 
     def test_show_hides_feedback_until_release(self) -> None:
-        """Show to class includes the feedback layer only after release."""
+        """Show includes live ink and the legend. Old feedback waits."""
         self._publish("individual")
         key = f"solo:{self.maple_id}"
         mark = self._text_op("check vertex", "fb-show")
@@ -633,23 +652,176 @@ class FormativeLiveBoardTests(unittest.TestCase):
         panel = self.staff.get(
             f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}"
         )
-        self.assertIn("check vertex", json.dumps(panel.get_json()))
+        panel_body = panel.get_json()
+        self.assertIn("check vertex", json.dumps(panel_body))
+        self.assertTrue(panel_body.get("legend"))
+        self.assertEqual(
+            panel_body["legend"][0]["color"], student_ink_color(self.maple_id)
+        )
         hidden = self.staff.post(
             f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}/show"
         )
         self.assertEqual(hidden.status_code, 200, hidden.get_data(as_text=True))
         hidden_body = hidden.get_json()
-        self.assertNotIn("check vertex", json.dumps(hidden_body))
+        self.assertIn("check vertex", json.dumps(hidden_body))
         self.assertNotIn("feedback_view", hidden_body)
-        self.assertEqual(hidden_body["name"], "Maple")
+        self.assertEqual(hidden_body["legend"][0]["color"], student_ink_color(self.maple_id))
+        stored = dict(self._text_op("stored mark", "fb-show-old"))
+        stored["layer"] = "feedback"
+        self.school.append_live_board_ops(
+            self.session_id, key, owner="teacher", ops=[stored]
+        )
+        still = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}/show"
+        )
+        still_body = still.get_json()
+        self.assertNotIn("stored mark", json.dumps(still_body))
+        self.assertNotIn("feedback_view", still_body)
         self.school.release_whiteboard_feedback(self.session_id, key)
         shown = self.staff.post(
             f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}/show"
         )
         self.assertEqual(shown.status_code, 200, shown.get_data(as_text=True))
         shown_body = shown.get_json()
-        self.assertIn("check vertex", json.dumps(shown_body))
+        self.assertIn("stored mark", json.dumps(shown_body))
         self.assertIn("feedback_view", shown_body)
+
+    def test_group_show_reaches_the_other_team(self) -> None:
+        """Another team's student sees the projected board and its legend."""
+        self._publish("group_shared")
+        self.school.append_live_board_ops(
+            self.session_id,
+            "team:0",
+            owner=str(self.maple_id),
+            ops=[self._text_op("team sketch", "team-sketch")],
+        )
+        posted = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/team:0/feedback",
+            json={"ops": [self._text_op("teacher note", "t-note")]},
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_data(as_text=True))
+        shown = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/team:0/show"
+        )
+        self.assertEqual(shown.status_code, 200, shown.get_data(as_text=True))
+        pine = self.app.test_client()
+        seen = pine.get(
+            "/api/student/board/mine?since=0&teacher_since=0",
+            headers=self._student_headers(self._visit_token(self.pine_id)),
+        )
+        self.assertEqual(seen.status_code, 200, seen.get_data(as_text=True))
+        body = seen.get_json()
+        board = body.get("class_board") or {}
+        self.assertEqual(board.get("board_key"), "team:0")
+        self.assertNotEqual(body.get("board_key"), "team:0")
+        dumped = json.dumps(board)
+        self.assertIn("teacher note", dumped)
+        self.assertIn("team sketch", dumped)
+        colors = {row["id"]: row["color"] for row in board.get("legend") or []}
+        self.assertEqual(colors[str(self.maple_id)], student_ink_color(self.maple_id))
+        self.assertEqual(colors[str(self.cedar_id)], student_ink_color(self.cedar_id))
+        denied = pine.post(
+            "/api/student/board/team:0/ops",
+            json={
+                "run_key": self.school.live_board_run_key(self.session_id),
+                "ops": [self._text_op("nope", "pine-write")],
+            },
+            headers=self._student_headers(self._visit_token(self.pine_id)),
+        )
+        self.assertEqual(denied.status_code, 403)
+
+    def test_teacher_wrote_and_clear_keeps_live_ink(self) -> None:
+        """The chip follows teacher rows. Clear leaves that ink in place."""
+        self._publish("individual")
+        key = f"solo:{self.maple_id}"
+        before = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery"
+        )
+        before_body = before.get_json()
+        self.assertIn(
+            "teacher_wrote",
+            [chip["id"] for chip in before_body["filters"]],
+        )
+        self.assertIn(
+            "Teacher wrote",
+            [chip["label"] for chip in before_body["filters"]],
+        )
+        tile = next(row for row in before_body["tiles"] if row["board_key"] == key)
+        self.assertFalse(tile["teacher_wrote"])
+        self.assertNotIn("status", tile)
+        self.school.append_live_board_ops(
+            self.session_id,
+            key,
+            owner=str(self.maple_id),
+            ops=[self._text_op("student sketch", "stu-sketch")],
+        )
+        posted = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}/feedback",
+            json={"ops": [self._text_op("teacher note", "t-clear")]},
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_data(as_text=True))
+        after = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery"
+        )
+        marked = next(row for row in after.get_json()["tiles"] if row["board_key"] == key)
+        self.assertTrue(marked["teacher_wrote"])
+        self.assertEqual(marked["status"], "Teacher wrote")
+        cleared = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}/clear"
+        )
+        self.assertEqual(cleared.status_code, 200, cleared.get_data(as_text=True))
+        student = self.maple.get(
+            f"/api/student/board/{key}",
+            headers=self._student_headers(self.maple_token),
+        )
+        dumped = json.dumps(student.get_json())
+        self.assertIn("teacher note", dumped)
+        self.assertNotIn("student sketch", dumped)
+
+    def test_student_stroke_colour_matches_the_legend(self) -> None:
+        """A pen stroke stores the same colour the legend shows for that id."""
+        self._publish("individual")
+        key = f"solo:{self.maple_id}"
+        run_key = self.school.live_board_run_key(self.session_id)
+        posted = self.maple.post(
+            "/api/student/canvas-presence",
+            json={
+                "x": 0.22,
+                "y": 0.41,
+                "points": [[0.22, 0.41], [0.34, 0.52]],
+                "stroke_id": "maple-colour",
+                "ended": True,
+                "run_key": run_key,
+            },
+            headers=self._student_headers(self.maple_token),
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_data(as_text=True))
+        gallery = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery"
+        )
+        tile = next(row for row in gallery.get_json()["tiles"] if row["board_key"] == key)
+        expected = student_ink_color(self.maple_id)
+        found: list[str] = []
+        view = tile.get("canvas_view") or {}
+        for stroke in view.get("strokes") or []:
+            if isinstance(stroke, dict) and stroke.get("color"):
+                found.append(str(stroke["color"]))
+        for op in tile.get("ops") or []:
+            if isinstance(op, dict) and op.get("color"):
+                found.append(str(op["color"]))
+        self.assertIn(expected, found)
+        panel = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}"
+        )
+        legend = panel.get_json()["legend"]
+        self.assertEqual(legend[0]["color"], expected)
+        page = (LMS_DIR / "templates" / "staff" / "course.html").read_text()
+        self.assertNotIn("wb-live-send", page)
+        self.assertNotIn("Send feedback", page)
+        self.assertIn('id="wb-live-show"', page)
+        self.assertIn('id="wb-live-legend"', page)
+        home = (LMS_DIR / "templates" / "student" / "home.html").read_text()
+        self.assertIn('id="class-board-legend"', home)
 
     def test_delete_test_run_drops_team_boards(self) -> None:
         """Delete-test removes solo ink, team ink, and assignment rows."""
