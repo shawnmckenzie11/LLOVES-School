@@ -3152,30 +3152,70 @@ def shoot_mck273(base: str, out_dir: Path, path: Path, widths: list[int]) -> lis
 
 
 def _mck281_blank_identity(page) -> None:
-    """Hide join codes, visit tokens, and roster names before a shot."""
+    """Hide join codes and roster names, and stop the live poll before a shot.
+
+    CSS hides identity text. Timers are cleared so a poll cannot replace the
+    card while Playwright is capturing it. The function does not write into
+    nodes the poll owns.
+    """
     page.evaluate(
         """() => {
-          const code = document.querySelector("#ap-join-billboard-code");
-          if (code) code.textContent = "····";
-          for (const sel of [
-            "#me-name",
-            "#me-team-list",
-            ".student-group-strip",
-            ".live-group-setup-teams",
-            ".me-team-list",
-          ]) {
-            document.querySelectorAll(sel).forEach((el) => {
-              el.textContent = "";
-              el.hidden = true;
-            });
-          }
-          document.querySelectorAll("[data-codename], [data-visit-token]").forEach((el) => {
-            el.removeAttribute("data-codename");
-            el.removeAttribute("data-visit-token");
-          });
+          const style = document.createElement("style");
+          style.setAttribute("data-mck281-shot", "1");
+          style.textContent = [
+            "#ap-join-billboard-code, #ap-join-billboard { font-size: 0 !important; color: transparent !important; }",
+            ".live-group-setup-teams, #me-name, #me-team-list, .student-group-strip,",
+            ".me-team-list, .rank-turn-by, .group-submit-last { display: none !important; }",
+            "*, *::before, *::after { animation: none !important; transition: none !important; }",
+          ].join("");
+          document.head.appendChild(style);
           document.title = "Class";
+          const newest = window.setTimeout(() => {}, 0);
+          for (let id = 0; id <= newest; id += 1) {
+            window.clearTimeout(id);
+            window.clearInterval(id);
+          }
+          window.setTimeout = () => 0;
+          window.setInterval = () => 0;
         }"""
     )
+
+
+def _mck281_shot(locator, path: Path) -> None:
+    """Screenshot one locator after the live poll has been stopped.
+
+    Args:
+        locator: Playwright locator for the card.
+        path: PNG path.
+    """
+    last = None
+    page = locator.page
+    for _ in range(4):
+        try:
+            locator.wait_for(state="visible", timeout=15000)
+            locator.evaluate(
+                "el => el.scrollIntoView({block: 'center', inline: 'nearest'})"
+            )
+            page.wait_for_timeout(200)
+            box = locator.bounding_box()
+            vp = page.viewport_size or {"width": 1280, "height": 900}
+            if not box or box["width"] < 8 or box["height"] < 8:
+                raise RuntimeError("rank card has no box")
+            x = max(0, box["x"])
+            y = max(0, box["y"])
+            right = min(float(vp["width"]), box["x"] + box["width"])
+            bottom = min(float(vp["height"]), box["y"] + box["height"])
+            if right - x < 8 or bottom - y < 8:
+                raise RuntimeError("rank card is off screen")
+            page.screenshot(
+                path=str(path),
+                clip={"x": x, "y": y, "width": right - x, "height": bottom - y},
+            )
+            return
+        except Exception as exc:
+            last = exc
+            page.wait_for_timeout(400)
+    raise SystemExit("could not capture the rank card") from last
 
 
 def prepare_mck281_teacher(path: Path, origin: str) -> dict[str, int | str]:
@@ -3201,6 +3241,11 @@ def prepare_mck281_teacher(path: Path, origin: str) -> dict[str, int | str]:
     if maple is None or cedar is None:
         raise SystemExit("Demo roster missing. Run with --seed first.")
     _mck208_end_active_live(school, class_id)
+    try:
+        school.game.end_game(class_id)
+    except (KeyError, ValueError):
+        pass
+    school.game.clear_team_lock(class_id)
     live = school.start_live_class_session(class_id, int(teacher["id"]))
     session_id = int(live["id"])
     school.set_live_session_teacher_state(
@@ -3210,21 +3255,23 @@ def prepare_mck281_teacher(path: Path, origin: str) -> dict[str, int | str]:
         live_slot="C1",
         page_id="round_1",
         class_set=True,
-        groups_configured=True,
     )
     school.game.begin_game(class_id)
     maple_id = int(maple["id"])
     cedar_id = int(cedar["id"])
     school.setup_live_session_groups(
         session_id,
-        n_teams=1,
+        n_teams=2,
         mode="manual",
         present_ids=[maple_id, cedar_id],
         assignments=[
             {"student_id": maple_id, "team_index": 0},
-            {"student_id": cedar_id, "team_index": 0},
+            {"student_id": cedar_id, "team_index": 1},
         ],
     )
+    membership = school.game.team_membership_index(class_id).get("by_student") or {}
+    if maple_id not in membership or cedar_id not in membership:
+        raise SystemExit("demo roster is not on a team")
     school.ensure_live_session_items(session_id)
     placement = school.add_staff_question_to_class_playlist(
         class_id,
@@ -3257,6 +3304,49 @@ def prepare_mck281_teacher(path: Path, origin: str) -> dict[str, int | str]:
     }
 
 
+def _mck281_seat_on_team(school, class_id: int) -> None:
+    """Seat the demo student on a team after the local-dev seed.
+
+    That seed removes one roster row from ``game_memberships`` on every
+    app boot. A group rank card only runs Take turns for a student who
+    is on a team.
+
+    Args:
+        school: SchoolDB bound to the dev sqlite.
+        class_id: Demo class id.
+    """
+    primary = school.game.find_student_by_codename(class_id, "Maple")
+    partner = school.game.find_student_by_codename(class_id, "Cedar")
+    if primary is None or partner is None:
+        raise SystemExit("Demo roster missing. Run with --seed first.")
+    primary_id = int(primary["id"])
+    if school.student_team_id_for_class(class_id, primary_id) is not None:
+        return
+    partner_id = int(partner["id"])
+    team_id = school.student_team_id_for_class(class_id, partner_id)
+    if team_id is None:
+        raise SystemExit("demo roster is not on a team")
+    game = school.game
+    with game._lock:
+        game_row = game.conn.execute(
+            "SELECT id FROM games WHERE class_id = ? AND status != 'ended'",
+            (int(class_id),),
+        ).fetchone()
+        if game_row is None:
+            raise SystemExit("demo roster is not on a team")
+        game.conn.execute(
+            """
+            INSERT OR IGNORE INTO game_memberships (game_id, team_id, student_id)
+            VALUES (?, ?, ?)
+            """,
+            (int(game_row["id"]), int(team_id), primary_id),
+        )
+        game.conn.commit()
+    cache = getattr(game, "_team_index_cache", None)
+    if isinstance(cache, dict):
+        cache.pop(int(class_id), None)
+
+
 def _mck281_student_url(path: Path, origin: str, session_id: int, live_item_id: int) -> str:
     """Publish the saved rank and return one student's live URL.
 
@@ -3275,6 +3365,8 @@ def _mck281_student_url(path: Path, origin: str, session_id: int, live_item_id: 
 
     app = create_app(db_path=path, testing=True)
     school = app.config["SCHOOL_DB"]
+    class_id = int(school.get_live_session(session_id)["class_id"])
+    _mck281_seat_on_team(school, class_id)
     school.publish_live_session_item(session_id, live_item_id, publish_mode="group_submit")
     saved = school.get_live_session_item(session_id, live_item_id)
     if saved["item"].get("group_rank_mode") != "together":
@@ -3333,18 +3425,21 @@ def shoot_mck281(base: str, state_path: Path, out_dir: Path, path: Path) -> list
         page.goto(teacher_url, wait_until="domcontentloaded", timeout=60000)
         page.locator("body.staff-shell").wait_for(state="attached", timeout=30000)
         page.locator('.live-content-tab[data-tab="questions"]').click(timeout=10000)
-        style = page.locator(".live-group-setup-style")
-        style.wait_for(state="visible", timeout=30000)
-        card = page.locator(".live-question-card").filter(has_text="Rank these representations.")
-        card.wait_for(state="visible", timeout=15000)
+        card = page.locator(
+            f'.live-question-card[data-live-item-id="{int(meta["live_item_id"])}"]'
+        )
+        card.wait_for(state="visible", timeout=30000)
+        card.locator(".live-group-setup-style").wait_for(state="visible", timeout=15000)
         setup_text = card.inner_text()
         if "Each person places one item, then passes." not in setup_text:
             raise SystemExit("teacher card did not show the take-turns line")
         if "Rank together" in setup_text:
             raise SystemExit("teacher card still shows Rank together")
         _mck281_blank_identity(page)
+        page.wait_for_timeout(600)
         teacher_shot = out_dir / "mck281-teacher-setup-1280.png"
-        card.screenshot(path=str(teacher_shot))
+        setup = card.locator(".live-q-strip")
+        _mck281_shot(setup if setup.count() else card, teacher_shot)
         written.append(teacher_shot)
         context.close()
 
@@ -3367,8 +3462,9 @@ def shoot_mck281(base: str, state_path: Path, out_dir: Path, path: Path) -> list
         if "Rank together" in phone_text:
             raise SystemExit("student card still shows Rank together")
         _mck281_blank_identity(phone)
+        phone.wait_for_timeout(600)
         student_shot = out_dir / "mck281-student-turns-390.png"
-        phone.locator("#live-response").screenshot(path=str(student_shot))
+        _mck281_shot(phone.locator("#live-response"), student_shot)
         written.append(student_shot)
         student.close()
         browser.close()
