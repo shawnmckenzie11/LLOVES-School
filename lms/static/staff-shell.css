@@ -4748,6 +4748,72 @@ body.staff-shell.course-live .track-live-root.live-shell-root {
   overflow: hidden;
   grid-template-rows: auto auto minmax(0, 1fr);
 }
+/* MCK-291: Set Class setup scrolls so the day calendar stays reachable.
+   A running class (no .is-set-class) keeps the fixed live shell. */
+body.staff-shell.course-live:has(.live-shell-ia-v2.is-set-class) {
+  height: 100vh;
+  height: 100dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+body.staff-shell.course-live:has(.live-shell-ia-v2.is-set-class) .wrap.course-shell {
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+}
+body.staff-shell.course-live:has(.live-shell-ia-v2.is-set-class) .staff-top-menu {
+  margin-bottom: 0.4rem;
+  padding: 0.3rem 0.5rem;
+}
+body.staff-shell.course-live:has(.live-shell-ia-v2.is-set-class) .topbar h1 {
+  margin: 0;
+  font-size: 1.35rem;
+  line-height: 1.2;
+}
+body.staff-shell.course-live:has(.live-shell-ia-v2.is-set-class) .tabs.course-tabs {
+  margin: 0.3rem 0 0.4rem;
+}
+body.staff-shell.course-live:has(.live-shell-ia-v2.is-set-class) .track-live-root.live-shell-root {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: auto;
+  overflow: visible;
+  grid-template-rows: auto auto auto;
+}
+body.staff-shell .live-shell-ia-v2.is-set-class .set-class-step {
+  padding: 8px 0;
+}
+@media (max-width: 699px) {
+  body.staff-shell .live-shell-ia-v2.is-set-class .set-class-step {
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 6px 8px;
+  }
+  body.staff-shell .live-shell-ia-v2.is-set-class .set-class-step-control {
+    grid-column: 1 / -1;
+  }
+}
+@media (min-width: 700px) {
+  body.staff-shell .live-shell-ia-v2.is-set-class .live-set-class-card .live-pack-strip {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(16.5rem, 22rem);
+    column-gap: 1.25rem;
+    align-items: start;
+  }
+  body.staff-shell .live-shell-ia-v2.is-set-class #set-class-day-step {
+    grid-column: 2;
+    grid-row: 1 / span 12;
+    grid-template-columns: 24px minmax(0, 1fr);
+    border-top: 0;
+    padding-top: 0;
+    align-self: start;
+    position: sticky;
+    top: 0.35rem;
+  }
+  body.staff-shell .live-shell-ia-v2.is-set-class #set-class-day-step .set-class-step-control {
+    grid-column: 1 / -1;
+  }
+}
+/* MCK-291 end */
 body.staff-shell.course-live .live-shell-left,
 body.staff-shell.course-live .live-shell-body,
 body.staff-shell.course-live .live-shell-right {
