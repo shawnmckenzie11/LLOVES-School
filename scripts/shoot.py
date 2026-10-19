@@ -3696,6 +3696,135 @@ def shoot_mck289(base: str, state_path: Path, out_dir: Path, path: Path, widths:
     return written
 
 
+def prepare_mck290(path: Path) -> int:
+    """Show one ended template class that has no stored Lesson Slides row.
+
+    The placeholder session code is masked before the screenshot. This does
+    not print codes or student names.
+
+    Args:
+        path: LMS sqlite path.
+
+    Returns:
+        Shawn's class id.
+    """
+    class_id = shawn_class_id(path)
+    con = sqlite3.connect(path)
+    try:
+        cols = {str(row[1]) for row in con.execute("PRAGMA table_info(live_class_sessions)")}
+        owner = con.execute(
+            "SELECT offering_id, teacher_user_id FROM classes WHERE id = ?",
+            (class_id,),
+        ).fetchone()
+        if owner is None or owner[0] in (None, ""):
+            raise SystemExit("Demo class has no offering.")
+        con.execute(
+            """
+            DELETE FROM lesson_slides_latest
+            WHERE class_id = ? AND live_module = 'M1' AND live_slot = 'C4'
+              AND COALESCE(is_test, 0) = 0
+            """,
+            (class_id,),
+        )
+        if "teacher_state_json" in cols:
+            con.execute(
+                """
+                DELETE FROM live_class_sessions
+                WHERE class_id = ? AND status = 'ended'
+                  AND json_extract(teacher_state_json, '$.live_module') = 'M1'
+                  AND json_extract(teacher_state_json, '$.live_slot') = 'C4'
+                """,
+                (class_id,),
+            )
+        fields = [
+            "class_id",
+            "offering_id",
+            "teacher_user_id",
+            "session_code",
+            "status",
+            "started_at",
+            "ended_at",
+            "is_test",
+        ]
+        values: list[object] = [
+            class_id,
+            int(owner[0]),
+            int(owner[1]),
+            "ended-run",
+            "ended",
+            "2026-10-19T18:00:00",
+            "2026-10-19T19:15:00",
+            0,
+        ]
+        if "teacher_state_json" in cols:
+            fields.append("teacher_state_json")
+            values.append(json.dumps({"live_module": "M1", "live_slot": "C4"}))
+        if "run_key" in cols:
+            fields.append("run_key")
+            values.append("mck290-ended")
+        con.execute(
+            f"INSERT INTO live_class_sessions ({', '.join(fields)}) VALUES ({', '.join('?' for _ in fields)})",
+            values,
+        )
+        con.commit()
+    finally:
+        con.close()
+    return class_id
+
+
+def shoot_mck290(base: str, state_path: Path, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
+    """Screenshot Lesson Slides with an ended class that has no stored row.
+
+    Join codes are masked before the shot.
+
+    Args:
+        base: Loopback origin.
+        state_path: Shawn's storageState.
+        out_dir: Artifact directory.
+        path: LMS sqlite path.
+        widths: Viewport widths.
+
+    Returns:
+        PNG paths.
+    """
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    class_id = prepare_mck290(path)
+    url = assert_loopback(f"{origin}/staff/class/{class_id}?tab=lesson-slides")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        for width in widths:
+            context = browser.new_context(
+                storage_state=str(state_path),
+                viewport={"width": int(width), "height": 900},
+            )
+            page = context.new_page()
+            page.goto(url, wait_until="domcontentloaded")
+            page.locator("#ls-run-table").wait_for(state="visible", timeout=30000)
+            row = page.locator(".ls-run-row").filter(
+                has=page.locator(".ls-row-name", has_text="M1C4")
+            )
+            row.first.wait_for(state="visible", timeout=30000)
+            ran = row.first.locator("td").nth(1).inner_text()
+            if "Not run yet" in ran or "Oct 19" not in ran:
+                raise SystemExit("Ended class is missing from Lesson Slides")
+            catchup = row.first.locator(".ls-catchup-label").inner_text()
+            if catchup.strip() != "none":
+                raise SystemExit("Ended class without answers should show catch-up none")
+            page.locator(".ls-join-code").evaluate_all(
+                "nodes => nodes.forEach((node) => { node.textContent = '\\u2014'; })"
+            )
+            dest = out_dir / f"mck290-lesson-slides-ended-{width}.png"
+            page.locator(".lesson-slides-table-card").screenshot(path=str(dest))
+            written.append(dest)
+            context.close()
+        browser.close()
+    return written
+
+
 def shoot_mck280(base: str, out_dir: Path, path: Path, state_path: Path) -> list[Path]:
     """MCK-280: legend colours, no on-board names, show to class, no send.
 
@@ -4059,6 +4188,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck249",
             "mck281",
             "mck289",
+            "mck290",
             "mck280",
             "mck291",
         ),
@@ -4071,6 +4201,7 @@ def main(argv: list[str] | None = None) -> int:
             "MCK-242 Team Draw, MCK-272 whiteboard, MCK-273 one join code, "
             "MCK-275 End Class and Quit, MCK-249 teacher course tabs, "
             "MCK-281 Take turns rank, MCK-289 catch-up column, "
+            "MCK-290 ended class on Lesson Slides, "
             "MCK-280 whiteboard fixes, or MCK-291 Set Class calendar."
         ),
     )
@@ -4149,6 +4280,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "mck289":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck289(args.base, state, out, path, widths))
+        if args.scenario == "mck290":
+            widths = [int(part) for part in args.widths.split(",") if part.strip()]
+            written.extend(shoot_mck290(args.base, state, out, path, widths))
         if args.scenario == "mck280":
             written.extend(shoot_mck280(args.base, out, path, state))
         if args.scenario == "mck291":
@@ -4170,7 +4304,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
                 "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
-                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck280|mck291."
+                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291."
             )
         for item in written:
             print(item)

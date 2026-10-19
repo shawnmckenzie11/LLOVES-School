@@ -210,7 +210,10 @@ class EndLiveToggleTests(Base):
 
 
     def test_live_run_zero_live_answers_no_catchup_link(self) -> None:
-        """Live End with published items but no student responses creates no link."""
+        """Live End with no student responses still lists Lesson Slides.
+
+        Catch-up stays absent until an individual answer exists.
+        """
         started = datetime(2026, 10, 14, 9, 20, tzinfo=TORONTO).replace(microsecond=0).isoformat()
         live = self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
         sid = int(live["id"])
@@ -259,6 +262,19 @@ class EndLiveToggleTests(Base):
         )
         self.assertEqual(resp.status_code, 302)
         self.assertFalse(self.school.list_catchup_links(self.class_id))
+        latest = self.school.list_lesson_slides_latest(self.class_id)
+        self.assertEqual(len(latest), 1)
+        self.assertEqual(latest[0]["live_module"], "M3")
+        self.assertEqual(latest[0]["live_slot"], "C1")
+        from lesson_slides_table import build_lesson_slides_table
+
+        row = next(
+            item
+            for item in build_lesson_slides_table(self.school, self.class_id)["rows"]
+            if item["label"] == "M3C1"
+        )
+        self.assertTrue(row["has_run"])
+        self.assertEqual(row["catchup_access"], "none")
 
     def test_omitted_run_mode_saves_a_live_session(self) -> None:
         """A non-test session saves even outside the old schedule window."""

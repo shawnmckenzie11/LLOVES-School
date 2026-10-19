@@ -33928,6 +33928,10 @@ class SchoolDB(LovesDB):
         MCK-233 end-time test), skip participation, catch-up, and Lesson
         Slides. An ``is_test`` session still saves those rows, marked so they
         stay out of real counts (MCK-269).
+
+        A real End always writes the Lesson Slides row, even when nobody
+        answered an individual question. Catch-up still requires one
+        individual answer (MCK-290).
         """
         sid = int(session_id)
         session = self.conn.execute(
@@ -34099,6 +34103,7 @@ class SchoolDB(LovesDB):
                 ended_at=ended_at,
                 refresh_window=True,
             )
+        if is_real:
             self._upsert_lesson_slides_latest_unlocked(
                 sid,
                 class_id=class_id,
@@ -35145,36 +35150,38 @@ class SchoolDB(LovesDB):
             )
         return questions
 
-    def _upsert_lesson_slides_latest_unlocked(
-        self,
-        session_id: int | None,
-        *,
-        class_id: int,
-        run_key: str,
-        module: str,
-        slot: str,
-        ended_at: str,
-        session_code: str,
-        ended_at_inferred: bool = False,
-        inferred_ended_at: str = "",
-        is_test: bool = False,
-    ) -> None:
-        """Replace the Lesson Slides row for one slot and run kind.
+    def lesson_slides_questions_for_session(
+        self, session_id: int | None, class_id: int, run_key: str
+    ) -> list[dict[str, Any]]:
+        """Published questions for one run, without writing a Lesson Slides row.
 
         Args:
-            is_test: When true, write the test row and leave the real row.
+            session_id: ``live_class_sessions.id``, or ``None`` after a later
+                Start has removed the session.
+            class_id: Game-show ``classes.id``.
+            run_key: Participation run key.
+        """
+        with self._lock:
+            return self._lesson_slides_questions_unlocked(session_id, class_id, run_key)
+
+    def _lesson_slides_questions_unlocked(
+        self, session_id: int | None, class_id: int, run_key: str
+    ) -> list[dict[str, Any]]:
+        """Question list for Lesson Slides. Caller holds ``self._lock``.
+
+        Group and individual published items are both included. When the
+        session has none, fall back to stored participation items.
+
+        Args:
+            session_id: ``live_class_sessions.id``, or ``None``.
+            class_id: Game-show ``classes.id``.
+            run_key: Participation run key.
         """
         from lesson_slides_table import _bank_question_id, _stem, _type_label
         from participation_weight import item_participation_weight
 
         sid = int(session_id) if session_id is not None else 0
         cid = int(class_id)
-        mod = str(module or "").upper()
-        sl = str(slot or "").upper()
-        mod_num = int(mod[1:]) if mod.startswith("M") and mod[1:].isdigit() else 0
-        slot_num = int(sl[1:]) if sl.startswith("C") and sl[1:].isdigit() else 0
-        deck = self.get_lesson_slide_deck(cid, mod_num, slot_num) if mod_num and slot_num else None
-        presentation_url = str((deck or {}).get("presentation_url") or "")
         questions: list[dict[str, Any]] = []
         catchup_keys = {
             str(r[0])
@@ -35233,6 +35240,36 @@ class SchoolDB(LovesDB):
                 )
         if not questions:
             questions = self._lesson_slides_questions_from_participation_unlocked(cid, str(run_key))
+        return questions
+
+    def _upsert_lesson_slides_latest_unlocked(
+        self,
+        session_id: int | None,
+        *,
+        class_id: int,
+        run_key: str,
+        module: str,
+        slot: str,
+        ended_at: str,
+        session_code: str,
+        ended_at_inferred: bool = False,
+        inferred_ended_at: str = "",
+        is_test: bool = False,
+    ) -> None:
+        """Replace the Lesson Slides row for one slot and run kind.
+
+        Args:
+            is_test: When true, write the test row and leave the real row.
+        """
+        sid = int(session_id) if session_id is not None else 0
+        cid = int(class_id)
+        mod = str(module or "").upper()
+        sl = str(slot or "").upper()
+        mod_num = int(mod[1:]) if mod.startswith("M") and mod[1:].isdigit() else 0
+        slot_num = int(sl[1:]) if sl.startswith("C") and sl[1:].isdigit() else 0
+        deck = self.get_lesson_slide_deck(cid, mod_num, slot_num) if mod_num and slot_num else None
+        presentation_url = str((deck or {}).get("presentation_url") or "")
+        questions = self._lesson_slides_questions_unlocked(sid, cid, str(run_key))
         now = _now()
         self.conn.execute(
             """
