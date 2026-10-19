@@ -3636,19 +3636,21 @@ def shoot_mck289(base: str, state_path: Path, out_dir: Path, path: Path, widths:
                 raise SystemExit("Catch-up column is missing a closed row")
             if "none" not in labels:
                 raise SystemExit("Catch-up column is missing a none row")
-            page.get_by_role("button", name="Close", exact=True).first.wait_for(
+            card = page.locator(".lesson-slides-table-card")
+            if int(width) < 800:
+                card.locator(".table-wrap").evaluate(
+                    "el => { el.scrollLeft = el.scrollWidth; }"
+                )
+            # Accessible names are "Close catch-up for …", so match the label text.
+            card.locator(".ls-catchup-toggle", has_text="Close").first.wait_for(
                 state="visible", timeout=15000
             )
-            page.get_by_role("button", name="Reopen", exact=True).first.wait_for(
+            card.locator(".ls-catchup-toggle", has_text="Reopen").first.wait_for(
                 state="visible", timeout=15000
             )
             page.locator(".ls-join-code").evaluate_all(
                 "nodes => nodes.forEach((node) => { node.textContent = '\\u2014'; })"
             )
-            if int(width) < 800:
-                page.locator(".lesson-slides-table-card .table-wrap").evaluate(
-                    "el => { el.scrollLeft = el.scrollWidth; }"
-                )
             dest = out_dir / f"mck289-lesson-slides-catchup-{width}.png"
             page.locator(".lesson-slides-table-card").screenshot(path=str(dest))
             written.append(dest)
