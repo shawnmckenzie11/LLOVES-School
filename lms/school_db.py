@@ -30168,12 +30168,13 @@ class SchoolDB(LovesDB):
             run_key = self.live_board_run_key(int(session_id))
         except KeyError:
             return "shared"
-        saved = assignment_board_key(
-            self.conn,
-            class_id=class_id,
-            run_key=run_key,
-            student_id=int(student_id),
-        )
+        with self._lock:
+            saved = assignment_board_key(
+                self.conn,
+                class_id=class_id,
+                run_key=run_key,
+                student_id=int(student_id),
+            )
         if saved:
             return saved
         team_id = self.student_team_id_for_class(class_id, int(student_id))
@@ -30182,6 +30183,68 @@ class SchoolDB(LovesDB):
         sort_order = self._team_sort_order_for_team_id(class_id, int(team_id))
         if sort_order is None:
             return f"team:{int(team_id)}"
+        return board_key_for_sort_order(sort_order)
+
+    def _board_key_from_open_session(
+        self, session_row: dict[str, Any] | None, student_id: int
+    ) -> str:
+        """Collab board key from a session row this poll already loaded.
+
+        The assignment read takes the school lock. ``student_live_board_key``
+        loads the session again and then used to read the shared connection
+        after releasing that lock, which stalled concurrent student polls.
+
+        Args:
+            session_row: ``live_class_sessions`` row from this poll.
+            student_id: Roster id.
+
+        Returns:
+            Saved or derived board key, or ``""`` when none applies.
+        """
+        if not isinstance(session_row, dict):
+            return ""
+        sid = int(student_id)
+        if self.is_test_student(sid):
+            return "shared"
+        try:
+            class_id = int(session_row.get("class_id") or 0)
+        except (TypeError, ValueError):
+            return ""
+        if class_id <= 0:
+            return ""
+        base = str(session_row.get("run_key") or "").strip()
+        try:
+            gen = int(session_row.get("board_gen") or 0)
+        except (TypeError, ValueError):
+            gen = 0
+        run_key = self.board_generation_key(base, gen) if base else ""
+        saved = ""
+        if run_key:
+            from live_board_assignments import assignment_board_key
+
+            with self._lock:
+                try:
+                    saved = (
+                        assignment_board_key(
+                            self.conn,
+                            class_id=class_id,
+                            run_key=run_key,
+                            student_id=sid,
+                        )
+                        or ""
+                    )
+                except sqlite3.Error:
+                    saved = ""
+        if saved:
+            return str(saved)
+        team_id = self.student_team_id_for_class(class_id, sid)
+        if team_id is None:
+            return "shared"
+        sort_order = self._team_sort_order_for_team_id(class_id, int(team_id))
+        if sort_order is None:
+            return f"team:{int(team_id)}"
+        from live_board_assignments import board_key_for_sort_order
+
         return board_key_for_sort_order(sort_order)
 
     def _team_sort_order_for_team_id(
@@ -30283,9 +30346,9 @@ class SchoolDB(LovesDB):
 
         Solo boards and the teacher use the id hash. A team board walks
         join order and bumps a hash clash to the next free palette entry.
-        The roster is loaded when the attendee count or leave count
-        changes, not on every point of a stroke. Stored ops are left
-        as they are.
+        The roster is loaded when who is on the board changes, not on
+        every point of a stroke. A team trade that keeps the head count
+        still drops the cache. Stored ops are left as they are.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -30324,38 +30387,86 @@ class SchoolDB(LovesDB):
             cache[cache_key] = colors
         return str(colors.get(who) or cursor_color_for(who))
 
-    def _attendee_membership_stamp(self, session_id: int) -> tuple[int, int]:
-        """Cheap roster stamp so ink colours reload only when membership changes.
+    def _attendee_membership_stamp(
+        self, session_id: int
+    ) -> tuple[tuple[tuple[int, int], ...], tuple[tuple[int, str], ...]]:
+        """Signature of who is present and which board each student is pinned to.
+
+        A trade between teams keeps the head count and the leave count
+        the same, so those two numbers do not drop the ink-colour cache.
+        This signature lists each attendee id and leave flag, plus each
+        ``live_board_assignments`` ``(student_id, board_key)``. Both
+        reads take the school lock.
 
         Args:
             session_id: ``live_class_sessions.id``.
 
         Returns:
-            ``(attendee count, leaver count)`` from sqlite.
+            ``(attendees, assignments)``. Empty when the session is gone.
         """
+        attendees: list[tuple[int, int]] = []
+        assignments: list[tuple[int, str]] = []
         with self._lock:
-            row = self.conn.execute(
+            session = self.conn.execute(
                 """
-                SELECT COUNT(*) AS n,
-                       SUM(
-                         CASE
-                           WHEN left_at IS NOT NULL AND TRIM(left_at) != '' THEN 1
-                           ELSE 0
-                         END
-                       ) AS lefts
-                FROM live_session_attendees
-                WHERE live_session_id = ?
+                SELECT class_id, run_key, COALESCE(board_gen, 0) AS board_gen
+                FROM live_class_sessions WHERE id = ?
                 """,
                 (int(session_id),),
             ).fetchone()
-        if row is None:
-            return (0, 0)
-        if hasattr(row, "keys"):
-            count = row["n"]
-            lefts = row["lefts"]
-        else:
-            count, lefts = row[0], row[1]
-        return (int(count or 0), int(lefts or 0))
+            rows = self.conn.execute(
+                """
+                SELECT student_id,
+                       CASE
+                         WHEN left_at IS NOT NULL AND TRIM(left_at) != '' THEN 1
+                         ELSE 0
+                       END AS left_flag
+                FROM live_session_attendees
+                WHERE live_session_id = ?
+                ORDER BY student_id
+                """,
+                (int(session_id),),
+            ).fetchall()
+            for row in rows:
+                if hasattr(row, "keys"):
+                    sid, flag = row["student_id"], row["left_flag"]
+                else:
+                    sid, flag = row[0], row[1]
+                if sid in (None, ""):
+                    continue
+                attendees.append((int(sid), int(flag or 0)))
+            if session is not None:
+                if hasattr(session, "keys"):
+                    class_id = session["class_id"]
+                    base = session["run_key"]
+                    gen = session["board_gen"]
+                else:
+                    class_id, base, gen = session[0], session[1], session[2]
+                run_key = self.board_generation_key(
+                    str(base or "").strip(), int(gen or 0)
+                )
+                if class_id not in (None, "") and run_key:
+                    try:
+                        pinned = self.conn.execute(
+                            """
+                            SELECT student_id, board_key
+                            FROM live_board_assignments
+                            WHERE class_id = ? AND run_key = ?
+                            ORDER BY student_id, board_key
+                            """,
+                            (int(class_id), run_key),
+                        ).fetchall()
+                    except sqlite3.Error:
+                        pinned = []
+                    for row in pinned:
+                        if hasattr(row, "keys"):
+                            sid, key = row["student_id"], row["board_key"]
+                        else:
+                            sid, key = row[0], row[1]
+                        if sid in (None, ""):
+                            continue
+                        assignments.append((int(sid), str(key or "")))
+        return (tuple(attendees), tuple(assignments))
 
     def apply_live_canvas_presence(
         self,
@@ -31108,16 +31219,21 @@ class SchoolDB(LovesDB):
             reply["canvas_view"] = delta.get("canvas_view")
 
         def _with_formative(payload: dict[str, Any]) -> dict[str, Any]:
+            teacher = self.live_session_teacher_state_payload(int(session_id))
             meta = self._cached_formative_board_meta(
                 int(session_id),
                 board_key=str(board_key),
                 student_id=student_id,
                 as_teacher=as_teacher,
+                teacher_state=teacher,
             )
             if meta is not None:
                 payload["formative"] = meta
             if not as_teacher and student_id not in (None, ""):
-                payload["class_board"] = self.whiteboard_class_board(int(session_id))
+                payload["class_board"] = self.whiteboard_class_board(
+                    int(session_id),
+                    teacher_state=teacher,
+                )
             return payload
 
         if (
@@ -31444,8 +31560,17 @@ class SchoolDB(LovesDB):
         board_key: str,
         student_id: int | None,
         as_teacher: bool,
+        teacher_state: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
-        """Formative meta for one board read, cached for the duration of one poll."""
+        """Formative meta for one board read, cached for the duration of one poll.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            board_key: Board being read.
+            student_id: Viewer roster id when a student.
+            as_teacher: Staff viewer.
+            teacher_state: Teacher state already loaded for this poll.
+        """
         cache = getattr(self, "_formative_board_meta_cache", None)
         if cache is None:
             cache = {}
@@ -31455,8 +31580,9 @@ class SchoolDB(LovesDB):
         except ImportError:
             from lms.whiteboard_formative import resolve_formative_bucket
 
-        teacher = self.live_session_teacher_state_payload(int(session_id))
-        self._teacher_state_for_poll = (int(session_id), teacher)
+        teacher = teacher_state if isinstance(teacher_state, dict) else None
+        if teacher is None:
+            teacher = self.live_session_teacher_state_payload(int(session_id))
         state_seq = int(teacher.get("state_seq") or 0)
         bucket = resolve_formative_bucket(
             self,
@@ -32453,8 +32579,8 @@ class SchoolDB(LovesDB):
         stored with ``layer=feedback`` stay hidden until a release that
         is already on the board. Nothing here deletes those rows.
         When nothing is projected, this returns before loading the
-        session or the gallery. A teacher-state dict already loaded
-        for the poll is reused.
+        session or the gallery. Pass ``teacher_state`` from the poll.
+        It is not stored on this shared database object.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -32469,15 +32595,6 @@ class SchoolDB(LovesDB):
         from formative_live_board import legend_entries, public_board_payload
 
         teacher = teacher_state if isinstance(teacher_state, dict) else None
-        if teacher is None:
-            stashed = getattr(self, "_teacher_state_for_poll", None)
-            if (
-                isinstance(stashed, tuple)
-                and len(stashed) == 2
-                and int(stashed[0]) == int(session_id)
-                and isinstance(stashed[1], dict)
-            ):
-                teacher = stashed[1]
         if teacher is None:
             teacher = self.live_session_teacher_state_payload(int(session_id))
         key = str(teacher.get("whiteboard_projected_board") or "").strip()
@@ -42666,11 +42783,14 @@ class SchoolDB(LovesDB):
             payload["class_board"] = None
         if sid not in (None, "") and not payload.get("board_key"):
             try:
-                payload["board_key"] = self.student_live_board_key(
-                    int(live_session_id), int(sid)
+                key = self._board_key_from_open_session(
+                    session_row if isinstance(session_row, dict) else None,
+                    int(sid),
                 )
-            except (KeyError, TypeError, ValueError):
-                pass
+            except (KeyError, TypeError, ValueError, sqlite3.Error):
+                key = ""
+            if key:
+                payload["board_key"] = key
         return payload
 
     def guest_student_live_payload(

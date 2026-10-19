@@ -721,7 +721,6 @@ class FormativeIntegrationTests(unittest.TestCase):
         """No projected board means no session or gallery read for it."""
         state = self.school.live_session_teacher_state_payload(self.session_id)
         self.assertFalse(str(state.get("whiteboard_projected_board") or "").strip())
-        self.school._teacher_state_for_poll = (int(self.session_id), state)
 
         def boom(*_args: Any, **_kwargs: Any) -> None:
             raise AssertionError("class board looked up a session")
@@ -729,7 +728,9 @@ class FormativeIntegrationTests(unittest.TestCase):
         self.school.get_live_session = boom  # type: ignore[method-assign]
         self.school.live_session_teacher_state_payload = boom  # type: ignore[method-assign]
         self.school._require_gallery_card = boom  # type: ignore[method-assign]
-        self.assertIsNone(self.school.whiteboard_class_board(self.session_id))
+        self.assertIsNone(
+            self.school.whiteboard_class_board(self.session_id, teacher_state=state)
+        )
 
     def test_student_poll_loads_teacher_state_once_when_nothing_is_shown(self) -> None:
         """Formative meta reuses its teacher state. An idle class board does not load another."""
@@ -749,6 +750,39 @@ class FormativeIntegrationTests(unittest.TestCase):
             student_id=self.maple_id,
         )
         self.assertEqual(calls["n"], 1)
+        self.assertIsNone(getattr(self.school, "_teacher_state_for_poll", None))
+
+    def test_state_poll_board_key_skips_the_unlocked_lookup(self) -> None:
+        """Student state uses the session it already loaded, under the lock."""
+        expected = self.school.student_live_board_key(self.session_id, self.maple_id)
+        self.assertTrue(str(expected).startswith("team:"))
+
+        def boom(*_args: Any, **_kwargs: Any) -> str:
+            raise AssertionError("poll called student_live_board_key")
+
+        self.school.student_live_board_key = boom  # type: ignore[method-assign]
+        payload = self.school.assemble_student_live_payload(
+            self.session_id, self.class_id, self.maple_id
+        )
+        self.assertEqual(payload.get("board_key"), expected)
+        self.assertIsNone(getattr(self.school, "_teacher_state_for_poll", None))
+
+    def test_ink_colour_cache_drops_when_a_student_changes_board(self) -> None:
+        """A team trade that keeps the head count still changes the colour stamp."""
+        before = self.school._attendee_membership_stamp(self.session_id)
+        target = int(self.team_sort_order)
+        self.school.conn.execute(
+            """
+            UPDATE live_board_assignments
+            SET team_sort_order = ?, board_key = ?
+            WHERE class_id = ? AND student_id = ?
+            """,
+            (target, f"team:{target}", self.class_id, self.pine_id),
+        )
+        self.school.conn.commit()
+        after = self.school._attendee_membership_stamp(self.session_id)
+        self.assertEqual(before[0], after[0])
+        self.assertNotEqual(before[1], after[1])
 
     def test_shown_own_board_keeps_the_open_stroke_and_tools(self) -> None:
         """Show to class on the viewer's board does not reset or disable tools."""
