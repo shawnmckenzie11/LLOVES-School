@@ -7229,11 +7229,15 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         # short-circuit so the new stamp reaches this poll (MCK-27 M1).
         school.close_answers_if_timer_due(live_session_id)
         try:
+            poll_student = (
+                int(student_id) if student_id not in (None, "") else None
+            )
             unchanged = school.student_live_poll_unchanged(
                 live_session_id,
                 int(class_id),
                 request.args.get("seq"),
                 request.args.get("stamp"),
+                poll_student,
             )
             if unchanged is not None:
                 if unchanged.get("status") == "ended" and not unchanged.get(
@@ -7251,7 +7255,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             # client holding an older stamp, so its next poll rebuilds
             # (one extra build at worst) instead of matching a newer stamp
             # on a stale payload and answering ``unchanged`` for ~20 s.
-            stamp = school.live_student_poll_stamp(live_session_id, int(class_id))
+            stamp = school.live_student_poll_stamp(
+                live_session_id, int(class_id), poll_student
+            )
             payload = school.assemble_student_live_payload(
                 live_session_id,
                 int(class_id),
@@ -9083,6 +9089,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             view = school.team_draw_end_and_clear(session_id, live_item_id)
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        # Class-wide on purpose: every team's boards were cleared.
         emit_answer_landed(
             school,
             session_id,
@@ -9110,6 +9117,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 view = school.end_group_mc_pick_step(session_id, live_item_id)
                 # Gate MED-3: same postcard as Skip, so live-channel tabs
                 # move to the agree step now, not on the safety poll.
+                # Class-wide on purpose: every group leaves the pick step.
                 emit_answer_landed(
                     school,
                     session_id,

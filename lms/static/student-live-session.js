@@ -11,6 +11,7 @@
   }
 
   var HEARTBEAT_MS = 10000;
+  var heartbeatInFlight = false;
 
   /**
    * Resolve visit token via shared helper when loaded after student-visit-token.js.
@@ -51,6 +52,10 @@
     } catch (_err) {
       /* fall through */
     }
+    // A slow beat must not stack another one. Hidden tabs already returned
+    // through sendBeacon above.
+    if (heartbeatInFlight) return;
+    heartbeatInFlight = true;
     try {
       var headers = { "Content-Type": "application/json" };
       if (token) {
@@ -68,8 +73,12 @@
         })
         .catch(function () {
           noteLink(false);
+        })
+        .finally(function () {
+          heartbeatInFlight = false;
         });
     } catch (_err2) {
+      heartbeatInFlight = false;
       noteLink(false);
     }
   }
