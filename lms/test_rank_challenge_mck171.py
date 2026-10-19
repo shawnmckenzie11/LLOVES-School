@@ -256,13 +256,14 @@ class ChallengeHarness(unittest.TestCase):
         self.school.mark_live_session_attendee_left(self.session_id, student_id=self.ids[name])
 
     def _turn_roster(self, name: str, item: dict[str, Any]) -> list[str]:
-        """Teammates in roster order, for a Take turns rotation.
+        """Teammates still in the room, in roster order, for a Take turns rotation.
 
         Args:
             name: A student on the team.
             item: Published lifecycle row.
         """
         team_id = self._team(name, item)
+        active = set(self.school._active_team_member_ids(self.session_id, int(team_id)))
         by_id = {sid: who for who, sid in self.ids.items()}
         names: list[str] = []
         for team in self.school._named_teams_for_live_session(self.session_id):
@@ -274,7 +275,7 @@ class ChallengeHarness(unittest.TestCase):
                 except (KeyError, TypeError, ValueError):
                     continue
                 who = by_id.get(sid)
-                if who:
+                if who and sid in active:
                     names.append(who)
         return names or [name]
 
@@ -590,7 +591,8 @@ class NoLeakTests(ChallengeHarness):
         light = self.school.light_group_results(self.session_id)[str(item["id"])]
         self.assertNotEqual(light["response_seq"], seq)
         lane = next(t for t in light["race"]["teams"] if t["team_id"] == self._team("Ben", item))
-        self.assertTrue(lane["can_lock"])
+        self.assertEqual(lane["placed"], 4)
+        self.assertNotIn("can_lock", lane)
         self.assertFalse(lane["locked"])
         closed = self._close(item)
         view = self._view(closed)
@@ -655,7 +657,7 @@ class NoLeakTests(ChallengeHarness):
         self.assertTrue(ben["absent"])
         self.assertEqual(ben["present"], 0)
         self.assertEqual(ben["members"], 3)  # away pips (dashed) on the projector
-        self.assertFalse(ben["can_lock"])
+        self.assertNotIn("can_lock", ben)
         self.assertFalse(lanes[self._team("Ava", item)]["absent"])
 
     def test_count_is_present_teams_only(self) -> None:

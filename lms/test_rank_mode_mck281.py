@@ -23,6 +23,7 @@ class SavedRankTogetherTests(unittest.TestCase):
 
     _turns_setup = turns_base.PickThenAgreeAndTurnsTests.setUp
     tearDown = turns_base.PickThenAgreeAndTurnsTests.tearDown
+    _add = turns_base.PickThenAgreeAndTurnsTests._add
     _post = turns_base.PickThenAgreeAndTurnsTests._post
     _card = turns_base.PickThenAgreeAndTurnsTests._card
     _opts = turns_base.PickThenAgreeAndTurnsTests._opts
