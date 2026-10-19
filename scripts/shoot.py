@@ -3823,6 +3823,205 @@ def shoot_mck280(base: str, out_dir: Path, path: Path, state_path: Path) -> list
     return shots
 
 
+def _mck291_mask_secrets(page: object) -> None:
+    """Hide join codes and roster labels before a Set Class screenshot.
+
+    The billboard text is replaced in place and the board is hidden. Roster
+    name nodes are cleared by selector. Nothing from the page is printed.
+
+    Args:
+        page: Playwright page on Run Live Class setup.
+    """
+    page.evaluate(  # type: ignore[attr-defined]
+        """() => {
+          const board = document.querySelector('#ap-join-billboard');
+          const codeEl = document.querySelector('#ap-join-billboard-code');
+          const raw = (codeEl && codeEl.textContent ? codeEl.textContent : '').trim();
+          if (codeEl) codeEl.textContent = '\\u00b7\\u00b7\\u00b7\\u00b7';
+          if (board) board.hidden = true;
+          const root = document.querySelector('#ap-root');
+          if (root) root.removeAttribute('data-live-code');
+          const placeholder = '\\u00b7\\u00b7\\u00b7\\u00b7';
+          if (raw && raw !== placeholder && raw !== '\\u2014' && raw !== '----') {
+            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+            const nodes = [];
+            while (walker.nextNode()) nodes.push(walker.currentNode);
+            for (const node of nodes) {
+              if (node.textContent && node.textContent.includes(raw)) {
+                node.textContent = node.textContent.split(raw).join(placeholder);
+              }
+            }
+          }
+          document.querySelectorAll('.ap-att-name, #ap-att-list, .roster-names, .ap-roster-pin').forEach((el) => {
+            el.textContent = '';
+          });
+          document.querySelectorAll('dialog[open]').forEach((dialog) => {
+            if (typeof dialog.close === 'function') dialog.close();
+          });
+          document.querySelectorAll('#onb-tour, #onb-check, #whats-new-dialog').forEach((el) => {
+            el.hidden = true;
+          });
+        }"""
+    )
+
+
+def _mck291_refuse_visible_secrets(page: object) -> None:
+    """Stop the shot when a PIN, join code, or catch-up code is still on screen.
+
+    The check reads visible text and does not include that text in the error.
+
+    Args:
+        page: Playwright page after masking.
+
+    Raises:
+        SystemExit: A secret pattern is still visible.
+    """
+    leaked = page.evaluate(  # type: ignore[attr-defined]
+        """() => {
+          const text = document.body ? document.body.innerText : '';
+          if (/\\bPIN\\b[^\\n]{0,16}\\d{4}/i.test(text)) return 'pin';
+          if (/catch-up code/i.test(text)) return 'catchup';
+          const board = document.querySelector('#ap-join-billboard');
+          if (board && !board.hidden) {
+            const code = (document.querySelector('#ap-join-billboard-code') || {}).textContent || '';
+            if (/[A-Za-z0-9]{4,}/.test(code) && !/^\\u00b7+$/.test(code.trim())) return 'join';
+          }
+          return '';
+        }"""
+    )
+    if leaked:
+        raise SystemExit("Refusing screenshot: a code or PIN is still visible")
+
+
+def _mck291_scroll_calendar(page: object) -> dict[str, object]:
+    """Scroll the Set Class day grid into the viewport.
+
+    Args:
+        page: Playwright page with the setup calendar rendered.
+
+    Returns:
+        Geometry after the scroll. ``ok`` is true when the grid and a day
+        cell sit fully inside the viewport.
+    """
+    return page.evaluate(  # type: ignore[attr-defined]
+        """() => {
+          const grid = document.querySelector('#ap-day-grid');
+          const cell = grid && grid.querySelector('.ap-day-cell');
+          const bodyStyle = getComputedStyle(document.body);
+          const shell = document.querySelector('.track-live-root');
+          const shellStyle = shell ? getComputedStyle(shell) : null;
+          if (!grid || !cell) return {ok: false, reason: 'missing'};
+          const scroller = document.scrollingElement || document.documentElement;
+          const beforeTop = grid.getBoundingClientRect().top;
+          const beforeScroll = scroller.scrollTop;
+          const needed = beforeTop < -2 || grid.getBoundingClientRect().bottom > window.innerHeight + 2;
+          grid.scrollIntoView({block: 'center', inline: 'nearest'});
+          const rect = grid.getBoundingClientRect();
+          const cellRect = cell.getBoundingClientRect();
+          const viewH = window.innerHeight;
+          const viewW = window.innerWidth;
+          const gridInView = rect.height > 40
+            && rect.top >= -1 && rect.bottom <= viewH + 1
+            && rect.left >= -1 && rect.right <= viewW + 1;
+          const cellInView = cellRect.height > 8
+            && cellRect.top >= -1 && cellRect.bottom <= viewH + 1
+            && cellRect.left >= -1 && cellRect.right <= viewW + 1;
+          const scrolled = Math.abs(scroller.scrollTop - beforeScroll) > 1;
+          return {
+            ok: gridInView && cellInView && (!needed || scrolled || gridInView),
+            needed,
+            scrolled,
+            scrollTop: scroller.scrollTop,
+            scrollHeight: scroller.scrollHeight,
+            clientHeight: scroller.clientHeight,
+            top: Math.round(rect.top),
+            bottom: Math.round(rect.bottom),
+            height: Math.round(rect.height),
+            viewH,
+            viewW,
+            bodyOverflowY: bodyStyle.overflowY,
+            shellOverflowY: shellStyle ? shellStyle.overflowY : '',
+          };
+        }"""
+    )
+
+
+def shoot_mck291(base: str, state_path: Path, out_dir: Path, path: Path) -> list[Path]:
+    """Screenshot Set Class after scrolling the day calendar into view.
+
+    Viewports are a phone (390x844), a tablet (768x1024), and a short desktop
+    (1280x800). Join codes and roster labels are masked before the shot.
+
+    Args:
+        base: Loopback origin.
+        state_path: Shawn's storageState.
+        out_dir: Artifact directory.
+        path: LMS sqlite path.
+
+    Returns:
+        PNG paths.
+    """
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    class_id = shawn_class_id(path)
+    home = assert_loopback(f"{origin}/staff")
+    setup = assert_loopback(f"{origin}/staff/class/{class_id}?tab=live&run=1")
+    viewports = ((390, 844), (768, 1024), (1280, 800))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        for width, height in viewports:
+            context = browser.new_context(
+                storage_state=str(state_path),
+                viewport={"width": width, "height": height},
+            )
+            page = context.new_page()
+            page.goto(home, wait_until="domcontentloaded", timeout=60000)
+            link = page.locator("a.course-action-live")
+            if link.count():
+                link.first.click()
+                page.wait_for_url("**tab=live**", timeout=30000)
+            else:
+                page.goto(setup, wait_until="domcontentloaded", timeout=60000)
+            page.locator("#ap-root.is-set-class").wait_for(state="visible", timeout=30000)
+            page.locator("#set-class-day-step").wait_for(state="visible", timeout=30000)
+            page.locator("#ap-day-grid .ap-day-cell").first.wait_for(state="visible", timeout=30000)
+            page.locator("#set-class-kind-live").wait_for(state="visible", timeout=15000)
+            page.locator("#set-class-start").wait_for(state="visible", timeout=15000)
+            skip = page.locator("[data-tour-skip]")
+            if skip.count() and skip.first.is_visible():
+                skip.first.click()
+            _mck291_mask_secrets(page)
+            _mck291_refuse_visible_secrets(page)
+            metrics = _mck291_scroll_calendar(page)
+            print(
+                "mck291",
+                f"{width}x{height}",
+                {key: metrics.get(key) for key in (
+                    "ok", "needed", "scrolled", "scrollTop", "scrollHeight",
+                    "clientHeight", "top", "bottom", "height", "viewH",
+                    "bodyOverflowY", "shellOverflowY",
+                )},
+            )
+            if not metrics.get("ok"):
+                context.close()
+                browser.close()
+                raise SystemExit(f"Calendar is not in view at {width}x{height}")
+            if metrics.get("bodyOverflowY") not in {"auto", "scroll"}:
+                context.close()
+                browser.close()
+                raise SystemExit(f"Set Class page does not scroll at {width}x{height}")
+            _mck291_refuse_visible_secrets(page)
+            dest = out_dir / f"mck291-set-class-calendar-{width}x{height}.png"
+            page.screenshot(path=str(dest), full_page=False)
+            written.append(dest)
+            context.close()
+        browser.close()
+    return written
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry: seed, log in once, then shoot URLs or the catch-up scenario."""
     parser = argparse.ArgumentParser(description="Headless local LMS screenshots.")
@@ -3861,6 +4060,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck281",
             "mck289",
             "mck280",
+            "mck291",
         ),
         default="",
         help=(
@@ -3871,7 +4071,7 @@ def main(argv: list[str] | None = None) -> int:
             "MCK-242 Team Draw, MCK-272 whiteboard, MCK-273 one join code, "
             "MCK-275 End Class and Quit, MCK-249 teacher course tabs, "
             "MCK-281 Take turns rank, MCK-289 catch-up column, "
-            "or MCK-280 whiteboard fixes."
+            "MCK-280 whiteboard fixes, or MCK-291 Set Class calendar."
         ),
     )
     args = parser.parse_args(argv)
@@ -3951,6 +4151,8 @@ def main(argv: list[str] | None = None) -> int:
             written.extend(shoot_mck289(args.base, state, out, path, widths))
         if args.scenario == "mck280":
             written.extend(shoot_mck280(args.base, out, path, state))
+        if args.scenario == "mck291":
+            written.extend(shoot_mck291(args.base, state, out, path))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(
@@ -3968,7 +4170,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
                 "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
-                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck280."
+                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck280|mck291."
             )
         for item in written:
             print(item)
