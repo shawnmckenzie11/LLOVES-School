@@ -459,6 +459,7 @@ def shoot_mck249(
     course = f"{origin}/staff/class/{class_id}"
     shots = (
         ("mck-249-dashboard", f"{origin}/staff", ""),
+        ("mck-249-course-landing", course, ""),
         ("mck-249-tabs", f"{course}?tab=gradebook", ""),
         ("mck-249-more", f"{course}?tab=gradebook", "summary.course-more-summary"),
         ("mck-249-more-syllabus", f"{course}?tab=syllabus", ""),
@@ -480,6 +481,10 @@ def shoot_mck249(
                 )
                 page = context.new_page()
                 page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                if label == "mck-249-course-landing":
+                    page.locator("#course-tabs").wait_for(state="visible", timeout=15000)
+                    page.locator(".staff-top-menu").wait_for(state="visible", timeout=15000)
+                    page.locator(".topbar").wait_for(state="visible", timeout=15000)
                 if "view=roster" in url:
                     page.locator(".ap-roster-table").wait_for(state="visible", timeout=30000)
                 if click:

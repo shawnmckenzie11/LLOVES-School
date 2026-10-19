@@ -37,6 +37,49 @@ class TeacherUiTests(Base):
         self.client.post("/verify-email", data={"code": code})
         self.school.ensure_default_pins_for_class(self.class_id, str(self.app.secret_key or ""))
 
+    def test_default_course_page_shows_the_tab_bar(self) -> None:
+        """Open course stays on idle Set Class, with the course tabs visible."""
+        html = self.client.get(f"/staff/class/{self.class_id}").get_data(as_text=True)
+        self.assertIn('id="course-tabs"', html)
+        self.assertIn('class="staff-top-menu"', html)
+        self.assertIn('class="topbar"', html)
+        self.assertIn("is-set-class", html)
+        css = Path(__file__).resolve().parent.joinpath("static", "staff-shell.css").read_text(
+            encoding="utf-8"
+        )
+        hide = (
+            "body.staff-shell.course-live:not(:has(.live-shell-ia-v2.is-set-class)) "
+            ".tabs.course-tabs {\n  display: none !important;"
+        )
+        self.assertIn(hide, css)
+        self.assertNotIn(
+            "body.staff-shell.course-live .tabs.course-tabs {\n  display: none !important;",
+            css,
+        )
+
+    def test_teacher_set_pin_is_custom(self) -> None:
+        """A teacher-set PIN reads Custom. A student-set PIN reads Student set."""
+        teacher_sid = self.students[0]
+        student_sid = self.students[1]
+        self.school.set_student_pin(
+            self.class_id,
+            teacher_sid,
+            "".join(str(n) for n in (4, 1, 8, 2)),
+            pin_set_by="teacher",
+        )
+        self.school.set_student_pin(
+            self.class_id,
+            student_sid,
+            "".join(str(n) for n in (6, 3, 9, 1)),
+            pin_set_by="student",
+        )
+        page = self.client.get(
+            f"/staff/class/{self.class_id}?tab=ap&view=roster"
+        ).get_data(as_text=True)
+        self.assertIn(">Custom<", page)
+        self.assertIn(">Student set<", page)
+        self.assertNotIn("Your catch-up PIN:", page)
+
     def test_default_tab_is_live_class(self) -> None:
         html = self.client.get(f"/staff/class/{self.class_id}").get_data(as_text=True)
         self.assertIn("course-live", html)

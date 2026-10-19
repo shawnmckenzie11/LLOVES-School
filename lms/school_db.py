@@ -36492,15 +36492,17 @@ class SchoolDB(LovesDB):
 
         Returns:
             Dicts with ``student_id``, ``name``, ``status_label``
-            (``Default`` or ``Student set``), ``is_test``, ``wrong_tries``,
-            ``alert`` (many tries in 15 minutes), and ``can_show`` (a default
-            PIN is still on file, so Show and Print slip are allowed).
+            (``Default``, ``Custom`` for a teacher-set PIN, or ``Student set``),
+            ``is_test``, ``wrong_tries``, ``alert`` (many tries in 15 minutes),
+            and ``can_show`` (a default PIN is still on file, so Show and
+            Print slip are allowed).
         """
         from datetime import datetime, timedelta
 
         from participation import (
             CATCHUP_PIN_STUDENT_ALERT,
             PIN_SET_BY_DEFAULT,
+            PIN_SET_BY_TEACHER,
             PIN_WINDOW_S,
         )
 
@@ -36539,13 +36541,19 @@ class SchoolDB(LovesDB):
             sid = int(row["id"])
             by = str(row["pin_set_by"] or "").strip().lower()
             is_default = by == PIN_SET_BY_DEFAULT
+            if is_default:
+                status_label = "Default"
+            elif by == PIN_SET_BY_TEACHER:
+                status_label = "Custom"
+            else:
+                status_label = "Student set"
             can_show = is_default and bool(str(row["default_pin_ciphertext"] or "").strip())
             tries = int(counts.get(sid, 0))
             out.append(
                 {
                     "student_id": sid,
                     "name": str(row["codename"] or row["first_name"] or "").strip(),
-                    "status_label": "Default" if is_default else "Student set",
+                    "status_label": status_label,
                     "is_test": bool(int(row["is_test_student"] or 0)),
                     "wrong_tries": tries,
                     "alert": tries >= int(CATCHUP_PIN_STUDENT_ALERT),

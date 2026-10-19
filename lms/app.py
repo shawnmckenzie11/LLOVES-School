@@ -4250,6 +4250,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         live_run_key = (
             str(active_live.get("run_key") or "") if active_live is not None else ""
         )
+        # Idle Set Class keeps the course chrome. A confirmed class hides it.
+        live_on_set_class = True
+        if active_live is not None:
+            teacher_state = school.live_session_teacher_state_payload(int(active_live["id"])) or {}
+            live_on_set_class = not bool(teacher_state.get("class_set"))
         _audit(
             "student.record.view",
             "class",
@@ -4330,6 +4335,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             live_run_key=live_run_key,
             live_session_code=live_session_code,
             live_step=live_step,
+            live_on_set_class=live_on_set_class,
             school_name=SCHOOL_NAME,
             roster_pin_rows=roster_pin_rows,
             require_catchup_pin_change=require_catchup_pin_change,

@@ -252,13 +252,19 @@ body.staff-shell.staff-home a.course-action.course-action-live {
 }
 body.staff-shell.staff-home .course-attend-row {
   display: flex;
-  align-items: center;
-  gap: var(--live-shell-gap);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
   padding: 12px;
   background: var(--live-pane-bg);
   border: 1px solid var(--live-border);
   border-radius: 8px;
   text-align: left;
+}
+body.staff-shell.staff-home .course-attend-top {
+  display: flex;
+  align-items: center;
+  gap: var(--live-shell-gap);
 }
 body.staff-shell.staff-home .course-attend-icon {
   flex: 0 0 auto;
@@ -274,6 +280,8 @@ body.staff-shell.staff-home .course-attend-last {
   text-align: left;
 }
 body.staff-shell.staff-home .course-attend-label {
+  flex: 1 1 auto;
+  min-width: 0;
   font-weight: 700;
   color: #12202e;
 }
@@ -281,6 +289,8 @@ body.staff-shell.staff-home .course-attend-help,
 body.staff-shell.staff-home .course-attend-last {
   color: #334155;
   font-size: 0.88rem;
+  line-height: 1.35;
+  text-wrap: pretty;
 }
 body.staff-shell.staff-home a.course-action.course-attend-go {
   width: auto;
@@ -4711,9 +4721,9 @@ body.staff-shell.course-live .wrap.course-shell {
 body.staff-shell.course-live .wrap.course-shell {
   padding: 0.35rem 0.65rem 0.4rem;
 }
-body.staff-shell.course-live .staff-top-menu,
-body.staff-shell.course-live .topbar,
-body.staff-shell.course-live .tabs.course-tabs {
+body.staff-shell.course-live:not(:has(.live-shell-ia-v2.is-set-class)) .staff-top-menu,
+body.staff-shell.course-live:not(:has(.live-shell-ia-v2.is-set-class)) .topbar,
+body.staff-shell.course-live:not(:has(.live-shell-ia-v2.is-set-class)) .tabs.course-tabs {
   display: none !important;
 }
 body.staff-shell.course-live .track-live-root.live-shell-root {

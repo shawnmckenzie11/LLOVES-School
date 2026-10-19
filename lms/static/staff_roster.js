@@ -165,7 +165,7 @@ if (root) {
       }
       const row = btn.closest("tr");
       const status = row?.querySelector("[data-pin-status]");
-      if (status) status.textContent = "Student set";
+      if (status) status.textContent = "Custom";
       row?.querySelectorAll(".ap-roster-show, .ap-roster-print").forEach((el) => el.remove());
       const cell = row?.querySelector(".ap-roster-pin");
       if (cell) {

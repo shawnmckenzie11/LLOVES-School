@@ -242,9 +242,9 @@
     <iframe class="module-frame" title="Syllabus" src="{{ url_for('staff_syllabus', class_id=cls.id) }}"></iframe>
     {% elif tab == 'live' %}
     <div id="ap-root"
-         class="track-live-root live-shell-root live-shell-ia-v2 is-set-class"
+         class="track-live-root live-shell-root live-shell-ia-v2{% if live_on_set_class %} is-set-class{% endif %}"
          data-ia="v2"
-         data-setup="1"
+         data-setup="{{ '1' if live_on_set_class else '0' }}"
          data-class-id="{{ cls.id }}"
          data-ap-view="live"
          data-take="{{ '1' if take_attendance or not live_step else '0' }}"
