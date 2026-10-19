@@ -432,7 +432,7 @@ class RosterNameEditTests(unittest.TestCase):
             (LMS_DIR / "static" / "staff_roster_names.js").read_text(encoding="utf-8"),
         )
         self.assertIn('class="card course-card', home)
-        self.assertIn(">Explore Course<", home)
+        self.assertIn(">Open course<", home)
         self.assertIn('<details class="roster-names">', home)
         self.assertNotIn('<details class="roster-names" open', home)
 

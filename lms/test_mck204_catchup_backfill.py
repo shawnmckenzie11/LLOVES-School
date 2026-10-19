@@ -20,7 +20,6 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 from app import create_app  # noqa: E402
 from catchup_backfill import backfill_catchup_from_snapshots  # noqa: E402
 from default_pin import (  # noqa: E402
-    SLIP_TEMPLATE,
     decrypt_pin,
     generate_unique_default_pin,
     pin_conflicts_class_code,
@@ -335,8 +334,10 @@ class CatchupWithDefaultPinTests(Base):
         page = staff.get(
             f"/staff/class/{self.class_id}?tab=ap&view=roster"
         ).get_data(as_text=True)
-        self.assertIn("Default catch-up PINs", page)
-        self.assertIn(SLIP_TEMPLATE.format(pin=self.default_pin), page)
+        self.assertIn("Roster &amp; PINs", page)
+        self.assertIn("••••", page)
+        self.assertNotIn("Your catch-up PIN:", page)
+        self.assertNotIn("Default catch-up PINs", page)
 
 
 
