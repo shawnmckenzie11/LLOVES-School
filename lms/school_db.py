@@ -2046,6 +2046,7 @@ class LovesDB:
             self._ensure_live_session_schema()
             self._ensure_live_session_identity_schema()
             self._ensure_test_live_class_schema()
+            self._ensure_catchup_auto_close_schema()
             self._ensure_live_item_schema()
             self._ensure_rank_race_schema()
             self._ensure_save_to_card_columns()
@@ -3816,6 +3817,118 @@ class LovesDB:
                 ON catchup_links(class_id, live_module, live_slot, is_test)
                 """
             )
+
+    def _ensure_catchup_auto_close_schema(self) -> None:
+        """Per-class auto-close days and a stored deadline on each catch-up row.
+
+        Existing rows get a deadline from the class end plus the legacy day
+        count. Later changes to the teacher setting do not rewrite them.
+        """
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS class_catchup_settings (
+                class_id INTEGER PRIMARY KEY,
+                auto_close_days INTEGER NOT NULL DEFAULT 7,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        cols = {
+            row["name"] for row in self.conn.execute("PRAGMA table_info(catchup_links)")
+        }
+        if "open_until" not in cols:
+            self.conn.execute("ALTER TABLE catchup_links ADD COLUMN open_until TEXT")
+        self._backfill_catchup_open_until()
+
+    def _backfill_catchup_open_until(self) -> None:
+        """Fill blank catch-up deadlines once. Does not touch a stored window.
+
+        The day count is the legacy ``CATCHUP_OPEN_DAYS`` window students
+        already had, not the teacher setting saved later.
+        """
+        from catchup_landing import catchup_open_days, close_instant_iso
+
+        rows = self.conn.execute(
+            """
+            SELECT id, class_id, run_key, live_module, live_slot, created_at,
+                   COALESCE(is_test, 0) AS is_test
+            FROM catchup_links
+            WHERE open_until IS NULL OR TRIM(open_until) = ''
+            """
+        ).fetchall()
+        if not rows:
+            return
+        days = catchup_open_days()
+        for row in rows:
+            anchor = self._catchup_backfill_anchor(row)
+            until = close_instant_iso(anchor, days)
+            if not until:
+                continue
+            self.conn.execute(
+                "UPDATE catchup_links SET open_until = ? WHERE id = ? AND (open_until IS NULL OR TRIM(open_until) = '')",
+                (until, int(row["id"])),
+            )
+
+    def _catchup_backfill_anchor(self, row: Any) -> str:
+        """Best class-end time for one catch-up row that has no deadline yet.
+
+        Args:
+            row: ``catchup_links`` row with class, run, and lesson keys.
+        """
+        run = self.conn.execute(
+            """
+            SELECT ended_at FROM participation_runs
+            WHERE class_id = ? AND run_key = ?
+            """,
+            (int(row["class_id"]), str(row["run_key"] or "")),
+        ).fetchone()
+        if run is not None and str(run["ended_at"] or "").strip():
+            return str(run["ended_at"])
+        latest_cols = {
+            item["name"]
+            for item in self.conn.execute("PRAGMA table_info(lesson_slides_latest)")
+        }
+        if "ended_at" in latest_cols:
+            if "is_test" in latest_cols:
+                latest = self.conn.execute(
+                    """
+                    SELECT ended_at FROM lesson_slides_latest
+                    WHERE class_id = ? AND live_module = ? AND live_slot = ?
+                      AND COALESCE(is_test, 0) = ?
+                    """,
+                    (
+                        int(row["class_id"]),
+                        str(row["live_module"] or ""),
+                        str(row["live_slot"] or ""),
+                        int(row["is_test"] or 0),
+                    ),
+                ).fetchone()
+            else:
+                latest = self.conn.execute(
+                    """
+                    SELECT ended_at FROM lesson_slides_latest
+                    WHERE class_id = ? AND live_module = ? AND live_slot = ?
+                    """,
+                    (
+                        int(row["class_id"]),
+                        str(row["live_module"] or ""),
+                        str(row["live_slot"] or ""),
+                    ),
+                ).fetchone()
+            if latest is not None and str(latest["ended_at"] or "").strip():
+                return str(latest["ended_at"])
+        session = self.conn.execute(
+            """
+            SELECT ended_at FROM live_class_sessions
+            WHERE class_id = ? AND run_key = ?
+              AND ended_at IS NOT NULL AND TRIM(ended_at) != ''
+            ORDER BY id DESC LIMIT 1
+            """,
+            (int(row["class_id"]), str(row["run_key"] or "")),
+        ).fetchone()
+        if session is not None and str(session["ended_at"] or "").strip():
+            return str(session["ended_at"])
+        return str(row["created_at"] or "")
 
     def _ensure_deck_seed_is_test_columns(self) -> None:
         """Remember when a deck seed was written by a test live class."""
@@ -33648,6 +33761,8 @@ class SchoolDB(LovesDB):
                 live_session_id=sid,
                 require_items=False,
                 join_code=session_code,
+                ended_at=ended_at,
+                refresh_window=True,
             )
             self._upsert_lesson_slides_latest_unlocked(
                 sid,
@@ -33684,6 +33799,8 @@ class SchoolDB(LovesDB):
                 now=now,
                 live_session_id=sid,
                 join_code=session_code,
+                ended_at=ended_at,
+                refresh_window=True,
             )
             self._upsert_lesson_slides_latest_unlocked(
                 sid,
@@ -34282,6 +34399,8 @@ class SchoolDB(LovesDB):
         live_session_id: int | None = None,
         require_items: bool = True,
         join_code: str | None = None,
+        ended_at: str | None = None,
+        refresh_window: bool = False,
     ) -> None:
         """One catch-up row per lesson slot and run kind.
 
@@ -34292,6 +34411,11 @@ class SchoolDB(LovesDB):
         stored and replaces the code already on this slot. Callers that
         omit it keep a code that is already stored.
 
+        A new row stores ``open_until`` from the class end plus the current
+        auto-close setting. ``refresh_window`` rewrites that deadline when
+        End runs again. Other updates keep the deadline already stored, so
+        changing the setting does not move classes that already ended.
+
         Args:
             is_test: True for a rehearsal run (MCK-269).
             live_session_id: ``live_class_sessions.id`` that owns the row.
@@ -34299,7 +34423,13 @@ class SchoolDB(LovesDB):
                 gets a code when nothing was published.
             join_code: Live session join code to store. Empty keeps the
                 previous mint-if-missing behaviour.
+            ended_at: When the live class ended. The window is counted
+                from this instant. Falls back to ``now``.
+            refresh_window: When True, replace ``open_until`` on an
+                existing row. End Class passes True. A settings change
+                does not call this.
         """
+        from catchup_landing import close_instant_iso
         from participation import new_token
 
         try:
@@ -34332,17 +34462,30 @@ class SchoolDB(LovesDB):
             if not portal_code:
                 portal_code = self._mint_unique_portal_join_code(cid, mod, sl)
             replace_code = 0
+        open_until = close_instant_iso(
+            str(ended_at or now),
+            self._catchup_auto_close_days_unlocked(cid),
+        )
+        refresh = 1 if refresh_window else 0
         self.conn.execute(
             """
             INSERT INTO catchup_links (
                 token, class_id, run_key, live_module, live_slot, is_open,
-                portal_join_code, created_at, updated_at, is_test, live_session_id
-            ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+                portal_join_code, created_at, updated_at, is_test, live_session_id,
+                open_until
+            ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(class_id, live_module, live_slot, is_test) DO UPDATE SET
                 run_key = excluded.run_key,
                 is_open = 1,
                 updated_at = excluded.updated_at,
                 live_session_id = excluded.live_session_id,
+                open_until = CASE
+                    WHEN ? = 1 THEN excluded.open_until
+                    ELSE COALESCE(
+                        NULLIF(TRIM(catchup_links.open_until), ''),
+                        excluded.open_until
+                    )
+                END,
                 portal_join_code = CASE
                     WHEN ? = 1 THEN excluded.portal_join_code
                     ELSE COALESCE(
@@ -34362,6 +34505,8 @@ class SchoolDB(LovesDB):
                 now,
                 flag,
                 int(live_session_id) if live_session_id else None,
+                open_until,
+                refresh,
                 replace_code,
             ),
         )
@@ -35885,7 +36030,7 @@ class SchoolDB(LovesDB):
             rows = self.conn.execute(
                 """
                 SELECT c.class_id, c.token, c.run_key, c.live_module, c.live_slot, c.is_open,
-                       c.created_at, c.portal_join_code,
+                       c.created_at, c.portal_join_code, c.open_until,
                        COALESCE(r.discarded, 0) AS discarded,
                        COALESCE(r.is_real, 0) AS is_real,
                        r.run_key AS participation_run_key
@@ -35982,14 +36127,186 @@ class SchoolDB(LovesDB):
         return dict(row) if row is not None else None
 
     def set_catchup_link_open(self, class_id: int, token: str, is_open: bool) -> bool:
+        """Open or close one catch-up row. Does not delete student answers.
+
+        Closing only sets ``is_open`` to 0. Reopening a row that is closed
+        or past its deadline writes a fresh ``open_until`` from now plus
+        the class's current auto-close setting. The token is not logged.
+
+        Args:
+            class_id: Game-show ``classes.id``. The update is limited to
+                this class so a token from another class is a no-op.
+            token: Catch-up token. Callers that have a lesson slot should
+                use ``set_lesson_slides_catchup_open`` so the token stays
+                on the server.
+            is_open: True to open, False to close.
+        """
+        from catchup_landing import close_from_now, link_still_open
+
+        secret = str(token or "")[:80]
+        cid = int(class_id)
         with self._lock:
-            cur = self.conn.execute(
-                "UPDATE catchup_links SET is_open = ?, updated_at = ? WHERE class_id = ? AND token = ?",
-                (1 if is_open else 0, _now(), int(class_id), str(token)),
-            )
+            row = self.conn.execute(
+                "SELECT * FROM catchup_links WHERE class_id = ? AND token = ?",
+                (cid, secret),
+            ).fetchone()
+            if row is None:
+                return False
+            link = dict(row)
+            refresh = bool(is_open) and not link_still_open(self, link)
+            if refresh:
+                until = close_from_now(self._catchup_auto_close_days_unlocked(cid))
+                cur = self.conn.execute(
+                    """
+                    UPDATE catchup_links
+                    SET is_open = 1, open_until = ?, updated_at = ?
+                    WHERE class_id = ? AND token = ?
+                    """,
+                    (until, _now(), cid, secret),
+                )
+            else:
+                cur = self.conn.execute(
+                    """
+                    UPDATE catchup_links
+                    SET is_open = ?, updated_at = ?
+                    WHERE class_id = ? AND token = ?
+                    """,
+                    (1 if is_open else 0, _now(), cid, secret),
+                )
             if self.conn.in_transaction:
                 self.conn.commit()
         return cur.rowcount == 1
+
+    def _catchup_auto_close_days_unlocked(self, class_id: int) -> int:
+        """Current auto-close day count. Caller holds ``self._lock``.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        from catchup_landing import (
+            CATCHUP_AUTO_CLOSE_DAYS_DEFAULT,
+            CATCHUP_AUTO_CLOSE_DAYS_MAX,
+            CATCHUP_AUTO_CLOSE_DAYS_MIN,
+        )
+
+        row = self.conn.execute(
+            "SELECT auto_close_days FROM class_catchup_settings WHERE class_id = ?",
+            (int(class_id),),
+        ).fetchone()
+        if row is None:
+            return CATCHUP_AUTO_CLOSE_DAYS_DEFAULT
+        try:
+            days = int(row["auto_close_days"])
+        except (TypeError, ValueError):
+            return CATCHUP_AUTO_CLOSE_DAYS_DEFAULT
+        if days < CATCHUP_AUTO_CLOSE_DAYS_MIN or days > CATCHUP_AUTO_CLOSE_DAYS_MAX:
+            return CATCHUP_AUTO_CLOSE_DAYS_DEFAULT
+        return days
+
+    def catchup_auto_close_days(self, class_id: int) -> int:
+        """Days after class end before catch-up closes. Default 7.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        with self._lock:
+            return self._catchup_auto_close_days_unlocked(int(class_id))
+
+    def set_catchup_auto_close_days(self, class_id: int, days: int) -> int:
+        """Save the auto-close window for classes that end later.
+
+        Existing catch-up rows keep ``open_until``. This method does not
+        update them and does not delete answers.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            days: Whole days from 1 through 90.
+
+        Returns:
+            The stored day count.
+
+        Raises:
+            ValueError: ``days`` is not a whole number in range.
+        """
+        from catchup_landing import parse_auto_close_days
+
+        parsed = parse_auto_close_days(days)
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO class_catchup_settings (class_id, auto_close_days, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(class_id) DO UPDATE SET
+                    auto_close_days = excluded.auto_close_days,
+                    updated_at = excluded.updated_at
+                """,
+                (int(class_id), parsed, _now()),
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+        return parsed
+
+    def set_lesson_slides_catchup_open(
+        self,
+        class_id: int,
+        *,
+        module: str,
+        slot: str,
+        is_open: bool,
+        is_test: bool = False,
+    ) -> dict[str, Any] | None:
+        """Close or reopen catch-up for one Lesson Slides row.
+
+        Looks up the row on the server and calls ``set_catchup_link_open``.
+        The return value has no token, join code, or PIN. Quit rows and
+        classes that never ended have no link and return ``None``.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Live module such as ``M1``.
+            slot: Live slot such as ``C1``.
+            is_open: True to reopen, False to close.
+            is_test: True for a test-class row.
+
+        Returns:
+            ``catchup_access``, ``catchup_label``, and
+            ``catchup_can_toggle``, or ``None`` when no link matches.
+        """
+        from catchup_landing import catchup_access_view
+
+        mod = str(module or "").strip().upper()
+        sl = str(slot or "").strip().upper()
+        if not mod or not sl:
+            raise ValueError("Missing class.")
+        flag = 1 if is_test else 0
+        cid = int(class_id)
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT token FROM catchup_links
+                WHERE class_id = ? AND UPPER(live_module) = ? AND UPPER(live_slot) = ?
+                  AND COALESCE(is_test, 0) = ?
+                LIMIT 1
+                """,
+                (cid, mod, sl, flag),
+            ).fetchone()
+        if row is None:
+            return None
+        if not self.set_catchup_link_open(cid, str(row["token"]), bool(is_open)):
+            return None
+        with self._lock:
+            fresh = self.conn.execute(
+                """
+                SELECT * FROM catchup_links
+                WHERE class_id = ? AND UPPER(live_module) = ? AND UPPER(live_slot) = ?
+                  AND COALESCE(is_test, 0) = ?
+                LIMIT 1
+                """,
+                (cid, mod, sl, flag),
+            ).fetchone()
+        if fresh is None:
+            return None
+        return catchup_access_view(self, dict(fresh))
 
 
 
@@ -37467,9 +37784,17 @@ class SchoolDB(LovesDB):
     def submit_catchup_answer(
         self, token: str, student_id: int, question_key: str, answer: Any
     ) -> bool:
-        """Store one catch-up answer with ``source='catchup'``. Team points untouched."""
+        """Store one catch-up answer with ``source='catchup'``. Team points untouched.
+
+        A past ``open_until`` is closed even when ``is_open`` is still 1.
+        The token is not logged, and a refusal writes no answer row.
+        """
+        from catchup_landing import link_still_open
+
         link = self.get_catchup_link(token)
-        if link is None or not int(link["is_open"]):
+        if link is None or not link_still_open(
+            self, {**link, "class_id": int(link["class_id"])}
+        ):
             raise PermissionError("closed")
         allowed = {
             q["question_key"] for q in self.catchup_questions(token, student_id) if not q["answered"]

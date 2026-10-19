@@ -48,12 +48,50 @@ COPY_OFFLINE = "No connection. Retry."
 PAGE_SIZE = 6
 
 
+CATCHUP_AUTO_CLOSE_DAYS_DEFAULT = 7
+CATCHUP_AUTO_CLOSE_DAYS_MIN = 1
+CATCHUP_AUTO_CLOSE_DAYS_MAX = 90
+
+
 def catchup_open_days() -> int:
-    """Days after class end that catch-up stays open (configurable)."""
+    """Days after class end that catch-up stays open (configurable).
+
+    This is the legacy window for rows that have no stored deadline.
+    The Lesson Slides setting (MCK-289) snapshots a deadline onto each
+    new class and does not read this value.
+    """
     try:
-        return max(1, int(os.getenv("CATCHUP_OPEN_DAYS") or "7"))
+        return max(1, int(os.getenv("CATCHUP_OPEN_DAYS") or str(CATCHUP_AUTO_CLOSE_DAYS_DEFAULT)))
     except ValueError:
-        return 7
+        return CATCHUP_AUTO_CLOSE_DAYS_DEFAULT
+
+
+def parse_auto_close_days(value: Any) -> int:
+    """Return a whole-day auto-close window, or raise ``ValueError``.
+
+    Args:
+        value: Teacher input. Booleans are rejected. Numeric strings are
+            accepted so a form field can post ``\"7\"``.
+
+    Returns:
+        An integer from 1 through 90.
+    """
+    if isinstance(value, bool):
+        raise ValueError("Enter a whole number of days.")
+    if isinstance(value, str):
+        text = value.strip()
+        if not text.isdigit():
+            raise ValueError("Enter a whole number of days.")
+        value = int(text)
+    if isinstance(value, float) and not value.is_integer():
+        raise ValueError("Enter a whole number of days.")
+    try:
+        days = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Enter a whole number of days.") from exc
+    if days < CATCHUP_AUTO_CLOSE_DAYS_MIN or days > CATCHUP_AUTO_CLOSE_DAYS_MAX:
+        raise ValueError("Enter a number from 1 to 90.")
+    return days
 
 
 def enforce_open_until() -> bool:
@@ -84,20 +122,78 @@ def landing_copy() -> dict[str, str]:
     }
 
 
-def format_class_date(iso: str) -> str:
-    """Format an ISO timestamp as ``Wed Oct 14`` in Toronto."""
+def parse_class_instant(iso: str) -> datetime | None:
+    """Parse a class timestamp as an aware Toronto instant.
+
+    Naive values are Toronto wall time, matching the existing catch-up
+    window. Offsets and ``Z`` are converted into Toronto.
+
+    Args:
+        iso: Stored timestamp.
+
+    Returns:
+        An aware datetime, or ``None`` when the text is empty or invalid.
+    """
     text = str(iso or "").strip()
     if not text:
-        return ""
+        return None
     try:
         dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
-        return ""
+        return None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=TORONTO)
-    else:
-        dt = dt.astimezone(TORONTO)
+        return dt.replace(tzinfo=TORONTO)
+    return dt.astimezone(TORONTO)
+
+
+def format_class_date(iso: str) -> str:
+    """Format an ISO timestamp as ``Wed Oct 14`` in Toronto."""
+    dt = parse_class_instant(iso)
+    if dt is None:
+        return ""
     return dt.strftime("%a %b %-d")
+
+
+def format_month_day(iso: str) -> str:
+    """Format an ISO timestamp as ``Oct 26`` in Toronto.
+
+    Args:
+        iso: Stored timestamp.
+    """
+    dt = parse_class_instant(iso)
+    if dt is None:
+        return ""
+    return dt.strftime("%b %-d")
+
+
+def close_instant_iso(anchor_iso: str, days: int) -> str:
+    """Deadline counted from a class end, as an aware Toronto ISO string.
+
+    Args:
+        anchor_iso: When the live class ended.
+        days: Whole days the window stays open. Values below 1 become 1.
+    """
+    dt = parse_class_instant(anchor_iso)
+    if dt is None:
+        return ""
+    close = (dt + timedelta(days=max(1, int(days)))).replace(microsecond=0)
+    return close.isoformat(timespec="seconds")
+
+
+def close_from_now(days: int, *, now: datetime | None = None) -> str:
+    """Deadline counted from this moment, for a manual reopen.
+
+    Args:
+        days: Whole days the new window stays open.
+        now: Clock override for tests. Naive values are Toronto.
+    """
+    current = now or datetime.now(tz=TORONTO)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=TORONTO)
+    else:
+        current = current.astimezone(TORONTO)
+    close = (current.replace(microsecond=0) + timedelta(days=max(1, int(days))))
+    return close.isoformat(timespec="seconds")
 
 
 def class_row_label(
@@ -114,43 +210,112 @@ def class_row_label(
 
 
 def open_until_date(ended_at: str) -> str:
-    """Last open day formatted for display."""
-    text = str(ended_at or "").strip()
-    if not text:
-        return ""
-    try:
-        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return ""
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=TORONTO)
-    else:
-        dt = dt.astimezone(TORONTO)
-    close = dt + timedelta(days=catchup_open_days())
-    return close.strftime("%a %b %-d")
+    """Last open day formatted for display from a class end plus the legacy window."""
+    close = close_instant_iso(ended_at, catchup_open_days())
+    return format_class_date(close)
 
 
-def link_still_open(school: Any, link: dict[str, Any]) -> bool:
-    """True when the link is open and still inside the open-until window."""
+def deadline_label(link: dict[str, Any], ended_at: str) -> str:
+    """Weekday date students see for one catch-up deadline.
+
+    A stored ``open_until`` wins. Rows from before MCK-289 fall back to
+    the class end plus the legacy day count.
+
+    Args:
+        link: Catch-up row. May omit ``open_until``.
+        ended_at: Class end timestamp used only for the legacy fallback.
+    """
+    stored = str(link.get("open_until") or "").strip()
+    if stored:
+        labeled = format_class_date(stored)
+        if labeled:
+            return labeled
+    return open_until_date(ended_at)
+
+
+def link_still_open(
+    school: Any, link: dict[str, Any], *, now: datetime | None = None
+) -> bool:
+    """True when the link is open and still inside the open-until window.
+
+    A stored ``open_until`` is the window. Reopening writes a new one, so
+    moving the class end later does not stretch a closed window, and a
+    manual reopen is not cut short by the original end. Rows with no
+    stored deadline still use the class end plus ``catchup_open_days``.
+
+    Args:
+        school: ``SchoolDB`` instance. Used only for the legacy fallback.
+        link: Catch-up row. ``is_open`` of 0 is always closed.
+        now: Clock override for tests. Naive values are Toronto.
+    """
     if not int(link.get("is_open") or 0):
         return False
     if not enforce_open_until():
         return True
+    current = now or datetime.now(tz=TORONTO)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=TORONTO)
+    else:
+        current = current.astimezone(TORONTO)
+    stored = str(link.get("open_until") or "").strip()
+    if stored:
+        close = parse_class_instant(stored)
+        if close is None:
+            return True
+        return current <= close
     ended = school.ended_at_for_participation_run(
         int(link["class_id"]), str(link.get("run_key") or "")
     )
     if not ended:
         return True
-    try:
-        dt = datetime.fromisoformat(ended.replace("Z", "+00:00"))
-    except ValueError:
+    close = parse_class_instant(close_instant_iso(ended, catchup_open_days()))
+    if close is None:
         return True
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=TORONTO)
-    else:
-        dt = dt.astimezone(TORONTO)
-    close = dt + timedelta(days=catchup_open_days())
-    return datetime.now(tz=TORONTO) <= close
+    return current <= close
+
+
+def catchup_access_view(
+    school: Any, link: dict[str, Any] | None, *, now: datetime | None = None
+) -> dict[str, Any]:
+    """Teacher column for one catch-up row. No codes, tokens, or URLs.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        link: Catch-up row, or ``None`` when this class has no catch-up
+            (never ended, or Quit).
+        now: Clock override for tests.
+
+    Returns:
+        ``catchup_access`` of ``open``, ``closed``, or ``none``, plus a
+        display label and whether a Close or Reopen button is allowed.
+    """
+    if not link:
+        return {
+            "catchup_access": "none",
+            "catchup_label": "none",
+            "catchup_can_toggle": False,
+        }
+    if link_still_open(school, link, now=now):
+        until = str(link.get("open_until") or "").strip()
+        day = format_month_day(until)
+        if not day:
+            ended = school.ended_at_for_participation_run(
+                int(link["class_id"]), str(link.get("run_key") or "")
+            )
+            long = open_until_date(ended)
+            parts = long.split()
+            day = " ".join(parts[1:]) if len(parts) >= 2 else ""
+        label = f"Open until {day}" if day else "Open"
+        return {
+            "catchup_access": "open",
+            "catchup_label": label,
+            "catchup_can_toggle": True,
+        }
+    return {
+        "catchup_access": "closed",
+        "catchup_label": "Closed",
+        "catchup_can_toggle": True,
+    }
 
 
 def landing_display_name(school: Any, class_id: int, student_id: int) -> str:
@@ -240,7 +405,7 @@ def list_open_catchup_rows(
                 "url": catchup_url_with_play(
                     school.catchup_canonical_path_for_link({**link, "class_id": cid})
                 ),
-                "open_until": open_until_date(ended),
+                "open_until": deadline_label(link, ended),
             }
         )
     return rows, total
@@ -263,7 +428,7 @@ def build_matched_card(
         ),
         "title": "",
         "tiers": tier_cells_for_link(school, link, int(student_id)),
-        "open_until_line": COPY_OPEN_UNTIL.format(date=open_until_date(ended)),
+        "open_until_line": COPY_OPEN_UNTIL.format(date=deadline_label(link, ended)),
         "url": catchup_url_with_play(
             school.catchup_canonical_path_for_link({**link, "class_id": cid})
         ),

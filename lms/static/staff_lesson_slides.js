@@ -298,6 +298,7 @@ function paintTable() {
     ran.textContent = row.has_run ? formatRunTime(row.last_run_at) : "Not run yet";
     tr.appendChild(ran);
     const code = document.createElement("td");
+    code.className = "ls-join-code";
     code.textContent = row.has_run ? String(row.join_code || "—") : "—";
     tr.appendChild(code);
     const summary = document.createElement("td");
@@ -320,22 +321,7 @@ function paintTable() {
       deck.textContent = "—";
     }
     tr.appendChild(deck);
-    const catchup = document.createElement("td");
-    if (row.catchup_enabled && row.catchup_url) {
-      const link = document.createElement("a");
-      link.href = String(row.catchup_url);
-      link.className = "btn secondary";
-      link.textContent = "Catch-up";
-      catchup.appendChild(link);
-    } else {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "btn secondary";
-      btn.disabled = true;
-      btn.textContent = "Catch-up";
-      catchup.appendChild(btn);
-    }
-    tr.appendChild(catchup);
+    tr.appendChild(catchupCell(row));
     body.appendChild(tr);
     details.addEventListener("toggle", () => {
       const next = tr.nextElementSibling;
@@ -349,6 +335,145 @@ function paintTable() {
         next.remove();
       }
     });
+  }
+}
+
+/**
+ * Catch-up status and Close or Reopen for one live class.
+ * A Quit row and a class that never ended show "none" and no button.
+ * The request names the lesson slot. It does not send a join code or token.
+ * @param {Record<string, unknown>} row
+ * @returns {HTMLTableCellElement}
+ */
+function catchupCell(row) {
+  const td = document.createElement("td");
+  td.className = "ls-catchup-cell";
+  const access = String(row.catchup_access || "none");
+  td.dataset.catchupAccess = access;
+  const label = document.createElement("span");
+  label.className = "ls-catchup-label";
+  label.textContent = String(row.catchup_label || "none");
+  td.appendChild(label);
+  if (access !== "open" && access !== "closed") {
+    return td;
+  }
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "btn secondary ls-catchup-toggle";
+  const opening = access !== "open";
+  button.textContent = opening ? "Reopen" : "Close";
+  const lesson = String(row.label || `${row.module || ""}${row.slot || ""}`);
+  button.setAttribute(
+    "aria-label",
+    opening ? `Reopen catch-up for ${lesson}` : `Close catch-up for ${lesson}`,
+  );
+  button.addEventListener("click", () => {
+    toggleCatchup(row, button).catch(() => {});
+  });
+  td.appendChild(button);
+  return td;
+}
+
+/**
+ * Ask the server to close or reopen one row, then repaint from its reply.
+ * @param {Record<string, unknown>} row
+ * @param {HTMLButtonElement} button
+ * @returns {Promise<void>}
+ */
+async function toggleCatchup(row, button) {
+  const status = document.getElementById("ls-table-status");
+  button.disabled = true;
+  try {
+    const res = await fetch(`/api/classes/${classId}/lesson-slides/catchup-access`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        module: row.module,
+        slot: row.slot,
+        is_test: Boolean(row.is_test),
+        open: row.catchup_access !== "open",
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.catchup_access) {
+      if (status) {
+        status.hidden = false;
+        status.textContent = res.status === 403
+          ? "You can't change catch-up for this class."
+          : "Could not update catch-up.";
+      }
+      return;
+    }
+    row.catchup_access = data.catchup_access;
+    row.catchup_label = data.catchup_label;
+    row.catchup_can_toggle = true;
+    if (status) status.hidden = true;
+    paintTable();
+  } catch {
+    if (status) {
+      status.hidden = false;
+      status.textContent = "Could not update catch-up.";
+    }
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/**
+ * Paint the auto-close day count from the table payload.
+ * @param {number} days
+ * @returns {void}
+ */
+function paintAutoCloseDays(days) {
+  const input = document.getElementById("ls-catchup-days");
+  if (!(input instanceof HTMLInputElement)) return;
+  const value = Number(days);
+  if (Number.isInteger(value) && value >= 1 && value <= 90) {
+    input.value = String(value);
+  }
+}
+
+/**
+ * Save the auto-close setting. Existing classes keep their window.
+ * @param {HTMLInputElement} input
+ * @returns {Promise<void>}
+ */
+async function saveAutoCloseDays(input) {
+  const status = document.getElementById("ls-catchup-days-status");
+  const days = Number(input.value);
+  if (!Number.isInteger(days) || days < 1 || days > 90) {
+    if (status) {
+      status.hidden = false;
+      status.textContent = "Enter a number from 1 to 90.";
+    }
+    return;
+  }
+  try {
+    const res = await fetch(`/api/classes/${classId}/lesson-slides/catchup-auto-close`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ days }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (status) {
+        status.hidden = false;
+        status.textContent = String(data.error || "Could not save.");
+      }
+      return;
+    }
+    input.value = String(data.days);
+    if (status) {
+      status.hidden = false;
+      status.textContent = "Saved. Classes that already ended keep their window.";
+    }
+  } catch {
+    if (status) {
+      status.hidden = false;
+      status.textContent = "Could not save.";
+    }
   }
 }
 
@@ -374,6 +499,7 @@ async function loadTable() {
       return;
     }
     tableRows = Array.isArray(data.rows) ? data.rows : [];
+    paintAutoCloseDays(data.catchup_auto_close_days);
     if (status) status.hidden = true;
     paintTable();
   } catch {
@@ -402,7 +528,25 @@ function bindFilters() {
   }
 }
 
+/**
+ * Save the day count when the teacher leaves the field or presses Enter.
+ * @returns {void}
+ */
+function bindAutoCloseDays() {
+  const input = document.getElementById("ls-catchup-days");
+  const form = document.getElementById("ls-catchup-setting");
+  if (!(input instanceof HTMLInputElement)) return;
+  input.addEventListener("change", () => {
+    saveAutoCloseDays(input).catch(() => {});
+  });
+  form?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveAutoCloseDays(input).catch(() => {});
+  });
+}
+
 if (root && classId) {
   bindFilters();
+  bindAutoCloseDays();
   loadTable().catch(() => {});
 }

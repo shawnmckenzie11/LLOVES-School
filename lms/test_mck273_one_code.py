@@ -362,6 +362,14 @@ class OneCodeTests(Base):
             """,
             ("2020-01-15T15:00:00", self.class_id, run_key),
         )
+        self.school.conn.execute(
+            """
+            UPDATE catchup_links
+            SET open_until = ?
+            WHERE class_id = ? AND run_key = ?
+            """,
+            ("2020-01-22T15:00:00-05:00", self.class_id, run_key),
+        )
         self.school.conn.commit()
         expired = dict(
             self.school.conn.execute(
@@ -454,6 +462,14 @@ class OneCodeTests(Base):
             """,
             ("2020-01-15T15:00:00", self.class_id, run_key),
         )
+        self.school.conn.execute(
+            """
+            UPDATE catchup_links
+            SET open_until = ?
+            WHERE class_id = ? AND run_key = ?
+            """,
+            ("2020-01-22T15:00:00-05:00", self.class_id, run_key),
+        )
         self.school.conn.commit()
         expired = dict(
             self.school.conn.execute(
@@ -472,6 +488,14 @@ class OneCodeTests(Base):
             WHERE class_id = ? AND run_key = ?
             """,
             ("2026-10-14T13:20:00", self.class_id, run_key),
+        )
+        self.school.conn.execute(
+            """
+            UPDATE catchup_links
+            SET open_until = NULL
+            WHERE class_id = ? AND run_key = ?
+            """,
+            (self.class_id, run_key),
         )
         self.school.conn.commit()
         reopened = dict(
@@ -561,6 +585,14 @@ class OneCodeTests(Base):
                 WHERE class_id = ? AND run_key = ?
                 """,
                 ("2020-01-15T15:00:00", self.class_id, run_key),
+            )
+            self.school.conn.execute(
+                """
+                UPDATE catchup_links
+                SET open_until = ?
+                WHERE class_id = ? AND run_key = ?
+                """,
+                ("2020-01-22T15:00:00-05:00", self.class_id, run_key),
             )
         elif close == "closed":
             self.school.conn.execute(

@@ -6586,7 +6586,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             list_open_catchup_rows,
             peek_landing_session,
             signed_in_line,
-            open_until_date,
+            deadline_label,
         )
         from catchup_session import (
             codename_for_student,
@@ -6715,10 +6715,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             page_size=PAGE_SIZE,
             closed=closed,
             closed_detail=copy["closed_detail"].format(
-                date=open_until_date(
+                date=deadline_label(
+                    link,
                     school.ended_at_for_participation_run(
                         class_id, str(link.get("run_key") or "")
                     )
+                    if link
+                    else "",
                 )
                 if link
                 else ""
@@ -10088,6 +10091,76 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         response.headers["Cache-Control"] = "no-store"
         return response
 
+    @app.route(
+        "/api/classes/<int:class_id>/lesson-slides/catchup-access",
+        methods=["POST"],
+    )
+    @login_required
+    def api_lesson_slides_catchup_access(class_id: int):
+        """Close or reopen catch-up for one Lesson Slides row.
+
+        Body is ``{module, slot, open, is_test?}``. The catch-up token is
+        resolved on the server and passed to ``set_catchup_link_open``
+        (MCK-198). The response has no token, join code, or PIN. Only the
+        teacher who owns the class, or school IT in the same tenant, may
+        call it. Closing does not delete student answers.
+        """
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        user = current_user()
+        if user is None or not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden."}), 403
+        body = request.get_json(silent=True) or {}
+        is_open = body.get("open")
+        is_test = body.get("is_test", False)
+        if not isinstance(is_open, bool) or not isinstance(is_test, bool):
+            return jsonify({"ok": False, "error": "Missing open."}), 400
+        try:
+            result = school.set_lesson_slides_catchup_open(
+                class_id,
+                module=str(body.get("module") or ""),
+                slot=str(body.get("slot") or ""),
+                is_open=is_open,
+                is_test=is_test,
+            )
+        except ValueError:
+            return jsonify({"ok": False, "error": "Missing class."}), 400
+        if result is None:
+            return jsonify({"ok": False, "error": "Not found."}), 404
+        response = jsonify({"ok": True, **result})
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.route(
+        "/api/classes/<int:class_id>/lesson-slides/catchup-auto-close",
+        methods=["POST"],
+    )
+    @login_required
+    def api_lesson_slides_catchup_auto_close(class_id: int):
+        """Save how many days after class end catch-up stays open.
+
+        Applies to classes that end later. Existing rows keep their
+        deadline. Only the owning teacher, or school IT in the same
+        tenant, may change it.
+        """
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        user = current_user()
+        if user is None or not school.teacher_owns_class(int(user["id"]), class_id):
+            return jsonify({"ok": False, "error": "Forbidden."}), 403
+        body = request.get_json(silent=True) or {}
+        if "days" not in body:
+            return jsonify({"ok": False, "error": "Enter a whole number of days."}), 400
+        try:
+            days = school.set_catchup_auto_close_days(class_id, body.get("days"))
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        response = jsonify({"ok": True, "days": days})
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
     @app.route("/api/classes/<int:class_id>/catchup-links/<token>", methods=["POST"])
     @login_required
     def api_catchup_link_toggle(class_id: int, token: str):
@@ -10456,7 +10529,12 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 "student/catchup.html", closed=COPY_CLOSED, **page_ctx
             ), 403
 
-        if not int(link["is_open"]):
+        from catchup_landing import link_still_open
+
+        # is_open alone stays 1 after the deadline. The stored open_until
+        # is what closes the direct URL and every POST on this page,
+        # including answer submit.
+        if not link_still_open(school, {**link, "class_id": class_id}):
             return closed()
         student_id = identity_for_class(session, school, class_id)
         action = request.form.get("action") if request.method == "POST" else None

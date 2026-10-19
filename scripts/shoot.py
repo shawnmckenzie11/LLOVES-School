@@ -3553,6 +3553,112 @@ def shoot_mck281(base: str, state_path: Path, out_dir: Path, path: Path) -> list
     return written
 
 
+def prepare_mck289(path: Path) -> int:
+    """Show one open catch-up, one closed, and unrun rows as none.
+
+    Updates rows by lesson slot. Does not read or print join codes.
+
+    Args:
+        path: LMS sqlite path.
+
+    Returns:
+        Shawn's class id.
+    """
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    class_id = shawn_class_id(path)
+    future = (
+        datetime.now(tz=ZoneInfo("America/Toronto")).replace(microsecond=0)
+        + timedelta(days=7)
+    ).isoformat(timespec="seconds")
+    con = sqlite3.connect(path)
+    try:
+        con.execute(
+            """
+            UPDATE catchup_links
+            SET is_open = 1, open_until = ?
+            WHERE class_id = ? AND live_module = 'M1' AND live_slot = 'C1'
+              AND COALESCE(is_test, 0) = 0
+            """,
+            (future, class_id),
+        )
+        con.execute(
+            """
+            UPDATE catchup_links
+            SET is_open = 0
+            WHERE class_id = ? AND live_module = 'M1' AND live_slot = 'C2'
+              AND COALESCE(is_test, 0) = 0
+            """,
+            (class_id,),
+        )
+        con.commit()
+    finally:
+        con.close()
+    return class_id
+
+
+def shoot_mck289(base: str, state_path: Path, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
+    """Screenshot the Lesson Slides catch-up column. Join codes are masked first.
+
+    Args:
+        base: Loopback origin.
+        state_path: Shawn's storageState.
+        out_dir: Artifact directory.
+        path: LMS sqlite path.
+        widths: Viewport widths.
+
+    Returns:
+        PNG paths.
+    """
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    class_id = prepare_mck289(path)
+    url = assert_loopback(f"{origin}/staff/class/{class_id}?tab=lesson-slides")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        for width in widths:
+            context = browser.new_context(
+                storage_state=str(state_path),
+                viewport={"width": int(width), "height": 900},
+            )
+            page = context.new_page()
+            page.goto(url, wait_until="domcontentloaded")
+            page.locator("#ls-catchup-days").wait_for(state="visible", timeout=30000)
+            page.locator(".ls-catchup-label").first.wait_for(state="visible", timeout=30000)
+            labels = page.locator(".ls-catchup-label").all_inner_texts()
+            if not any(text.startswith("Open until ") for text in labels):
+                raise SystemExit("Catch-up column is missing an open row")
+            if "Closed" not in labels:
+                raise SystemExit("Catch-up column is missing a closed row")
+            if "none" not in labels:
+                raise SystemExit("Catch-up column is missing a none row")
+            card = page.locator(".lesson-slides-table-card")
+            if int(width) < 800:
+                card.locator(".table-wrap").evaluate(
+                    "el => { el.scrollLeft = el.scrollWidth; }"
+                )
+            # Accessible names are "Close catch-up for …", so match the label text.
+            card.locator(".ls-catchup-toggle", has_text="Close").first.wait_for(
+                state="visible", timeout=15000
+            )
+            card.locator(".ls-catchup-toggle", has_text="Reopen").first.wait_for(
+                state="visible", timeout=15000
+            )
+            page.locator(".ls-join-code").evaluate_all(
+                "nodes => nodes.forEach((node) => { node.textContent = '\\u2014'; })"
+            )
+            dest = out_dir / f"mck289-lesson-slides-catchup-{width}.png"
+            page.locator(".lesson-slides-table-card").screenshot(path=str(dest))
+            written.append(dest)
+            context.close()
+        browser.close()
+    return written
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry: seed, log in once, then shoot URLs or the catch-up scenario."""
     parser = argparse.ArgumentParser(description="Headless local LMS screenshots.")
@@ -3589,6 +3695,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck275",
             "mck249",
             "mck281",
+            "mck289",
         ),
         default="",
         help=(
@@ -3598,7 +3705,7 @@ def main(argv: list[str] | None = None) -> int:
             "MCK-220/230/215/222/219 scenarios, MCK-217 Student view Questions, "
             "MCK-242 Team Draw, MCK-272 whiteboard, MCK-273 one join code, "
             "MCK-275 End Class and Quit, MCK-249 teacher course tabs, "
-            "or MCK-281 Take turns rank."
+            "MCK-281 Take turns rank, or MCK-289 catch-up column."
         ),
     )
     args = parser.parse_args(argv)
@@ -3673,6 +3780,9 @@ def main(argv: list[str] | None = None) -> int:
             written.extend(shoot_mck249(args.base, state, out, path, widths))
         if args.scenario == "mck281":
             written.extend(shoot_mck281(args.base, state, out, path))
+        if args.scenario == "mck289":
+            widths = [int(part) for part in args.widths.split(",") if part.strip()]
+            written.extend(shoot_mck289(args.base, state, out, path, widths))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(
@@ -3690,7 +3800,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
                 "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
-                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281."
+                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289."
             )
         for item in written:
             print(item)
