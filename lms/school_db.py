@@ -36484,6 +36484,87 @@ class SchoolDB(LovesDB):
             )
         return out
 
+    def roster_pin_rows(
+        self, class_id: int, *, include_test_students: bool = False
+    ) -> list[dict[str, Any]]:
+        """Roster & PINs table rows. Never includes PIN plaintext.
+
+        Args:
+            class_id: Class primary key.
+            include_test_students: Include the Test Student when True.
+
+        Returns:
+            Dicts with ``student_id``, ``name``, ``status_label``
+            (``Default``, ``Custom`` for a teacher-set PIN, or ``Student set``),
+            ``is_test``, ``wrong_tries``, ``alert`` (many tries in 15 minutes),
+            and ``can_show`` (a default PIN is still on file, so Show and
+            Print slip are allowed).
+        """
+        from datetime import datetime, timedelta
+
+        from participation import (
+            CATCHUP_PIN_STUDENT_ALERT,
+            PIN_SET_BY_DEFAULT,
+            PIN_SET_BY_TEACHER,
+            PIN_WINDOW_S,
+        )
+
+        hidden = "" if include_test_students else " AND COALESCE(is_test_student, 0) = 0"
+        with self.game._lock:
+            rows = self.game.conn.execute(
+                f"""
+                SELECT id, codename, first_name, pin_set_by,
+                       default_pin_ciphertext,
+                       COALESCE(is_test_student, 0) AS is_test_student
+                FROM students
+                WHERE class_id = ?{hidden}
+                  AND TRIM(COALESCE(codename, '')) <> ''
+                ORDER BY codename COLLATE NOCASE, first_name COLLATE NOCASE, id
+                """,
+                (int(class_id),),
+            ).fetchall()
+        cutoff = (
+            datetime.now() - timedelta(seconds=int(PIN_WINDOW_S))
+        ).replace(microsecond=0).isoformat()
+        counts: dict[int, int] = {}
+        with self._lock:
+            fail_rows = self.conn.execute(
+                """
+                SELECT student_id, COUNT(*) AS n
+                FROM catchup_pin_failures
+                WHERE class_id = ? AND failed_at >= ?
+                GROUP BY student_id
+                """,
+                (int(class_id), cutoff),
+            ).fetchall()
+        for fail in fail_rows:
+            counts[int(fail["student_id"])] = int(fail["n"])
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            sid = int(row["id"])
+            by = str(row["pin_set_by"] or "").strip().lower()
+            is_default = by == PIN_SET_BY_DEFAULT
+            if is_default:
+                status_label = "Default"
+            elif by == PIN_SET_BY_TEACHER:
+                status_label = "Custom"
+            else:
+                status_label = "Student set"
+            can_show = is_default and bool(str(row["default_pin_ciphertext"] or "").strip())
+            tries = int(counts.get(sid, 0))
+            out.append(
+                {
+                    "student_id": sid,
+                    "name": str(row["codename"] or row["first_name"] or "").strip(),
+                    "status_label": status_label,
+                    "is_test": bool(int(row["is_test_student"] or 0)),
+                    "wrong_tries": tries,
+                    "alert": tries >= int(CATCHUP_PIN_STUDENT_ALERT),
+                    "can_show": can_show,
+                }
+            )
+        return out
+
     def ensure_default_pins_for_class(self, class_id: int, secret: str) -> dict[str, int]:
         """Assign default PINs only where ``pin_hash`` is still empty (MCK-204)."""
         from default_pin import assign_default_pin_fields, generate_unique_default_pin
@@ -43009,6 +43090,18 @@ class SchoolDB(LovesDB):
             if meeting is not None:
                 logged.add(meeting.isoformat())
         return sorted(logged)
+
+    def latest_logged_attendance_date(self, class_id: int) -> str:
+        """Latest finalized attendance day for a class, or ``""``.
+
+        Args:
+            class_id: Class primary key.
+
+        Returns:
+            ISO date ``YYYY-MM-DD``, or empty when none is logged.
+        """
+        days = self._logged_meeting_dates(int(class_id))
+        return days[-1] if days else ""
 
     def _suggested_log_date(
         self,

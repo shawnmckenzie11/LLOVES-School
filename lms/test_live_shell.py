@@ -793,13 +793,23 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("grid-template-rows: auto auto minmax(0, 1fr)", css)
         self.assertIn("body.staff-shell.course-live #class-list-pane,", css)
         self.assertIn("body.staff-shell.course-live #live-frames,", css)
-        self.assertIn("body.staff-shell.course-live .staff-top-menu,", css)
-        self.assertIn("body.staff-shell.course-live .tabs.course-tabs {", css)
         self.assertIn(
-            "body.staff-shell.course-live .staff-top-menu,\n"
-            "body.staff-shell.course-live .topbar,\n"
-            "body.staff-shell.course-live .tabs.course-tabs {\n"
+            "body.staff-shell.course-live:not(:has(.live-shell-ia-v2.is-set-class)) .staff-top-menu,",
+            css,
+        )
+        self.assertIn(
+            "body.staff-shell.course-live:not(:has(.live-shell-ia-v2.is-set-class)) .tabs.course-tabs {",
+            css,
+        )
+        self.assertIn(
+            "body.staff-shell.course-live:not(:has(.live-shell-ia-v2.is-set-class)) .staff-top-menu,\n"
+            "body.staff-shell.course-live:not(:has(.live-shell-ia-v2.is-set-class)) .topbar,\n"
+            "body.staff-shell.course-live:not(:has(.live-shell-ia-v2.is-set-class)) .tabs.course-tabs {\n"
             "  display: none !important;",
+            css,
+        )
+        self.assertNotIn(
+            "body.staff-shell.course-live .tabs.course-tabs {\n  display: none !important;",
             css,
         )
         self.assertIn("body.staff-shell .live-shell-ia-v2 > .live-header {\n  grid-row: 1;", css)
@@ -2587,7 +2597,11 @@ class LiveShellTests(unittest.TestCase):
         self.assertIn("bank_kind", js)
         self.assertIn("openQuestionEditor", js)
         self.assertIn('let currentStep = "validate"', js)
-        self.assertIn("let setupPhase = true", js)
+        self.assertIn(
+            'typeof root.classList?.contains !== "function" ||\n'
+            '  root.classList.contains("is-set-class")',
+            js,
+        )
         self.assertIn("function classSetIsComplete(", js)
         self.assertIn("function enterSetClassPhase()", js)
         self.assertIn("function wantsFreshSetClass()", js)

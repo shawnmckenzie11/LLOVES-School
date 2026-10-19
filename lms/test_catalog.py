@@ -224,11 +224,19 @@ class CatalogTabTests(unittest.TestCase):
         self.client.post("/verify-email", data={"code": user["verification_code"]})
 
     def test_tabs_render_in_course_nav(self) -> None:
-        """All four component tabs appear alongside Modules and Syllabus."""
+        """Question banks stays primary. Pages, Assignments and Quizzes share Content library."""
         rv = self.client.get(f"/staff/class/{self.cls['id']}")
         html = rv.get_data(as_text=True)
-        for label in ("Pages", "Assignments", "Quizzes", "Question banks"):
-            self.assertIn(f">{label}<", html)
+        self.assertIn(">Question banks<", html)
+        self.assertIn(">Content library<", html)
+        self.assertNotIn(">Pages<", html)
+        library = self.client.get(f"/staff/class/{self.cls['id']}?tab=library")
+        page = library.get_data(as_text=True)
+        for label in ("All", "Pages", "Assignments", "Quizzes"):
+            self.assertIn(f">{label}<", page)
+        self.assertIn('data-kind="all"', page)
+        filtered = self.client.get(f"/staff/class/{self.cls['id']}?tab=assignments")
+        self.assertIn('data-kind="assignments"', filtered.get_data(as_text=True))
 
     def test_pages_tab_lists_html_and_google_kinds(self) -> None:
         """The Pages catalog includes the wiki page and the Google deck."""

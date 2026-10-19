@@ -343,7 +343,10 @@ const DEFAULT_LIVE_PAGES = [
 ];
 const SETUP_STAGE = "set_class";
 /** True on Set Class (date + module + slot) until the teacher confirms Next. */
-let setupPhase = true;
+let setupPhase =
+  !root ||
+  typeof root.classList?.contains !== "function" ||
+  root.classList.contains("is-set-class");
 /** Set Class session type: ``live`` (template class) or ``office`` (``O1``, ``O2``, …). */
 let setClassKind = "live";
 /** Lesson Slides rows for the Set Class card. */

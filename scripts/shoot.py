@@ -430,6 +430,85 @@ def shoot_urls(
 
 
 
+def shoot_mck249(
+    base: str,
+    state_path: Path,
+    out_dir: Path,
+    db: Path,
+    widths: list[int],
+) -> list[Path]:
+    """MCK-249 dashboard, primary tabs, More menu, and masked Roster & PINs.
+
+    Refuses to write a shot when the page HTML contains a PIN slip or a
+    roster PIN cell shows digits. The refusal does not print the page.
+
+    Args:
+        base: Loopback origin.
+        state_path: Shawn storageState.
+        out_dir: Directory for PNG files.
+        db: LMS sqlite path, used to find Shawn's class.
+        widths: Viewport widths. The spec shots are 1280.
+
+    Returns:
+        PNG paths written.
+    """
+    from playwright.sync_api import sync_playwright
+
+    class_id = shawn_class_id(db)
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    course = f"{origin}/staff/class/{class_id}"
+    shots = (
+        ("mck-249-dashboard", f"{origin}/staff", ""),
+        ("mck-249-course-landing", course, ""),
+        ("mck-249-tabs", f"{course}?tab=gradebook", ""),
+        ("mck-249-more", f"{course}?tab=gradebook", "summary.course-more-summary"),
+        ("mck-249-more-syllabus", f"{course}?tab=syllabus", ""),
+        ("mck-249-library", f"{course}?tab=library", ""),
+        ("mck-249-library-pages", f"{course}?tab=pages", ""),
+        ("mck-249-attendance", f"{course}?tab=ap&view=attendance", ""),
+        ("mck-249-roster", f"{course}?tab=ap&view=roster", ""),
+    )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        for label, url, click in shots:
+            assert_loopback(url)
+            for width in widths:
+                context = browser.new_context(
+                    storage_state=str(state_path),
+                    viewport={"width": int(width), "height": 900},
+                )
+                page = context.new_page()
+                page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                if label == "mck-249-course-landing":
+                    page.locator("#course-tabs").wait_for(state="visible", timeout=15000)
+                    page.locator(".staff-top-menu").wait_for(state="visible", timeout=15000)
+                    page.locator(".topbar").wait_for(state="visible", timeout=15000)
+                if "view=roster" in url:
+                    page.locator(".ap-roster-table").wait_for(state="visible", timeout=30000)
+                if click:
+                    page.locator(click).first.click()
+                    page.locator(".course-more-menu").wait_for(state="visible", timeout=5000)
+                html = page.content()
+                if "Your catch-up PIN:" in html:
+                    context.close()
+                    browser.close()
+                    raise SystemExit("Refusing screenshot: page HTML contains a PIN slip")
+                if page.locator(".ap-roster-pin").count():
+                    for cell in page.locator(".ap-roster-pin").all_inner_texts():
+                        if any(ch.isdigit() for ch in cell):
+                            context.close()
+                            browser.close()
+                            raise SystemExit("Refusing screenshot: a PIN cell is unmasked")
+                dest = out_dir / f"{label}-{width}.png"
+                page.screenshot(path=str(dest), full_page=True)
+                written.append(dest)
+                context.close()
+        browser.close()
+    return written
+
+
 def shoot_mck230(
     base: str,
     state_path: Path,
@@ -3508,6 +3587,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck272",
             "mck273",
             "mck275",
+            "mck249",
             "mck281",
         ),
         default="",
@@ -3517,7 +3597,8 @@ def main(argv: list[str] | None = None) -> int:
             "avatar-reward pop-up, MCK-216 Team challenge rank lock-in, "
             "MCK-220/230/215/222/219 scenarios, MCK-217 Student view Questions, "
             "MCK-242 Team Draw, MCK-272 whiteboard, MCK-273 one join code, "
-            "MCK-275 End Class and Quit, or MCK-281 Take turns rank."
+            "MCK-275 End Class and Quit, MCK-249 teacher course tabs, "
+            "or MCK-281 Take turns rank."
         ),
     )
     args = parser.parse_args(argv)
@@ -3587,6 +3668,9 @@ def main(argv: list[str] | None = None) -> int:
             written.extend(shoot_mck273(args.base, out, path, widths))
         if args.scenario == "mck275":
             written.extend(shoot_mck275_end_quit(args.base, state, out, path))
+        if args.scenario == "mck249":
+            widths = [int(part) for part in args.widths.split(",") if part.strip()]
+            written.extend(shoot_mck249(args.base, state, out, path, widths))
         if args.scenario == "mck281":
             written.extend(shoot_mck281(args.base, state, out, path))
         if args.url:
@@ -3606,7 +3690,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
                 "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
-                "mck217-student-view|mck242|mck272|mck273|mck275|mck281."
+                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281."
             )
         for item in written:
             print(item)

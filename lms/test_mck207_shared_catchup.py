@@ -82,7 +82,7 @@ class Mck207CatchupFlowTest(Base):
         html = client.get(
             f"/staff/class/{self.class_id}?tab=ap&view=roster"
         ).get_data(as_text=True)
-        self.assertIn(">Roster<", html)
+        self.assertIn(">Roster &amp; PINs<", html)
         self.assertIn("require-catchup-pin-change", html)
 
     def test_student_pin_save_clears_default_slip(self) -> None:

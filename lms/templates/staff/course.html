@@ -11,7 +11,7 @@
 
   {% include "_sentry_browser.html" %}
 </head>
-<body class="staff-shell{% if tab in ['modules', 'pages', 'assignments', 'quizzes', 'question-banks'] %} course-modules{% elif tab == 'live' %} course-live{% endif %}"
+<body class="staff-shell{% if tab in ['modules', 'pages', 'assignments', 'quizzes', 'library', 'question-banks'] %} course-modules{% elif tab == 'live' %} course-live{% endif %}"
       data-user-id="{{ user.id }}"
       data-tour-offer="{{ '1' if tour_offer and not tour_block else '0' }}"
       data-tour-page="{{ tour_page }}"
@@ -49,26 +49,51 @@
 
     {% if pack_error %}<div class="error">{{ pack_error }}</div>{% endif %}
 
+    {% set more_names = {
+      'modules': 'Modules',
+      'library': 'Content library',
+      'pages': 'Content library',
+      'assignments': 'Content library',
+      'quizzes': 'Content library',
+      'syllabus': 'Syllabus',
+      'expectations': 'Expectations',
+      'profiles': 'Profiles',
+      'portfolio': 'Portfolio'
+    } %}
+    {% set more_name = more_names.get(tab, '') %}
+    {% set more_active = more_name != '' %}
     <nav class="tabs course-tabs" id="course-tabs" aria-label="Course sections">
       <button type="button" class="course-tabs-toggle" id="course-tabs-toggle" aria-expanded="false" aria-controls="course-tabs-panel">
-        <span class="course-tabs-toggle-label">{% if tab == 'live' %}Run Live Class{% elif tab == 'lesson-slides' %}Lesson Slides{% elif tab == 'ap' %}Attendance &amp; Participation{% elif tab == 'gradebook' %}Grades{% elif tab == 'question-banks' %}Question banks{% elif tab == 'portfolio' %}Portfolio · {{ 'Marking' if portfolio_view == 'marking' else 'Build' }}{% else %}{{ tab.replace('-', ' ')|title }}{% endif %}</span>
+        <span class="course-tabs-toggle-label">{% if more_active %}More: {{ more_name }}{% elif tab == 'live' %}Live Class{% elif tab == 'lesson-slides' %}Lesson Slides{% elif tab == 'ap' %}Attendance &amp; Participation{% elif tab == 'gradebook' %}Grades{% elif tab == 'question-banks' %}Question banks{% else %}{{ tab.replace('-', ' ')|title }}{% endif %}</span>
         <span class="course-tabs-toggle-icon" aria-hidden="true">☰</span>
       </button>
       <div class="course-tabs-panel" id="course-tabs-panel">
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='live') }}" class="{{ 'on' if tab == 'live' else '' }}">Run Live Class</a>
-        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='lesson-slides') }}" class="{{ 'on' if tab == 'lesson-slides' else '' }}">Lesson Slides</a>{% endif %}
-        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='modules') }}" class="{{ 'on' if tab == 'modules' else '' }}">Modules</a>{% endif %}
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}" class="{{ 'on' if tab == 'ap' else '' }}">Attendance &amp; Participation</a>
-        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='gradebook') }}" class="{{ 'on' if tab == 'gradebook' else '' }}">Grades</a>{% endif %}
-        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='pages') }}" class="{{ 'on' if tab == 'pages' else '' }}">Pages</a>{% endif %}
-        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='assignments') }}" class="{{ 'on' if tab == 'assignments' else '' }}">Assignments</a>{% endif %}
-        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='quizzes') }}" class="{{ 'on' if tab == 'quizzes' else '' }}">Quizzes</a>{% endif %}
-        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='question-banks') }}" class="{{ 'on' if tab == 'question-banks' else '' }}">Question banks</a>{% endif %}
-        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='syllabus') }}" class="{{ 'on' if tab == 'syllabus' else '' }}">Syllabus</a>{% endif %}
-        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='expectations') }}" class="{{ 'on' if tab == 'expectations' else '' }}">Expectations</a>{% endif %}
-        {% if not course_simple %}<a href="{{ url_for('staff_course', class_id=cls.id, tab='profiles') }}" class="{{ 'on' if tab == 'profiles' else '' }}">Profiles</a>{% endif %}
-        {% if show_portfolio_tab %}
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='portfolio') }}" class="{{ 'on' if tab == 'portfolio' else '' }}">Portfolio</a>
+        <a class="course-tab {{ 'on' if tab == 'live' else '' }}" href="{{ url_for('staff_course', class_id=cls.id, tab='live') }}">Live Class</a>
+        {% if not course_simple %}<a class="course-tab {{ 'on' if tab == 'lesson-slides' else '' }}" href="{{ url_for('staff_course', class_id=cls.id, tab='lesson-slides') }}">Lesson Slides</a>{% endif %}
+        <a class="course-tab {{ 'on' if tab == 'ap' else '' }}" href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}">Attendance &amp; Participation</a>
+        {% if not course_simple %}<a class="course-tab {{ 'on' if tab == 'gradebook' else '' }}" href="{{ url_for('staff_course', class_id=cls.id, tab='gradebook') }}">Grades</a>{% endif %}
+        {% if not course_simple %}<a class="course-tab {{ 'on' if tab == 'question-banks' else '' }}" href="{{ url_for('staff_course', class_id=cls.id, tab='question-banks') }}">Question banks</a>{% endif %}
+        {% if not course_simple or show_portfolio_tab %}
+        <details class="course-more">
+          <summary class="course-more-summary{% if more_active %} on{% endif %}">{% if more_active %}More: {{ more_name }}{% else %}More{% endif %} <span class="course-more-chevron" aria-hidden="true">▾</span></summary>
+          <ul class="course-more-menu">
+            {% if not course_simple %}
+            <li class="course-more-label">Course content</li>
+            <li><a href="{{ url_for('staff_course', class_id=cls.id, tab='modules') }}" class="{{ 'on' if tab == 'modules' else '' }}">Modules</a></li>
+            <li><a href="{{ url_for('staff_course', class_id=cls.id, tab='library') }}" class="{{ 'on' if tab in ['library', 'pages', 'assignments', 'quizzes'] else '' }}">Content library</a></li>
+            <li class="course-more-label">Planning</li>
+            <li><a href="{{ url_for('staff_course', class_id=cls.id, tab='syllabus') }}" class="{{ 'on' if tab == 'syllabus' else '' }}">Syllabus</a></li>
+            <li><a href="{{ url_for('staff_course', class_id=cls.id, tab='expectations') }}" class="{{ 'on' if tab == 'expectations' else '' }}">Expectations</a></li>
+            <li class="course-more-label">Live setup</li>
+            <li><a href="{{ url_for('staff_course', class_id=cls.id, tab='profiles') }}" class="{{ 'on' if tab == 'profiles' else '' }}">Profiles</a></li>
+            {% elif show_portfolio_tab %}
+            <li class="course-more-label">Live setup</li>
+            {% endif %}
+            {% if show_portfolio_tab %}
+            <li><a href="{{ url_for('staff_course', class_id=cls.id, tab='portfolio') }}" class="{{ 'on' if tab == 'portfolio' else '' }}">Portfolio</a></li>
+            {% endif %}
+          </ul>
+        </details>
         {% endif %}
       </div>
     </nav>
@@ -92,11 +117,17 @@
       <iframe class="module-frame" id="module-frame" title="Module page"></iframe>
     </div>
     <script type="module" src="/static/course_modules.js"></script>
-    {% elif tab in ['pages', 'assignments', 'quizzes'] %}
+    {% elif tab in ['pages', 'assignments', 'quizzes', 'library'] %}
+    <nav class="library-filters" aria-label="Content library">
+      <a href="{{ url_for('staff_course', class_id=cls.id, tab='library') }}" class="{{ 'on' if library_kind == 'all' else '' }}">All</a>
+      <a href="{{ url_for('staff_course', class_id=cls.id, tab='pages') }}" class="{{ 'on' if library_kind == 'pages' else '' }}">Pages</a>
+      <a href="{{ url_for('staff_course', class_id=cls.id, tab='assignments') }}" class="{{ 'on' if library_kind == 'assignments' else '' }}">Assignments</a>
+      <a href="{{ url_for('staff_course', class_id=cls.id, tab='quizzes') }}" class="{{ 'on' if library_kind == 'quizzes' else '' }}">Quizzes</a>
+    </nav>
     <p class="hint">Imported catalog for this course. Items here are the building blocks the Modules tab links to.</p>
-    <div class="layout" id="catalog-root" data-class-id="{{ cls.id }}" data-kind="{{ tab }}">
+    <div class="layout" id="catalog-root" data-class-id="{{ cls.id }}" data-kind="{{ library_kind }}">
       <aside class="card module-nav-pane">
-        <div id="catalog-list">Loading {{ tab.replace('-', ' ') }}…</div>
+        <div id="catalog-list">Loading content library…</div>
       </aside>
       <iframe class="module-frame" id="catalog-frame" title="Component preview"></iframe>
     </div>
@@ -211,9 +242,9 @@
     <iframe class="module-frame" title="Syllabus" src="{{ url_for('staff_syllabus', class_id=cls.id) }}"></iframe>
     {% elif tab == 'live' %}
     <div id="ap-root"
-         class="track-live-root live-shell-root live-shell-ia-v2 is-set-class"
+         class="track-live-root live-shell-root live-shell-ia-v2{% if live_on_set_class %} is-set-class{% endif %}"
          data-ia="v2"
-         data-setup="1"
+         data-setup="{{ '1' if live_on_set_class else '0' }}"
          data-class-id="{{ cls.id }}"
          data-ap-view="live"
          data-take="{{ '1' if take_attendance or not live_step else '0' }}"
@@ -936,10 +967,8 @@
            class="{{ 'on' if ap_view == 'participation' else '' }}">Participation</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='feedback') }}"
            class="{{ 'on' if ap_view == 'feedback' else '' }}">Feedback</a>
-        <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='engagement') }}"
-           class="{{ 'on' if ap_view == 'engagement' else '' }}">Engagement</a>
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='roster') }}"
-           class="{{ 'on' if ap_view == 'roster' else '' }}">Roster</a>
+           class="{{ 'on' if ap_view == 'roster' else '' }}">Roster &amp; PINs</a>
       </nav>
       {% include "staff/_show_test_students.html" %}
       </div>
@@ -1109,48 +1138,50 @@
       </div>
       <script type="module" src="/static/staff_engagement_summary.js"></script>
       {% elif ap_view == 'roster' %}
+      {% set alert_rows = roster_pin_rows | selectattr('alert') | list %}
+      {% set default_rows = roster_pin_rows | selectattr('can_show') | list %}
       <div id="roster-root" class="ap-roster" data-class-id="{{ cls.id }}">
-        <p class="hint">Catch-up PINs are course-wide. Students use the same PIN on every catch-up link.</p>
-        {% if 'Test Student' in roster_codenames.values() %}
-        <p class="hint"><strong>Test Student</strong> is for join-code rehearsal only. Use the default PIN slip or Set PIN below like any other student. Excluded from attendance, participation, teams, and celebrations.</p>
+        <p class="hint">Catch-up PINs are course-wide, and Show or Print slip works only while a student still has the default PIN.</p>
+        {% if alert_rows %}
+        <p class="ap-roster-note no-print" role="status">{{ alert_rows|length }} student{% if alert_rows|length != 1 %}s{% endif %} had many wrong PIN tries (15 min). Students are not locked out.</p>
         {% endif %}
-        <label class="switch no-print"><input type="checkbox" id="require-catchup-pin-change" {% if require_catchup_pin_change %}checked{% endif %}> Require students to change default PINs</label>
-        {% if roster_pin_alerts %}
-        <div class="pin-alerts card no-print" role="status">
-          <h2>Catch-up PIN alerts</h2>
-          <p class="hint">Many wrong PIN tries (15 min). Students are not locked out.</p>
-          <ul>{% for alert in roster_pin_alerts %}<li><strong>{{ alert.name }}</strong> — {{ alert.failures }} tries</li>{% endfor %}</ul>
+        <div class="ap-roster-settings no-print">
+          <label class="switch"><input type="checkbox" id="require-catchup-pin-change" {% if require_catchup_pin_change %}checked{% endif %}> Require students to change default PINs</label>
+          <button type="button" class="btn secondary" id="print-all-default-slips"{% if not default_rows %} disabled{% endif %}>Print all default slips</button>
         </div>
-        {% endif %}
-        {% if roster_pin_slips %}
-        <h2>Default catch-up PINs</h2>
-        <p class="hint no-print">Hand these out once. When a student saves their own PIN, their slip disappears.</p>
-        <div class="pin-slips" id="pin-slips">
-          {% for slip in roster_pin_slips %}
-            <p class="pin-slip"><strong>{{ slip.name }}</strong> — {{ slip.slip }}</p>
-          {% endfor %}
-        </div>
-        <button type="button" class="btn secondary no-print" onclick="window.print()">Print PIN list</button>
-        {% else %}
-        <p class="hint">No printable default PINs — students have already chosen their own or you set PINs manually.</p>
-        {% endif %}
-        <h2>Set PIN</h2>
-        <table class="sheet ap-roster-pin-table">
-          <thead><tr><th class="name">Student</th><th>PIN</th></tr></thead>
+        <table class="ap-roster-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>PIN status</th>
+              <th>PIN</th>
+              <th class="num">Wrong tries (15 min)</th>
+              <th class="actions">Actions</th>
+            </tr>
+          </thead>
           <tbody>
-            {% for sid, name in roster_codenames.items() %}
-            <tr><td class="name">{{ name }}</td>
-              <td><input size="4" maxlength="4" inputmode="numeric" data-pin="{{ sid }}" aria-label="New PIN for {{ name }}">
-              <button type="button" class="btn secondary pin-set" data-sid="{{ sid }}">Set</button></td></tr>
+            {% for row in roster_pin_rows %}
+            <tr>
+              <td>{{ row.name }}{% if row.is_test %} <span class="ap-roster-tag">Test</span>{% endif %}</td>
+              <td data-pin-status>{{ row.status_label }}</td>
+              <td class="ap-roster-pin" data-sid="{{ row.student_id }}">••••</td>
+              <td class="num">{% if row.wrong_tries %}{{ row.wrong_tries }}{% else %}–{% endif %}</td>
+              <td class="actions">
+                {% if row.can_show %}
+                <button type="button" class="ap-roster-text ap-roster-show" data-sid="{{ row.student_id }}">Show</button>
+                <button type="button" class="ap-roster-text ap-roster-print" data-sid="{{ row.student_id }}">Print slip</button>
+                {% endif %}
+                <button type="button" class="ap-roster-text ap-roster-edit" data-sid="{{ row.student_id }}">Set new PIN</button>
+                <span class="ap-roster-editor" hidden>
+                  <input size="4" maxlength="4" inputmode="numeric" data-pin="{{ row.student_id }}" aria-label="New PIN for {{ row.name }}" autocomplete="off">
+                  <button type="button" class="btn secondary pin-set" data-sid="{{ row.student_id }}">Save</button>
+                </span>
+              </td>
+            </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
-      <style>
-        .ap-roster .pin-slips { margin: 1rem 0; padding: .75rem; border: 1px dashed var(--border, #ccc); }
-        .ap-roster .pin-slip { margin: .35rem 0; font-family: ui-monospace, monospace; }
-        @media print { .no-print { display: none; } }
-      </style>
       <script type="module" src="/static/staff_roster.js"></script>
       {% elif ap_view == 'participation' %}
       <div id="grades-root"

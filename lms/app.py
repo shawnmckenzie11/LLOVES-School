@@ -19,6 +19,25 @@ import sqlite3
 import sys
 import threading
 from datetime import date, timedelta
+
+
+def _format_last_taken(iso_day: str) -> str:
+    """Format a logged attendance day for the teacher course card.
+
+    Args:
+        iso_day: ``YYYY-MM-DD`` school day.
+
+    Returns:
+        A short date such as ``Oct 19, 2026``, or ``""`` when blank.
+    """
+    raw = (iso_day or "").strip()
+    if not raw:
+        return ""
+    try:
+        day = date.fromisoformat(raw)
+    except ValueError:
+        return ""
+    return f"{day.strftime('%b')} {day.day}, {day.year}"
 from html import escape as html_escape
 from pathlib import Path
 from typing import Any
@@ -3514,6 +3533,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                         int(section["id"]),
                         include_test_students=_include_test_students(),
                     )
+                    section["last_attendance"] = _format_last_taken(
+                        school.latest_logged_attendance_date(int(section["id"]))
+                    )
             classes = school.list_staff_classes(int(user["id"]), int(active["id"]))
         # MCK-183 first-run gate: a teacher with no course and no class gets
         # the Welcome setup instead of the "Ask Admin" dead end. Admin (IT)
@@ -4113,7 +4135,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     @app.route("/staff/class/<int:class_id>")
     @staff_required
     def staff_course(class_id: int):
-        """Course dashboard: Modules, Attendance & Participation, Grades."""
+        """Course page: primary tabs, More menu, and the open section."""
         user = current_user()
         assert user is not None
         if not school.teacher_owns_class(int(user["id"]), class_id) and user.get("role") != "it":
@@ -4132,7 +4154,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             cls.get("library_id") or (offering or {}).get("library_id"),
         )
         # Pack-less non-math courses open on Attendance & Participation.
-        default_tab = "ap" if course_simple else "modules"
+        # Every other course opens on Live Class (MCK-249).
+        default_tab = "ap" if course_simple else "live"
         tab = (request.args.get("tab") or default_tab).strip().lower()
         if tab in {"track-live", "track_live"}:
             tab = "live"
@@ -4177,6 +4200,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             "pages",
             "assignments",
             "quizzes",
+            "library",
             "question-banks",
             "syllabus",
             "ap",
@@ -4188,6 +4212,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             "portfolio",
         }:
             tab = default_tab
+        library_tabs = {"pages", "assignments", "quizzes"}
+        library_kind = "all"
+        if tab == "library":
+            requested = (request.args.get("kind") or "all").strip().lower()
+            library_kind = requested if requested in library_tabs else "all"
+        elif tab in library_tabs:
+            library_kind = tab
         if tab == "portfolio" and not show_portfolio_tab:
             tab = default_tab
         pack_error = session.pop("pack_error", None)
@@ -4219,6 +4250,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         live_run_key = (
             str(active_live.get("run_key") or "") if active_live is not None else ""
         )
+        # Idle Set Class keeps the course chrome. A confirmed class hides it.
+        live_on_set_class = True
+        if active_live is not None:
+            teacher_state = school.live_session_teacher_state_payload(int(active_live["id"])) or {}
+            live_on_set_class = not bool(teacher_state.get("class_set"))
         _audit(
             "student.record.view",
             "class",
@@ -4234,26 +4270,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             if tab == "ap" and ap_view == "feedback"
             else {"columns": [], "students": [], "totals": {}, "grand_total": 0}
         )
-        roster_pin_slips = (
-            school.teacher_default_pin_slips(
-                class_id,
-                str(app.secret_key or ""),
-                include_test_students=show_tests,
-            )
+        roster_pin_rows = (
+            school.roster_pin_rows(class_id, include_test_students=show_tests)
             if tab == "ap"
             and ap_view == "roster"
             and school.teacher_owns_class(int(user["id"]), class_id)
             else []
-        )
-        roster_pin_alerts = (
-            school.catchup_pin_guess_alerts(class_id, include_test_students=show_tests)
-            if tab == "ap" and ap_view == "roster"
-            else []
-        )
-        roster_codenames = (
-            school.class_codenames(class_id, include_test_students=show_tests)
-            if tab == "ap" and ap_view == "roster"
-            else {}
         )
         require_catchup_pin_change = (
             school.require_catchup_pin_change(class_id) if tab == "ap" and ap_view == "roster" else False
@@ -4295,6 +4317,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             expectations=expectations,
             nav_courses=_staff_nav_courses(int(user["id"])),
             tab=tab,
+            library_kind=library_kind,
             ap_view=ap_view,
             exit_feedback=exit_feedback,
             feedback_grid=feedback_grid,
@@ -4312,10 +4335,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             live_run_key=live_run_key,
             live_session_code=live_session_code,
             live_step=live_step,
+            live_on_set_class=live_on_set_class,
             school_name=SCHOOL_NAME,
-            roster_pin_slips=roster_pin_slips,
-            roster_pin_alerts=roster_pin_alerts,
-            roster_codenames=roster_codenames,
+            roster_pin_rows=roster_pin_rows,
             require_catchup_pin_change=require_catchup_pin_change,
             show_module_pack_upload=False,
             pack_error=pack_error,
@@ -10143,6 +10165,77 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         return jsonify({"ok": True})
+
+    def _default_pin_slips_for_teacher(class_id: int) -> tuple[list[dict[str, Any]], Any]:
+        """Default-PIN slips for the owning teacher, or a JSON error response.
+
+        The slip text is returned to the caller and is not logged.
+
+        Args:
+            class_id: Class primary key.
+
+        Returns:
+            ``(slips, None)`` when the teacher may see them, otherwise
+            ``([], response)``.
+        """
+        denied = _require_class_staff(class_id)
+        if denied:
+            return [], denied
+        slips = school.teacher_default_pin_slips(
+            class_id,
+            str(app.secret_key or ""),
+            include_test_students=_include_test_students(),
+        )
+        return slips, None
+
+    @app.route("/api/classes/<int:class_id>/default-pin-slips", methods=["GET"])
+    @login_required
+    def api_default_pin_slips(class_id: int):
+        """Printable default-PIN slips. Not included in the roster HTML."""
+        slips, denied = _default_pin_slips_for_teacher(class_id)
+        if denied:
+            return denied
+        resp = jsonify(
+            {
+                "ok": True,
+                "slips": [
+                    {
+                        "student_id": int(row["student_id"]),
+                        "name": str(row["name"]),
+                        "slip": str(row["slip"]),
+                    }
+                    for row in slips
+                ],
+            }
+        )
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    @app.route(
+        "/api/classes/<int:class_id>/students/<int:student_id>/default-pin-slip",
+        methods=["GET"],
+    )
+    @login_required
+    def api_default_pin_slip(class_id: int, student_id: int):
+        """One default-PIN slip for Show or Print. 404 when the student set their own."""
+        slips, denied = _default_pin_slips_for_teacher(class_id)
+        if denied:
+            return denied
+        match = next((row for row in slips if int(row["student_id"]) == int(student_id)), None)
+        if match is None:
+            resp = jsonify({"ok": False, "error": "No default PIN."})
+            resp.headers["Cache-Control"] = "no-store"
+            return resp, 404
+        resp = jsonify(
+            {
+                "ok": True,
+                "student_id": int(match["student_id"]),
+                "name": str(match["name"]),
+                "slip": str(match["slip"]),
+            }
+        )
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
 
     @app.route(
         "/api/classes/<int:class_id>/students/<int:student_id>/catchup-pin-unlock",
