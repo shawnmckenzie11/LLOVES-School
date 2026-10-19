@@ -33,6 +33,7 @@ import {
   reconnectMode,
   shouldApplyLiveSnapshot,
 } from "/static/live_poll_feel.js";
+import { draftFailureNote, groupFlowReplySkipsResync } from "/static/phone_save.js";
 import {
   CATCHING_UP_COPY,
   FALLBACK_POLL_MS,
@@ -2929,17 +2930,35 @@ function paintRankOrder(card, order) {
 async function postRankDraft(card, body) {
   const itemId = Number(card.dataset.liveCardId) || 0;
   if (!itemId) return;
-  const res = await fetch(
-    `/api/student/live-items/${itemId}/group-draft`,
-    visitFetchInit({
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify(body),
-    })
-  );
-  if (!res.ok) return;
-  const data = await res.json().catch(() => ({}));
+  let res = null;
+  let data = {};
+  try {
+    res = await fetch(
+      `/api/student/live-items/${itemId}/group-draft`,
+      visitFetchInit({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(body),
+      })
+    );
+    data = await res.json().catch(() => ({}));
+  } catch (_err) {
+    res = null;
+  }
+  if (!res || !res.ok) {
+    // The Take turns 400 is the server sentence. Any other text might name
+    // a teammate, so the card gets the calm line instead.
+    groupFlowNotes.set(itemId, draftFailureNote(res ? res.status : 0, data.error));
+    try {
+      if (lastStudentPayload) paintLifecycleQuestionStack(lastStudentPayload);
+    } catch (_paint) {
+      /* the next /state repaints the order */
+    }
+    queueGroupFlowResync();
+    return;
+  }
+  groupFlowNotes.delete(itemId);
   const active = lastStudentPayload?.active_questions;
   if (data.group_submit && Array.isArray(active)) {
     const row = active.find((item) => Number(item.id) === itemId);
@@ -3549,10 +3568,12 @@ function studentGroupCardBodyHtml(item) {
       group.phase === "submitted" && !editing
         ? rankWaitingHtml(options, (group.submitted_order || order).map(String), "Change team order")
         : rankInputHtml(options, shown, "group");
+    const note = groupFlowNotes.get(itemId) || "";
     return `<div class="student-group-card" data-live-action="group" data-rank-shared="1">
       ${strip ? `<p class="student-group-strip">${escapeText(strip)}</p>` : ""}
       ${body}
       ${last ? `<p class="group-submit-last">Last submitter: ${escapeText(last)}</p>` : ""}
+      ${note ? `<p class="rank-turn-note" role="status">${escapeText(note)}</p>` : ""}
     </div>`;
   }
   const choices = liveChoiceLabels(content);
@@ -3626,6 +3647,7 @@ function studentGroupCardBodyHtml(item) {
       }>Submit for team</button>
     </div>
     ${last ? `<p class="group-submit-last">Last submitter: ${escapeText(last)}</p>` : ""}
+    ${groupFlowNotes.get(Number(item.id) || 0) ? `<p class="rank-turn-note" role="status">${escapeText(groupFlowNotes.get(Number(item.id) || 0))}</p>` : ""}
   </div>`;
 }
 
@@ -3676,6 +3698,9 @@ async function postGroupFlow(card, path, body) {
   // MCK-184: whatever happens below (lost reply, bad JSON, a paint that
   // throws), this phone must not keep the greyed-out buttons. The finally
   // repaints from what we have and asks the server once for the truth.
+  // A 409 that already carries the card is fresh, so that path skips the
+  // extra /state.
+  let skipResync = false;
   try {
     let res = null;
     let data = {};
@@ -3706,17 +3731,18 @@ async function postGroupFlow(card, path, body) {
     if (res && res.ok && data.ok !== false) {
       groupFlowNotes.delete(itemId);
       liveCardDrafts.delete(`${itemId}:group-pick`);
-    } else if (res && res.status === 409 && data.group_submit) {
+    } else if (groupFlowReplySkipsResync(res && res.status, data)) {
       groupFlowNotes.set(itemId, String(data.error || ""));
+      skipResync = true;
     } else {
-      groupFlowNotes.set(itemId, String(data.error || "Couldn't save that. Try again."));
+      groupFlowNotes.set(itemId, draftFailureNote(res ? res.status : 0, data.error));
     }
   } finally {
     try {
       if (lastStudentPayload) paintLifecycleQuestionStack(lastStudentPayload);
     } finally {
       reenableTurnButtons(itemId);
-      queueGroupFlowResync();
+      if (!skipResync) queueGroupFlowResync();
     }
   }
 }
@@ -3769,19 +3795,36 @@ async function postGroupDraft(card) {
   if (!itemId) return;
   const selected = card.querySelector("[data-live-choice].is-selected");
   const why = card.querySelector("[data-group-why]");
-  const res = await fetch(
-    `/api/student/live-items/${itemId}/group-draft`,
-    visitFetchInit({
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify({
-        choice: selected instanceof HTMLButtonElement ? selected.getAttribute("data-live-choice") || "" : "",
-        why: why instanceof HTMLTextAreaElement ? why.value : "",
-      }),
-    })
-  );
-  if (!res.ok) return;
+  let res = null;
+  let data = {};
+  try {
+    res = await fetch(
+      `/api/student/live-items/${itemId}/group-draft`,
+      visitFetchInit({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          choice: selected instanceof HTMLButtonElement ? selected.getAttribute("data-live-choice") || "" : "",
+          why: why instanceof HTMLTextAreaElement ? why.value : "",
+        }),
+      })
+    );
+    data = await res.json().catch(() => ({}));
+  } catch (_err) {
+    res = null;
+  }
+  if (!res || !res.ok) {
+    groupFlowNotes.set(itemId, draftFailureNote(res ? res.status : 0, data.error));
+    try {
+      if (lastStudentPayload) paintLifecycleQuestionStack(lastStudentPayload);
+    } catch (_paint) {
+      /* the next /state repaints the card */
+    }
+    queueGroupFlowResync();
+    return;
+  }
+  groupFlowNotes.delete(itemId);
 }
 
 /**

@@ -187,22 +187,36 @@ class NewsAudience:
         *,
         student_id: int | None = None,
         read_keys: frozenset[str] | set[str] | None = None,
+        team_ids: frozenset[int] | set[int] | None = None,
     ) -> None:
-        """Record the caller's role, roster id, and boards they may read.
+        """Record the caller's role, roster id, boards, and open-group teams.
 
         ``read_keys`` starts as the boards visible when the stream opens.
         A ``board_ink`` postcard reloads them before it is filtered, so a
         team change applies on the next tap instead of the next reconnect.
+
+        ``team_ids`` is the student's teams on the session's open group
+        items. Empty means the team is not known yet. A group postcard
+        then still arrives, so a late joiner cannot miss their own team.
+        The first group tap that finds membership fills this set.
 
         Args:
             role: ``staff`` or ``student``.
             student_id: Roster id for a student stream. ``None`` for staff
                 and unmatched guests.
             read_keys: Board keys this student may read. Staff ignore this.
+            team_ids: Open-group team ids for this student. Staff ignore this.
         """
         self.role = role
         self.student_id = student_id
         self.read_keys = frozenset(str(key) for key in (read_keys or ()))
+        parsed: set[int] = set()
+        for raw in team_ids or ():
+            try:
+                parsed.add(int(raw))
+            except (TypeError, ValueError):
+                continue
+        self.team_ids = frozenset(parsed)
 
 
 def reset_stream_budget() -> None:
@@ -362,6 +376,9 @@ def _deliver_batch(seat: _NewsSeat, batch: list[dict[str, Any]]) -> bool:
         ):
             _sync_board_read_keys(seat.school, seat.session_id, seat.audience)
             refreshed = True
+        _maybe_sync_group_teams(
+            seat.school, seat.session_id, seat.audience, event
+        )
         if event_visible(event, seat.audience):
             seat.queue.put(format_sse(event, event_id=event_id))
     return seat.cursor != before
@@ -1229,12 +1246,35 @@ def flag_work_event(kind: str, state_seq: int, **ids: Any) -> dict[str, Any]:
     return event
 
 
+def _group_response_visible(event: dict[str, Any], audience: NewsAudience) -> bool:
+    """Whether this student should see one group ``response_landed`` postcard.
+
+    Staff is decided before this runs. A postcard with no ``team_id`` stays
+    class-wide (the teacher moved every group at once). A student whose
+    team is not known yet still receives it, so they cannot miss their own
+    team's update. Everyone else only hears their own team's write.
+
+    Args:
+        event: Stored ``response_landed`` with ``scope`` ``group``.
+        audience: Student holding this stream.
+    """
+    raw = event.get("team_id")
+    if raw in (None, ""):
+        return True
+    if not audience.team_ids:
+        return True
+    return _as_int(raw, -1) in audience.team_ids
+
+
 def event_visible(event: dict[str, Any], audience: NewsAudience) -> bool:
     """Apply auth scope. Staff sees the board; students miss other people's self taps.
 
     ``board_ink`` reaches only students whose stream was opened on that
     board, plus staff when the ink is on the teacher board. Another
     group's key is not delivered.
+
+    A group ``response_landed`` with a ``team_id`` reaches staff and the
+    students on that team. Other teams stay on their 20 s safety poll.
 
     Args:
         event: Stored postcard, including its SSE ``id``.
@@ -1254,6 +1294,8 @@ def event_visible(event: dict[str, Any], audience: NewsAudience) -> bool:
         return _as_int(event.get("student_id"), -1) == _as_int(
             audience.student_id, -2
         )
+    if kind == "response_landed" and str(event.get("scope") or "") == "group":
+        return _group_response_visible(event, audience)
     return True
 
 
@@ -1307,6 +1349,76 @@ def parse_last_event_id(header: str | None, arg: str | None) -> int:
     """
     raw = header if header not in (None, "") else arg
     return max(0, _as_int(raw, 0))
+
+
+def _sync_group_team_ids(
+    school: Any,
+    session_id: int,
+    audience: NewsAudience,
+) -> None:
+    """Load this student's open-group teams when the stream does not have them.
+
+    Read-only. A miss or a lookup failure leaves ``team_ids`` empty so the
+    postcard is still delivered. A hit is cached on the audience for the
+    rest of this hold.
+
+    Args:
+        school: SchoolDB.
+        session_id: ``live_class_sessions.id``.
+        audience: Student holding this stream.
+    """
+    if audience.role != "student" or audience.student_id is None:
+        return
+    if audience.team_ids:
+        return
+    try:
+        found = school.student_open_group_team_ids(
+            int(session_id), int(audience.student_id)
+        )
+    except Exception:
+        logger.warning(
+            "live news team scope failed session=%s student=%s",
+            session_id,
+            audience.student_id,
+        )
+        return
+    parsed: set[int] = set()
+    for raw in found or ():
+        try:
+            parsed.add(int(raw))
+        except (TypeError, ValueError):
+            continue
+    if parsed:
+        audience.team_ids = frozenset(parsed)
+
+
+def _maybe_sync_group_teams(
+    school: Any,
+    session_id: int,
+    audience: NewsAudience,
+    event: dict[str, Any],
+) -> None:
+    """Fill team ids the first time a team-scoped group postcard arrives.
+
+    Phones connect before the question is published, so the open-group
+    membership rows do not exist yet. Retrying on each group tap until
+    the set is known keeps the first real tap filtered.
+
+    Args:
+        school: SchoolDB, or ``None`` in a unit stream.
+        session_id: ``live_class_sessions.id``.
+        audience: Caller holding this stream.
+        event: Postcard about to be filtered.
+    """
+    if school is None or audience.team_ids:
+        return
+    if str(event.get("type") or "") != "response_landed":
+        return
+    if str(event.get("scope") or "") != "group":
+        return
+    if event.get("team_id") in (None, ""):
+        return
+    _sync_group_team_ids(school, int(session_id), audience)
 
 
 def _sync_board_read_keys(
@@ -1391,6 +1503,7 @@ def iter_sse(
             ):
                 _sync_board_read_keys(school, int(session_id), audience)
                 refreshed = True
+            _maybe_sync_group_teams(school, int(session_id), audience, event)
             if not event_visible(event, audience):
                 continue
             yield format_sse(event, event_id=cursor)
@@ -1451,7 +1564,21 @@ def _audience_for(
                 sid,
             )
             read_keys = frozenset()
-    return NewsAudience("student", student_id=sid, read_keys=read_keys)
+    team_ids: frozenset[int] = frozenset()
+    if sid is not None:
+        try:
+            found = school.student_open_group_team_ids(int(session_id), sid)
+            team_ids = frozenset(int(team) for team in (found or ()))
+        except Exception:
+            logger.warning(
+                "live news team scope failed session=%s student=%s",
+                session_id,
+                sid,
+            )
+            team_ids = frozenset()
+    return NewsAudience(
+        "student", student_id=sid, read_keys=read_keys, team_ids=team_ids
+    )
 
 
 def detach_gunicorn_client(sock: socket.socket) -> socket.socket | None:

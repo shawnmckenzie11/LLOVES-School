@@ -47,6 +47,7 @@ import csv
 import json
 import os
 import random
+import shlex
 import signal
 import statistics
 import string
@@ -158,6 +159,7 @@ def seed(
     *,
     classes: int = 1,
     items: int = RANK_ITEMS,
+    include_mc: bool = False,
 ) -> list[dict[str, Any]]:
     """Build concurrent live classes in one sqlite file.
 
@@ -172,6 +174,7 @@ def seed(
         presence_url: Postgres URL for live presence. Loopback only.
         classes: How many classes to open at once. At least 1.
         items: Rank questions prepared on each class.
+        include_mc: Also prepare one group multiple-choice item, published first.
 
     Returns:
         One fixture dict per class.
@@ -232,6 +235,7 @@ def seed(
         ).fetchall()
         ids = {str(r["codename"]): int(r["id"]) for r in rows}
         cookies: dict[str, str] = {}
+        rejoins: dict[str, str] = {}
         for name in names:
             client = app.test_client()
             rv = client.post(
@@ -241,6 +245,8 @@ def seed(
             assert rv.status_code == 302, rv.get_data(as_text=True)[:300]
             client.post("/student/mood", data={"mood": "good"})
             cookies[name] = client.get_cookie("session").value
+            rejoin = client.get_cookie("lloves_live_rejoin")
+            rejoins[name] = rejoin.value if rejoin is not None else ""
         n_teams = max(2, students // 4)
         order = [ids[n] for n in names]
         school.setup_live_session_groups(
@@ -274,13 +280,50 @@ def seed(
             raw = [o["id"] for o in school._rank_option_rows(live_item)]
             aliases = school.student_rank_aliases(live_item)
             opts = [aliases.out(o) for o in raw] if aliases is not None else raw
-            prepared.append({"live_item_id": int(row["id"]), "options": opts})
+            prepared.append(
+                {"live_item_id": int(row["id"]), "options": opts, "kind": "rank"}
+            )
+        if include_mc:
+            rv = staff.post(
+                f"/api/staff/class/{class_id}/live-lessons/M1/C2/add-question",
+                json={
+                    "page_number": 5,
+                    "stage": "round",
+                    "type": "mc",
+                    "text": f"Which representation ({index})?",
+                    "options": ["Graph", "Table", "Equation", "Points"],
+                    "correct_index": 0,
+                },
+            )
+            assert rv.status_code == 200, rv.get_data(as_text=True)[:300]
+            item_id = rv.get_json()["placement"]["item"]["id"]
+            row = next(r for r in school.list_live_session_items(sid) if r["item_id"] == item_id)
+            live_item = school.get_live_session_item(sid, int(row["id"]))
+            labels = school._mc_option_labels(live_item)
+            prepared.insert(
+                0,
+                {
+                    "live_item_id": int(row["id"]),
+                    "options": [],
+                    "kind": "mc",
+                    "choice": labels[0] if labels else "Graph",
+                },
+            )
         fixtures.append(
             {
                 "session_id": sid,
                 "class_id": class_id,
                 "staff_cookie": staff_cookie,
-                "students": [{"name": n, "id": ids[n], "cookie": cookies[n]} for n in names],
+                "students": [
+                    {
+                        "name": n,
+                        "id": ids[n],
+                        "cookie": cookies[n],
+                        "rejoin": rejoins.get(n, ""),
+                        "team": i % n_teams,
+                    }
+                    for i, n in enumerate(names)
+                ],
                 "items": prepared,
             }
         )
@@ -334,6 +377,85 @@ def gunicorn_argv(port: int, hooks: Path, strip_max_requests: bool = False) -> l
     ]
 
 
+def cpu_max_spec(percent: float) -> str:
+    """cgroup v2 ``cpu.max`` for a share of one core.
+
+    6.25 is the shared-CPU baseline: 5 ms every 80 ms, written ``5000 80000``.
+
+    Args:
+        percent: Percent of one core, such as 6.25 or 25.
+
+    Returns:
+        The ``quota period`` pair, in microseconds.
+    """
+    period = 80000
+    quota = int(round(period * float(percent) / 100.0))
+    return f"{max(1000, quota)} {period}"
+
+
+def wrap_cpu_quota_out(
+    argv: list[str], percent: float, cwd: Path, out: Path
+) -> tuple[list[str], str]:
+    """Run argv inside a cgroup v2 cpu.max, pinned to one core.
+
+    ``systemd-run --user`` has no session bus here, so this writes
+    ``cpu.max``, moves the shell into that cgroup, then ``setpriv`` drops
+    back to the invoking user before exec. Workers inherit the cgroup.
+    The gunicorn pid is recorded at ``out/server.pid``.
+
+    Args:
+        argv: gunicorn command.
+        percent: Percent of one core.
+        cwd: Directory the server should start in.
+        out: Run directory that receives ``server.pid``.
+    """
+    spec = cpu_max_spec(percent)
+    path = "/sys/fs/cgroup/mck283load"
+    inner = " ".join(shlex.quote(part) for part in argv)
+    pid_file = out / "server.pid"
+    uid = os.getuid()
+    gid = os.getgid()
+    # setpriv keeps this pid, so server.pid is the gunicorn master and the
+    # sampler can read it as the invoking user. The cgroup stays attached.
+    script = (
+        f"mkdir -p {path} && echo {shlex.quote(spec)} > {path}/cpu.max && "
+        f"cd {shlex.quote(str(cwd))} && echo $$ > {shlex.quote(str(pid_file))} && "
+        f"echo $$ > {path}/cgroup.procs && "
+        f"exec setpriv --reuid {uid} --regid {gid} --init-groups --inh-caps=-all "
+        f"taskset -c 0 {inner}"
+    )
+    return ["sudo", "-E", "sh", "-c", script], f"cgroup v2 cpu.max {spec} + taskset -c 0"
+
+
+def pin_cpu_quota(master_pid: int, percent: float) -> str:
+    """Move a running gunicorn into ``cpu.max`` and pin it to core 0.
+
+    Boot stays uncapped. Four workers cannot finish ``create_app`` inside a
+    hard 6.25% share, and this cgroup has no CPU burst. The cap is on
+    before any load client starts.
+
+    Args:
+        master_pid: gunicorn master pid.
+        percent: Percent of one core, such as 6.25.
+
+    Returns:
+        A short label stored on the run summary.
+    """
+    import psutil  # noqa: PLC0415
+
+    spec = cpu_max_spec(percent)
+    path = "/sys/fs/cgroup/mck283load"
+    master = psutil.Process(int(master_pid))
+    pids = [int(master_pid), *[int(child.pid) for child in master.children()]]
+    moves = " && ".join(
+        f"echo {pid} > {path}/cgroup.procs && taskset -cp 0 {pid} >/dev/null"
+        for pid in pids
+    )
+    script = f"mkdir -p {path} && echo {shlex.quote(spec)} > {path}/cpu.max && {moves}"
+    subprocess.check_call(["sudo", "sh", "-c", script])
+    return f"cgroup v2 cpu.max {spec} after boot + taskset -c 0"
+
+
 # --------------------------------------------------------------------------- clients
 class Recorder:
     def __init__(self, path: Path) -> None:
@@ -350,12 +472,366 @@ class Recorder:
             self.w.writerow([f"{t:.3f}", kind, status, f"{ms:.1f}"])
 
 
+_PHONE_LIGHT = frozenset(
+    {
+        "state_seq",
+        "stage",
+        "slide",
+        "active_media",
+        "flags",
+        "prompt",
+        "response_landed",
+        "flag_work",
+    }
+)
+
+
+def builds_per_tap(builds: int, taps: int) -> float | None:
+    """Full ``/state`` builds divided by successful rank-turn taps.
+
+    Args:
+        builds: Responses that were not ``unchanged`` and not shed.
+        taps: HTTP 200 rank-turn posts.
+
+    Returns:
+        The ratio, or ``None`` when there were no successful taps.
+    """
+    if int(taps) < 1:
+        return None
+    return int(builds) / int(taps)
+
+
+def _phone_can_place(payload: dict[str, Any] | None, item_id: int) -> bool:
+    """True when this student's last full payload says it is their turn.
+
+    Args:
+        payload: Last full ``/api/student/state`` body.
+        item_id: ``live_session_items.id`` currently open.
+    """
+    if not isinstance(payload, dict):
+        return False
+    for pool in ("active_questions", "live_items"):
+        for row in payload.get(pool) or []:
+            if not isinstance(row, dict):
+                continue
+            if int(row.get("id") or 0) != int(item_id):
+                continue
+            turns = (row.get("group_submit") or {}).get("turns") or {}
+            return bool(turns.get("can_place"))
+    return False
+
+
+def start_phone_threads(
+    base: str,
+    fx: dict[str, Any],
+    stop_at: float,
+    rec: Recorder,
+    round_minutes: float,
+    call: Any,
+    mk: Any,
+) -> list[threading.Thread]:
+    """Drive one class the way a phone does during a group question.
+
+    Each student holds the SSE stream and fetches ``/state`` on a postcard
+    (40 ms debounce, one in flight plus one queued), with a 20 s fallback
+    while the stream is open and a 4 s poll while it is not. A heartbeat
+    goes out every 10 s unless the previous one is still in flight. Each
+    team places one rank item every 3–5 s. The tapping phone clears its
+    stamp and fetches ``/state`` again 1.2 s later.
+
+    Args:
+        base: Loopback origin.
+        fx: One seeded class.
+        stop_at: ``time.monotonic`` deadline.
+        rec: Shared request log.
+        round_minutes: Gap between teacher publishes.
+        call: ``run_load`` request helper.
+        mk: Session factory.
+
+    Returns:
+        Threads the caller starts and joins.
+    """
+    sid = fx["session_id"]
+    state: dict[str, Any] = {"item": -1}
+
+    def student_session(st: dict[str, Any]) -> Any:
+        """Session cookie plus the rejoin cookie the heartbeat route requires."""
+        sess = mk(st["cookie"])
+        rejoin = str(st.get("rejoin") or "")
+        if rejoin:
+            sess.headers["Cookie"] = f"session={st['cookie']}; lloves_live_rejoin={rejoin}"
+        return sess
+
+    teams: dict[int, list[dict[str, Any]]] = {}
+    for student in fx["students"]:
+        teams.setdefault(int(student.get("team") or 0), []).append(student)
+
+    def fetch_state(sess: Any, st: dict[str, Any]) -> None:
+        """One ``/state``. Full builds, unchanged, and shed are separate kinds."""
+        params: dict[str, Any] = {}
+        if st.get("seq") is not None:
+            params["seq"] = st["seq"]
+        if st.get("stamp"):
+            params["stamp"] = st["stamp"]
+        t0 = time.perf_counter()
+        try:
+            rv = sess.get(base + "/api/student/state", params=params, timeout=60)
+        except Exception:  # noqa: BLE001
+            rec.add("student_state_error", 599, (time.perf_counter() - t0) * 1000)
+            return
+        ms = (time.perf_counter() - t0) * 1000
+        if rv.status_code >= 500:
+            rec.add("student_state_error", rv.status_code, ms)
+            return
+        try:
+            body = rv.json()
+        except Exception:  # noqa: BLE001
+            rec.add("student_state_error", rv.status_code, ms)
+            return
+        if not isinstance(body, dict):
+            rec.add("student_state_error", rv.status_code, ms)
+            return
+        if body.get("unchanged"):
+            rec.add("student_state_unchanged", rv.status_code, ms)
+            return
+        if body.get("retry") or body.get("error") == "state unavailable":
+            rec.add("student_state_shed", rv.status_code, ms)
+            return
+        rec.add("student_state_build", rv.status_code, ms)
+        if body.get("state_seq") is not None:
+            st["seq"] = body.get("state_seq")
+        if body.get("stamp"):
+            st["stamp"] = str(body["stamp"])
+        st["payload"] = body
+
+    def phone_stream(st: dict[str, Any]) -> None:
+        """Hold SSE and arm a debounced ``/state`` on each light postcard."""
+        sess = student_session(st)
+        last = None
+        while time.monotonic() < stop_at:
+            st["stream_up"] = False
+            t0 = time.perf_counter()
+            headers = {"Last-Event-ID": last} if last else {}
+            try:
+                with sess.get(
+                    base + f"/api/live/session/{sid}/events",
+                    stream=True,
+                    timeout=(10, 40),
+                    headers=headers,
+                ) as rv:
+                    rec.add(
+                        "sse_first_byte",
+                        rv.status_code,
+                        (time.perf_counter() - t0) * 1000,
+                    )
+                    if rv.status_code != 200:
+                        time.sleep(1)
+                        continue
+                    st["stream_up"] = True
+                    etype = ""
+                    data = ""
+                    for line in rv.iter_lines(decode_unicode=True):
+                        if time.monotonic() >= stop_at:
+                            break
+                        if line is None:
+                            continue
+                        if line == "":
+                            if etype in _PHONE_LIGHT and not st.get("want"):
+                                st["want"] = True
+                                st["want_at"] = time.monotonic() + 0.04
+                            etype = ""
+                            data = ""
+                            continue
+                        if line.startswith("id:"):
+                            last = line[3:].strip()
+                        elif line.startswith("event:"):
+                            etype = line[6:].strip()
+                        elif line.startswith("data:"):
+                            data += line[5:].strip()
+            except Exception:  # noqa: BLE001
+                rec.add("sse_first_byte", 599, (time.perf_counter() - t0) * 1000)
+                time.sleep(1)
+            st["stream_up"] = False
+            time.sleep(1)
+
+    def phone_state(st: dict[str, Any]) -> None:
+        """Debounced ``/state``, the safety poll, the post-tap resync, heartbeats."""
+        sess = student_session(st)
+        next_fallback = time.monotonic() + random.random()
+        next_hb = time.monotonic() + random.random() * 2
+        hb_out = False
+        fetch_state(sess, st)
+        while time.monotonic() < stop_at:
+            now = time.monotonic()
+            do = False
+            if st.get("resync_at") and now >= float(st["resync_at"]):
+                st["resync_at"] = 0
+                st["stamp"] = ""
+                do = True
+            elif st.get("want") and now >= float(st.get("want_at") or 0):
+                st["want"] = False
+                do = True
+            elif now >= next_fallback:
+                next_fallback = now + (20 if st.get("stream_up") else 4)
+                do = True
+            if do:
+                fetch_state(sess, st)
+                if st.get("want"):
+                    st["want"] = False
+                    fetch_state(sess, st)
+            if now >= next_hb and not hb_out:
+                hb_out = True
+                next_hb = now + 10
+
+                def beat(flag: dict[str, bool] = {"on": True}) -> None:
+                    """One heartbeat. A slow beat blocks the next one."""
+                    del flag
+                    try:
+                        call(sess, "heartbeat", "POST", "/api/student/heartbeat", json={})
+                    finally:
+                        nonlocal hb_out
+                        hb_out = False
+
+                threading.Thread(target=beat, daemon=True).start()
+            time.sleep(0.02)
+
+    def team_tap(members: list[dict[str, Any]], team_index: int) -> None:
+        """One tap every 3–5 s for this team, on the open rank or MC item."""
+        seen_mc: set[int] = set()
+        cursor = 0
+        while time.monotonic() < stop_at:
+            k = int(state["item"])
+            if k < 0 or k >= len(fx["items"]):
+                time.sleep(0.2)
+                continue
+            item = fx["items"][k]
+            if item.get("kind") == "mc":
+                if team_index in seen_mc:
+                    time.sleep(0.4)
+                    continue
+                member = members[0]
+                sess = student_session(member)
+                rv = call(
+                    sess,
+                    "group_pick",
+                    "POST",
+                    f"/api/student/live-items/{item['live_item_id']}/group-pick",
+                    json={"choice": item.get("choice") or "Graph"},
+                )
+                if rv is not None and rv.status_code == 200:
+                    seen_mc.add(team_index)
+                    call(
+                        sess,
+                        "group_submit",
+                        "POST",
+                        f"/api/student/live-items/{item['live_item_id']}/group-submit",
+                        json={
+                            "choice": item.get("choice") or "Graph",
+                            "why": "It matches the graph.",
+                        },
+                    )
+                else:
+                    time.sleep(1)
+                continue
+            time.sleep(random.uniform(3, 5))
+            if time.monotonic() >= stop_at:
+                break
+            chosen = None
+            for member in members:
+                if _phone_can_place(member.get("payload"), int(item["live_item_id"])):
+                    chosen = member
+                    break
+            if chosen is None:
+                chosen = members[cursor % len(members)]
+                cursor += 1
+            opt = random.choice(item["options"])
+            rv = call(
+                student_session(chosen),
+                "rank_turn",
+                "POST",
+                f"/api/student/live-items/{item['live_item_id']}/rank-turn",
+                json={"option_id": opt},
+            )
+            if rv is not None and rv.status_code == 200:
+                chosen["resync_at"] = time.monotonic() + 1.2
+
+    def teacher() -> None:
+        """Publish the next item, close the previous one, and time the course page."""
+        sess = mk(fx["staff_cookie"])
+        next_round = time.monotonic()
+        page = 1
+        while time.monotonic() < stop_at:
+            call(sess, "staff_state", "GET", f"/api/live-sessions/{sid}/state")
+            ticks = state.setdefault("ticks", 0)
+            state["ticks"] = ticks + 1
+            if ticks % 15 == 0:
+                call(sess, "staff_class_page", "GET", f"/staff/class/{fx['class_id']}")
+            if time.monotonic() >= next_round and state["item"] + 1 < len(fx["items"]):
+                page += 1
+                current = int(state["item"])
+                if current >= 0:
+                    call(
+                        sess,
+                        "close_item",
+                        "POST",
+                        f"/api/live-sessions/{sid}/items/{fx['items'][current]['live_item_id']}/close",
+                    )
+                call(
+                    sess,
+                    "teacher_state",
+                    "POST",
+                    f"/api/live-sessions/{sid}/teacher-state",
+                    json={
+                        "live_module": "M1",
+                        "live_slot": "C2",
+                        "stage": "round",
+                        "page_id": f"round_{page}",
+                    },
+                )
+                k = current + 1
+                call(
+                    sess,
+                    "publish",
+                    "POST",
+                    f"/api/live-sessions/{sid}/items/{fx['items'][k]['live_item_id']}/publish",
+                    json={"publish_mode": "group_submit"},
+                )
+                call(sess, "static_js", "GET", "/static/student-portal.js")
+                call(sess, "static_svg", "GET", "/static/mood/good.svg")
+                state["item"] = k
+                next_round = time.monotonic() + round_minutes * 60
+            time.sleep(2)
+
+    def static_sampler() -> None:
+        """Keep a static-file sample in flight through the round, not only at publish."""
+        sess = mk(fx["staff_cookie"])
+        while time.monotonic() < stop_at:
+            call(sess, "static_js", "GET", "/static/student-portal.js")
+            call(sess, "static_svg", "GET", "/static/mood/good.svg")
+            time.sleep(5)
+
+    threads = [
+        threading.Thread(target=teacher, daemon=True),
+        threading.Thread(target=static_sampler, daemon=True),
+    ]
+    for student in fx["students"]:
+        threads.append(threading.Thread(target=phone_stream, args=(student,), daemon=True))
+        threads.append(threading.Thread(target=phone_state, args=(student,), daemon=True))
+    for index, members in teams.items():
+        threads.append(
+            threading.Thread(target=team_tap, args=(members, index), daemon=True)
+        )
+    return threads
+
+
 def run_load(
     base: str,
     fixtures: list[dict[str, Any]],
     minutes: float,
     round_minutes: float,
     rec: Recorder,
+    *,
+    phone: bool = False,
 ) -> None:
     """Drive every class at once against one local gunicorn.
 
@@ -365,6 +841,9 @@ def run_load(
         minutes: How long the clients run.
         round_minutes: Gap between teacher publishes.
         rec: Shared request log.
+        phone: When true, students follow postcard ``/state`` fetches and
+            one tap per team instead of the fixed 4 s poll. The default
+            path is the deploy smoke.
     """
     import requests  # noqa: PLC0415
 
@@ -388,6 +867,10 @@ def run_load(
 
     def drive(fx: dict[str, Any]) -> list[threading.Thread]:
         """Start one class's teacher and students. ``fx`` is bound per call."""
+        if phone:
+            return start_phone_threads(
+                base, fx, stop, rec, round_minutes, call, mk
+            )
         sid = fx["session_id"]
         state: dict[str, Any] = {"item": -1}
 
@@ -656,6 +1139,23 @@ def summarize(
         "kinds": kinds,
         "rss": growth,
     }
+    if "student_state_build" in kinds or "static_js" in kinds:
+        builds = int(kinds.get("student_state_build", {}).get("n") or 0)
+        taps = int((kinds.get("rank_turn", {}).get("status") or {}).get("200") or 0)
+        ratio = builds_per_tap(builds, taps)
+        static_ms = [
+            m
+            for _, kind, status, m in rec.rows
+            if kind in {"static_js", "static_svg"} and status < 500
+        ]
+        summary["state_builds"] = builds
+        summary["rank_taps_200"] = taps
+        summary["builds_per_tap"] = None if ratio is None else round(ratio, 2)
+        summary["state_unchanged"] = int(kinds.get("student_state_unchanged", {}).get("n") or 0)
+        summary["state_shed"] = int(kinds.get("student_state_shed", {}).get("n") or 0)
+        summary["static_p95_ms"] = round(pct(static_ms, 95), 1)
+        summary["staff_class_p95_ms"] = (kinds.get("staff_class_page") or {}).get("p95_ms", 0)
+        summary["group_pick_200"] = int((kinds.get("group_pick", {}).get("status") or {}).get("200") or 0)
     if meta:
         summary.update(meta)
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
@@ -674,6 +1174,16 @@ def summarize(
         "max_workers",
         "max_total_rss_mb",
         "over_1gb",
+        "state_builds",
+        "rank_taps_200",
+        "builds_per_tap",
+        "state_unchanged",
+        "state_shed",
+        "static_p95_ms",
+        "staff_class_p95_ms",
+        "group_pick_200",
+        "cpu_quota",
+        "code_root",
     ):
         if key in summary:
             md.append(f"| {key} | {summary[key]} |")
@@ -713,6 +1223,23 @@ def main() -> int:
                     help="Exit 1 unless errors, p95, and worker restarts are within limits.")
     ap.add_argument("--max-p95-ms", type=float, default=250.0)
     ap.add_argument("--min-classes", type=int, default=1)
+    ap.add_argument(
+        "--phone",
+        action="store_true",
+        help="Postcard /state fetches and one team tap every few seconds.",
+    )
+    ap.add_argument(
+        "--cpu-quota",
+        type=float,
+        default=0,
+        help="Percent of one core for gunicorn (cgroup cpu.max). 0 is uncapped.",
+    )
+    ap.add_argument(
+        "--code-root",
+        type=Path,
+        default=None,
+        help="Checkout gunicorn imports. Default is this script's repo.",
+    )
     args = ap.parse_args()
     if not presence_is_local(args.presence_url):
         print("refusing non-local presence URL; this smoke never targets production", file=sys.stderr)
@@ -750,7 +1277,19 @@ def drop_presence_db(admin_url: str, dbname: str) -> None:
 def _run(args: argparse.Namespace, out: Path, presence: str) -> int:
     """Seed, boot gunicorn, drive load, and apply the gate. See ``main``."""
     data = Path(tempfile.mkdtemp(prefix="load-class-"))
-    fixtures = seed(data, args.students, presence, classes=args.classes, items=args.items)
+    code_root = Path(args.code_root).resolve() if args.code_root else REPO
+    if not (code_root / "lms" / "app.py").is_file():
+        print("code root has no lms/app.py:", code_root, file=sys.stderr)
+        return 2
+    phone = bool(args.phone)
+    fixtures = seed(
+        data,
+        args.students,
+        presence,
+        classes=args.classes,
+        items=args.items,
+        include_mc=phone,
+    )
     public = [
         {k: v for k, v in fx.items() if k not in ("students", "staff_cookie")}
         for fx in fixtures
@@ -768,13 +1307,18 @@ def _run(args: argparse.Namespace, out: Path, presence: str) -> int:
         "LOAD_OUT": str(out),
         "LOAD_TRACEMALLOC": "1" if args.tracemalloc else "0",
         "SENTRY_DSN": "",
-        "PYTHONPATH": str(REPO),
+        "PYTHONPATH": str(code_root),
+        "PYTHONUNBUFFERED": "1",
     }
     env.pop("LOCAL_DEV_LOGIN", None)
     server_log = out / "server.log"
     argv = gunicorn_argv(args.port, hooks, args.strip_max_requests)
+    quota = float(args.cpu_quota or 0)
+    quota_label = ""
     (out / "command.txt").write_text(" ".join(argv) + "\n")
-    proc = subprocess.Popen(argv, cwd=REPO, env=env, stdout=server_log.open("w"), stderr=subprocess.STDOUT)
+    proc = subprocess.Popen(
+        argv, cwd=code_root, env=env, stdout=server_log.open("w"), stderr=subprocess.STDOUT
+    )
     import requests  # noqa: PLC0415
     import serve_capacity  # noqa: PLC0415
 
@@ -800,22 +1344,43 @@ def _run(args: argparse.Namespace, out: Path, presence: str) -> int:
         print("server did not come up; see", server_log)
         return 2
     time.sleep(10)  # let every worker finish create_app()
+    master_pid = proc.pid
+    if quota > 0:
+        try:
+            quota_label = pin_cpu_quota(master_pid, quota)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            print("could not apply cpu quota:", exc, file=sys.stderr)
+            proc.terminate()
+            return 2
+        (out / "command.txt").write_text(
+            (out / "command.txt").read_text() + quota_label + "\n"
+        )
     info = {"restarts": 0, "max_total_mb": 0.0, "max_workers": 0}
     stop_evt = threading.Event()
     smp = threading.Thread(
         target=sampler,
-        args=(proc.pid, out, stop_evt, info, serve_capacity.WORKERS),
+        args=(master_pid, out, stop_evt, info, serve_capacity.WORKERS),
         daemon=True,
     )
     smp.start()
     rec = Recorder(out / "requests.csv")
     try:
-        run_load(base, fixtures, args.minutes, args.round_minutes, rec)
+        run_load(
+            base,
+            fixtures,
+            args.minutes,
+            args.round_minutes,
+            rec,
+            phone=phone,
+        )
     finally:
         stop_evt.set()
         smp.join(timeout=20)
         rec.fh.close()
-        proc.send_signal(signal.SIGTERM)
+        try:
+            os.kill(master_pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
         try:
             proc.wait(timeout=40)
         except subprocess.TimeoutExpired:
@@ -831,6 +1396,9 @@ def _run(args: argparse.Namespace, out: Path, presence: str) -> int:
             "students_per_class": args.students,
             "students_total": args.classes * args.students,
             "target": base,
+            "phone": phone,
+            "cpu_quota": quota_label or "uncapped",
+            "code_root": code_root.name,
         },
     )
     print(json.dumps({k: v for k, v in summary.items() if k not in ("kinds", "rss")}, indent=2))

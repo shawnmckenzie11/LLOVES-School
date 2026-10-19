@@ -29984,6 +29984,46 @@ class SchoolDB(LovesDB):
         except (TypeError, ValueError):
             return None
 
+    def student_open_group_team_ids(
+        self, session_id: int, student_id: int
+    ) -> frozenset[int]:
+        """Team ids for this student on the session's open group items.
+
+        Read-only. Empty means the team is not known (no membership row on
+        an active item yet). Callers then deliver the group postcard so a
+        late joiner still sees their own team's update.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id.
+        """
+        try:
+            sid = int(session_id)
+            student = int(student_id)
+        except (TypeError, ValueError):
+            return frozenset()
+        try:
+            with self._lock:
+                rows = self.conn.execute(
+                    """
+                    SELECT DISTINCT m.team_id AS team_id
+                    FROM live_group_members m
+                    INNER JOIN live_session_items i ON i.id = m.live_item_id
+                    WHERE i.live_session_id = ?
+                      AND i.status = 'active'
+                      AND m.student_id = ?
+                    """,
+                    (sid, student),
+                ).fetchall()
+        except sqlite3.Error:
+            return frozenset()
+        found: set[int] = set()
+        for row in rows:
+            try:
+                found.add(int(row["team_id"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+        return frozenset(found)
 
     def student_live_board_key(self, session_id: int, student_id: int) -> str:
         """Collab board key for one student (``team:<sort_order>`` or ``shared``).
@@ -40950,7 +40990,70 @@ class SchoolDB(LovesDB):
             payload.append(item)
         return payload
 
-    def live_student_poll_stamp(self, session_id: int, class_id: int) -> str:
+    def _team_group_response_rev(
+        self, session_id: int, student_id: int
+    ) -> str | None:
+        """Group-response stamp for one student's teams, or None if unknown.
+
+        None keeps the class-wide token. A student with no membership on an
+        open group item must not get a stamp that ignores another team's
+        write they might still be waiting on. When membership is known, only
+        that student's team rows are folded in, so another team's draft does
+        not force a full ``/state`` build.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id.
+        """
+        try:
+            sid = int(session_id)
+            student = int(student_id)
+        except (TypeError, ValueError):
+            return None
+        with self._lock:
+            member = self.conn.execute(
+                """
+                SELECT 1 AS ok
+                FROM live_group_members m
+                INNER JOIN live_session_items i ON i.id = m.live_item_id
+                WHERE i.live_session_id = ?
+                  AND i.status = 'active'
+                  AND m.student_id = ?
+                LIMIT 1
+                """,
+                (sid, student),
+            ).fetchone()
+            if member is None:
+                return None
+            row = self.conn.execute(
+                """
+                SELECT COALESCE((
+                    SELECT MAX(COALESCE(g.updated_at, '') || '|' || COALESCE(g.voting_ended_at, ''))
+                           || '|' || TOTAL(COALESCE(g.submit_count, 0))
+                           || '|' || TOTAL(CASE WHEN json_valid(g.proposed_answer_json)
+                                THEN COALESCE(json_extract(g.proposed_answer_json, '$.rev'), 0)
+                                ELSE 0 END)
+                    FROM live_group_responses g
+                    INNER JOIN live_session_items i ON i.id = g.live_item_id
+                    WHERE i.live_session_id = ?
+                      AND EXISTS (
+                        SELECT 1 FROM live_group_members m
+                        WHERE m.live_item_id = g.live_item_id
+                          AND m.student_id = ?
+                          AND m.team_id = g.team_id
+                      )
+                ), '') AS rev
+                """,
+                (sid, student),
+            ).fetchone()
+        return str(row["rev"] if row is not None else "")
+
+    def live_student_poll_stamp(
+        self,
+        session_id: int,
+        class_id: int,
+        student_id: int | None = None,
+    ) -> str:
         """Return a cheap revision token for student /state short-circuit.
 
         Includes prompt active flags, item counts, Save to card, prompt
@@ -40969,6 +41072,9 @@ class SchoolDB(LovesDB):
         Args:
             session_id: ``live_class_sessions.id``.
             class_id: Game-show class id (accepted for call-site clarity).
+            student_id: When set, the group-response field is only that
+                student's teams. Omit it for the class-wide token tests
+                and callers already use. Every other field stays class-wide.
         """
         del class_id
         teacher = self.live_session_teacher_state_payload(session_id)
@@ -41095,6 +41201,10 @@ class SchoolDB(LovesDB):
         # MCK-155 PR C: a teammate's turn, a Skip, Start group step or a locked send
         # touches the team row; teammates must not keep a stale card.
         group_response_rev = str(row["group_response_rev"] if row is not None else "")
+        if student_id not in (None, ""):
+            scoped = self._team_group_response_rev(int(session_id), int(student_id))
+            if scoped is not None:
+                group_response_rev = scoped
         status = str(status_row["status"] if status_row is not None else "")
         # MCK-171: the Team challenge reveal step (the podium step writes no
         # point event, so phones would otherwise get "unchanged").
@@ -41230,7 +41340,12 @@ class SchoolDB(LovesDB):
         }
 
     def student_live_poll_unchanged(
-        self, session_id: int, class_id: int, seq: Any, stamp: Any
+        self,
+        session_id: int,
+        class_id: int,
+        seq: Any,
+        stamp: Any,
+        student_id: int | None = None,
     ) -> dict[str, Any] | None:
         """Return a tiny payload when the student's seq and stamp still match.
 
@@ -41243,6 +41358,8 @@ class SchoolDB(LovesDB):
             class_id: Game-show class id.
             seq: Client ``state_seq`` from the last full payload.
             stamp: Client ``live_student_poll_stamp`` from the last full payload.
+            student_id: Roster id, so the group part of the stamp is that
+                student's teams. ``None`` keeps the class-wide group token.
 
         Returns:
             Ended body, unchanged short-circuit, or ``None`` to rebuild.
@@ -41258,7 +41375,9 @@ class SchoolDB(LovesDB):
         try:
             teacher = self.live_session_teacher_state_payload(session_id)
             current_seq = int(teacher.get("state_seq") or 0)
-            current_stamp = self.live_student_poll_stamp(session_id, class_id)
+            current_stamp = self.live_student_poll_stamp(
+                session_id, class_id, student_id
+            )
         except KeyError:
             return self._student_live_gone_payload(session_id)
         if requested != current_seq or str(stamp) != current_stamp:
