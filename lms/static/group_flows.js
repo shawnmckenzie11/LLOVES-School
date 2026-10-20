@@ -35,6 +35,7 @@ export const GROUP_FLOW_COPY = Object.freeze({
   waitingFor: "Waiting for {names}.", // gate LOW-2, NEW for the Wonder pass
   spot: "Spot {n}",
   placedBy: "placed by {name}",
+  check: "Check our ranking",
 });
 
 /**
@@ -287,11 +288,21 @@ export function rankTurnsHtml(group, opts) {
     ? ` <button type="button" class="link-button rank-turn-undo" data-rank-turn-undo>${esc(C.undo)}</button>`
     : "";
   const note = String(opts.note || "").trim();
+  const check = group?.check && typeof group.check === "object" ? group.check : {};
+  const checkBtn = check.available
+    ? `<button type="button" class="secondary rank-check" data-rank-check>${esc(C.check)}</button>`
+    : "";
+  const checkMsg =
+    check.used && check.message
+      ? `<p class="rank-check-result" role="status">${esc(check.message)}</p>`
+      : "";
   return `<div class="rank-turns" data-rank-turns="${Number(opts.itemId) || 0}" data-turn-rev="${Number(turns.rev) || 0}">
     <ol class="rank-turn-spots">${spotRows.join("")}</ol>
     ${optionRows}
     ${skipped}
     ${note ? `<p class="rank-turn-note" role="status">${esc(note)}</p>` : ""}
     <p class="rank-turn-cue" aria-live="polite">${esc(rankTurnCue(turns))}${undo}</p>
+    ${checkBtn}
+    ${checkMsg}
   </div>`;
 }

@@ -19,6 +19,10 @@
   <main class="sd-main">
     <section class="sd-card" aria-labelledby="sd-this-module">
       <h2 id="sd-this-module" class="sd-card-title">{{ copy.card_this_module }}</h2>
+      <div class="sd-engagement">
+        <p><span>Individual engagement</span> <strong id="sd-individual-engagement">{{ dashboard.individual_engagement }}</strong></p>
+        <p><span>Group engagement</span> <strong id="sd-group-engagement">{{ dashboard.group_engagement }}</strong></p>
+      </div>
       {% if dashboard.this_module.line %}
       <p class="sd-calm-line">{{ dashboard.this_module.line }}</p>
       {% endif %}

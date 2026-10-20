@@ -142,6 +142,7 @@ const meAvatarEl = document.getElementById("me-avatar");
 const meNameEl = document.getElementById("me-name");
 const meChipEl = document.getElementById("me-meet-chip");
 const meEngagementEl = document.getElementById("me-engagement");
+const meGroupEngagementEl = document.getElementById("me-group-engagement");
 const meTeamStatEl = document.getElementById("me-team-stat");
 const meTeamLabelEl = document.getElementById("me-team-label");
 const meTeamPointsEl = document.getElementById("me-team-points");
@@ -671,6 +672,9 @@ function paintMe(payload) {
   }
   if (meEngagementEl) {
     meEngagementEl.textContent = String(me.engagement || "0/0");
+  }
+  if (meGroupEngagementEl) {
+    meGroupEngagementEl.textContent = String(me.group_engagement || "0/0");
   }
   const showTeam = Boolean(me.show_team_score);
   if (meTeamStatEl) meTeamStatEl.hidden = !showTeam;
@@ -3866,7 +3870,7 @@ function reenableTurnButtons(itemId) {
     .forEach((block) => {
       if (!(block instanceof HTMLElement)) return;
       delete block.dataset.turnPending;
-      block.querySelectorAll("[data-rank-turn], [data-rank-turn-undo]").forEach((button) => {
+      block.querySelectorAll("[data-rank-turn], [data-rank-turn-undo], [data-rank-check]").forEach((button) => {
         if (button instanceof HTMLButtonElement) button.disabled = false;
       });
     });
@@ -6190,6 +6194,17 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
       const block = turnPick.closest("[data-rank-turns]");
       if (block instanceof HTMLElement) block.dataset.turnPending = "1";
       void postGroupFlow(card, "rank-turn", { option_id: turnPick.getAttribute("data-rank-turn") || "" });
+    }
+    return;
+  }
+  const rankCheck = event.target.closest("[data-rank-check]");
+  if (rankCheck instanceof HTMLButtonElement) {
+    const card = rankCheck.closest("[data-live-card-id]");
+    if (card instanceof HTMLElement && !rankCheck.disabled) {
+      rankCheck.disabled = true;
+      const block = rankCheck.closest("[data-rank-turns]");
+      if (block instanceof HTMLElement) block.dataset.turnPending = "1";
+      void postGroupFlow(card, "rank-check", {});
     }
     return;
   }
