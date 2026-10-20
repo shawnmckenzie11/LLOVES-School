@@ -1173,6 +1173,15 @@ def _now() -> str:
     return datetime.now().replace(microsecond=0).isoformat()
 
 
+def _utc_now() -> str:
+    """Return a UTC ISO timestamp without microseconds.
+
+    Verification expiry is stored and compared in UTC. Other stamps stay
+    on ``_now()``.
+    """
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
 # Missed heartbeats after this window mark an attendee left (tab close / drop).
 # ~10s client beat; 90s survives Chrome background timer throttling.
 LIVE_HEARTBEAT_INTERVAL_SECONDS = 10
@@ -5638,36 +5647,38 @@ class LovesDB:
                     verification_attempts = 0
                 WHERE id = ?
                 """,
-                (code, _now(), user_id),
+                (code, _utc_now(), user_id),
             )
             self.conn.commit()
 
-    def record_verification_failure(self, user_id: int) -> int:
-        """Count one wrong /verify-email guess.
+    def reserve_verification_attempt(self, user_id: int, *, limit: int = 5) -> bool:
+        """Count one /verify-email guess before the code is checked.
+
+        The increment and the cap share one UPDATE, matching the catch-up
+        PIN reserve: a guess that does not match is refused and must not
+        be compared.
 
         Args:
             user_id: Users primary key.
+            limit: Guesses allowed. The row updates only while
+                ``verification_attempts`` is still below this.
 
         Returns:
-            The guess count after this failure.
+            True when this request reserved a guess. False when no row
+            changed (already at the cap).
         """
         with self._lock:
-            self.conn.execute(
+            cur = self.conn.execute(
                 """
                 UPDATE users
-                SET verification_attempts = COALESCE(verification_attempts, 0) + 1
-                WHERE id = ?
+                SET verification_attempts = verification_attempts + 1
+                WHERE id = ? AND verification_attempts < ?
                 """,
-                (int(user_id),),
+                (int(user_id), int(limit)),
             )
+            reserved = cur.rowcount == 1
             self.conn.commit()
-            row = self.conn.execute(
-                "SELECT verification_attempts FROM users WHERE id = ?",
-                (int(user_id),),
-            ).fetchone()
-        if row is None:
-            return 0
-        return int(row["verification_attempts"] or 0)
+        return reserved
 
     def mark_verified(self, user_id: int) -> dict[str, Any]:
         """Clear the email code and stamp verified_at."""

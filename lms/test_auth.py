@@ -7,8 +7,9 @@ import hmac
 import os
 import sys
 import tempfile
+import threading
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -621,7 +622,9 @@ class AuthTests(unittest.TestCase):
             user = self.school.get_user_by_email("lock@gmail.com")
             assert user is not None
             self.assertFalse(user.get("verified_at"))
-            stale = (datetime.now() - timedelta(seconds=120)).replace(microsecond=0)
+            stale = (
+                datetime.now(timezone.utc) - timedelta(seconds=120)
+            ).replace(microsecond=0)
             with self.school._lock:
                 self.school.conn.execute(
                     "UPDATE users SET verification_sent_at = ? WHERE email = ?",
@@ -648,7 +651,9 @@ class AuthTests(unittest.TestCase):
         """A code older than ten minutes is refused."""
         with self._without_on_page_code():
             expected = self._start_2sv("old@gmail.com")
-            stale = (datetime.now() - timedelta(minutes=11)).replace(microsecond=0)
+            stale = (
+                datetime.now(timezone.utc) - timedelta(minutes=11)
+            ).replace(microsecond=0)
             with self.school._lock:
                 self.school.conn.execute(
                     "UPDATE users SET verification_sent_at = ? WHERE email = ?",
@@ -673,6 +678,75 @@ class AuthTests(unittest.TestCase):
             good = self.client.post("/verify-email", data={"code": expected})
         self.assertEqual(good.status_code, 302)
         self.assertGreaterEqual(cmp.call_count, 1)
+
+    def test_verify_email_checks_at_most_five_guesses_at_once(self) -> None:
+        """Twenty simultaneous guesses check the code at most five times."""
+        self._start_2sv("race@gmail.com")
+        with self.client.session_transaction() as sess:
+            snapshot = dict(sess)
+        import auth
+
+        checked = 0
+        counter = threading.Lock()
+        real_equal = auth._secret_equal
+
+        def _counting(stored: object, presented: object) -> bool:
+            nonlocal checked
+            with counter:
+                checked += 1
+            return real_equal(stored, presented)
+
+        errors: list[BaseException] = []
+        barrier = threading.Barrier(20)
+
+        def _guess() -> None:
+            try:
+                client = self.app.test_client()
+                with client.session_transaction() as sess:
+                    sess.update(snapshot)
+                barrier.wait(timeout=10)
+                client.post("/verify-email", data={"code": "000000"})
+            except BaseException as exc:
+                errors.append(exc)
+
+        with patch("auth._secret_equal", side_effect=_counting):
+            threads = [threading.Thread(target=_guess) for _ in range(20)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=30)
+        self.assertEqual(errors, [])
+        self.assertLessEqual(checked, 5)
+        user = self.school.get_user_by_email("race@gmail.com")
+        assert user is not None
+        self.assertEqual(int(user.get("verification_attempts") or 0), 5)
+        self.assertFalse(user.get("verified_at"))
+
+    def test_sign_in_after_twelve_minutes_emails_a_new_code(self) -> None:
+        """A code about twelve minutes old is replaced and emailed."""
+        email = "twelve@gmail.com"
+        self.school.register_staff(email)
+        with patch("email_service.send_verification_email", return_value=True) as mocked:
+            with patch("auth.secrets.randbelow", return_value=1):
+                first = self._callback(email, "staff")
+            self.assertEqual(first.status_code, 302)
+            stale = (
+                datetime.now(timezone.utc) - timedelta(minutes=12)
+            ).replace(microsecond=0)
+            with self.school._lock:
+                self.school.conn.execute(
+                    "UPDATE users SET verification_sent_at = ? WHERE email = ?",
+                    (stale.isoformat(), email),
+                )
+                self.school.conn.commit()
+            with patch("auth.secrets.randbelow", return_value=7):
+                again = self._callback(email, "staff")
+            self.assertEqual(again.status_code, 302)
+            self.assertEqual(mocked.call_count, 2)
+        user = self.school.get_user_by_email(email)
+        assert user is not None
+        self.assertTrue(str(user.get("verification_code") or "") == f"{7 + 100000}")
+        self.assertEqual(int(user.get("verification_attempts") or 0), 0)
 
     def test_google_oauth_state_uses_secrets(self) -> None:
         """Google login state is a secrets token checked with compare_digest."""

@@ -9,7 +9,7 @@ import json
 import os
 import secrets
 import urllib.parse
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 from functools import wraps
 from typing import Any, Callable
@@ -86,11 +86,11 @@ STUDENT_JOIN_SESSION_PER_IP_LIMIT = 50
 STUDENT_JOIN_GLOBAL_FAIL_LIMIT = 2000
 STUDENT_JOIN_LOCKED_MSG = "Too many attempts. Try again in a few minutes."
 
-VERIFY_SEND_COOLDOWN_SEC = 15 * 60
 VERIFY_RESEND_COOLDOWN_SEC = 90
 # Wrong guesses on /verify-email before the code is refused, even if it matches.
 VERIFY_MAX_GUESSES = 5
 # A staff sign-in code stops working this long after it was issued.
+# Re-sign-in reuses a code only inside this window (not the old 15 minutes).
 VERIFY_CODE_TTL_SEC = 10 * 60
 
 
@@ -263,7 +263,14 @@ def request_client_ip() -> str:
 
 
 def _verification_age_seconds(user: dict[str, Any]) -> float | None:
-    """Seconds since the last verification email was recorded, if known."""
+    """Seconds since the verification stamp, compared in UTC.
+
+    ``verification_sent_at`` is stored as a UTC ISO timestamp. A stamp with
+    no offset is treated as UTC so a local clock cannot stretch the window.
+
+    Args:
+        user: Allowlisted user row.
+    """
     raw = user.get("verification_sent_at")
     if not raw:
         return None
@@ -271,7 +278,11 @@ def _verification_age_seconds(user: dict[str, Any]) -> float | None:
         sent = datetime.fromisoformat(str(raw))
     except ValueError:
         return None
-    return max(0.0, (datetime.now() - sent).total_seconds())
+    if sent.tzinfo is None:
+        sent = sent.replace(tzinfo=timezone.utc)
+    else:
+        sent = sent.astimezone(timezone.utc)
+    return max(0.0, (datetime.now(timezone.utc) - sent).total_seconds())
 
 
 def _verification_code_expired(user: dict[str, Any]) -> bool:
@@ -775,20 +786,29 @@ def _send_first_login_code(user: dict[str, Any], *, force: bool = False) -> tupl
     Args:
         user: Allowlisted user row.
         force: When True (Resend button), mint a new code unless the
-            shorter resend cooldown is still running.
+            shorter resend cooldown is still running on a live code.
 
     Returns:
         ``(code, emailed)``. ``emailed`` is True when Resend/SMTP accepted
-        the message, or when an existing code is reused inside the cooldown
-        so the verify page still says to check email. Production never puts
-        the code on the verify page. New codes are drawn with ``secrets``.
+        the message, or when an existing code is reused so the verify page
+        still says to check email. A code is reused only when it is younger
+        than ``VERIFY_CODE_TTL_SEC`` and not locked. Otherwise a new code is
+        stored and emailed. Production never puts the code on the verify
+        page. New codes are drawn with ``secrets``.
     """
     db = school_db()
     fresh = db.get_user_by_id(int(user["id"])) or user
     existing = str(fresh.get("verification_code") or "")
     age = _verification_age_seconds(fresh)
-    cooldown = VERIFY_RESEND_COOLDOWN_SEC if force else VERIFY_SEND_COOLDOWN_SEC
-    if existing and age is not None and age < cooldown:
+    locked = int(fresh.get("verification_attempts") or 0) >= VERIFY_MAX_GUESSES
+    still_live = (
+        bool(existing)
+        and age is not None
+        and age < VERIFY_CODE_TTL_SEC
+        and not locked
+    )
+    # Resend keeps its short cooldown so a double-click does not mint twice.
+    if still_live and (not force or age < VERIFY_RESEND_COOLDOWN_SEC):
         return existing, True
     code = f"{secrets.randbelow(900000) + 100000}"
     db.set_verification_code(int(fresh["id"]), code)
@@ -1177,9 +1197,13 @@ def register_auth_routes(app: Flask) -> None:
         error = None
         info = None
         if request.method == "POST":
-            attempts = int(user.get("verification_attempts") or 0)
             entered = (request.form.get("code") or "").strip()
-            if attempts >= VERIFY_MAX_GUESSES:
+            # Count the guess before comparing so parallel posts cannot all
+            # read the old total and slip past the cap.
+            reserved = db.reserve_verification_attempt(
+                int(user["id"]), limit=VERIFY_MAX_GUESSES
+            )
+            if not reserved:
                 error = "Too many attempts. Use Resend code."
             elif _verification_code_expired(user):
                 error = "That code has expired. Use Resend code."
@@ -1189,11 +1213,7 @@ def register_auth_routes(app: Flask) -> None:
                 establish_user_session(user, portal=portal)
                 return _post_login_redirect(portal)
             else:
-                attempts = db.record_verification_failure(int(user["id"]))
-                if attempts >= VERIFY_MAX_GUESSES:
-                    error = "Too many attempts. Use Resend code."
-                else:
-                    error = "Invalid verification code. Please try again."
+                error = "Invalid verification code. Please try again."
             user = db.get_user_by_id(int(user["id"])) or user
 
         sent_raw = request.args.get("sent")
