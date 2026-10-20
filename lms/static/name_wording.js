@@ -13,7 +13,7 @@
  */
 export function plainNameWording(message) {
   const text = String(message ?? "");
-  return text.replace(/\b(Codenames?|codenames?)\b/g, (word, _g, offset) => {
+  return text.replace(/\b(Codenames?|codenames?|Names?|names?)\b/g, (word, _g, offset) => {
     const plural = word.toLowerCase().endsWith("s");
     const plain = plural ? "first names" : "first name";
     const before = text.slice(0, offset).trimEnd();

@@ -442,17 +442,18 @@ def _optional_board_seq(raw: Any) -> int | None:
         return None
 
 
-_CODENAME_WORD_RE = re.compile(r"\b(Codenames?|codenames?)\b")
+_CODENAME_WORD_RE = re.compile(r"\b(Codenames?|codenames?|Names?|names?)\b")
 
 
 def plain_name_wording(message: Any) -> str:
-    """Say "first name(s)" instead of "Codename(s)" in a roster message.
+    """Say "first name(s)" instead of "Name(s)" in a roster message.
 
     Shawn's decision for plain courses (non-math, no pack): every roster
-    validation message uses first-names wording, e.g. "Codenames cannot
+    validation message uses first-names wording, e.g. "Names cannot
     contain commas" becomes "First names cannot contain commas". The word
     is capitalised at the start of the message or a sentence, lower case
-    elsewhere ("Duplicate first name: Sam"). Math courses keep Codename.
+    elsewhere ("Duplicate first name: Sam"). Math courses say Name.
+    A leftover Codename message is rewritten the same way.
 
     Args:
         message: Validation message from the roster code.
@@ -3661,7 +3662,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             class_id = None if clear else int(payload.get("class_id"))
             student_id = None if clear else int(payload.get("student_id"))
         except (TypeError, ValueError):
-            return jsonify({"ok": False, "error": "Pick a Codename."}), 400
+            return jsonify({"ok": False, "error": "Pick a name."}), 400
         try:
             award = set_featured_award(
                 school,

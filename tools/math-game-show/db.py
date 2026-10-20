@@ -649,11 +649,11 @@ def normalize_codename(raw: str) -> str:
     """
     name = (raw or "").strip()
     if not name:
-        raise ValueError("Codename is required")
+        raise ValueError("Name is required")
     if "," in name:
-        raise ValueError("Codenames cannot contain commas")
+        raise ValueError("Names cannot contain commas")
     if len(name) < 2 or len(name) > 32:
-        raise ValueError("Codenames must be 2–32 characters")
+        raise ValueError("Names must be 2–32 characters")
     return name
 
 
@@ -675,7 +675,7 @@ def roster_from_codenames(codenames: list[str]) -> list[dict[str, str]]:
         name = normalize_codename(raw)
         key = name.lower()
         if key in seen:
-            raise ValueError(f"Duplicate Codename: {name}")
+            raise ValueError(f"Duplicate name: {name}")
         seen.add(key)
         roster.append(
             {
@@ -686,7 +686,7 @@ def roster_from_codenames(codenames: list[str]) -> list[dict[str, str]]:
             }
         )
     if not roster:
-        raise ValueError("Add at least one Codename")
+        raise ValueError("Add at least one name")
     return roster
 
 
@@ -1303,13 +1303,13 @@ class GameShowDB:
         if time_label not in TIME_OPTIONS:
             raise ValueError(f"Time must be one of: {', '.join(TIME_OPTIONS)}")
         if codenames is not None and csv_text:
-            raise ValueError("Provide a Canvas CSV or a Codename roster, not both")
+            raise ValueError("Provide a Canvas CSV or a name roster, not both")
         if codenames is not None:
             roster = roster_from_codenames(codenames)
         elif csv_text:
             roster = parse_canvas_grades_csv(csv_text)
         else:
-            raise ValueError("Provide a Canvas CSV or a Codename roster")
+            raise ValueError("Provide a Canvas CSV or a name roster")
         days = store_days(days_preset)
         meeting = next_meeting_datetime(days, time_label, today=today)
         header = format_header_label(meeting, time_label)
@@ -3246,7 +3246,7 @@ class GameShowDB:
                     self._ensure_subtotal_scores(sub_id, class_id)
                 self.conn.commit()
         except sqlite3.IntegrityError as exc:
-            raise ValueError("That Codename is already on this roster") from exc
+            raise ValueError("That name is already on this roster") from exc
         return self.dashboard(class_id, sort)
 
     def replace_codename_roster(
@@ -3272,11 +3272,11 @@ class GameShowDB:
             name = normalize_codename(raw)
             key = name.lower()
             if key in seen:
-                raise ValueError(f"Duplicate Codename: {name}")
+                raise ValueError(f"Duplicate name: {name}")
             seen.add(key)
             wanted.append(name)
         if not wanted:
-            raise ValueError("Add at least one Codename")
+            raise ValueError("Add at least one name")
         self.get_class(class_id)
         with self._lock:
             rows = self.conn.execute(

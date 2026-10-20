@@ -198,6 +198,43 @@ class CelebrationCourseTitleTests(unittest.TestCase):
         self.assertFalse(any("MCR3U-5" in label for label in labels))
 
 
+    def test_archived_section_is_off_the_celebrate_list(self) -> None:
+        """An archived section is absent, and Start fresh uses the card title."""
+        third = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]),
+            ontario_code="MCR3U",
+            new_section=True,
+        )
+        with self.school._lock:
+            self.school.conn.execute(
+                "UPDATE course_offerings SET section_index = ? WHERE id = ?",
+                (3, int(third["id"])),
+            )
+            self.school.conn.commit()
+        self._populate(int(third["id"]), ["Birch"])
+        archived = self.school.archive_offering(int(third["id"]))
+        self.assertTrue(archived.get("archived_at"))
+
+        names = {
+            str(row["name"]): str(row["course"])
+            for row in celebration_candidates(self.school, int(self.teacher["id"]))
+        }
+        self.assertNotIn("Birch", names)
+        self.assertEqual(names.get("Cedar"), "MCR3U")
+        self.assertEqual(names.get("Aspen"), "MCR3U-2")
+
+        home = self.client.get("/staff").get_data(as_text=True)
+        self.assertNotIn("Birch", home)
+        self.assertNotIn("MCR3U-3", home)
+        self.assertNotIn("MCR3U-5", home)
+        self.assertNotIn("Codename", home)
+        self.assertIn("Only MCR3U</option>", home)
+        self.assertIn("Only MCR3U-2</option>", home)
+        self.assertNotIn("Only MCR3U-3", home)
+        self.assertNotIn("Only MCR3U-5", home)
+        titles = re.findall(r'<h2 class="course-card-code">([^<]+)</h2>', home)
+        self.assertEqual(titles, ["MCR3U", "MCR3U-2"])
+
 class TestClassDeckPromptTests(unittest.TestCase):
     """Test class asks for a deck the same way a live class does."""
 

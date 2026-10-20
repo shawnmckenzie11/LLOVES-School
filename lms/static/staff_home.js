@@ -6,7 +6,7 @@ const POPULATE_STEPS_ROSTER = ["roster"];
 const EDIT_STEPS = ["roster"];
 const TITLES = {
   offering: "Assigned course",
-  roster: "Codenames",
+  roster: "Names",
   days: "Days",
   time: "Time",
 };
@@ -129,15 +129,15 @@ function addNames(raw) {
     .filter(Boolean);
   for (const line of lines) {
     if (line.includes(",")) {
-      showError("#error", "Codenames cannot contain commas.");
+      showError("#error", "Names cannot contain commas.");
       return false;
     }
     if (line.length < 2 || line.length > 32) {
-      showError("#error", "Codenames must be 2–32 characters.");
+      showError("#error", "Names must be 2–32 characters.");
       return false;
     }
     if (names.some((n) => n.toLowerCase() === line.toLowerCase())) {
-      showError("#error", `Duplicate Codename: ${line}`);
+      showError("#error", `Duplicate name: ${line}`);
       return false;
     }
     names.push(line);
@@ -200,7 +200,7 @@ function applyNameWording(plain, root = document) {
       plain ? el.getAttribute("data-plain-placeholder") : el.getAttribute("data-math-placeholder")
     );
   }
-  TITLES.roster = plain ? "First names" : "Codenames";
+  TITLES.roster = plain ? "First names" : "Names";
   plainNames = Boolean(plain);
 }
 
@@ -301,7 +301,7 @@ function validateStep() {
   if (key === "roster") {
     if (!harvestPendingNames()) return false;
     if (names.length < 1) {
-      showError("#error", "Add at least one Codename.");
+      showError("#error", "Add at least one name.");
       return false;
     }
   }

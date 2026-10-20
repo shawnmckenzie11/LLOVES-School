@@ -76,7 +76,7 @@
           {% if live_active and cls %}<span class="course-live-chip">Live Class in Progress</span>{% endif %}
         </header>
         {% if not cls %}
-        <p class="course-card-join hint">{% if simple %}No class list yet. Add your students' first names.{% else %}No roster yet — Populate Class to add Codenames.{% endif %}</p>
+        <p class="course-card-join hint">{% if simple %}No class list yet. Add your students' first names.{% else %}No roster yet — Populate Class to add names.{% endif %}</p>
         {% endif %}
         {% if not o.library_id and not simple %}
         <p class="course-card-pack-hint hint">Ask Admin to attach a module pack.{% if not cls %} You can still Populate Class.{% endif %}</p>
@@ -169,17 +169,17 @@
       <div id="step-roster" class="hidden">
         {# MCK-183: data-plain is the wording for pack-less non-math courses (staff_home.js swaps it in). #}
         <p class="roster-disclaimer" role="note" data-plain="Professional use only: enter first names only, not full names, emails, student numbers, or other personal student information.">
-          Professional use only: enter Codenames, not legal names, emails, student numbers,
+          Professional use only: enter names, not legal names, emails, student numbers,
           or other personal student information.
         </p>
-        <label class="field" for="codename-input" data-plain="First names (one per student)">Codenames (one per student)</label>
+        <label class="field" for="codename-input" data-plain="First names (one per student)">Names (one per student)</label>
         <div class="codename-list" id="codename-list"></div>
-        <input id="codename-input" type="text" autocomplete="off" placeholder="Add a Codename" data-plain-placeholder="Add a first name">
+        <input id="codename-input" type="text" autocomplete="off" placeholder="Add a name" data-plain-placeholder="Add a first name">
         <div class="row-actions" style="margin-top:0.5rem">
           <button type="button" class="secondary" id="add-codename">Add</button>
         </div>
-        <p class="hint">Paste several lines below; they are added only when you click Populate class or Save roster. No commas. <span id="roster-count">0</span> students. <span data-plain="Existing scores stay on names you keep.">Existing scores stay on Codenames you keep.</span></p>
-        <textarea id="codename-paste" rows="4" placeholder="Paste one Codename per line (applied on Populate class / Save roster)" data-plain-placeholder="Paste one first name per line (applied on Save roster)"></textarea>
+        <p class="hint">Paste several lines below; they are added only when you click Populate class or Save roster. No commas. <span id="roster-count">0</span> students. <span data-plain="Existing scores stay on names you keep.">Existing scores stay on names you keep.</span></p>
+        <textarea id="codename-paste" rows="4" placeholder="Paste one name per line (applied on Populate class / Save roster)" data-plain-placeholder="Paste one first name per line (applied on Save roster)"></textarea>
       </div>
       <div id="step-days" class="hidden">
         <label class="field" for="days">Live-class days</label>

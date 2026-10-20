@@ -85,9 +85,9 @@ class PlainNameWordingTests(_AppCase):
         """staff_home.js uses the same wording through name_wording.js."""
         script = (
             'import { plainNameWording as f } from "./static/name_wording.js";\n'
-            'console.log(JSON.stringify(["Codenames cannot contain commas.", '
-            '"Codenames must be 2–32 characters.", "Duplicate Codename: Sam", '
-            '"Add at least one Codename."].map(f)));'
+            'console.log(JSON.stringify(["Names cannot contain commas.", '
+            '"Names must be 2–32 characters.", "Duplicate name: Sam", '
+            '"Add at least one name."].map(f)));'
         )
         proc = subprocess.run(
             [NODE, "--input-type=module", "-e", script],
@@ -123,7 +123,7 @@ class PlainNameWordingTests(_AppCase):
         self.assertEqual(plain.status_code, 400)
         self.assertEqual(plain.get_json()["error"], "First names cannot contain commas")
         math = self._populate("MCF3M", ["Sam, J"])
-        self.assertEqual(math.get_json()["error"], "Codenames cannot contain commas")
+        self.assertEqual(math.get_json()["error"], "Names cannot contain commas")
 
     def test_plain_course_roster_edit(self) -> None:
         """Save roster (PUT) on a plain class also says first names."""
@@ -144,8 +144,8 @@ class AddStudentValidationTests(PlainNameWordingTests):
         cases = (
             ("SBI4U", {"codename": "Ann, Bo"}, "First names cannot contain commas"),
             ("SBI4U", {"codename": "X"}, "First names must be 2–32 characters"),
-            ("MCF3M", {"codename": "Ann, Bo"}, "Codenames cannot contain commas"),
-            ("MCF3M", {"codename": "X"}, "Codenames must be 2–32 characters"),
+            ("MCF3M", {"codename": "Ann, Bo"}, "Names cannot contain commas"),
+            ("MCF3M", {"codename": "X"}, "Names must be 2–32 characters"),
         )
         class_ids: dict[str, int] = {}
         for code, body, want in cases:

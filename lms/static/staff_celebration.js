@@ -35,7 +35,7 @@ function bindCelebrateForm() {
     const raw = (select && select.value) || "";
     const parts = raw.split(":");
     if (parts.length !== 2) {
-      showError("#error", "Pick a Codename.");
+      showError("#error", "Pick a name.");
       return;
     }
     save({
