@@ -1,19 +1,8 @@
 /**
- * MCK-242: Team Draw student submit + teacher status helpers.
+ * MCK-242: Team Draw teacher status helpers.
+ *
+ * The live whiteboard has no title field and no submit control.
  */
-
-/**
- * @param {HTMLCanvasElement|null} canvas
- * @returns {string}
- */
-export function canvasToPngDataUrl(canvas) {
-  if (!canvas) return "";
-  try {
-    return canvas.toDataURL("image/png");
-  } catch {
-    return "";
-  }
-}
 
 /**
  * @param {any} item

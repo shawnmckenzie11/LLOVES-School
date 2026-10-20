@@ -56,7 +56,7 @@ import {
   showBoardRefreshCue,
 } from "/static/live_whiteboard.js";
 import { classBoardPaintMode } from "/static/whiteboard_formative.js";
-import { canvasToPngDataUrl, isTeamDrawItem } from "/static/team_draw.js";
+import { isTeamDrawItem } from "/static/team_draw.js";
 import { nameWithAvatar, paintAvatar } from "/static/student_avatars.js";
 import { rankStackHtml } from "/static/rank_stack.js";
 import {
@@ -118,12 +118,8 @@ const mediaFrame = document.getElementById("media-frame");
 const mediaLock = document.getElementById("media-lock");
 const canvasPane = document.getElementById("canvas-pane");
 const teamDrawPhone = document.getElementById("team-draw-phone");
-const teamDrawTitle = document.getElementById("team-draw-title");
-const teamDrawSubmit = document.getElementById("team-draw-submit");
-const teamDrawSaved = document.getElementById("team-draw-saved");
 const teamDrawMystery = document.getElementById("team-draw-mystery");
 const teamDrawStep4Banner = document.getElementById("team-draw-step4-banner");
-const teamDrawTitleLabel = document.getElementById("team-draw-title-label");
 const teamDrawTurnPill = document.getElementById("team-draw-turn-pill");
 const canvasLock = document.getElementById("canvas-lock");
 const studentCanvas = document.getElementById("student-canvas");
@@ -1313,7 +1309,7 @@ function viewerBoardKey(data) {
  *
  * A missing ``class_board`` key keeps the current board. ``null`` clears
  * it. The owner's own board keeps the open stroke and leaves Pen, Text,
- * Erase, and the masterpiece title usable. Another team's board is view only.
+ * and Erase usable. Another team's board is view only.
  * @param {any} data
  * @returns {"show-class" | "show-own" | "keep-class" | "clear-class" | "own"}
  */
@@ -1334,7 +1330,6 @@ function syncClassBoard(data) {
     if (classBoardPaintMode(viewerBoardKey(data), board.board_key) === "show-own") {
       classBoardHeld = false;
       document.getElementById("canvas-pane")?.classList.remove("is-class-board");
-      if (teamDrawTitle) teamDrawTitle.disabled = false;
       return "show-own";
     }
     classBoardHeld = true;
@@ -2158,7 +2153,9 @@ function applyTeacherProjection(payload) {
 }
 
 /**
- * Show Team Draw naming UI on the group whiteboard when that item is live.
+ * Mystery-rule turn chrome on the group whiteboard.
+ *
+ * The board itself has no title field and no submit control.
  * @param {any} payload
  * @param {ReturnType<typeof studentProjection>} proj
  */
@@ -2171,33 +2168,20 @@ function syncTeamDrawChrome(payload, proj) {
     String(state?.team_draw_prompt_id || "") === "mystery_rule";
   const steps = Array.isArray(state?.mystery_steps) ? state.mystery_steps : [];
   const showMystery = on && mystery && steps.length === 3;
+  const turn = state?.pass_turn;
+  const showTurn =
+    showMystery &&
+    !state?.submitted &&
+    turn &&
+    typeof turn === "object" &&
+    Number(turn.turn_total) >= 2 &&
+    String(turn.holder_name || "").trim();
   if (teamDrawPhone instanceof HTMLElement) {
-    teamDrawPhone.hidden = !on || !state || state.submitted;
+    teamDrawPhone.hidden = !showTurn;
     teamDrawPhone.classList.toggle("is-mystery-rule", showMystery);
-    if (teamDrawSaved instanceof HTMLElement) {
-      teamDrawSaved.hidden = !state?.submitted;
-    }
-  }
-  if (teamDrawTitleLabel instanceof HTMLLabelElement) {
-    teamDrawTitleLabel.textContent = showMystery ? "Name the rule" : "Name your masterpiece";
-  }
-  if (teamDrawTitle instanceof HTMLInputElement && state && !state.submitted) {
-    if (!teamDrawTitle.value && state.title) teamDrawTitle.value = state.title;
-    teamDrawTitle.disabled = !state.can_submit;
-    teamDrawTitle.placeholder = showMystery ? "e.g. add 2 dots each time" : "";
-  }
-  if (teamDrawSubmit instanceof HTMLButtonElement && state) {
-    teamDrawSubmit.disabled = !state.can_submit;
   }
   if (teamDrawTurnPill instanceof HTMLElement) {
-    const turn = state?.pass_turn;
-    const showTurn =
-      showMystery &&
-      turn &&
-      typeof turn === "object" &&
-      Number(turn.turn_total) >= 2 &&
-      String(turn.holder_name || "").trim();
-    teamDrawTurnPill.hidden = !showTurn || Boolean(state?.submitted);
+    teamDrawTurnPill.hidden = !showTurn;
     if (showTurn) {
       const name = String(turn.holder_name || "").trim();
       const index = Number(turn.turn_index) || 1;
@@ -2258,43 +2242,6 @@ function findActiveTeamDrawItem(payload) {
     pool.find((row) => String(row?.status || "") === "active" && isTeamDrawItem(row)) ||
     null
   );
-}
-
-if (teamDrawSubmit instanceof HTMLButtonElement) {
-  teamDrawSubmit.addEventListener("click", async () => {
-    const payload = lastStudentPayload;
-    const item = payload ? findActiveTeamDrawItem(payload) : null;
-    const liveItemId = Number(item?.id) || 0;
-    const title = teamDrawTitle instanceof HTMLInputElement ? teamDrawTitle.value : "";
-    const image = canvasToPngDataUrl(studentCanvas instanceof HTMLCanvasElement ? studentCanvas : null);
-    if (!liveItemId) return;
-    teamDrawSubmit.disabled = true;
-    try {
-      const res = await fetch(`/api/student/live-items/${liveItemId}/team-draw`, {
-        ...visitFetchInit(),
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, image }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Submit failed");
-      if (teamDrawSaved instanceof HTMLElement) teamDrawSaved.hidden = false;
-      if (teamDrawPhone instanceof HTMLElement) teamDrawPhone.hidden = true;
-      if (typeof bindStudentCanvas?.resetRun === "function") {
-        bindStudentCanvas.resetRun({ strokes: [], labels: [] });
-      }
-      if (canvasPane instanceof HTMLElement) {
-        dockedLiveCardKeys.add("surface:canvas");
-        canvasPane.hidden = true;
-      }
-      if (payload && data?.team_draw) {
-        item.group_submit = data.team_draw;
-        syncTeamDrawChrome(payload, studentProjection(payload));
-      }
-    } catch (_err) {
-      teamDrawSubmit.disabled = false;
-    }
-  });
 }
 
 function isWaitingRoom(payload) {

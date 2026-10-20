@@ -796,13 +796,18 @@ class FormativeIntegrationTests(unittest.TestCase):
         self.assertNotIn("resetRun", own_branch)
         self.assertNotIn("setViewOnly", own_branch)
         home = (REPO_ROOT / "lms" / "templates" / "student" / "home.html").read_text(encoding="utf-8")
+        staff = (REPO_ROOT / "lms" / "templates" / "staff" / "course.html").read_text(encoding="utf-8")
         for token in (
             "student-canvas-pen",
             "student-canvas-text",
             "student-canvas-erase",
-            "Name your masterpiece",
         ):
             self.assertIn(token, home)
+        for page in (home, staff):
+            self.assertNotIn("Name your masterpiece", page)
+            self.assertNotIn("Submit our art", page)
+            self.assertNotIn("team-draw-title", page)
+            self.assertNotIn("team-draw-submit", page)
 
 
 if __name__ == "__main__":
