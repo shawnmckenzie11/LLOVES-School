@@ -233,8 +233,9 @@ def _real_runs_outside_latest(school: Any, class_id: int) -> dict[tuple[str, str
     Quit deletes the session and writes no run, so it is absent. A
     session ended without a real participation run is absent too: IT
     force-end, cancel, and closing the attendance card do not write one.
-    A legacy end-time test (``is_real`` 0) is absent. The result is not
-    written back to the database.
+    A Test class is absent even when its run is marked real. Live and
+    Open Office real Ends are included, including when no question was
+    published. The result is not written back to the database.
 
     Args:
         school: ``SchoolDB`` instance.
@@ -270,6 +271,11 @@ def _real_runs_outside_latest(school: Any, class_id: int) -> dict[tuple[str, str
             WHERE i.class_id = ?
               AND COALESCE(r.is_real, 0) = 1
               AND COALESCE(r.discarded, 0) = 0
+              AND NOT EXISTS (
+                SELECT 1 FROM live_class_sessions t
+                WHERE t.class_id = i.class_id AND t.run_key = i.run_key
+                  AND COALESCE(t.is_test, 0) = 1
+              )
             """,
             (cid,),
         ).fetchall()
@@ -286,6 +292,11 @@ def _real_runs_outside_latest(school: Any, class_id: int) -> dict[tuple[str, str
             WHERE snap.class_id = ?
               AND COALESCE(r.is_real, 0) = 1
               AND COALESCE(r.discarded, 0) = 0
+              AND NOT EXISTS (
+                SELECT 1 FROM live_class_sessions t
+                WHERE t.class_id = snap.class_id AND t.run_key = snap.run_key
+                  AND COALESCE(t.is_test, 0) = 1
+              )
             GROUP BY snap.run_key, UPPER(snap.live_module), UPPER(snap.live_slot)
             """,
             (cid,),

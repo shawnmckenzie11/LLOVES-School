@@ -126,6 +126,73 @@ class EndedLessonSlidesTests(EndLiveToggleTests):
         self.assertEqual(row["status_label"], "Delivered")
         self.assertEqual(row["catchup_access"], "none")
 
+    def test_live_with_zero_pushes_shows(self) -> None:
+        """A Live End with no published question shows as Delivered."""
+        self._end_slot_with_no_answers("M7", "C2", publish=False)
+        row = self._row("M7C2")
+        self.assertTrue(row["has_run"])
+        self.assertEqual(row["status_label"], "Delivered")
+        self.assertFalse(row["is_test"])
+
+    def test_open_office_with_zero_answers_shows(self) -> None:
+        """An Open Office End with no answers writes the row and still lists it."""
+        self._end_slot_with_no_answers("M7", "O1", publish=False)
+        latest = self.school.list_lesson_slides_latest(self.class_id)
+        self.assertEqual(len(latest), 1)
+        self.assertEqual(latest[0]["live_module"], "M7")
+        self.assertEqual(latest[0]["live_slot"], "O1")
+        self.assertEqual(int(latest[0].get("is_test") or 0), 0)
+        row = self._row("M7O1")
+        self.assertTrue(row["has_run"])
+        self.assertIn("Open office", row["line_label"])
+        self.school.conn.execute(
+            "DELETE FROM lesson_slides_latest WHERE class_id = ?",
+            (self.class_id,),
+        )
+        self.school.conn.commit()
+        again = self._row("M7O1")
+        self.assertTrue(again["has_run"])
+
+    def test_test_mode_is_not_shown(self) -> None:
+        """A Test End does not write a Lesson Slides row and does not list one.
+
+        Marking that run real afterwards still does not list it. Test mode
+        is not a Live or Open Office End.
+        """
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"]), is_test=True
+        )
+        sid = int(live["id"])
+        self.school.conn.execute(
+            "UPDATE live_class_sessions SET teacher_state_json = ? WHERE id = ?",
+            (json.dumps({"live_module": "M4", "live_slot": "C2"}), sid),
+        )
+        self.school.conn.commit()
+        self.school.finish_live_class(self.class_id, celebrate=True, live_run=True)
+        self.assertEqual(self.school.list_lesson_slides_latest(self.class_id), [])
+        row = self._row("M4C2")
+        self.assertFalse(row["has_run"])
+        self.assertNotEqual(row["status_label"], "Delivered")
+        shown = build_lesson_slides_table(self.school, self.class_id)["rows"]
+        self.assertFalse(any(item.get("is_test") for item in shown))
+        run = self.school.conn.execute(
+            "SELECT run_key FROM live_class_sessions WHERE id = ?",
+            (sid,),
+        ).fetchone()
+        self.school.conn.execute(
+            """
+            UPDATE participation_runs
+            SET is_real = 1, discarded = 0
+            WHERE class_id = ? AND run_key = ?
+            """,
+            (self.class_id, str(run["run_key"])),
+        )
+        self.school.conn.commit()
+        still = self._row("M4C2")
+        self.assertFalse(still["has_run"])
+        shown = build_lesson_slides_table(self.school, self.class_id)["rows"]
+        self.assertFalse(any(item.get("is_test") for item in shown))
+
     def test_real_end_without_answers_stays_delivered_after_the_row_is_gone(self) -> None:
         """A real End with no individual answers still lists from its participation run."""
         self._end_slot_with_no_answers("M2", "C3", publish=False)

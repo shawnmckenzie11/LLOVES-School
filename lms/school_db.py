@@ -33929,9 +33929,11 @@ class SchoolDB(LovesDB):
         Slides. An ``is_test`` session still saves those rows, marked so they
         stay out of real counts (MCK-269).
 
-        A real End always writes the Lesson Slides row, even when nobody
-        answered an individual question. Catch-up still requires one
-        individual answer (MCK-290).
+        A real End of a Live or Open Office class always writes the Lesson
+        Slides row, even when no question was published or answered. A Test
+        class does not write that row. Catch-up for a live class still
+        requires one individual answer. A test class still gets its own
+        catch-up link (MCK-269, MCK-290).
         """
         sid = int(session_id)
         session = self.conn.execute(
@@ -34064,18 +34066,6 @@ class SchoolDB(LovesDB):
                 join_code=session_code,
                 ended_at=ended_at,
                 refresh_window=True,
-            )
-            self._upsert_lesson_slides_latest_unlocked(
-                sid,
-                class_id=class_id,
-                run_key=run_key,
-                module=module,
-                slot=slot,
-                ended_at=ended_at,
-                session_code=str(session["session_code"] or ""),
-                ended_at_inferred=False,
-                inferred_ended_at="",
-                is_test=True,
             )
             return
         is_real = self._classify_and_record_participation_run(
