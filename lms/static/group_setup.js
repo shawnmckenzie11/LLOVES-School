@@ -95,7 +95,7 @@ export function groupStyleFor(item, card) {
   if (NOT_GROUP_IDS.has(id)) return null;
   const type = String(item?.type || card?.type || item?.kind || "").toLowerCase();
   if (type === ARTIFACT_TYPE || item?.artifact_id || card?.item?.artifact_id) return null;
-  if (type === "mc" || type === "rank") return "submit";
+  if (type === "mc" || type === "rank" || type === "team_draw") return "submit";
   if (CONSENSUS_TYPES.has(type) || Boolean(item?.integer_only || card?.integer_only)) {
     return "consensus";
   }
@@ -127,7 +127,12 @@ export function groupModeToken(style) {
  */
 export function isGroupModeToken(token) {
   const t = String(token || "");
-  return t === "group_submit" || t === "group_consensus" || t === "group_shared";
+  return (
+    t === "group_submit" ||
+    t === "group_consensus" ||
+    t === "group_shared" ||
+    t === "team_draw"
+  );
 }
 
 /**

@@ -123,8 +123,12 @@ def decode_png_payload(image_b64: str | None) -> bytes:
     return blob
 
 
-def team_draw_answer_json(title: str) -> dict[str, Any]:
-    """Persisted group final answer (title only; no image)."""
+def team_draw_answer_json(title: str = "") -> dict[str, Any]:
+    """Persisted draw answer. The drawing itself is not stored here.
+
+    Args:
+        title: Optional leftover label. New submits send none.
+    """
     clean = str(title or "").strip()[:MAX_TITLE_LEN]
     return {"kind": TEAM_DRAW_KIND, "title": clean, "value": clean}
 
@@ -135,10 +139,9 @@ def status_label(submitted: bool) -> str:
 
 
 def gallery_row_title(row: dict[str, Any]) -> str:
-    """Title line for one team tile."""
+    """Optional title line for one draw tile. Empty when the submit had none."""
     final = row.get("final_answer") if isinstance(row.get("final_answer"), dict) else {}
-    title = str(final.get("title") or final.get("value") or "").strip()
-    return title or "Untitled"
+    return str(final.get("title") or "").strip()
 
 
 def should_snapshot_team_draw_run(

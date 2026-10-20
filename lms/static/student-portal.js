@@ -56,7 +56,11 @@ import {
   showBoardRefreshCue,
 } from "/static/live_whiteboard.js";
 import { classBoardPaintMode } from "/static/whiteboard_formative.js";
-import { isTeamDrawItem } from "/static/team_draw.js";
+import {
+  canvasToPngDataUrl,
+  drawSubmitVisible,
+  isDrawQuestion,
+} from "/static/team_draw.js";
 import { nameWithAvatar, paintAvatar } from "/static/student_avatars.js";
 import { rankStackHtml } from "/static/rank_stack.js";
 import {
@@ -121,6 +125,7 @@ const teamDrawPhone = document.getElementById("team-draw-phone");
 const teamDrawMystery = document.getElementById("team-draw-mystery");
 const teamDrawStep4Banner = document.getElementById("team-draw-step4-banner");
 const teamDrawTurnPill = document.getElementById("team-draw-turn-pill");
+const teamDrawSubmit = document.getElementById("team-draw-submit");
 const canvasLock = document.getElementById("canvas-lock");
 const studentCanvas = document.getElementById("student-canvas");
 const canvasCursors = document.getElementById("canvas-cursors");
@@ -2153,14 +2158,15 @@ function applyTeacherProjection(payload) {
 }
 
 /**
- * Mystery-rule turn chrome on the group whiteboard.
+ * Mystery-rule turn chrome, and Submit on a team or individual draw question.
  *
- * The board itself has no title field and no submit control.
+ * A plain whiteboard stays the board. Draw questions show Submit and never
+ * a title box. Submit sends the drawing.
  * @param {any} payload
  * @param {ReturnType<typeof studentProjection>} proj
  */
 function syncTeamDrawChrome(payload, proj) {
-  const item = findActiveTeamDrawItem(payload);
+  const item = findActiveDrawItem(payload);
   const state = item?.group_submit || null;
   const on = Boolean(item && proj.canvas && proj.canvasAlign === "team");
   const mystery =
@@ -2176,8 +2182,16 @@ function syncTeamDrawChrome(payload, proj) {
     typeof turn === "object" &&
     Number(turn.turn_total) >= 2 &&
     String(turn.holder_name || "").trim();
+  const canvasVisible = Boolean(
+    proj.canvas && canvasPane instanceof HTMLElement && !canvasPane.hidden
+  );
+  const showSubmit = drawSubmitVisible(item, canvasVisible);
+  if (teamDrawSubmit instanceof HTMLButtonElement) {
+    teamDrawSubmit.hidden = !showSubmit;
+    teamDrawSubmit.disabled = !showSubmit;
+  }
   if (teamDrawPhone instanceof HTMLElement) {
-    teamDrawPhone.hidden = !showTurn;
+    teamDrawPhone.hidden = !showTurn && !showSubmit;
     teamDrawPhone.classList.toggle("is-mystery-rule", showMystery);
   }
   if (teamDrawTurnPill instanceof HTMLElement) {
@@ -2233,15 +2247,52 @@ function syncTeamDrawChrome(payload, proj) {
  * @param {any} payload
  * @returns {any|null}
  */
-function findActiveTeamDrawItem(payload) {
+function findActiveDrawItem(payload) {
   const pool = [
     ...(Array.isArray(payload?.active_questions) ? payload.active_questions : []),
     ...(Array.isArray(payload?.live_items) ? payload.live_items : []),
   ];
   return (
-    pool.find((row) => String(row?.status || "") === "active" && isTeamDrawItem(row)) ||
+    pool.find((row) => String(row?.status || "") === "active" && isDrawQuestion(row)) ||
     null
   );
+}
+
+if (teamDrawSubmit instanceof HTMLButtonElement) {
+  teamDrawSubmit.addEventListener("click", async () => {
+    const payload = lastStudentPayload;
+    const item = payload ? findActiveDrawItem(payload) : null;
+    const liveItemId = Number(item?.id) || 0;
+    const image = canvasToPngDataUrl(
+      studentCanvas instanceof HTMLCanvasElement ? studentCanvas : null
+    );
+    if (!liveItemId || !image) return;
+    teamDrawSubmit.disabled = true;
+    try {
+      const res = await fetch(`/api/student/live-items/${liveItemId}/team-draw`, {
+        ...visitFetchInit(),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Submit failed");
+      if (payload && data?.team_draw && item) {
+        if (String(item.response_mode || "") === "team_draw") {
+          item.group_submit = { ...(item.group_submit || {}), ...data.team_draw };
+        } else {
+          item.my_response = { response: { kind: "team_draw" } };
+          item.can_submit = false;
+        }
+        syncTeamDrawChrome(payload, studentProjection(payload));
+      }
+      if (typeof bindStudentCanvas?.resetRun === "function") {
+        bindStudentCanvas.resetRun({ strokes: [], texts: [] });
+      }
+    } catch (_err) {
+      teamDrawSubmit.disabled = false;
+    }
+  });
 }
 
 function isWaitingRoom(payload) {
@@ -4013,11 +4064,13 @@ function paintLifecycleQuestionStack(payload) {
       const groupMode = item.response_mode === "group_consensus";
       const groupSubmit = item.response_mode === "group_submit";
       const rankKind = lifecycleAnswerKind(item) === "rank";
+      const drawQuestion = isDrawQuestion(item);
       const rankEdit = rankEditing.has(Number(item.id) || 0);
       // MCK-154 S1: a closed rank card never says "Submitted — waiting."
       // and never offers Change answer; the class-order stack is the result.
-      const individualControls =
-        !groupMode && !groupSubmit && rankKind && status === "closed"
+      const individualControls = drawQuestion
+        ? ""
+        : !groupMode && !groupSubmit && rankKind && status === "closed"
           ? item.results
             ? ""
             : rankClosedOwnOrderHtml(

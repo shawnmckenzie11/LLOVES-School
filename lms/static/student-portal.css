@@ -3456,6 +3456,10 @@ dialog.student-pin-dialog::backdrop {
   gap: 0.65rem;
   margin-top: 0.75rem;
 }
+.team-draw-submit {
+  font-size: 1.05rem;
+  padding: 0.65rem 1rem;
+}
 .team-draw-turn-pill {
   align-self: flex-start;
   margin: 0;

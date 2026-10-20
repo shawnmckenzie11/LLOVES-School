@@ -25,6 +25,7 @@ function check(cond, msg) {
 
 // groupStyleFor: the type decides the style.
 check(groupStyleFor({ type: "mc" }) === "submit", "mc -> submit");
+check(groupStyleFor({ type: "team_draw" }) === "submit", "team_draw -> submit");
 check(groupStyleFor({ type: "rank" }) === "submit", "rank -> submit");
 for (const type of ["numeric", "open", "text", "share", "poll"]) {
   check(groupStyleFor({ type }) === "consensus", `${type} -> consensus`);

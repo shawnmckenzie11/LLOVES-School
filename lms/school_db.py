@@ -14354,7 +14354,7 @@ class SchoolDB(LovesDB):
             item_payload["options"] = []
             item_payload["choices"] = []
         elif kind == "team_draw":
-            item_payload["publish_modes"] = ["group_submit"]
+            item_payload["publish_modes"] = ["individual", "group_submit"]
             item_payload["response_mode"] = "team_draw"
             item_payload["options"] = []
             item_payload["choices"] = []
@@ -16337,7 +16337,7 @@ class SchoolDB(LovesDB):
         """Return normalized supported publish modes for one question."""
 
         if str(question.get("type") or "").strip().lower() == "team_draw":
-            return ["group_submit"]
+            return ["individual", "group_submit"]
         raw = question.get("publish_modes")
         modes = [
             str(value).strip().lower()
@@ -18422,10 +18422,12 @@ class SchoolDB(LovesDB):
             raise ValueError("Closed items cannot be republished.")
         mode = self._canonicalize_publish_mode(publish_mode)
         team_draw = self._question_answer_kind(item) == "team_draw"
-        if team_draw:
+        if team_draw and mode != "individual":
             self._require_group_mc_publish(session_id, item)
             mode = "group_submit"
             response_mode = "team_draw"
+        elif team_draw:
+            response_mode = "individual"
         elif mode == "group_submit":
             self._require_group_mc_publish(session_id, item)
             response_mode = "group_submit"
@@ -18512,7 +18514,9 @@ class SchoolDB(LovesDB):
             self._initialize_group_consensus(published)
         elif response_mode == "team_draw":
             self._initialize_team_draw(published)
-            self._publish_team_draw_whiteboard(session_id)
+            self._publish_team_draw_whiteboard(session_id, publish_mode="group_shared")
+        elif team_draw and response_mode == "individual":
+            self._publish_team_draw_whiteboard(session_id, publish_mode="individual")
         elif response_mode == "group_submit":
             self._initialize_group_submit(published)
         published = self.get_live_session_item(session_id, int(item["id"]))
@@ -24059,6 +24063,10 @@ class SchoolDB(LovesDB):
             if str(item.get("response_mode") or "") == "group_consensus":
                 counts[item_id] = self._group_consensus_vote_count(item_id)
                 continue
+            if str(item.get("response_mode") or "") == "team_draw":
+                teams, _rev = self._group_rank_light_token(item_id)
+                counts[item_id] = teams
+                continue
             if (
                 str(item.get("response_mode") or "") == "group_submit"
                 and self._question_answer_kind(item) == "rank"
@@ -24145,6 +24153,8 @@ class SchoolDB(LovesDB):
         item = self.get_live_session_item(session_id, placement_or_item)
         if item["response_mode"] == "team_draw":
             return self.team_draw_teacher_view(session_id, item)
+        if self._question_answer_kind(item) == "team_draw":
+            return self.individual_draw_teacher_view(session_id, item)
         if item["response_mode"] == "group_submit":
             return self.group_submit_teacher_view(session_id, item)
         if item["response_mode"] == "group_consensus":
@@ -29112,6 +29122,8 @@ class SchoolDB(LovesDB):
             student_id: Roster id of the student who submitted.
             response: Submitted answer JSON.
         """
+        if str((response or {}).get("kind") or "") == "team_draw":
+            return
         if self._questions_view_mode(session_id) != "team":
             return
         session_row = self.get_live_session(session_id)

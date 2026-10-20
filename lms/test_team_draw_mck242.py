@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,7 +22,12 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
 from participation_real_students import exclude_participation_answer_student_ids  # noqa: E402
-from team_draw import BUILTIN_PROMPTS, decode_png_payload, is_team_draw_item  # noqa: E402
+from team_draw import (  # noqa: E402
+    BUILTIN_PROMPTS,
+    decode_png_payload,
+    is_team_draw_item,
+    resolved_prompt_text,
+)
 
 # 1x1 PNG
 _TINY_PNG = base64.b64decode(
@@ -98,7 +104,7 @@ class TeamDrawTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _add_publish_team_draw(
-        self, *, prompt_id: str | None = None
+        self, *, prompt_id: str | None = None, publish_mode: str = "group_submit"
     ) -> dict:
         row = BUILTIN_PROMPTS[0]
         if prompt_id:
@@ -120,9 +126,10 @@ class TeamDrawTests(unittest.TestCase):
             if r["item_id"] == item_id
         )
         published = self.school.publish_live_session_item(
-            self.session_id, int(row["id"]), publish_mode="group_submit"
+            self.session_id, int(row["id"]), publish_mode=publish_mode
         )
-        self.assertEqual(published["response_mode"], "team_draw")
+        expected = "individual" if publish_mode == "individual" else "team_draw"
+        self.assertEqual(published["response_mode"], expected)
         return published
 
     def test_builtin_prompts_and_exclusion_helper(self) -> None:
@@ -134,6 +141,162 @@ class TeamDrawTests(unittest.TestCase):
         )
         self.assertNotIn("title box", mystery["text"])
         exclude_participation_answer_student_ids(self.class_id, self.school)
+
+    def test_mystery_prompt_is_looked_up_live(self) -> None:
+        """A published mystery-rule item shows the catalog sentence, not a stored stem."""
+        published = self._add_publish_team_draw(prompt_id="mystery_rule")
+        question = dict(published["item"])
+        question["text"] = (
+            "Mystery rule: name the rule in the title box after you draw step 4."
+        )
+        self.school.conn.execute(
+            "UPDATE live_session_items SET item_json = ? WHERE id = ?",
+            (json.dumps(question), int(published["id"])),
+        )
+        self.school.conn.commit()
+        fresh = self.school.get_live_session_item(
+            self.session_id, int(published["id"])
+        )
+        prompt = resolved_prompt_text(fresh)
+        self.assertIn("Text tool", prompt)
+        self.assertNotIn("title box", prompt)
+        view = self.school.team_draw_teacher_view(self.session_id, fresh)
+        self.assertEqual(view["prompt"], prompt)
+
+    def test_team_draw_submit_updates_teacher_card_and_history(self) -> None:
+        """A drawing-only team submit fills the card, gallery, and results history."""
+        published = self._add_publish_team_draw()
+        live_id = int(published["id"])
+        self.school.set_live_session_teacher_state(self.session_id, stage="round")
+        card = self.school.submit_team_draw(
+            self.session_id,
+            live_id,
+            self.student_ids[0],
+            image_b64=base64.b64encode(_TINY_PNG).decode("ascii"),
+        )
+        self.assertTrue(card.get("submitted"))
+        self.assertEqual(card.get("title"), "")
+        view = self.school.live_session_item_results(self.session_id, live_id)
+        submitted = [row for row in view["status_board"] if row["submitted"]]
+        self.assertEqual(len(submitted), 1)
+        self.assertEqual(submitted[0]["status_label"], "✓ submitted")
+        self.assertEqual(view["response_count"], 1)
+        self.assertEqual(
+            self.school.lifecycle_response_counts(self.session_id).get(live_id),
+            1,
+        )
+        gallery = self.school.team_draw_gallery(self.session_id, live_id)
+        sent = [row for row in gallery if row["submitted"] and row["image_url"]]
+        self.assertEqual(len(sent), 1)
+        self.assertTrue(sent[0]["image_url"].startswith("data:image/png"))
+        self.school.cleanup_live_session_response_data(
+            self.session_id, live_run=True
+        )
+        snaps = self.school.conn.execute(
+            "SELECT answer_json FROM live_result_snapshots WHERE live_session_id = ?",
+            (self.session_id,),
+        ).fetchall()
+        found = False
+        for row in snaps:
+            payload = json.loads(row["answer_json"] or "{}")
+            final = payload.get("final") if isinstance(payload, dict) else None
+            if isinstance(final, dict) and final.get("kind") == "team_draw":
+                found = True
+                self.assertNotIn("image", final)
+                self.assertEqual(final.get("title"), "")
+        self.assertTrue(found)
+
+    def test_individual_draw_submit_updates_teacher_card_and_history(self) -> None:
+        """An individual drawing submit fills that card, gallery, and history."""
+        published = self._add_publish_team_draw(publish_mode="individual")
+        self.assertEqual(published["response_mode"], "individual")
+        live_id = int(published["id"])
+        self.school.set_live_session_teacher_state(self.session_id, stage="round")
+        card = self.school.submit_individual_draw(
+            self.session_id,
+            live_id,
+            self.student_ids[0],
+            image_b64=base64.b64encode(_TINY_PNG).decode("ascii"),
+        )
+        self.assertTrue(card.get("submitted"))
+        self.assertFalse(card.get("can_submit"))
+        view = self.school.live_session_item_results(self.session_id, live_id)
+        self.assertTrue(view.get("draw"))
+        submitted = [row for row in view["status_board"] if row["submitted"]]
+        self.assertEqual(len(submitted), 1)
+        self.assertEqual(submitted[0]["status_label"], "✓ submitted")
+        self.assertEqual(view["response_count"], 1)
+        self.assertEqual(
+            self.school.lifecycle_response_counts(self.session_id).get(live_id),
+            1,
+        )
+        self.assertGreater(view["eligible_count"], 1)
+        gallery = self.school.team_draw_gallery(self.session_id, live_id)
+        sent = [row for row in gallery if row["submitted"] and row["image_url"]]
+        self.assertEqual(len(sent), 1)
+        self.assertTrue(sent[0]["image_url"].startswith("data:image/png"))
+        self.school.cleanup_live_session_response_data(
+            self.session_id, live_run=True
+        )
+        snaps = self.school.conn.execute(
+            "SELECT answer_json FROM live_result_snapshots WHERE live_session_id = ?",
+            (self.session_id,),
+        ).fetchall()
+        found = False
+        for row in snaps:
+            payload = json.loads(row["answer_json"] or "{}")
+            if isinstance(payload, dict) and payload.get("kind") == "team_draw":
+                found = True
+                self.assertNotIn("image", payload)
+                self.assertEqual(payload.get("title"), "")
+        self.assertTrue(found)
+
+    def test_plain_whiteboard_has_no_submit(self) -> None:
+        """The plain board has no Submit control. Draw questions do, with no title box."""
+        root = Path(__file__).resolve().parents[1]
+        staff = (root / "lms" / "templates" / "staff" / "course.html").read_text(
+            encoding="utf-8"
+        )
+        home = (root / "lms" / "templates" / "student" / "home.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("team-draw-submit", staff)
+        self.assertNotIn("team-draw-title", staff)
+        self.assertNotIn("team-draw-title", home)
+        self.assertIn('id="team-draw-submit" class="team-draw-submit" hidden', home)
+        script = """
+import { drawSubmitVisible } from "./lms/static/team_draw.js";
+if (drawSubmitVisible(null, true)) process.exit(1);
+if (drawSubmitVisible({ kind: "whiteboard", response_mode: "individual", status: "active" }, true)) process.exit(2);
+const team = {
+  status: "active",
+  response_mode: "team_draw",
+  content: { type: "team_draw" },
+  group_submit: { can_submit: true, submitted: false },
+};
+if (!drawSubmitVisible(team, true)) process.exit(3);
+if (drawSubmitVisible(team, false)) process.exit(4);
+team.group_submit.submitted = true;
+if (drawSubmitVisible(team, true)) process.exit(5);
+const solo = {
+  status: "active",
+  response_mode: "individual",
+  content: { type: "team_draw" },
+  can_submit: true,
+  my_response: null,
+};
+if (!drawSubmitVisible(solo, true)) process.exit(6);
+solo.my_response = { response: { kind: "team_draw" } };
+if (drawSubmitVisible(solo, true)) process.exit(7);
+"""
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
 
     def test_submit_stores_title_not_in_snapshot_on_test_run(self) -> None:
         published = self._add_publish_team_draw()

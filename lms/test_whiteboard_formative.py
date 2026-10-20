@@ -807,7 +807,8 @@ class FormativeIntegrationTests(unittest.TestCase):
             self.assertNotIn("Name your masterpiece", page)
             self.assertNotIn("Submit our art", page)
             self.assertNotIn("team-draw-title", page)
-            self.assertNotIn("team-draw-submit", page)
+        self.assertNotIn("team-draw-submit", staff)
+        self.assertIn('id="team-draw-submit" class="team-draw-submit" hidden', home)
 
 
 if __name__ == "__main__":
