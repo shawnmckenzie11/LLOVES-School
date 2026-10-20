@@ -34638,8 +34638,11 @@ class SchoolDB(LovesDB):
 
         A keyed rank sent all correct, with no check, stores 2 on a
         question whose maximum is 1. Every other completion stores 1.
-        A team that never sent stores 0 for the members still on the
-        live roster. The send-time snapshot wins when the team did send.
+        A question counts only when at least one team sent. When nobody
+        sent, the question is skipped: no item row and no member rows.
+        When at least one team sent, a team that never sent stores 0
+        for the members still on the live roster. The send-time
+        snapshot wins when the team did send.
 
         Caller holds ``self._lock`` inside the End transaction.
 
@@ -34701,6 +34704,17 @@ class SchoolDB(LovesDB):
                 stored.get("rank_options") or stored.get("options") or stored.get("choices")
             )
             key = safe_rank_key(stored.get("rank_key"), options) or []
+            responses = self.conn.execute(
+                """
+                SELECT team_id, submit_count, final_answer_json,
+                       engagement_member_ids_json, rank_check_used
+                FROM live_group_responses
+                WHERE live_item_id = ?
+                """,
+                (int(item["id"]),),
+            ).fetchall()
+            if not any(int(response["submit_count"] or 0) > 0 for response in responses):
+                continue
             self.conn.execute(
                 """
                 INSERT INTO group_engagement_items (
@@ -34737,15 +34751,6 @@ class SchoolDB(LovesDB):
                 live_members.setdefault(int(member["team_id"]), []).append(
                     int(member["student_id"])
                 )
-            responses = self.conn.execute(
-                """
-                SELECT team_id, submit_count, final_answer_json,
-                       engagement_member_ids_json, rank_check_used
-                FROM live_group_responses
-                WHERE live_item_id = ?
-                """,
-                (int(item["id"]),),
-            ).fetchall()
             for response in responses:
                 team_id = int(response["team_id"])
                 submitted = int(response["submit_count"] or 0) > 0

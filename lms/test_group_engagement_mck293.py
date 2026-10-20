@@ -355,6 +355,42 @@ class GroupEngagementTests(ChallengeHarness):
         self.assertFalse(self.school.submit_catchup_answer(token, ben, key, public_ids))
         self.assertEqual(self._rows()[(ben, key)], (1, 1, "catchup"))
 
+    def _item_keys(self) -> list[str]:
+        """Question keys stored for this class."""
+        with self.school._lock:
+            found = self.school.conn.execute(
+                """
+                SELECT question_key FROM group_engagement_items
+                WHERE class_id = ?
+                ORDER BY question_key
+                """,
+                (self.class_id,),
+            ).fetchall()
+        return [str(row["question_key"]) for row in found]
+
+    def test_a_question_nobody_sent_writes_no_rows(self) -> None:
+        """A published rank with zero sends is not a counted question."""
+        quiet = self._open()
+        key = self._question_key(quiet)
+        self._end()
+        self.assertEqual(self._rows(), {})
+        self.assertNotIn(key, self._item_keys())
+
+    def test_one_team_sending_still_scores_the_other_zero(self) -> None:
+        """When any team sends, members who did not send still store 0/1."""
+        sent = self._open()
+        quiet = self._open()
+        self._place(sent, TEAM_A, KEY_IDS)
+        sent_key = self._question_key(sent)
+        quiet_key = self._question_key(quiet)
+        self._end()
+        self._assert_team(sent_key, TEAM_A, 2)
+        self._assert_team(sent_key, TEAM_B, 0)
+        rows = self._rows()
+        for sid in self._ids(TEAM_A + TEAM_B):
+            self.assertNotIn((sid, quiet_key), rows)
+        self.assertEqual(self._item_keys(), [sent_key])
+
 
 if __name__ == "__main__":
     unittest.main()
