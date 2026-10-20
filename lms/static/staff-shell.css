@@ -1823,7 +1823,7 @@ body.staff-shell .ls-row-menu-btn[aria-expanded="true"] {
 body.staff-shell .ls-row-menu {
   position: absolute;
   top: 100%;
-  right: 0;
+  left: 0;
   z-index: 4;
   min-width: 11rem;
   margin-top: 0.15rem;

@@ -3931,7 +3931,7 @@ def shoot_mck290(base: str, state_path: Path, out_dir: Path, path: Path, widths:
                 raise SystemExit("Live Lesson Slides rows must not offer Delete")
             test_row = page.locator(".ls-run-row.is-test-run").first
             test_row.wait_for(state="visible", timeout=30000)
-            test_row.scroll_into_view_if_needed()
+            test_row.evaluate("node => node.scrollIntoView({block: 'center'})")
             test_row.locator(".ls-row-menu-btn").click()
             delete_item = test_row.locator(".ls-row-menu-delete")
             delete_item.wait_for(state="visible", timeout=10000)
@@ -3941,7 +3941,23 @@ def shoot_mck290(base: str, state_path: Path, out_dir: Path, path: Path, widths:
                 "nodes => nodes.forEach((node) => { node.textContent = '\u2014'; })"
             )
             menu_dest = out_dir / f"mck290-lesson-slides-test-delete-{width}.png"
-            page.locator(".lesson-slides-table-card").screenshot(path=str(menu_dest))
+            card_box = page.locator(".lesson-slides-table-card").bounding_box()
+            menu_box = delete_item.bounding_box()
+            if card_box is None or menu_box is None:
+                raise SystemExit("Test Delete menu is outside the Lesson Slides card")
+            left = min(card_box["x"], menu_box["x"])
+            top = min(card_box["y"], menu_box["y"])
+            right = max(card_box["x"] + card_box["width"], menu_box["x"] + menu_box["width"])
+            bottom = max(card_box["y"] + card_box["height"], menu_box["y"] + menu_box["height"])
+            page.screenshot(
+                path=str(menu_dest),
+                clip={
+                    "x": max(0, left),
+                    "y": max(0, top),
+                    "width": right - max(0, left),
+                    "height": bottom - max(0, top) + 8,
+                },
+            )
             written.append(menu_dest)
             context.close()
         browser.close()
