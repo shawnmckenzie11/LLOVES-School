@@ -74,6 +74,23 @@ function summaryStrip(summary) {
 }
 
 /**
+ * Live done text. Group questions count teams; other questions count students.
+ * @param {Record<string, unknown>} question
+ * @returns {string}
+ */
+export function liveDoneLabel(question) {
+  const mode = String(question?.mode || "").toLowerCase();
+  if (mode === "group") {
+    const teams = Number(question?.group_completed ?? 0);
+    const n = Number.isFinite(teams) && teams > 0 ? Math.floor(teams) : 0;
+    if (n === 0) return "no responses";
+    return n === 1 ? "1 team responded" : `${n} teams responded`;
+  }
+  const live = Number(question?.live_completed ?? 0);
+  return String(Number.isFinite(live) ? live : 0);
+}
+
+/**
  * Filter question rows client-side.
  * @param {Array<Record<string, unknown>>} questions
  * @returns {Array<Record<string, unknown>>}
@@ -146,7 +163,7 @@ function questionsDetailRow(row) {
       q.weight ?? 0,
       q.in_catchup ? "yes" : "no",
       lint,
-      q.live_completed ?? 0,
+      liveDoneLabel(q),
       q.catchup_completed ?? 0,
     ];
     for (const value of cells) {
