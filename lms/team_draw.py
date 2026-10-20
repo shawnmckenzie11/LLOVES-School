@@ -24,7 +24,7 @@ BUILTIN_PROMPTS: tuple[dict[str, str], ...] = (
     {
         "id": "mystery_rule",
         "label": "Mystery rule",
-        "text": "Mystery rule: name the rule in the title box after you draw step 4.",
+        "text": "Mystery rule: write the rule on the board with the Text tool after you draw step 4.",
     },
     {
         "id": "finish_pattern",
@@ -43,6 +43,23 @@ DEFAULT_MYSTERY_STEPS: tuple[str, ...] = (
     "Include one curved line and one straight line.",
     "Leave a blank corner for the next step.",
 )
+
+
+def is_draw_catchup_question(question: dict[str, Any] | None) -> bool:
+    """True when a catch-up row is an individual draw question.
+
+    Individual draw questions count in participation, so catch-up has to
+    take a drawing. A typed answer does not qualify.
+
+    Args:
+        question: Catch-up row with ``prompt_kind`` and ``content``.
+    """
+    if not isinstance(question, dict):
+        return False
+    kind = str(question.get("prompt_kind") or "").strip().lower()
+    content = question.get("content") if isinstance(question.get("content"), dict) else {}
+    token = str(content.get("type") or content.get("kind") or "").strip().lower()
+    return kind == TEAM_DRAW_KIND or token == TEAM_DRAW_KIND
 
 
 def is_team_draw_item(item: dict[str, Any] | None) -> bool:
@@ -123,8 +140,12 @@ def decode_png_payload(image_b64: str | None) -> bytes:
     return blob
 
 
-def team_draw_answer_json(title: str) -> dict[str, Any]:
-    """Persisted group final answer (title only; no image)."""
+def team_draw_answer_json(title: str = "") -> dict[str, Any]:
+    """Persisted draw answer. The drawing itself is not stored here.
+
+    Args:
+        title: Optional leftover label. New submits send none.
+    """
     clean = str(title or "").strip()[:MAX_TITLE_LEN]
     return {"kind": TEAM_DRAW_KIND, "title": clean, "value": clean}
 
@@ -135,10 +156,9 @@ def status_label(submitted: bool) -> str:
 
 
 def gallery_row_title(row: dict[str, Any]) -> str:
-    """Title line for one team tile."""
+    """Optional title line for one draw tile. Empty when the submit had none."""
     final = row.get("final_answer") if isinstance(row.get("final_answer"), dict) else {}
-    title = str(final.get("title") or final.get("value") or "").strip()
-    return title or "Untitled"
+    return str(final.get("title") or "").strip()
 
 
 def should_snapshot_team_draw_run(

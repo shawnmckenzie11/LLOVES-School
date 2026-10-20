@@ -68,7 +68,7 @@ export function boardNameChipsEnabled() {
  * How a student paints a board the teacher is showing.
  *
  * The owner's own board stays writable so an open stroke, Pen, Text,
- * Erase, and the masterpiece title survive. Any other board is view only.
+ * and Erase survive. Any other board is view only.
  * @param {string} ownKey Board the viewer is drawing on.
  * @param {string} shownKey Board the teacher projected.
  * @returns {"show-own" | "show-class"}

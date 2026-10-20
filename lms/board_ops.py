@@ -852,7 +852,9 @@ class _BoardStore:
         committed after that read are left for the next poll, so a reply
         never contains a sequence past the ``board_seq`` it reports. A gap
         wider than ``MAX_DELTA_OPS`` sets ``snapshot`` and returns no op
-        list. ``since_seq`` equal to the current sequence is empty.
+        list. ``since_seq`` equal to the current sequence is empty. A
+        ``since_seq`` past the head is also a snapshot: the caller is on
+        a stale cursor, and an empty delta would keep old ink on screen.
 
         Args:
             run_key: Key minted when this live run started.
@@ -867,6 +869,17 @@ class _BoardStore:
 
         def work(exec_: Exec) -> dict[str, Any]:
             current = self._current_seq(exec_, _run_key(run_key), key)
+            # A cursor past this board's head is a previous generation or a
+            # purged board. Return the current picture instead of an empty
+            # delta that would leave the caller painting stale ink.
+            if since_n > current:
+                return {
+                    "board_key": key,
+                    "board_seq": current,
+                    "since": since_n,
+                    "ops": [],
+                    "snapshot": True,
+                }
             if current - since_n > MAX_DELTA_OPS:
                 return {
                     "board_key": key,
@@ -912,7 +925,10 @@ class _BoardStore:
 
         Each cursor is that board's last applied sequence. A gap wider
         than ``MAX_DELTA_OPS`` sets ``snapshot`` and returns no op list.
-        Boards with no counter still come back at sequence 0.
+        A cursor past the head does too, so a fresh generation does not
+        keep the previous board's ink. Boards with no counter still come
+        back at sequence 0. The counter stores the last assigned
+        sequence, the same value ``since`` reports as ``board_seq``.
 
         Args:
             run_key: Key minted when this live run started.
@@ -943,7 +959,7 @@ class _BoardStore:
                     (
                         board_key = ? AND board_seq > ?
                         AND COALESCE((
-                            SELECT c.next_seq - 1 FROM board_counters c
+                            SELECT c.next_seq FROM board_counters c
                             WHERE c.run_key = board_ops.run_key
                               AND c.board_key = board_ops.board_key
                         ), 0) - ? <= ?
@@ -955,7 +971,7 @@ class _BoardStore:
             sql = f"""
                 SELECT kind, board_key, board_seq, op, owner, touch FROM (
                     SELECT 'head' AS kind, board_key,
-                           CASE WHEN next_seq > 0 THEN next_seq - 1 ELSE 0 END AS board_seq,
+                           next_seq AS board_seq,
                            '' AS op, '' AS owner, '' AS touch
                     FROM board_counters
                     WHERE run_key = ? AND board_key IN ({head_marks})
@@ -1007,7 +1023,7 @@ class _BoardStore:
                         slot["ops"].append(op)
             for key, slot in out.items():
                 gap = int(slot["board_seq"]) - int(slot["since"])
-                if gap > MAX_DELTA_OPS:
+                if int(slot["since"]) > int(slot["board_seq"]) or gap > MAX_DELTA_OPS:
                     slot["ops"] = []
                     slot["snapshot"] = True
             return out

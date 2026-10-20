@@ -1229,6 +1229,10 @@ function adoptLifecycleResponseCounts(counts, rankRevs) {
       String(row?.response_mode || prev.response_mode || "") === "group_consensus" ||
       String(row?.response_mode || prev.response_mode || "") === "group_submit" ||
       String(row?.response_mode || prev.response_mode || "") === "team_draw";
+    const individualDraw =
+      String(row?.item?.type || row?.type || "") === "team_draw" &&
+      String(row?.response_mode || "") === "individual";
+    if (individualDraw && (!seen || previous !== n)) refreshGroups = true;
     if (groupMode) {
       // Thin group_results paints in place. Do not refreshLifecycleResults on a light tick.
       continue;
@@ -5070,7 +5074,10 @@ function groupSubmitTeacherHtml(result, revealed, liveItemId) {
   const hostId = groupResultsHostId(result, liveItemId);
   const seq = escapeHtml(String(result?.group_response_seq || ""));
   const open = `<div class="group-submit-teacher" data-group-results="${hostId}" data-group-seq="${seq}">`;
-  if (String(result?.response_mode || "") === "team_draw") {
+  if (
+    String(result?.response_mode || "") === "team_draw" ||
+    result?.draw
+  ) {
     return `${open}${teamDrawStatusBoardHtml(result)}</div>`;
   }
   if (result?.rank) {
@@ -5334,6 +5341,7 @@ function paintLiveQuestionCards() {
           : ["individual"];
       const openEnded = liveQuestionIsOpenEnded(item, card);
       const isRank = liveQuestionIsRank(item, card);
+      const drawQuestion = String(item.type || card.type || "") === "team_draw";
       const multipleChoice = liveQuestionIsMultipleChoice(item, card) || isRank;
       // MCK-112: the type decides the group style; the teacher only picks.
       const groupStyle = groupStyleFor(item, card);
@@ -5353,9 +5361,14 @@ function paintLiveQuestionCards() {
         card.response_mode === "team_draw" ||
         card.response_mode === "group_consensus";
       const result = lifecycleResults.get(liveItemId);
+      const drawResult =
+        result ||
+        (drawQuestion
+          ? { draw: true, response_mode: card.response_mode, status_board: [] }
+          : null);
       const resultHtml =
-        card.response_mode === "team_draw"
-          ? groupSubmitTeacherHtml(result, closed, liveItemId)
+        card.response_mode === "team_draw" || drawQuestion
+          ? groupSubmitTeacherHtml(drawResult, closed, liveItemId)
           : groupChrome
         ? groupSubmitTeacherHtml(result, closed, liveItemId)
         : card.response_mode === "group_consensus"

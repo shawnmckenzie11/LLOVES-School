@@ -3456,6 +3456,24 @@ dialog.student-pin-dialog::backdrop {
   gap: 0.65rem;
   margin-top: 0.75rem;
 }
+.team-draw-submit {
+  font-size: 1.05rem;
+  padding: 0.65rem 1rem;
+}
+.catchup-draw-stage {
+  width: 100%;
+  max-width: 720px;
+  margin: 0.4rem 0 0.6rem;
+  background: #fff;
+  border: 1px solid #c5ced6;
+  border-radius: 8px;
+}
+.catchup-draw-stage canvas.catchup-draw-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  touch-action: none;
+}
 .team-draw-turn-pill {
   align-self: flex-start;
   margin: 0;
@@ -3467,15 +3485,6 @@ dialog.student-pin-dialog::backdrop {
   color: var(--accent, #1e3a8a);
   border: 1px solid var(--border, #c7d2fe);
 }
-.team-draw-submit {
-  font-size: 1.05rem;
-  padding: 0.65rem 1rem;
-}
-.team-draw-saved {
-  color: var(--muted, #555);
-  font-size: 0.95rem;
-}
-
 /* Mystery rule on a phone: keep locked steps visible above the canvas. */
 @media (max-width: 47.99rem) {
   body.student-home.is-team-draw-mystery-focus .live-question-stack {

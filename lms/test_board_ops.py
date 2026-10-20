@@ -298,6 +298,44 @@ class SqliteBoardOpsTests(unittest.TestCase):
         self.assertEqual([op["board_seq"] for op in delta["ops"]], [1, 2])
         self.assertNotIn(50, [op["board_seq"] for op in delta["ops"]])
 
+    def test_since_many_head_matches_since_and_a_past_cursor_snapshots(self) -> None:
+        """A gallery cursor uses the last sequence. A past cursor snapshots.
+
+        Fresh-board polls still hold the previous generation's sequence.
+        That read has to come back as a snapshot at the new head, not as
+        an empty delta.
+        """
+        for stroke_id in ("a", "b"):
+            self.store.append_ops(
+                1,
+                "team:0",
+                owner="11",
+                ops=[
+                    {
+                        "type": "stroke_add",
+                        "id": stroke_id,
+                        "points": [[0.1, 0.2]],
+                    }
+                ],
+            )
+        one = self.store.since(1, "team:0", 0)
+        many = self.store.since_many(1, {"team:0": 0})
+        self.assertEqual(many["team:0"]["board_seq"], one["board_seq"])
+        self.assertEqual(many["team:0"]["board_seq"], 2)
+        self.assertFalse(many["team:0"]["snapshot"])
+        self.assertEqual(
+            [op["id"] for op in many["team:0"]["ops"]],
+            ["a", "b"],
+        )
+        stale = self.store.since_many(1, {"team:0": 9})
+        self.assertTrue(stale["team:0"]["snapshot"])
+        self.assertEqual(stale["team:0"]["ops"], [])
+        self.assertEqual(stale["team:0"]["board_seq"], 2)
+        missing = self.store.since(1, "team:1", 4)
+        self.assertTrue(missing["snapshot"])
+        self.assertEqual(missing["board_seq"], 0)
+        self.assertEqual(missing["ops"], [])
+
     def test_ensure_schema_twice_changes_nothing(self) -> None:
         """Opening the board schema again leaves the same tables in place."""
         self.store.ensure_schema()

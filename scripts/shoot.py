@@ -2087,7 +2087,7 @@ def shoot_mck242(
     path: Path,
     widths: list[int],
 ) -> list[Path]:
-    """MCK-242: Team Draw teacher status grid (desktop) and student naming UI (phone).
+    """MCK-242: Team Draw teacher status grid (desktop) and student board (phone).
 
     Args:
         base: Loopback LMS origin.
@@ -2130,9 +2130,8 @@ def shoot_mck242(
                 page.goto(student_url, wait_until="domcontentloaded", timeout=60000)
                 _mck215_reach_live_home(page)
                 _mck215_dismiss_catchup_pin(page)
-                page.locator("#team-draw-phone").wait_for(state="visible", timeout=60000)
-                page.locator(".live-canvas-stage").first.wait_for(state="visible", timeout=30000)
-                page.locator("#team-draw-title").fill("Maple Mascot")
+                page.locator(".live-canvas-stage").first.wait_for(state="visible", timeout=60000)
+                page.locator("#student-canvas").wait_for(state="visible", timeout=30000)
                 dest = out_dir / f"mck242-student-{width}.png"
                 page.screenshot(path=str(dest), full_page=True)
                 written.append(dest)

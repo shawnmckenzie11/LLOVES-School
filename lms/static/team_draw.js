@@ -1,18 +1,82 @@
 /**
- * MCK-242: Team Draw student submit + teacher status helpers.
+ * MCK-242: Draw-question submit and teacher status helpers.
+ *
+ * The plain live whiteboard has no title field and no submit control.
+ * A team or individual draw question shows Submit and sends the drawing.
  */
 
 /**
+ * Capture the board the student is looking at, including the live ink layer.
  * @param {HTMLCanvasElement|null} canvas
  * @returns {string}
  */
 export function canvasToPngDataUrl(canvas) {
-  if (!canvas) return "";
+  if (!(canvas instanceof HTMLCanvasElement)) return "";
+  const ink = canvas.nextElementSibling;
+  const layers = [canvas];
+  if (ink instanceof HTMLCanvasElement && ink.classList.contains("live-canvas-ink")) {
+    layers.push(ink);
+  }
+  const width = Math.max(...layers.map((layer) => layer.width || 0));
+  const height = Math.max(...layers.map((layer) => layer.height || 0));
+  if (!width || !height) {
+    try {
+      return canvas.toDataURL("image/png");
+    } catch {
+      return "";
+    }
+  }
+  const shot = document.createElement("canvas");
+  shot.width = width;
+  shot.height = height;
+  const ctx = shot.getContext("2d");
+  if (!ctx) return "";
+  for (const layer of layers) {
+    ctx.drawImage(layer, 0, 0, width, height);
+  }
   try {
-    return canvas.toDataURL("image/png");
+    return shot.toDataURL("image/png");
   } catch {
     return "";
   }
+}
+
+/**
+ * True for a team draw or an individual draw question.
+ * @param {any} item
+ * @returns {boolean}
+ */
+export function isDrawQuestion(item) {
+  if (isTeamDrawItem(item)) return true;
+  const type = String(
+    item?.content?.type ||
+      item?.item?.type ||
+      item?.prompt?.payload?.type ||
+      item?.type ||
+      ""
+  ).toLowerCase();
+  return type === "team_draw";
+}
+
+/**
+ * Whether this whiteboard should show Submit.
+ *
+ * A plain board stays bare. A live team or individual draw question shows
+ * Submit until that drawing is sent. There is never a title box.
+ * @param {any} item Active lifecycle row, or null on a plain board.
+ * @param {boolean} canvasVisible
+ * @returns {boolean}
+ */
+export function drawSubmitVisible(item, canvasVisible) {
+  if (!canvasVisible || !item || typeof item !== "object") return false;
+  if (String(item.status || "active") !== "active") return false;
+  if (!isDrawQuestion(item)) return false;
+  const team = item.group_submit;
+  if (String(item.response_mode || "") === "team_draw") {
+    return Boolean(team && team.can_submit && !team.submitted);
+  }
+  if (item.my_response) return false;
+  return item.can_submit !== false;
 }
 
 /**
@@ -60,9 +124,13 @@ export function teamDrawStatusBoardHtml(result) {
     Boolean(result?.mystery_rule) || (mysterySteps.length === 3 && mysterySteps.some(Boolean));
   const mysteryHtml = showMystery ? teamDrawMysteryTeacherHtml(mysterySteps) : "";
   if (!board.length) {
+    const waiting =
+      String(result?.response_mode || "") === "individual"
+        ? "Drawings appear here after students submit."
+        : "Groups appear here after publish.";
     return `<div class="team-draw-teacher">
       ${mysteryHtml}
-      <p class="hint compact">Groups appear here after publish.</p>
+      <p class="hint compact">${waiting}</p>
     </div>`;
   }
   const rows = board
@@ -97,6 +165,21 @@ export function teamDrawStatusBoardHtml(result) {
  * @param {string} text
  * @returns {string}
  */
+
+/**
+ * Catch-up controls for an individual draw question.
+ * The board is the drawing. Submit sends the PNG, never typed text.
+ * @returns {string}
+ */
+export function catchupDrawControlsHtml() {
+  return `<div class="student-live-answer-controls catchup-draw" data-catchup-draw="1">
+    <div class="live-canvas-stage catchup-draw-stage">
+      <canvas class="catchup-draw-canvas" width="720" height="360" aria-label="Drawing"></canvas>
+    </div>
+    <button type="button" class="prompt-submit" data-live-submit="catchup-draw">Submit</button>
+  </div>`;
+}
+
 function escapeTeamDraw(text) {
   return String(text || "")
     .replace(/&/g, "&amp;")

@@ -1,8 +1,11 @@
 """MCK-230: shared participation opportunity weights for Lesson Slides decks.
 
-Each counted question type (MC, numeric, text, rank, and equivalents) counts as
-one opportunity when it collected at least one live-class student response from
-a real (non–Test Student) student; catch-up answers never add opportunities.
+Each counted question type (MC, numeric, text, rank, an individual drawing,
+and equivalents) counts as one opportunity when it collected at least one
+live-class student response from a real (non–Test Student) student; catch-up
+answers never add opportunities. A submitted individual drawing scores 1 with
+no correctness check, in live class and catch-up alike. Group team draws stay
+out of this fraction.
 Lesson Slides and Attendance & Participation both import this module so
 numerators and denominators stay aligned.
 """
@@ -29,6 +32,7 @@ _COUNTED_PROMPT_KINDS = frozenset(
         "text",
         "short_answer",
         "open",
+        "team_draw",
     }
 )
 _COUNTED_JSON_TYPES = frozenset(
@@ -41,6 +45,7 @@ _COUNTED_JSON_TYPES = frozenset(
         "text",
         "short_answer",
         "multiple_choice",
+        "team_draw",
     }
 )
 _GROUP_PUBLISH = frozenset({"group_consensus", "group_shared"})
@@ -86,7 +91,11 @@ def item_participation_weight(
     publish_mode: str = "individual",
     item_json: Any = None,
 ) -> int:
-    """Return 1 for counted question types, else 0 (individual or group publish)."""
+    """Return 1 for counted question types, else 0.
+
+    An individual drawing counts as 1. The weight does not compare the
+    drawing to a key. ``group_submit`` (a team drawing) stays 0.
+    """
     mode = str(publish_mode or "individual").strip().lower()
     if mode not in {"individual", *_GROUP_PUBLISH}:
         return 0

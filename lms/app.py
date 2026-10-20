@@ -8034,7 +8034,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     )
     @student_required
     def api_student_team_draw(live_item_id: int):
-        """Submit a Team Draw title and ephemeral PNG for the gallery."""
+        """Submit a team or individual drawing. The body is the PNG only."""
 
         denied = _require_active_live_attendee(as_json=True)
         if denied is not None:
@@ -8047,13 +8047,26 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         try:
             from school_db import GroupAnswerLocked
 
-            card = school.submit_team_draw(
-                int(ctx["live_session_id"]),
-                live_item_id,
-                int(ident[2]),
-                title=str(body.get("title") or ""),
-                image_b64=str(body.get("image") or body.get("image_png") or ""),
-            )
+            session_id = int(ctx["live_session_id"])
+            item = school.get_live_session_item(session_id, live_item_id)
+            image_b64 = str(body.get("image") or body.get("image_png") or "")
+            if (
+                school._question_answer_kind(item) == "team_draw"
+                and str(item.get("response_mode") or "") == "individual"
+            ):
+                card = school.submit_individual_draw(
+                    session_id,
+                    live_item_id,
+                    int(ident[2]),
+                    image_b64=image_b64,
+                )
+            else:
+                card = school.submit_team_draw(
+                    session_id,
+                    live_item_id,
+                    int(ident[2]),
+                    image_b64=image_b64,
+                )
         except GroupAnswerLocked as exc:
             return jsonify(
                 {"ok": False, "error": str(exc), "locked": True, "team_draw": exc.card}
@@ -9794,6 +9807,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return denied
         try:
             reply = school.clear_whiteboard_board(session_id, board_key)
+        except BoardSessionClosed as exc:
+            return board_write_closed(exc)
+        except BoardOpRejected as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 409
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         return jsonify(reply)
