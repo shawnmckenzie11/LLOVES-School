@@ -39286,11 +39286,12 @@ class SchoolDB(LovesDB):
         question_key: str,
         answer: Any,
     ) -> bool:
-        """Count a catch-up drawing only when the body is a PNG.
+        """Count a catch-up drawing only when the body is a PNG with ink.
 
-        Typed text is refused and no answer row is written. The image
-        itself is not kept on the participation row, matching a live
-        draw submit.
+        Typed text is refused and no answer row is written. A blank
+        canvas (no ink) raises ``ValueError`` so the page can answer
+        400. The image itself is not kept on the participation row,
+        matching a live draw submit.
 
         Args:
             link: Open catch-up row.
@@ -39300,13 +39301,18 @@ class SchoolDB(LovesDB):
 
         Returns:
             True when the drawing was stored.
+
+        Raises:
+            ValueError: The PNG is a blank canvas with no ink.
         """
-        from team_draw import decode_png_payload, team_draw_answer_json
+        from team_draw import BLANK_DRAWING_ERROR, load_inked_png, team_draw_answer_json
 
         try:
-            decode_png_payload(str(answer or ""))
-        except ValueError:
-            return False
+            load_inked_png(str(answer or ""))
+        except ValueError as exc:
+            if str(exc) != BLANK_DRAWING_ERROR:
+                return False
+            raise
         payload = json.dumps(team_draw_answer_json(""))
         with self._lock:
             self.conn.execute(

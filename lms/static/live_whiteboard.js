@@ -12,6 +12,16 @@ import { wireFormativeWhiteboard, colorForOwner, cursorChipInkStyle } from "./wh
 export const PRESENCE_FLUSH_MS = 80;
 
 /**
+ * True when the board has a finished stroke or the pen is down on one.
+ * @param {number} strokeCount Finished strokes on the board.
+ * @param {number} openPoints Samples in the stroke that is still open.
+ * @returns {boolean}
+ */
+export function boardHasStroke(strokeCount, openPoints) {
+  return Number(strokeCount) > 0 || Number(openPoints) > 0;
+}
+
+/**
  * How often a shared-board tab with no LiveNewsWire stream asks for
  * ink since the last sequence. One request at a time; 1.5–2s.
  */
@@ -475,6 +485,7 @@ export function createPresenceQueue(opts) {
  *   eraseBtn?: HTMLElement | null,
  *   textBtn?: HTMLElement | null,
  *   cursorLayer?: HTMLElement | null,
+ *   onInkChange?: (hasStroke: boolean) => void,
  * }} [opts]
  * @returns {{
  *   setEnabled: (on: boolean) => void,
@@ -914,6 +925,9 @@ export function bindWhiteboard(canvas, opts = {}) {
     if (opts.undoBtn instanceof HTMLButtonElement) opts.undoBtn.disabled = !strokes.length;
     if (opts.redoBtn instanceof HTMLButtonElement) opts.redoBtn.disabled = !redoStack.length;
     if (opts.eraseBtn instanceof HTMLButtonElement) opts.eraseBtn.disabled = !strokes.length;
+    if (typeof opts.onInkChange === "function") {
+      opts.onInkChange(boardHasStroke(strokes.length, current.length));
+    }
     if (opts.penBtn instanceof HTMLButtonElement) {
       opts.penBtn.setAttribute("aria-pressed", tool === "draw" ? "true" : "false");
       opts.penBtn.classList.toggle("is-on", tool === "draw");

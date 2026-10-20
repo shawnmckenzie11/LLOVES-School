@@ -6,9 +6,11 @@ from __future__ import annotations
 import base64
 import json
 import os
+import struct
 import subprocess
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 
 LMS_DIR = Path(__file__).resolve().parent
@@ -23,16 +25,68 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 from app import create_app  # noqa: E402
 from participation_real_students import exclude_participation_answer_student_ids  # noqa: E402
 from team_draw import (  # noqa: E402
+    BLANK_DRAWING_ERROR,
     BUILTIN_PROMPTS,
     decode_png_payload,
     is_team_draw_item,
+    load_inked_png,
+    png_has_ink,
     resolved_prompt_text,
 )
 
-# 1x1 PNG
+# 1x1 semi-transparent PNG. One colour, so it has no ink.
 _TINY_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 )
+
+
+def _png_chunk(tag: bytes, data: bytes) -> bytes:
+    """One PNG chunk, including length and CRC.
+
+    Args:
+        tag: Four-byte chunk type.
+        data: Chunk payload.
+    """
+    crc = zlib.crc32(tag + data) & 0xFFFFFFFF
+    return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
+
+
+def _rgba_png(width: int, height: int, pixels: list[tuple[int, int, int, int]]) -> bytes:
+    """Build a non-interlaced 8-bit RGBA PNG using filter None.
+
+    Args:
+        width: Pixel width.
+        height: Pixel height.
+        pixels: Row-major RGBA tuples, ``width * height`` long.
+    """
+    raw = bytearray()
+    for y in range(height):
+        raw.append(0)
+        for x in range(width):
+            raw.extend(pixels[y * width + x])
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", ihdr)
+        + _png_chunk(b"IDAT", zlib.compress(bytes(raw)))
+        + _png_chunk(b"IEND", b"")
+    )
+
+
+def _png_b64(blob: bytes) -> str:
+    """Raw base64 for a PNG payload.
+
+    Args:
+        blob: PNG bytes.
+    """
+    return base64.b64encode(blob).decode("ascii")
+
+
+# Clear pixel plus one pen-coloured pixel: a stroke on an empty canvas.
+_INKED_PNG = _rgba_png(2, 1, [(0, 0, 0, 0), (18, 32, 46, 255)])
+_BLANK_PNG = _rgba_png(2, 1, [(0, 0, 0, 0), (0, 0, 0, 0)])
+_FLAT_PNG = _rgba_png(2, 1, [(255, 255, 255, 255), (255, 255, 255, 255)])
+_CLEAR_NOISE_PNG = _rgba_png(2, 1, [(1, 2, 3, 0), (9, 8, 7, 0)])
 
 
 class TeamDrawTests(unittest.TestCase):
@@ -132,6 +186,65 @@ class TeamDrawTests(unittest.TestCase):
         self.assertEqual(published["response_mode"], expected)
         return published
 
+    def _seed_draw_catchup(self) -> tuple[str, int]:
+        """Insert one open individual-draw catch-up question.
+
+        Returns:
+            Token and roster id for the student who has not answered.
+        """
+        now = "2026-10-20T12:00:00"
+        run_key = "run-draw-catchup"
+        token = "draw-catchup-token"
+        self.school.conn.execute(
+            """
+            INSERT INTO participation_runs (class_id, run_key, is_real, auto_is_real, discarded)
+            VALUES (?, ?, 1, 1, 0)
+            """,
+            (self.class_id, run_key),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO catchup_links (
+                token, class_id, run_key, live_module, live_slot, is_open, created_at, updated_at
+            ) VALUES (?, ?, ?, 'M1', 'C1', 1, ?, ?)
+            """,
+            (token, self.class_id, run_key, now, now),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO participation_items (
+                class_id, run_key, live_module, live_slot, question_key, item_json,
+                prompt_kind, offered_at
+            ) VALUES (?, ?, 'M1', 'C1', 'item:draw1', ?, 'team_draw', ?)
+            """,
+            (
+                self.class_id,
+                run_key,
+                json.dumps({"type": "team_draw", "text": "Draw the figure."}),
+                now,
+            ),
+        )
+        self.school.conn.commit()
+        return token, int(self.student_ids[1])
+
+    def _student_client(self, index: int = 0):
+        """Flask client for a roster student already joined to the live session.
+
+        Args:
+            index: Position in ``self.student_ids``.
+        """
+        client = self.app.test_client()
+        offering_id = self.school.conn.execute(
+            "SELECT offering_id FROM classes WHERE id = ?",
+            (self.class_id,),
+        ).fetchone()[0]
+        with client.session_transaction() as sess:
+            sess["student_offering_id"] = int(offering_id)
+            sess["student_class_id"] = self.class_id
+            sess["student_id"] = self.student_ids[index]
+            sess["student_live_session_id"] = self.session_id
+        return client
+
     def test_builtin_prompts_and_exclusion_helper(self) -> None:
         self.assertEqual(len(BUILTIN_PROMPTS), 4)
         mystery = next(row for row in BUILTIN_PROMPTS if row["id"] == "mystery_rule")
@@ -172,7 +285,7 @@ class TeamDrawTests(unittest.TestCase):
             self.session_id,
             live_id,
             self.student_ids[0],
-            image_b64=base64.b64encode(_TINY_PNG).decode("ascii"),
+            image_b64=_png_b64(_INKED_PNG),
         )
         self.assertTrue(card.get("submitted"))
         self.assertEqual(card.get("title"), "")
@@ -216,7 +329,7 @@ class TeamDrawTests(unittest.TestCase):
             self.session_id,
             live_id,
             self.student_ids[0],
-            image_b64=base64.b64encode(_TINY_PNG).decode("ascii"),
+            image_b64=_png_b64(_INKED_PNG),
         )
         self.assertTrue(card.get("submitted"))
         self.assertFalse(card.get("can_submit"))
@@ -308,7 +421,7 @@ if (drawSubmitVisible(solo, true)) process.exit(7);
             live_id,
             self.student_ids[0],
             title="crafted-title",
-            image_b64=base64.b64encode(_TINY_PNG).decode("ascii"),
+            image_b64=_png_b64(_INKED_PNG),
         )
         self.assertTrue(card.get("submitted"))
         self.assertEqual(card.get("title"), "")
@@ -316,16 +429,23 @@ if (drawSubmitVisible(solo, true)) process.exit(7);
         self.assertEqual(view["status_board"][0]["title"], "")
 
     def test_catchup_draw_card_uses_the_board(self) -> None:
-        """Catch-up draw questions render the board and Submit, not a text box."""
+        """Catch-up draw questions render the board, and Submit starts disabled."""
         js = (LMS_DIR / "static" / "catchup.js").read_text(encoding="utf-8")
         self.assertIn('liveKind === "team_draw"', js)
         self.assertIn("catchupDrawControlsHtml()", js)
+        self.assertIn("onInkChange", js)
+        self.assertIn("dataset.hasStroke", js)
         script = """
 import { catchupDrawControlsHtml } from "./lms/static/team_draw.js";
+import { boardHasStroke } from "./lms/static/live_whiteboard.js";
 const html = catchupDrawControlsHtml();
 if (!html.includes("catchup-draw-canvas")) process.exit(1);
 if (!html.includes(">Submit<")) process.exit(2);
 if (html.includes("Your answer") || html.includes("<textarea")) process.exit(3);
+const button = html.slice(html.indexOf("<button"));
+if (!button.includes("disabled")) process.exit(4);
+if (boardHasStroke(0, 0)) process.exit(5);
+if (!boardHasStroke(1, 0) || !boardHasStroke(0, 2)) process.exit(6);
 """
         completed = subprocess.run(
             ["node", "--input-type=module", "-e", script],
@@ -337,41 +457,8 @@ if (html.includes("Your answer") || html.includes("<textarea")) process.exit(3);
         self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
 
     def test_individual_draw_catchup_requires_a_drawing(self) -> None:
-        """An individual draw counts in participation only when catch-up sends a PNG."""
-        now = "2026-10-20T12:00:00"
-        run_key = "run-draw-catchup"
-        token = "draw-catchup-token"
-        self.school.conn.execute(
-            """
-            INSERT INTO participation_runs (class_id, run_key, is_real, auto_is_real, discarded)
-            VALUES (?, ?, 1, 1, 0)
-            """,
-            (self.class_id, run_key),
-        )
-        self.school.conn.execute(
-            """
-            INSERT INTO catchup_links (
-                token, class_id, run_key, live_module, live_slot, is_open, created_at, updated_at
-            ) VALUES (?, ?, ?, 'M1', 'C1', 1, ?, ?)
-            """,
-            (token, self.class_id, run_key, now, now),
-        )
-        self.school.conn.execute(
-            """
-            INSERT INTO participation_items (
-                class_id, run_key, live_module, live_slot, question_key, item_json,
-                prompt_kind, offered_at
-            ) VALUES (?, ?, 'M1', 'C1', 'item:draw1', ?, 'team_draw', ?)
-            """,
-            (
-                self.class_id,
-                run_key,
-                json.dumps({"type": "team_draw", "text": "Draw the figure."}),
-                now,
-            ),
-        )
-        self.school.conn.commit()
-        student_id = self.student_ids[1]
+        """An individual draw counts in participation only when catch-up sends ink."""
+        token, student_id = self._seed_draw_catchup()
         questions = self.school.catchup_questions(token, student_id)
         self.assertEqual(questions[0]["prompt_kind"], "team_draw")
         self.assertFalse(questions[0]["answered"])
@@ -386,7 +473,7 @@ if (html.includes("Your answer") || html.includes("<textarea")) process.exit(3);
             (self.class_id, student_id),
         ).fetchone()[0]
         self.assertEqual(int(stored), 0)
-        image = "data:image/png;base64," + base64.b64encode(_TINY_PNG).decode("ascii")
+        image = "data:image/png;base64," + _png_b64(_INKED_PNG)
         self.assertTrue(
             self.school.submit_catchup_answer(token, student_id, "item:draw1", image)
         )
@@ -408,6 +495,82 @@ if (html.includes("Your answer") || html.includes("<textarea")) process.exit(3);
         self.assertEqual(answered.get((student_id, "M1"), {}).get("catchup"), 1)
         again = self.school.catchup_questions(token, student_id)
         self.assertTrue(again[0]["answered"])
+
+    def test_blank_catchup_drawing_is_rejected(self) -> None:
+        """A blank catch-up canvas is a 400 and does not earn participation."""
+        from catchup_session import establish_catchup_identity
+        from participation_weight import participation_fraction
+
+        token, student_id = self._seed_draw_catchup()
+        self.school.set_student_pin(self.class_id, student_id, "2468")
+        client = self.app.test_client()
+        stamp = self.school.catchup_pin_stamp(self.class_id, student_id)
+        with client.session_transaction() as sess:
+            establish_catchup_identity(
+                sess, self.school, self.class_id, student_id, stamp
+            )
+        for blob in (_BLANK_PNG, _FLAT_PNG, _TINY_PNG, _CLEAR_NOISE_PNG):
+            rv = client.post(
+                f"/catchup/{token}",
+                data={
+                    "question_key": "item:draw1",
+                    "answer": "data:image/png;base64," + _png_b64(blob),
+                },
+            )
+            self.assertEqual(rv.status_code, 400)
+            body = rv.get_json() or {}
+            self.assertEqual(body.get("ok"), False)
+            self.assertEqual(body.get("error"), BLANK_DRAWING_ERROR)
+        with self.assertRaises(ValueError) as raised:
+            self.school.submit_catchup_answer(
+                token, student_id, "item:draw1", _png_b64(_BLANK_PNG)
+            )
+        self.assertEqual(str(raised.exception), BLANK_DRAWING_ERROR)
+        stored = self.school.conn.execute(
+            """
+            SELECT COUNT(*) FROM participation_answers
+            WHERE class_id = ? AND question_key = 'item:draw1' AND student_id = ?
+            """,
+            (self.class_id, student_id),
+        ).fetchone()[0]
+        self.assertEqual(int(stored), 0)
+        offered, answered = self.school._participation_counts(self.class_id, "M1")
+        self.assertEqual(offered.get("M1"), 1)
+        score = answered.get((student_id, "M1"), {}).get("n", 0)
+        self.assertEqual(participation_fraction(score, offered.get("M1") or 0), "0/1")
+        image = "data:image/png;base64," + _png_b64(_INKED_PNG)
+        self.assertTrue(
+            self.school.submit_catchup_answer(token, student_id, "item:draw1", image)
+        )
+        offered, answered = self.school._participation_counts(self.class_id, "M1")
+        score = answered.get((student_id, "M1"), {}).get("n", 0)
+        self.assertEqual(participation_fraction(score, offered.get("M1") or 0), "1/1")
+
+    def test_blank_live_draw_submit_is_rejected(self) -> None:
+        """Live individual and team draw submits refuse a canvas with no ink."""
+        client = self._student_client(0)
+        cases = (
+            ("individual", _BLANK_PNG),
+            ("individual", _TINY_PNG),
+            ("group_submit", _FLAT_PNG),
+        )
+        for publish_mode, blob in cases:
+            published = self._add_publish_team_draw(publish_mode=publish_mode)
+            rv = client.post(
+                f"/api/student/live-items/{int(published['id'])}/team-draw",
+                json={"image": _png_b64(blob)},
+            )
+            self.assertEqual(rv.status_code, 400)
+            body = rv.get_json() or {}
+            self.assertEqual(body.get("ok"), False)
+            self.assertEqual(body.get("error"), BLANK_DRAWING_ERROR)
+            if publish_mode == "individual":
+                view = self.school.individual_draw_teacher_view(
+                    self.session_id, published
+                )
+            else:
+                view = self.school.team_draw_teacher_view(self.session_id, published)
+            self.assertEqual(view["response_count"], 0)
 
     def test_submitted_drawing_scores_one_of_one_live_and_catchup(self) -> None:
         """A submitted drawing is 1/1 participation, live and catch-up.
@@ -459,7 +622,7 @@ if (html.includes("Your answer") || html.includes("<textarea")) process.exit(3);
                 (payload, int(row["prompt_id"])),
             )
         self.school.conn.commit()
-        image = base64.b64encode(_TINY_PNG).decode("ascii")
+        image = _png_b64(_INKED_PNG)
         card = self.school.submit_individual_draw(
             self.session_id,
             live_id,
@@ -564,7 +727,7 @@ if (html.includes("Your answer") || html.includes("<textarea")) process.exit(3);
             live_id,
             self.student_ids[0],
             title="Maple Mascot",
-            image_b64=base64.b64encode(_TINY_PNG).decode("ascii"),
+            image_b64=_png_b64(_INKED_PNG),
         )
         self.assertTrue(card.get("submitted"))
         view = self.school.team_draw_teacher_view(self.session_id, published)
@@ -619,7 +782,7 @@ if (html.includes("Your answer") || html.includes("<textarea")) process.exit(3);
             live_id,
             self.student_ids[0],
             title="Practice sketch",
-            image_b64=base64.b64encode(_TINY_PNG).decode("ascii"),
+            image_b64=_png_b64(_INKED_PNG),
         )
         session = self.school.get_live_session(self.session_id)
         assert session is not None
@@ -645,7 +808,7 @@ if (html.includes("Your answer") || html.includes("<textarea")) process.exit(3);
             live_id,
             self.student_ids[0],
             title="Class sketch",
-            image_b64=base64.b64encode(_TINY_PNG).decode("ascii"),
+            image_b64=_png_b64(_INKED_PNG),
         )
         session = self.school.get_live_session(self.session_id)
         assert session is not None
@@ -670,7 +833,7 @@ if (html.includes("Your answer") || html.includes("<textarea")) process.exit(3);
             live_id,
             self.student_ids[0],
             title="Ephemeral",
-            image_b64=base64.b64encode(_TINY_PNG).decode("ascii"),
+            image_b64=_png_b64(_INKED_PNG),
         )
         before = self.school.conn.execute(
             "SELECT COUNT(*) FROM live_team_draw_images WHERE live_session_id = ?",
@@ -685,6 +848,32 @@ if (html.includes("Your answer") || html.includes("<textarea")) process.exit(3);
             (self.session_id,),
         ).fetchone()[0]
         self.assertEqual(int(after), 0)
+
+
+class DrawingInkTests(unittest.TestCase):
+    """Blank-canvas detection, without a live class."""
+
+    def test_blank_pngs_have_no_ink_and_a_stroke_does(self) -> None:
+        """Flat, clear, and one-colour images are blank. A second colour is ink."""
+        self.assertFalse(png_has_ink(_TINY_PNG))
+        self.assertFalse(png_has_ink(_BLANK_PNG))
+        self.assertFalse(png_has_ink(_FLAT_PNG))
+        self.assertFalse(png_has_ink(_CLEAR_NOISE_PNG))
+        self.assertTrue(png_has_ink(_INKED_PNG))
+        row = bytes([255, 255, 255, 255])
+        raw = bytes([0]) + row + bytes([2, 0, 0, 0, 0])
+        ihdr = struct.pack(">IIBBBBB", 1, 2, 8, 6, 0, 0, 0)
+        filtered = (
+            b"\x89PNG\r\n\x1a\n"
+            + _png_chunk(b"IHDR", ihdr)
+            + _png_chunk(b"IDAT", zlib.compress(raw))
+            + _png_chunk(b"IEND", b"")
+        )
+        self.assertFalse(png_has_ink(filtered))
+        with self.assertRaises(ValueError) as raised:
+            load_inked_png(_png_b64(_FLAT_PNG))
+        self.assertEqual(str(raised.exception), BLANK_DRAWING_ERROR)
+        self.assertTrue(load_inked_png(_png_b64(_INKED_PNG)).startswith(b"\x89PNG"))
 
 
 if __name__ == "__main__":

@@ -168,7 +168,8 @@ export function teamDrawStatusBoardHtml(result) {
 
 /**
  * Catch-up controls for an individual draw question.
- * The board is the drawing. Submit sends the PNG, never typed text.
+ * The board is the drawing. Submit stays off until there is a stroke,
+ * then sends the PNG, never typed text.
  * @returns {string}
  */
 export function catchupDrawControlsHtml() {
@@ -176,7 +177,7 @@ export function catchupDrawControlsHtml() {
     <div class="live-canvas-stage catchup-draw-stage">
       <canvas class="catchup-draw-canvas" width="720" height="360" aria-label="Drawing"></canvas>
     </div>
-    <button type="button" class="prompt-submit" data-live-submit="catchup-draw">Submit</button>
+    <button type="button" class="prompt-submit" data-live-submit="catchup-draw" disabled>Submit</button>
   </div>`;
 }
 
