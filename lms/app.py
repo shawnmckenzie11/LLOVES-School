@@ -9843,6 +9843,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return denied
         try:
             reply = school.clear_whiteboard_board(session_id, board_key)
+        except BoardSessionClosed as exc:
+            return board_write_closed(exc)
+        except BoardOpRejected as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 409
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
         return jsonify(reply)

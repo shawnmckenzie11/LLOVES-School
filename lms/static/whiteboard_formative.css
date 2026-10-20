@@ -329,6 +329,11 @@
   color: #ecfdf5;
 }
 
+#formative-live-board .wb-live-show[aria-pressed="true"] {
+  background: #7f1d1d;
+  color: #fff;
+}
+
 /* MCK-277: an unscoped #canvas-zone position/height beat .is-parked
    and kept the hidden board in the grid, squeezing the visible pane. */
 #canvas-zone:not(.is-parked) {
@@ -408,13 +413,17 @@
   display: none !important;
 }
 
-#formative-live-board .wb-live-panel-canvas {
+#formative-live-board .wb-live-panel-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: max(320px, calc(100dvh - 20.5rem));
+  height: calc(100dvh - 20.5rem);
+}
+
+#formative-live-board .wb-live-panel-stage > .wb-live-panel-canvas {
   display: block;
   width: 100%;
-  flex: 1 0 auto;
-  height: calc(100dvh - 20.5rem);
-  min-height: max(320px, calc(100dvh - 20.5rem));
-  max-height: none;
+  height: 100%;
 }
 
 #formative-live-board .wb-live-panel-tools {

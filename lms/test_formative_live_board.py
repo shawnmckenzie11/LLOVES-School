@@ -93,6 +93,28 @@ await postOpsWithFreshRun({
   },
 });
 if (fetches !== 0) process.exit(4);
+const { foldGalleryInk, galleryRunChanged, showControlState } = await import('./lms/static/formative_live_board.js');
+const bag = foldGalleryInk(
+  { strokes: { old: { id: 'old', points: [[0.1, 0.1]] } }, texts: { t: { id: 't', text: 'old' } } },
+  { snapshot: true, canvas_view: { strokes: [], texts: [] } },
+  '#2563eb',
+);
+if (Object.keys(bag.strokes).length !== 0 || Object.keys(bag.texts).length !== 0) {
+  console.error(JSON.stringify(bag));
+  process.exit(5);
+}
+const kept = foldGalleryInk(bag, {
+  snapshot: false,
+  ops: [{ type: 'stroke_add', id: 'fresh', points: [[0.2, 0.2]], color: '#2563eb' }],
+});
+if (!kept.strokes.fresh) process.exit(6);
+if (!galleryRunChanged('run-a', 'run-a~g1')) process.exit(7);
+if (galleryRunChanged('', 'run-a')) process.exit(8);
+if (galleryRunChanged('run-a', 'run-a')) process.exit(9);
+const showing = showControlState('team:0', 'team:0');
+const idle = showControlState('team:0', '');
+if (showing.label !== 'Stop showing' || !showing.pressed) process.exit(10);
+if (idle.label !== 'Show to class' || idle.pressed) process.exit(11);
 """
         completed = subprocess.run(
             ["node", "--input-type=module", "-e", script],
@@ -944,6 +966,230 @@ class FormativeLiveBoardTests(unittest.TestCase):
         ).fetchone()
         self.assertGreater(int(left["n"] or 0), 0)
         self.assertEqual(self.school.boards.count_run_ops(run_key), 0)
+
+    def _stroke(self, stroke_id: str, *, points: list[list[float]] | None = None) -> dict[str, object]:
+        """One finished pen stroke with no name and no secret fields.
+
+        Args:
+            stroke_id: Client stroke id.
+            points: 0–1 samples. A short segment is used when omitted.
+        """
+        return {
+            "type": "stroke_add",
+            "id": stroke_id,
+            "points": points or [[0.2, 0.3], [0.4, 0.5]],
+            "color": "#2563eb",
+        }
+
+    def _whiteboard_id(self) -> int:
+        """Lifecycle id of the session whiteboard."""
+        self.school.ensure_live_session_items(self.session_id)
+        whiteboard = next(
+            row
+            for row in self.school.list_live_session_items(self.session_id)
+            if str(row.get("kind") or "") == "whiteboard"
+        )
+        return int(whiteboard["id"])
+
+    def test_clear_team_board_after_teacher_undo(self) -> None:
+        """Clear on a team board stays 200 when the teacher has undone a stroke.
+
+        Replaying that stroke_remove after a purge used to raise
+        'stroke is not on this board' and the route returned 500.
+        Student ink goes. The undone teacher stroke stays gone. The
+        teacher stroke that was still on the board stays.
+        """
+        self._publish("group_shared")
+        key = "team:0"
+        self.school.append_live_board_ops(
+            self.session_id,
+            key,
+            owner=str(self.maple_id),
+            ops=[self._stroke("student-pen")],
+        )
+        self.school.append_live_board_ops(
+            self.session_id,
+            key,
+            owner="teacher",
+            ops=[self._stroke("kept-pen"), self._stroke("undone-pen")],
+        )
+        self.school.append_live_board_ops(
+            self.session_id,
+            key,
+            owner="teacher",
+            ops=[{"type": "stroke_remove", "id": "undone-pen"}],
+        )
+        cleared = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}/clear"
+        )
+        self.assertEqual(cleared.status_code, 200, cleared.get_data(as_text=True))
+        body = cleared.get_json()
+        self.assertTrue(body.get("cleared"))
+        self.assertTrue(body.get("snapshot"))
+        ids = {
+            str(stroke.get("id") or "")
+            for stroke in (body.get("canvas_view") or {}).get("strokes") or []
+        }
+        self.assertEqual(ids, {"kept-pen"})
+        student = self.maple.get(
+            f"/api/student/board/{key}?since=0",
+            headers=self._student_headers(self.maple_token),
+        )
+        self.assertEqual(student.status_code, 200, student.get_data(as_text=True))
+        dumped = json.dumps(student.get_json())
+        self.assertIn("kept-pen", dumped)
+        self.assertNotIn("student-pen", dumped)
+        self.assertNotIn("undone-pen", dumped)
+
+    def test_fresh_reopen_gallery_shows_empty_boards(self) -> None:
+        """A stale gallery cursor after Fresh board snapshots to empty ink.
+
+        The next read, from that new head, carries only ink drawn after
+        the reopen.
+        """
+        from urllib.parse import quote
+
+        self._publish("group_shared")
+        key = "team:0"
+        self.school.append_live_board_ops(
+            self.session_id,
+            key,
+            owner=str(self.maple_id),
+            ops=[self._stroke("old-ink")],
+        )
+        before = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery"
+        )
+        self.assertEqual(before.status_code, 200, before.get_data(as_text=True))
+        tile = next(row for row in before.get_json()["tiles"] if row["board_key"] == key)
+        seq = int(tile["board_seq"])
+        self.assertGreater(seq, 0)
+        self.assertIn("old-ink", json.dumps(tile))
+        wb_id = self._whiteboard_id()
+        closed = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/items/{wb_id}/close",
+            json={},
+        )
+        self.assertEqual(closed.status_code, 200, closed.get_data(as_text=True))
+        reopened = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/items/{wb_id}/reopen",
+            json={"start": "fresh"},
+        )
+        self.assertEqual(reopened.status_code, 200, reopened.get_data(as_text=True))
+        cursors = quote(json.dumps({key: seq}))
+        stale = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery?cursors={cursors}"
+        )
+        self.assertEqual(stale.status_code, 200, stale.get_data(as_text=True))
+        fresh_tile = next(
+            row for row in stale.get_json()["tiles"] if row["board_key"] == key
+        )
+        self.assertTrue(fresh_tile["snapshot"])
+        self.assertEqual((fresh_tile.get("canvas_view") or {}).get("strokes") or [], [])
+        self.assertNotIn("old-ink", json.dumps(fresh_tile.get("ops") or []))
+        self.assertNotEqual(stale.get_json().get("run_key"), before.get_json().get("run_key"))
+        self.school.append_live_board_ops(
+            self.session_id,
+            key,
+            owner=str(self.maple_id),
+            ops=[self._stroke("fresh-ink")],
+        )
+        head = int(fresh_tile.get("board_seq") or 0)
+        follow_cursors = quote(json.dumps({key: head}))
+        follow = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery?cursors={follow_cursors}"
+        )
+        self.assertEqual(follow.status_code, 200, follow.get_data(as_text=True))
+        follow_dump = json.dumps(follow.get_json())
+        self.assertIn("fresh-ink", follow_dump)
+        self.assertNotIn("old-ink", follow_dump)
+
+    def test_show_to_class_toggles_off(self) -> None:
+        """Show to class projects a board, and the same call stops it.
+
+        Students' projected view is cleared when the projection stops.
+        Showing a second board switches rather than stacking.
+        """
+        self._publish("group_shared")
+        first = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/team:0/show"
+        )
+        self.assertEqual(first.status_code, 200, first.get_data(as_text=True))
+        self.assertTrue(first.get_json().get("projected"))
+        pine = self.app.test_client()
+        pine_token = self._visit_token(self.pine_id)
+        seen = pine.get(
+            "/api/student/board/mine?since=0&teacher_since=0",
+            headers=self._student_headers(pine_token),
+        )
+        self.assertEqual(seen.status_code, 200, seen.get_data(as_text=True))
+        self.assertEqual((seen.get_json().get("class_board") or {}).get("board_key"), "team:0")
+        switched = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/team:1/show"
+        )
+        self.assertEqual(switched.status_code, 200, switched.get_data(as_text=True))
+        self.assertTrue(switched.get_json().get("projected"))
+        self.assertEqual(switched.get_json().get("board_key"), "team:1")
+        stopped = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/team:1/show"
+        )
+        self.assertEqual(stopped.status_code, 200, stopped.get_data(as_text=True))
+        self.assertFalse(stopped.get_json().get("projected"))
+        gallery = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery"
+        )
+        self.assertEqual(gallery.get_json().get("projected_board") or "", "")
+        after = pine.get(
+            "/api/student/board/mine?since=0&teacher_since=0",
+            headers=self._student_headers(pine_token),
+        )
+        self.assertEqual(after.status_code, 200, after.get_data(as_text=True))
+        self.assertIsNone(after.get_json().get("class_board"))
+        page = (LMS_DIR / "templates" / "staff" / "course.html").read_text()
+        self.assertIn('class="live-canvas-stage wb-live-panel-stage"', page)
+        script = (LMS_DIR / "static" / "formative_live_board.js").read_text()
+        self.assertIn("Stop showing", script)
+        self.assertIn("applyDelta", script)
+
+    def test_teacher_stroke_reaches_the_student_board_feed(self) -> None:
+        """A teacher pen stroke on a team board is in that team's student feed.
+
+        Another team's student cannot read the board. The stroke is a
+        normal board op, not a hidden feedback layer.
+        """
+        self._publish("group_shared")
+        key = "team:0"
+        posted = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}/feedback",
+            json={"ops": [self._stroke("teacher-pen", points=[[0.15, 0.25], [0.45, 0.55]])]},
+        )
+        self.assertEqual(posted.status_code, 200, posted.get_data(as_text=True))
+        seen = self.maple.get(
+            f"/api/student/board/{key}?since=0",
+            headers=self._student_headers(self.maple_token),
+        )
+        self.assertEqual(seen.status_code, 200, seen.get_data(as_text=True))
+        body = seen.get_json()
+        ops = [
+            op
+            for op in (body.get("ops") or [])
+            if isinstance(op, dict) and op.get("id") == "teacher-pen"
+        ]
+        view = [
+            stroke
+            for stroke in ((body.get("canvas_view") or {}).get("strokes") or [])
+            if isinstance(stroke, dict) and stroke.get("id") == "teacher-pen"
+        ]
+        found = ops or view
+        self.assertTrue(found, body)
+        self.assertEqual(str(found[0].get("owner") or ""), "teacher")
+        self.assertNotEqual(str(found[0].get("layer") or ""), "feedback")
+        pine = self.app.test_client()
+        denied = pine.get(
+            f"/api/student/board/{key}?since=0",
+            headers=self._student_headers(self._visit_token(self.pine_id)),
+        )
+        self.assertEqual(denied.status_code, 403)
 
 
 if __name__ == "__main__":

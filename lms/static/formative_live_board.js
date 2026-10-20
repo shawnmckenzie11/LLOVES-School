@@ -5,7 +5,11 @@
  * from the server. Strokes stay in board ops.
  */
 
-import { bindWhiteboard, normalizeBoardPoint } from "./live_whiteboard.js";
+import {
+  bindWhiteboard,
+  createPresenceQueue,
+  normalizeBoardPoint,
+} from "./live_whiteboard.js";
 
 /** Teacher tile poll. About every 2 seconds, one since-seq request. */
 const TILE_POLL_MS = 2000;
@@ -117,12 +121,66 @@ function emptyInk() {
  * @param {any} delta
  * @param {string} fallbackColor
  */
+/**
+ * True when a gallery poll moved onto another board generation.
+ *
+ * An empty previous key is the first paint, not a fresh reopen.
+ *
+ * @param {string} previous Run key already painted.
+ * @param {string} next Run key on this payload.
+ * @returns {boolean}
+ */
+export function galleryRunChanged(previous, next) {
+  const prior = String(previous || "").trim();
+  const current = String(next || "").trim();
+  return Boolean(prior && current && prior !== current);
+}
+
+/**
+ * Label and pressed state for Show to class.
+ *
+ * The button shows this board, and the same press stops it. Another
+ * open board stays a show action until it is the one projected.
+ *
+ * @param {string} openKey Board open in the side panel.
+ * @param {string} projectedKey Board the class is being shown.
+ * @returns {{showing: boolean, label: string, pressed: boolean}}
+ */
+export function showControlState(openKey, projectedKey) {
+  const open = String(openKey || "");
+  const projected = String(projectedKey || "");
+  const showing = Boolean(open) && open === projected;
+  return {
+    showing,
+    label: showing ? "Stop showing" : "Show to class",
+    pressed: showing,
+  };
+}
+
+/**
+ * Fold one gallery delta into a tile's ink bag.
+ *
+ * A snapshot replaces the bag, including an empty fresh board.
+ *
+ * @param {{strokes?: Record<string, any>, texts?: Record<string, any>}|null|undefined} state
+ * @param {any} delta
+ * @param {string} [fallbackColor]
+ * @returns {{strokes: Record<string, any>, texts: Record<string, any>}}
+ */
+export function foldGalleryInk(state, delta, fallbackColor) {
+  const bag = state && typeof state === "object" ? state : emptyInk();
+  if (!bag.strokes || typeof bag.strokes !== "object") bag.strokes = {};
+  if (!bag.texts || typeof bag.texts !== "object") bag.texts = {};
+  foldDelta(bag, delta, fallbackColor || STUDENT_INK);
+  return bag;
+}
+
 function foldDelta(state, delta, fallbackColor) {
   if (!delta || typeof delta !== "object") return;
-  if (delta.snapshot && delta.canvas_view) {
+  if (delta.snapshot) {
     state.strokes = {};
     state.texts = {};
-    const view = delta.canvas_view;
+    const view = delta.canvas_view || {};
     for (const stroke of view.strokes || []) {
       if (!stroke?.id) continue;
       state.strokes[String(stroke.id)] = stroke;
@@ -263,7 +321,9 @@ export function mountTeacherGrid(root) {
   let tileTimer = 0;
   let panelTimer = 0;
   let panelSince = 0;
+  let panelRun = "";
   let runKey = "";
+  let projectedKey = "";
   const openStrokes = new Set();
   const cols = root.querySelector("#wb-live-cols");
 
@@ -342,51 +402,69 @@ export function mountTeacherGrid(root) {
   }
 
   /**
-   * @param {Record<string, any>[]} ops
+   * One teacher ink post at a time, same as the student presence queue.
+   *
+   * Local ink is already on the live layer. This only ships the ops.
+   * Batches stay in order so a stroke_add is stored before its tail.
    */
-  function postFeedback(ops) {
-    const id = sessionId();
-    const key = openKey;
-    if (!id || !key || !ops.length) return;
-    const claimed = runKey;
-    postOpsWithFreshRun({
-      runKey: claimed,
-      post: async (run) => {
-        const res = await fetch(boardUrl(id, key, "/feedback"), {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ops,
-            client_batch_id: batchId(),
-            run_key: run,
-          }),
-        });
-        let data = null;
-        try {
-          data = await res.json();
-        } catch (_err) {
-          data = null;
-        }
-        return { status: res.status, data };
-      },
-      refetch: async () => {
-        const data = await readJson(
-          `/api/live-sessions/${id}/whiteboard-gallery?cursors=${encodeURIComponent(JSON.stringify(cursors))}`,
-          { credentials: "same-origin" }
-        );
-        return String(data?.run_key || "");
-      },
-    })
-      .then((result) => {
+  const inkQueue = createPresenceQueue({
+    /**
+     * @param {Record<string, any>} body
+     * @returns {Promise<any>}
+     */
+    send(body) {
+      const id = sessionId();
+      const key = String(body.board_key || "");
+      const ops = Array.isArray(body.ops) ? body.ops : [];
+      if (!id || !key || !ops.length) return Promise.resolve(null);
+      const claimed = runKey;
+      return postOpsWithFreshRun({
+        runKey: claimed,
+        post: async (run) => {
+          const res = await fetch(boardUrl(id, key, "/feedback"), {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ops,
+              client_batch_id: batchId(),
+              run_key: run,
+            }),
+          });
+          let data = null;
+          try {
+            data = await res.json();
+          } catch (_err) {
+            data = null;
+          }
+          return { status: res.status, data };
+        },
+        refetch: async () => {
+          const data = await readJson(
+            `/api/live-sessions/${id}/whiteboard-gallery?cursors=${encodeURIComponent(JSON.stringify(cursors))}`,
+            { credentials: "same-origin" }
+          );
+          return String(data?.run_key || "");
+        },
+      }).then((result) => {
         const fromBody = String(result?.data?.run_key || "").trim();
         if (fromBody) runKey = fromBody;
         else if (result.sent.length > 1) {
           const fresh = String(result.sent[result.sent.length - 1] || "").trim();
           if (fresh) runKey = fresh;
         }
-      })
-      .catch(() => {});
+        return result.data;
+      });
+    },
+  });
+
+  /**
+   * @param {Record<string, any>[]} ops
+   */
+  function postFeedback(ops) {
+    const key = openKey;
+    if (!sessionId() || !key || !ops.length) return;
+    inkQueue.push({ board_key: key, ops });
   }
 
   /**
@@ -468,16 +546,32 @@ export function mountTeacherGrid(root) {
       if (!key) continue;
       if (!ink[key]) ink[key] = emptyInk();
       foldDelta(ink[key], tile, STUDENT_INK);
-      if (tile.board_seq != null) cursors[key] = Number(tile.board_seq) || 0;
+      if (tile.board_seq != null && Number.isFinite(Number(tile.board_seq))) {
+        cursors[key] = Number(tile.board_seq);
+      }
     }
     paintGrid(tiles);
+    projectedKey = String(payload.projected_board || "");
     const status = root.querySelector("#wb-live-projected");
     if (status) {
       const projected = tiles.find(
-        (tile) => String(tile.board_key || "") === String(payload.projected_board || "")
+        (tile) => String(tile.board_key || "") === projectedKey
       );
       status.textContent = projected ? `On the board · ${tileName(projected)}` : "";
     }
+    paintShowButton();
+  }
+
+  /**
+   * Show to class, or Stop showing when this board is the one up.
+   */
+  function paintShowButton() {
+    const button = root.querySelector("#wb-live-show");
+    if (!(button instanceof HTMLButtonElement)) return;
+    const state = showControlState(openKey, projectedKey);
+    button.textContent = state.label;
+    button.setAttribute("aria-pressed", state.pressed ? "true" : "false");
+    button.classList.toggle("is-on", state.showing);
   }
 
   /**
@@ -486,7 +580,10 @@ export function mountTeacherGrid(root) {
   function openBoard(boardKey) {
     openKey = String(boardKey || "");
     panelSince = 0;
+    panelRun = runKey;
     openStrokes.clear();
+    inkQueue.drop();
+    board.resetRun?.({ strokes: [], texts: [] });
     if (panel instanceof HTMLElement) panel.hidden = false;
     const tile = tiles.find((row) => String(row.board_key || "") === openKey);
     const title = root.querySelector("#wb-live-panel-name");
@@ -497,14 +594,17 @@ export function mountTeacherGrid(root) {
     if (team) team.textContent = tile && tile.team_sort_order != null ? tileName(tile) : "";
     applyPanelLegend([]);
     paintGrid(tiles);
+    paintShowButton();
     refreshPanel();
     window.setTimeout(() => window.dispatchEvent(new Event("resize")), 0);
   }
 
   function closePanel() {
     openKey = "";
+    inkQueue.drop();
     if (panel instanceof HTMLElement) panel.hidden = true;
     paintGrid(tiles);
+    paintShowButton();
   }
 
   /**
@@ -529,12 +629,23 @@ export function mountTeacherGrid(root) {
     applyPanelLegend(data.legend);
     const title = root.querySelector("#wb-live-panel-name");
     if (title) title.textContent = String(data.name || "").trim() || title.textContent;
+    const nextRun = String(data.run_key || "").trim();
+    const seq = Number(data.board_seq);
+    if (galleryRunChanged(panelRun, nextRun)) {
+      panelRun = nextRun;
+      openStrokes.clear();
+      inkQueue.drop();
+      if (Number.isFinite(seq)) panelSince = seq;
+      board.resetRun?.(data.canvas_view || { strokes: [], texts: [] });
+      return;
+    }
+    if (nextRun) panelRun = nextRun;
     if (data.snapshot && data.canvas_view) {
-      board.resetRun?.(data.canvas_view);
+      board.applyDelta?.({ snapshot: true, canvas_view: data.canvas_view });
     } else if (Array.isArray(data.ops) && data.ops.length) {
       board.applyDelta?.({ ops: data.ops });
     }
-    panelSince = Number(data.board_seq) || panelSince;
+    if (Number.isFinite(seq)) panelSince = seq;
   }
 
   async function pollTiles() {
@@ -558,8 +669,22 @@ export function mountTeacherGrid(root) {
     );
     if (!data) return;
     const next = String(data.run_key || "").trim();
+    const changed = galleryRunChanged(runKey, next);
+    if (changed) {
+      for (const key of Object.keys(ink)) delete ink[key];
+      for (const key of Object.keys(cursors)) delete cursors[key];
+      panelSince = 0;
+      panelRun = "";
+      openStrokes.clear();
+      inkQueue.drop();
+      if (openKey) board.resetRun?.({ strokes: [], texts: [] });
+    }
     if (next) runKey = next;
     applyTiles(data);
+    if (changed && openKey) {
+      panelRun = next;
+      refreshPanel();
+    }
   }
 
   /**
@@ -582,25 +707,55 @@ export function mountTeacherGrid(root) {
   root.querySelector("#wb-live-close")?.addEventListener("click", closePanel);
   root.querySelector("#wb-live-clear")?.addEventListener("click", () => {
     const id = sessionId();
-    if (!id || !openKey) return;
-    fetch(boardUrl(id, openKey, "/clear"), {
+    const key = openKey;
+    if (!id || !key) return;
+    fetch(boardUrl(id, key, "/clear"), {
       method: "POST",
       credentials: "same-origin",
     })
-      .then(() => {
-        panelSince = 0;
-        return refreshPanel();
+      .then(async (res) => {
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (_err) {
+          data = null;
+        }
+        if (!res.ok || !data) return;
+        const fromBody = String(data.run_key || "").trim();
+        if (fromBody) runKey = fromBody;
+        if (!ink[key]) ink[key] = emptyInk();
+        foldDelta(ink[key], data, STUDENT_INK);
+        if (Number.isFinite(Number(data.board_seq))) {
+          cursors[key] = Number(data.board_seq);
+          if (openKey === key) panelSince = Number(data.board_seq);
+        }
+        paintGrid(tiles);
+        if (openKey === key && data.canvas_view) {
+          board.applyDelta?.({ snapshot: true, canvas_view: data.canvas_view });
+        }
       })
       .catch(() => {});
   });
   root.querySelector("#wb-live-show")?.addEventListener("click", () => {
     const id = sessionId();
-    if (!id || !openKey) return;
-    fetch(boardUrl(id, openKey, "/show"), {
+    const key = openKey;
+    if (!id || !key) return;
+    fetch(boardUrl(id, key, "/show"), {
       method: "POST",
       credentials: "same-origin",
     })
-      .then(() => pollTiles())
+      .then(async (res) => {
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (_err) {
+          data = null;
+        }
+        if (!res.ok || !data) return;
+        projectedKey = data.projected === false ? "" : key;
+        paintShowButton();
+        return pollTiles();
+      })
       .catch(() => {});
   });
 

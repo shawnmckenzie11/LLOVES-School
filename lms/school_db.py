@@ -33040,66 +33040,161 @@ class SchoolDB(LovesDB):
     def clear_whiteboard_board(
         self, session_id: int, board_key: str
     ) -> dict[str, Any]:
-        """Erase student ink on one board. Teacher ink stays.
+        """Erase student ink on the current generation of one board.
 
-        Live teacher ops and rows already stored as feedback stay. The
-        feedback rows are not deleted.
+        Teacher strokes and text stay, including a feedback layer and a
+        release already stored on this board. The surviving teacher ink
+        is written back as new ``stroke_add`` and ``text_upsert`` ops.
+        ``stroke_remove`` rows are not replayed: a teacher undo, or a
+        stroke id from an older generation, is not validated against a
+        board that no longer has it.
 
         Args:
             session_id: ``live_class_sessions.id``.
             board_key: Card to clear.
+
+        Returns:
+            ``cleared`` plus a snapshot of the ink that remains, so a
+            gallery cursor from the previous generation can replace its
+            picture instead of keeping it.
         """
+        from board_ops import (
+            MAX_OPS_PER_BATCH,
+            feedback_released,
+            fold_one_board,
+        )
+        from formative_live_board import public_board_payload
+
+        def feedback_ids_on(stored: list[dict[str, Any]]) -> set[str]:
+            """Ids whose stored op is on the feedback layer.
+
+            Args:
+                stored: Board rows for this card, any order.
+            """
+            found: set[str] = set()
+            for row in stored:
+                raw = row.get("op")
+                if isinstance(raw, str):
+                    try:
+                        op = json.loads(raw)
+                    except (TypeError, ValueError):
+                        continue
+                else:
+                    op = raw
+                if not isinstance(op, dict):
+                    continue
+                if str(op.get("layer") or "") != "feedback":
+                    continue
+                sid = str(op.get("id") or "").strip()
+                if sid:
+                    found.add(sid)
+            return found
+
         card = self._require_gallery_card(int(session_id), board_key)
         key = str(card["board_key"])
         run_key = self.live_board_run_key(int(session_id))
+        rows = self._board_rows(int(session_id), key)
+        view = fold_one_board(rows, include_feedback=True)
+        feedback_ids = feedback_ids_on(rows)
+        released = feedback_released(rows)
         kept: list[dict[str, Any]] = []
-        for row in self._board_rows(int(session_id), key):
-            raw = row.get("op")
-            if isinstance(raw, str):
-                try:
-                    op = json.loads(raw)
-                except (TypeError, ValueError):
-                    continue
-            else:
-                op = raw
-            if not isinstance(op, dict):
+        for stroke in view.get("strokes") or []:
+            if not isinstance(stroke, dict):
                 continue
-            kind = str(op.get("type") or "")
-            owner = str(row.get("owner") or "")
-            if (
-                str(op.get("layer") or "") == "feedback"
-                or kind == "feedback_release"
-                or owner == "teacher"
-            ):
-                kept.append(op)
+            if str(stroke.get("owner") or "") != "teacher":
+                continue
+            sid = str(stroke.get("id") or "").strip()
+            if not sid:
+                continue
+            op: dict[str, Any] = {
+                "type": "stroke_add",
+                "id": sid,
+                "points": list(stroke.get("points") or []),
+                "color": str(stroke.get("color") or ""),
+            }
+            if sid in feedback_ids:
+                op["layer"] = "feedback"
+            kept.append(op)
+        for label in view.get("texts") or []:
+            if not isinstance(label, dict):
+                continue
+            if str(label.get("owner") or "") != "teacher":
+                continue
+            sid = str(label.get("id") or "").strip()
+            if not sid:
+                continue
+            op = {
+                "type": "text_upsert",
+                "id": sid,
+                "text": str(label.get("text") or ""),
+                "x": label.get("x"),
+                "y": label.get("y"),
+                "color": str(label.get("color") or ""),
+            }
+            if sid in feedback_ids:
+                op["layer"] = "feedback"
+            kept.append(op)
+        if released:
+            kept.append({"type": "feedback_release", "id": "release"})
         self.boards.purge_board_key(run_key, key)
-        if kept:
+        for start in range(0, len(kept), MAX_OPS_PER_BATCH):
             self.append_live_board_ops(
                 int(session_id),
                 key,
                 owner="teacher",
-                ops=kept,
+                ops=kept[start : start + MAX_OPS_PER_BATCH],
             )
-        return {"ok": True, "cleared": True, "board_key": key}
+        remaining = fold_one_board(
+            self._board_rows(int(session_id), key), include_feedback=True
+        )
+        return public_board_payload(
+            {
+                "ok": True,
+                "cleared": True,
+                "board_key": key,
+                "snapshot": True,
+                "canvas_view": remaining,
+                "board_seq": int(self.boards.current_seq(run_key, key)),
+                "run_key": run_key,
+            }
+        )
 
     def show_whiteboard_board(
         self, session_id: int, board_key: str
     ) -> dict[str, Any]:
-        """Project one board, with its colour legend.
+        """Project one board, or stop projecting it.
 
-        Live teacher ink is included. Rows already stored with
-        ``layer=feedback`` stay hidden until a release on this board.
-        Those rows are not deleted.
+        Pressing Show for the board that is already up clears
+        ``whiteboard_projected_board``. Pressing it for another board
+        switches the projection. Live teacher ink is included. Rows
+        already stored with ``layer=feedback`` stay hidden until a
+        release on this board. Those rows are not deleted.
 
         Args:
             session_id: ``live_class_sessions.id``.
-            board_key: Card to put on the projector.
+            board_key: Card to put on the projector, or to take down
+                when it is the one currently shown.
         """
         from board_ops import feedback_released, fold_one_board
         from formative_live_board import legend_entries, public_board_payload
 
         card = self._require_gallery_card(int(session_id), board_key)
         key = str(card["board_key"])
+        teacher = self.live_session_teacher_state_payload(int(session_id))
+        current = str(teacher.get("whiteboard_projected_board") or "").strip()
+        if current == key:
+            self.set_live_session_teacher_state(
+                int(session_id),
+                whiteboard_projected_board="",
+            )
+            return public_board_payload(
+                {
+                    "ok": True,
+                    "projected": False,
+                    "board_key": key,
+                    "run_key": self.live_board_run_key(int(session_id)),
+                }
+            )
         question, context = self._whiteboard_context(int(session_id))
         rows = self._board_rows(int(session_id), key)
         released = feedback_released(rows)
