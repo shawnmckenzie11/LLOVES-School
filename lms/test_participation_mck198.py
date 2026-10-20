@@ -51,9 +51,19 @@ class MathTests(unittest.TestCase):
         self.assertEqual(P.level_line(1, 3), "1/3 completed \u00b7 1 more")
 
     def test_pin_hash(self) -> None:
-        stored = P.hash_pin("4321")
-        self.assertNotIn("4321", stored)
-        self.assertTrue(P.check_pin("4321", stored))
+        """A stored PIN is a salted hash, and the digits never appear in it.
+
+        The salt is fixed. A random salt or digest is hex, so the digits can
+        show up by chance and fail a substring check that should be stable.
+        """
+        pin = "4321"
+        salt = "a1b2c3d4e5f60718"
+        stored = P.hash_pin(pin, salt=salt)
+        self.assertEqual(stored, P.hash_pin(pin, salt=salt))
+        self.assertNotEqual(stored, pin)
+        self.assertTrue(stored.startswith(salt + "$"))
+        self.assertNotIn(pin, stored)
+        self.assertTrue(P.check_pin(pin, stored))
         self.assertFalse(P.check_pin("9876", stored))
         self.assertFalse(P.valid_pin("12a4"))
 
