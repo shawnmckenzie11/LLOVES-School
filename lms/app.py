@@ -8479,6 +8479,117 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         except Exception:
             return _artifact_busy("mint")
 
+    def _google_slides_response(session_id: int, deck: dict[str, Any]):
+        """Staff JSON for one deck plus the student card it currently pushes."""
+        return jsonify(
+            {
+                "ok": True,
+                "google_slides": deck,
+                "google_slide": school.student_google_slide(int(session_id)),
+            }
+        )
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/google-slides",
+        methods=["POST"],
+    )
+    @login_required
+    def api_live_session_google_slides(session_id: int):
+        """Attach a Google Slides share link as one image page per slide.
+
+        Public PDF export is tried first (no teacher OAuth). A private deck
+        falls back to Connect Google Slides. Images are stored like other
+        live deck pictures. The body is ``{"url": "<share link>"}``.
+        """
+        _row, err = _active_owned_live_session(session_id)
+        if err is not None:
+            return err
+        body = request.get_json(silent=True) or {}
+        url = str(body.get("url") or "").strip()
+        try:
+            from google_slides_import import SlidesShareNotPublic, import_shared_deck
+
+            deck = import_shared_deck(
+                school,
+                int(session_id),
+                url,
+                user=current_user(),
+            )
+        except SlidesShareNotPublic as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 403
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except Exception:
+            logger.exception(
+                "google slides import failed session=%s", session_id
+            )
+            return jsonify(
+                {"ok": False, "error": "Could not attach that deck."}
+            ), 502
+        return _google_slides_response(session_id, deck)
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/google-slides/current",
+        methods=["POST"],
+    )
+    @login_required
+    def api_live_session_google_slides_current(session_id: int):
+        """Move the slide students see when that page is already published.
+
+        Body JSON: ``{"index": <zero-based page>}``.
+        """
+        _row, err = _active_owned_live_session(session_id)
+        if err is not None:
+            return err
+        body = request.get_json(silent=True) or {}
+        try:
+            index = int(body.get("index"))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "slide page is out of range"}), 400
+        try:
+            deck = school.set_google_slides_current(int(session_id), index)
+        except KeyError:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return _google_slides_response(session_id, deck)
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/google-slides/pages/<int:index>/publish",
+        methods=["POST"],
+    )
+    @login_required
+    def api_live_session_google_slides_publish(session_id: int, index: int):
+        """Publish one slide page and push it to students."""
+        _row, err = _active_owned_live_session(session_id)
+        if err is not None:
+            return err
+        try:
+            deck = school.publish_google_slide_page(int(session_id), int(index))
+        except KeyError:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return _google_slides_response(session_id, deck)
+
+    @app.route(
+        "/api/live-sessions/<int:session_id>/google-slides/pages/<int:index>/unpublish",
+        methods=["POST"],
+    )
+    @login_required
+    def api_live_session_google_slides_unpublish(session_id: int, index: int):
+        """Unpublish one slide page. Other pages stay as they were."""
+        _row, err = _active_owned_live_session(session_id)
+        if err is not None:
+            return err
+        try:
+            deck = school.unpublish_google_slide_page(int(session_id), int(index))
+        except KeyError:
+            return jsonify({"ok": False, "error": "Session not found"}), 404
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return _google_slides_response(session_id, deck)
+
     @app.route(
         "/api/live-sessions/<int:session_id>/active-media",
         methods=["GET", "POST"],

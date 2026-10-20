@@ -58,6 +58,8 @@ Add the same hosts for **incremental Slides connect** (login OAuth stays identit
 
 Allowlisted operator accounts: `solutions@mckenzian.com` and `shawnmckenzie11.sm@gmail.com`. **Connect Google Slides** (`/auth/google/slides`) uses real Google when `GOOGLE_CLIENT_ID` / `SECRET` are set, even if `LOCAL_DEV_LOGIN=1` (that flag only skips *login*). Unit tests and a missing client secret still store a mock token.
 
+**Run Live Class → Content → Slides** can attach a share link without that token. The deck must be shared so anyone with the link can view. The server downloads the public PDF export and stores one PNG per page with the other live deck images. A private deck falls back to the connected operator's Slides token and the thumbnail API. Students only receive the page currently being shared.
+
 Google treats `localhost` and `127.0.0.1` as different. This repo’s default for local is **http://127.0.0.1:8787**. Production is **https://alc.mckenzian.com** (not a `.fly.dev` placeholder).
 
 If you **reuse** the Cannabis Paper Scraper Web client, add the LLOVES origins and redirect URIs to that client. Do not change the scraper’s existing URIs.

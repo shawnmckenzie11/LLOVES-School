@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import date, datetime
 from html import escape as html_escape
 from pathlib import Path
@@ -1250,6 +1251,72 @@ class GoogleSlidesClient:
             timeout=20,
         )
         batch.raise_for_status()
+
+    def download_slide_pngs(self, presentation_id: str) -> list[bytes]:
+        """Download each slide as a PNG using the stored Slides token.
+
+        Used only when the public PDF export is not readable. Page ids come
+        from ``presentations.get``; each image comes from the thumbnail API.
+        Thumbnail URLs must stay on googleusercontent.
+
+        Args:
+            presentation_id: Google file id from a share link.
+
+        Returns:
+            PNG bytes, one per slide, in deck order.
+
+        Raises:
+            SlidesShareNotPublic: Google refused the file or the token.
+            ValueError: The presentation has no slides, or an id is unsafe.
+        """
+        from google_slides_import import (
+            SlidesShareNotPublic,
+            require_presentation_id,
+            thumbnail_url_allowed,
+        )
+
+        token = require_presentation_id(presentation_id)
+        listed = self.http.get(
+            f"https://slides.googleapis.com/v1/presentations/{token}",
+            headers=self._headers(),
+            params={"fields": "slides(objectId)"},
+            timeout=20,
+        )
+        if int(getattr(listed, "status_code", 0) or 0) in {401, 403, 404}:
+            raise SlidesShareNotPublic()
+        listed.raise_for_status()
+        slides = (listed.json() or {}).get("slides") or []
+        pngs: list[bytes] = []
+        for slide in slides:
+            if not isinstance(slide, dict):
+                continue
+            object_id = str(slide.get("objectId") or "")
+            if not object_id or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", object_id):
+                continue
+            thumb = self.http.get(
+                f"https://slides.googleapis.com/v1/presentations/{token}/pages/{object_id}/thumbnail",
+                headers=self._headers(),
+                params={
+                    "thumbnailProperties.mimeType": "PNG",
+                    "thumbnailProperties.thumbnailSize": "LARGE",
+                },
+                timeout=20,
+            )
+            if int(getattr(thumb, "status_code", 0) or 0) in {401, 403, 404}:
+                raise SlidesShareNotPublic()
+            thumb.raise_for_status()
+            content_url = str((thumb.json() or {}).get("contentUrl") or "")
+            if not thumbnail_url_allowed(content_url):
+                raise SlidesShareNotPublic()
+            image = self.http.get(content_url, timeout=20)
+            image.raise_for_status()
+            raw = image.content if isinstance(image.content, (bytes, bytearray)) else b""
+            if not bytes(raw).startswith(b"\x89PNG"):
+                raise ValueError("That download was not a slide deck.")
+            pngs.append(bytes(raw))
+        if not pngs:
+            raise ValueError("That deck has no slides.")
+        return pngs
 
     def upload_public_png(self, *, folder_id: str, name: str, png_path: Path) -> str:
         """Upload a PNG into the module folder and return a public image URL.

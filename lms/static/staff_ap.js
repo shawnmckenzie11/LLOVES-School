@@ -1138,6 +1138,8 @@ let lastJoinPrompt = null;
 let lastQuestionCards = [];
 /** @type {any} */
 let lastLiveMetadata = null;
+/** @type {any} Attached Google Slides deck for the open live session. */
+let lastGoogleSlides = null;
 /** @type {any[]} */
 let lastLiveItems = [];
 /** Lifecycle id → Save to card the teacher just set. Stale polls must not flip it. */
@@ -2810,6 +2812,7 @@ function paintSurfacePublishing() {
     if (close instanceof HTMLButtonElement) close.disabled = status !== "active";
     if (surface === "canvas") paintWhiteboardReopenControl(item, status);
   }
+  paintGoogleSlidesChrome();
 }
 
 /**
@@ -2819,6 +2822,9 @@ function paintSurfacePublishing() {
 async function publishSurface(surface) {
   const sessionId = liveSessionId || readLiveSessionId();
   if (!sessionId) return;
+  if (surface === "slides" && googleSlidesDeck()) {
+    await postGoogleSlideAction("publish");
+  }
   // MCK-112: the surface's Students work pick. Group needs a group style
   // (whiteboard, or media with an artifact) and teams.
   const picked = surfacePublishSelection(surface) === "team";
@@ -2895,6 +2901,11 @@ async function publishSurface(surface) {
 async function closeSurface(surface) {
   const sessionId = liveSessionId || readLiveSessionId();
   if (!sessionId) return;
+  if (surface === "slides" && googleSlidesDeck()) {
+    await postGoogleSlideAction("unpublish");
+    paintSurfacePublishing();
+    return;
+  }
   const item = lifecycleItemForSurface(surface);
   if (item && item.status === "active") {
     const result = await api(
@@ -3251,8 +3262,17 @@ async function reopenWhiteboard(start) {
  * Paint the Slides pane from the selected live-class metadata.
  */
 function paintSlidesMetadata() {
+  paintGoogleSlidesChrome();
+  const deck = googleSlidesDeck();
   const status = $("live-slides-status");
   const frame = $("live-slides-preview");
+  if (deck) {
+    if (frame instanceof HTMLIFrameElement) {
+      frame.hidden = true;
+      frame.removeAttribute("src");
+    }
+    return;
+  }
   const deckRef = String(lastLiveMetadata?.slides?.deck_ref || "").trim();
   if (status) {
     status.textContent = deckRef
@@ -3267,6 +3287,158 @@ function paintSlidesMetadata() {
   }
   frame.src = deckRef;
   frame.hidden = false;
+}
+
+/**
+ * Attached Google Slides deck, or null when this session has none.
+ * @returns {any}
+ */
+function googleSlidesDeck() {
+  const deck = lastGoogleSlides;
+  if (!deck || deck.kind !== "google_slides" || !Array.isArray(deck.pages) || !deck.pages.length) {
+    return null;
+  }
+  return deck;
+}
+
+/**
+ * Paint the current Google Slide, prev/next, and the share badge.
+ * A metadata iframe deck is left to paintSlidesMetadata.
+ */
+function paintGoogleSlidesChrome() {
+  const deck = googleSlidesDeck();
+  const nav = $("live-google-slides-nav");
+  const card = $("live-google-slides-card");
+  const count = $("live-google-slides-count");
+  const prev = $("live-google-slides-prev");
+  const next = $("live-google-slides-next");
+  const close = document.querySelector('[data-surface-close="slides"]');
+  if (!deck) {
+    if (nav) nav.hidden = true;
+    if (card instanceof HTMLImageElement) {
+      card.hidden = true;
+      card.removeAttribute("src");
+    }
+    if (close) close.textContent = "Close";
+    return;
+  }
+  const index = Math.max(0, Math.min(deck.pages.length - 1, Number(deck.current_index) || 0));
+  const page = deck.pages[index] || {};
+  const shared = Boolean(page.published);
+  const status = $("live-slides-status");
+  if (status) {
+    const cap = deck.truncated ? " · first 40" : "";
+    status.textContent = `Slide ${index + 1} of ${deck.pages.length}${cap} · ${
+      shared ? "Sharing" : "Not shared"
+    }`;
+  }
+  if (nav) nav.hidden = false;
+  if (count) count.textContent = `Slide ${index + 1} of ${deck.pages.length}`;
+  if (prev instanceof HTMLButtonElement) prev.disabled = index <= 0;
+  if (next instanceof HTMLButtonElement) next.disabled = index >= deck.pages.length - 1;
+  if (card instanceof HTMLImageElement) {
+    const url = String(page.image_url || "");
+    if (url) {
+      if (card.getAttribute("src") !== url) card.src = url;
+      card.alt = `Slide ${index + 1}`;
+      card.hidden = false;
+    } else {
+      card.hidden = true;
+      card.removeAttribute("src");
+    }
+  }
+  const label = document.querySelector('[data-surface-status="slides"]');
+  if (label) {
+    label.textContent = shared ? "Active" : "Inactive";
+    label.className = `live-status-badge is-${shared ? "active" : "inactive"}`;
+  }
+  const publish = document.querySelector('[data-surface-publish="slides"]');
+  if (publish instanceof HTMLButtonElement) publish.disabled = shared;
+  if (close instanceof HTMLButtonElement) {
+    close.textContent = "Unpublish";
+    close.disabled = !shared;
+  }
+}
+
+/**
+ * POST publish, unpublish, or a current-page change for the attached deck.
+ * @param {"publish"|"unpublish"|"current"} action
+ * @param {number} [index]
+ * @returns {Promise<any>}
+ */
+async function postGoogleSlideAction(action, index) {
+  const sessionId = liveSessionId || readLiveSessionId();
+  const deck = googleSlidesDeck();
+  if (!sessionId || !deck) return null;
+  const pageIndex = Number.isInteger(index) ? index : Number(deck.current_index) || 0;
+  const path =
+    action === "current"
+      ? `/api/live-sessions/${sessionId}/google-slides/current`
+      : `/api/live-sessions/${sessionId}/google-slides/pages/${pageIndex}/${action}`;
+  const body = action === "current" ? JSON.stringify({ index: pageIndex }) : "{}";
+  const data = await api(path, { method: "POST", body });
+  if (data?.google_slides) lastGoogleSlides = data.google_slides;
+  paintSlidesMetadata();
+  return data;
+}
+
+/**
+ * Move the teacher to one slide page. A published page is what students see.
+ * @param {number} index
+ * @returns {Promise<void>}
+ */
+async function showGoogleSlideIndex(index) {
+  await postGoogleSlideAction("current", index);
+  paintSurfacePublishing();
+}
+
+/**
+ * Attach a Google Slides share link as one page per slide.
+ * @param {Event} event
+ * @returns {Promise<void>}
+ */
+async function attachGoogleSlides(event) {
+  event.preventDefault();
+  const input = $("live-google-slides-url");
+  const button = $("live-google-slides-attach");
+  const error = $("live-google-slides-error");
+  const url = input instanceof HTMLInputElement ? input.value.trim() : "";
+  if (error) {
+    error.hidden = true;
+    error.textContent = "";
+  }
+  if (!url) {
+    if (error) {
+      error.hidden = false;
+      error.textContent = "Paste a Google Slides share link.";
+    }
+    return;
+  }
+  const sessionId = liveSessionId || readLiveSessionId();
+  if (!sessionId) {
+    if (error) {
+      error.hidden = false;
+      error.textContent = "Start the live class first.";
+    }
+    return;
+  }
+  if (button instanceof HTMLButtonElement) button.disabled = true;
+  try {
+    const data = await api(`/api/live-sessions/${sessionId}/google-slides`, {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    });
+    if (data?.google_slides) lastGoogleSlides = data.google_slides;
+    paintSlidesMetadata();
+    paintSurfacePublishing();
+  } catch (err) {
+    if (error) {
+      error.hidden = false;
+      error.textContent = err instanceof Error ? err.message : "Could not attach that deck.";
+    }
+  } finally {
+    if (button instanceof HTMLButtonElement) button.disabled = false;
+  }
 }
 
 /**
@@ -7518,6 +7690,9 @@ async function pollLiveSessionAttendees(opts = {}) {
       present.map((row) => Number(row.student_id)),
       present
     );
+    if (payload && Object.prototype.hasOwnProperty.call(payload, "google_slides")) {
+      lastGoogleSlides = payload.google_slides;
+    }
     paintSlidesMetadata();
     if (wantFull) paintLiveQuestionCards();
     if (payload?.active_media || payload?.session?.active_media) {
@@ -12697,6 +12872,21 @@ document.querySelectorAll("[data-surface-close]").forEach((button) => {
     closeSurface(button.getAttribute("data-surface-close"))
       .catch((err) => showError("#ap-overlay-error", err));
   });
+});
+$("live-google-slides-form")?.addEventListener("submit", (event) => {
+  attachGoogleSlides(event).catch((err) => showError("#ap-overlay-error", err));
+});
+$("live-google-slides-prev")?.addEventListener("click", () => {
+  const deck = googleSlidesDeck();
+  if (!deck) return;
+  const index = Number(deck.current_index) || 0;
+  showGoogleSlideIndex(index - 1).catch((err) => showError("#ap-overlay-error", err));
+});
+$("live-google-slides-next")?.addEventListener("click", () => {
+  const deck = googleSlidesDeck();
+  if (!deck) return;
+  const index = Number(deck.current_index) || 0;
+  showGoogleSlideIndex(index + 1).catch((err) => showError("#ap-overlay-error", err));
 });
 // MCK-174: Reopen board opens a two-choice popover (Last board / Fresh board).
 document.querySelector('[data-surface-reopen="canvas"]')?.addEventListener("click", () => {

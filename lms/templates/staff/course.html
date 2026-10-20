@@ -827,6 +827,20 @@
                   <button type="button" class="secondary" data-surface-close="slides" disabled>Close</button>
                 </div>
                 <p class="hint compact" id="live-slides-status">No slide deck is connected to this live-class metadata yet.</p>
+                <form id="live-google-slides-form" class="live-google-slides-form">
+                  <label class="live-google-slides-label" for="live-google-slides-url">Share link
+                    <input id="live-google-slides-url" type="url" inputmode="url" autocomplete="off" placeholder="https://docs.google.com/presentation/d/…" spellcheck="false">
+                  </label>
+                  <button type="submit" class="secondary" id="live-google-slides-attach">Attach</button>
+                </form>
+                <p class="hint compact">Share the deck so anyone with the link can view. A private deck uses Connect Google Slides.</p>
+                <p class="hint compact" id="live-google-slides-error" hidden></p>
+                <div class="live-google-slides-nav" id="live-google-slides-nav" hidden>
+                  <button type="button" class="secondary" id="live-google-slides-prev">Prev</button>
+                  <span id="live-google-slides-count"></span>
+                  <button type="button" class="secondary" id="live-google-slides-next">Next</button>
+                </div>
+                <img id="live-google-slides-card" class="live-slides-preview live-google-slides-card" alt="" hidden>
                 <iframe id="live-slides-preview" class="live-slides-preview" title="Live class slides" hidden></iframe>
               </section>
             </div>

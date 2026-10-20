@@ -3588,6 +3588,32 @@ body.staff-shell .live-slides-preview {
   border-radius: 8px;
   background: #fff;
 }
+body.staff-shell .live-google-slides-form,
+body.staff-shell .live-google-slides-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.35rem 0 0.5rem;
+}
+body.staff-shell .live-google-slides-label {
+  display: flex;
+  flex: 1 1 16rem;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+}
+body.staff-shell .live-google-slides-label input {
+  width: 100%;
+}
+body.staff-shell .live-google-slides-card {
+  display: block;
+  object-fit: contain;
+  background: #fff;
+}
+body.staff-shell .live-google-slides-card[hidden] {
+  display: none !important;
+}
 body.staff-shell .live-general-options {
   align-items: center;
 }

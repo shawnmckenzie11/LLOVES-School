@@ -4863,6 +4863,12 @@ class LovesDB:
             self.conn.execute(
                 "ALTER TABLE live_class_sessions ADD COLUMN slides_json TEXT"
             )
+        if "google_slides_json" not in cols:
+            # MCK-294: imported Google Slides pages. Separate from slides_json,
+            # which still holds the lesson-slides problem snapshot.
+            self.conn.execute(
+                "ALTER TABLE live_class_sessions ADD COLUMN google_slides_json TEXT"
+            )
         if "active_media_json" not in cols:
             self.conn.execute(
                 "ALTER TABLE live_class_sessions ADD COLUMN active_media_json TEXT"
@@ -7357,6 +7363,357 @@ class LovesDB:
         row = self.get_live_session(session_id)
         assert row is not None
         return row
+
+    @staticmethod
+    def _public_google_slides(raw: Any) -> dict[str, Any] | None:
+        """Return a teacher deck dict, or None when the column is empty.
+
+        Args:
+            raw: ``google_slides_json`` text or an already parsed dict.
+        """
+        parsed = raw
+        if isinstance(raw, str):
+            if not raw.strip():
+                return None
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                return None
+        if not isinstance(parsed, dict) or parsed.get("kind") != "google_slides":
+            return None
+        pages_in = parsed.get("pages") if isinstance(parsed.get("pages"), list) else []
+        pages: list[dict[str, Any]] = []
+        for index, row in enumerate(pages_in):
+            if not isinstance(row, dict):
+                continue
+            url = str(row.get("image_url") or "").strip()
+            if not url.startswith("/api/classes/"):
+                continue
+            pages.append(
+                {
+                    "index": index,
+                    "image_url": url,
+                    "published": bool(row.get("published")),
+                }
+            )
+        if not pages:
+            return None
+        try:
+            current = int(parsed.get("current_index") or 0)
+        except (TypeError, ValueError):
+            current = 0
+        if current < 0 or current >= len(pages):
+            current = 0
+        try:
+            rev = int(parsed.get("rev") or 0)
+        except (TypeError, ValueError):
+            rev = 0
+        return {
+            "kind": "google_slides",
+            "presentation_id": str(parsed.get("presentation_id") or ""),
+            "source": str(parsed.get("source") or "public_export"),
+            "rev": rev,
+            "current_index": current,
+            "truncated": bool(parsed.get("truncated")),
+            "pages": pages,
+        }
+
+    def _write_google_slides(self, session_id: int, deck: dict[str, Any]) -> None:
+        """Replace the Google Slides blob on one live session.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            deck: Teacher deck dict with ``kind`` ``google_slides``.
+        """
+        blob = json.dumps(deck)
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_class_sessions
+                SET google_slides_json = ?
+                WHERE id = ?
+                """,
+                (blob, int(session_id)),
+            )
+            self.conn.commit()
+
+    def google_slides_deck(self, session_id: int) -> dict[str, Any] | None:
+        """Return the attached Google Slides deck for staff, or None.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        row = self.get_live_session(int(session_id))
+        if row is None:
+            return None
+        deck = row.get("google_slides")
+        return deck if isinstance(deck, dict) else None
+
+    def import_google_slides_pages(
+        self,
+        session_id: int,
+        *,
+        presentation_id: str,
+        page_pngs: list[bytes],
+        source: str = "public_export",
+        truncated: bool = False,
+    ) -> dict[str, Any]:
+        """Store one PNG per slide and an unpublished deck on the session.
+
+        Images go through ``store_live_question_image``, the same class
+        file store as other live deck pictures. The lesson-slides
+        ``slides_json`` snapshot is left alone.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            presentation_id: Google file id.
+            page_pngs: PNG bytes, one per slide, in order.
+            source: ``public_export`` or ``oauth_thumbnail``.
+            truncated: True when the deck was longer than the page cap.
+
+        Returns:
+            Teacher deck dict.
+
+        Raises:
+            KeyError: Unknown session.
+            ValueError: Inactive session, or a page is not a PNG.
+        """
+        session = self.get_live_session(int(session_id))
+        if session is None:
+            raise KeyError(f"live session {session_id}")
+        if session.get("status") != "active":
+            raise ValueError("Session is not active")
+        pngs = list(page_pngs or [])
+        if not pngs:
+            raise ValueError("That deck has no slides.")
+        class_id = int(session["class_id"])
+        pages: list[dict[str, Any]] = []
+        for index, raw in enumerate(pngs):
+            blob = bytes(raw)
+            if not blob.startswith(b"\x89PNG"):
+                raise ValueError("slide image must be png")
+            stored = self.store_live_question_image(
+                class_id, blob, filename=f"slide-{index}.png"
+            )
+            pages.append(
+                {
+                    "index": index,
+                    "image_url": stored["image_url"],
+                    "published": False,
+                }
+            )
+        previous = session.get("google_slides")
+        try:
+            rev = int((previous or {}).get("rev") or 0) + 1
+        except (TypeError, ValueError):
+            rev = 1
+        deck = {
+            "kind": "google_slides",
+            "presentation_id": str(presentation_id or ""),
+            "source": str(source or "public_export"),
+            "rev": rev,
+            "current_index": 0,
+            "truncated": bool(truncated),
+            "pages": pages,
+        }
+        self._write_google_slides(int(session_id), deck)
+        saved = self.google_slides_deck(int(session_id))
+        if saved is None:
+            raise ValueError("That deck has no slides.")
+        return saved
+
+    def _update_google_slides(
+        self,
+        session_id: int,
+        mutator: Any,
+    ) -> dict[str, Any]:
+        """Read-modify-write the deck under the school lock.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            mutator: ``(current_index, pages) -> (current_index, pages)``.
+
+        Returns:
+            Updated teacher deck.
+
+        Raises:
+            KeyError: Unknown session.
+            ValueError: No deck, inactive session, or a bad page index.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT status, google_slides_json
+                FROM live_class_sessions
+                WHERE id = ?
+                """,
+                (int(session_id),),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"live session {session_id}")
+            if str(row["status"] or "") != "active":
+                raise ValueError("Session is not active")
+            deck = self._public_google_slides(row["google_slides_json"])
+            if deck is None:
+                raise ValueError("No slide deck is attached.")
+            pages = [dict(page) for page in deck["pages"]]
+            current, pages = mutator(int(deck["current_index"]), pages)
+            try:
+                current = int(current)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("slide page is out of range") from exc
+            if current < 0 or current >= len(pages):
+                raise ValueError("slide page is out of range")
+            for index, page in enumerate(pages):
+                page["index"] = index
+            saved = {
+                "kind": "google_slides",
+                "presentation_id": deck.get("presentation_id") or "",
+                "source": deck.get("source") or "public_export",
+                "rev": int(deck.get("rev") or 0) + 1,
+                "current_index": current,
+                "truncated": bool(deck.get("truncated")),
+                "pages": pages,
+            }
+            self.conn.execute(
+                """
+                UPDATE live_class_sessions
+                SET google_slides_json = ?
+                WHERE id = ?
+                """,
+                (json.dumps(saved), int(session_id)),
+            )
+            self.conn.commit()
+        fresh = self.google_slides_deck(int(session_id))
+        if fresh is None:
+            raise ValueError("No slide deck is attached.")
+        return fresh
+
+    def set_google_slides_current(self, session_id: int, index: int) -> dict[str, Any]:
+        """Point the shared slide at one page. Published pages push immediately.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            index: Zero-based page index.
+
+        Returns:
+            Updated teacher deck.
+        """
+        target = int(index)
+
+        def move(
+            current: int, pages: list[dict[str, Any]]
+        ) -> tuple[int, list[dict[str, Any]]]:
+            """Keep publish flags and move the current page."""
+            del current
+            return target, pages
+
+        return self._update_google_slides(int(session_id), move)
+
+    def publish_google_slide_page(self, session_id: int, index: int) -> dict[str, Any]:
+        """Publish one page and make it the slide students see.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            index: Zero-based page index.
+
+        Returns:
+            Updated teacher deck.
+        """
+        target = int(index)
+
+        def publish(
+            current: int, pages: list[dict[str, Any]]
+        ) -> tuple[int, list[dict[str, Any]]]:
+            """Mark one page shared and make it current."""
+            del current
+            if target < 0 or target >= len(pages):
+                raise ValueError("slide page is out of range")
+            pages[target]["published"] = True
+            return target, pages
+
+        return self._update_google_slides(int(session_id), publish)
+
+    def unpublish_google_slide_page(self, session_id: int, index: int) -> dict[str, Any]:
+        """Unpublish one page. Other pages keep their published flag.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            index: Zero-based page index.
+
+        Returns:
+            Updated teacher deck.
+        """
+        target = int(index)
+
+        def unpublish(
+            current: int, pages: list[dict[str, Any]]
+        ) -> tuple[int, list[dict[str, Any]]]:
+            """Clear one page's shared flag and leave the others."""
+            if target < 0 or target >= len(pages):
+                raise ValueError("slide page is out of range")
+            pages[target]["published"] = False
+            return current, pages
+
+        return self._update_google_slides(int(session_id), unpublish)
+
+    def student_google_slide(self, session_id: int) -> dict[str, Any] | None:
+        """Student view of the attached deck: the current page only if shared.
+
+        Unpublished image URLs are omitted. No names or answers are included.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            ``attached`` card, or None when no deck is stored. ``image_url``
+            is empty when the current page is not published.
+        """
+        session = self.get_live_session(int(session_id))
+        if session is None or session.get("status") != "active":
+            return None
+        deck = session.get("google_slides")
+        if not isinstance(deck, dict):
+            return None
+        pages = deck.get("pages") if isinstance(deck.get("pages"), list) else []
+        if not pages:
+            return None
+        index = int(deck.get("current_index") or 0)
+        page = pages[index] if 0 <= index < len(pages) else pages[0]
+        shared = bool(page.get("published"))
+        return {
+            "attached": True,
+            "shared": shared,
+            "index": index,
+            "page_number": index + 1,
+            "page_count": len(pages),
+            "image_url": str(page.get("image_url") or "") if shared else "",
+        }
+
+    def _google_slides_stamp_token(self, session_id: int) -> str:
+        """Revision token so a slide push or unpublish refreshes student polls.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        try:
+            with self._lock:
+                row = self.conn.execute(
+                    """
+                    SELECT google_slides_json
+                    FROM live_class_sessions
+                    WHERE id = ?
+                    """,
+                    (int(session_id),),
+                ).fetchone()
+        except sqlite3.OperationalError:
+            return "0"
+        if row is None:
+            return "0"
+        deck = self._public_google_slides(row["google_slides_json"])
+        if deck is None:
+            return "0"
+        return str(int(deck.get("rev") or 0))
 
     def _observation_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         """Attach subject ids and process keys to an observation.
@@ -15510,6 +15867,8 @@ class SchoolDB(LovesDB):
                 item["slides_json"] = json.loads(raw)
             except json.JSONDecodeError:
                 pass
+        google_raw = item.pop("google_slides_json", None)
+        item["google_slides"] = self._public_google_slides(google_raw)
         media_raw = item.get("active_media_json")
         if isinstance(media_raw, str) and media_raw.strip():
             try:
@@ -43388,7 +43747,8 @@ class SchoolDB(LovesDB):
             f"{item_max}:{response_max}:{group_vote_max}:{event_max}:"
             f"{prompt_rev}:{item_rev}:{group_vote_rev}:{status}:{celebrate}:"
             f"{group_response_rev}:{race_step_rev}:"
-            f"{self._mvp_voter_count(int(session_id))}:{presence_rev}"
+            f"{self._mvp_voter_count(int(session_id))}:{presence_rev}:"
+            f"{self._google_slides_stamp_token(int(session_id))}"
         )
 
     #: Last good presence token per session (MCK-186), so a presence blip
@@ -43641,6 +44001,7 @@ class SchoolDB(LovesDB):
             "lifecycle_response_counts": {},
             "lifecycle_rank_revs": {},
             "state_seq": int(teacher_state.get("state_seq") or 0),
+            "google_slides": session_row.get("google_slides"),
             "light": bool(light),
             "groups": live_state_field(
                 session_id,
@@ -44203,6 +44564,7 @@ class SchoolDB(LovesDB):
             # MCK-26: an ended (celebrating) or inactive session never
             # pauses students, even if a stale blob still says eyes_up.
             payload["teacher_state"]["eyes_up"] = False
+        payload["google_slide"] = self.student_google_slide(int(live_session_id))
         ensure_poll_budget()
         self.apply_student_live_group_projection(payload, int(live_session_id))
         ensure_poll_budget()
