@@ -3742,7 +3742,9 @@ def _mck293_finish(path: Path, meta: dict[str, int | str], last_option_id: str) 
     """
     sys.path.insert(0, str(LMS_DIR))
     os.environ["LLOVES_DB"] = str(path)
-    os.environ["LOCAL_DEV_LOGIN"] = "1"
+    # A fresh app with local-dev login reseeds and takes the student off
+    # the team. This helper only writes the send, so leave that seed off.
+    os.environ["LOCAL_DEV_LOGIN"] = "0"
     from app import create_app
 
     app = create_app(db_path=path, testing=True)
@@ -3751,6 +3753,7 @@ def _mck293_finish(path: Path, meta: dict[str, int | str], last_option_id: str) 
     class_id = int(meta["class_id"])
     student_id = int(meta["student_id"])
     try:
+        _mck281_seat_on_team(school, class_id)
         school.rank_turn_place(
             session_id,
             int(meta["live_item_id"]),
@@ -3809,6 +3812,56 @@ def _mck293_hide_people(page) -> None:
     )
 
 
+def _mck293_open_dashboard(page, origin: str, path: Path, class_id: int, student_id: int) -> None:
+    """PIN sign-in, then the student dashboard for the student who just sent.
+
+    The live visit cookie is not the dashboard session. The PIN is set for
+    this shot and is not written to the log.
+
+    Args:
+        page: Playwright page that may still be on the live card.
+        origin: Loopback LMS origin.
+        path: LMS sqlite path.
+        class_id: Demo class id.
+        student_id: Roster id that should show the points.
+    """
+    sys.path.insert(0, str(LMS_DIR))
+    os.environ["LLOVES_DB"] = str(path)
+    os.environ["LOCAL_DEV_LOGIN"] = "0"
+    from app import create_app
+
+    app = create_app(db_path=path, testing=True)
+    school = app.config["SCHOOL_DB"]
+    pin = "2468"
+    try:
+        with school.game._lock:
+            student = school.game.conn.execute(
+                "SELECT first_name, codename FROM students WHERE id = ? AND class_id = ?",
+                (int(student_id), int(class_id)),
+            ).fetchone()
+        if student is None:
+            raise SystemExit("demo student missing for the dashboard")
+        name = str(student["first_name"] or student["codename"] or "").strip()
+        school.set_student_pin(int(class_id), int(student_id), pin, pin_set_by="teacher")
+        link = school.conn.execute(
+            """
+            SELECT portal_join_code FROM catchup_links
+            WHERE class_id = ? AND COALESCE(is_open, 0) = 1
+              AND TRIM(COALESCE(portal_join_code, '')) <> ''
+            ORDER BY id DESC LIMIT 1
+            """,
+            (int(class_id),),
+        ).fetchone()
+        if link is None or not name:
+            raise SystemExit("dashboard sign-in is missing a class code")
+        code = str(link["portal_join_code"])
+    finally:
+        school.close()
+    page.context.clear_cookies()
+    _catchup_landing_signin_via_portal(page, origin, code, name, pin=pin)
+    page.goto(f"{origin}/student/dashboard", wait_until="domcontentloaded", timeout=60000)
+
+
 def shoot_mck293(base: str, state_path: Path, out_dir: Path, path: Path) -> list[Path]:
     """MCK-293: check count, student group points, teacher group points.
 
@@ -3854,7 +3907,9 @@ def shoot_mck293(base: str, state_path: Path, out_dir: Path, path: Path) -> list
 
         _mck293_finish(path, meta, str(armed["last_option_id"]))
         try:
-            phone.goto(f"{origin}/student/dashboard", wait_until="domcontentloaded", timeout=60000)
+            _mck293_open_dashboard(
+                phone, origin, path, int(meta["class_id"]), int(meta["student_id"])
+            )
             phone.locator("#sd-group-engagement").wait_for(state="visible", timeout=30000)
         except Exception:
             raise SystemExit("student dashboard did not show group points") from None
