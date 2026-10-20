@@ -454,6 +454,7 @@ CREATE TABLE IF NOT EXISTS users (
     verified_at TEXT,
     verification_code TEXT,
     verification_sent_at TEXT,
+    verification_attempts INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     last_login_at TEXT,
     archived_at TEXT
@@ -1170,6 +1171,15 @@ def _strict_int(value: Any) -> int | None:
 def _now() -> str:
     """Return a local ISO timestamp without microseconds."""
     return datetime.now().replace(microsecond=0).isoformat()
+
+
+def _utc_now() -> str:
+    """Return a UTC ISO timestamp without microseconds.
+
+    Verification expiry is stored and compared in UTC. Other stamps stay
+    on ``_now()``.
+    """
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
 # Missed heartbeats after this window mark an attendee left (tab close / drop).
@@ -3451,6 +3461,10 @@ class LovesDB:
             self.conn.execute("ALTER TABLE users ADD COLUMN archived_at TEXT")
         if "verification_sent_at" not in cols:
             self.conn.execute("ALTER TABLE users ADD COLUMN verification_sent_at TEXT")
+        if "verification_attempts" not in cols:
+            self.conn.execute(
+                "ALTER TABLE users ADD COLUMN verification_attempts INTEGER NOT NULL DEFAULT 0"
+            )
 
     def _ensure_gradebook_schema(self) -> None:
         """Create per-class grade category weight storage (editable later).
@@ -5621,17 +5635,50 @@ class LovesDB:
         return self.get_user(user_id) or {}
 
     def set_verification_code(self, user_id: int, code: str) -> None:
-        """Store a first-login email code and when it was issued."""
+        """Store a first-login email code and when it was issued.
+
+        A newly issued code clears the wrong-guess count.
+        """
         with self._lock:
             self.conn.execute(
                 """
                 UPDATE users
-                SET verification_code = ?, verification_sent_at = ?
+                SET verification_code = ?, verification_sent_at = ?,
+                    verification_attempts = 0
                 WHERE id = ?
                 """,
-                (code, _now(), user_id),
+                (code, _utc_now(), user_id),
             )
             self.conn.commit()
+
+    def reserve_verification_attempt(self, user_id: int, *, limit: int = 5) -> bool:
+        """Count one /verify-email guess before the code is checked.
+
+        The increment and the cap share one UPDATE, matching the catch-up
+        PIN reserve: a guess that does not match is refused and must not
+        be compared.
+
+        Args:
+            user_id: Users primary key.
+            limit: Guesses allowed. The row updates only while
+                ``verification_attempts`` is still below this.
+
+        Returns:
+            True when this request reserved a guess. False when no row
+            changed (already at the cap).
+        """
+        with self._lock:
+            cur = self.conn.execute(
+                """
+                UPDATE users
+                SET verification_attempts = verification_attempts + 1
+                WHERE id = ? AND verification_attempts < ?
+                """,
+                (int(user_id), int(limit)),
+            )
+            reserved = cur.rowcount == 1
+            self.conn.commit()
+        return reserved
 
     def mark_verified(self, user_id: int) -> dict[str, Any]:
         """Clear the email code and stamp verified_at."""

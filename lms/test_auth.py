@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+import hmac
 import os
 import sys
 import tempfile
+import threading
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -79,6 +82,35 @@ class AuthTests(unittest.TestCase):
         self.assertTrue(code)
         rv = self.client.post("/verify-email", data={"code": code}, follow_redirects=False)
         self.assertEqual(rv.status_code, 302)
+
+    def _start_2sv(self, email: str, draw: int = 1) -> str:
+        """Start staff 2SV with a patched generator and return that code.
+
+        Args:
+            email: Allowlisted staff address.
+            draw: Value ``secrets.randbelow`` returns. The stored code is
+                ``draw + 100000``.
+
+        Returns:
+            The six-digit code that was stored.
+        """
+        self.school.register_staff(email)
+        expected = f"{draw + 100000}"
+        with patch("email_service.send_verification_email", return_value=True):
+            with patch("auth.secrets.randbelow", return_value=draw):
+                self.client.get("/auth/google?portal=staff")
+                self.client.get(
+                    f"/auth/google/callback?email={email}&name=T",
+                    follow_redirects=False,
+                )
+        user = self.school.get_user_by_email(email)
+        assert user is not None
+        self.assertTrue(str(user.get("verification_code") or "") == expected)
+        return expected
+
+    def _without_on_page_code(self):
+        """Context that keeps the verify page from rendering the code."""
+        return patch.dict(os.environ, {"ALLOW_DEV_VERIFICATION_CODE": "0"})
 
     def test_landing_is_student_join_with_staff_links(self) -> None:
         """MCK-195: ``/`` is the student join form plus Teacher/Admin links."""
@@ -576,6 +608,198 @@ class AuthTests(unittest.TestCase):
         )
         self.assertEqual(rv.status_code, 401)
         self.assertIn(b"No live class is running", rv.data)
+
+    def test_verify_email_locks_after_five_wrong_guesses(self) -> None:
+        """Five wrong guesses lock the code, including a later correct one."""
+        with self._without_on_page_code():
+            expected = self._start_2sv("lock@gmail.com")
+            for _ in range(5):
+                rv = self.client.post("/verify-email", data={"code": "000000"})
+                self.assertEqual(rv.status_code, 200)
+            locked = self.client.post("/verify-email", data={"code": expected})
+            self.assertEqual(locked.status_code, 200)
+            self.assertIn("Too many attempts", locked.get_data(as_text=True))
+            user = self.school.get_user_by_email("lock@gmail.com")
+            assert user is not None
+            self.assertFalse(user.get("verified_at"))
+            stale = (
+                datetime.now(timezone.utc) - timedelta(seconds=120)
+            ).replace(microsecond=0)
+            with self.school._lock:
+                self.school.conn.execute(
+                    "UPDATE users SET verification_sent_at = ? WHERE email = ?",
+                    (stale.isoformat(), "lock@gmail.com"),
+                )
+                self.school.conn.commit()
+            with patch("email_service.send_verification_email", return_value=True):
+                with patch("auth.secrets.randbelow", return_value=1):
+                    resent = self.client.post("/resend-verification")
+            self.assertEqual(resent.status_code, 302)
+            ok = self.client.post("/verify-email", data={"code": expected})
+            self.assertEqual(ok.status_code, 302)
+
+    def test_verify_email_accepts_code_before_the_lock(self) -> None:
+        """Four wrong guesses still leave the real code usable."""
+        expected = self._start_2sv("soon@gmail.com")
+        for _ in range(4):
+            rv = self.client.post("/verify-email", data={"code": "000000"})
+            self.assertEqual(rv.status_code, 200)
+        ok = self.client.post("/verify-email", data={"code": expected})
+        self.assertEqual(ok.status_code, 302)
+
+    def test_verify_email_rejects_an_expired_code(self) -> None:
+        """A code older than ten minutes is refused."""
+        with self._without_on_page_code():
+            expected = self._start_2sv("old@gmail.com")
+            stale = (
+                datetime.now(timezone.utc) - timedelta(minutes=11)
+            ).replace(microsecond=0)
+            with self.school._lock:
+                self.school.conn.execute(
+                    "UPDATE users SET verification_sent_at = ? WHERE email = ?",
+                    (stale.isoformat(), "old@gmail.com"),
+                )
+                self.school.conn.commit()
+            rv = self.client.post("/verify-email", data={"code": expected})
+            self.assertEqual(rv.status_code, 200)
+            self.assertIn("expired", rv.get_data(as_text=True).lower())
+            user = self.school.get_user_by_email("old@gmail.com")
+            assert user is not None
+            self.assertFalse(user.get("verified_at"))
+
+    def test_verify_email_compares_with_hmac(self) -> None:
+        """Wrong and right guesses both go through hmac.compare_digest."""
+        expected = self._start_2sv("cmp@gmail.com")
+        with patch("auth.hmac.compare_digest", wraps=hmac.compare_digest) as cmp:
+            bad = self.client.post("/verify-email", data={"code": "000000"})
+        self.assertEqual(bad.status_code, 200)
+        self.assertGreaterEqual(cmp.call_count, 1)
+        with patch("auth.hmac.compare_digest", wraps=hmac.compare_digest) as cmp:
+            good = self.client.post("/verify-email", data={"code": expected})
+        self.assertEqual(good.status_code, 302)
+        self.assertGreaterEqual(cmp.call_count, 1)
+
+    def test_verify_email_checks_at_most_five_guesses_at_once(self) -> None:
+        """Twenty simultaneous guesses check the code at most five times."""
+        self._start_2sv("race@gmail.com")
+        with self.client.session_transaction() as sess:
+            snapshot = dict(sess)
+        import auth
+
+        checked = 0
+        counter = threading.Lock()
+        real_equal = auth._secret_equal
+
+        def _counting(stored: object, presented: object) -> bool:
+            nonlocal checked
+            with counter:
+                checked += 1
+            return real_equal(stored, presented)
+
+        errors: list[BaseException] = []
+        barrier = threading.Barrier(20)
+
+        def _guess() -> None:
+            try:
+                client = self.app.test_client()
+                with client.session_transaction() as sess:
+                    sess.update(snapshot)
+                barrier.wait(timeout=10)
+                client.post("/verify-email", data={"code": "000000"})
+            except BaseException as exc:
+                errors.append(exc)
+
+        with patch("auth._secret_equal", side_effect=_counting):
+            threads = [threading.Thread(target=_guess) for _ in range(20)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=30)
+        self.assertEqual(errors, [])
+        self.assertLessEqual(checked, 5)
+        user = self.school.get_user_by_email("race@gmail.com")
+        assert user is not None
+        self.assertEqual(int(user.get("verification_attempts") or 0), 5)
+        self.assertFalse(user.get("verified_at"))
+
+    def test_sign_in_after_twelve_minutes_emails_a_new_code(self) -> None:
+        """A code about twelve minutes old is replaced and emailed."""
+        email = "twelve@gmail.com"
+        self.school.register_staff(email)
+        with patch("email_service.send_verification_email", return_value=True) as mocked:
+            with patch("auth.secrets.randbelow", return_value=1):
+                first = self._callback(email, "staff")
+            self.assertEqual(first.status_code, 302)
+            stale = (
+                datetime.now(timezone.utc) - timedelta(minutes=12)
+            ).replace(microsecond=0)
+            with self.school._lock:
+                self.school.conn.execute(
+                    "UPDATE users SET verification_sent_at = ? WHERE email = ?",
+                    (stale.isoformat(), email),
+                )
+                self.school.conn.commit()
+            with patch("auth.secrets.randbelow", return_value=7):
+                again = self._callback(email, "staff")
+            self.assertEqual(again.status_code, 302)
+            self.assertEqual(mocked.call_count, 2)
+        user = self.school.get_user_by_email(email)
+        assert user is not None
+        self.assertTrue(str(user.get("verification_code") or "") == f"{7 + 100000}")
+        self.assertEqual(int(user.get("verification_attempts") or 0), 0)
+
+    def test_google_oauth_state_uses_secrets(self) -> None:
+        """Google login state is a secrets token checked with compare_digest."""
+        os.environ["GOOGLE_CLIENT_ID"] = "test-client"
+        os.environ["GOOGLE_CLIENT_SECRET"] = "test-secret"
+        try:
+            with patch("auth.google_oauth_ready", return_value=True):
+                with patch(
+                    "auth.secrets.token_urlsafe", return_value="oauth-state-token"
+                ) as mint:
+                    started = self.client.get("/auth/google?portal=staff")
+                self.assertEqual(started.status_code, 302)
+                self.assertEqual(mint.call_args.args, (32,))
+                self.assertIn("state=oauth-state-token", started.headers["Location"])
+                with patch("auth.hmac.compare_digest", wraps=hmac.compare_digest) as cmp:
+                    bad = self.client.get(
+                        "/auth/google/callback?code=abc&state=other-state"
+                    )
+            self.assertEqual(bad.status_code, 401)
+            self.assertGreaterEqual(cmp.call_count, 1)
+            self.assertIn("state mismatch", bad.get_data(as_text=True))
+        finally:
+            os.environ.pop("GOOGLE_CLIENT_ID", None)
+            os.environ.pop("GOOGLE_CLIENT_SECRET", None)
+
+    def test_slides_oauth_state_uses_secrets(self) -> None:
+        """Slides connect state is a secrets token checked with compare_digest."""
+        with patch("email_service.send_verification_email", return_value=True):
+            self._callback("solutions@mckenzian.com", "staff")
+        self._complete_2sv("solutions@mckenzian.com")
+        os.environ["GOOGLE_CLIENT_ID"] = "test-client"
+        os.environ["GOOGLE_CLIENT_SECRET"] = "test-secret"
+        try:
+            with patch("auth.slides_connect_uses_mock", return_value=False):
+                with patch("auth.google_credentials_present", return_value=True):
+                    with patch(
+                        "auth.secrets.token_urlsafe", return_value="slides-state-token"
+                    ) as mint:
+                        started = self.client.get("/auth/google/slides")
+            self.assertEqual(started.status_code, 302)
+            self.assertEqual(mint.call_args.args, (32,))
+            self.assertIn("state=slides-state-token", started.headers["Location"])
+            with patch("auth.slides_connect_uses_mock", return_value=False):
+                with patch("auth.hmac.compare_digest", wraps=hmac.compare_digest) as cmp:
+                    bad = self.client.get(
+                        "/auth/google/slides/callback?code=abc&state=other-state"
+                    )
+            self.assertEqual(bad.status_code, 401)
+            self.assertGreaterEqual(cmp.call_count, 1)
+            self.assertIn("state mismatch", bad.get_data(as_text=True))
+        finally:
+            os.environ.pop("GOOGLE_CLIENT_ID", None)
+            os.environ.pop("GOOGLE_CLIENT_SECRET", None)
 
 
 if __name__ == "__main__":

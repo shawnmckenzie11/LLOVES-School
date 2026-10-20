@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 LMS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = LMS_DIR.parent
@@ -19,6 +20,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.pop("GOOGLE_CLIENT_SECRET", None)
 
 from app import create_app  # noqa: E402
+from auth import _send_first_login_code  # noqa: E402
 
 
 class SecurityTests(unittest.TestCase):
@@ -197,6 +199,71 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(rv.headers.get("X-Content-Type-Options"), "nosniff")
         self.assertEqual(rv.headers.get("X-Frame-Options"), "DENY")
         self.assertIn("default-src 'self'", rv.headers.get("Content-Security-Policy", ""))
+
+    def _game_session_id(self, class_id: int) -> int:
+        """Return the template game session id for a class."""
+        row = self.school.game.conn.execute(
+            "SELECT id FROM sessions WHERE class_id = ?",
+            (int(class_id),),
+        ).fetchone()
+        assert row is not None
+        return int(row["id"])
+
+    def test_session_log_requires_class_owner(self) -> None:
+        """Session logs are owner-only and do not reveal which ids exist."""
+        session_a = self._game_session_id(int(self.class_a["id"]))
+        session_b = self._game_session_id(int(self.class_b["id"]))
+        log_path = self.school.game.logs_dir / f"session-{session_a}.jsonl"
+        log_path.write_text("{}\n", encoding="utf-8")
+        url_a = f"/api/sessions/{session_a}/log"
+        url_b = f"/api/sessions/{session_b}/log"
+        missing_url = "/api/sessions/999999/log"
+        anon = self.client.get(url_a)
+        self.assertEqual(anon.status_code, 401)
+        self.assertEqual(anon.get_json(), {"ok": False, "error": "Authentication required."})
+        with patch("auth.email_service.send_verification_email", return_value=True):
+            self._login(self.client, "a@gmail.com")
+            self.assertEqual(self.client.get(url_a).status_code, 200)
+            blocked = self.client.get(url_b)
+            missing = self.client.get(missing_url)
+            self.assertEqual(blocked.status_code, missing.status_code)
+            self.assertEqual(blocked.get_json(), missing.get_json())
+            self.assertEqual(blocked.get_json(), {"ok": False, "error": "Not found"})
+            other = self.app.test_client()
+            self._login(other, "b@gmail.com")
+            other_blocked = other.get(url_a)
+            self.assertEqual(other_blocked.status_code, blocked.status_code)
+            self.assertEqual(other_blocked.get_json(), blocked.get_json())
+            it_client = self.app.test_client()
+            self._login(it_client, "solutions@mckenzian.com", portal="it")
+            self.assertEqual(it_client.get(url_a).status_code, 200)
+            tenant = self.school.create_tenant("other-school", "Other School")
+            outsider = self.school.register_staff(
+                "it-other@gmail.com", tenant_id=int(tenant["id"])
+            )
+            self.school.conn.execute(
+                "UPDATE users SET role = 'it' WHERE id = ?",
+                (int(outsider["id"]),),
+            )
+            self.school.conn.commit()
+            foreign = self.app.test_client()
+            self._login(foreign, "it-other@gmail.com", portal="it")
+            foreign_blocked = foreign.get(url_a)
+            self.assertEqual(foreign_blocked.status_code, blocked.status_code)
+            self.assertEqual(foreign_blocked.get_json(), blocked.get_json())
+
+    def test_staff_sign_in_code_is_six_digits(self) -> None:
+        """A newly minted staff sign-in code is six digits from secrets."""
+        user = self.school.register_staff("digits@gmail.com")
+        with self.app.app_context():
+            with patch(
+                "auth.email_service.send_verification_email", return_value=True
+            ):
+                with patch("auth.secrets.randbelow", return_value=42) as draw:
+                    code, emailed = _send_first_login_code(user)
+        self.assertTrue(emailed)
+        self.assertEqual(draw.call_args.args, (900000,))
+        self.assertTrue(len(code) == 6 and code.isdigit() and code == f"{42 + 100000}")
 
     def test_student_join_still_works_without_google(self) -> None:
         """Live-session student join is unchanged (no MFA on the student path)."""

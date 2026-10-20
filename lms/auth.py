@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import base64
+import hmac
 import ipaddress
 import json
 import os
-import random
+import secrets
 import urllib.parse
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 from functools import wraps
 from typing import Any, Callable
@@ -85,8 +86,12 @@ STUDENT_JOIN_SESSION_PER_IP_LIMIT = 50
 STUDENT_JOIN_GLOBAL_FAIL_LIMIT = 2000
 STUDENT_JOIN_LOCKED_MSG = "Too many attempts. Try again in a few minutes."
 
-VERIFY_SEND_COOLDOWN_SEC = 15 * 60
 VERIFY_RESEND_COOLDOWN_SEC = 90
+# Wrong guesses on /verify-email before the code is refused, even if it matches.
+VERIFY_MAX_GUESSES = 5
+# A staff sign-in code stops working this long after it was issued.
+# Re-sign-in reuses a code only inside this window (not the old 15 minutes).
+VERIFY_CODE_TTL_SEC = 10 * 60
 
 
 def _env_flag(name: str) -> bool:
@@ -258,7 +263,14 @@ def request_client_ip() -> str:
 
 
 def _verification_age_seconds(user: dict[str, Any]) -> float | None:
-    """Seconds since the last verification email was recorded, if known."""
+    """Seconds since the verification stamp, compared in UTC.
+
+    ``verification_sent_at`` is stored as a UTC ISO timestamp. A stamp with
+    no offset is treated as UTC so a local clock cannot stretch the window.
+
+    Args:
+        user: Allowlisted user row.
+    """
     raw = user.get("verification_sent_at")
     if not raw:
         return None
@@ -266,7 +278,41 @@ def _verification_age_seconds(user: dict[str, Any]) -> float | None:
         sent = datetime.fromisoformat(str(raw))
     except ValueError:
         return None
-    return max(0.0, (datetime.now() - sent).total_seconds())
+    if sent.tzinfo is None:
+        sent = sent.replace(tzinfo=timezone.utc)
+    else:
+        sent = sent.astimezone(timezone.utc)
+    return max(0.0, (datetime.now(timezone.utc) - sent).total_seconds())
+
+
+def _verification_code_expired(user: dict[str, Any]) -> bool:
+    """True when the stored sign-in code is missing a stamp or past its TTL.
+
+    Args:
+        user: Allowlisted user row.
+    """
+    age = _verification_age_seconds(user)
+    if age is None:
+        return True
+    return age >= VERIFY_CODE_TTL_SEC
+
+
+def _secret_equal(stored: object, presented: object) -> bool:
+    """Constant-time equality for OAuth state and the staff sign-in code.
+
+    Empty values never match. Both sides are compared with
+    ``hmac.compare_digest`` so a mismatch does not stop at the first
+    differing character.
+
+    Args:
+        stored: Value saved on the session or user row.
+        presented: Value from the request.
+    """
+    left = str(stored or "")
+    right = str(presented or "")
+    if not left or not right:
+        return False
+    return hmac.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
 
 
 
@@ -740,22 +786,31 @@ def _send_first_login_code(user: dict[str, Any], *, force: bool = False) -> tupl
     Args:
         user: Allowlisted user row.
         force: When True (Resend button), mint a new code unless the
-            shorter resend cooldown is still running.
+            shorter resend cooldown is still running on a live code.
 
     Returns:
         ``(code, emailed)``. ``emailed`` is True when Resend/SMTP accepted
-        the message, or when an existing code is reused inside the cooldown
-        so the verify page still says to check email. Production never puts
-        the code on the verify page.
+        the message, or when an existing code is reused so the verify page
+        still says to check email. A code is reused only when it is younger
+        than ``VERIFY_CODE_TTL_SEC`` and not locked. Otherwise a new code is
+        stored and emailed. Production never puts the code on the verify
+        page. New codes are drawn with ``secrets``.
     """
     db = school_db()
     fresh = db.get_user_by_id(int(user["id"])) or user
     existing = str(fresh.get("verification_code") or "")
     age = _verification_age_seconds(fresh)
-    cooldown = VERIFY_RESEND_COOLDOWN_SEC if force else VERIFY_SEND_COOLDOWN_SEC
-    if existing and age is not None and age < cooldown:
+    locked = int(fresh.get("verification_attempts") or 0) >= VERIFY_MAX_GUESSES
+    still_live = (
+        bool(existing)
+        and age is not None
+        and age < VERIFY_CODE_TTL_SEC
+        and not locked
+    )
+    # Resend keeps its short cooldown so a double-click does not mint twice.
+    if still_live and (not force or age < VERIFY_RESEND_COOLDOWN_SEC):
         return existing, True
-    code = f"{random.randint(100000, 999999)}"
+    code = f"{secrets.randbelow(900000) + 100000}"
     db.set_verification_code(int(fresh["id"]), code)
     name = fresh.get("display_name") or fresh["email"].split("@")[0]
     emailed = email_service.send_verification_email(fresh["email"], name, code)
@@ -1015,7 +1070,7 @@ def register_auth_routes(app: Flask) -> None:
                 redirect_uri=_google_redirect_uri(),
             ), 503
 
-        state = f"{random.randint(100000, 999999)}"
+        state = secrets.token_urlsafe(32)
         session["google_oauth_state"] = state
         params = {
             "client_id": google_client_id(),
@@ -1078,7 +1133,7 @@ def register_auth_routes(app: Flask) -> None:
         code = request.args.get("code")
         state = request.args.get("state")
         stored_state = session.pop("google_oauth_state", None)
-        if not code or (stored_state and state != stored_state):
+        if not code or not _secret_equal(stored_state, state):
             return render_template(
                 "forbidden.html",
                 message="Google authentication failed: state mismatch.",
@@ -1143,12 +1198,22 @@ def register_auth_routes(app: Flask) -> None:
         info = None
         if request.method == "POST":
             entered = (request.form.get("code") or "").strip()
-            if entered and entered == str(user.get("verification_code") or ""):
+            # Count the guess before comparing so parallel posts cannot all
+            # read the old total and slip past the cap.
+            reserved = db.reserve_verification_attempt(
+                int(user["id"]), limit=VERIFY_MAX_GUESSES
+            )
+            if not reserved:
+                error = "Too many attempts. Use Resend code."
+            elif _verification_code_expired(user):
+                error = "That code has expired. Use Resend code."
+            elif _secret_equal(user.get("verification_code"), entered):
                 user = db.mark_verified(int(user["id"]))
                 portal = session.get("pending_portal") or "staff"
                 establish_user_session(user, portal=portal)
                 return _post_login_redirect(portal)
-            error = "Invalid verification code. Please try again."
+            else:
+                error = "Invalid verification code. Please try again."
             user = db.get_user_by_id(int(user["id"])) or user
 
         sent_raw = request.args.get("sent")
@@ -1227,7 +1292,7 @@ def register_auth_routes(app: Flask) -> None:
             ), 503
         from live_class_slides import slides_oauth_url
 
-        state = f"{random.randint(100000, 999999)}"
+        state = secrets.token_urlsafe(32)
         session["slides_oauth_state"] = state
         return redirect(
             slides_oauth_url(
@@ -1261,7 +1326,7 @@ def register_auth_routes(app: Flask) -> None:
         code = request.args.get("code")
         state = request.args.get("state")
         stored_state = session.pop("slides_oauth_state", None)
-        if not code or (stored_state and state != stored_state):
+        if not code or not _secret_equal(stored_state, state):
             return render_template(
                 "forbidden.html",
                 message="Google Slides connect failed: state mismatch.",

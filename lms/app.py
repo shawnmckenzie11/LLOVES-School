@@ -10990,10 +10990,37 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/sessions/<int:session_id>/log")
     @login_required
     def api_session_log(session_id: int):
-        """Plain-text game log."""
+        """Plain-text game log for a class this staff member owns.
+
+        A missing session and a session the caller does not own return the
+        same 404, so ids cannot be probed. IT is limited to its own school
+        via ``teacher_owns_class``.
+        """
+        hidden = jsonify({"ok": False, "error": "Not found"}), 404
+        user = current_user()
+        if user is None:
+            return jsonify({"ok": False, "error": "Authentication required."}), 401
+        try:
+            with school.game._lock:
+                row = school.game.conn.execute(
+                    "SELECT class_id FROM sessions WHERE id = ?",
+                    (int(session_id),),
+                ).fetchone()
+        except Exception as exc:  # noqa: BLE001
+            return _json_error(exc)
+        if row is None or not school.teacher_owns_class(
+            int(user["id"]), int(row["class_id"])
+        ):
+            return hidden
         try:
             path = school.game.session_log_path(session_id)
-            return path.read_text(encoding="utf-8"), 200, {"Content-Type": "text/plain; charset=utf-8"}
+            return (
+                path.read_text(encoding="utf-8"),
+                200,
+                {"Content-Type": "text/plain; charset=utf-8"},
+            )
+        except (KeyError, FileNotFoundError):
+            return hidden
         except Exception as exc:  # noqa: BLE001
             return _json_error(exc)
 
