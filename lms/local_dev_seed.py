@@ -335,6 +335,10 @@ def _run_demo_individual_live_end(
 ) -> str:
     """Publish individual items, record Maple's answers, and End one live class.
 
+    Uses End Class (``finish_live_class``), which writes the participation
+    run and catch-up link. A force-end or cancel does not, so this seed
+    must not close the session through ``end_live_class_session``.
+
     Returns:
         The ``live_slot`` label written (e.g. ``C1``).
     """
@@ -402,7 +406,13 @@ def _run_demo_individual_live_end(
         (ended_iso, session_id),
     )
     conn.commit()
-    school.end_live_class_session(session_id)
+    school.finish_live_class(int(class_id), celebrate=True, live_run=True)
+    # End Class stamps ended_at as now. Keep the scheduled class end.
+    conn.execute(
+        "UPDATE live_class_sessions SET ended_at = ? WHERE id = ?",
+        (ended_iso, session_id),
+    )
+    conn.commit()
     row = conn.execute(
         """
         SELECT run_key FROM participation_items

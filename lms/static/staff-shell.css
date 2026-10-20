@@ -1659,6 +1659,9 @@ body.staff-shell .badge-test-run {
   font-weight: 700;
   text-transform: uppercase;
 }
+body.staff-shell .ls-row-title .badge-test-run {
+  text-transform: none;
+}
 body.staff-shell .set-class-type-row {
   display: flex;
   flex-wrap: wrap;
@@ -1823,7 +1826,7 @@ body.staff-shell .ls-row-menu-btn[aria-expanded="true"] {
 body.staff-shell .ls-row-menu {
   position: absolute;
   top: 100%;
-  right: 0;
+  left: 0;
   z-index: 4;
   min-width: 11rem;
   margin-top: 0.15rem;
@@ -2300,6 +2303,9 @@ body.staff-shell .lesson-slides-table-card {
   -webkit-overflow-scrolling: touch;
   max-width: 100%;
   min-width: 0;
+}
+body.staff-shell .lesson-slides-table-card .table-wrap:has(.ls-row-menu:not([hidden])) {
+  overflow: visible;
 }
 body.staff-shell .lesson-slides-table-card .table-wrap {
   overflow-x: auto;

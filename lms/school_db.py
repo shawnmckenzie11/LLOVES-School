@@ -3710,6 +3710,29 @@ class LovesDB:
         self._ensure_lesson_slides_is_test_key()
         self._ensure_catchup_is_test_key()
         self._ensure_deck_seed_is_test_columns()
+        self._ensure_lesson_slides_dismissed()
+
+
+    def _ensure_lesson_slides_dismissed(self) -> None:
+        """Remember Lesson Slides entries a teacher removed from the list.
+
+        One row hides one ended run. Attendance, participation, the
+        gradebook, and catch-up are not stored here. A later End with a
+        different run key still appears. Safe to run on every boot.
+        """
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS lesson_slides_dismissed (
+                class_id INTEGER NOT NULL,
+                live_module TEXT NOT NULL,
+                live_slot TEXT NOT NULL,
+                is_test INTEGER NOT NULL DEFAULT 0,
+                run_key TEXT NOT NULL,
+                dismissed_at TEXT NOT NULL,
+                PRIMARY KEY (class_id, live_module, live_slot, is_test, run_key)
+            )
+            """
+        )
 
     def _ensure_lesson_slides_is_test_key(self) -> None:
         """Rebuild Lesson Slides so a test row does not replace the real slot."""
@@ -33928,6 +33951,11 @@ class SchoolDB(LovesDB):
         MCK-233 end-time test), skip participation, catch-up, and Lesson
         Slides. An ``is_test`` session still saves those rows, marked so they
         stay out of real counts (MCK-269).
+
+        A real End always writes the Lesson Slides row, for Live, Open
+        Office, and Test, even when no question was published or answered.
+        Catch-up for a live class still requires one individual answer. A
+        test class still gets its own catch-up link (MCK-269, MCK-290).
         """
         sid = int(session_id)
         session = self.conn.execute(
@@ -34099,6 +34127,7 @@ class SchoolDB(LovesDB):
                 ended_at=ended_at,
                 refresh_window=True,
             )
+        if is_real:
             self._upsert_lesson_slides_latest_unlocked(
                 sid,
                 class_id=class_id,
@@ -35145,36 +35174,38 @@ class SchoolDB(LovesDB):
             )
         return questions
 
-    def _upsert_lesson_slides_latest_unlocked(
-        self,
-        session_id: int | None,
-        *,
-        class_id: int,
-        run_key: str,
-        module: str,
-        slot: str,
-        ended_at: str,
-        session_code: str,
-        ended_at_inferred: bool = False,
-        inferred_ended_at: str = "",
-        is_test: bool = False,
-    ) -> None:
-        """Replace the Lesson Slides row for one slot and run kind.
+    def lesson_slides_questions_for_session(
+        self, session_id: int | None, class_id: int, run_key: str
+    ) -> list[dict[str, Any]]:
+        """Published questions for one run, without writing a Lesson Slides row.
 
         Args:
-            is_test: When true, write the test row and leave the real row.
+            session_id: ``live_class_sessions.id``, or ``None`` after a later
+                Start has removed the session.
+            class_id: Game-show ``classes.id``.
+            run_key: Participation run key.
+        """
+        with self._lock:
+            return self._lesson_slides_questions_unlocked(session_id, class_id, run_key)
+
+    def _lesson_slides_questions_unlocked(
+        self, session_id: int | None, class_id: int, run_key: str
+    ) -> list[dict[str, Any]]:
+        """Question list for Lesson Slides. Caller holds ``self._lock``.
+
+        Group and individual published items are both included. When the
+        session has none, fall back to stored participation items.
+
+        Args:
+            session_id: ``live_class_sessions.id``, or ``None``.
+            class_id: Game-show ``classes.id``.
+            run_key: Participation run key.
         """
         from lesson_slides_table import _bank_question_id, _stem, _type_label
         from participation_weight import item_participation_weight
 
         sid = int(session_id) if session_id is not None else 0
         cid = int(class_id)
-        mod = str(module or "").upper()
-        sl = str(slot or "").upper()
-        mod_num = int(mod[1:]) if mod.startswith("M") and mod[1:].isdigit() else 0
-        slot_num = int(sl[1:]) if sl.startswith("C") and sl[1:].isdigit() else 0
-        deck = self.get_lesson_slide_deck(cid, mod_num, slot_num) if mod_num and slot_num else None
-        presentation_url = str((deck or {}).get("presentation_url") or "")
         questions: list[dict[str, Any]] = []
         catchup_keys = {
             str(r[0])
@@ -35233,6 +35264,36 @@ class SchoolDB(LovesDB):
                 )
         if not questions:
             questions = self._lesson_slides_questions_from_participation_unlocked(cid, str(run_key))
+        return questions
+
+    def _upsert_lesson_slides_latest_unlocked(
+        self,
+        session_id: int | None,
+        *,
+        class_id: int,
+        run_key: str,
+        module: str,
+        slot: str,
+        ended_at: str,
+        session_code: str,
+        ended_at_inferred: bool = False,
+        inferred_ended_at: str = "",
+        is_test: bool = False,
+    ) -> None:
+        """Replace the Lesson Slides row for one slot and run kind.
+
+        Args:
+            is_test: When true, write the test row and leave the real row.
+        """
+        sid = int(session_id) if session_id is not None else 0
+        cid = int(class_id)
+        mod = str(module or "").upper()
+        sl = str(slot or "").upper()
+        mod_num = int(mod[1:]) if mod.startswith("M") and mod[1:].isdigit() else 0
+        slot_num = int(sl[1:]) if sl.startswith("C") and sl[1:].isdigit() else 0
+        deck = self.get_lesson_slide_deck(cid, mod_num, slot_num) if mod_num and slot_num else None
+        presentation_url = str((deck or {}).get("presentation_url") or "")
+        questions = self._lesson_slides_questions_unlocked(sid, cid, str(run_key))
         now = _now()
         self.conn.execute(
             """
@@ -38115,7 +38176,12 @@ class SchoolDB(LovesDB):
         return True
 
     def cleanup_live_session_response_data(
-        self, session_id: int, *, live_run: bool = True, discard: bool = False
+        self,
+        session_id: int,
+        *,
+        live_run: bool = True,
+        discard: bool = False,
+        record_participation: bool = True,
     ) -> None:
         """Delete ephemeral individual votes, group responses, and board ops.
 
@@ -38130,6 +38196,11 @@ class SchoolDB(LovesDB):
             session_id: ``live_class_sessions.id``.
             live_run: When False, skip Live-run persistence (MCK-233 Test toggle).
             discard: Quit. Drop the live rows and write nothing.
+            record_participation: When False, snapshot answers and clear
+                the live rows without writing a participation run, catch-up
+                link, or Lesson Slides row. IT force-end, cancel, and
+                closing the attendance card use this. A real End leaves it
+                True.
         """
 
         self.purge_board_ops(int(session_id))
@@ -38163,25 +38234,30 @@ class SchoolDB(LovesDB):
                             "live result snapshot failed session=%s", session_id
                         )
                     self.conn.execute("RELEASE live_result_snapshot")
-                    # MCK-198: own savepoint, so a capture error never undoes the
-                    # MCK-45 snapshot above. A failed capture keeps the response
-                    # rows: deleting them would lose the only copy of who answered.
-                    self.conn.execute("SAVEPOINT participation_capture")
-                    captured = True
-                    try:
-                        self._capture_participation_unlocked(
-                            int(session_id), live_run=bool(live_run)
-                        )
-                    except Exception:  # noqa: BLE001
-                        captured = False
-                        self.conn.execute("ROLLBACK TO participation_capture")
-                        logger.exception(
-                            "participation capture failed session=%s; keeping response rows",
-                            session_id,
-                        )
-                    self.conn.execute("RELEASE participation_capture")
-                    if captured:
+                    # Closing without End must not create a real participation
+                    # run. That run is what Lesson Slides treats as Delivered.
+                    if not record_participation:
                         self._delete_live_session_response_rows_unlocked(int(session_id))
+                    else:
+                        # MCK-198: own savepoint, so a capture error never undoes the
+                        # MCK-45 snapshot above. A failed capture keeps the response
+                        # rows: deleting them would lose the only copy of who answered.
+                        self.conn.execute("SAVEPOINT participation_capture")
+                        captured = True
+                        try:
+                            self._capture_participation_unlocked(
+                                int(session_id), live_run=bool(live_run)
+                            )
+                        except Exception:  # noqa: BLE001
+                            captured = False
+                            self.conn.execute("ROLLBACK TO participation_capture")
+                            logger.exception(
+                                "participation capture failed session=%s; keeping response rows",
+                                session_id,
+                            )
+                        self.conn.execute("RELEASE participation_capture")
+                        if captured:
+                            self._delete_live_session_response_rows_unlocked(int(session_id))
             except BaseException:
                 self.conn.execute("ROLLBACK")
                 raise
@@ -38294,20 +38370,68 @@ class SchoolDB(LovesDB):
             self.conn.commit()
         return self.live_session_teacher_state_payload(int(session_id))
 
-    def invalidate_live_session_code(self, session_id: int) -> dict[str, Any] | None:
-        """Mark a session ended so its code is no longer joinable.
+    def _unsaved_live_answers_remain(self, session_id: int) -> bool:
+        """True when this session still holds answers End did not save.
 
-        Idempotent: already-ended sessions are returned unchanged.
+        A failed participation capture keeps ``live_session_responses``
+        and group response rows. Those rows are the only copy of who
+        answered. A later close must see them and retry the save.
 
         Args:
             session_id: ``live_class_sessions.id``.
+
+        Returns:
+            True when an individual or group answer row is still present.
+        """
+        sid = int(session_id)
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT 1
+                FROM live_session_responses r
+                INNER JOIN live_session_prompts p ON p.id = r.prompt_id
+                WHERE p.live_session_id = ?
+                UNION ALL
+                SELECT 1
+                FROM live_group_responses g
+                INNER JOIN live_session_items i ON i.id = g.live_item_id
+                WHERE i.live_session_id = ?
+                LIMIT 1
+                """,
+                (sid, sid),
+            ).fetchone()
+        return row is not None
+
+    def invalidate_live_session_code(
+        self, session_id: int, *, record_participation: bool = False
+    ) -> dict[str, Any] | None:
+        """Mark a session ended so its code is no longer joinable.
+
+        This is not End Class. A first close writes no participation run
+        and no Lesson Slides row unless ``record_participation`` is True,
+        which scoring-panel End Class passes. IT force-end, cancel, and
+        closing the attendance card leave it False.
+
+        An already-ended session retries the save when live answers are
+        still in the response tables (a failed End kept them). A second
+        close with nothing left to save does not create a run.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            record_participation: When True, the first close of an active
+                session saves participation, catch-up, and Lesson Slides.
         """
         session_row = self.get_live_session(session_id)
         if session_row is None:
             return None
         self.release_eyes_up(int(session_id))
         if session_row.get("status") == "ended":
-            self.cleanup_live_session_response_data(session_id)
+            # Failed End kept the answers. Retry that save. Do not invent
+            # a run when those rows are already gone.
+            retry_save = self._unsaved_live_answers_remain(int(session_id))
+            self.cleanup_live_session_response_data(
+                session_id, record_participation=retry_save
+            )
             if self.presence is not None:
                 self.presence.mark_session_ended(
                     int(session_id),
@@ -38335,19 +38459,28 @@ class SchoolDB(LovesDB):
                 (ended_value, int(session_id)),
             )
             self.conn.commit()
-        self.cleanup_live_session_response_data(session_id)
+        self.cleanup_live_session_response_data(
+            session_id, record_participation=bool(record_participation)
+        )
         if self.presence is not None:
             self.presence.mark_session_ended(int(session_id), ended_value)
         return self.get_live_session(session_id)
 
     def end_live_class_session(
-        self, session_id: int, *, clear_moods: bool = True
+        self,
+        session_id: int,
+        *,
+        clear_moods: bool = True,
+        record_participation: bool = False,
     ) -> dict[str, Any] | None:
         """End a live session, invalidate its code, and optionally wipe moods.
 
         Args:
             session_id: ``live_class_sessions.id``.
             clear_moods: When True, clear mood/character for attendees.
+            record_participation: When True, save participation, catch-up,
+                and Lesson Slides on this first close. Scoring-panel End
+                Class passes True. IT force-end leaves it False.
 
         Returns:
             The ended session row, or ``None`` if missing.
@@ -38356,16 +38489,24 @@ class SchoolDB(LovesDB):
         self._award_pending_rank_races(session_id)
         if clear_moods:
             self.clear_attendee_moods_and_characters(session_id)
-        return self.invalidate_live_session_code(session_id)
+        return self.invalidate_live_session_code(
+            session_id, record_participation=bool(record_participation)
+        )
 
     def end_active_live_sessions_for_class(
-        self, class_id: int, *, clear_moods: bool = True
+        self,
+        class_id: int,
+        *,
+        clear_moods: bool = True,
+        record_participation: bool = False,
     ) -> list[dict[str, Any]]:
         """End every active live session for a class.
 
         Args:
             class_id: Game-show ``classes.id``.
             clear_moods: Forwarded to ``end_live_class_session``.
+            record_participation: Forwarded to ``end_live_class_session``.
+                Scoring-panel End Class passes True. Cancel does not.
 
         Returns:
             List of ended session rows (may be empty).
@@ -38382,7 +38523,9 @@ class SchoolDB(LovesDB):
         ended: list[dict[str, Any]] = []
         for row in rows:
             result = self.end_live_class_session(
-                int(row["id"]), clear_moods=clear_moods
+                int(row["id"]),
+                clear_moods=clear_moods,
+                record_participation=bool(record_participation),
             )
             if result:
                 ended.append(result)
@@ -40496,6 +40639,161 @@ class SchoolDB(LovesDB):
         ]
         out["totals"] = {str(k): v for k, v in totals.items()}
         return out
+
+    def lesson_slides_dismissed_keys(
+        self, class_id: int
+    ) -> set[tuple[str, str, int, str]]:
+        """Runs the teacher removed from the Lesson Slides list.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            ``(module, slot, is_test, run_key)`` for this class.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT live_module, live_slot, is_test, run_key
+                FROM lesson_slides_dismissed
+                WHERE class_id = ?
+                """,
+                (int(class_id),),
+            ).fetchall()
+        return {
+            (
+                str(row["live_module"] or "").upper(),
+                str(row["live_slot"] or "").upper(),
+                int(row["is_test"] or 0),
+                str(row["run_key"] or ""),
+            )
+            for row in rows
+        }
+
+    def delete_lesson_slides_entry(
+        self,
+        class_id: int,
+        module: Any,
+        slot: Any,
+        is_test: Any,
+        run_key: Any,
+    ) -> dict[str, Any]:
+        """Remove one Lesson Slides list entry and keep the class data.
+
+        Records a dismissal so the read fallback cannot put the same run
+        back on the list. Deletes only the matching ``lesson_slides_latest``
+        row. The live session, attendance, participation, gradebook
+        column, and catch-up link stay. A later End with a new run key
+        shows again.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Lesson module, such as ``M1``.
+            slot: Lesson slot, such as ``C1`` or ``O1``.
+            is_test: True for a test entry.
+            run_key: Participation run key of the entry to hide.
+
+        Returns:
+            ``{ok, module, slot, is_test}``.
+
+        Raises:
+            ValueError: The module, slot, or run key is missing.
+        """
+        mod = str(module or "").strip().upper()
+        sl = str(slot or "").strip().upper()
+        key = str(run_key or "").strip()
+        if isinstance(is_test, bool):
+            flag = int(is_test)
+        else:
+            flag = 1 if str(is_test or "").strip().lower() in {"1", "true", "yes"} else 0
+        if not mod or not sl or not key:
+            raise ValueError("That Lesson Slides entry could not be removed.")
+        dismissed_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO lesson_slides_dismissed (
+                    class_id, live_module, live_slot, is_test, run_key, dismissed_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(class_id, live_module, live_slot, is_test, run_key)
+                DO UPDATE SET dismissed_at = excluded.dismissed_at
+                """,
+                (int(class_id), mod, sl, flag, key, dismissed_at),
+            )
+            self.conn.execute(
+                """
+                DELETE FROM lesson_slides_latest
+                WHERE class_id = ? AND live_module = ? AND live_slot = ?
+                  AND COALESCE(is_test, 0) = ? AND run_key = ?
+                """,
+                (int(class_id), mod, sl, flag, key),
+            )
+            self.conn.commit()
+        return {"ok": True, "module": mod, "slot": sl, "is_test": bool(flag)}
+
+    def delete_lesson_slides_test_entry(
+        self, class_id: int, session_id: int
+    ) -> dict[str, Any]:
+        """Remove the Lesson Slides entry for one ended session.
+
+        Live, Open Office, and Test sessions all use the same list
+        delete. The session, attendance, participation, gradebook, and
+        catch-up stay.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            ``{ok, deleted_session_id}``.
+
+        Raises:
+            KeyError: The session is missing or belongs to another class.
+            ValueError: The session has no module, slot, or run key.
+        """
+        sid = int(session_id)
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT class_id, is_test, run_key, teacher_state_json
+                FROM live_class_sessions
+                WHERE id = ?
+                """,
+                (sid,),
+            ).fetchone()
+            if row is None or int(row["class_id"]) != int(class_id):
+                raise KeyError(f"live session {sid}")
+            slide = self.conn.execute(
+                """
+                SELECT live_module, live_slot, run_key, is_test
+                FROM lesson_slides_latest
+                WHERE class_id = ? AND live_session_id = ?
+                LIMIT 1
+                """,
+                (int(class_id), sid),
+            ).fetchone()
+        module = ""
+        slot = ""
+        run_key = str(row["run_key"] or "").strip()
+        flag = int(row["is_test"] or 0)
+        if slide is not None:
+            module = str(slide["live_module"] or "")
+            slot = str(slide["live_slot"] or "")
+            if str(slide["run_key"] or "").strip():
+                run_key = str(slide["run_key"]).strip()
+            flag = int(slide["is_test"] or 0)
+        if not module or not slot:
+            teacher: dict[str, Any] = {}
+            try:
+                parsed = json.loads(row["teacher_state_json"] or "{}")
+                if isinstance(parsed, dict):
+                    teacher = parsed
+            except (TypeError, ValueError):
+                teacher = {}
+            module = module or str(teacher.get("live_module") or "")
+            slot = slot or str(teacher.get("live_slot") or "")
+        self.delete_lesson_slides_entry(int(class_id), module, slot, flag, run_key)
+        return {"ok": True, "deleted_session_id": sid}
 
     def delete_test_live_class(
         self, class_id: int, session_id: int
@@ -43757,7 +44055,8 @@ class SchoolDB(LovesDB):
     ) -> str:
         """Next picker-valid school day without finalized attendance.
 
-        In-progress setup sessions are ignored so the next day stays available.
+        In-progress setup sessions and test runs are ignored so the next
+        day stays available.
 
         Args:
             class_id: Class primary key.
@@ -43776,8 +44075,11 @@ class SchoolDB(LovesDB):
         if not picker_isos:
             return date.today().isoformat()
         marks = self.game.attendance_score_rows(class_id)
+        test_ids = self.test_mgs_session_ids(class_id)
         logged_dates: set[str] = set()
         for sess in marks.get("sessions") or []:
+            if int(sess.get("id") or 0) in test_ids:
+                continue
             if str(sess.get("status") or "") != "ended":
                 continue
             meeting = session_meeting_date(sess.get("starts_at"))
@@ -43837,6 +44139,37 @@ class SchoolDB(LovesDB):
                 f"({schedule}). Pick a valid date."
             )
 
+    def _attendance_marks_without_test_runs(self, class_id: int) -> dict[str, Any]:
+        """Attendance score rows with test-class columns removed.
+
+        A test End still writes the gradebook column. Attendance day
+        totals and the present list for a date leave that column out.
+        Deleting the Lesson Slides entry does not put the column back
+        into attendance.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            The attendance score payload without test sessions.
+        """
+        marks = self.game.attendance_score_rows(int(class_id))
+        test_ids = self.test_mgs_session_ids(int(class_id))
+        if not test_ids:
+            return marks
+        out = dict(marks)
+        out["sessions"] = [
+            row
+            for row in (marks.get("sessions") or [])
+            if int(row.get("id") or 0) not in test_ids
+        ]
+        out["scores"] = [
+            row
+            for row in (marks.get("scores") or [])
+            if int(row.get("session_id") or 0) not in test_ids
+        ]
+        return out
+
     def attendance_week_grid(
         self,
         class_id: int,
@@ -43864,7 +44197,7 @@ class SchoolDB(LovesDB):
         dash = self.game.dashboard(
             class_id, sort=sort, include_test_students=include_test_students
         )
-        marks = self.game.attendance_score_rows(class_id)
+        marks = self._attendance_marks_without_test_runs(class_id)
         grid = build_attendance_week_grid(
             students=list(dash.get("students") or []),
             sessions=marks["sessions"],
@@ -43930,7 +44263,7 @@ class SchoolDB(LovesDB):
         except ImportError:
             from lms.gradebook import session_meeting_date
 
-        marks = self.game.attendance_score_rows(class_id)
+        marks = self._attendance_marks_without_test_runs(class_id)
         session_dates: dict[int, date] = {}
         session_ids: list[int] = []
         for sess in marks["sessions"]:

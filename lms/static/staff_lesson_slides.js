@@ -1,11 +1,8 @@
 /**
  * Lesson Slides table (MCK-229): one row per live class, latest real run.
- * Test runs are extra rows with a TEST tag (MCK-269).
+ * Test runs are extra rows with a small Test tag (MCK-269). Delete on a
+ * Live, Open Office, or Test entry removes only that list row.
  */
-import {
-  deleteTestClass,
-  DELETE_TEST_CLASS_ERROR,
-} from "/static/staff_test_class.js";
 
 const root = document.getElementById("lesson-slides-root");
 const classId = root?.dataset.classId;
@@ -187,7 +184,50 @@ function closeLessonSlideRowMenus(exceptWrap = null) {
  * @param {number} sessionId
  * @returns {void}
  */
-function bindTestRowMenu(wrap, sessionId) {
+/**
+ * Confirm, then remove only this Lesson Slides entry.
+ * @param {Record<string, unknown>} row
+ * @returns {Promise<boolean>}
+ */
+async function deleteLessonSlidesEntry(row) {
+  const runKey = String(row?.run_key || "").trim();
+  if (!runKey) return false;
+  const dialog = document.getElementById("ls-delete-entry-dialog");
+  if (!(dialog instanceof HTMLDialogElement)) return false;
+  const yes = await new Promise((resolve) => {
+    const onClose = () => {
+      dialog.removeEventListener("close", onClose);
+      resolve(dialog.returnValue === "delete");
+    };
+    dialog.addEventListener("close", onClose);
+    dialog.showModal();
+  });
+  if (!yes) return false;
+  const res = await fetch(
+    `/api/classes/${classId}/lesson-slides/entries/delete`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        module: row.module,
+        slot: row.slot,
+        is_test: Boolean(row.is_test),
+        run_key: runKey,
+      }),
+    }
+  );
+  if (!res.ok) throw new Error("delete failed");
+  return true;
+}
+
+/**
+ * Wire the overflow menu for one Lesson Slides entry.
+ * @param {HTMLElement} wrap
+ * @param {Record<string, unknown>} row
+ * @returns {void}
+ */
+function bindLessonSlideRowMenu(wrap, row) {
   const btn = wrap.querySelector(".ls-row-menu-btn");
   const menu = wrap.querySelector(".ls-row-menu");
   const deleteBtn = wrap.querySelector(".ls-row-menu-delete");
@@ -202,7 +242,7 @@ function bindTestRowMenu(wrap, sessionId) {
   deleteBtn?.addEventListener("click", () => {
     menu.hidden = true;
     btn.setAttribute("aria-expanded", "false");
-    deleteTestClass(Number(classId), Number(sessionId))
+    deleteLessonSlidesEntry(row)
       .then((gone) => {
         if (gone) window.location.reload();
       })
@@ -210,7 +250,7 @@ function bindTestRowMenu(wrap, sessionId) {
         const status = document.getElementById("ls-table-status");
         if (status) {
           status.hidden = false;
-          status.textContent = DELETE_TEST_CLASS_ERROR;
+          status.textContent = "Could not delete that Lesson Slides entry.";
         }
       });
   });
@@ -257,17 +297,20 @@ function paintTable() {
     if (row.is_test) {
       const tag = document.createElement("span");
       tag.className = "badge-test-run";
-      tag.textContent = "TEST";
+      tag.textContent = "Test";
       title.appendChild(tag);
     }
     labelWrap.appendChild(title);
-    if (row.is_test && row.live_session_id) {
+    if (row.can_delete && row.run_key) {
       const menuWrap = document.createElement("div");
       menuWrap.className = "ls-row-menu-wrap";
       const menuBtn = document.createElement("button");
       menuBtn.type = "button";
       menuBtn.className = "ls-row-menu-btn";
-      menuBtn.setAttribute("aria-label", "Test class actions");
+      menuBtn.setAttribute(
+        "aria-label",
+        row.is_test ? "Test class actions" : "Lesson Slides actions"
+      );
       menuBtn.setAttribute("aria-haspopup", "menu");
       menuBtn.setAttribute("aria-expanded", "false");
       menuBtn.textContent = "⋯";
@@ -279,12 +322,12 @@ function paintTable() {
       deleteBtn.type = "button";
       deleteBtn.className = "ls-row-menu-delete";
       deleteBtn.setAttribute("role", "menuitem");
-      deleteBtn.textContent = "Delete test class";
+      deleteBtn.textContent = "Delete";
       menu.appendChild(deleteBtn);
       menuWrap.appendChild(menuBtn);
       menuWrap.appendChild(menu);
       labelWrap.appendChild(menuWrap);
-      bindTestRowMenu(menuWrap, Number(row.live_session_id));
+      bindLessonSlideRowMenu(menuWrap, row);
     }
     label.appendChild(labelWrap);
     if (!row.is_test && row.not_in_template) {

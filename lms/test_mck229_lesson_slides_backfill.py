@@ -256,7 +256,11 @@ class LessonSlidesBackfillTests(RealVsTestFlowTests):
         self.assertTrue(ui["has_run"])
 
     def test_fallback_ignores_test_run_catchup(self) -> None:
-        """Catch-up fallback does not treat a test/discarded run as has_run."""
+        """Catch-up fallback does not treat a test or discarded run as has_run.
+
+        The ended real session still lists after the stored Lesson Slides
+        row is removed.
+        """
         real_key = self._ended_real_run_keep_session(
             "M1",
             "C2",
@@ -279,7 +283,24 @@ class LessonSlidesBackfillTests(RealVsTestFlowTests):
         self.school.conn.commit()
         payload = build_lesson_slides_table(self.school, self.class_id)
         row = next(r for r in payload["rows"] if r["label"] == "M1C2")
-        self.assertFalse(row["has_run"])
+        self.assertTrue(row["has_run"])
+        self.assertEqual(row["run_key"], real_key)
+        self.school.conn.execute(
+            "DELETE FROM live_class_sessions WHERE class_id = ? AND run_key = ?",
+            (int(self.class_id), real_key),
+        )
+        self.school.conn.execute(
+            "DELETE FROM participation_items WHERE class_id = ? AND run_key = ?",
+            (int(self.class_id), real_key),
+        )
+        self.school.conn.execute(
+            "DELETE FROM live_result_snapshots WHERE class_id = ? AND run_key = ?",
+            (int(self.class_id), real_key),
+        )
+        self.school.conn.commit()
+        hidden = build_lesson_slides_table(self.school, self.class_id)
+        hidden_row = next(r for r in hidden["rows"] if r["label"] == "M1C2")
+        self.assertFalse(hidden_row["has_run"])
         self.school.conn.execute(
             """
             UPDATE catchup_links SET run_key = ?

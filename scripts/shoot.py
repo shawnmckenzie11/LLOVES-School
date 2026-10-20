@@ -3696,6 +3696,314 @@ def shoot_mck289(base: str, state_path: Path, out_dir: Path, path: Path, widths:
     return written
 
 
+def prepare_mck290(path: Path) -> int:
+    """Show one ended template class and one deletable test entry.
+
+    The live session has a real participation run and no stored Lesson
+    Slides row. The test entry is a stored test row with its own session.
+    Placeholder session codes are masked before the screenshot. This does
+    not print codes or student names.
+
+    Args:
+        path: LMS sqlite path.
+
+    Returns:
+        Shawn's class id.
+    """
+    class_id = shawn_class_id(path)
+    con = sqlite3.connect(path)
+    try:
+        cols = {str(row[1]) for row in con.execute("PRAGMA table_info(live_class_sessions)")}
+        owner = con.execute(
+            "SELECT offering_id, teacher_user_id FROM classes WHERE id = ?",
+            (class_id,),
+        ).fetchone()
+        if owner is None or owner[0] in (None, ""):
+            raise SystemExit("Demo class has no offering.")
+        con.execute(
+            """
+            DELETE FROM lesson_slides_latest
+            WHERE class_id = ? AND live_module = 'M1' AND live_slot = 'C4'
+              AND COALESCE(is_test, 0) = 0
+            """,
+            (class_id,),
+        )
+        if "teacher_state_json" in cols:
+            con.execute(
+                """
+                DELETE FROM live_class_sessions
+                WHERE class_id = ? AND status = 'ended'
+                  AND json_extract(teacher_state_json, '$.live_module') = 'M1'
+                  AND json_extract(teacher_state_json, '$.live_slot') = 'C4'
+                """,
+                (class_id,),
+            )
+        fields = [
+            "class_id",
+            "offering_id",
+            "teacher_user_id",
+            "session_code",
+            "status",
+            "started_at",
+            "ended_at",
+            "is_test",
+        ]
+        values: list[object] = [
+            class_id,
+            int(owner[0]),
+            int(owner[1]),
+            "ended-run",
+            "ended",
+            "2026-10-19T18:00:00",
+            "2026-10-19T19:15:00",
+            0,
+        ]
+        if "teacher_state_json" in cols:
+            fields.append("teacher_state_json")
+            values.append(json.dumps({"live_module": "M1", "live_slot": "C4"}))
+        if "run_key" in cols:
+            fields.append("run_key")
+            values.append("mck290-ended")
+        con.execute(
+            f"INSERT INTO live_class_sessions ({', '.join(fields)}) VALUES ({', '.join('?' for _ in fields)})",
+            values,
+        )
+        run_cols = {str(row[1]) for row in con.execute("PRAGMA table_info(participation_runs)")}
+        if "run_key" in run_cols and "is_real" in run_cols:
+            con.execute(
+                "DELETE FROM participation_runs WHERE class_id = ? AND run_key = ?",
+                (class_id, "mck290-ended"),
+            )
+            run_fields = ["class_id", "run_key", "is_real"]
+            run_values: list[object] = [class_id, "mck290-ended", 1]
+            if "discarded" in run_cols:
+                run_fields.append("discarded")
+                run_values.append(0)
+            if "auto_is_real" in run_cols:
+                run_fields.append("auto_is_real")
+                run_values.append(1)
+            if "ended_at" in run_cols:
+                run_fields.append("ended_at")
+                run_values.append("2026-10-19T19:15:00")
+            con.execute(
+                f"INSERT INTO participation_runs ({', '.join(run_fields)}) "
+                f"VALUES ({', '.join('?' for _ in run_fields)})",
+                run_values,
+            )
+        if "run_key" in cols:
+            con.execute(
+                "DELETE FROM live_class_sessions WHERE class_id = ? AND run_key = ?",
+                (class_id, "mck290-test"),
+            )
+        test_fields = [
+            "class_id",
+            "offering_id",
+            "teacher_user_id",
+            "session_code",
+            "status",
+            "started_at",
+            "ended_at",
+            "is_test",
+        ]
+        test_values: list[object] = [
+            class_id,
+            int(owner[0]),
+            int(owner[1]),
+            "test-entry",
+            "ended",
+            "2026-10-19T19:16:00",
+            "2026-10-19T19:20:00",
+            1,
+        ]
+        if "teacher_state_json" in cols:
+            test_fields.append("teacher_state_json")
+            test_values.append(json.dumps({"live_module": "M1", "live_slot": "C1"}))
+        if "run_key" in cols:
+            test_fields.append("run_key")
+            test_values.append("mck290-test")
+        inserted = con.execute(
+            f"INSERT INTO live_class_sessions ({', '.join(test_fields)}) "
+            f"VALUES ({', '.join('?' for _ in test_fields)})",
+            test_values,
+        )
+        test_sid = int(inserted.lastrowid)
+        slide_cols = {str(row[1]) for row in con.execute("PRAGMA table_info(lesson_slides_latest)")}
+        if "is_test" in slide_cols:
+            con.execute(
+                """
+                DELETE FROM lesson_slides_latest
+                WHERE class_id = ? AND live_module = 'M1' AND live_slot = 'C1'
+                  AND COALESCE(is_test, 0) = 1
+                """,
+                (class_id,),
+            )
+        slide_fields = [
+            "class_id",
+            "live_module",
+            "live_slot",
+            "run_key",
+            "ended_at",
+            "questions_json",
+            "updated_at",
+        ]
+        slide_values: list[object] = [
+            class_id,
+            "M1",
+            "C1",
+            "mck290-test",
+            "2026-10-19T19:20:00",
+            "[]",
+            "2026-10-19T19:20:00",
+        ]
+        optional = {
+            "session_code": "test-entry",
+            "presentation_url": "",
+            "is_test": 1,
+            "live_session_id": test_sid,
+            "ended_at_inferred": 0,
+            "inferred_ended_at": "",
+        }
+        for name, value in optional.items():
+            if name in slide_cols:
+                slide_fields.append(name)
+                slide_values.append(value)
+        con.execute(
+            f"INSERT INTO lesson_slides_latest ({', '.join(slide_fields)}) "
+            f"VALUES ({', '.join('?' for _ in slide_fields)})",
+            slide_values,
+        )
+        con.commit()
+    finally:
+        con.close()
+    return class_id
+
+
+def shoot_mck290(base: str, state_path: Path, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
+    """Screenshot Lesson Slides with Delete on a live row and a test row.
+
+    Join codes are masked before each shot. The menu shots open Delete
+    and do not confirm it. One shot shows the confirm dialog, then cancels.
+
+    Args:
+        base: Loopback origin.
+        state_path: Shawn's storageState.
+        out_dir: Artifact directory.
+        path: LMS sqlite path.
+        widths: Viewport widths.
+
+    Returns:
+        PNG paths.
+    """
+    from playwright.sync_api import sync_playwright
+
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    class_id = prepare_mck290(path)
+    url = assert_loopback(f"{origin}/staff/class/{class_id}?tab=lesson-slides")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        for width in widths:
+            context = browser.new_context(
+                storage_state=str(state_path),
+                viewport={"width": int(width), "height": 900},
+            )
+            page = context.new_page()
+            page.goto(url, wait_until="domcontentloaded")
+            page.locator("#ls-run-table").wait_for(state="visible", timeout=30000)
+            row = page.locator(".ls-run-row").filter(
+                has=page.locator(".ls-row-name", has_text="M1C4")
+            )
+            row.first.wait_for(state="visible", timeout=30000)
+            ran = row.first.locator("td").nth(1).inner_text()
+            if "Not run yet" in ran or "Oct 19" not in ran:
+                raise SystemExit("Ended class is missing from Lesson Slides")
+            catchup = row.first.locator(".ls-catchup-label").inner_text()
+            if catchup.strip() != "none":
+                raise SystemExit("Ended class without answers should show catch-up none")
+            page.locator(".ls-join-code").evaluate_all(
+                "nodes => nodes.forEach((node) => { node.textContent = '\\u2014'; })"
+            )
+            dest = out_dir / f"mck290-lesson-slides-ended-{width}.png"
+            page.locator(".lesson-slides-table-card").screenshot(path=str(dest))
+            written.append(dest)
+            if row.first.locator(".ls-row-menu-btn").count() != 1:
+                raise SystemExit("Live Lesson Slides row is missing Delete")
+            row.first.evaluate("node => node.scrollIntoView({block: 'center'})")
+            row.first.locator(".ls-row-menu-btn").click()
+            live_delete = row.first.locator(".ls-row-menu-delete")
+            live_delete.wait_for(state="visible", timeout=10000)
+            if live_delete.inner_text().strip() != "Delete":
+                raise SystemExit("Live Lesson Slides delete label is missing")
+            page.locator(".ls-join-code").evaluate_all(
+                "nodes => nodes.forEach((node) => { node.textContent = '\u2014'; })"
+            )
+            live_dest = out_dir / f"mck290-lesson-slides-live-delete-{width}.png"
+            card_box = page.locator(".lesson-slides-table-card").bounding_box()
+            menu_box = live_delete.bounding_box()
+            if card_box is None or menu_box is None:
+                raise SystemExit("Live Delete menu is outside the Lesson Slides card")
+            left = min(card_box["x"], menu_box["x"])
+            top = min(card_box["y"], menu_box["y"])
+            right = max(card_box["x"] + card_box["width"], menu_box["x"] + menu_box["width"])
+            bottom = max(card_box["y"] + card_box["height"], menu_box["y"] + menu_box["height"])
+            page.screenshot(
+                path=str(live_dest),
+                clip={
+                    "x": max(0, left),
+                    "y": max(0, top),
+                    "width": right - max(0, left),
+                    "height": bottom - max(0, top) + 8,
+                },
+            )
+            written.append(live_dest)
+            live_delete.click()
+            dialog = page.locator("#ls-delete-entry-dialog")
+            dialog.wait_for(state="visible", timeout=10000)
+            if "Lesson Slides" not in dialog.locator("h2").inner_text():
+                raise SystemExit("Delete confirm dialog is missing")
+            confirm_dest = out_dir / f"mck290-lesson-slides-delete-confirm-{width}.png"
+            dialog.screenshot(path=str(confirm_dest))
+            written.append(confirm_dest)
+            dialog.locator("button[value='cancel']").click()
+            test_row = page.locator(".ls-run-row.is-test-run").first
+            test_row.wait_for(state="visible", timeout=30000)
+            badge = test_row.locator(".badge-test-run")
+            if badge.inner_text().strip() != "Test":
+                raise SystemExit("Test tag is missing")
+            test_row.evaluate("node => node.scrollIntoView({block: 'center'})")
+            test_row.locator(".ls-row-menu-btn").click()
+            delete_item = test_row.locator(".ls-row-menu-delete")
+            delete_item.wait_for(state="visible", timeout=10000)
+            if delete_item.inner_text().strip() != "Delete":
+                raise SystemExit("Test Lesson Slides delete label is missing")
+            page.locator(".ls-join-code").evaluate_all(
+                "nodes => nodes.forEach((node) => { node.textContent = '\u2014'; })"
+            )
+            menu_dest = out_dir / f"mck290-lesson-slides-test-delete-{width}.png"
+            card_box = page.locator(".lesson-slides-table-card").bounding_box()
+            menu_box = delete_item.bounding_box()
+            if card_box is None or menu_box is None:
+                raise SystemExit("Test Delete menu is outside the Lesson Slides card")
+            left = min(card_box["x"], menu_box["x"])
+            top = min(card_box["y"], menu_box["y"])
+            right = max(card_box["x"] + card_box["width"], menu_box["x"] + menu_box["width"])
+            bottom = max(card_box["y"] + card_box["height"], menu_box["y"] + menu_box["height"])
+            page.screenshot(
+                path=str(menu_dest),
+                clip={
+                    "x": max(0, left),
+                    "y": max(0, top),
+                    "width": right - max(0, left),
+                    "height": bottom - max(0, top) + 8,
+                },
+            )
+            written.append(menu_dest)
+            context.close()
+        browser.close()
+    return written
+
+
 def shoot_mck280(base: str, out_dir: Path, path: Path, state_path: Path) -> list[Path]:
     """MCK-280: legend colours, no on-board names, show to class, no send.
 
@@ -4059,6 +4367,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck249",
             "mck281",
             "mck289",
+            "mck290",
             "mck280",
             "mck291",
         ),
@@ -4071,6 +4380,7 @@ def main(argv: list[str] | None = None) -> int:
             "MCK-242 Team Draw, MCK-272 whiteboard, MCK-273 one join code, "
             "MCK-275 End Class and Quit, MCK-249 teacher course tabs, "
             "MCK-281 Take turns rank, MCK-289 catch-up column, "
+            "MCK-290 ended class on Lesson Slides, "
             "MCK-280 whiteboard fixes, or MCK-291 Set Class calendar."
         ),
     )
@@ -4149,6 +4459,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.scenario == "mck289":
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(shoot_mck289(args.base, state, out, path, widths))
+        if args.scenario == "mck290":
+            widths = [int(part) for part in args.widths.split(",") if part.strip()]
+            written.extend(shoot_mck290(args.base, state, out, path, widths))
         if args.scenario == "mck280":
             written.extend(shoot_mck280(args.base, out, path, state))
         if args.scenario == "mck291":
@@ -4170,7 +4483,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
                 "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
-                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck280|mck291."
+                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291."
             )
         for item in written:
             print(item)

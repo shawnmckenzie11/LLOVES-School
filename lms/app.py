@@ -10161,6 +10161,81 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         response.headers["Cache-Control"] = "no-store"
         return response
 
+    def _staff_owns_lesson_slides(class_id: int):
+        """Owning staff teacher, or a 401/403 response.
+
+        School IT and any other teacher are refused. Lesson Slides
+        delete stays on the section the teacher owns.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            The signed-in user, or a Flask response to return.
+        """
+        user = current_user()
+        if user is None:
+            return jsonify({"ok": False, "error": "Authentication required."}), 401
+        if str(user.get("role") or "") != "staff" or not school.teacher_owns_class(
+            int(user["id"]), class_id
+        ):
+            return jsonify({"ok": False, "error": "Forbidden."}), 403
+        return user
+
+    @app.route(
+        "/api/classes/<int:class_id>/lesson-slides/entries/delete",
+        methods=["POST"],
+    )
+    @login_required
+    def api_delete_lesson_slides_entry(class_id: int):
+        """Remove one Lesson Slides entry for the owning teacher.
+
+        Live, Open Office, and Test entries are accepted. Attendance,
+        participation, the gradebook, and catch-up stay.
+        """
+        owned = _staff_owns_lesson_slides(class_id)
+        if isinstance(owned, tuple):
+            return owned
+        body = request.get_json(silent=True) or {}
+        try:
+            result = school.delete_lesson_slides_entry(
+                int(class_id),
+                body.get("module"),
+                body.get("slot"),
+                body.get("is_test"),
+                body.get("run_key"),
+            )
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        response = jsonify(result)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.route(
+        "/api/classes/<int:class_id>/lesson-slides/test-entries/<int:session_id>/delete",
+        methods=["POST"],
+    )
+    @login_required
+    def api_delete_lesson_slides_test_entry(class_id: int, session_id: int):
+        """Remove the Lesson Slides entry for one ended session.
+
+        Live, Open Office, and Test sessions are accepted. School IT
+        and any other teacher are refused. Attendance, participation,
+        the gradebook, and catch-up stay.
+        """
+        owned = _staff_owns_lesson_slides(class_id)
+        if isinstance(owned, tuple):
+            return owned
+        try:
+            result = school.delete_lesson_slides_test_entry(int(class_id), int(session_id))
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except KeyError:
+            return jsonify({"ok": False, "error": "That class was not found."}), 404
+        response = jsonify(result)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
     @app.route("/api/classes/<int:class_id>/catchup-links/<token>", methods=["POST"])
     @login_required
     def api_catchup_link_toggle(class_id: int, token: str):
@@ -12422,10 +12497,15 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/classes/<int:class_id>/game/end", methods=["POST"])
     @login_required
     def api_end(class_id: int):
-        """End the live game; tear down live-class session unless preserved."""
+        """End the live game and save the live class unless it is preserved.
+
+        Scoring-panel End Class is a real End: participation, catch-up,
+        and the Lesson Slides row. IT force-end and ``/game/cancel`` do
+        not use this route.
+        """
 
         def run(body):
-            """Apply End Game then optionally invalidate the ephemeral join code."""
+            """Apply End Game, then save the live class unless preserved."""
             chosen = _optional_date(body.get("meeting_date"))
             # MCK-171: a Team challenge never stepped to its points pays
             # before the game day closes.
@@ -12433,7 +12513,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             result = school.game.end_game(class_id, meeting_date=chosen)
             preserve = bool((body or {}).get("preserve_live_session"))
             if not preserve:
-                ended = school.end_active_live_sessions_for_class(class_id)
+                ended = school.end_active_live_sessions_for_class(
+                    class_id, record_participation=True
+                )
                 result["live_sessions_ended"] = [row["id"] for row in ended]
             else:
                 result["live_sessions_ended"] = []
