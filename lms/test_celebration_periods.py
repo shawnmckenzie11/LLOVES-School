@@ -384,13 +384,9 @@ class StartFreshTests(unittest.TestCase):
         for class_id, _ids in rows.values():
             self.assertIn(f'<option value="{class_id}" data-class-name=', page)
         mcf = rows["MCF3M"][0]
-        # Per class: the course, then a small muted line with its period.
-        self.assertIn(
-            '<span class="award-period-class">MCF3M</span>'
-            # MCK-160 LOW-12: the frozen card's dates (read on Sep 15).
-            '<span class="award-period-label">Sep 8 – Sep 15, 2026</span>',
-            page,
-        )
+        # The most-engaged list is gone. The confirm dialog still names the period.
+        self.assertNotIn("award-period-class", page)
+        self.assertNotIn("Now featuring", page)
         # One quiet header control (Mobbin IA v0), Wonder v1 copy.
         self.assertEqual(page.count('id="award-fresh-go"'), 1)
         self.assertIn(">Start fresh…</button>", page)

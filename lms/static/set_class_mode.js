@@ -7,6 +7,18 @@
  */
 
 /**
+ * Whether Set Class asks which slide deck.
+ *
+ * Live class and test class use the same deck prompt. Open office hides it.
+ *
+ * @param {"live"|"test"|"office"|string} mode
+ * @returns {boolean}
+ */
+export function setClassPromptsForDeck(mode) {
+  return mode === "live" || mode === "test";
+}
+
+/**
  * Map one start choice onto the existing kind and run flags.
  *
  * Live is a live class run live. Test is a live class run as a test

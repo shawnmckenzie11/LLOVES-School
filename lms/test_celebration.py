@@ -463,9 +463,10 @@ class CelebrationTests(unittest.TestCase):
         # The old "Awards" heading is gone (MCK-133's Wonder confirm body
         # "Awards start counting again…" is a different string).
         self.assertNotIn(">Awards<", home)
-        self.assertIn("Now featuring", home)
+        self.assertNotIn("Now featuring", home)
+        self.assertNotIn("alc.mckenzian.com#celebrations", home)
         self.assertIn("Birch", home)
-        self.assertIn("/#celebrations", home)
+        self.assertIn('href="/#celebrations"', home)
 
         page = self.app.test_client().get("/").get_data(as_text=True)
         self.assertIn(WONDER_COPY["coming_soon_line"], page)

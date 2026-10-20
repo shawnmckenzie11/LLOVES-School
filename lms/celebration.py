@@ -1629,6 +1629,33 @@ def public_celebration_board(
     return _copy_public_payload(fresh)
 
 
+def teacher_course_title(school: Any, cls: dict[str, Any]) -> str:
+    """Course title shown on the teacher's dashboard card.
+
+    The card uses the offering's display section code (``MCR3U``,
+    ``MCR3U-2``, ``MCF3M``). That rank ignores archived sections. The
+    stored ``section_index`` is a different code and is not used here.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        cls: One ``list_staff_classes`` row, including ``offering_id``.
+
+    Returns:
+        The teacher-facing course title, or an empty string.
+    """
+    offering_id = cls.get("offering_id")
+    if offering_id not in (None, ""):
+        try:
+            offering = school.get_offering(int(offering_id))
+        except (KeyError, TypeError, ValueError):
+            offering = None
+        if offering:
+            title = str(offering.get("section_code") or "").strip()
+            if title:
+                return title
+    return str(cls.get("section_code") or cls.get("course_code") or "").strip()
+
+
 def celebration_candidates(school: Any, teacher_user_id: int) -> list[dict[str, Any]]:
     """Codenames this teacher can feature on the Shoutout card.
 
@@ -1642,7 +1669,7 @@ def celebration_candidates(school: Any, teacher_user_id: int) -> list[dict[str, 
     out: list[dict[str, Any]] = []
     for cls in school.list_staff_classes(int(teacher_user_id)):
         class_id = int(cls["id"])
-        course = str(cls.get("section_code") or cls.get("course_code") or "")
+        course = teacher_course_title(school, cls)
         with school.game._lock:
             students = [
                 dict(row)

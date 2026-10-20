@@ -84,7 +84,7 @@ import {
   defaultCopyDeck,
   defaultCopySource,
 } from "/static/deck_seed_help.js";
-import { setClassStartFields, setClassSummaryLine } from "/static/set_class_mode.js";
+import { setClassPromptsForDeck, setClassStartFields, setClassSummaryLine } from "/static/set_class_mode.js";
 import { overlayClassListPresence } from "/static/class_list_presence.js";
 import {
   GROUP_SETUP_COPY,
@@ -944,7 +944,9 @@ async function refreshDeckSeedOptions() {
  */
 async function applyDeckSeedChoice() {
   const pack = selectedSetClassPack();
-  if (selectedRunKind() === "test") {
+  const selected = document.querySelector('input[name="live-deck-seed"]:checked');
+  const picked = String(selected?.value || deckSeedMode || "current");
+  if (selectedRunKind() === "test" && picked !== "previous" && picked !== "course") {
     await api(
       `/api/staff/class/${classId}/live-lessons/${pack.module}/${pack.slot}/deck-seed`,
       {
@@ -954,7 +956,6 @@ async function applyDeckSeedChoice() {
     );
     return;
   }
-  const selected = document.querySelector('input[name="live-deck-seed"]:checked');
   const mode = deckSeedConfirmMode({
     selected: String(selected?.value || deckSeedMode || "current"),
     chosen: deckSeedModeChosen,
@@ -8601,7 +8602,7 @@ function chooseSetClassRunKind(kind) {
 
 /**
  * Paint the one start control: live, test, or open office.
- * Test replaces the deck chips. Office hides the class and deck steps.
+ * Test keeps the same deck prompt as a live class. Office hides that step.
  */
 function syncSetClassRunKindUi() {
   const test = selectedRunKind() === "test";
@@ -8613,6 +8614,7 @@ function syncSetClassRunKindUi() {
   const deckSeed = $("live-deck-seed");
   const startBtn = $("set-class-start");
   const testDeckNote = $("set-class-test-deck-note");
+  const showDeck = setClassPromptsForDeck(test ? "test" : onOffice ? "office" : "live");
   if (test && onOffice) {
     chooseSetClassKind("live");
     return;
@@ -8640,14 +8642,14 @@ function syncSetClassRunKindUi() {
     kindWrap.classList.toggle("is-test-run", test);
   }
   if (deckSeed instanceof HTMLElement) {
-    if (test) deckSeed.setAttribute("hidden", "");
-    else deckSeed.removeAttribute("hidden");
+    if (showDeck) deckSeed.removeAttribute("hidden");
+    else deckSeed.setAttribute("hidden", "");
   }
-  if (test) {
+  if (showDeck) {
+    paintDeckSeedPicker();
+  } else {
     $("live-deck-copy-from-field")?.setAttribute("hidden", "");
     $("live-deck-seed-picker")?.setAttribute("hidden", "");
-  } else {
-    paintDeckSeedPicker();
   }
   if (testDeckNote instanceof HTMLElement) {
     if (test) testDeckNote.removeAttribute("hidden");

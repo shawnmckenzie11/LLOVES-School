@@ -268,7 +268,6 @@
 
       <header class="live-header" id="live-header">
         <div class="live-header-join">
-          <p id="live-lesson-badge" class="live-lesson-badge" aria-live="polite"></p>
           <div id="ap-join-billboard"
                class="ap-join-billboard"
                {% if not live_session_code %}hidden{% endif %}>
@@ -570,11 +569,6 @@
           <p class="set-class-summary" id="set-class-summary">Starting live class: Module {{ set_class.module[1:] }}, Class {{ set_class.slot[1:] }}, current deck.</p>{# copy: Wonder #}
           <button type="button" class="set-class-start" id="set-class-start">Start live class</button>{# copy: Wonder #}
         </div>
-      </section>
-
-      <section class="card set-class-slides" id="set-class-slides" aria-label="Lesson slides">
-        <h2 id="set-class-slides-title">Lesson Slides</h2>
-        <div id="set-class-slides-list"></div>
       </section>
 
       <div class="live-shell-body">

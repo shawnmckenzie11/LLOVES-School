@@ -2,6 +2,7 @@
   {% if roster_test_switch %}
   <div class="roster-names-switch">{% include "staff/_show_test_students.html" %}</div>
   {% endif %}
+{% if show_roster_list|default(true) %}
 <details class="roster-names"{% if roster_open %} open{% endif %}>
   <summary>Roster</summary>
   <ul class="roster-names-list">
@@ -43,4 +44,5 @@
     {% endfor %}
   </ul>
 </details>
+{% endif %}
 </div>
