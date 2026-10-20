@@ -110,6 +110,10 @@ from local_dev_seed import (  # noqa: E402
     local_dev_login_enabled,
     seed_local_dev_school,
 )
+from local_test_login import (  # noqa: E402
+    enforce_local_test_login,
+    register_local_test_login,
+)
 from onboarding_tour import tour_run_type  # noqa: E402
 from school_db import (  # noqa: E402
     STAFF_2FA_MODE_LABELS,
@@ -1334,6 +1338,9 @@ def create_app(
     secret = (os.getenv("FLASK_SECRET_KEY") or "").strip()
     app.secret_key = secret or DEV_SECRET_KEY
     app.config["TESTING"] = testing
+    # Refuse before opening sqlite when the test-login flag is on in production,
+    # on Fly, or on a bind host other than localhost / 127.0.0.1.
+    enforce_local_test_login(app)
     app.config["MAX_CONTENT_LENGTH"] = IMSCC_MAX_BYTES
     app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=31)
     app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -1406,6 +1413,7 @@ def create_app(
             app.logger.exception("LOCAL_DEV_LOGIN seed failed")
 
     register_auth_routes(app)
+    register_local_test_login(app)
     _register_pages(app, school)
     _register_game_api(app, school)
     app.jinja_env.globals["live_schedule"] = format_live_schedule_line
