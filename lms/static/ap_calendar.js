@@ -116,7 +116,7 @@ export function resolveLogDate(logContext, dayState, opts = {}) {
  * @param {{ first: string, last: string, today: string, minIso: string, selected: string, allowedSet: Set<string>, logged: Set<string> }} ctx
  * @returns {string}
  */
-function monthDayCells(year, month, ctx) {
+export function monthDayCells(year, month, ctx) {
   const firstOfMonth = new Date(year, month, 1);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const lead = firstOfMonth.getDay();
@@ -137,10 +137,14 @@ function monthDayCells(year, month, ctx) {
     if (ctx.logged.has(iso)) classes.push("is-logged");
     if (iso === ctx.selected) classes.push("is-selected");
     if (iso === ctx.today) classes.push("is-today");
-    const label = ctx.logged.has(iso) ? `${day} (logged)` : String(day);
-    cells += `<button type="button" class="${classes.join(" ")}" data-day-iso="${iso}" ${
+    const logged = ctx.logged.has(iso);
+    const accessible = logged ? `${day}, logged` : String(day);
+    const face = logged
+      ? `<span class="ap-day-num">${day}</span><span class="ap-day-logged" aria-hidden="true">\u2713</span>`
+      : String(day);
+    cells += `<button type="button" class="${classes.join(" ")}" data-day-iso="${iso}" title="${accessible}" aria-label="${accessible}" ${
       selectable ? "" : "disabled"
-    } aria-pressed="${iso === ctx.selected ? "true" : "false"}">${label}</button>`;
+    } aria-pressed="${iso === ctx.selected ? "true" : "false"}">${face}</button>`;
   }
   return cells;
 }

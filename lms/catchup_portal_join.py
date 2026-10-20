@@ -75,7 +75,7 @@ def try_portal_code_join(
     class_id = int(link["class_id"])
     if not name:
         return _portal_fail(
-            "Enter the first name or Codename on your class roster.",
+            "Enter the name on your class roster.",
             code=code,
             name=name,
             request_is_json=request_is_json,

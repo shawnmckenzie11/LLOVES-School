@@ -206,5 +206,35 @@ class LocalDevSeedTests(unittest.TestCase):
         )
 
 
+    def test_ended_demo_columns_are_not_future_days(self) -> None:
+        """Logged demo columns sit on or before today, and a second seed keeps them."""
+        from datetime import date
+
+        seeded = seed_local_dev_school(self.school)
+        class_id = int(seeded["class_id"])
+        today = date.today().isoformat()
+
+        def dates() -> list[str]:
+            """ISO days of ended columns, oldest id first."""
+            with self.school.game._lock:
+                return [
+                    str(row["starts_at"])[:10]
+                    for row in self.school.game.conn.execute(
+                        """
+                        SELECT starts_at FROM sessions
+                        WHERE class_id = ? AND status = 'ended'
+                        ORDER BY id
+                        """,
+                        (class_id,),
+                    )
+                ]
+
+        ended = dates()
+        self.assertEqual(len(ended), 3)
+        self.assertTrue(all(day <= today for day in ended))
+        self.assertTrue(any(day < today for day in ended))
+        seed_local_dev_school(self.school)
+        self.assertEqual(dates(), ended)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

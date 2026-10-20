@@ -159,13 +159,14 @@ class TeacherUiTests(Base):
 
     def test_dashboard_card_copy(self) -> None:
         home = self.client.get("/staff").get_data(as_text=True)
-        self.assertIn("Records who's here today. Students don't need a code.", home)
-        self.assertIn(">Take attendance<", home)
+        self.assertNotIn("Records who's here today.", home)
+        self.assertEqual(home.count(">Take attendance<"), 1)
         self.assertIn(">Open course<", home)
         self.assertIn("<span>Edit roster</span>", home)
         self.assertIn("Run Live Class", home)
         self.assertNotIn("Explore Course", home)
         self.assertNotIn("Last taken:", home)
+        self.assertNotIn("<summary>Roster</summary>", home)
 
 
 if __name__ == "__main__":

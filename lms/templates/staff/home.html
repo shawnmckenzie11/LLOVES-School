@@ -76,7 +76,7 @@
           {% if live_active and cls %}<span class="course-live-chip">Live Class in Progress</span>{% endif %}
         </header>
         {% if not cls %}
-        <p class="course-card-join hint">{% if simple %}No class list yet. Add your students' first names.{% else %}No roster yet — Populate Class to add Codenames.{% endif %}</p>
+        <p class="course-card-join hint">{% if simple %}No class list yet. Add your students' first names.{% else %}No roster yet — Populate Class to add names.{% endif %}</p>
         {% endif %}
         {% if not o.library_id and not simple %}
         <p class="course-card-pack-hint hint">Ask Admin to attach a module pack.{% if not cls %} You can still Populate Class.{% endif %}</p>
@@ -104,24 +104,17 @@
             </a>
           </div>
           {% endif %}
-          <div class="course-attend-row">
-            <div class="course-attend-top">
-              <svg class="course-attend-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
-                <path fill="currentColor" d="M7 2h2v2h6V2h2v2h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h3V2zm13 8H4v10h16V10zm-3.2 2.5 1.4 1.4-5.2 5.2-3.2-3.2 1.4-1.4 1.8 1.8 3.8-3.8z"/>
-              </svg>
-              <p class="course-attend-label">Take Attendance</p>
-              <a class="course-action course-attend-go{% if o.pack_busy %} is-disabled{% endif %}"
-                 href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance', take=1) }}"
-                 aria-label="Take Attendance"{% if o.pack_busy %} aria-disabled="true"{% endif %}>Take attendance</a>
-            </div>
-            <p class="course-attend-help">Records who's here today. Students don't need a code.</p>
-            {% if cls.last_attendance %}<p class="course-attend-last">Last taken: {{ cls.last_attendance }}</p>{% endif %}
-          </div>
+          <a class="course-attend-row course-attend-link{% if o.pack_busy %} is-disabled{% endif %}"
+             href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance', take=1) }}"
+             aria-label="Take attendance"{% if o.pack_busy %} aria-disabled="true"{% endif %}>
+            <svg class="course-attend-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="currentColor" d="M7 2h2v2h6V2h2v2h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h3V2zm13 8H4v10h16V10zm-3.2 2.5 1.4 1.4-5.2 5.2-3.2-3.2 1.4-1.4 1.8 1.8 3.8-3.8z"/>
+            </svg>
+            <span>Take attendance</span>
+          </a>
           <div class="course-link-row">
-            <a class="course-action course-quiet-link{% if o.pack_busy %} is-disabled{% endif %}"
-               href="{{ url_for('staff_course', class_id=cls.id) }}"{% if o.pack_busy %} aria-disabled="true"{% endif %}>Open course</a>
-          </div>
-          <div class="course-link-row">
+            <a class="course-quiet-link{% if o.pack_busy %} is-disabled{% endif %}"
+               href="{{ url_for('staff_course', class_id=cls.id, tab='lesson-slides') }}"{% if o.pack_busy %} aria-disabled="true"{% endif %}>Open course</a>
             <button type="button" class="course-quiet-link btn-populate{% if live_here %} is-disabled{% endif %}"
                     data-offering-id="{{ o.id }}"
                     data-class-id="{{ cls.id }}"{% if simple %} data-simple="1"{% endif %}
@@ -130,6 +123,10 @@
                     {% if live_here %}disabled aria-disabled="true" title="End the live class before editing the roster"{% endif %}>
               <span>{% if live_here %}Roster locked{% else %}Edit roster{% endif %}</span>
             </button>
+            {% with roster_students=cls.roster, roster_class_id=cls.id, roster_open=false, roster_test_switch=true, show_test_switch_id=not roster_switch.placed, show_roster_list=false %}
+            {% include "staff/_roster_names.html" %}
+            {% endwith %}
+            {% set roster_switch.placed = true %}
           </div>
           {% else %}
           <div class="course-action-row">
@@ -145,12 +142,6 @@
           </div>
           {% endif %}
         </div>
-        {% if cls %}
-        {% with roster_students=cls.roster, roster_class_id=cls.id, roster_open=false, roster_test_switch=true, show_test_switch_id=not roster_switch.placed %}
-        {% include "staff/_roster_names.html" %}
-        {% endwith %}
-        {% set roster_switch.placed = true %}
-        {% endif %}
         <div class="course-card-pack-progress"{% if not o.pack_busy and not o.pack_error %} hidden{% endif %}>
           <progress class="course-card-pack-bar" max="100"{% if not o.pack_busy %} value="100"{% endif %}></progress>
           <p class="course-card-pack-error hint"{% if not o.pack_error %} hidden{% endif %}>{{ o.pack_error or "" }}</p>
@@ -178,17 +169,17 @@
       <div id="step-roster" class="hidden">
         {# MCK-183: data-plain is the wording for pack-less non-math courses (staff_home.js swaps it in). #}
         <p class="roster-disclaimer" role="note" data-plain="Professional use only: enter first names only, not full names, emails, student numbers, or other personal student information.">
-          Professional use only: enter Codenames, not legal names, emails, student numbers,
+          Professional use only: enter names, not legal names, emails, student numbers,
           or other personal student information.
         </p>
-        <label class="field" for="codename-input" data-plain="First names (one per student)">Codenames (one per student)</label>
+        <label class="field" for="codename-input" data-plain="First names (one per student)">Names (one per student)</label>
         <div class="codename-list" id="codename-list"></div>
-        <input id="codename-input" type="text" autocomplete="off" placeholder="Add a Codename" data-plain-placeholder="Add a first name">
+        <input id="codename-input" type="text" autocomplete="off" placeholder="Add a name" data-plain-placeholder="Add a first name">
         <div class="row-actions" style="margin-top:0.5rem">
           <button type="button" class="secondary" id="add-codename">Add</button>
         </div>
-        <p class="hint">Paste several lines below; they are added only when you click Populate class or Save roster. No commas. <span id="roster-count">0</span> students. <span data-plain="Existing scores stay on names you keep.">Existing scores stay on Codenames you keep.</span></p>
-        <textarea id="codename-paste" rows="4" placeholder="Paste one Codename per line (applied on Populate class / Save roster)" data-plain-placeholder="Paste one first name per line (applied on Save roster)"></textarea>
+        <p class="hint">Paste several lines below; they are added only when you click Populate class or Save roster. No commas. <span id="roster-count">0</span> students. <span data-plain="Existing scores stay on names you keep.">Existing scores stay on names you keep.</span></p>
+        <textarea id="codename-paste" rows="4" placeholder="Paste one name per line (applied on Populate class / Save roster)" data-plain-placeholder="Paste one first name per line (applied on Save roster)"></textarea>
       </div>
       <div id="step-days" class="hidden">
         <label class="field" for="days">Live-class days</label>
@@ -215,7 +206,6 @@
 
     {% if celebration_candidates %}
     <section id="staff-celebrate" class="card staff-celebrate">
-      <p class="kicker">alc.mckenzian.com#celebrations</p>
       <div class="staff-celebrate-head">
         <h2>Celebrate a student</h2>
         {% if celebration_periods %}
@@ -239,14 +229,10 @@
         {% endif %}
       </div>
       <p id="award-fresh-toast" class="award-fresh-success" role="status" hidden></p>
-      <p class="hint">Posts the Shoutout card on the public #celebrations board.</p>
-      {% if celebration_award and celebration_award.name %}
-      <p class="sub">Now featuring <strong>{{ celebration_award.name }}</strong>{% if celebration_award.detail %} — {{ celebration_award.detail }}{% endif %}</p>
-      {% endif %}
       <form id="celebrate-form">
-        <label class="field" for="celebrate-student">{{ 'Student' if plain_teacher else 'Codename' }}</label>
+        <label class="field" for="celebrate-student">{{ 'Student' if plain_teacher else 'Name' }}</label>
         <select id="celebrate-student" required>
-          <option value="">{{ 'Select a student' if plain_teacher else 'Select a Codename' }}</option>
+          <option value="">{{ 'Select a student' if plain_teacher else 'Select a name' }}</option>
           {% for s in celebration_candidates %}
           <option value="{{ s.class_id }}:{{ s.student_id }}"
             {% if celebration_award and celebration_award.student_id == s.student_id and celebration_award.class_id == s.class_id %}selected{% endif %}>
@@ -264,15 +250,6 @@
         </div>
       </form>
       {% if celebration_periods %}
-      {# MCK-133 award period per class: a small muted line under each class. #}
-      <div class="award-periods">
-        <h3>Most Engaged</h3>
-        <ul id="award-period-list">
-          {% for c in celebration_periods %}
-          <li data-class-id="{{ c.class_id }}"><span class="award-period-class">{{ c.course }}</span><span class="award-period-label">{{ c.status_line or c.period_label or 'This semester' }}</span></li>
-          {% endfor %}
-        </ul>
-      </div>
       <dialog id="award-fresh-dialog" class="end-live-dialog" aria-labelledby="award-fresh-title">
         <form class="end-live-dialog-form" method="dialog">
           <h2 id="award-fresh-title">Start Celebrations fresh?</h2>

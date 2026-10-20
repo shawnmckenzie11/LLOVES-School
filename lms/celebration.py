@@ -1177,6 +1177,36 @@ def _first_period_closed(school: Any) -> bool:
     return end is not None and award_periods.school_now().date() > end
 
 
+def _classes_on_dashboard(school: Any, teacher_user_id: int) -> list[dict[str, Any]]:
+    """Staff classes that still have a card on the teacher dashboard.
+
+    Archived offerings keep their class row. The dashboard hides those
+    cards, so Celebrate and Start fresh skip them too. The course label
+    is the card title from ``teacher_course_title`` (display rank), not
+    the stored section index.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        teacher_user_id: Staff user id.
+
+    Returns:
+        ``list_staff_classes`` rows for non-archived offerings, same order.
+    """
+    rows: list[dict[str, Any]] = []
+    for cls in school.list_staff_classes(int(teacher_user_id)):
+        offering_id = cls.get("offering_id")
+        if offering_id in (None, ""):
+            continue
+        try:
+            offering = school.get_offering(int(offering_id))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if offering.get("archived_at"):
+            continue
+        rows.append(cls)
+    return rows
+
+
 def staff_award_periods(school: Any, teacher_user_id: int) -> list[dict[str, Any]]:
     """This teacher's classes with their current award period (MCK-133).
 
@@ -1202,7 +1232,7 @@ def staff_award_periods(school: Any, teacher_user_id: int) -> list[dict[str, Any
     first_end = award_periods.first_period_end(school, first_day)
     closed = _first_period_closed(school)
     today = award_periods.school_now().date()
-    classes = list(school.list_staff_classes(int(teacher_user_id)))
+    classes = _classes_on_dashboard(school, int(teacher_user_id))
     try:
         shared = {
             c.upper()
@@ -1221,7 +1251,7 @@ def staff_award_periods(school: Any, teacher_user_id: int) -> list[dict[str, Any
     out: list[dict[str, Any]] = []
     for cls in classes:
         class_id = int(cls["id"])
-        course = str(cls.get("section_code") or cls.get("course_code") or "")
+        course = teacher_course_title(school, cls)
         is_shared = course.upper() in shared
         period = periods.get(class_id) or {}
         start = award_periods.school_date(period.get("starts_at")) or first_day
@@ -1427,7 +1457,7 @@ def start_fresh_award_tally(
     semester_id = _active_semester_id(school)
     if semester_id is None:
         raise ValueError("There is no active semester.")
-    mine = {int(cls["id"]): cls for cls in school.list_staff_classes(int(teacher_user_id))}
+    mine = {int(cls["id"]): cls for cls in _classes_on_dashboard(school, int(teacher_user_id))}
     if class_id is not None:
         if int(class_id) not in mine:
             raise PermissionError("That class is not yours.")
@@ -1629,6 +1659,33 @@ def public_celebration_board(
     return _copy_public_payload(fresh)
 
 
+def teacher_course_title(school: Any, cls: dict[str, Any]) -> str:
+    """Course title shown on the teacher's dashboard card.
+
+    The card uses the offering's display section code (``MCR3U``,
+    ``MCR3U-2``, ``MCF3M``). That rank ignores archived sections. The
+    stored ``section_index`` is a different code and is not used here.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        cls: One ``list_staff_classes`` row, including ``offering_id``.
+
+    Returns:
+        The teacher-facing course title, or an empty string.
+    """
+    offering_id = cls.get("offering_id")
+    if offering_id not in (None, ""):
+        try:
+            offering = school.get_offering(int(offering_id))
+        except (KeyError, TypeError, ValueError):
+            offering = None
+        if offering:
+            title = str(offering.get("section_code") or "").strip()
+            if title:
+                return title
+    return str(cls.get("section_code") or cls.get("course_code") or "").strip()
+
+
 def celebration_candidates(school: Any, teacher_user_id: int) -> list[dict[str, Any]]:
     """Codenames this teacher can feature on the Shoutout card.
 
@@ -1640,9 +1697,9 @@ def celebration_candidates(school: Any, teacher_user_id: int) -> list[dict[str, 
         Sorted ``{class_id, student_id, name, course}`` rows.
     """
     out: list[dict[str, Any]] = []
-    for cls in school.list_staff_classes(int(teacher_user_id)):
+    for cls in _classes_on_dashboard(school, int(teacher_user_id)):
         class_id = int(cls["id"])
-        course = str(cls.get("section_code") or cls.get("course_code") or "")
+        course = teacher_course_title(school, cls)
         with school.game._lock:
             students = [
                 dict(row)
@@ -1701,7 +1758,7 @@ def set_featured_award(
             (int(student_id), int(class_id)),
         ).fetchone()
     if row is None:
-        raise ValueError("That Codename is not on this roster.")
+        raise ValueError("That Name is not on this roster.")
     payload = {
         "class_id": int(class_id),
         "student_id": int(student_id),

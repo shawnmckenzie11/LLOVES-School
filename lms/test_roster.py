@@ -460,7 +460,7 @@ class RosterTests(unittest.TestCase):
         self.assertIn("2026-09-09", live_isos)  # Wed
 
     def test_staff_home_has_ap_shortcut(self) -> None:
-        """Course cards expose Take Attendance and Run Live Class."""
+        """Course cards expose Take attendance and Run Live Class."""
         created = self.client.post(
             "/api/staff/classes",
             json={
@@ -472,7 +472,7 @@ class RosterTests(unittest.TestCase):
         )
         class_id = created.get_json()["class"]["id"]
         home = self.client.get("/staff").get_data(as_text=True)
-        self.assertIn("Take Attendance", home)
+        self.assertIn(">Take attendance<", home)
         self.assertNotIn("Log Participation", home)
         self.assertNotIn("Take Attendance &amp; Log Participation", home)
         self.assertIn(f"/staff/class/{class_id}?tab=ap&amp;view=attendance&amp;take=1", home)
@@ -482,7 +482,7 @@ class RosterTests(unittest.TestCase):
         self.assertNotIn("Live Class in Progress", home)
         self.assertIn("Open course", home)
         self.assertIn("Edit roster", home)
-        self.assertIn("Records who's here today. Students don't need a code.", home)
+        self.assertNotIn("Records who's here today.", home)
 
         self.client.post(f"/staff/class/{class_id}/run-live")
         live_home = self.client.get("/staff").get_data(as_text=True)

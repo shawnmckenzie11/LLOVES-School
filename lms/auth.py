@@ -1678,7 +1678,7 @@ def register_auth_routes(app: Flask) -> None:
                 int(known_session["id"])
             ):
                 return _fail("First name only — then you’re in.")
-            return _fail("Enter the first name or Codename on your class roster.")
+            return _fail("Enter the name on your class roster.")
 
         display_name = first_name_only(name)
 

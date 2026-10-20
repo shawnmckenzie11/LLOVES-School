@@ -10623,6 +10623,22 @@ class SchoolDB(LovesDB):
         path = metadata_path(course, module_key, slot_key)
         return path.is_file() and path.parent.parent.name == course
 
+    def _active_test_session(self, class_id: int) -> bool:
+        """True when this class has an active test live session.
+
+        A test run stores its working deck in one slot. Source lookups
+        during that run must read the real challenge decks, or Previous
+        and Course deck copy that test slot onto itself.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            Whether the active session is a test run.
+        """
+        active = self.get_active_live_session_for_class(int(class_id))
+        return bool(active and int(active.get("is_test") or 0))
+
     def _section_code_for_class(self, class_id: int) -> str:
         """Return the offering section label for one class, such as ``MCR3U-2``.
 
@@ -11571,6 +11587,7 @@ class SchoolDB(LovesDB):
         source_m: str | None = None
         source_s: str | None = None
         source_class: int | None = None
+        source_real_only = self._active_test_session(int(class_id))
         if choice == "previous":
             source_s = previous_challenge_slot(slot_key)
             source_m = module_key
@@ -11579,7 +11596,11 @@ class SchoolDB(LovesDB):
             if not self.class_live_deck_available(int(class_id), source_m, source_s):
                 raise ValueError(f"No deck saved for {source_m} {source_s}.")
             source_meta = self.live_class_metadata_for_class_lesson(
-                int(class_id), source_m, source_s, fresh=True
+                int(class_id),
+                source_m,
+                source_s,
+                fresh=True,
+                real_deck_only=source_real_only,
             )
         elif choice == "course":
             source_m, source_s = self._require_live_lesson_token(
@@ -11616,7 +11637,10 @@ class SchoolDB(LovesDB):
                     and source_path.parent.parent.name == course
                 )
                 has_overlay = self._slot_has_deck_overlay(
-                    int(class_id), source_m, source_s
+                    int(class_id),
+                    source_m,
+                    source_s,
+                    real_deck_only=source_real_only,
                 )
                 if not on_disk and not has_overlay:
                     raise ValueError(f"No deck saved for {source_m} {source_s}.")
@@ -11635,7 +11659,11 @@ class SchoolDB(LovesDB):
                     "Replace the deck or keep current first."
                 )
             source_meta = self.live_class_metadata_for_class_lesson(
-                source_class, source_m, source_s, fresh=True
+                source_class,
+                source_m,
+                source_s,
+                fresh=True,
+                real_deck_only=source_real_only,
             )
         questions: list[dict[str, Any]] = []
         pages = default_math_pages()

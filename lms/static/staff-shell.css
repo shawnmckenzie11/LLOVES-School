@@ -261,6 +261,20 @@ body.staff-shell.staff-home .course-attend-row {
   border-radius: 8px;
   text-align: left;
 }
+body.staff-shell.staff-home a.course-attend-row.course-attend-link {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.55rem;
+  color: #12202e;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-decoration: none;
+}
+body.staff-shell.staff-home a.course-attend-row.course-attend-link.is-disabled {
+  pointer-events: none;
+  opacity: 0.55;
+}
 body.staff-shell.staff-home .course-attend-top {
   display: flex;
   align-items: center;
@@ -303,10 +317,27 @@ body.staff-shell.staff-home a.course-action.course-attend-go {
 }
 body.staff-shell.staff-home .course-link-row {
   display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 0.75rem 1.25rem;
   min-height: 2rem;
 }
+body.staff-shell.staff-home .course-link-row .roster-names-block {
+  position: static;
+  display: flex;
+  align-items: center;
+  margin: 0 0 0 auto;
+}
+body.staff-shell.staff-home .course-link-row .roster-names-switch {
+  position: static;
+  top: auto;
+  right: auto;
+  z-index: auto;
+  min-height: 0;
+}
 body.staff-shell.staff-home a.course-action.course-quiet-link,
+body.staff-shell.staff-home a.course-quiet-link,
 body.staff-shell.staff-home button.course-quiet-link.btn-populate {
   display: inline-flex;
   width: auto;
@@ -316,12 +347,16 @@ body.staff-shell.staff-home button.course-quiet-link.btn-populate {
   border: 0;
   background: transparent;
   color: #334155;
+  font-family: inherit;
+  font-size: 0.95rem;
   font-weight: 600;
+  line-height: 1.25;
   text-align: left;
   justify-content: flex-start;
   box-shadow: none;
 }
 body.staff-shell.staff-home a.course-action.course-quiet-link:hover,
+body.staff-shell.staff-home a.course-quiet-link:hover,
 body.staff-shell.staff-home button.course-quiet-link.btn-populate:hover {
   color: #0f766e;
   filter: none;
@@ -5581,15 +5616,27 @@ body.staff-shell .ap-day-weekdays span {
   color: #64748b;
 }
 body.staff-shell .ap-day-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.08rem;
   min-height: 2rem;
-  padding: 0.2rem 0.15rem;
+  padding: 0.15rem 0.08rem;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   background: #fff;
   color: #0f172a;
   font: inherit;
   font-size: 0.82rem;
+  line-height: 1;
+  overflow: hidden;
+  white-space: nowrap;
   cursor: pointer;
+}
+body.staff-shell .ap-day-logged {
+  font-size: 0.72rem;
+  line-height: 1;
+  color: #0f766e;
 }
 body.staff-shell .ap-day-cell.is-empty {
   border: 0;
@@ -5610,9 +5657,17 @@ body.staff-shell .ap-day-cell.is-selected {
   box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.22);
   font-weight: 700;
 }
-body.staff-shell .ap-day-cell.is-logged:not(.is-selected) {
+body.staff-shell .ap-day-cell.is-logged:not(.is-selected),
+body.staff-shell button.ap-day-cell.is-logged:disabled {
   background: #fef3c7;
   border-color: #fcd34d;
+  opacity: 1;
+  color: #334155;
+}
+body.staff-shell button.ap-day-cell.is-logged:disabled .ap-day-logged {
+  color: #0f766e;
+  opacity: 1;
+  visibility: visible;
 }
 body.staff-shell .ap-day-cell.is-today:not(.is-selected) {
   outline: 1px dashed #0f766e;

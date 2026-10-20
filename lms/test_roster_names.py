@@ -385,11 +385,11 @@ class RosterNameEditTests(unittest.TestCase):
         )
 
     def test_roster_html_shows_the_control_and_the_saved_name(self) -> None:
-        """The course roster renders a pencil, then the new name after save."""
+        """Dashboard hides the Roster list; a saved name still reaches attendance."""
         home = self.client.get("/staff").get_data(as_text=True)
-        self.assertIn("roster-name-pencil", home)
-        self.assertIn("Edit name for Maple", home)
-        self.assertIn(">Maple<", home)
+        self.assertNotIn('<details class="roster-names"', home)
+        self.assertNotIn("Edit name for Maple", home)
+        self.assertIn("roster-names-switch", home)
         attendance = self.client.get(
             f"/staff/class/{self.class_id}?tab=ap&view=attendance"
         )
@@ -416,7 +416,7 @@ class RosterNameEditTests(unittest.TestCase):
         )
         self.assertEqual(river["codename"], "River")
         home_again = self.client.get("/staff").get_data(as_text=True)
-        self.assertIn("Edit name for River", home_again)
+        self.assertNotIn("Edit name for River", home_again)
         css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
         pencil = css.split("body.staff-shell .roster-name-pencil {", 1)[1]
         self.assertIn("min-height: 44px", css)
@@ -426,15 +426,17 @@ class RosterNameEditTests(unittest.TestCase):
         self.assertIn("height: 1em", css)
         self.assertIn(".roster-name-pencil:hover", css)
         self.assertIn(".roster-name-pencil:focus-visible", css)
-        self.assertIn('width="1em" height="1em"', home)
+        partial = (LMS_DIR / "templates" / "staff" / "_roster_names.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('width="1em" height="1em"', partial)
         self.assertIn(
             'width="1em" height="1em"',
             (LMS_DIR / "static" / "staff_roster_names.js").read_text(encoding="utf-8"),
         )
         self.assertIn('class="card course-card', home)
         self.assertIn(">Open course<", home)
-        self.assertIn('<details class="roster-names">', home)
-        self.assertNotIn('<details class="roster-names" open', home)
+        self.assertIn("show_roster_list=false", (LMS_DIR / "templates" / "staff" / "home.html").read_text(encoding="utf-8"))
 
     def test_attendance_view_keeps_the_table_and_in_cell_pencil(self) -> None:
         """Attendance stays the weekday table; the pencil lives in the name cell."""
