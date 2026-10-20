@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 LMS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = LMS_DIR.parent
@@ -19,6 +20,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.pop("GOOGLE_CLIENT_SECRET", None)
 
 from app import create_app  # noqa: E402
+from auth import _send_first_login_code  # noqa: E402
 
 
 class SecurityTests(unittest.TestCase):
@@ -197,6 +199,47 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(rv.headers.get("X-Content-Type-Options"), "nosniff")
         self.assertEqual(rv.headers.get("X-Frame-Options"), "DENY")
         self.assertIn("default-src 'self'", rv.headers.get("Content-Security-Policy", ""))
+
+    def test_session_log_requires_class_owner(self) -> None:
+        """Owner reads a session log; another teacher and other-school IT do not."""
+        row = self.school.game.conn.execute(
+            "SELECT id FROM sessions WHERE class_id = ?",
+            (int(self.class_a["id"]),),
+        ).fetchone()
+        assert row is not None
+        session_id = int(row["id"])
+        log_path = self.school.game.logs_dir / f"session-{session_id}.jsonl"
+        log_path.write_text("{}\n", encoding="utf-8")
+        url = f"/api/sessions/{session_id}/log"
+        with patch("auth.email_service.send_verification_email", return_value=True):
+            self._login(self.client, "a@gmail.com")
+            self.assertEqual(self.client.get(url).status_code, 200)
+            other = self.app.test_client()
+            self._login(other, "b@gmail.com")
+            self.assertEqual(other.get(url).status_code, 403)
+            tenant = self.school.create_tenant("other-school", "Other School")
+            outsider = self.school.register_staff(
+                "it-other@gmail.com", tenant_id=int(tenant["id"])
+            )
+            self.school.conn.execute(
+                "UPDATE users SET role = 'it' WHERE id = ?",
+                (int(outsider["id"]),),
+            )
+            self.school.conn.commit()
+            it_client = self.app.test_client()
+            self._login(it_client, "it-other@gmail.com", portal="it")
+            self.assertEqual(it_client.get(url).status_code, 403)
+
+    def test_staff_sign_in_code_is_six_digits(self) -> None:
+        """A newly minted staff sign-in code is six digits."""
+        user = self.school.register_staff("digits@gmail.com")
+        with self.app.app_context():
+            with patch(
+                "auth.email_service.send_verification_email", return_value=True
+            ):
+                code, emailed = _send_first_login_code(user)
+        self.assertTrue(emailed)
+        self.assertTrue(len(code) == 6 and code.isdigit())
 
     def test_student_join_still_works_without_google(self) -> None:
         """Live-session student join is unchanged (no MFA on the student path)."""

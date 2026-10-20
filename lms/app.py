@@ -10990,10 +10990,28 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/sessions/<int:session_id>/log")
     @login_required
     def api_session_log(session_id: int):
-        """Plain-text game log."""
+        """Plain-text game log for a class this staff member owns.
+
+        IT may read a log only when ``teacher_owns_class`` is true, which
+        keeps IT inside its own school.
+        """
         try:
+            with school.game._lock:
+                row = school.game.conn.execute(
+                    "SELECT class_id FROM sessions WHERE id = ?",
+                    (int(session_id),),
+                ).fetchone()
+            if row is None:
+                raise KeyError(f"session {session_id}")
+            denied = _require_class_staff(int(row["class_id"]))
+            if denied:
+                return denied
             path = school.game.session_log_path(session_id)
-            return path.read_text(encoding="utf-8"), 200, {"Content-Type": "text/plain; charset=utf-8"}
+            return (
+                path.read_text(encoding="utf-8"),
+                200,
+                {"Content-Type": "text/plain; charset=utf-8"},
+            )
         except Exception as exc:  # noqa: BLE001
             return _json_error(exc)
 

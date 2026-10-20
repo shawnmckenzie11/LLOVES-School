@@ -7,6 +7,7 @@ import ipaddress
 import json
 import os
 import random
+import secrets
 import urllib.parse
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
@@ -746,7 +747,7 @@ def _send_first_login_code(user: dict[str, Any], *, force: bool = False) -> tupl
         ``(code, emailed)``. ``emailed`` is True when Resend/SMTP accepted
         the message, or when an existing code is reused inside the cooldown
         so the verify page still says to check email. Production never puts
-        the code on the verify page.
+        the code on the verify page. New codes are drawn with ``secrets``.
     """
     db = school_db()
     fresh = db.get_user_by_id(int(user["id"])) or user
@@ -755,7 +756,7 @@ def _send_first_login_code(user: dict[str, Any], *, force: bool = False) -> tupl
     cooldown = VERIFY_RESEND_COOLDOWN_SEC if force else VERIFY_SEND_COOLDOWN_SEC
     if existing and age is not None and age < cooldown:
         return existing, True
-    code = f"{random.randint(100000, 999999)}"
+    code = f"{secrets.randbelow(900000) + 100000}"
     db.set_verification_code(int(fresh["id"]), code)
     name = fresh.get("display_name") or fresh["email"].split("@")[0]
     emailed = email_service.send_verification_email(fresh["email"], name, code)
