@@ -12,6 +12,8 @@ import {
   liveAnswerControlsHtml,
   liveQuestionHeadHtml,
 } from "/static/live_question_card.js";
+import { bindWhiteboard } from "/static/live_whiteboard.js";
+import { canvasToPngDataUrl, catchupDrawControlsHtml } from "/static/team_draw.js";
 
 /**
  * Option rows for a solo group-rank catch-up. Ids are the ones the server sent.
@@ -67,6 +69,7 @@ function groupRankCatchupHtml(content) {
  * One catch-up question as a live question card.
  * Rank and Artifact need the live session, so they take a typed answer.
  * A group rank is ordered here and sent as a complete list.
+ * An individual draw uses the drawing board. Submit sends the PNG.
  * @param {any} question ``{question_key, content, prompt_kind, answered}``
  * @param {string} tag "Answered after class" copy.
  * @returns {string}
@@ -80,7 +83,9 @@ export function catchupCardHtml(question, tag) {
     ? `<p class="student-live-own-answer">${escapeText(tag)}</p>`
     : question?.group_rank
       ? groupRankCatchupHtml(content)
-      : liveAnswerControlsHtml(kind, content, "individual", "—", "Submit Answer");
+      : liveKind === "team_draw"
+        ? catchupDrawControlsHtml()
+        : liveAnswerControlsHtml(kind, content, "individual", "—", "Submit Answer");
   return `<article class="student-live-card is-${question?.answered ? "closed" : "active"}" data-question-key="${escapeText(
     question?.question_key || ""
   )}"${question?.group_rank ? ' data-group-rank="1"' : ""}>
@@ -95,6 +100,8 @@ export function catchupCardHtml(question, tag) {
  * @returns {string}
  */
 function cardAnswer(card) {
+  const draw = card.querySelector("canvas.catchup-draw-canvas");
+  if (draw instanceof HTMLCanvasElement) return canvasToPngDataUrl(draw);
   const rank = card.querySelector("[data-catchup-rank-order]");
   if (rank) {
     const ids = [...rank.querySelectorAll("[data-catchup-rank-id]")].map((node) =>
@@ -158,6 +165,9 @@ function mountCatchup() {
   }
   const questions = Array.isArray(data.questions) ? data.questions : [];
   root.innerHTML = questions.map((q) => catchupCardHtml(q, String(data.tag || ""))).join("");
+  root.querySelectorAll("canvas.catchup-draw-canvas").forEach((canvas) => {
+    if (canvas instanceof HTMLCanvasElement) bindWhiteboard(canvas);
+  });
   void renderLiveQuestionMath(root);
   root.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;

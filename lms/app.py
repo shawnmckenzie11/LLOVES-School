@@ -8114,7 +8114,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                     session_id,
                     live_item_id,
                     int(ident[2]),
-                    title=str(body.get("title") or ""),
                     image_b64=image_b64,
                 )
         except GroupAnswerLocked as exc:

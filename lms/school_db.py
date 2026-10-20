@@ -39245,8 +39245,13 @@ class SchoolDB(LovesDB):
         allowed = {q["question_key"] for q in questions if not q["answered"]}
         if question_key not in allowed:
             return False
-        if any(q["question_key"] == question_key and q.get("group_rank") for q in questions):
+        matched = next(q for q in questions if q["question_key"] == question_key)
+        if matched.get("group_rank"):
             return self._store_group_engagement_catchup(link, int(student_id), str(question_key), answer)
+        if self._catchup_question_is_draw(matched):
+            return self._store_draw_catchup_answer(
+                link, int(student_id), str(question_key), answer
+            )
         with self._lock:
             self.conn.execute(
                 """
@@ -39258,6 +39263,68 @@ class SchoolDB(LovesDB):
                 (int(link["class_id"]), str(link["run_key"]), str(link["live_module"]),
                  str(question_key), int(student_id),
                  json.dumps({"value": str(answer or "")[:500]}), _now()),
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+        return True
+
+
+    def _catchup_question_is_draw(self, question: dict[str, Any]) -> bool:
+        """True when this catch-up row is an individual draw question.
+
+        Args:
+            question: Catch-up row with ``prompt_kind`` and ``content``.
+        """
+        from team_draw import is_draw_catchup_question
+
+        return is_draw_catchup_question(question)
+
+    def _store_draw_catchup_answer(
+        self,
+        link: dict[str, Any],
+        student_id: int,
+        question_key: str,
+        answer: Any,
+    ) -> bool:
+        """Count a catch-up drawing only when the body is a PNG.
+
+        Typed text is refused and no answer row is written. The image
+        itself is not kept on the participation row, matching a live
+        draw submit.
+
+        Args:
+            link: Open catch-up row.
+            student_id: Roster id.
+            question_key: ``item:`` key for the draw question.
+            answer: PNG data URL or raw base64.
+
+        Returns:
+            True when the drawing was stored.
+        """
+        from team_draw import decode_png_payload, team_draw_answer_json
+
+        try:
+            decode_png_payload(str(answer or ""))
+        except ValueError:
+            return False
+        payload = json.dumps(team_draw_answer_json(""))
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT OR IGNORE INTO participation_answers (
+                    class_id, run_key, live_module, question_key, student_id, source,
+                    answer_json, answered_at
+                ) VALUES (?, ?, ?, ?, ?, 'catchup', ?, ?)
+                """,
+                (
+                    int(link["class_id"]),
+                    str(link["run_key"]),
+                    str(link["live_module"]),
+                    str(question_key),
+                    int(student_id),
+                    payload,
+                    _now(),
+                ),
             )
             if self.conn.in_transaction:
                 self.conn.commit()

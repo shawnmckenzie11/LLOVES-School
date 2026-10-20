@@ -319,8 +319,18 @@ def submit_team_draw(
     title: str = "",
     image_b64: str,
 ) -> dict[str, Any]:
-    """Store the team's drawing for today's gallery. No title is required."""
+    """Store the team's drawing. A title on the request is ignored.
+
+    Args:
+        session_id: ``live_class_sessions.id``.
+        live_item_id: ``live_session_items.id``.
+        student_id: Roster id of the student sending the drawing.
+        title: Ignored. Older callers may still pass one.
+        image_b64: PNG data URL or raw base64.
+    """
     from school_db import GroupAnswerLocked, _now
+
+    del title
 
     item = self.get_live_session_item(session_id, live_item_id)
     if str(item.get("response_mode") or "") != TEAM_DRAW_RESPONSE_MODE:
@@ -333,9 +343,8 @@ def submit_team_draw(
     if int(row.get("submit_count") or 0) > 0:
         card = self.student_team_draw_state(item, student_id)
         raise GroupAnswerLocked("Your team already submitted.", card=card)
-    clean_title = str(title or "").strip()
     png = decode_png_payload(image_b64)
-    answer = team_draw_answer_json(clean_title)
+    answer = team_draw_answer_json("")
     now = _now()
     with self._lock:
         self.conn.execute(

@@ -45,6 +45,23 @@ DEFAULT_MYSTERY_STEPS: tuple[str, ...] = (
 )
 
 
+def is_draw_catchup_question(question: dict[str, Any] | None) -> bool:
+    """True when a catch-up row is an individual draw question.
+
+    Individual draw questions count in participation, so catch-up has to
+    take a drawing. A typed answer does not qualify.
+
+    Args:
+        question: Catch-up row with ``prompt_kind`` and ``content``.
+    """
+    if not isinstance(question, dict):
+        return False
+    kind = str(question.get("prompt_kind") or "").strip().lower()
+    content = question.get("content") if isinstance(question.get("content"), dict) else {}
+    token = str(content.get("type") or content.get("kind") or "").strip().lower()
+    return kind == TEAM_DRAW_KIND or token == TEAM_DRAW_KIND
+
+
 def is_team_draw_item(item: dict[str, Any] | None) -> bool:
     """True when a lifecycle row or catalogue payload is Team Draw."""
     if not isinstance(item, dict):

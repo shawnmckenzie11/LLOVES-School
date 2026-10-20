@@ -3460,6 +3460,20 @@ dialog.student-pin-dialog::backdrop {
   font-size: 1.05rem;
   padding: 0.65rem 1rem;
 }
+.catchup-draw-stage {
+  width: 100%;
+  max-width: 720px;
+  margin: 0.4rem 0 0.6rem;
+  background: #fff;
+  border: 1px solid #c5ced6;
+  border-radius: 8px;
+}
+.catchup-draw-stage canvas.catchup-draw-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  touch-action: none;
+}
 .team-draw-turn-pill {
   align-self: flex-start;
   margin: 0;
