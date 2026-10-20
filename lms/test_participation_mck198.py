@@ -473,17 +473,38 @@ class CatchupTests(Base):
         self.assertEqual(kept, 2)
 
     def test_pin_lockout_after_five_failures_in_15_min(self) -> None:
+        """Five wrong attempts lock the IP, and the stored PIN stays a hash.
+
+        The salt is fixed so a random digest cannot contain the PIN digits
+        and fail the substring check. The five failures, the lock response,
+        and the unknown-name result are unchanged.
+        """
+        from unittest import mock
+
+        pin = "4321"
+        salt = "a1b2c3d4e5f60718"
+        # setUp already stored this PIN under a random salt. A different PIN
+        # then the same digits again lets set_student_pin write a known salt.
+        self.school.set_student_pin(self.class_id, self.students[0], "5678")
+        with mock.patch.object(P.secrets, "token_hex", return_value=salt):
+            self.school.set_student_pin(self.class_id, self.students[0], pin)
         client = self.app.test_client()
         self.begin_catchup_pin(client)
         for _ in range(5):
             html = self.post_catchup_pin(client, "0000").get_data(as_text=True)
             self.assertIn('data-key="pin.wrong"', html)
-        locked = self.post_catchup_pin(client, "4321").get_data(as_text=True)
+        locked = self.post_catchup_pin(client, pin).get_data(as_text=True)
         self.assertIn('data-key="pin.ip_locked"', locked)
-        self.assertEqual(self.school.catchup_sign_in(self.token, "Nobody", "4321")["reason"], "unknown_name")
+        self.assertEqual(
+            self.school.catchup_sign_in(self.token, "Nobody", pin)["reason"],
+            "unknown_name",
+        )
         stored = self.school.game.conn.execute(
             "SELECT pin_hash FROM students WHERE id = ?", (self.students[0],)).fetchone()[0]
-        self.assertTrue(stored and "4321" not in stored)
+        self.assertEqual(stored, P.hash_pin(pin, salt=salt))
+        self.assertNotIn(pin, stored)
+        self.assertTrue(P.check_pin(pin, stored))
+        self.assertFalse(P.check_pin("0000", stored))
 
     def test_join_code_typed_as_pin_is_refused_without_a_failure(self) -> None:
         t = time.time()
