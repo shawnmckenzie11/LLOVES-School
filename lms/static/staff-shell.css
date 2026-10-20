@@ -2301,6 +2301,9 @@ body.staff-shell .lesson-slides-table-card {
   max-width: 100%;
   min-width: 0;
 }
+body.staff-shell .lesson-slides-table-card .table-wrap:has(.ls-row-menu:not([hidden])) {
+  overflow: visible;
+}
 body.staff-shell .lesson-slides-table-card .table-wrap {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;

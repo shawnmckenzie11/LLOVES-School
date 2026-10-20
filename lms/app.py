@@ -10161,6 +10161,35 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         response.headers["Cache-Control"] = "no-store"
         return response
 
+    @app.route(
+        "/api/classes/<int:class_id>/lesson-slides/test-entries/<int:session_id>/delete",
+        methods=["POST"],
+    )
+    @login_required
+    def api_delete_lesson_slides_test_entry(class_id: int, session_id: int):
+        """Remove one test Lesson Slides entry for the owning teacher.
+
+        Live and Open Office rows are refused. School IT and any other
+        teacher are refused. The live session, attendance, participation,
+        catch-up, and every Live or Open Office row stay.
+        """
+        user = current_user()
+        if user is None:
+            return jsonify({"ok": False, "error": "Authentication required."}), 401
+        if str(user.get("role") or "") != "staff" or not school.teacher_owns_class(
+            int(user["id"]), class_id
+        ):
+            return jsonify({"ok": False, "error": "Forbidden."}), 403
+        try:
+            result = school.delete_lesson_slides_test_entry(int(class_id), int(session_id))
+        except PermissionError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 403
+        except KeyError:
+            return jsonify({"ok": False, "error": "That class was not found."}), 404
+        response = jsonify(result)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
     @app.route("/api/classes/<int:class_id>/catchup-links/<token>", methods=["POST"])
     @login_required
     def api_catchup_link_toggle(class_id: int, token: str):

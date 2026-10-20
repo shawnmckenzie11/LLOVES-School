@@ -33929,11 +33929,10 @@ class SchoolDB(LovesDB):
         Slides. An ``is_test`` session still saves those rows, marked so they
         stay out of real counts (MCK-269).
 
-        A real End of a Live or Open Office class always writes the Lesson
-        Slides row, even when no question was published or answered. A Test
-        class does not write that row. Catch-up for a live class still
-        requires one individual answer. A test class still gets its own
-        catch-up link (MCK-269, MCK-290).
+        A real End always writes the Lesson Slides row, for Live, Open
+        Office, and Test, even when no question was published or answered.
+        Catch-up for a live class still requires one individual answer. A
+        test class still gets its own catch-up link (MCK-269, MCK-290).
         """
         sid = int(session_id)
         session = self.conn.execute(
@@ -34066,6 +34065,18 @@ class SchoolDB(LovesDB):
                 join_code=session_code,
                 ended_at=ended_at,
                 refresh_window=True,
+            )
+            self._upsert_lesson_slides_latest_unlocked(
+                sid,
+                class_id=class_id,
+                run_key=run_key,
+                module=module,
+                slot=slot,
+                ended_at=ended_at,
+                session_code=str(session["session_code"] or ""),
+                ended_at_inferred=False,
+                inferred_ended_at="",
+                is_test=True,
             )
             return
         is_real = self._classify_and_record_participation_run(
@@ -40544,6 +40555,47 @@ class SchoolDB(LovesDB):
         ]
         out["totals"] = {str(k): v for k, v in totals.items()}
         return out
+
+    def delete_lesson_slides_test_entry(
+        self, class_id: int, session_id: int
+    ) -> dict[str, Any]:
+        """Remove one test row from Lesson Slides.
+
+        Only the stored test ``lesson_slides_latest`` row for this session
+        is deleted. The live session, catch-up link, attendance,
+        participation, and every Live or Open Office row stay.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            session_id: ``live_class_sessions.id`` of the test End.
+
+        Returns:
+            ``{ok, deleted_session_id}``.
+
+        Raises:
+            KeyError: The session is missing or belongs to another class.
+            PermissionError: The session is not a test run.
+        """
+        sid = int(session_id)
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT class_id, is_test FROM live_class_sessions WHERE id = ?",
+                (sid,),
+            ).fetchone()
+            if row is None or int(row["class_id"]) != int(class_id):
+                raise KeyError(f"live session {sid}")
+            if not int(row["is_test"] or 0):
+                raise PermissionError("Only a test Lesson Slides entry can be deleted.")
+            self.conn.execute(
+                """
+                DELETE FROM lesson_slides_latest
+                WHERE class_id = ? AND COALESCE(is_test, 0) = 1
+                  AND live_session_id = ?
+                """,
+                (int(class_id), sid),
+            )
+            self.conn.commit()
+        return {"ok": True, "deleted_session_id": sid}
 
     def delete_test_live_class(
         self, class_id: int, session_id: int

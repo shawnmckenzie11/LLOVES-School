@@ -133,6 +133,7 @@ class EndedLessonSlidesTests(EndLiveToggleTests):
         self.assertTrue(row["has_run"])
         self.assertEqual(row["status_label"], "Delivered")
         self.assertFalse(row["is_test"])
+        self.assertFalse(row["can_delete"])
 
     def test_open_office_with_zero_answers_shows(self) -> None:
         """An Open Office End with no answers writes the row and still lists it."""
@@ -145,6 +146,7 @@ class EndedLessonSlidesTests(EndLiveToggleTests):
         row = self._row("M7O1")
         self.assertTrue(row["has_run"])
         self.assertIn("Open office", row["line_label"])
+        self.assertFalse(row["can_delete"])
         self.school.conn.execute(
             "DELETE FROM lesson_slides_latest WHERE class_id = ?",
             (self.class_id,),
@@ -153,11 +155,15 @@ class EndedLessonSlidesTests(EndLiveToggleTests):
         again = self._row("M7O1")
         self.assertTrue(again["has_run"])
 
-    def test_test_mode_is_not_shown(self) -> None:
-        """A Test End does not write a Lesson Slides row and does not list one.
+    def _end_test(self, module: str, slot: str) -> int:
+        """End one test class. No questions are published.
 
-        Marking that run real afterwards still does not list it. Test mode
-        is not a Live or Open Office End.
+        Args:
+            module: Teacher module, such as ``M4``.
+            slot: Teacher slot, such as ``C2``.
+
+        Returns:
+            ``live_class_sessions.id``.
         """
         live = self.school.start_live_class_session(
             self.class_id, int(self.teacher["id"]), is_test=True
@@ -165,16 +171,108 @@ class EndedLessonSlidesTests(EndLiveToggleTests):
         sid = int(live["id"])
         self.school.conn.execute(
             "UPDATE live_class_sessions SET teacher_state_json = ? WHERE id = ?",
-            (json.dumps({"live_module": "M4", "live_slot": "C2"}), sid),
+            (json.dumps({"live_module": module, "live_slot": slot}), sid),
         )
         self.school.conn.commit()
         self.school.finish_live_class(self.class_id, celebrate=True, live_run=True)
-        self.assertEqual(self.school.list_lesson_slides_latest(self.class_id), [])
-        row = self._row("M4C2")
-        self.assertFalse(row["has_run"])
-        self.assertNotEqual(row["status_label"], "Delivered")
-        shown = build_lesson_slides_table(self.school, self.class_id)["rows"]
-        self.assertFalse(any(item.get("is_test") for item in shown))
+        return sid
+
+    def _kept_rows(self) -> tuple:
+        """Counts that a Lesson Slides test delete must leave unchanged."""
+        scores = self.school.game.conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(present), 0), COALESCE(SUM(points), 0) "
+            "FROM session_scores"
+        ).fetchone()
+        credits = self.school.game.conn.execute(
+            "SELECT COUNT(*) FROM live_participation_credits"
+        ).fetchone()
+        live_slides = self.school.conn.execute(
+            """
+            SELECT live_module, live_slot, run_key
+            FROM lesson_slides_latest
+            WHERE class_id = ? AND COALESCE(is_test, 0) = 0
+            ORDER BY live_module, live_slot, run_key
+            """,
+            (self.class_id,),
+        ).fetchall()
+        sessions = self.school.conn.execute(
+            """
+            SELECT id, COALESCE(is_test, 0), status
+            FROM live_class_sessions
+            WHERE class_id = ?
+            ORDER BY id
+            """,
+            (self.class_id,),
+        ).fetchall()
+        links = self.school.conn.execute(
+            "SELECT COUNT(*) FROM catchup_links WHERE class_id = ?",
+            (self.class_id,),
+        ).fetchone()
+        return (
+            tuple(scores),
+            int(credits[0]),
+            tuple(tuple(row) for row in live_slides),
+            tuple(tuple(row) for row in sessions),
+            int(links[0]),
+        )
+
+    def _staff_client(self, email: str):
+        """Sign in one staff account. The verification code is not logged.
+
+        Args:
+            email: Staff address already registered.
+        """
+        client = self.app.test_client()
+        client.get("/auth/google?portal=staff")
+        client.get(f"/auth/google/callback?email={email}&name=T")
+        code = self.school.get_user_by_email(email)["verification_code"]
+        client.post("/verify-email", data={"code": code})
+        return client
+
+    def _test_rows(self) -> list[dict]:
+        """Lesson Slides rows marked as a test entry."""
+        payload = build_lesson_slides_table(self.school, self.class_id)
+        return [item for item in payload["rows"] if item.get("is_test")]
+
+    def test_test_end_shows_with_delete(self) -> None:
+        """A Test End is listed, and only that row can be deleted."""
+        sid = self._end_test("M4", "C2")
+        latest = [
+            row
+            for row in self.school.list_lesson_slides_latest(self.class_id)
+            if int(row.get("is_test") or 0)
+        ]
+        self.assertEqual(len(latest), 1)
+        shown = self._test_rows()
+        self.assertEqual(len(shown), 1)
+        self.assertTrue(shown[0]["can_delete"])
+        self.assertEqual(int(shown[0]["live_session_id"]), sid)
+        template = self._row("M4C2")
+        self.assertFalse(template["has_run"])
+        self.assertFalse(template["can_delete"])
+
+    def test_delete_removes_only_the_test_entry(self) -> None:
+        """Delete drops the test Lesson Slides row and leaves the rest."""
+        self._end_slot_with_no_answers("M2", "C4", publish=False)
+        sid = self._end_test("M4", "C2")
+        before = self._kept_rows()
+        response = self.client.post(
+            f"/api/classes/{self.class_id}/lesson-slides/test-entries/{sid}/delete",
+            json={},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._kept_rows(), before)
+        self.assertEqual(self._test_rows(), [])
+        stored = [
+            row
+            for row in self.school.list_lesson_slides_latest(self.class_id)
+            if int(row.get("is_test") or 0)
+        ]
+        self.assertEqual(stored, [])
+        live = self._row("M2C4")
+        self.assertTrue(live["has_run"])
+        self.assertEqual(live["status_label"], "Delivered")
+        self.assertFalse(live["can_delete"])
         run = self.school.conn.execute(
             "SELECT run_key FROM live_class_sessions WHERE id = ?",
             (sid,),
@@ -188,10 +286,68 @@ class EndedLessonSlidesTests(EndLiveToggleTests):
             (self.class_id, str(run["run_key"])),
         )
         self.school.conn.commit()
-        still = self._row("M4C2")
-        self.assertFalse(still["has_run"])
-        shown = build_lesson_slides_table(self.school, self.class_id)["rows"]
-        self.assertFalse(any(item.get("is_test") for item in shown))
+        self.assertEqual(self._test_rows(), [])
+        self.assertFalse(self._row("M4C2")["has_run"])
+
+    def test_delete_refused_for_live_and_open_office(self) -> None:
+        """Live and Open Office Lesson Slides rows cannot be deleted."""
+        live_id = self._end_slot_with_no_answers("M7", "C2", publish=False)
+        self._assert_delete_refused(live_id)
+        office_id = self._end_slot_with_no_answers("M7", "O1", publish=False)
+        self._assert_delete_refused(office_id)
+        self.assertTrue(self._row("M7C2")["has_run"])
+        self.assertFalse(self._row("M7C2")["can_delete"])
+        office = self._row("M7O1")
+        self.assertTrue(office["has_run"])
+        self.assertFalse(office["can_delete"])
+        self.assertEqual(
+            len(self.school.list_lesson_slides_latest(self.class_id)),
+            2,
+        )
+
+    def _assert_delete_refused(self, session_id: int) -> None:
+        """The delete route and the school method both refuse this session.
+
+        Args:
+            session_id: ``live_class_sessions.id`` that is not a test End.
+        """
+        with self.assertRaises(PermissionError):
+            self.school.delete_lesson_slides_test_entry(self.class_id, session_id)
+        response = self.client.post(
+            f"/api/classes/{self.class_id}/lesson-slides/test-entries/{session_id}/delete",
+            json={},
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_delete_refused_for_other_teachers(self) -> None:
+        """Another teacher, and school IT, cannot delete this section's test entry."""
+        sid = self._end_test("M4", "C2")
+        self.school.register_staff("other-teacher@gmail.com")
+        other = self._staff_client("other-teacher@gmail.com")
+        refused = other.post(
+            f"/api/classes/{self.class_id}/lesson-slides/test-entries/{sid}/delete",
+            json={},
+        )
+        self.assertEqual(refused.status_code, 403)
+        it_user = self.school.register_staff("it-reviewer@gmail.com")
+        self.school.conn.execute(
+            "UPDATE users SET role = 'it' WHERE id = ?",
+            (int(it_user["id"]),),
+        )
+        self.school.conn.commit()
+        it_client = self._staff_client("it-reviewer@gmail.com")
+        it_refused = it_client.post(
+            f"/api/classes/{self.class_id}/lesson-slides/test-entries/{sid}/delete",
+            json={},
+        )
+        self.assertEqual(it_refused.status_code, 403)
+        self.assertEqual(len(self._test_rows()), 1)
+        allowed = self.client.post(
+            f"/api/classes/{self.class_id}/lesson-slides/test-entries/{sid}/delete",
+            json={},
+        )
+        self.assertEqual(allowed.status_code, 200)
+        self.assertEqual(self._test_rows(), [])
 
     def test_real_end_without_answers_stays_delivered_after_the_row_is_gone(self) -> None:
         """A real End with no individual answers still lists from its participation run."""

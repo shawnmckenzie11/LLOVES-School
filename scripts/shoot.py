@@ -3697,11 +3697,12 @@ def shoot_mck289(base: str, state_path: Path, out_dir: Path, path: Path, widths:
 
 
 def prepare_mck290(path: Path) -> int:
-    """Show one ended template class that has no stored Lesson Slides row.
+    """Show one ended template class and one deletable test entry.
 
-    The session has a real participation run, which is what a real End
-    writes. The placeholder session code is masked before the screenshot.
-    This does not print codes or student names.
+    The live session has a real participation run and no stored Lesson
+    Slides row. The test entry is a stored test row with its own session.
+    Placeholder session codes are masked before the screenshot. This does
+    not print codes or student names.
 
     Args:
         path: LMS sqlite path.
@@ -3789,6 +3790,88 @@ def prepare_mck290(path: Path) -> int:
                 f"VALUES ({', '.join('?' for _ in run_fields)})",
                 run_values,
             )
+        if "run_key" in cols:
+            con.execute(
+                "DELETE FROM live_class_sessions WHERE class_id = ? AND run_key = ?",
+                (class_id, "mck290-test"),
+            )
+        test_fields = [
+            "class_id",
+            "offering_id",
+            "teacher_user_id",
+            "session_code",
+            "status",
+            "started_at",
+            "ended_at",
+            "is_test",
+        ]
+        test_values: list[object] = [
+            class_id,
+            int(owner[0]),
+            int(owner[1]),
+            "test-entry",
+            "ended",
+            "2026-10-19T19:16:00",
+            "2026-10-19T19:20:00",
+            1,
+        ]
+        if "teacher_state_json" in cols:
+            test_fields.append("teacher_state_json")
+            test_values.append(json.dumps({"live_module": "M1", "live_slot": "C1"}))
+        if "run_key" in cols:
+            test_fields.append("run_key")
+            test_values.append("mck290-test")
+        inserted = con.execute(
+            f"INSERT INTO live_class_sessions ({', '.join(test_fields)}) "
+            f"VALUES ({', '.join('?' for _ in test_fields)})",
+            test_values,
+        )
+        test_sid = int(inserted.lastrowid)
+        slide_cols = {str(row[1]) for row in con.execute("PRAGMA table_info(lesson_slides_latest)")}
+        if "is_test" in slide_cols:
+            con.execute(
+                """
+                DELETE FROM lesson_slides_latest
+                WHERE class_id = ? AND live_module = 'M1' AND live_slot = 'C1'
+                  AND COALESCE(is_test, 0) = 1
+                """,
+                (class_id,),
+            )
+        slide_fields = [
+            "class_id",
+            "live_module",
+            "live_slot",
+            "run_key",
+            "ended_at",
+            "questions_json",
+            "updated_at",
+        ]
+        slide_values: list[object] = [
+            class_id,
+            "M1",
+            "C1",
+            "mck290-test",
+            "2026-10-19T19:20:00",
+            "[]",
+            "2026-10-19T19:20:00",
+        ]
+        optional = {
+            "session_code": "test-entry",
+            "presentation_url": "",
+            "is_test": 1,
+            "live_session_id": test_sid,
+            "ended_at_inferred": 0,
+            "inferred_ended_at": "",
+        }
+        for name, value in optional.items():
+            if name in slide_cols:
+                slide_fields.append(name)
+                slide_values.append(value)
+        con.execute(
+            f"INSERT INTO lesson_slides_latest ({', '.join(slide_fields)}) "
+            f"VALUES ({', '.join('?' for _ in slide_fields)})",
+            slide_values,
+        )
         con.commit()
     finally:
         con.close()
@@ -3796,9 +3879,10 @@ def prepare_mck290(path: Path) -> int:
 
 
 def shoot_mck290(base: str, state_path: Path, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
-    """Screenshot Lesson Slides with an ended class that has no stored row.
+    """Screenshot Lesson Slides with an ended class and a test Delete menu.
 
-    Join codes are masked before the shot.
+    Join codes are masked before each shot. The second shot opens Delete
+    and does not confirm it.
 
     Args:
         base: Loopback origin.
@@ -3843,6 +3927,22 @@ def shoot_mck290(base: str, state_path: Path, out_dir: Path, path: Path, widths:
             dest = out_dir / f"mck290-lesson-slides-ended-{width}.png"
             page.locator(".lesson-slides-table-card").screenshot(path=str(dest))
             written.append(dest)
+            if row.first.locator(".ls-row-menu-btn").count() != 0:
+                raise SystemExit("Live Lesson Slides rows must not offer Delete")
+            test_row = page.locator(".ls-run-row.is-test-run").first
+            test_row.wait_for(state="visible", timeout=30000)
+            test_row.scroll_into_view_if_needed()
+            test_row.locator(".ls-row-menu-btn").click()
+            delete_item = test_row.locator(".ls-row-menu-delete")
+            delete_item.wait_for(state="visible", timeout=10000)
+            if delete_item.inner_text().strip() != "Delete":
+                raise SystemExit("Test Lesson Slides delete label is missing")
+            page.locator(".ls-join-code").evaluate_all(
+                "nodes => nodes.forEach((node) => { node.textContent = '\u2014'; })"
+            )
+            menu_dest = out_dir / f"mck290-lesson-slides-test-delete-{width}.png"
+            page.locator(".lesson-slides-table-card").screenshot(path=str(menu_dest))
+            written.append(menu_dest)
             context.close()
         browser.close()
     return written

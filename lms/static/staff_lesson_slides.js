@@ -1,11 +1,8 @@
 /**
  * Lesson Slides table (MCK-229): one row per live class, latest real run.
- * Test runs are extra rows with a TEST tag (MCK-269).
+ * Test runs are extra rows with a TEST tag (MCK-269). Delete on a test
+ * row removes only that Lesson Slides entry.
  */
-import {
-  deleteTestClass,
-  DELETE_TEST_CLASS_ERROR,
-} from "/static/staff_test_class.js";
 
 const root = document.getElementById("lesson-slides-root");
 const classId = root?.dataset.classId;
@@ -187,6 +184,38 @@ function closeLessonSlideRowMenus(exceptWrap = null) {
  * @param {number} sessionId
  * @returns {void}
  */
+/**
+ * Confirm, then remove only this test Lesson Slides entry.
+ * @param {number} sessionId
+ * @returns {Promise<boolean>}
+ */
+async function deleteLessonSlidesTestEntry(sessionId) {
+  const sid = Number(sessionId || 0);
+  if (!sid) return false;
+  const dialog = document.getElementById("ls-delete-test-dialog");
+  if (!(dialog instanceof HTMLDialogElement)) return false;
+  const yes = await new Promise((resolve) => {
+    const onClose = () => {
+      dialog.removeEventListener("close", onClose);
+      resolve(dialog.returnValue === "delete");
+    };
+    dialog.addEventListener("close", onClose);
+    dialog.showModal();
+  });
+  if (!yes) return false;
+  const res = await fetch(
+    `/api/classes/${classId}/lesson-slides/test-entries/${sid}/delete`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    }
+  );
+  if (!res.ok) throw new Error("delete failed");
+  return true;
+}
+
 function bindTestRowMenu(wrap, sessionId) {
   const btn = wrap.querySelector(".ls-row-menu-btn");
   const menu = wrap.querySelector(".ls-row-menu");
@@ -202,7 +231,7 @@ function bindTestRowMenu(wrap, sessionId) {
   deleteBtn?.addEventListener("click", () => {
     menu.hidden = true;
     btn.setAttribute("aria-expanded", "false");
-    deleteTestClass(Number(classId), Number(sessionId))
+    deleteLessonSlidesTestEntry(Number(sessionId))
       .then((gone) => {
         if (gone) window.location.reload();
       })
@@ -210,7 +239,7 @@ function bindTestRowMenu(wrap, sessionId) {
         const status = document.getElementById("ls-table-status");
         if (status) {
           status.hidden = false;
-          status.textContent = DELETE_TEST_CLASS_ERROR;
+          status.textContent = "Could not delete that test entry.";
         }
       });
   });
@@ -261,7 +290,7 @@ function paintTable() {
       title.appendChild(tag);
     }
     labelWrap.appendChild(title);
-    if (row.is_test && row.live_session_id) {
+    if (row.can_delete && row.live_session_id) {
       const menuWrap = document.createElement("div");
       menuWrap.className = "ls-row-menu-wrap";
       const menuBtn = document.createElement("button");
@@ -279,7 +308,7 @@ function paintTable() {
       deleteBtn.type = "button";
       deleteBtn.className = "ls-row-menu-delete";
       deleteBtn.setAttribute("role", "menuitem");
-      deleteBtn.textContent = "Delete test class";
+      deleteBtn.textContent = "Delete";
       menu.appendChild(deleteBtn);
       menuWrap.appendChild(menuBtn);
       menuWrap.appendChild(menu);

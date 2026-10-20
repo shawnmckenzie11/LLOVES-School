@@ -233,9 +233,10 @@ def _real_runs_outside_latest(school: Any, class_id: int) -> dict[tuple[str, str
     Quit deletes the session and writes no run, so it is absent. A
     session ended without a real participation run is absent too: IT
     force-end, cancel, and closing the attendance card do not write one.
-    A Test class is absent even when its run is marked real. Live and
-    Open Office real Ends are included, including when no question was
-    published. The result is not written back to the database.
+    Test Ends are stored on their own row and are not rebuilt here, so
+    deleting that row stays gone. Live and Open Office real Ends are
+    included, including when no question was published. The result is
+    not written back to the database.
 
     Args:
         school: ``SchoolDB`` instance.
@@ -528,6 +529,7 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
                 "catchup_enabled": has_run and bool(catchup),
                 "run_key": run_key,
                 "is_test": False,
+                "can_delete": False,
                 "live_session_id": None,
                 **catchup_access_view(school, catchup if has_run else None),
             }
@@ -572,6 +574,7 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
                 "catchup_enabled": False,
                 "run_key": run_key,
                 "is_test": False,
+                "can_delete": False,
                 "live_session_id": None,
                 **catchup_access_view(school, None),
             }
@@ -639,6 +642,7 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
                 "catchup_enabled": bool(link),
                 "run_key": run_key,
                 "is_test": True,
+                "can_delete": bool(int(latest.get("live_session_id") or 0)),
                 "live_session_id": latest.get("live_session_id"),
                 "status": "test",
                 "status_label": "TEST",

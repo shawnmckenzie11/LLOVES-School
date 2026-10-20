@@ -187,7 +187,7 @@ class TestLiveClassTests(Base):
             for row in self.school.list_lesson_slides_latest(self.class_id)
             if int(row.get("is_test") or 0) == 1
         ]
-        self.assertEqual(len(test_slides), 0)
+        self.assertEqual(len(test_slides), 1)
         link = self.school.conn.execute(
             """
             SELECT token, is_open FROM catchup_links
