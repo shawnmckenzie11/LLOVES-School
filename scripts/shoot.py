@@ -3879,10 +3879,10 @@ def prepare_mck290(path: Path) -> int:
 
 
 def shoot_mck290(base: str, state_path: Path, out_dir: Path, path: Path, widths: list[int]) -> list[Path]:
-    """Screenshot Lesson Slides with an ended class and a test Delete menu.
+    """Screenshot Lesson Slides with Delete on a live row and a test row.
 
-    Join codes are masked before each shot. The second shot opens Delete
-    and does not confirm it.
+    Join codes are masked before each shot. The menu shots open Delete
+    and do not confirm it. One shot shows the confirm dialog, then cancels.
 
     Args:
         base: Loopback origin.
@@ -3927,10 +3927,50 @@ def shoot_mck290(base: str, state_path: Path, out_dir: Path, path: Path, widths:
             dest = out_dir / f"mck290-lesson-slides-ended-{width}.png"
             page.locator(".lesson-slides-table-card").screenshot(path=str(dest))
             written.append(dest)
-            if row.first.locator(".ls-row-menu-btn").count() != 0:
-                raise SystemExit("Live Lesson Slides rows must not offer Delete")
+            if row.first.locator(".ls-row-menu-btn").count() != 1:
+                raise SystemExit("Live Lesson Slides row is missing Delete")
+            row.first.evaluate("node => node.scrollIntoView({block: 'center'})")
+            row.first.locator(".ls-row-menu-btn").click()
+            live_delete = row.first.locator(".ls-row-menu-delete")
+            live_delete.wait_for(state="visible", timeout=10000)
+            if live_delete.inner_text().strip() != "Delete":
+                raise SystemExit("Live Lesson Slides delete label is missing")
+            page.locator(".ls-join-code").evaluate_all(
+                "nodes => nodes.forEach((node) => { node.textContent = '\u2014'; })"
+            )
+            live_dest = out_dir / f"mck290-lesson-slides-live-delete-{width}.png"
+            card_box = page.locator(".lesson-slides-table-card").bounding_box()
+            menu_box = live_delete.bounding_box()
+            if card_box is None or menu_box is None:
+                raise SystemExit("Live Delete menu is outside the Lesson Slides card")
+            left = min(card_box["x"], menu_box["x"])
+            top = min(card_box["y"], menu_box["y"])
+            right = max(card_box["x"] + card_box["width"], menu_box["x"] + menu_box["width"])
+            bottom = max(card_box["y"] + card_box["height"], menu_box["y"] + menu_box["height"])
+            page.screenshot(
+                path=str(live_dest),
+                clip={
+                    "x": max(0, left),
+                    "y": max(0, top),
+                    "width": right - max(0, left),
+                    "height": bottom - max(0, top) + 8,
+                },
+            )
+            written.append(live_dest)
+            live_delete.click()
+            dialog = page.locator("#ls-delete-entry-dialog")
+            dialog.wait_for(state="visible", timeout=10000)
+            if "Lesson Slides" not in dialog.locator("h2").inner_text():
+                raise SystemExit("Delete confirm dialog is missing")
+            confirm_dest = out_dir / f"mck290-lesson-slides-delete-confirm-{width}.png"
+            dialog.screenshot(path=str(confirm_dest))
+            written.append(confirm_dest)
+            dialog.locator("button[value='cancel']").click()
             test_row = page.locator(".ls-run-row.is-test-run").first
             test_row.wait_for(state="visible", timeout=30000)
+            badge = test_row.locator(".badge-test-run")
+            if badge.inner_text().strip() != "Test":
+                raise SystemExit("Test tag is missing")
             test_row.evaluate("node => node.scrollIntoView({block: 'center'})")
             test_row.locator(".ls-row-menu-btn").click()
             delete_item = test_row.locator(".ls-row-menu-delete")

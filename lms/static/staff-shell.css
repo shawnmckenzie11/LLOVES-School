@@ -1659,6 +1659,9 @@ body.staff-shell .badge-test-run {
   font-weight: 700;
   text-transform: uppercase;
 }
+body.staff-shell .ls-row-title .badge-test-run {
+  text-transform: none;
+}
 body.staff-shell .set-class-type-row {
   display: flex;
   flex-wrap: wrap;

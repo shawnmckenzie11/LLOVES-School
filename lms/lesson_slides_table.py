@@ -235,8 +235,8 @@ def _real_runs_outside_latest(school: Any, class_id: int) -> dict[tuple[str, str
     force-end, cancel, and closing the attendance card do not write one.
     Test Ends are stored on their own row and are not rebuilt here, so
     deleting that row stays gone. Live and Open Office real Ends are
-    included, including when no question was published. The result is
-    not written back to the database.
+    included, including when no question was published, unless the
+    teacher dismissed that run. The result is not written back.
 
     Args:
         school: ``SchoolDB`` instance.
@@ -411,13 +411,25 @@ def _display_latest_by_slot(
 ) -> dict[tuple[str, str], dict[str, Any]]:
     """Stored rows plus newer ended runs that never got a stored row.
 
+    A run the teacher deleted from Lesson Slides stays hidden. A later
+    End with a different run key still appears. Nothing is written.
+
     Args:
         school: ``SchoolDB`` instance.
         class_id: Game-show ``classes.id``.
         stored: Real ``lesson_slides_latest`` rows keyed by module and slot.
     """
-    display = dict(stored)
+    dismissed = school.lesson_slides_dismissed_keys(int(class_id))
+    display: dict[tuple[str, str], dict[str, Any]] = {}
+    for key, row in stored.items():
+        token = (key[0], key[1], 0, str(row.get("run_key") or ""))
+        if token in dismissed:
+            continue
+        display[key] = row
     for key, run in _real_runs_outside_latest(school, int(class_id)).items():
+        token = (key[0], key[1], 0, str(run.get("run_key") or ""))
+        if token in dismissed:
+            continue
         if _candidate_replaces_latest(run, display.get(key)):
             display[key] = _latest_from_run(school, int(class_id), run, key[0], key[1])
     return display
@@ -461,6 +473,18 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
     latest_rows = school.list_lesson_slides_latest(cid)
     real_latest = [row for row in latest_rows if not int(row.get("is_test") or 0)]
     test_latest = [row for row in latest_rows if int(row.get("is_test") or 0)]
+    dismissed = school.lesson_slides_dismissed_keys(cid)
+    test_latest = [
+        row
+        for row in test_latest
+        if (
+            str(row.get("live_module") or "").upper(),
+            str(row.get("live_slot") or "").upper(),
+            1,
+            str(row.get("run_key") or ""),
+        )
+        not in dismissed
+    ]
     stored_latest = {
         (str(r["live_module"]).upper(), str(r["live_slot"]).upper()): r
         for r in real_latest
@@ -479,20 +503,25 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
         ) else None
         latest = latest_by_slot.get((module, slot))
         catchup = catchup_by_slot.get((module, slot))
-        questions = school.lesson_slides_question_rows(
-            cid,
-            module,
-            slot,
-            latest=latest,
-            excluded_student_ids=test_ids,
-        )
-        summary = _summary_counts(questions)
         run_key = ""
         if latest and str(latest.get("run_key") or "").strip():
             run_key = str(latest["run_key"])
         elif catchup_run_visible_for_staff(school, cid, catchup):
-            run_key = str(catchup["run_key"])
+            candidate = str(catchup.get("run_key") or "")
+            if (module, slot, 0, candidate) not in dismissed:
+                run_key = candidate
+        if run_key and (module, slot, 0, run_key) in dismissed:
+            run_key = ""
+            latest = None
         has_run = bool(run_key)
+        questions = school.lesson_slides_question_rows(
+            cid,
+            module,
+            slot,
+            latest=latest if has_run else None,
+            excluded_student_ids=test_ids,
+        )
+        summary = _summary_counts(questions)
         deck_url = ""
         if latest and str(latest.get("presentation_url") or "").strip():
             deck_url = str(latest["presentation_url"])
@@ -529,8 +558,8 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
                 "catchup_enabled": has_run and bool(catchup),
                 "run_key": run_key,
                 "is_test": False,
-                "can_delete": False,
-                "live_session_id": None,
+                "can_delete": bool(run_key),
+                "live_session_id": latest.get("live_session_id") if latest else None,
                 **catchup_access_view(school, catchup if has_run else None),
             }
         )
@@ -574,8 +603,8 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
                 "catchup_enabled": False,
                 "run_key": run_key,
                 "is_test": False,
-                "can_delete": False,
-                "live_session_id": None,
+                "can_delete": bool(run_key),
+                "live_session_id": latest.get("live_session_id"),
                 **catchup_access_view(school, None),
             }
         )
@@ -642,10 +671,10 @@ def build_lesson_slides_table(school: Any, class_id: int) -> dict[str, Any]:
                 "catchup_enabled": bool(link),
                 "run_key": run_key,
                 "is_test": True,
-                "can_delete": bool(int(latest.get("live_session_id") or 0)),
+                "can_delete": bool(run_key),
                 "live_session_id": latest.get("live_session_id"),
                 "status": "test",
-                "status_label": "TEST",
+                "status_label": "Test",
                 **catchup_access_view(school, link),
             }
         )
@@ -740,7 +769,7 @@ def _stamp_lesson_slide_status(rows: list[dict[str, Any]]) -> None:
         row["day_label"] = format_slide_day(row.get("last_run_at") or "")
         if row.get("is_test"):
             row["status"] = "test"
-            row["status_label"] = "TEST"
+            row["status_label"] = "Test"
             continue
         if row.get("not_in_template"):
             row["status"] = "not_in_template"

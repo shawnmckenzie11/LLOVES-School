@@ -3710,6 +3710,29 @@ class LovesDB:
         self._ensure_lesson_slides_is_test_key()
         self._ensure_catchup_is_test_key()
         self._ensure_deck_seed_is_test_columns()
+        self._ensure_lesson_slides_dismissed()
+
+
+    def _ensure_lesson_slides_dismissed(self) -> None:
+        """Remember Lesson Slides entries a teacher removed from the list.
+
+        One row hides one ended run. Attendance, participation, the
+        gradebook, and catch-up are not stored here. A later End with a
+        different run key still appears. Safe to run on every boot.
+        """
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS lesson_slides_dismissed (
+                class_id INTEGER NOT NULL,
+                live_module TEXT NOT NULL,
+                live_slot TEXT NOT NULL,
+                is_test INTEGER NOT NULL DEFAULT 0,
+                run_key TEXT NOT NULL,
+                dismissed_at TEXT NOT NULL,
+                PRIMARY KEY (class_id, live_module, live_slot, is_test, run_key)
+            )
+            """
+        )
 
     def _ensure_lesson_slides_is_test_key(self) -> None:
         """Rebuild Lesson Slides so a test row does not replace the real slot."""
@@ -40556,45 +40579,159 @@ class SchoolDB(LovesDB):
         out["totals"] = {str(k): v for k, v in totals.items()}
         return out
 
-    def delete_lesson_slides_test_entry(
-        self, class_id: int, session_id: int
-    ) -> dict[str, Any]:
-        """Remove one test row from Lesson Slides.
-
-        Only the stored test ``lesson_slides_latest`` row for this session
-        is deleted. The live session, catch-up link, attendance,
-        participation, and every Live or Open Office row stay.
+    def lesson_slides_dismissed_keys(
+        self, class_id: int
+    ) -> set[tuple[str, str, int, str]]:
+        """Runs the teacher removed from the Lesson Slides list.
 
         Args:
             class_id: Game-show ``classes.id``.
-            session_id: ``live_class_sessions.id`` of the test End.
+
+        Returns:
+            ``(module, slot, is_test, run_key)`` for this class.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT live_module, live_slot, is_test, run_key
+                FROM lesson_slides_dismissed
+                WHERE class_id = ?
+                """,
+                (int(class_id),),
+            ).fetchall()
+        return {
+            (
+                str(row["live_module"] or "").upper(),
+                str(row["live_slot"] or "").upper(),
+                int(row["is_test"] or 0),
+                str(row["run_key"] or ""),
+            )
+            for row in rows
+        }
+
+    def delete_lesson_slides_entry(
+        self,
+        class_id: int,
+        module: Any,
+        slot: Any,
+        is_test: Any,
+        run_key: Any,
+    ) -> dict[str, Any]:
+        """Remove one Lesson Slides list entry and keep the class data.
+
+        Records a dismissal so the read fallback cannot put the same run
+        back on the list. Deletes only the matching ``lesson_slides_latest``
+        row. The live session, attendance, participation, gradebook
+        column, and catch-up link stay. A later End with a new run key
+        shows again.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Lesson module, such as ``M1``.
+            slot: Lesson slot, such as ``C1`` or ``O1``.
+            is_test: True for a test entry.
+            run_key: Participation run key of the entry to hide.
+
+        Returns:
+            ``{ok, module, slot, is_test}``.
+
+        Raises:
+            ValueError: The module, slot, or run key is missing.
+        """
+        mod = str(module or "").strip().upper()
+        sl = str(slot or "").strip().upper()
+        key = str(run_key or "").strip()
+        if isinstance(is_test, bool):
+            flag = int(is_test)
+        else:
+            flag = 1 if str(is_test or "").strip().lower() in {"1", "true", "yes"} else 0
+        if not mod or not sl or not key:
+            raise ValueError("That Lesson Slides entry could not be removed.")
+        dismissed_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO lesson_slides_dismissed (
+                    class_id, live_module, live_slot, is_test, run_key, dismissed_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(class_id, live_module, live_slot, is_test, run_key)
+                DO UPDATE SET dismissed_at = excluded.dismissed_at
+                """,
+                (int(class_id), mod, sl, flag, key, dismissed_at),
+            )
+            self.conn.execute(
+                """
+                DELETE FROM lesson_slides_latest
+                WHERE class_id = ? AND live_module = ? AND live_slot = ?
+                  AND COALESCE(is_test, 0) = ? AND run_key = ?
+                """,
+                (int(class_id), mod, sl, flag, key),
+            )
+            self.conn.commit()
+        return {"ok": True, "module": mod, "slot": sl, "is_test": bool(flag)}
+
+    def delete_lesson_slides_test_entry(
+        self, class_id: int, session_id: int
+    ) -> dict[str, Any]:
+        """Remove the Lesson Slides entry for one ended session.
+
+        Live, Open Office, and Test sessions all use the same list
+        delete. The session, attendance, participation, gradebook, and
+        catch-up stay.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            session_id: ``live_class_sessions.id``.
 
         Returns:
             ``{ok, deleted_session_id}``.
 
         Raises:
             KeyError: The session is missing or belongs to another class.
-            PermissionError: The session is not a test run.
+            ValueError: The session has no module, slot, or run key.
         """
         sid = int(session_id)
         with self._lock:
             row = self.conn.execute(
-                "SELECT class_id, is_test FROM live_class_sessions WHERE id = ?",
+                """
+                SELECT class_id, is_test, run_key, teacher_state_json
+                FROM live_class_sessions
+                WHERE id = ?
+                """,
                 (sid,),
             ).fetchone()
             if row is None or int(row["class_id"]) != int(class_id):
                 raise KeyError(f"live session {sid}")
-            if not int(row["is_test"] or 0):
-                raise PermissionError("Only a test Lesson Slides entry can be deleted.")
-            self.conn.execute(
+            slide = self.conn.execute(
                 """
-                DELETE FROM lesson_slides_latest
-                WHERE class_id = ? AND COALESCE(is_test, 0) = 1
-                  AND live_session_id = ?
+                SELECT live_module, live_slot, run_key, is_test
+                FROM lesson_slides_latest
+                WHERE class_id = ? AND live_session_id = ?
+                LIMIT 1
                 """,
                 (int(class_id), sid),
-            )
-            self.conn.commit()
+            ).fetchone()
+        module = ""
+        slot = ""
+        run_key = str(row["run_key"] or "").strip()
+        flag = int(row["is_test"] or 0)
+        if slide is not None:
+            module = str(slide["live_module"] or "")
+            slot = str(slide["live_slot"] or "")
+            if str(slide["run_key"] or "").strip():
+                run_key = str(slide["run_key"]).strip()
+            flag = int(slide["is_test"] or 0)
+        if not module or not slot:
+            teacher: dict[str, Any] = {}
+            try:
+                parsed = json.loads(row["teacher_state_json"] or "{}")
+                if isinstance(parsed, dict):
+                    teacher = parsed
+            except (TypeError, ValueError):
+                teacher = {}
+            module = module or str(teacher.get("live_module") or "")
+            slot = slot or str(teacher.get("live_slot") or "")
+        self.delete_lesson_slides_entry(int(class_id), module, slot, flag, run_key)
         return {"ok": True, "deleted_session_id": sid}
 
     def delete_test_live_class(
@@ -43857,7 +43994,8 @@ class SchoolDB(LovesDB):
     ) -> str:
         """Next picker-valid school day without finalized attendance.
 
-        In-progress setup sessions are ignored so the next day stays available.
+        In-progress setup sessions and test runs are ignored so the next
+        day stays available.
 
         Args:
             class_id: Class primary key.
@@ -43876,8 +44014,11 @@ class SchoolDB(LovesDB):
         if not picker_isos:
             return date.today().isoformat()
         marks = self.game.attendance_score_rows(class_id)
+        test_ids = self.test_mgs_session_ids(class_id)
         logged_dates: set[str] = set()
         for sess in marks.get("sessions") or []:
+            if int(sess.get("id") or 0) in test_ids:
+                continue
             if str(sess.get("status") or "") != "ended":
                 continue
             meeting = session_meeting_date(sess.get("starts_at"))
@@ -43937,6 +44078,37 @@ class SchoolDB(LovesDB):
                 f"({schedule}). Pick a valid date."
             )
 
+    def _attendance_marks_without_test_runs(self, class_id: int) -> dict[str, Any]:
+        """Attendance score rows with test-class columns removed.
+
+        A test End still writes the gradebook column. Attendance day
+        totals and the present list for a date leave that column out.
+        Deleting the Lesson Slides entry does not put the column back
+        into attendance.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            The attendance score payload without test sessions.
+        """
+        marks = self.game.attendance_score_rows(int(class_id))
+        test_ids = self.test_mgs_session_ids(int(class_id))
+        if not test_ids:
+            return marks
+        out = dict(marks)
+        out["sessions"] = [
+            row
+            for row in (marks.get("sessions") or [])
+            if int(row.get("id") or 0) not in test_ids
+        ]
+        out["scores"] = [
+            row
+            for row in (marks.get("scores") or [])
+            if int(row.get("session_id") or 0) not in test_ids
+        ]
+        return out
+
     def attendance_week_grid(
         self,
         class_id: int,
@@ -43964,7 +44136,7 @@ class SchoolDB(LovesDB):
         dash = self.game.dashboard(
             class_id, sort=sort, include_test_students=include_test_students
         )
-        marks = self.game.attendance_score_rows(class_id)
+        marks = self._attendance_marks_without_test_runs(class_id)
         grid = build_attendance_week_grid(
             students=list(dash.get("students") or []),
             sessions=marks["sessions"],
@@ -44030,7 +44202,7 @@ class SchoolDB(LovesDB):
         except ImportError:
             from lms.gradebook import session_meeting_date
 
-        marks = self.game.attendance_score_rows(class_id)
+        marks = self._attendance_marks_without_test_runs(class_id)
         session_dates: dict[int, date] = {}
         session_ids: list[int] = []
         for sess in marks["sessions"]:

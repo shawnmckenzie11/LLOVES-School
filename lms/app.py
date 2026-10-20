@@ -10161,17 +10161,17 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         response.headers["Cache-Control"] = "no-store"
         return response
 
-    @app.route(
-        "/api/classes/<int:class_id>/lesson-slides/test-entries/<int:session_id>/delete",
-        methods=["POST"],
-    )
-    @login_required
-    def api_delete_lesson_slides_test_entry(class_id: int, session_id: int):
-        """Remove one test Lesson Slides entry for the owning teacher.
+    def _staff_owns_lesson_slides(class_id: int):
+        """Owning staff teacher, or a 401/403 response.
 
-        Live and Open Office rows are refused. School IT and any other
-        teacher are refused. The live session, attendance, participation,
-        catch-up, and every Live or Open Office row stay.
+        School IT and any other teacher are refused. Lesson Slides
+        delete stays on the section the teacher owns.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            The signed-in user, or a Flask response to return.
         """
         user = current_user()
         if user is None:
@@ -10180,10 +10180,56 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             int(user["id"]), class_id
         ):
             return jsonify({"ok": False, "error": "Forbidden."}), 403
+        return user
+
+    @app.route(
+        "/api/classes/<int:class_id>/lesson-slides/entries/delete",
+        methods=["POST"],
+    )
+    @login_required
+    def api_delete_lesson_slides_entry(class_id: int):
+        """Remove one Lesson Slides entry for the owning teacher.
+
+        Live, Open Office, and Test entries are accepted. Attendance,
+        participation, the gradebook, and catch-up stay.
+        """
+        owned = _staff_owns_lesson_slides(class_id)
+        if isinstance(owned, tuple):
+            return owned
+        body = request.get_json(silent=True) or {}
+        try:
+            result = school.delete_lesson_slides_entry(
+                int(class_id),
+                body.get("module"),
+                body.get("slot"),
+                body.get("is_test"),
+                body.get("run_key"),
+            )
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        response = jsonify(result)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.route(
+        "/api/classes/<int:class_id>/lesson-slides/test-entries/<int:session_id>/delete",
+        methods=["POST"],
+    )
+    @login_required
+    def api_delete_lesson_slides_test_entry(class_id: int, session_id: int):
+        """Remove the Lesson Slides entry for one ended session.
+
+        Live, Open Office, and Test sessions are accepted. School IT
+        and any other teacher are refused. Attendance, participation,
+        the gradebook, and catch-up stay.
+        """
+        owned = _staff_owns_lesson_slides(class_id)
+        if isinstance(owned, tuple):
+            return owned
         try:
             result = school.delete_lesson_slides_test_entry(int(class_id), int(session_id))
-        except PermissionError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 403
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
         except KeyError:
             return jsonify({"ok": False, "error": "That class was not found."}), 404
         response = jsonify(result)
