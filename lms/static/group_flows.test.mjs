@@ -158,6 +158,20 @@ const doneUndo = rankTurnsHtml({ turns: { mode: "turns", total: 1, rev: 1, done:
 check(!doneUndo.includes("data-rank-turn-undo"), "no Undo once the order is in");
 const raceDoneUndo = rankTurnsHtml({ turns: { mode: "turns", total: 1, rev: 1, done: true, can_undo: true, spots: [{ option_id: "a", label: "A", by_name: "Iggy", mine: true }] } }, undoOpts);
 check(raceDoneUndo.includes("data-rank-turn-undo"), "MCK-216 undo before lock-in");
+check(!myTurn.includes("data-rank-check"), "no check button unless the server offers it");
+const withCheck = rankTurnsHtml(
+  { turns: { spots: [], total: 3, can_place: true }, check: { available: true, used: false } },
+  { options, itemId: 9 },
+);
+check(withCheck.includes("Check our ranking") && withCheck.includes("data-rank-check"), "check button");
+const extraGrade = ["A", "+"].join("");
+check(!withCheck.includes(extraGrade), "no extra grade wording on the check button");
+const checked = rankTurnsHtml(
+  { turns: { spots: [], total: 3, can_place: true }, check: { available: false, used: true, message: "2 of 4 in the right spot." } },
+  { options, itemId: 9 },
+);
+check(checked.includes("2 of 4 in the right spot.") && !checked.includes("data-rank-check"), "count only, one check");
+check(!checked.includes("rank_key") && !checked.includes(extraGrade), "check result names no answer order");
 
 if (failures) {
   console.error(`${failures} failure(s)`);

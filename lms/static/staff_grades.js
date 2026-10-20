@@ -482,7 +482,11 @@ function renderSheet(data) {
   let body = "";
   for (const student of students) {
     const sid = Number(student.id);
-    body += `<tr><td class="name">${escapeHtml(displayName(student))}</td>`;
+    const groupText = String((data.group_engagement || {})[String(sid)] || "").trim();
+    const groupLine = groupText
+      ? `<span class="ap-group-engagement">Group engagement ${escapeHtml(groupText)}</span>`
+      : "";
+    body += `<tr><td class="name">${escapeHtml(displayName(student))}${groupLine}</td>`;
     for (const piece of pieces) {
       for (const col of piece.cols) {
         if (col.kind === "summary") {

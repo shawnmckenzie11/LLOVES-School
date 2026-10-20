@@ -3048,6 +3048,15 @@ body.rw-open { overflow: hidden; }
 .rank-turn-cue {
   font-weight: 600;
 }
+.rank-check {
+  margin-top: 0.65rem;
+}
+.rank-check-result {
+  margin: 0.45rem 0 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #cbd5e1;
+}
 .rank-turn-undo {
   margin-left: 0.4rem;
   padding: 0;

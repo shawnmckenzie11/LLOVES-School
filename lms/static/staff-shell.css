@@ -9384,6 +9384,14 @@ body.staff-shell #grades-root table.ap-mod-table td.name {
   box-shadow: 1px 0 0 #e7edf4;
 }
 body.staff-shell #grades-root table.ap-mod-table thead th.name { z-index: 5; }
+body.staff-shell #grades-root td.name .ap-group-engagement {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #475569;
+  white-space: nowrap;
+}
 body.staff-shell #grades-root table.ap-mod-table th.ap-office-header { background: #eef2f6; }
 body.staff-shell #grades-root .ap-mod-groups th {
   color: #64748b;

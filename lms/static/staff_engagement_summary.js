@@ -115,6 +115,10 @@ function studentRow(student, runKey) {
   const evidence = (student.evidence || [])
     .map((row) => `<span class="ap-engagement-evidence-chip">${escapeHtml(evidenceChip(row))}</span>`)
     .join("");
+  const groupText = String(student.group_engagement || "").trim();
+  const groupChip = groupText
+    ? `<span class="ap-engagement-evidence-chip">Group engagement ${escapeHtml(groupText)}</span>`
+    : "";
   return `
     <li class="ap-engagement-student">
       <div class="ap-engagement-student-head">
@@ -122,7 +126,7 @@ function studentRow(student, runKey) {
         <span class="ap-engagement-level-badge">${label}</span>
       </div>
       <p class="hint compact ap-engagement-reason">${reason}</p>
-      <div class="ap-engagement-evidence">${evidence || "<span class='hint compact'>No counts</span>"}</div>
+      <div class="ap-engagement-evidence">${groupChip}${evidence || (groupChip ? "" : "<span class='hint compact'>No counts</span>")}</div>
       ${overrideBlock(student, runKey)}
     </li>`;
 }

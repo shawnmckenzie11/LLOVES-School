@@ -117,6 +117,13 @@ try:
     )
     from live_mc import build_live_tally, build_mc_tally, numeric_prompt_without_key
     from rank_alias import RankAliases, rank_aliases
+    from group_engagement import (
+        catchup_earned,
+        check_message,
+        format_fraction,
+        member_ids_from_json,
+        send_earned,
+    )
     from live_rank import (
         borda_class_order,
         build_rank_options,
@@ -279,6 +286,13 @@ except ImportError:  # ``python3 lms/app.py`` package import
     )
     from lms.live_mc import build_live_tally, build_mc_tally, numeric_prompt_without_key
     from lms.rank_alias import RankAliases, rank_aliases
+    from lms.group_engagement import (
+        catchup_earned,
+        check_message,
+        format_fraction,
+        member_ids_from_json,
+        send_earned,
+    )
     from lms.live_rank import (
         borda_class_order,
         build_rank_options,
@@ -2048,6 +2062,7 @@ class LovesDB:
             self._ensure_test_live_class_schema()
             self._ensure_catchup_auto_close_schema()
             self._ensure_live_item_schema()
+            self._ensure_group_engagement_schema()
             self._ensure_rank_race_schema()
             self._ensure_save_to_card_columns()
             self._ensure_live_class_feature_schema()
@@ -2356,7 +2371,7 @@ class LovesDB:
         return [r for r in rows if str(r.get("run_key") or "") not in discarded]
 
     def list_engagement_summary_runs(self, class_id: int) -> list[dict[str, Any]]:
-        """Ended runs that have engagement rollup rows (teacher-only picker)."""
+        """Ended runs with a rollup or group-rank points (teacher-only picker)."""
         with self._lock:
             rows = self.conn.execute(
                 """
@@ -2373,21 +2388,43 @@ class LovesDB:
                 """,
                 (int(class_id),),
             ).fetchall()
-        out: list[dict[str, Any]] = []
+            group_rows = self.conn.execute(
+                """
+                SELECT g.run_key, MAX(g.recorded_at) AS rolled_at
+                FROM group_engagement g
+                LEFT JOIN participation_runs r
+                    ON r.class_id = g.class_id AND r.run_key = g.run_key
+                WHERE g.class_id = ? AND COALESCE(r.discarded, 0) = 0
+                GROUP BY g.run_key
+                """,
+                (int(class_id),),
+            ).fetchall()
+        seen: dict[str, dict[str, Any]] = {}
         for row in rows:
             run_key = str(row["run_key"] or "")
             if not run_key:
                 continue
-            label = self._live_label_for_run_key(int(class_id), run_key)
-            out.append(
-                {
-                    "run_key": run_key,
-                    "rolled_at": row["rolled_at"],
-                    "live_session": row["live_session"],
-                    "started_at": row["started_at"],
-                    "live_label": label,
-                }
-            )
+            seen[run_key] = {
+                "run_key": run_key,
+                "rolled_at": row["rolled_at"],
+                "live_session": row["live_session"],
+                "started_at": row["started_at"],
+            }
+        for row in group_rows:
+            run_key = str(row["run_key"] or "")
+            if not run_key or run_key in seen:
+                continue
+            seen[run_key] = {
+                "run_key": run_key,
+                "rolled_at": row["rolled_at"],
+                "live_session": None,
+                "started_at": None,
+            }
+        out: list[dict[str, Any]] = []
+        for run_key, info in seen.items():
+            info["live_label"] = self._live_label_for_run_key(int(class_id), run_key)
+            out.append(info)
+        out.sort(key=lambda item: (str(item.get("rolled_at") or ""), item["run_key"]), reverse=True)
         return out
 
     def _live_label_for_run_key(self, class_id: int, run_key: str) -> str:
@@ -2404,6 +2441,18 @@ class LovesDB:
             if part is not None:
                 module = str(part["live_module"] or "M1").upper()
                 slot = str(part["live_slot"] or "C1").upper()
+                return f"{module}{slot}"
+            group_item = self.conn.execute(
+                """
+                SELECT live_module, live_slot FROM group_engagement_items
+                WHERE class_id = ? AND run_key = ?
+                LIMIT 1
+                """,
+                (int(class_id), str(run_key)),
+            ).fetchone()
+            if group_item is not None:
+                module = str(group_item["live_module"] or "M1").upper()
+                slot = str(group_item["live_slot"] or "C1").upper()
                 return f"{module}{slot}"
             snap = self.conn.execute(
                 """
@@ -2529,7 +2578,8 @@ class LovesDB:
         from engagement_summary import build_summary
 
         rows = self.list_engagement_rollup(int(class_id), run_key=str(run_key))
-        if not rows:
+        fractions = self.group_engagement_fractions(int(class_id), run_key=str(run_key))
+        if not rows and not fractions:
             return None
         try:
             roster = list(
@@ -2558,7 +2608,7 @@ class LovesDB:
             team_names = {}
         overrides = self.list_engagement_level_overrides(int(class_id), str(run_key))
         label = self._live_label_for_run_key(int(class_id), str(run_key))
-        return build_summary(
+        summary = build_summary(
             rows=rows,
             roster=roster,
             team_for_student=team_for,
@@ -2567,6 +2617,14 @@ class LovesDB:
             live_label=label,
             overrides=overrides,
         )
+        for group in list(summary.get("groups") or []) + [
+            {"students": summary.get("ungrouped") or []}
+        ]:
+            for student in group.get("students") or []:
+                text = fractions.get(int(student.get("student_id") or 0))
+                if text:
+                    student["group_engagement"] = text
+        return summary
 
     def _rollup_engagement_for_session(self, session_id: int) -> int:
         """Aggregate engagement events for one ended run into ``engagement_rollup``.
@@ -2628,6 +2686,163 @@ class LovesDB:
         ]
         return store.insert_rollup_batch(payload)
 
+    def group_engagement_fractions(
+        self,
+        class_id: int,
+        *,
+        run_key: str | None = None,
+        module: str | None = None,
+        omit_empty: bool = False,
+    ) -> dict[int, str]:
+        """``earned/possible`` per student. Discarded runs are left out.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            run_key: Limit to one ended run.
+            module: Limit to one live module, such as ``M1``.
+            omit_empty: Drop students whose possible total is 0.
+        """
+        key = str(run_key or "").strip()
+        mod = str(module or "").strip()
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT g.student_id,
+                       COALESCE(SUM(g.earned), 0) AS earned,
+                       COALESCE(SUM(g.possible), 0) AS possible
+                FROM group_engagement g
+                LEFT JOIN group_engagement_items i
+                    ON i.class_id = g.class_id AND i.run_key = g.run_key
+                   AND i.question_key = g.question_key
+                LEFT JOIN participation_runs r
+                    ON r.class_id = g.class_id AND r.run_key = g.run_key
+                WHERE g.class_id = ?
+                  AND COALESCE(r.discarded, 0) = 0
+                  AND (? = '' OR g.run_key = ?)
+                  AND (? = '' OR i.live_module = ?)
+                GROUP BY g.student_id
+                """,
+                (int(class_id), key, key, mod, mod),
+            ).fetchall()
+        out: dict[int, str] = {}
+        for row in rows:
+            possible = int(row["possible"] or 0)
+            if omit_empty and possible <= 0:
+                continue
+            out[int(row["student_id"])] = format_fraction(int(row["earned"] or 0), possible)
+        return out
+
+    def _live_group_engagement_totals(
+        self, session_id: int, student_id: int
+    ) -> tuple[int, int]:
+        """Points this student would earn from group ranks still on the live rows.
+
+        Uses the same rules as End: send-time roster, 2 only for an
+        all-correct keyed send that never used the check.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id.
+
+        Returns:
+            ``(earned, possible)``.
+        """
+        earned = 0
+        possible = 0
+        items = self.conn.execute(
+            """
+            SELECT i.id, i.item_json, pr.payload
+            FROM live_session_items i
+            LEFT JOIN live_session_prompts pr ON pr.id = i.prompt_id
+            WHERE i.live_session_id = ? AND i.published_at IS NOT NULL
+              AND (i.publish_mode = 'group_submit' OR i.response_mode = 'group_submit')
+            """,
+            (int(session_id),),
+        ).fetchall()
+        for item in items:
+            payload = self._group_rank_capture_payload(item["item_json"], item["payload"])
+            if payload is None:
+                continue
+            options = safe_rank_options(
+                payload.get("rank_options") or payload.get("options") or payload.get("choices")
+            )
+            key = safe_rank_key(payload.get("rank_key"), options) or []
+            member_rows = self.conn.execute(
+                "SELECT team_id, student_id FROM live_group_members WHERE live_item_id = ?",
+                (int(item["id"]),),
+            ).fetchall()
+            live_members: dict[int, list[int]] = {}
+            for member in member_rows:
+                live_members.setdefault(int(member["team_id"]), []).append(int(member["student_id"]))
+            responses = self.conn.execute(
+                """
+                SELECT team_id, submit_count, final_answer_json,
+                       engagement_member_ids_json, rank_check_used
+                FROM live_group_responses
+                WHERE live_item_id = ?
+                """,
+                (int(item["id"]),),
+            ).fetchall()
+            for response in responses:
+                team_id = int(response["team_id"])
+                submitted = int(response["submit_count"] or 0) > 0
+                if submitted:
+                    members = member_ids_from_json(response["engagement_member_ids_json"])
+                    if not members:
+                        members = live_members.get(team_id, [])
+                else:
+                    members = live_members.get(team_id, [])
+                if int(student_id) not in members:
+                    continue
+                possible += 1
+                if not submitted:
+                    break
+                try:
+                    final = json.loads(response["final_answer_json"] or "null")
+                except (TypeError, ValueError):
+                    final = None
+                order = list(final.get("order") or []) if isinstance(final, dict) else []
+                all_correct = bool(
+                    key
+                    and len(order) == len(key)
+                    and int(rank_race_score(order, key)["right"]) == len(key)
+                )
+                earned += send_earned(
+                    keyed=bool(key),
+                    all_correct=all_correct,
+                    check_used=bool(int(response["rank_check_used"] or 0)),
+                )
+                break
+        return earned, possible
+
+    def student_group_engagement_display(
+        self, class_id: int, live_session_id: int, student_id: int
+    ) -> str:
+        """Group-rank points for the live card, then the saved run after End.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            live_session_id: ``live_class_sessions.id``.
+            student_id: Roster id.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT run_key FROM live_class_sessions WHERE id = ? AND class_id = ?",
+                (int(live_session_id), int(class_id)),
+            ).fetchone()
+            earned, possible = self._live_group_engagement_totals(
+                int(live_session_id), int(student_id)
+            )
+        if possible > 0:
+            return format_fraction(earned, possible)
+        run_key = str(row["run_key"] or "") if row is not None else ""
+        if not run_key:
+            return "0/0"
+        saved = self.group_engagement_fractions(
+            int(class_id), run_key=run_key
+        ).get(int(student_id))
+        return saved or "0/0"
+
     def student_live_engagement_fields(
         self, class_id: int, live_session_id: int, student_id: int
     ) -> dict[str, Any]:
@@ -2678,12 +2893,16 @@ class LovesDB:
             return payload
         if student_id in (None, ""):
             me["engagement"] = "0/0"
+            me["group_engagement"] = "0/0"
             me["show_team_score"] = False
             return payload
         snap = self.student_live_engagement_fields(
             int(class_id), int(live_session_id), int(student_id)
         )
         me["engagement"] = str(snap.get("tier1") or "0/0")
+        me["group_engagement"] = self.student_group_engagement_display(
+            int(class_id), int(live_session_id), int(student_id)
+        )
         me["show_team_score"] = bool(snap.get("group_activity"))
         return payload
 
@@ -4338,6 +4557,26 @@ class LovesDB:
                 "ALTER TABLE live_group_responses "
                 "ADD COLUMN editor_ids_json TEXT NOT NULL DEFAULT '[]'"
             )
+        # MCK-293: roster at the moment the team sends, and whether they
+        # used the one check. The check stores a count only, never which spots.
+        if "engagement_member_ids_json" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_group_responses "
+                "ADD COLUMN engagement_member_ids_json TEXT NOT NULL DEFAULT '[]'"
+            )
+        if "rank_check_used" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_group_responses "
+                "ADD COLUMN rank_check_used INTEGER NOT NULL DEFAULT 0"
+            )
+        if "rank_check_right" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_group_responses ADD COLUMN rank_check_right INTEGER"
+            )
+        if "rank_check_total" not in cols:
+            self.conn.execute(
+                "ALTER TABLE live_group_responses ADD COLUMN rank_check_total INTEGER"
+            )
         self._ensure_group_member_award_column()
 
     def _ensure_group_member_award_column(self) -> None:
@@ -4356,6 +4595,43 @@ class LovesDB:
             self.conn.execute(
                 "ALTER TABLE live_group_members ADD COLUMN awarded_points REAL"
             )
+
+    def _ensure_group_engagement_schema(self) -> None:
+        """Tables for group-rank participation points (MCK-293).
+
+        Rows are keyed by class and run, never by ``live_session_id``.
+        The item table keeps the server copy of the question, including
+        the answer order, so catch-up can validate a full permutation.
+        Students receive that copy only after teacher fields are stripped.
+        """
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS group_engagement (
+                class_id INTEGER NOT NULL,
+                run_key TEXT NOT NULL,
+                question_key TEXT NOT NULL,
+                student_id INTEGER NOT NULL,
+                earned INTEGER NOT NULL,
+                possible INTEGER NOT NULL,
+                source TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                PRIMARY KEY (class_id, run_key, question_key, student_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_group_engagement_student
+                ON group_engagement(class_id, student_id);
+            CREATE TABLE IF NOT EXISTS group_engagement_items (
+                class_id INTEGER NOT NULL,
+                run_key TEXT NOT NULL,
+                question_key TEXT NOT NULL,
+                live_module TEXT NOT NULL DEFAULT '',
+                live_slot TEXT NOT NULL DEFAULT '',
+                item_json TEXT NOT NULL,
+                prompt_kind TEXT NOT NULL DEFAULT '',
+                offered_at TEXT NOT NULL,
+                PRIMARY KEY (class_id, run_key, question_key)
+            );
+            """
+        )
 
     def _ensure_save_to_card_columns(self) -> None:
         """Add the per-question Save to card flag on existing databases.
@@ -19347,6 +19623,7 @@ class SchoolDB(LovesDB):
                 }
             # MCK-185: class-wide "put every item in the right order" line
             # (team names only; never which spots or what order).
+            card["check"] = self._public_rank_check(item, row)
             full = self._rank_full_order_teams(int(item["live_session_id"]), item)
             if full:
                 card["full_order"] = {
@@ -19906,6 +20183,80 @@ class SchoolDB(LovesDB):
             block["placed_last"] = bool(mine and mine[-1][1] == "place")
         return block
 
+    def _roster_team_member_ids(self, session_id: int, team_id: int) -> list[int]:
+        """Roster ids on one named team, including students who are away.
+
+        Send-time group engagement uses this list. A student who is not
+        on the team at send time gets no live point for that question.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            team_id: Named team id.
+        """
+        members: list[int] = []
+        for team in self._named_teams_for_live_session(int(session_id)):
+            if int(team.get("id") or 0) != int(team_id):
+                continue
+            for member in team.get("members") or []:
+                try:
+                    members.append(int(member["id"]))
+                except (KeyError, TypeError, ValueError):
+                    continue
+        return sorted(set(members))
+
+    def _stamp_engagement_members_unlocked(
+        self, live_item_id: int, team_id: int, member_ids: list[int]
+    ) -> None:
+        """Store the send-time roster once. A later submit keeps the first list.
+
+        Caller holds ``self._lock`` and the write transaction.
+
+        Args:
+            live_item_id: ``live_session_items.id``.
+            team_id: Team that just sent.
+            member_ids: Roster ids on that team at send time.
+        """
+        self.conn.execute(
+            """
+            UPDATE live_group_responses
+            SET engagement_member_ids_json = CASE
+                WHEN TRIM(COALESCE(engagement_member_ids_json, '')) IN ('', '[]')
+                THEN ?
+                ELSE engagement_member_ids_json
+            END
+            WHERE live_item_id = ? AND team_id = ?
+            """,
+            (
+                json.dumps([int(sid) for sid in member_ids]),
+                int(live_item_id),
+                int(team_id),
+            ),
+        )
+
+    def _public_rank_check(self, item: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
+        """Student check block: a count, never which spots and never the key.
+
+        Args:
+            item: Group rank lifecycle row.
+            row: Normalized team row. May be empty before the first draft.
+        """
+        keyed = bool(self._rank_race_key(item))
+        used = bool(int(row.get("rank_check_used") or 0))
+        submitted = int(row.get("submit_count") or 0) > 0
+        active = str(item.get("status") or "") == "active"
+        block: dict[str, Any] = {
+            "available": bool(keyed and active and not used and not submitted),
+            "used": used,
+        }
+        if not used:
+            return block
+        right = int(row.get("rank_check_right") or 0)
+        total = int(row.get("rank_check_total") or 0)
+        block["right"] = right
+        block["total"] = total
+        block["message"] = check_message(right, total)
+        return block
+
     def rank_turn_place(
         self,
         session_id: int,
@@ -20027,6 +20378,11 @@ class SchoolDB(LovesDB):
                             int(item["id"]),
                             int(team_id),
                         ),
+                    )
+                    self._stamp_engagement_members_unlocked(
+                        int(item["id"]),
+                        int(team_id),
+                        self._roster_team_member_ids(session_id, int(team_id)),
                     )
                 else:
                     self.conn.execute(
@@ -20355,6 +20711,19 @@ class SchoolDB(LovesDB):
                     int(team_id),
                 ),
             )
+            if cursor.rowcount == 1:
+                session = self.conn.execute(
+                    "SELECT live_session_id FROM live_session_items WHERE id = ?",
+                    (int(live_item_id),),
+                ).fetchone()
+                if session is not None:
+                    self._stamp_engagement_members_unlocked(
+                        int(live_item_id),
+                        int(team_id),
+                        self._roster_team_member_ids(
+                            int(session["live_session_id"]), int(team_id)
+                        ),
+                    )
             self.conn.commit()
         return cursor.rowcount == 1
 
@@ -21829,6 +22198,93 @@ class SchoolDB(LovesDB):
                     team_id,
                 ),
             )
+            self._stamp_engagement_members_unlocked(
+                int(item["id"]),
+                int(team_id),
+                self._roster_team_member_ids(session_id, int(team_id)),
+            )
+            self.conn.commit()
+        return self.student_group_submit_state(item, student_id) or {}
+
+    def check_group_rank(
+        self, session_id: int, live_item_id: int, student_id: int
+    ) -> dict[str, Any]:
+        """Score the team's current unsent order once. Count only.
+
+        The card's ``check.message`` is ``X of N in the right spot.`` It
+        does not say which spots matched, and the answer order stays on
+        the server. A second check is refused. The team can still change
+        the order and send. Sending stays final (MCK-281).
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            live_item_id: ``live_session_items.id``.
+            student_id: Roster id of the member pressing the button.
+
+        Returns:
+            The public group card.
+
+        Raises:
+            ValueError: Not a keyed group rank, nothing is placed, the
+                order is already sent, or this team already checked.
+        """
+        self._require_active_live_session(session_id)
+        item = self.get_live_session_item(session_id, live_item_id)
+        if self._question_answer_kind(item) != "rank":
+            raise ValueError("This question has no ranking to check.")
+        if str(item.get("response_mode") or "") != "group_submit":
+            raise ValueError("This question has no ranking to check.")
+        if str(item.get("status") or "") != "active":
+            raise ValueError("This question is closed.")
+        key = self._rank_race_key(item)
+        if not key:
+            raise ValueError("This question has no answer order.")
+        team_id = self._require_group_submit_member(item, student_id)
+        allowed = [opt["id"] for opt in self._rank_option_rows(item)]
+        now = _now()
+        with self._lock:
+            current = self.conn.execute(
+                """
+                SELECT proposed_answer_json, submit_count, rank_check_used
+                FROM live_group_responses
+                WHERE live_item_id = ? AND team_id = ?
+                """,
+                (int(item["id"]), int(team_id)),
+            ).fetchone()
+            if current is None:
+                raise ValueError("This group is not on the question.")
+            if int(current["submit_count"] or 0) > 0:
+                raise ValueError("Your group's order is already in.")
+            if int(current["rank_check_used"] or 0):
+                raise ValueError("You can only check once.")
+            try:
+                proposed = json.loads(current["proposed_answer_json"] or "null")
+            except (TypeError, json.JSONDecodeError):
+                proposed = None
+            if self._group_rank_mode(item) == "turns":
+                order = list(turns_state(proposed, allowed).get("order") or [])
+            elif isinstance(proposed, dict) and proposed.get("kind") == "rank":
+                order = [str(opt) for opt in (proposed.get("order") or [])]
+            else:
+                order = []
+            if not order:
+                raise ValueError("Place your ranking before checking.")
+            scored = rank_race_score(order, key)
+            right = int(scored["right"])
+            total = int(scored["total"])
+            cursor = self.conn.execute(
+                """
+                UPDATE live_group_responses
+                SET rank_check_used = 1, rank_check_right = ?, rank_check_total = ?,
+                    updated_at = ?
+                WHERE live_item_id = ? AND team_id = ?
+                  AND COALESCE(rank_check_used, 0) = 0
+                  AND COALESCE(submit_count, 0) = 0
+                """,
+                (right, total, now, int(item["id"]), int(team_id)),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("You can only check once.")
             self.conn.commit()
         return self.student_group_submit_state(item, student_id) or {}
 
@@ -34140,6 +34596,227 @@ class SchoolDB(LovesDB):
                 inferred_ended_at="",
             )
 
+    def _group_rank_capture_payload(self, item_json: Any, prompt_payload: Any) -> dict[str, Any] | None:
+        """Pick the server rank payload to store at End.
+
+        Prefers a copy that still has a valid answer order. The stored
+        JSON is not sent to students.
+
+        Args:
+            item_json: ``live_session_items.item_json``.
+            prompt_payload: Linked prompt payload, if any.
+        """
+        candidates: list[dict[str, Any]] = []
+        for raw in (prompt_payload, item_json):
+            if isinstance(raw, dict):
+                data = raw
+            else:
+                try:
+                    data = json.loads(raw or "null")
+                except (TypeError, ValueError):
+                    continue
+            if isinstance(data, dict) and is_rank_prompt(data):
+                candidates.append(data)
+        if not candidates:
+            return None
+        for data in candidates:
+            options = safe_rank_options(
+                data.get("rank_options") or data.get("options") or data.get("choices")
+            )
+            if safe_rank_key(data.get("rank_key"), options):
+                return data
+        return candidates[0]
+
+    def _capture_group_engagement_unlocked(
+        self, session_id: int, *, live_run: bool = True
+    ) -> None:
+        """At End, write per-student group-rank points before group rows go.
+
+        Real Ends only. A test run returns without writing. Quit and
+        close-without-End never call this. Rows are keyed by class and
+        run, not by ``live_session_id``.
+
+        A keyed rank sent all correct, with no check, stores 2 on a
+        question whose maximum is 1. Every other completion stores 1.
+        A team that never sent stores 0 for the members still on the
+        live roster. The send-time snapshot wins when the team did send.
+
+        Caller holds ``self._lock`` inside the End transaction.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            live_run: When False, write nothing.
+        """
+        sid = int(session_id)
+        if not live_run:
+            return
+        session = self.conn.execute(
+            "SELECT * FROM live_class_sessions WHERE id = ?", (sid,)
+        ).fetchone()
+        if session is None:
+            return
+        keys = session.keys()
+        if "is_test" in keys and bool(int(session["is_test"] or 0)):
+            return
+        run_key = str(session["run_key"] or "") if "run_key" in keys else ""
+        if not run_key:
+            run_key = f"session:{sid}:{session['started_at']}"
+        try:
+            teacher = json.loads(session["teacher_state_json"] or "{}") if (
+                "teacher_state_json" in keys
+            ) else {}
+        except (TypeError, ValueError):
+            teacher = {}
+        teacher = teacher if isinstance(teacher, dict) else {}
+        module = str(teacher.get("live_module") or "")
+        slot = str(teacher.get("live_slot") or "")
+        class_id = int(session["class_id"])
+        now = _now()
+        ended_at = str(
+            session["ended_at"] if "ended_at" in keys and session["ended_at"] else now
+        )
+        session_code = str(session["session_code"] or "") if "session_code" in keys else ""
+        items = self.conn.execute(
+            """
+            SELECT i.id, i.placement_key, i.item_json, i.publish_mode, i.response_mode,
+                   pr.payload, pr.kind
+            FROM live_session_items i
+            LEFT JOIN live_session_prompts pr ON pr.id = i.prompt_id
+            WHERE i.live_session_id = ? AND i.published_at IS NOT NULL
+              AND (i.publish_mode = 'group_submit' OR i.response_mode = 'group_submit')
+            """,
+            (sid,),
+        ).fetchall()
+        wrote = False
+        for item in items:
+            payload = self._group_rank_capture_payload(item["item_json"], item["payload"])
+            if payload is None:
+                continue
+            placement = str(item["placement_key"] or "").strip() or str(item["id"])
+            question_key = f"item:{placement}"
+            stored = dict(payload)
+            if placement and not stored.get("placement_key"):
+                stored["placement_key"] = placement
+            options = safe_rank_options(
+                stored.get("rank_options") or stored.get("options") or stored.get("choices")
+            )
+            key = safe_rank_key(stored.get("rank_key"), options) or []
+            self.conn.execute(
+                """
+                INSERT INTO group_engagement_items (
+                    class_id, run_key, question_key, live_module, live_slot,
+                    item_json, prompt_kind, offered_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(class_id, run_key, question_key) DO UPDATE SET
+                    live_module = excluded.live_module,
+                    live_slot = excluded.live_slot,
+                    item_json = excluded.item_json,
+                    prompt_kind = excluded.prompt_kind
+                """,
+                (
+                    class_id,
+                    run_key,
+                    question_key,
+                    module,
+                    slot,
+                    json.dumps(stored),
+                    str(item["kind"] or "rank"),
+                    now,
+                ),
+            )
+            wrote = True
+            member_rows = self.conn.execute(
+                """
+                SELECT team_id, student_id FROM live_group_members
+                WHERE live_item_id = ?
+                """,
+                (int(item["id"]),),
+            ).fetchall()
+            live_members: dict[int, list[int]] = {}
+            for member in member_rows:
+                live_members.setdefault(int(member["team_id"]), []).append(
+                    int(member["student_id"])
+                )
+            responses = self.conn.execute(
+                """
+                SELECT team_id, submit_count, final_answer_json,
+                       engagement_member_ids_json, rank_check_used
+                FROM live_group_responses
+                WHERE live_item_id = ?
+                """,
+                (int(item["id"]),),
+            ).fetchall()
+            for response in responses:
+                team_id = int(response["team_id"])
+                submitted = int(response["submit_count"] or 0) > 0
+                if submitted:
+                    members = member_ids_from_json(response["engagement_member_ids_json"])
+                    if not members:
+                        members = live_members.get(team_id, [])
+                    try:
+                        final = json.loads(response["final_answer_json"] or "null")
+                    except (TypeError, ValueError):
+                        final = None
+                    order = (
+                        list(final.get("order") or [])
+                        if isinstance(final, dict)
+                        else []
+                    )
+                    all_correct = bool(
+                        key
+                        and len(order) == len(key)
+                        and int(rank_race_score(order, key)["right"]) == len(key)
+                    )
+                    earned = send_earned(
+                        keyed=bool(key),
+                        all_correct=all_correct,
+                        check_used=bool(int(response["rank_check_used"] or 0)),
+                    )
+                else:
+                    members = live_members.get(team_id, [])
+                    earned = 0
+                for student_id in sorted(set(members)):
+                    self.conn.execute(
+                        """
+                        INSERT INTO group_engagement (
+                            class_id, run_key, question_key, student_id,
+                            earned, possible, source, recorded_at
+                        ) VALUES (?, ?, ?, ?, ?, 1, 'live', ?)
+                        ON CONFLICT(class_id, run_key, question_key, student_id)
+                        DO UPDATE SET
+                            earned = excluded.earned,
+                            possible = excluded.possible,
+                            source = 'live',
+                            recorded_at = excluded.recorded_at
+                        """,
+                        (class_id, run_key, question_key, int(student_id), int(earned), now),
+                    )
+        if not wrote:
+            return
+        existing = self.conn.execute(
+            """
+            SELECT 1 FROM catchup_links
+            WHERE class_id = ? AND run_key = ? AND COALESCE(is_test, 0) = 0
+            LIMIT 1
+            """,
+            (class_id, run_key),
+        ).fetchone()
+        if existing is not None:
+            return
+        self._upsert_real_catchup_link_unlocked(
+            class_id,
+            run_key,
+            module,
+            slot,
+            now=now,
+            is_test=False,
+            live_session_id=sid,
+            require_items=False,
+            join_code=session_code,
+            ended_at=ended_at,
+            refresh_window=False,
+        )
+
     def live_class_schedule_for_class(
         self, class_id: int, *, offering_end_required: bool = False
     ) -> dict[str, str] | None:
@@ -36375,6 +37052,10 @@ class SchoolDB(LovesDB):
             "this_module": build_module_card(mod_ans, mod_off, slots=slots),
             "finish_these": finish,
             "past_modules": past,
+            "individual_engagement": format_fraction(int(mod_ans or 0), int(mod_off or 0)),
+            "group_engagement": self.group_engagement_fractions(
+                cid, module=str(current)
+            ).get(sid, "0/0"),
             "live_active": live is not None,
             "live_session_id": int(live["id"]) if live else None,
             "show_phase2": False,
@@ -38137,7 +38818,157 @@ class SchoolDB(LovesDB):
                 "prompt_kind": str(r["prompt_kind"] or ""),
                 "answered": r["source"] == "catchup",
             })
+        out.extend(self._group_engagement_catchup_questions(link, int(student_id)))
         return out
+
+    def _group_engagement_catchup_questions(
+        self, link: dict[str, Any], student_id: int
+    ) -> list[dict[str, Any]]:
+        """Group ranks this student has not already earned in the live class.
+
+        A live 1 or 2 is omitted. A catch-up completion stays on the page
+        as answered. The content is the student payload: no answer order.
+
+        Args:
+            link: Catch-up row for one run.
+            student_id: Roster id.
+        """
+        class_id = int(link["class_id"])
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT i.question_key, i.item_json, i.prompt_kind,
+                       g.earned, g.source
+                FROM group_engagement_items i
+                LEFT JOIN group_engagement g
+                    ON g.class_id = i.class_id AND g.run_key = i.run_key
+                   AND g.question_key = i.question_key AND g.student_id = ?
+                WHERE i.class_id = ? AND i.run_key = ?
+                ORDER BY i.offered_at, i.question_key
+                """,
+                (int(student_id), class_id, str(link["run_key"])),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            earned = int(row["earned"] or 0) if row["earned"] is not None else 0
+            source = str(row["source"] or "")
+            if source == "live" and earned >= 1:
+                continue
+            try:
+                item = json.loads(row["item_json"] or "{}")
+            except (TypeError, ValueError):
+                item = {}
+            item = item if isinstance(item, dict) else {}
+            out.append({
+                "question_key": row["question_key"],
+                "content": self._student_public_item_payload(item, class_id=class_id),
+                "prompt_kind": str(row["prompt_kind"] or "rank"),
+                "group_rank": True,
+                "answered": source == "catchup" and earned >= 1,
+            })
+        return out
+
+    def _store_group_engagement_catchup(
+        self, link: dict[str, Any], student_id: int, question_key: str, answer: Any
+    ) -> bool:
+        """Record a solo catch-up rank. Completion is at most 1, never 2.
+
+        Any full permutation counts. The answer order is not scored.
+        A live 1 or 2 already stored is left as it is.
+
+        Args:
+            link: Open catch-up row.
+            student_id: Roster id.
+            question_key: ``item:`` key for the group rank.
+            answer: JSON list of option ids, aliases included.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT item_json FROM group_engagement_items
+                WHERE class_id = ? AND run_key = ? AND question_key = ?
+                """,
+                (int(link["class_id"]), str(link["run_key"]), str(question_key)),
+            ).fetchone()
+        if row is None:
+            return False
+        try:
+            stored = json.loads(row["item_json"] or "{}")
+        except (TypeError, ValueError):
+            return False
+        if not isinstance(stored, dict):
+            return False
+        options = safe_rank_options(
+            stored.get("rank_options") or stored.get("options") or stored.get("choices")
+        )
+        allowed = [opt["id"] for opt in options]
+        raw: Any = answer
+        if isinstance(answer, str):
+            text = answer.strip()
+            try:
+                raw = json.loads(text) if text else []
+            except (TypeError, ValueError):
+                return False
+        aliases = self.student_rank_aliases(stored)
+        if aliases is not None and isinstance(raw, list):
+            try:
+                raw = aliases.back_list(raw)
+            except ValueError:
+                return False
+        try:
+            parse_rank_order(raw, allowed, complete=True)
+        except ValueError:
+            return False
+        now = _now()
+        with self._lock:
+            current = self.conn.execute(
+                """
+                SELECT earned FROM group_engagement
+                WHERE class_id = ? AND run_key = ? AND question_key = ? AND student_id = ?
+                """,
+                (
+                    int(link["class_id"]),
+                    str(link["run_key"]),
+                    str(question_key),
+                    int(student_id),
+                ),
+            ).fetchone()
+            earned = catchup_earned(
+                int(current["earned"]) if current is not None else None
+            )
+            self.conn.execute(
+                """
+                INSERT INTO group_engagement (
+                    class_id, run_key, question_key, student_id,
+                    earned, possible, source, recorded_at
+                ) VALUES (?, ?, ?, ?, ?, 1, 'catchup', ?)
+                ON CONFLICT(class_id, run_key, question_key, student_id) DO UPDATE SET
+                    earned = CASE
+                        WHEN group_engagement.earned >= 1 THEN group_engagement.earned
+                        ELSE 1
+                    END,
+                    possible = 1,
+                    source = CASE
+                        WHEN group_engagement.earned >= 1 THEN group_engagement.source
+                        ELSE 'catchup'
+                    END,
+                    recorded_at = CASE
+                        WHEN group_engagement.earned >= 1 THEN group_engagement.recorded_at
+                        ELSE excluded.recorded_at
+                    END
+                """,
+                (
+                    int(link["class_id"]),
+                    str(link["run_key"]),
+                    str(question_key),
+                    int(student_id),
+                    int(earned),
+                    now,
+                ),
+            )
+            if self.conn.in_transaction:
+                self.conn.commit()
+        return True
 
     def submit_catchup_answer(
         self, token: str, student_id: int, question_key: str, answer: Any
@@ -38154,11 +38985,12 @@ class SchoolDB(LovesDB):
             self, {**link, "class_id": int(link["class_id"])}
         ):
             raise PermissionError("closed")
-        allowed = {
-            q["question_key"] for q in self.catchup_questions(token, student_id) if not q["answered"]
-        }
+        questions = self.catchup_questions(token, student_id)
+        allowed = {q["question_key"] for q in questions if not q["answered"]}
         if question_key not in allowed:
             return False
+        if any(q["question_key"] == question_key and q.get("group_rank") for q in questions):
+            return self._store_group_engagement_catchup(link, int(student_id), str(question_key), answer)
         with self._lock:
             self.conn.execute(
                 """
@@ -38246,6 +39078,9 @@ class SchoolDB(LovesDB):
                         captured = True
                         try:
                             self._capture_participation_unlocked(
+                                int(session_id), live_run=bool(live_run)
+                            )
+                            self._capture_group_engagement_unlocked(
                                 int(session_id), live_run=bool(live_run)
                             )
                         except Exception:  # noqa: BLE001
@@ -44507,6 +45342,12 @@ class SchoolDB(LovesDB):
             logger.exception("module_participation failed class=%s", class_id)
             payload["module_participation"] = {"modules": [], "students": []}
         payload["module_bands"] = self.participation_module_bands(class_id, payload)
+        payload["group_engagement"] = {
+            str(sid): text
+            for sid, text in self.group_engagement_fractions(
+                class_id, omit_empty=True
+            ).items()
+        }
         payload["ok"] = True
         return payload
 

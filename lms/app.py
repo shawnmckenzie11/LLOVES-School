@@ -7989,6 +7989,31 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         return jsonify({"ok": True, "ack": True, "group_submit": card})
 
     @app.route(
+        "/api/student/live-items/<int:live_item_id>/rank-check",
+        methods=["POST"],
+    )
+    @student_required
+    def api_student_rank_check(live_item_id: int):
+        """MCK-293: one count of how many spots match. No answer order."""
+
+        denied = _require_active_live_attendee(as_json=True)
+        if denied is not None:
+            return denied
+        ident = _student_identity()
+        ctx = _student_live_context()
+        if ident is None or ctx is None or ident[2] in (None, ""):
+            return jsonify({"ok": False, "error": "Roster student required"}), 403
+        try:
+            card = school.check_group_rank(
+                int(ctx["live_session_id"]),
+                live_item_id,
+                int(ident[2]),
+            )
+        except (KeyError, ValueError) as exc:
+            return _json_error(exc)
+        return jsonify({"ok": True, "ack": True, "group_submit": card})
+
+    @app.route(
         "/api/student/live-items/<int:live_item_id>/rank-agree",
         methods=["POST"],
     )

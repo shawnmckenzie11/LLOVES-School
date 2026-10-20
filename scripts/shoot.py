@@ -3590,6 +3590,304 @@ def shoot_mck281(base: str, state_path: Path, out_dir: Path, path: Path) -> list
     return written
 
 
+def prepare_mck293(path: Path, origin: str) -> dict[str, int | str]:
+    """Save one keyed group rank and return the teacher engagement URL.
+
+    The answer order stays on the server. This does not print join codes
+    or roster names.
+
+    Args:
+        path: Sqlite path the dev server uses.
+        origin: Loopback LMS origin.
+
+    Returns:
+        ``class_id``, ``session_id``, ``live_item_id``, and ``teacher_url``.
+    """
+    school = _mck208_school(path)
+    class_id = shawn_class_id(path)
+    teacher = school.get_user_by_email(SHAWN_EMAIL)
+    if teacher is None:
+        raise SystemExit("Shawn staff user missing. Run with --seed first.")
+    primary = school.game.find_student_by_codename(class_id, "Maple")
+    partner = school.game.find_student_by_codename(class_id, "Cedar")
+    if primary is None or partner is None:
+        raise SystemExit("Demo roster missing. Run with --seed first.")
+    _mck208_end_active_live(school, class_id)
+    try:
+        school.game.end_game(class_id)
+    except (KeyError, ValueError):
+        pass
+    school.game.clear_team_lock(class_id)
+    live = school.start_live_class_session(class_id, int(teacher["id"]))
+    session_id = int(live["id"])
+    school.set_live_session_teacher_state(
+        session_id,
+        stage="round",
+        live_module="M1",
+        live_slot="C1",
+        page_id="round_1",
+        class_set=True,
+    )
+    school.game.begin_game(class_id)
+    primary_id = int(primary["id"])
+    partner_id = int(partner["id"])
+    school.setup_live_session_groups(
+        session_id,
+        n_teams=2,
+        mode="manual",
+        present_ids=[primary_id, partner_id],
+        assignments=[
+            {"student_id": primary_id, "team_index": 0},
+            {"student_id": partner_id, "team_index": 1},
+        ],
+    )
+    school.ensure_live_session_items(session_id)
+    placement = school.add_staff_question_to_class_playlist(
+        class_id,
+        "M1",
+        "C1",
+        question_type="rank",
+        text="Rank these representations.",
+        page_number=4,
+        stage="round",
+        options=["A graph", "A table", "An equation", "Two points"],
+        rank_key=[0, 1, 2, 3],
+    )
+    items = school.ensure_live_session_items(session_id)
+    row = next(item for item in items if item["item_id"] == placement["item_id"])
+    live_item_id = int(row["id"])
+    school.update_live_session_item_settings(
+        session_id,
+        live_item_id,
+        group_rank_mode="together",
+        publish_mode="group_submit",
+    )
+    base = assert_loopback(origin if "://" in origin else f"http://{origin}").rstrip("/")
+    return {
+        "class_id": class_id,
+        "session_id": session_id,
+        "live_item_id": live_item_id,
+        "student_id": primary_id,
+        "teacher_url": f"{base}/staff/class/{class_id}?tab=ap&view=engagement",
+    }
+
+
+def _mck293_arm(path: Path, origin: str, meta: dict[str, int | str]) -> dict[str, int | str]:
+    """Publish the rank, place every spot but the last, and return a visit URL.
+
+    The last spot is left open so Check our ranking scores an unsent draft.
+    The visit URL is for the browser only.
+
+    Args:
+        path: Sqlite path the dev server uses.
+        origin: Loopback LMS origin.
+        meta: Ids from :func:`prepare_mck293`.
+    """
+    sys.path.insert(0, str(LMS_DIR))
+    os.environ["LLOVES_DB"] = str(path)
+    os.environ["LOCAL_DEV_LOGIN"] = "1"
+    from app import create_app
+
+    app = create_app(db_path=path, testing=True)
+    school = app.config["SCHOOL_DB"]
+    session_id = int(meta["session_id"])
+    live_item_id = int(meta["live_item_id"])
+    class_id = int(meta["class_id"])
+    try:
+        _mck281_seat_on_team(school, class_id)
+        school.publish_live_session_item(session_id, live_item_id, publish_mode="group_submit")
+        item = school.get_live_session_item(session_id, live_item_id)
+        order = [str(opt) for opt in (school._rank_race_key(item) or [])]
+        if len(order) < 2:
+            raise SystemExit("rank question has no answer order")
+        student_id = int(meta["student_id"])
+        for option_id in order[:-1]:
+            school.rank_turn_place(
+                session_id, live_item_id, student_id, option_id=option_id
+            )
+        live = school.get_live_session(session_id)
+        student = school.game.find_student_by_codename(class_id, "Maple")
+        if student is None or live is None:
+            raise SystemExit("Demo roster missing. Run with --seed first.")
+        client = app.test_client()
+        client.post(
+            "/auth/student-code",
+            data={"code": str(live.get("session_code") or ""), "name": "Maple"},
+            follow_redirects=True,
+        )
+        client.post("/student/mood", data={"mood": "good"}, follow_redirects=True)
+        client.post("/student/character", data={"character": "fox"}, follow_redirects=True)
+        attendees = school.list_live_session_attendees(session_id)
+        visit = str(next(row["visit_token"] for row in attendees if row.get("codename") == "Maple"))
+    finally:
+        school.close()
+    base = assert_loopback(origin if "://" in origin else f"http://{origin}").rstrip("/")
+    return {
+        "visit": f"{base}/student/s/{visit}",
+        "last_option_id": order[-1],
+    }
+
+
+def _mck293_finish(path: Path, meta: dict[str, int | str], last_option_id: str) -> None:
+    """Send the checked rank, send a second rank with no check, then End.
+
+    The first send used the check, so it stores 1. The second matches the
+    answer order with no check, so it stores 2. Catch-up is not offered
+    the check.
+
+    Args:
+        path: Sqlite path the dev server uses.
+        meta: Ids from :func:`prepare_mck293`.
+        last_option_id: The unsent last spot of the checked rank.
+    """
+    sys.path.insert(0, str(LMS_DIR))
+    os.environ["LLOVES_DB"] = str(path)
+    os.environ["LOCAL_DEV_LOGIN"] = "1"
+    from app import create_app
+
+    app = create_app(db_path=path, testing=True)
+    school = app.config["SCHOOL_DB"]
+    session_id = int(meta["session_id"])
+    class_id = int(meta["class_id"])
+    student_id = int(meta["student_id"])
+    try:
+        school.rank_turn_place(
+            session_id,
+            int(meta["live_item_id"]),
+            student_id,
+            option_id=last_option_id,
+        )
+        placement = school.add_staff_question_to_class_playlist(
+            class_id,
+            "M1",
+            "C1",
+            question_type="rank",
+            text="Rank these representations again.",
+            page_number=5,
+            stage="round",
+            options=["A graph", "A table", "An equation", "Two points"],
+            rank_key=[0, 1, 2, 3],
+        )
+        items = school.ensure_live_session_items(session_id)
+        row = next(item for item in items if item["item_id"] == placement["item_id"])
+        second_id = int(row["id"])
+        school.update_live_session_item_settings(
+            session_id,
+            second_id,
+            group_rank_mode="together",
+            publish_mode="group_submit",
+        )
+        school.publish_live_session_item(session_id, second_id, publish_mode="group_submit")
+        second = school.get_live_session_item(session_id, second_id)
+        order = [str(opt) for opt in (school._rank_race_key(second) or [])]
+        if len(order) < 2:
+            raise SystemExit("second rank has no answer order")
+        for option_id in order:
+            school.rank_turn_place(session_id, second_id, student_id, option_id=option_id)
+        dash = school.student_dashboard_payload(class_id, student_id)
+        module = str(dash.get("current_module") or "M1")
+        school.set_live_session_teacher_state(
+            session_id, live_module=module, live_slot="C1", stage="round"
+        )
+        school.close_live_class_for_celebration(class_id)
+    finally:
+        school.close()
+
+
+def _mck293_hide_people(page) -> None:
+    """Hide roster names and the document title before a points screenshot."""
+    page.evaluate(
+        """() => {
+          const style = document.createElement("style");
+          style.textContent = [
+            ".sd-codename, .ap-engagement-name, #me-name { font-size: 0 !important; color: transparent !important; }",
+            ".ap-engagement-override { display: none !important; }",
+          ].join("");
+          document.head.appendChild(style);
+          document.title = "Class";
+        }"""
+    )
+
+
+def shoot_mck293(base: str, state_path: Path, out_dir: Path, path: Path) -> list[Path]:
+    """MCK-293: check count, student group points, teacher group points.
+
+    Shots hide roster names. The check line is a count only.
+
+    Args:
+        base: Loopback LMS origin.
+        state_path: Shawn's Playwright storageState.
+        out_dir: Artifact directory.
+        path: LMS sqlite path.
+
+    Returns:
+        PNG paths.
+    """
+    from playwright.sync_api import sync_playwright
+
+    meta = prepare_mck293(path, base)
+    armed = _mck293_arm(path, base, meta)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    origin = assert_loopback(base if "://" in base else f"http://{base}").rstrip("/")
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        student = browser.new_context(viewport={"width": 390, "height": 900})
+        phone = student.new_page()
+        try:
+            phone.goto(str(armed["visit"]), wait_until="domcontentloaded", timeout=60000)
+            phone.locator("[data-rank-check]").wait_for(state="visible", timeout=30000)
+            phone.locator("[data-rank-check]").click()
+            phone.locator(".rank-check-result").wait_for(state="visible", timeout=15000)
+        except Exception:
+            raise SystemExit("check feedback did not appear") from None
+        feedback = phone.locator(".rank-check-result").inner_text()
+        if "in the right spot" not in feedback:
+            raise SystemExit("check feedback was not a count")
+        if phone.locator("[data-rank-check]").count():
+            raise SystemExit("check stayed available after one use")
+        _mck281_blank_identity(phone)
+        phone.wait_for_timeout(400)
+        check_shot = out_dir / "mck293-check-feedback-390.png"
+        _mck281_shot(phone.locator("#live-response"), check_shot)
+        written.append(check_shot)
+
+        _mck293_finish(path, meta, str(armed["last_option_id"]))
+        try:
+            phone.goto(f"{origin}/student/dashboard", wait_until="domcontentloaded", timeout=60000)
+            phone.locator("#sd-group-engagement").wait_for(state="visible", timeout=30000)
+        except Exception:
+            raise SystemExit("student dashboard did not show group points") from None
+        points = phone.locator("#sd-group-engagement").inner_text().strip()
+        if points in {"", "0/0"}:
+            raise SystemExit("student dashboard group points were empty")
+        _mck293_hide_people(phone)
+        phone.wait_for_timeout(300)
+        dash_shot = out_dir / "mck293-student-dashboard-390.png"
+        phone.screenshot(path=str(dash_shot), full_page=True)
+        written.append(dash_shot)
+        student.close()
+
+        context = browser.new_context(
+            storage_state=str(state_path), viewport={"width": 1280, "height": 900}
+        )
+        page = context.new_page()
+        try:
+            page.goto(str(meta["teacher_url"]), wait_until="domcontentloaded", timeout=60000)
+            page.locator("body.staff-shell").wait_for(state="attached", timeout=30000)
+            page.get_by_text("Group engagement").first.wait_for(state="visible", timeout=30000)
+        except Exception:
+            raise SystemExit("teacher engagement view did not show group points") from None
+        _mck293_hide_people(page)
+        page.wait_for_timeout(300)
+        teacher_shot = out_dir / "mck293-teacher-engagement-1280.png"
+        page.screenshot(path=str(teacher_shot), full_page=True)
+        written.append(teacher_shot)
+        context.close()
+        browser.close()
+    return written
+
+
 def prepare_mck289(path: Path) -> int:
     """Show one open catch-up, one closed, and unrun rows as none.
 
@@ -4370,6 +4668,7 @@ def main(argv: list[str] | None = None) -> int:
             "mck290",
             "mck280",
             "mck291",
+            "mck293",
         ),
         default="",
         help=(
@@ -4381,7 +4680,8 @@ def main(argv: list[str] | None = None) -> int:
             "MCK-275 End Class and Quit, MCK-249 teacher course tabs, "
             "MCK-281 Take turns rank, MCK-289 catch-up column, "
             "MCK-290 ended class on Lesson Slides, "
-            "MCK-280 whiteboard fixes, or MCK-291 Set Class calendar."
+            "MCK-280 whiteboard fixes, MCK-291 Set Class calendar, "
+            "or MCK-293 group rank check and group engagement points."
         ),
     )
     args = parser.parse_args(argv)
@@ -4466,6 +4766,8 @@ def main(argv: list[str] | None = None) -> int:
             written.extend(shoot_mck280(args.base, out, path, state))
         if args.scenario == "mck291":
             written.extend(shoot_mck291(args.base, state, out, path))
+        if args.scenario == "mck293":
+            written.extend(shoot_mck293(args.base, state, out, path))
         if args.url:
             widths = [int(part) for part in args.widths.split(",") if part.strip()]
             written.extend(
@@ -4483,7 +4785,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Pass --url and/or --scenario "
                 "catchup|mck62-quiet-dots|engagement-override|mck207|mck207-run-toggle|"
                 "mck208|mck218|avatar-reward|mck216|mck220|mck230|mck215|mck222|mck219|"
-                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291."
+                "mck217-student-view|mck242|mck272|mck273|mck275|mck249|mck281|mck289|mck290|mck280|mck291|mck293."
             )
         for item in written:
             print(item)
