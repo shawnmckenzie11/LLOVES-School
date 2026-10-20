@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import base64
+import hmac
 import ipaddress
 import json
 import os
-import random
 import secrets
 import urllib.parse
 from datetime import date, datetime
@@ -88,6 +88,10 @@ STUDENT_JOIN_LOCKED_MSG = "Too many attempts. Try again in a few minutes."
 
 VERIFY_SEND_COOLDOWN_SEC = 15 * 60
 VERIFY_RESEND_COOLDOWN_SEC = 90
+# Wrong guesses on /verify-email before the code is refused, even if it matches.
+VERIFY_MAX_GUESSES = 5
+# A staff sign-in code stops working this long after it was issued.
+VERIFY_CODE_TTL_SEC = 10 * 60
 
 
 def _env_flag(name: str) -> bool:
@@ -268,6 +272,36 @@ def _verification_age_seconds(user: dict[str, Any]) -> float | None:
     except ValueError:
         return None
     return max(0.0, (datetime.now() - sent).total_seconds())
+
+
+def _verification_code_expired(user: dict[str, Any]) -> bool:
+    """True when the stored sign-in code is missing a stamp or past its TTL.
+
+    Args:
+        user: Allowlisted user row.
+    """
+    age = _verification_age_seconds(user)
+    if age is None:
+        return True
+    return age >= VERIFY_CODE_TTL_SEC
+
+
+def _secret_equal(stored: object, presented: object) -> bool:
+    """Constant-time equality for OAuth state and the staff sign-in code.
+
+    Empty values never match. Both sides are compared with
+    ``hmac.compare_digest`` so a mismatch does not stop at the first
+    differing character.
+
+    Args:
+        stored: Value saved on the session or user row.
+        presented: Value from the request.
+    """
+    left = str(stored or "")
+    right = str(presented or "")
+    if not left or not right:
+        return False
+    return hmac.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
 
 
 
@@ -1016,7 +1050,7 @@ def register_auth_routes(app: Flask) -> None:
                 redirect_uri=_google_redirect_uri(),
             ), 503
 
-        state = f"{random.randint(100000, 999999)}"
+        state = secrets.token_urlsafe(32)
         session["google_oauth_state"] = state
         params = {
             "client_id": google_client_id(),
@@ -1079,7 +1113,7 @@ def register_auth_routes(app: Flask) -> None:
         code = request.args.get("code")
         state = request.args.get("state")
         stored_state = session.pop("google_oauth_state", None)
-        if not code or (stored_state and state != stored_state):
+        if not code or not _secret_equal(stored_state, state):
             return render_template(
                 "forbidden.html",
                 message="Google authentication failed: state mismatch.",
@@ -1143,13 +1177,23 @@ def register_auth_routes(app: Flask) -> None:
         error = None
         info = None
         if request.method == "POST":
+            attempts = int(user.get("verification_attempts") or 0)
             entered = (request.form.get("code") or "").strip()
-            if entered and entered == str(user.get("verification_code") or ""):
+            if attempts >= VERIFY_MAX_GUESSES:
+                error = "Too many attempts. Use Resend code."
+            elif _verification_code_expired(user):
+                error = "That code has expired. Use Resend code."
+            elif _secret_equal(user.get("verification_code"), entered):
                 user = db.mark_verified(int(user["id"]))
                 portal = session.get("pending_portal") or "staff"
                 establish_user_session(user, portal=portal)
                 return _post_login_redirect(portal)
-            error = "Invalid verification code. Please try again."
+            else:
+                attempts = db.record_verification_failure(int(user["id"]))
+                if attempts >= VERIFY_MAX_GUESSES:
+                    error = "Too many attempts. Use Resend code."
+                else:
+                    error = "Invalid verification code. Please try again."
             user = db.get_user_by_id(int(user["id"])) or user
 
         sent_raw = request.args.get("sent")
@@ -1228,7 +1272,7 @@ def register_auth_routes(app: Flask) -> None:
             ), 503
         from live_class_slides import slides_oauth_url
 
-        state = f"{random.randint(100000, 999999)}"
+        state = secrets.token_urlsafe(32)
         session["slides_oauth_state"] = state
         return redirect(
             slides_oauth_url(
@@ -1262,7 +1306,7 @@ def register_auth_routes(app: Flask) -> None:
         code = request.args.get("code")
         state = request.args.get("state")
         stored_state = session.pop("slides_oauth_state", None)
-        if not code or (stored_state and state != stored_state):
+        if not code or not _secret_equal(stored_state, state):
             return render_template(
                 "forbidden.html",
                 message="Google Slides connect failed: state mismatch.",

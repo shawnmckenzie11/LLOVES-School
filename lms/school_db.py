@@ -454,6 +454,7 @@ CREATE TABLE IF NOT EXISTS users (
     verified_at TEXT,
     verification_code TEXT,
     verification_sent_at TEXT,
+    verification_attempts INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     last_login_at TEXT,
     archived_at TEXT
@@ -3451,6 +3452,10 @@ class LovesDB:
             self.conn.execute("ALTER TABLE users ADD COLUMN archived_at TEXT")
         if "verification_sent_at" not in cols:
             self.conn.execute("ALTER TABLE users ADD COLUMN verification_sent_at TEXT")
+        if "verification_attempts" not in cols:
+            self.conn.execute(
+                "ALTER TABLE users ADD COLUMN verification_attempts INTEGER NOT NULL DEFAULT 0"
+            )
 
     def _ensure_gradebook_schema(self) -> None:
         """Create per-class grade category weight storage (editable later).
@@ -5621,17 +5626,48 @@ class LovesDB:
         return self.get_user(user_id) or {}
 
     def set_verification_code(self, user_id: int, code: str) -> None:
-        """Store a first-login email code and when it was issued."""
+        """Store a first-login email code and when it was issued.
+
+        A newly issued code clears the wrong-guess count.
+        """
         with self._lock:
             self.conn.execute(
                 """
                 UPDATE users
-                SET verification_code = ?, verification_sent_at = ?
+                SET verification_code = ?, verification_sent_at = ?,
+                    verification_attempts = 0
                 WHERE id = ?
                 """,
                 (code, _now(), user_id),
             )
             self.conn.commit()
+
+    def record_verification_failure(self, user_id: int) -> int:
+        """Count one wrong /verify-email guess.
+
+        Args:
+            user_id: Users primary key.
+
+        Returns:
+            The guess count after this failure.
+        """
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE users
+                SET verification_attempts = COALESCE(verification_attempts, 0) + 1
+                WHERE id = ?
+                """,
+                (int(user_id),),
+            )
+            self.conn.commit()
+            row = self.conn.execute(
+                "SELECT verification_attempts FROM users WHERE id = ?",
+                (int(user_id),),
+            ).fetchone()
+        if row is None:
+            return 0
+        return int(row["verification_attempts"] or 0)
 
     def mark_verified(self, user_id: int) -> dict[str, Any]:
         """Clear the email code and stamp verified_at."""
