@@ -2,10 +2,10 @@
 """Build a slim Common Cartridge for IT course assignment.
 
 Reads a Canvas ``.imscc`` and writes a new archive that keeps the manifest,
-module metadata, QTI banks, quiz metadata, wiki pages, assignment folders,
-and every file those members reference. Learning outcomes, rubrics,
-assignment groups, and unreferenced media are dropped. Members are stored
-at the zip root.
+module metadata, QTI banks, quiz metadata, wiki pages, and referenced images
+(including ``Uploaded Media`` paths and images with no extension).
+Learning outcomes, rubrics, assignment groups, PDFs, documents, and video
+are dropped. Members are stored at the zip root.
 
 Usage::
 
@@ -33,7 +33,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         argv: Argument list, or None to read the process arguments.
     """
     parser = argparse.ArgumentParser(
-        description="Write a slim .imscc with banks, outline, and referenced files."
+        description="Write a slim .imscc with banks, outline, and referenced images."
     )
     parser.add_argument("--imscc", type=Path, required=True, help="Source .imscc or .zip")
     parser.add_argument("--out", type=Path, required=True, help="Destination .imscc path")

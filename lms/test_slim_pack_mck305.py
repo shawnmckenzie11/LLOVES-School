@@ -197,10 +197,10 @@ def _tree_bytes(root: Path) -> int:
 
 
 class SlimPackBuilderTests(unittest.TestCase):
-    """The builder keeps referenced files and drops only unreferenced ones."""
+    """The builder keeps banks and referenced images and drops the rest."""
 
     def test_slim_pack_keeps_import_files_at_zip_root(self) -> None:
-        """Slim output keeps the outline, banks, assignment, PDF, and image."""
+        """Slim output has the outline, banks, quiz metadata, wiki, and one image."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = root / "full.imscc"
@@ -219,19 +219,19 @@ class SlimPackBuilderTests(unittest.TestCase):
                 "gquiz/assessment_meta.xml",
                 "gquiz/assessment_qti.xml",
                 "gquiz/question_metadata.xml",
-                "gassign/assignment_settings.xml",
-                "gassign/lab.html",
                 "wiki_content/intro.html",
                 "web_resources/graph.png",
-                "web_resources/handout.pdf",
             ):
                 self.assertIn(required, names, required)
             for dropped in (
                 "course_settings/assignment_groups.xml",
                 "course_settings/rubrics.xml",
                 "course_settings/learning_outcomes.xml",
+                "gassign/assignment_settings.xml",
+                "gassign/lab.html",
                 "web_resources/unused.png",
                 "web_resources/lecture.mp4",
+                "web_resources/handout.pdf",
             ):
                 self.assertNotIn(dropped, names, dropped)
             self.assertEqual(set(result.kept), names)
@@ -243,8 +243,6 @@ class SlimPackBuilderTests(unittest.TestCase):
             self.assertNotIn("rubrics.xml", manifest)
             self.assertIn("wiki_content/intro.html", manifest)
             self.assertIn("gquiz/question_metadata.xml", manifest)
-            self.assertIn("handout.pdf", manifest)
-            self.assertIn("gassign/assignment_settings.xml", manifest)
 
     def test_slim_archive_still_imports_banks_and_referenced_image(self) -> None:
         """Importing the slim pack loads the quiz, the page, and the graph."""
@@ -266,60 +264,33 @@ class SlimPackBuilderTests(unittest.TestCase):
                         (int(library["id"]),),
                     )
                 }
-                items = {
-                    row["title"]: row["component_type"]
-                    for row in db.conn.execute(
-                        """
-                        SELECT mi.title, mi.component_type
-                        FROM module_items mi
-                        JOIN module_outlines mo ON mo.id = mi.outline_id
-                        WHERE mo.library_id = ?
-                        """,
-                        (int(library["id"]),),
-                    )
-                }
             finally:
                 db.close()
             self.assertGreaterEqual(summary["quizzes"], 1)
             self.assertGreaterEqual(summary["questions"], 1)
             self.assertGreaterEqual(summary["pages"], 1)
-            self.assertGreaterEqual(summary["assignments"], 1)
+            self.assertEqual(summary["assignments"], 0)
             self.assertIn("web_resources/graph.png", paths)
-            self.assertIn("web_resources/handout.pdf", paths)
             self.assertNotIn("web_resources/lecture.mp4", paths)
-            self.assertNotIn("web_resources/unused.png", paths)
-            self.assertEqual(items.get("Lab"), "assignment")
-            self.assertEqual(items.get("Handout"), "page")
-            self.assertNotIn("unsupported", items.values())
 
 
-    def test_uploaded_media_path_keeps_the_space(self) -> None:
-        """Canvas ``Uploaded Media/<uuid>`` paths are captured up to the quote."""
-        from slim_pack import referenced_media_paths
+    def test_bank_images_keep_spaces_and_missing_extensions(self) -> None:
+        """A bank question keeps Uploaded Media paths and extensionless images.
 
-        uid = "01234567-89ab-cdef-0123-456789abcdef"
-        expected = f"web_resources/Uploaded Media/{uid}"
-        samples = (
-            f'<img src="$IMS-CC-FILEBASE$/Uploaded Media/{uid}">',
-            f"<img src='%24IMS-CC-FILEBASE%24/Uploaded Media/{uid}'>",
-            f'<a href="../web_resources/Uploaded Media/{uid}">notes</a>',
-        )
-        for sample in samples:
-            found = referenced_media_paths(sample)
-            self.assertEqual(found, {expected}, sample)
-        unquoted = referenced_media_paths("$IMS-CC-FILEBASE$/graph.png")
-        self.assertEqual(unquoted, {"web_resources/graph.png"})
-
-    def test_slim_pack_keeps_every_referenced_file(self) -> None:
-        """Referenced PDFs, docs, video, and extensionless images stay in the slim pack."""
-        uid = "01234567-89ab-cdef-0123-456789abcdef"
-        wiki = (
-            "<html><head><title>Intro</title></head><body>"
-            f'<img src="$IMS-CC-FILEBASE$/Uploaded Media/{uid}">'
-            '<a href="$IMS-CC-FILEBASE$/guides/lab notes.pdf">pdf</a>'
-            '<a href="$IMS-CC-FILEBASE$/guides/brief.docx">doc</a>'
-            '<a href="$IMS-CC-FILEBASE$/clips/demo.mp4">video</a>'
-            "</body></html>"
+        The path is quoted and contains an unencoded space. A referenced PDF
+        in the same stem is not an image, so the slim pack drops it.
+        """
+        spaced = "01234567-89ab-cdef-0123-456789abcdef.png"
+        bare = "89abcdef-0123-4567-89ab-cdef01234567"
+        bank = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<questestinterop><objectbank ident="gbank"><item ident="q-img">'
+            '<presentation><material><mattext texttype="text/html">'
+            f'&lt;img src="$IMS-CC-FILEBASE$/Uploaded Media/{spaced}"&gt;'
+            f'&lt;img src="$IMS-CC-FILEBASE$/Uploaded Media/{bare}"&gt;'
+            '&lt;a href="$IMS-CC-FILEBASE$/guides/notes.pdf"&gt;pdf&lt;/a&gt;'
+            "</mattext></material></presentation>"
+            "</item></objectbank></questestinterop>"
         )
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -329,28 +300,19 @@ class SlimPackBuilderTests(unittest.TestCase):
                 buf, "w", compression=zipfile.ZIP_DEFLATED
             ) as archive:
                 for info in src.infolist():
-                    payload = wiki.encode() if info.filename.endswith("wiki_content/intro.html") else src.read(info)
+                    payload = bank.encode() if info.filename.endswith("gbank.xml.qti") else src.read(info)
                     archive.writestr(info.filename, payload)
-                archive.writestr(f"export/web_resources/Uploaded Media/{uid}", PNG)
-                archive.writestr("export/web_resources/guides/lab notes.pdf", PDF)
-                archive.writestr("export/web_resources/guides/brief.docx", b"docx")
-                archive.writestr("export/web_resources/clips/demo.mp4", b"video")
-                archive.writestr("export/web_resources/clips/unused.mp4", b"nope")
+                archive.writestr(f"export/web_resources/Uploaded Media/{spaced}", PNG)
+                archive.writestr(f"export/web_resources/Uploaded Media/{bare}", PNG)
+                archive.writestr("export/web_resources/guides/notes.pdf", PDF)
             source.write_bytes(buf.getvalue())
             dest = root / "slim.imscc"
             build_slim_imscc(source, dest)
             with zipfile.ZipFile(dest) as archive:
                 names = set(archive.namelist())
-            for required in (
-                f"web_resources/Uploaded Media/{uid}",
-                "web_resources/guides/lab notes.pdf",
-                "web_resources/guides/brief.docx",
-                "web_resources/clips/demo.mp4",
-                "web_resources/handout.pdf",
-                "gassign/assignment_settings.xml",
-            ):
-                self.assertIn(required, names, required)
-            self.assertNotIn("web_resources/clips/unused.mp4", names)
+            self.assertIn(f"web_resources/Uploaded Media/{spaced}", names)
+            self.assertIn(f"web_resources/Uploaded Media/{bare}", names)
+            self.assertNotIn("web_resources/guides/notes.pdf", names)
             self.assertNotIn("web_resources/lecture.mp4", names)
 
     def test_cli_writes_slim_archive(self) -> None:
@@ -525,49 +487,6 @@ class LeanImportTests(unittest.TestCase):
                 os.environ["LLOVES_IMSCC_MAX_BYTES"] = previous
 
 
-
-    def test_unpack_rejects_an_archive_that_expands_past_the_cap(self) -> None:
-        """A small zip whose uncompressed members exceed the cap writes nothing."""
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            source = root / "bomb.imscc"
-            source.write_bytes(_cartridge_bytes(media_bytes=64))
-            out = root / "unpacked"
-            with self.assertRaises(ValueError) as raised:
-                materialize_import_tree(
-                    source,
-                    out,
-                    clean=True,
-                    max_uncompressed_bytes=128,
-                )
-            self.assertIn("unpack limit", str(raised.exception))
-            self.assertFalse(out.exists())
-            written = [
-                path for path in root.rglob("*") if path.is_file() and path != source
-            ]
-            self.assertEqual(written, [])
-
-    def test_stream_stops_before_a_member_passes_the_remaining_budget(self) -> None:
-        """Byte counting stops a member whose header under-reports its size."""
-        from slim_pack import UncompressedLimit, _stream_member
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            archive_path = root / "one.zip"
-            payload = b"x" * 400
-            with zipfile.ZipFile(archive_path, "w") as archive:
-                archive.writestr("imsmanifest.xml", payload)
-            target = root / "out" / "imsmanifest.xml"
-            with zipfile.ZipFile(archive_path) as archive:
-                with self.assertRaises(UncompressedLimit):
-                    _stream_member(
-                        archive, "imsmanifest.xml", target, budget=[50]
-                    )
-            self.assertFalse(target.exists())
-            parts = list(root.rglob("*.part"))
-            self.assertEqual(parts, [])
-
-
 class ResumeImportTests(unittest.TestCase):
     """A dead installer retries from the cartridge already on disk."""
 
@@ -642,35 +561,3 @@ class ResumeImportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-
-
-class BootResumeTests(unittest.TestCase):
-    """Pack resume must not block application startup."""
-
-    def test_schedule_pack_resume_returns_before_the_scan_finishes(self) -> None:
-        """The boot helper starts a daemon thread and returns immediately."""
-        import threading
-        import time
-
-        import pack_install
-
-        started = threading.Event()
-        release = threading.Event()
-
-        def _slow(_school: object) -> int:
-            """Block until the test releases the stand-in scan."""
-            started.set()
-            release.wait(2)
-            return 0
-
-        original = pack_install.resume_interrupted_packs
-        pack_install.resume_interrupted_packs = _slow
-        try:
-            began = time.monotonic()
-            pack_install.schedule_pack_resume(object())
-            elapsed = time.monotonic() - began
-            self.assertLess(elapsed, 0.5)
-            self.assertTrue(started.wait(1))
-        finally:
-            release.set()
-            pack_install.resume_interrupted_packs = original

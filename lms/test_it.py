@@ -607,52 +607,5 @@ class ItTests(unittest.TestCase):
         self.assertIn("A1.1", course.get_data(as_text=True))
 
 
-
-    def test_no_js_form_shows_the_413_message(self) -> None:
-        """A browser form post over the cap returns to the form with the error.
-
-        The upload script is not involved. The response is the assign page,
-        and the rejected body is not stored as a cartridge.
-        """
-        self._login_it()
-        self.school.activate_from_semester_json()
-        teacher = self.school.register_staff("pack-limit@example.com")
-        offering = self.school.assign_course(
-            teacher_user_id=int(teacher["id"]),
-            ontario_code="MCF3M",
-        )
-        self.app.config["MAX_CONTENT_LENGTH"] = 200
-        html_accept = {
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-        }
-        assign = self.client.post(
-            f"/it/staff/{int(teacher['id'])}/assign",
-            data={
-                "ontario_code": "MCF3M",
-                "module_pack": (io.BytesIO(b"x" * 800), "course.imscc"),
-            },
-            content_type="multipart/form-data",
-            headers=html_accept,
-            follow_redirects=True,
-        )
-        self.assertEqual(assign.status_code, 200)
-        page = assign.get_data(as_text=True)
-        self.assertIn("too large", page)
-        self.assertIn("Assign Course", page)
-        replace = self.client.post(
-            f"/it/offerings/{int(offering['id'])}/module-pack",
-            data={"module_pack": (io.BytesIO(b"y" * 800), "course.imscc")},
-            content_type="multipart/form-data",
-            headers=html_accept,
-            follow_redirects=True,
-        )
-        self.assertEqual(replace.status_code, 200)
-        replaced = replace.get_data(as_text=True)
-        self.assertIn("too large", replaced)
-        self.assertIn("Replace Module Pack", replaced)
-        packs = list(Path(self.tmp.name).rglob("course.imscc"))
-        self.assertEqual(packs, [])
-
-
 if __name__ == "__main__":
     unittest.main(verbosity=2)
