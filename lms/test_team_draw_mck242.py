@@ -127,6 +127,12 @@ class TeamDrawTests(unittest.TestCase):
 
     def test_builtin_prompts_and_exclusion_helper(self) -> None:
         self.assertEqual(len(BUILTIN_PROMPTS), 4)
+        mystery = next(row for row in BUILTIN_PROMPTS if row["id"] == "mystery_rule")
+        self.assertEqual(
+            mystery["text"],
+            "Mystery rule: write the rule on the board with the Text tool after you draw step 4.",
+        )
+        self.assertNotIn("title box", mystery["text"])
         exclude_participation_answer_student_ids(self.class_id, self.school)
 
     def test_submit_stores_title_not_in_snapshot_on_test_run(self) -> None:

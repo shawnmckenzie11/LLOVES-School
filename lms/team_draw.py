@@ -24,7 +24,7 @@ BUILTIN_PROMPTS: tuple[dict[str, str], ...] = (
     {
         "id": "mystery_rule",
         "label": "Mystery rule",
-        "text": "Mystery rule: name the rule in the title box after you draw step 4.",
+        "text": "Mystery rule: write the rule on the board with the Text tool after you draw step 4.",
     },
     {
         "id": "finish_pattern",
