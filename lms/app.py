@@ -12497,10 +12497,15 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/classes/<int:class_id>/game/end", methods=["POST"])
     @login_required
     def api_end(class_id: int):
-        """End the live game; tear down live-class session unless preserved."""
+        """End the live game and save the live class unless it is preserved.
+
+        Scoring-panel End Class is a real End: participation, catch-up,
+        and the Lesson Slides row. IT force-end and ``/game/cancel`` do
+        not use this route.
+        """
 
         def run(body):
-            """Apply End Game then optionally invalidate the ephemeral join code."""
+            """Apply End Game, then save the live class unless preserved."""
             chosen = _optional_date(body.get("meeting_date"))
             # MCK-171: a Team challenge never stepped to its points pays
             # before the game day closes.
@@ -12508,7 +12513,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             result = school.game.end_game(class_id, meeting_date=chosen)
             preserve = bool((body or {}).get("preserve_live_session"))
             if not preserve:
-                ended = school.end_active_live_sessions_for_class(class_id)
+                ended = school.end_active_live_sessions_for_class(
+                    class_id, record_participation=True
+                )
                 result["live_sessions_ended"] = [row["id"] for row in ended]
             else:
                 result["live_sessions_ended"] = []

@@ -789,5 +789,215 @@ class EndedLessonSlidesTests(EndLiveToggleTests):
         self.assertEqual(row["status_label"], "Not in template")
 
 
+    def _leave_one_answer(self, module: str, slot: str) -> int:
+        """Start a class, publish one question, and store one roster answer.
+
+        The session stays active so a route can end it.
+
+        Args:
+            module: Teacher module, such as ``M4``.
+            slot: Teacher slot, such as ``C1``.
+
+        Returns:
+            ``live_class_sessions.id``.
+        """
+        live = self.school.start_live_class_session(
+            self.class_id, int(self.teacher["id"])
+        )
+        sid = int(live["id"])
+        now = "2026-10-19T18:05:00"
+        self.school.conn.execute(
+            """
+            UPDATE live_class_sessions
+            SET teacher_state_json = ?, started_at = ?
+            WHERE id = ?
+            """,
+            (json.dumps({"live_module": module, "live_slot": slot}), now, sid),
+        )
+        prompt_id = self.school.conn.execute(
+            """
+            INSERT INTO live_session_prompts (
+                live_session_id, slide_index, kind, payload, created_at, updated_at
+            ) VALUES (?, 1, 'poll', ?, ?, ?)
+            """,
+            (
+                sid,
+                json.dumps({"text": "q0", "type": "mc", "options": [{"text": "A"}]}),
+                now,
+                now,
+            ),
+        ).lastrowid
+        self.school.conn.execute(
+            """
+            INSERT INTO live_session_items (
+                live_session_id, placement_key, item_id, stage, kind, item_json,
+                prompt_id, status, publish_mode, response_mode, published_at,
+                created_at, updated_at
+            ) VALUES (?, 'q0', 'q0', 'round', 'poll', ?, ?, 'closed',
+                      'individual', 'individual', ?, ?, ?)
+            """,
+            (
+                sid,
+                json.dumps(
+                    {
+                        "text": "q0",
+                        "type": "mc",
+                        "options": [{"text": "A"}],
+                        "correct_answer": "A",
+                        "key": "A",
+                    }
+                ),
+                int(prompt_id),
+                now,
+                now,
+                now,
+            ),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO live_session_responses (
+                prompt_id, student_id, response_json, created_at, updated_at
+            ) VALUES (?, ?, '{}', ?, ?)
+            """,
+            (int(prompt_id), int(self.students[0]), now, now),
+        )
+        self.school.conn.commit()
+        return sid
+
+    def _open_scoring_game(self) -> None:
+        """Open the scoring game and mark it live so ``/game/end`` accepts it."""
+        self.school.game.begin_game(self.class_id)
+        self.school.game.conn.execute(
+            """
+            UPDATE games
+            SET status = 'live'
+            WHERE class_id = ? AND status != 'ended'
+            """,
+            (self.class_id,),
+        )
+        self.school.game.conn.commit()
+
+    def _saved_answer_count(self) -> int:
+        """How many participation answers this class kept for the roster student."""
+        row = self.school.conn.execute(
+            """
+            SELECT COUNT(*) FROM participation_answers
+            WHERE class_id = ? AND student_id = ?
+            """,
+            (self.class_id, int(self.students[0])),
+        ).fetchone()
+        return int(row[0])
+
+    def _live_answer_count(self, session_id: int) -> int:
+        """How many live response rows this session still holds.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        row = self.school.conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM live_session_responses r
+            INNER JOIN live_session_prompts p ON p.id = r.prompt_id
+            WHERE p.live_session_id = ?
+            """,
+            (int(session_id),),
+        ).fetchone()
+        return int(row[0])
+
+    def test_game_end_saves_participation_catchup_and_slides(self) -> None:
+        """POST ``/game/end`` saves participation, catch-up, and Lesson Slides."""
+        sid = self._leave_one_answer("M4", "C3")
+        self._open_scoring_game()
+        resp = self.client.post(
+            f"/api/classes/{self.class_id}/game/end",
+            json={},
+        )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.get_json()
+        self.assertEqual(body.get("live_sessions_ended"), [sid])
+        run = self.school.conn.execute(
+            """
+            SELECT COALESCE(is_real, 0), COALESCE(discarded, 0)
+            FROM participation_runs
+            WHERE class_id = ?
+              AND run_key = (
+                  SELECT run_key FROM live_class_sessions WHERE id = ?
+              )
+            """,
+            (self.class_id, sid),
+        ).fetchone()
+        self.assertIsNotNone(run)
+        self.assertEqual((int(run[0]), int(run[1])), (1, 0))
+        self.assertTrue(self.school.list_catchup_links(self.class_id))
+        latest = self.school.list_lesson_slides_latest(self.class_id)
+        self.assertEqual(
+            [(row["live_module"], row["live_slot"]) for row in latest],
+            [("M4", "C3")],
+        )
+        shown = self._row("M4C3")
+        self.assertTrue(shown["has_run"])
+        self.assertEqual(shown["status_label"], "Delivered")
+        self.assertNotEqual(shown["catchup_access"], "none")
+        self.assertGreaterEqual(self._saved_answer_count(), 1)
+        self.assertEqual(self._live_answer_count(sid), 0)
+
+    def test_failed_end_save_is_retried_by_a_later_force_end(self) -> None:
+        """A failed End keeps answers, and a later force-end saves them."""
+        sid = self._leave_one_answer("M6", "C2")
+
+        def fail_capture(*_args, **_kwargs) -> None:
+            """Simulate the participation save failing after End starts."""
+            raise RuntimeError("participation capture failed")
+
+        original = self.school._capture_participation_unlocked
+        self.school._capture_participation_unlocked = fail_capture
+        try:
+            self.school.finish_live_class(
+                self.class_id, celebrate=True, live_run=True
+            )
+        finally:
+            self.school._capture_participation_unlocked = original
+        status = self.school.conn.execute(
+            "SELECT status FROM live_class_sessions WHERE id = ?",
+            (sid,),
+        ).fetchone()
+        self.assertEqual(str(status["status"]), "ended")
+        self.assertGreaterEqual(self._live_answer_count(sid), 1)
+        self.assertEqual(self._saved_answer_count(), 0)
+        self.assertFalse(self.school.list_catchup_links(self.class_id))
+        self._assert_not_run("M6C2")
+        self.school.end_live_class_session(sid)
+        run = self.school.conn.execute(
+            """
+            SELECT COALESCE(is_real, 0)
+            FROM participation_runs
+            WHERE class_id = ?
+              AND run_key = (
+                  SELECT run_key FROM live_class_sessions WHERE id = ?
+              )
+            """,
+            (self.class_id, sid),
+        ).fetchone()
+        self.assertIsNotNone(run)
+        self.assertEqual(int(run[0]), 1)
+        self.assertTrue(self.school.list_catchup_links(self.class_id))
+        shown = self._row("M6C2")
+        self.assertTrue(shown["has_run"])
+        self.assertEqual(shown["status_label"], "Delivered")
+        self.assertGreaterEqual(self._saved_answer_count(), 1)
+        self.assertEqual(self._live_answer_count(sid), 0)
+
+    def test_force_end_with_an_answer_still_skips_the_save(self) -> None:
+        """IT force-end of an open class does not turn unsaved answers into a run."""
+        sid = self._leave_one_answer("M5", "C4")
+        self.school.end_live_class_session(sid)
+        self._assert_not_run("M5C4")
+        self.assertEqual(self._saved_answer_count(), 0)
+        self.assertEqual(self._live_answer_count(sid), 0)
+        self.assertFalse(self.school.list_catchup_links(self.class_id))
+
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -38370,23 +38370,67 @@ class SchoolDB(LovesDB):
             self.conn.commit()
         return self.live_session_teacher_state_payload(int(session_id))
 
-    def invalidate_live_session_code(self, session_id: int) -> dict[str, Any] | None:
-        """Mark a session ended so its code is no longer joinable.
+    def _unsaved_live_answers_remain(self, session_id: int) -> bool:
+        """True when this session still holds answers End did not save.
 
-        This is not End Class. It does not write a participation run or a
-        Lesson Slides row. Idempotent: already-ended sessions are returned
-        unchanged and a second close does not turn the session into a real run.
+        A failed participation capture keeps ``live_session_responses``
+        and group response rows. Those rows are the only copy of who
+        answered. A later close must see them and retry the save.
 
         Args:
             session_id: ``live_class_sessions.id``.
+
+        Returns:
+            True when an individual or group answer row is still present.
+        """
+        sid = int(session_id)
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT 1
+                FROM live_session_responses r
+                INNER JOIN live_session_prompts p ON p.id = r.prompt_id
+                WHERE p.live_session_id = ?
+                UNION ALL
+                SELECT 1
+                FROM live_group_responses g
+                INNER JOIN live_session_items i ON i.id = g.live_item_id
+                WHERE i.live_session_id = ?
+                LIMIT 1
+                """,
+                (sid, sid),
+            ).fetchone()
+        return row is not None
+
+    def invalidate_live_session_code(
+        self, session_id: int, *, record_participation: bool = False
+    ) -> dict[str, Any] | None:
+        """Mark a session ended so its code is no longer joinable.
+
+        This is not End Class. A first close writes no participation run
+        and no Lesson Slides row unless ``record_participation`` is True,
+        which scoring-panel End Class passes. IT force-end, cancel, and
+        closing the attendance card leave it False.
+
+        An already-ended session retries the save when live answers are
+        still in the response tables (a failed End kept them). A second
+        close with nothing left to save does not create a run.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            record_participation: When True, the first close of an active
+                session saves participation, catch-up, and Lesson Slides.
         """
         session_row = self.get_live_session(session_id)
         if session_row is None:
             return None
         self.release_eyes_up(int(session_id))
         if session_row.get("status") == "ended":
+            # Failed End kept the answers. Retry that save. Do not invent
+            # a run when those rows are already gone.
+            retry_save = self._unsaved_live_answers_remain(int(session_id))
             self.cleanup_live_session_response_data(
-                session_id, record_participation=False
+                session_id, record_participation=retry_save
             )
             if self.presence is not None:
                 self.presence.mark_session_ended(
@@ -38416,20 +38460,27 @@ class SchoolDB(LovesDB):
             )
             self.conn.commit()
         self.cleanup_live_session_response_data(
-            session_id, record_participation=False
+            session_id, record_participation=bool(record_participation)
         )
         if self.presence is not None:
             self.presence.mark_session_ended(int(session_id), ended_value)
         return self.get_live_session(session_id)
 
     def end_live_class_session(
-        self, session_id: int, *, clear_moods: bool = True
+        self,
+        session_id: int,
+        *,
+        clear_moods: bool = True,
+        record_participation: bool = False,
     ) -> dict[str, Any] | None:
         """End a live session, invalidate its code, and optionally wipe moods.
 
         Args:
             session_id: ``live_class_sessions.id``.
             clear_moods: When True, clear mood/character for attendees.
+            record_participation: When True, save participation, catch-up,
+                and Lesson Slides on this first close. Scoring-panel End
+                Class passes True. IT force-end leaves it False.
 
         Returns:
             The ended session row, or ``None`` if missing.
@@ -38438,16 +38489,24 @@ class SchoolDB(LovesDB):
         self._award_pending_rank_races(session_id)
         if clear_moods:
             self.clear_attendee_moods_and_characters(session_id)
-        return self.invalidate_live_session_code(session_id)
+        return self.invalidate_live_session_code(
+            session_id, record_participation=bool(record_participation)
+        )
 
     def end_active_live_sessions_for_class(
-        self, class_id: int, *, clear_moods: bool = True
+        self,
+        class_id: int,
+        *,
+        clear_moods: bool = True,
+        record_participation: bool = False,
     ) -> list[dict[str, Any]]:
         """End every active live session for a class.
 
         Args:
             class_id: Game-show ``classes.id``.
             clear_moods: Forwarded to ``end_live_class_session``.
+            record_participation: Forwarded to ``end_live_class_session``.
+                Scoring-panel End Class passes True. Cancel does not.
 
         Returns:
             List of ended session rows (may be empty).
@@ -38464,7 +38523,9 @@ class SchoolDB(LovesDB):
         ended: list[dict[str, Any]] = []
         for row in rows:
             result = self.end_live_class_session(
-                int(row["id"]), clear_moods=clear_moods
+                int(row["id"]),
+                clear_moods=clear_moods,
+                record_participation=bool(record_participation),
             )
             if result:
                 ended.append(result)
