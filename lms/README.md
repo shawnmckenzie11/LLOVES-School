@@ -23,13 +23,15 @@ The Mac LC Teacher and Student View bots sign in here. This is not the Google si
 scripts/run_local_test_server.sh
 ```
 
-The script listens on `http://127.0.0.1:8788`, sets `LLOVES_TEST_LOGIN=1`, and sets `HOST=127.0.0.1`. The process refuses to boot if that flag is combined with `FLY_APP_NAME`, `FLASK_ENV=production`, or a bind host other than `localhost` / `127.0.0.1`. A request whose host is not one of those two gets 404. Leave the flag unset for the normal `:8787` dev server and on Fly.
+The script listens on `http://127.0.0.1:8788`, sets `LLOVES_TEST_LOGIN=1`, and sets `HOST=127.0.0.1`. It passes that same value to `--host`. The process refuses to boot if the flag is combined with `FLY_APP_NAME`, `FLASK_ENV=production`, or a `HOST` that is not explicitly `localhost` or `127.0.0.1`. An unset `HOST` does not count: `gunicorn --bind` and `flask run --host` do not read it. A request whose host is not one of those two gets 404. Leave the flag unset for the normal `:8787` dev server and on Fly.
 
-Bots open a staff session with either GET or POST (no Google credential):
+Never put a tunnel or proxy (ngrok, ssh -R, cloudflared) in front of :8788 while the flag is on.
+
+Bots open a staff session with POST (no Google credential). GET returns 405. Omit Origin and Referer, or send the same loopback host:
 
 ```bash
 curl -c /tmp/lloves-test.cj -b /tmp/lloves-test.cj -L \
-  http://127.0.0.1:8788/auth/test-staff
+  -X POST http://127.0.0.1:8788/auth/test-staff
 ```
 
 That signs in the fixed staff account `lloves-test-staff@localhost`. The account is created the first time the route runs. It does not take over classes that already belong to another teacher. `?next=/staff/...` lands on a staff page after sign-in.

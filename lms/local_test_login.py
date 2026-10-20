@@ -2,9 +2,11 @@
 
 The route is a separate door from Google sign-in. It never reads a posted
 ``credential`` and never calls the ID token verifier. It stays off unless
-``LLOVES_TEST_LOGIN`` is set and this process is not production, not Fly,
-and bound to localhost or 127.0.0.1. A request that is not itself from
-localhost or 127.0.0.1 is ignored.
+``LLOVES_TEST_LOGIN`` is set, the process is not production and not Fly,
+and ``HOST`` is explicitly ``localhost`` or ``127.0.0.1``. gunicorn
+``--bind`` and ``flask run --host`` do not read ``HOST``, so an unset
+variable is not treated as a loopback listen address. The per-request
+loopback check is the guard for a process that still listens publicly.
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ import ipaddress
 import logging
 import os
 import sys
+import urllib.parse
 from typing import Any
 
 from flask import Flask, request, session
@@ -55,15 +58,109 @@ def _fly_app_name() -> str:
     return (os.getenv("FLY_APP_NAME") or "").strip()
 
 
+def explicit_loopback_host() -> str | None:
+    """Return ``HOST`` when it is exactly ``localhost`` or ``127.0.0.1``.
+
+    An empty ``HOST`` is not loopback. ``local_dev_bind_host`` fills that
+    gap for the normal dev server, and that default would let
+    ``gunicorn --bind 0.0.0.0`` and ``flask run --host 0.0.0.0`` boot with
+    the test flag on.
+
+    Returns:
+        The lowercase host, or None when ``HOST`` is missing or public.
+    """
+    host = (os.getenv("HOST") or "").strip().lower()
+    if host in _LOCAL_BIND_HOSTS:
+        return host
+    return None
+
+
+def _cli_option(argv: list[str], name: str) -> str | None:
+    """Return a ``--name value`` or ``--name=value`` argument.
+
+    Args:
+        argv: Process arguments, including the program name.
+        name: Long option name without leading dashes.
+
+    Returns:
+        The option value, or None when the option is absent.
+    """
+    flag = f"--{name}"
+    prefix = f"{flag}="
+    for index, arg in enumerate(argv):
+        if arg == flag and index + 1 < len(argv):
+            return argv[index + 1]
+        if arg.startswith(prefix):
+            return arg[len(prefix):]
+    return None
+
+
+def cli_bind_host(argv: list[str]) -> str:
+    """Return the host ``python lms/app.py`` should pass to its listen call.
+
+    With the test flag off, ``--host`` wins and otherwise the local-dev
+    default is used. With the flag on, ``HOST`` must be explicitly
+    ``localhost`` or ``127.0.0.1`` and ``--host`` must be that same value.
+    The run script passes ``--host "$HOST"`` so the listen address cannot
+    drift from the variable the boot check reads.
+
+    Args:
+        argv: Process arguments, including the program name.
+
+    Returns:
+        The host string to bind.
+
+    Raises:
+        RuntimeError: The test flag is on and ``--host`` is missing or is
+            not the explicit ``HOST`` value.
+    """
+    chosen = (_cli_option(argv, "host") or "").strip()
+    if not local_test_login_requested():
+        if chosen:
+            return chosen
+        from local_dev_seed import local_dev_bind_host
+
+        return local_dev_bind_host()
+    required = explicit_loopback_host()
+    if required is None:
+        raise RuntimeError(
+            "LLOVES_TEST_LOGIN requires HOST to be explicitly localhost "
+            "or 127.0.0.1. Refusing to bind a public address."
+        )
+    if chosen.lower() != required:
+        raise RuntimeError(
+            "LLOVES_TEST_LOGIN requires --host to be the same value as HOST "
+            f"({required}); refusing to bind {chosen or 'an unset --host'}."
+        )
+    return required
+
+
+def cli_bind_port(argv: list[str]) -> int:
+    """Return the port ``python lms/app.py`` should pass to its listen call.
+
+    ``--port`` wins, then ``PORT``, then 8787.
+
+    Args:
+        argv: Process arguments, including the program name.
+
+    Returns:
+        TCP port number.
+    """
+    raw = (_cli_option(argv, "port") or os.getenv("PORT") or "8787").strip()
+    return int(raw)
+
+
 def local_test_login_boot_block() -> str | None:
     """Return why startup must refuse the flag, or None when boot may continue.
 
-    Refusal wins over ignoring the flag: a production or non-local process
-    that exported the flag should not stay up.
+    Refusal wins over ignoring the flag: a production process, Fly, or a
+    ``HOST`` that is not explicitly loopback must not stay up. This does not
+    see a gunicorn ``--bind`` or ``flask run --host``. The per-request
+    loopback check is the guard for a process that still listens publicly.
 
     Returns:
-        A short reason, or None when the flag is off or the process is a
-        local test server.
+        A short reason, or None when the flag is off or ``HOST`` is an
+        explicit loopback name.
     """
     if not local_test_login_requested():
         return None
@@ -77,12 +174,9 @@ def local_test_login_boot_block() -> str | None:
             "LLOVES_TEST_LOGIN is set with FLY_APP_NAME; refusing to start "
             "with the test staff login enabled."
         )
-    from local_dev_seed import local_dev_bind_host
-
-    bind = local_dev_bind_host().strip().lower()
-    if bind not in _LOCAL_BIND_HOSTS:
+    if explicit_loopback_host() is None:
         return (
-            "LLOVES_TEST_LOGIN is set but the server host is not localhost "
+            "LLOVES_TEST_LOGIN is set but HOST is not explicitly localhost "
             "or 127.0.0.1; refusing to start."
         )
     return None
@@ -95,8 +189,8 @@ def enforce_local_test_login(app: Flask) -> None:
         app: Flask application being created.
 
     Raises:
-        RuntimeError: The flag is set on Fly, in production, or on a bind
-            host other than localhost or 127.0.0.1.
+        RuntimeError: The flag is set on Fly, in production, or without
+            ``HOST`` set explicitly to localhost or 127.0.0.1.
     """
     reason = local_test_login_boot_block()
     if reason:
@@ -140,12 +234,93 @@ def _peer_is_loopback() -> bool:
     return bool(addr.is_loopback)
 
 
+def _split_host_port(raw: str, scheme: str) -> tuple[str, int] | None:
+    """Split a host[:port] value into a hostname and port.
+
+    Args:
+        raw: Host header or the host portion of an absolute URL.
+        scheme: ``http`` or ``https``, used when the port is omitted.
+
+    Returns:
+        Lowercase hostname and port, or None when the value is unusable.
+    """
+    text = (raw or "").strip().lower()
+    if not text or " " in text or "/" in text:
+        return None
+    if text.startswith("["):
+        end = text.find("]")
+        if end < 2:
+            return None
+        host = text[1:end]
+        rest = text[end + 1:]
+        port_text = rest[1:] if rest.startswith(":") else ""
+    elif text.count(":") == 1:
+        host, port_text = text.split(":", 1)
+    else:
+        host, port_text = text, ""
+    if not host:
+        return None
+    if port_text:
+        if not port_text.isdigit():
+            return None
+        return host, int(port_text)
+    default = 443 if scheme == "https" else 80
+    return host, default
+
+
+def _request_host_port() -> tuple[str, int] | None:
+    """Return this request's hostname and port from the Host header."""
+    return _split_host_port(request.host or "", request.scheme or "http")
+
+
+def _header_matches_request_host(value: str | None) -> bool:
+    """True when an Origin or Referer is absent or names this request host.
+
+    Args:
+        value: Header value. Blank counts as absent so curl can omit both.
+
+    Returns:
+        True when the header is blank or its host and port match this
+        loopback request. A public or different-port value is false.
+    """
+    text = (value or "").strip()
+    if not text:
+        return True
+    parsed = urllib.parse.urlsplit(text)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return False
+    origin = _split_host_port(parsed.netloc, parsed.scheme)
+    here = _request_host_port()
+    if origin is None or here is None:
+        return False
+    host, port = origin
+    if host not in _LOCAL_BIND_HOSTS:
+        return False
+    return (host, port) == here
+
+
+def local_test_login_same_host() -> bool:
+    """True when Origin and Referer are absent or match this loopback host.
+
+    Curl sends neither header. A browser POST from another site sends an
+    Origin that must name the same host and port as this request. A present
+    Referer is held to the same rule.
+    """
+    if not _header_matches_request_host(request.headers.get("Origin")):
+        return False
+    referer = request.headers.get("Referer")
+    if referer is None:
+        referer = request.headers.get("Referrer")
+    return _header_matches_request_host(referer)
+
+
 def local_test_login_request_allowed() -> bool:
     """True when this request may use the test staff route.
 
-    The flag, a non-production process, an unset ``FLY_APP_NAME``, a bind on
-    localhost or 127.0.0.1, a matching Host, and a loopback peer are all
-    required. Any miss is treated as the route being off.
+    The flag, a non-production process, an unset ``FLY_APP_NAME``, an
+    explicit loopback ``HOST``, a matching Host, and a loopback peer are
+    all required. This per-request loopback check is the guard when a
+    process listens on a public address anyway. Any miss is the route off.
     """
     if local_test_login_boot_block() is not None:
         return False
@@ -185,19 +360,22 @@ def ensure_test_staff_user(db: Any) -> dict[str, Any]:
 def register_local_test_login(app: Flask) -> None:
     """Attach ``/auth/test-staff``.
 
-    The route is always registered and answers 404 unless
-    ``local_test_login_request_allowed`` is true. The handler does not read
-    a Google credential.
+    The route accepts POST only. GET is 405. A POST answers 404 unless
+    ``local_test_login_request_allowed`` is true, and 403 when Origin or
+    Referer names a different host. The handler does not read a Google
+    credential.
 
     Args:
         app: Flask application.
     """
 
-    @app.route("/auth/test-staff", methods=["GET", "POST"])
+    @app.route("/auth/test-staff", methods=["POST"])
     def auth_test_staff():
         """Sign in the fixed test staff account when the local flag allows it."""
         if not local_test_login_request_allowed():
             return ("Not found", 404)
+        if not local_test_login_same_host():
+            return ("Forbidden", 403)
         from auth import (
             _post_login_redirect,
             _safe_next_url,

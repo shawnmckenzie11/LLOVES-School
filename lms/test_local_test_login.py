@@ -24,7 +24,7 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 import auth  # noqa: E402
 from app import create_app  # noqa: E402
-from local_test_login import TEST_STAFF_EMAIL  # noqa: E402
+from local_test_login import TEST_STAFF_EMAIL, cli_bind_host  # noqa: E402
 
 CLIENT_ID = "fake-client-id"
 OTHER_EMAIL = "other-staff@example.com"
@@ -116,7 +116,7 @@ class TestLoginOffTests(_AppCase):
         for value in ("0", "", "false", "no"):
             os.environ["LLOVES_TEST_LOGIN"] = value
             self._boot()
-            response = self.client.get("/auth/test-staff")
+            response = self.client.post("/auth/test-staff")
             self.assertEqual(response.status_code, 404, value)
             self.school.close()
             self.school = None
@@ -171,11 +171,52 @@ class TestLoginProductionGuardTests(unittest.TestCase):
         )
 
     def test_public_bind_with_flag_refuses_to_start(self) -> None:
-        """An explicit non-loopback bind plus the flag does not boot."""
+        """An explicit non-loopback HOST plus the flag does not boot."""
         self._expect_refuse(
             {"HOST": "0.0.0.0", "LLOVES_TEST_LOGIN": "1"},
             "127.0.0.1",
         )
+
+    def test_unset_host_refuses_public_server_commands(self) -> None:
+        """An unset HOST is not loopback, so a public bind cannot boot.
+
+        ``gunicorn --bind 0.0.0.0`` and ``flask run --host 0.0.0.0`` do not
+        read ``HOST``. Treating a missing value as 127.0.0.1 let those
+        commands start with the flag on.
+        """
+        self._expect_refuse({"LLOVES_TEST_LOGIN": "1"}, "HOST")
+
+    def test_listen_host_must_be_the_explicit_host(self) -> None:
+        """``--host`` has to be the same value the boot check reads from HOST."""
+        script = (REPO_ROOT / "scripts" / "run_local_test_server.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('HOST=127.0.0.1', script)
+        self.assertIn('--host "$HOST"', script)
+        self.assertIn('--port "$PORT"', script)
+        with patch.dict(
+            os.environ,
+            {"HOST": "127.0.0.1", "LLOVES_TEST_LOGIN": "1"},
+            clear=False,
+        ):
+            self.assertEqual(
+                cli_bind_host(["lms/app.py", "--host", "127.0.0.1", "--port", "8788"]),
+                "127.0.0.1",
+            )
+            with self.assertRaises(RuntimeError) as mismatched:
+                cli_bind_host(["lms/app.py", "--host", "0.0.0.0"])
+            self.assertIn("same value as HOST", str(mismatched.exception))
+            with self.assertRaises(RuntimeError):
+                cli_bind_host(["gunicorn", "--bind", "0.0.0.0:8788"])
+        with patch.dict(
+            os.environ,
+            {"LLOVES_TEST_LOGIN": "1"},
+            clear=False,
+        ):
+            os.environ.pop("HOST", None)
+            with self.assertRaises(RuntimeError) as missing:
+                cli_bind_host(["lms/app.py", "--host", "0.0.0.0"])
+            self.assertIn("explicitly localhost", str(missing.exception))
 
     def test_production_without_flag_still_starts(self) -> None:
         """Production boots when the flag is absent and a key is set."""
@@ -187,7 +228,8 @@ class TestLoginProductionGuardTests(unittest.TestCase):
             app = create_app(db_path=self.root / "l.sqlite", data_dir=self.root)
         self.assertEqual(app.secret_key, "prod-test-secret")
         client = app.test_client()
-        self.assertEqual(client.get("/auth/test-staff").status_code, 404)
+        self.assertEqual(client.post("/auth/test-staff").status_code, 404)
+        self.assertEqual(client.get("/auth/test-staff").status_code, 405)
         app.config["SCHOOL_DB"].close()
 
 
@@ -229,17 +271,48 @@ class TestLoginLocalTests(_AppCase):
             self.assertEqual(sess.get("portal"), "staff")
             self.assertEqual(sess.get("user_id"), int(user["id"]))
 
-    def test_get_signs_in_the_same_account(self) -> None:
-        """A browser on the test server can open the route with GET."""
-        first = self.client.get("/auth/test-staff")
-        second = self.client.get("/auth/test-staff")
-        self.assertEqual(first.status_code, 302)
-        self.assertEqual(second.status_code, 302)
-        rows = self.school.conn.execute(
-            "SELECT COUNT(*) FROM users WHERE email = ?",
-            (TEST_STAFF_EMAIL,),
-        ).fetchone()
-        self.assertEqual(int(rows[0]), 1)
+    def test_get_is_method_not_allowed(self) -> None:
+        """GET does not sign in. The route is POST only."""
+        response = self.client.get("/auth/test-staff")
+        self.assertEqual(response.status_code, 405)
+        self.assertIsNone(self.school.get_user_by_email(TEST_STAFF_EMAIL))
+        with self.client.session_transaction() as sess:
+            self.assertFalse(sess.get("logged_in"))
+
+    def test_post_without_origin_signs_in(self) -> None:
+        """Curl, which sends no Origin or Referer, still signs in."""
+        response = self.client.post("/auth/test-staff")
+        self.assertEqual(response.status_code, 302)
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess.get("email"), TEST_STAFF_EMAIL)
+
+    def test_cross_site_origin_or_referer_is_refused(self) -> None:
+        """A present Origin or Referer must match this loopback host."""
+        foreign_origin = self.client.post(
+            "/auth/test-staff",
+            headers={"Origin": "https://evil.example"},
+        )
+        self.assertEqual(foreign_origin.status_code, 403)
+        foreign_referer = self.client.post(
+            "/auth/test-staff",
+            headers={"Referer": "http://evil.example/trick"},
+        )
+        self.assertEqual(foreign_referer.status_code, 403)
+        other_loopback = self.client.post(
+            "/auth/test-staff",
+            headers={"Origin": "http://127.0.0.1"},
+        )
+        self.assertEqual(other_loopback.status_code, 403)
+        self.assertIsNone(self.school.get_user_by_email(TEST_STAFF_EMAIL))
+        with self.client.session_transaction() as sess:
+            self.assertFalse(sess.get("logged_in"))
+        matched = self.client.post(
+            "/auth/test-staff",
+            headers={"Origin": "http://localhost", "Referer": "http://localhost/staff"},
+        )
+        self.assertEqual(matched.status_code, 302)
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess.get("email"), TEST_STAFF_EMAIL)
 
     def test_posted_credential_does_not_choose_the_account(self) -> None:
         """A body email or credential cannot sign in as someone else."""
@@ -263,16 +336,16 @@ class TestLoginLocalTests(_AppCase):
 
     def test_staff_next_is_kept_and_external_next_is_dropped(self) -> None:
         """``next`` may land on a staff path and nowhere else."""
-        kept = self.client.get("/auth/test-staff?next=/staff/class/1")
+        kept = self.client.post("/auth/test-staff?next=/staff/class/1")
         self.assertIn("/staff/class/1", kept.headers["Location"])
         self.client.get("/logout")
-        dropped = self.client.get("/auth/test-staff?next=https://evil.example/staff")
+        dropped = self.client.post("/auth/test-staff?next=https://evil.example/staff")
         self.assertTrue(dropped.headers["Location"].endswith("/staff"))
         self.assertNotIn("evil.example", dropped.headers["Location"])
 
     def test_non_local_host_is_ignored(self) -> None:
         """A request whose host is not localhost or 127.0.0.1 gets 404."""
-        response = self.client.get(
+        response = self.client.post(
             "/auth/test-staff",
             headers={"Host": "evil.example"},
         )
@@ -283,7 +356,7 @@ class TestLoginLocalTests(_AppCase):
 
     def test_non_loopback_peer_is_ignored(self) -> None:
         """A loopback Host with a remote peer does not sign in."""
-        response = self.client.get(
+        response = self.client.post(
             "/auth/test-staff",
             base_url="http://127.0.0.1",
             environ_base={"REMOTE_ADDR": "203.0.113.5"},

@@ -111,6 +111,8 @@ from local_dev_seed import (  # noqa: E402
     seed_local_dev_school,
 )
 from local_test_login import (  # noqa: E402
+    cli_bind_host,
+    cli_bind_port,
     enforce_local_test_login,
     register_local_test_login,
 )
@@ -1339,7 +1341,7 @@ def create_app(
     app.secret_key = secret or DEV_SECRET_KEY
     app.config["TESTING"] = testing
     # Refuse before opening sqlite when the test-login flag is on in production,
-    # on Fly, or on a bind host other than localhost / 127.0.0.1.
+    # on Fly, or without HOST set explicitly to localhost / 127.0.0.1.
     enforce_local_test_login(app)
     app.config["MAX_CONTENT_LENGTH"] = IMSCC_MAX_BYTES
     app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=31)
@@ -12734,8 +12736,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT") or "8787")
-    host = local_dev_bind_host()
+    # The test script passes --host "$HOST". Other launches keep the dev default.
+    host = cli_bind_host(sys.argv)
+    port = cli_bind_port(sys.argv)
     application = create_app()
     catalog_n = len(application.config["SCHOOL_DB"].list_ontario_courses())
     print(f"LLOVES LMS: http://{host}:{port}/")
