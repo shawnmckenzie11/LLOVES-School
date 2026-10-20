@@ -445,6 +445,31 @@ def _optional_board_seq(raw: Any) -> int | None:
 _CODENAME_WORD_RE = re.compile(r"\b(Codenames?|codenames?|Names?|names?)\b")
 
 
+def _rewrite_plain_name_words(text: str) -> str:
+    """Replace Name/Codename words in one roster sentence.
+
+    A word already sitting after "first" or "last" is left as written, so
+    "First name and last name" does not grow another "first".
+
+    Args:
+        text: Message text that may still say Name or Codename.
+    """
+
+    def swap(match: re.Match[str]) -> str:
+        """Replace one Name/Codename, keeping sentence-start capitals."""
+        before = text[: match.start()]
+        if re.search(r"(?i)\b(?:first|last)\s+$", before):
+            return match.group(0)
+        plural = match.group(1).lower().endswith("s")
+        word = "first names" if plural else "first name"
+        lead = before.rstrip()
+        if not lead or lead[-1] in ".!?":
+            return word[0].upper() + word[1:]
+        return word
+
+    return _CODENAME_WORD_RE.sub(swap, text)
+
+
 def plain_name_wording(message: Any) -> str:
     """Say "first name(s)" instead of "Name(s)" in a roster message.
 
@@ -455,21 +480,18 @@ def plain_name_wording(message: Any) -> str:
     elsewhere ("Duplicate first name: Sam"). Math courses say Name.
     A leftover Codename message is rewritten the same way.
 
+    Words that already follow "first" or "last" stay put. The student's
+    own name, the text after the colon in a Duplicate message, is never
+    rewritten.
+
     Args:
         message: Validation message from the roster code.
     """
     text = str(message or "")
-
-    def swap(match: re.Match[str]) -> str:
-        """Replace one Codename/Codenames, keeping sentence-start capitals."""
-        plural = match.group(1).lower().endswith("s")
-        word = "first names" if plural else "first name"
-        before = text[: match.start()].rstrip()
-        if not before or before[-1] in ".!?":
-            return word[0].upper() + word[1:]
-        return word
-
-    return _CODENAME_WORD_RE.sub(swap, text)
+    duplicate = re.match(r"^(Duplicate\b[^:]*:\s*)(.*)$", text, re.DOTALL)
+    if duplicate:
+        return _rewrite_plain_name_words(duplicate.group(1)) + duplicate.group(2)
+    return _rewrite_plain_name_words(text)
 
 
 def simple_course(ontario_code: Any, library_id: Any) -> bool:

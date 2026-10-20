@@ -87,7 +87,9 @@ class PlainNameWordingTests(_AppCase):
             'import { plainNameWording as f } from "./static/name_wording.js";\n'
             'console.log(JSON.stringify(["Names cannot contain commas.", '
             '"Names must be 2–32 characters.", "Duplicate name: Sam", '
-            '"Add at least one name."].map(f)));'
+            '"Add at least one name.", '
+            '"First name and last name are required", '
+            '"Duplicate name: name", "Duplicate name: Name"].map(f)));'
         )
         proc = subprocess.run(
             [NODE, "--input-type=module", "-e", script],
@@ -101,6 +103,9 @@ class PlainNameWordingTests(_AppCase):
                 "First names must be 2–32 characters.",
                 "Duplicate first name: Sam",
                 "Add at least one first name.",
+                "First name and last name are required",
+                "Duplicate first name: name",
+                "Duplicate first name: Name",
             ],
         )
         src = (LMS_DIR / "static" / "staff_home.js").read_text(encoding="utf-8")
@@ -134,6 +139,35 @@ class PlainNameWordingTests(_AppCase):
         self.assertEqual(rv.get_json()["error"], "First names must be 2–32 characters")
         dup = self.client.put(f"/api/staff/classes/{class_id}/roster", json={"codenames": ["Sam", "sam"]})
         self.assertEqual(dup.get_json()["error"], "Duplicate first name: sam")
+
+    def test_plain_blank_names_keep_first_and_last(self) -> None:
+        """A blank add on a plain course does not rewrite first or last name."""
+        created = self._populate("SBI4U", ["Ana"])
+        self.assertEqual(created.status_code, 200, created.get_json())
+        class_id = created.get_json()["class"]["id"]
+        rv = self.client.post(
+            f"/api/classes/{class_id}/students",
+            json={"first_name": "", "last_display": ""},
+        )
+        self.assertEqual(rv.status_code, 400)
+        self.assertEqual(rv.get_json()["error"], "First name and last name are required")
+        self.assertEqual(
+            plain_name_wording("First name and last name are required"),
+            "First name and last name are required",
+        )
+
+    def test_plain_duplicate_of_the_word_name_stays_the_word(self) -> None:
+        """The token after a duplicate message is the student's own name."""
+        created = self._populate("SBI4U", ["Ana"])
+        self.assertEqual(created.status_code, 200, created.get_json())
+        class_id = created.get_json()["class"]["id"]
+        rv = self.client.put(
+            f"/api/staff/classes/{class_id}/roster",
+            json={"codenames": ["Name", "name"]},
+        )
+        self.assertEqual(rv.status_code, 400)
+        self.assertEqual(rv.get_json()["error"], "Duplicate first name: name")
+        self.assertEqual(plain_name_wording("Duplicate name: Name"), "Duplicate first name: Name")
 
 
 class AddStudentValidationTests(PlainNameWordingTests):
