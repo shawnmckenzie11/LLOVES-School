@@ -216,8 +216,14 @@ class SectionTests(unittest.TestCase):
         self.assertEqual(html.count('data-ontario-code="MCF3M"'), 2)
         self.assertIn("<h2 class=\"course-card-code\">MCF3M</h2>", html)
         self.assertIn("<h2 class=\"course-card-code\">MCF3M-2</h2>", html)
-        self.assertIn(f'/staff/class/{first_class["id"]}"', html)
-        self.assertIn(f'/staff/class/{second_class["id"]}"', html)
+        self.assertIn(
+            f'/staff/class/{first_class["id"]}?tab=lesson-slides"',
+            html,
+        )
+        self.assertIn(
+            f'/staff/class/{second_class["id"]}?tab=lesson-slides"',
+            html,
+        )
         page = self.client.get(f"/staff/class/{second_class['id']}")
         self.assertEqual(page.status_code, 200)
         course_html = page.get_data(as_text=True)

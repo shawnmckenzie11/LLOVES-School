@@ -197,7 +197,8 @@ class HiddenTestStudentTests(unittest.TestCase):
         ).get_data(as_text=True)
         self.assertIn("Test Student", shown_roster)
         shown_home = self.client.get("/staff?show_test_students=1").get_data(as_text=True)
-        self.assertIn("Test Student (test)", shown_home)
+        self.assertIn('id="show-test-students"', shown_home)
+        self.assertNotIn("Test Student", shown_home)
 
         self.school.conn.execute(
             """
