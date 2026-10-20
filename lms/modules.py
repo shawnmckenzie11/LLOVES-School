@@ -45,10 +45,41 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 logger = logging.getLogger(__name__)
 
-# No app-level byte ceiling: Fly Proxy streams request bodies (no hard size
-# cap / no paid upgrade to raise). Disk on ``lloves_data`` remains the real
-# limit — see ``lms/DEPLOY.md``. ``None`` disables Flask ``MAX_CONTENT_LENGTH``.
-IMSCC_MAX_BYTES: int | None = None
+# Default upload ceiling for IT .imscc files. A 1 GB machine cannot hold a
+# multi-gigabyte spool plus an unpacked media tree. Override with
+# ``LLOVES_IMSCC_MAX_BYTES`` (integer bytes). ``none`` / ``unlimited`` / ``off``
+# disables the cap. Disk on ``lloves_data`` is still the hard limit — see
+# ``lms/DEPLOY.md``. ``None`` disables Flask ``MAX_CONTENT_LENGTH``.
+DEFAULT_IMSCC_MAX_BYTES = 1024 * 1024 * 1024
+
+
+def configured_imscc_max_bytes() -> int | None:
+    """Return the module-pack upload ceiling in bytes.
+
+    ``LLOVES_IMSCC_MAX_BYTES`` overrides the default. ``none``, ``unlimited``,
+    ``off``, or a number ``<= 0`` means no ceiling. An empty or missing
+    variable uses :data:`DEFAULT_IMSCC_MAX_BYTES` (1 GiB).
+
+    Returns:
+        Maximum accepted upload size, or None when unlimited.
+    """
+    raw = os.environ.get("LLOVES_IMSCC_MAX_BYTES")
+    if raw is None or not str(raw).strip():
+        return DEFAULT_IMSCC_MAX_BYTES
+    text = str(raw).strip().lower()
+    if text in {"none", "unlimited", "off"}:
+        return None
+    try:
+        value = int(text)
+    except ValueError:
+        logger.warning("Ignoring invalid LLOVES_IMSCC_MAX_BYTES=%s", text)
+        return DEFAULT_IMSCC_MAX_BYTES
+    if value <= 0:
+        return None
+    return value
+
+
+IMSCC_MAX_BYTES: int | None = configured_imscc_max_bytes()
 PACK_STATUS_NAME = "install_status.json"
 PACK_BUSY_STAGES = frozenset(
     {
@@ -199,6 +230,23 @@ def read_pack_status(dest_root: Path) -> dict[str, Any]:
         "pid": data.get("pid"),
     }
     if status["busy"] and _pack_install_abandoned(status):
+        if (Path(dest_root) / "course.imscc").is_file():
+            # The cartridge is already on disk. A restart can retry it.
+            # Leave the status file alone so the resume check still sees
+            # the abandoned busy stage.
+            detail = (
+                "Install stopped before it finished. "
+                "It will resume from the saved pack."
+            )
+            return {
+                "ok": True,
+                "stage": "queued",
+                "detail": detail,
+                "error": None,
+                "busy": True,
+                "updated_at": time.time(),
+                "pid": None,
+            }
         message = (
             "Module pack install stopped before it finished. "
             "Upload the .imscc again."
@@ -216,6 +264,63 @@ def read_pack_status(dest_root: Path) -> dict[str, Any]:
             "pid": os.getpid(),
         }
     return status
+
+
+def read_pack_status_raw(dest_root: Path) -> dict[str, Any]:
+    """Load ``install_status.json`` without turning a dead worker into an error.
+
+    Args:
+        dest_root: Library or pack folder.
+    """
+    idle = {
+        "ok": True,
+        "stage": "idle",
+        "detail": "",
+        "error": None,
+        "busy": False,
+        "updated_at": None,
+        "pid": None,
+    }
+    path = pack_status_path(Path(dest_root))
+    if not path.is_file():
+        return idle
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return idle
+    if not isinstance(data, dict):
+        return idle
+    stage = str(data.get("stage") or "idle")
+    return {
+        "ok": bool(data.get("ok", stage != "error")),
+        "stage": stage,
+        "detail": str(data.get("detail") or ""),
+        "error": data.get("error"),
+        "busy": stage in PACK_BUSY_STAGES,
+        "updated_at": data.get("updated_at"),
+        "pid": data.get("pid"),
+    }
+
+
+def pack_needs_resume(dest_root: Path) -> bool:
+    """True when a saved cartridge should be installed again.
+
+    A restart kills the background installer. The ``.imscc`` is already on
+    disk, so the next boot or status poll can retry instead of asking for
+    another upload. Corrupt and over-size failures are not retried.
+
+    Args:
+        dest_root: Library folder that holds ``course.imscc``.
+    """
+    root = Path(dest_root)
+    imscc = root / "course.imscc"
+    if not imscc.is_file() or imscc.stat().st_size <= 0:
+        return False
+    status = read_pack_status_raw(root)
+    stage = str(status.get("stage") or "idle")
+    if stage not in PACK_BUSY_STAGES:
+        return False
+    return _pack_install_abandoned(status)
 
 
 def _pid_is_running(pid: int) -> bool:
@@ -508,7 +613,10 @@ def ensure_unpacked(
     force: bool = False,
     dest_root: Path | None = None,
 ) -> dict[str, Any]:
-    """Unpack the cartridge when the working tree is missing.
+    """Stream the cartridge members ingest reads when the working tree is missing.
+
+    Unreferenced media stays inside the zip. Assignments, quizzes, banks,
+    wiki pages, and referenced files are written under ``out_dir``.
 
     Args:
         imscc: ``.imscc`` archive.
@@ -525,10 +633,13 @@ def ensure_unpacked(
     if not imscc.is_file():
         return {"ok": False, "unpacked": False, "error": "IMSCC archive is not on this machine."}
     try:
-        import canvas_unpack
+        from slim_pack import materialize_import_tree
     except ImportError:
-        logger.exception("canvas_unpack import failed")
-        return {"ok": False, "unpacked": False, "error": "Unpack tool is missing."}
+        try:
+            from lms.slim_pack import materialize_import_tree
+        except ImportError:
+            logger.exception("slim_pack import failed")
+            return {"ok": False, "unpacked": False, "error": "Unpack tool is missing."}
     last_beat = [0.0]
 
     def progress(done: int, total: int, _name: str) -> None:
@@ -546,7 +657,7 @@ def ensure_unpacked(
         )
 
     try:
-        canvas_unpack.unpack_imscc(
+        materialize_import_tree(
             imscc, out_dir, clean=force, progress=progress
         )
     except Exception as exc:  # noqa: BLE001 — surface to the Modules empty state

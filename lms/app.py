@@ -8,7 +8,6 @@ Usage:
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import os
@@ -220,32 +219,26 @@ from components import (  # noqa: E402
 try:
     from pack_progress import (
         annotate_offering_pack,
-        finish_install_detail,
         instances_payload,
         status_payload,
     )
-    from syllabus_seed import seed_syllabus_from_due_dates
 except ImportError:
     from lms.pack_progress import (
         annotate_offering_pack,
-        finish_install_detail,
         instances_payload,
         status_payload,
     )
-    from lms.syllabus_seed import seed_syllabus_from_due_dates
 from modules import (  # noqa: E402
     IMSCC_MAX_BYTES,
     ensure_unpacked,
-    explain_pack_exception,
-    install_uploaded_module_pack,
     module_pack_root,
+    pack_needs_resume,
     pack_ui_state,
     placeholder_html,
     read_pack_status,
     resolve_module_pack,
     rewrite_wiki_html,
     wrap_page,
-    write_pack_status,
 )
 from paths import (  # noqa: E402
     DATA_DIR,
@@ -1397,6 +1390,15 @@ def create_app(
             )
         except Exception:  # noqa: BLE001 - migration must not block boot
             app.logger.exception("MCK-210 catch-up migration failed")
+        try:
+            from pack_install import resume_interrupted_packs
+
+            # A dead installer leaves course.imscc on disk. Retry once per boot.
+            run_once_per_boot(
+                "pack-resume", lambda: resume_interrupted_packs(school)
+            )
+        except Exception:  # noqa: BLE001 - resume must not block boot
+            app.logger.exception("module pack resume failed")
     if local_dev_login_enabled() and not secure:
         try:
             seed_local_dev_school(school)
@@ -1759,7 +1761,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     def _install_module_pack_job(
         offering_id: int, stored: Path, dest_root: Path
     ) -> None:
-        """Unpack, ingest, and seed syllabus for a stored cartridge.
+        """Stream, ingest, and seed syllabus for a stored cartridge.
 
         Args:
             offering_id: ``course_offerings.id``.
@@ -1767,76 +1769,25 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             dest_root: Shared ``libraries/<id>/`` folder (not an instance pack).
         """
         try:
-            status = install_uploaded_module_pack(stored, dest_root)
-            if not status.get("ok"):
-                return
-            school.set_offering_imscc(int(offering_id), str(stored))
-            offering = school.get_offering(int(offering_id))
-            library_id = offering.get("library_id")
-            unpacked = Path(dest_root) / "unpacked"
-            if library_id and unpacked.is_dir():
-                ingest_detail = "Loading modules, pages, and assessments…"
-                write_pack_status(
-                    dest_root,
-                    stage="ingest",
-                    detail=ingest_detail,
-                )
-                with _pack_heartbeat(dest_root, "ingest", ingest_detail):
-                    ensure_ingested(
-                        school,
-                        school.data_dir,
-                        int(library_id),
-                        unpacked,
-                        force=True,
-                    )
-                _discard_unpacked(unpacked)
-                write_pack_status(
-                    dest_root,
-                    stage="syllabus",
-                    detail="Placing tests, quizzes, and assignments on the syllabus…",
-                )
-                try:
-                    seed_syllabus_from_due_dates(
-                        school, offering, data_dir=school.data_dir
-                    )
-                except Exception:  # noqa: BLE001 — pack still usable without seed
-                    logger.exception("Syllabus seed from due dates failed")
-            write_pack_status(
-                dest_root,
-                stage="done",
-                detail=finish_install_detail(school, library_id),
-            )
-        except Exception as exc:  # noqa: BLE001 — surface on the status poll
-            logger.exception("Background module-pack install failed")
-            message = explain_pack_exception(exc)
-            write_pack_status(
-                dest_root, stage="error", detail=message, error=message
-            )
+            from pack_install import install_saved_module_pack
+        except ImportError:
+            from lms.pack_install import install_saved_module_pack
+        install_saved_module_pack(
+            school, int(offering_id), stored, dest_root
+        )
 
-    @contextlib.contextmanager
-    def _pack_heartbeat(dest_root: Path, stage: str, detail: str):
-        """Keep ``install_status.json`` fresh while a long stage runs.
+    def _pack_status_response(offering: dict[str, Any]):
+        """Poll install status, resuming a saved pack whose worker died.
 
         Args:
-            dest_root: Shared library folder.
-            stage: Busy stage name (``ingest``, …).
-            detail: Teacher-facing line to leave unchanged.
+            offering: Course offering row.
         """
-        stop = threading.Event()
-
-        def beat() -> None:
-            """Rewrite pack status until the surrounding stage finishes."""
-            while not stop.wait(8.0):
-                write_pack_status(dest_root, stage=stage, detail=detail)
-
-        worker = threading.Thread(
-            target=beat, daemon=True, name="pack-heartbeat"
-        )
-        worker.start()
-        try:
-            yield
-        finally:
-            stop.set()
+        dest = _library_dest(offering)
+        if pack_needs_resume(dest):
+            _start_pack_install(
+                int(offering["id"]), dest / "course.imscc", dest
+            )
+        return jsonify(status_payload(offering, dest))
 
     def _annotate_pack_status(offering: dict[str, Any]) -> dict[str, Any]:
         """Attach badge/line/busy fields from ``install_status.json``.
@@ -2844,7 +2795,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
     def it_module_pack_status(offering_id: int):
         """JSON progress for an IT library upload/unpack."""
         offering = school.get_offering(int(offering_id))
-        return jsonify(status_payload(offering, _library_dest(offering)))
+        return _pack_status_response(offering)
 
     @app.route("/it/offerings/<int:offering_id>/rotate", methods=["POST"])
     @it_required
@@ -4407,14 +4358,14 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         offering = school.get_offering(int(offering_id))
         if int(offering["teacher_user_id"]) != int(user["id"]) and user["role"] != "it":
             abort(403)
-        return jsonify(status_payload(offering, _library_dest(offering)))
+        return _pack_status_response(offering)
 
     @app.route("/staff/class/<int:class_id>/module-pack/status")
     @staff_required
     def staff_module_pack_status(class_id: int):
         """Staff pack-status for a class the teacher owns."""
         _, offering = _owned_offering_for_pack(class_id)
-        return jsonify(status_payload(offering, _library_dest(offering)))
+        return _pack_status_response(offering)
 
     @app.route("/api/staff/class/<int:class_id>/modules")
     @staff_required

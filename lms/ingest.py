@@ -29,6 +29,10 @@ except ImportError:  # ``python3 lms/app.py`` package import
 
 logger = logging.getLogger(__name__)
 
+# School sqlite is in autocommit mode, so one insert would commit (and fsync)
+# on its own. Question banks and file lists batch this many rows per transaction.
+INGEST_INSERT_BATCH = 100
+
 GOOGLE_DOC_HOSTS = {"docs.google.com", "drive.google.com"}
 GOOGLE_SLIDES_PATHS = ("/presentation", "/slides")
 PAGE_KIND_HTML = "html"
@@ -776,6 +780,27 @@ class LibraryIngestor:
         self.store = ContentBlobStore(self.data_dir, db)
         self.qti = QtiIndex()
 
+    def _executemany(self, sql: str, rows: list[tuple]) -> None:
+        """Insert ``rows`` in transactions of :data:`INGEST_INSERT_BATCH`.
+
+        Args:
+            sql: INSERT or UPSERT statement with parameter placeholders.
+            rows: Bound parameter tuples, in write order.
+        """
+        if not rows:
+            return
+        conn = self.db.conn
+        with self.db._lock:  # noqa: SLF001 - shared connection lock
+            for start in range(0, len(rows), INGEST_INSERT_BATCH):
+                chunk = rows[start : start + INGEST_INSERT_BATCH]
+                conn.execute("BEGIN")
+                try:
+                    conn.executemany(sql, chunk)
+                    conn.execute("COMMIT")
+                except Exception:
+                    conn.execute("ROLLBACK")
+                    raise
+
     def ingest(self, library_id: int, unpacked: Path) -> IngestResult:
         """Ingest an unpacked cartridge into component tables.
 
@@ -864,6 +889,8 @@ class LibraryIngestor:
         web = unpacked / "web_resources"
         if not web.is_dir():
             return
+        file_rows: list[tuple] = []
+        pdfs: list[tuple[str, str, str]] = []
         for path in sorted(web.rglob("*")):
             if not path.is_file():
                 continue
@@ -874,27 +901,27 @@ class LibraryIngestor:
                 result.skipped.append(f"unreadable file {path.name}")
                 continue
             result.blobs += 1
-            with self.db._lock:  # noqa: SLF001 - shared connection lock
-                self.db.conn.execute(
-                    """
-                    INSERT INTO library_files (
-                        library_id, relpath, blob_sha, created_at
-                    )
-                    VALUES (?, ?, ?, datetime('now'))
-                    ON CONFLICT(library_id, relpath) DO UPDATE SET
-                        blob_sha = excluded.blob_sha
-                    """,
-                    (int(library_id), rel, stored.sha256),
-                )
-                self.db.conn.commit()
-            if path.suffix.lower() != ".pdf":
-                continue
+            file_rows.append((int(library_id), rel, stored.sha256))
+            if path.suffix.lower() == ".pdf":
+                pdfs.append((rel, path.stem, stored.sha256))
+        self._executemany(
+            """
+            INSERT INTO library_files (
+                library_id, relpath, blob_sha, created_at
+            )
+            VALUES (?, ?, ?, datetime('now'))
+            ON CONFLICT(library_id, relpath) DO UPDATE SET
+                blob_sha = excluded.blob_sha
+            """,
+            file_rows,
+        )
+        for rel, title, sha in pdfs:
             page_id = self._upsert_page(
                 library_id,
                 import_key=rel,
                 kind=PAGE_KIND_PDF,
-                title=path.stem,
-                blob_sha=stored.sha256,
+                title=title,
+                blob_sha=sha,
             )
             href_to_page[rel] = page_id
             result.pages += 1
@@ -1175,32 +1202,34 @@ class LibraryIngestor:
         result.question_banks += 1
 
         keys: list[str] = []
+        question_rows: list[tuple] = []
         for index, question in enumerate(questions):
             ident = str(question.get("ident") or "") or f"{import_key}-q{index + 1}"
             keys.append(ident)
-            with self.db._lock:  # noqa: SLF001 - shared connection lock
-                self.db.conn.execute(
-                    """
-                    INSERT INTO questions (
-                        bank_id, import_key, item_type, title,
-                        payload_json, created_at
-                    )
-                    VALUES (?, ?, ?, ?, ?, datetime('now'))
-                    ON CONFLICT(bank_id, import_key) DO UPDATE SET
-                        item_type = excluded.item_type,
-                        title = excluded.title,
-                        payload_json = excluded.payload_json
-                    """,
-                    (
-                        bank_id,
-                        ident,
-                        str(question.get("item_type") or ""),
-                        str(question.get("title") or ""),
-                        json.dumps(question.get("payload") or {}),
-                    ),
+            question_rows.append(
+                (
+                    bank_id,
+                    ident,
+                    str(question.get("item_type") or ""),
+                    str(question.get("title") or ""),
+                    json.dumps(question.get("payload") or {}),
                 )
-                self.db.conn.commit()
+            )
             result.questions += 1
+        self._executemany(
+            """
+            INSERT INTO questions (
+                bank_id, import_key, item_type, title,
+                payload_json, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(bank_id, import_key) DO UPDATE SET
+                item_type = excluded.item_type,
+                title = excluded.title,
+                payload_json = excluded.payload_json
+            """,
+            question_rows,
+        )
         self._prune_questions(bank_id, keys)
         return bank_id
 
@@ -1258,6 +1287,7 @@ class LibraryIngestor:
                 self.db.conn.commit()
             result.outlines += 1
 
+            item_rows: list[tuple] = []
             for item in module["items"]:
                 component_type = "unsupported"
                 component_id: int | None = None
@@ -1281,37 +1311,37 @@ class LibraryIngestor:
                     component_type, component_id = resource_to_component[ref]
                 elif ref and ref in href_to_page:
                     component_type, component_id = ("page", href_to_page[ref])
-
-                with self.db._lock:  # noqa: SLF001 - shared connection lock
-                    self.db.conn.execute(
-                        """
-                        INSERT INTO module_items (
-                            outline_id, import_key, title, position,
-                            component_type, component_id, source_type,
-                            source_href, created_at
-                        )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                        ON CONFLICT(outline_id, import_key) DO UPDATE SET
-                            title = excluded.title,
-                            position = excluded.position,
-                            component_type = excluded.component_type,
-                            component_id = excluded.component_id,
-                            source_type = excluded.source_type,
-                            source_href = excluded.source_href
-                        """,
-                        (
-                            outline_id,
-                            item["identifier"],
-                            item["title"],
-                            int(item["position"]),
-                            component_type,
-                            component_id,
-                            item["content_type"],
-                            url,
-                        ),
+                item_rows.append(
+                    (
+                        outline_id,
+                        item["identifier"],
+                        item["title"],
+                        int(item["position"]),
+                        component_type,
+                        component_id,
+                        item["content_type"],
+                        url,
                     )
-                    self.db.conn.commit()
+                )
                 result.items += 1
+            self._executemany(
+                """
+                INSERT INTO module_items (
+                    outline_id, import_key, title, position,
+                    component_type, component_id, source_type,
+                    source_href, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(outline_id, import_key) DO UPDATE SET
+                    title = excluded.title,
+                    position = excluded.position,
+                    component_type = excluded.component_type,
+                    component_id = excluded.component_id,
+                    source_type = excluded.source_type,
+                    source_href = excluded.source_href
+                """,
+                item_rows,
+            )
 
     def _upsert_page(
         self,
