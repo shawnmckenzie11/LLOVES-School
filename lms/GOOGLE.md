@@ -112,3 +112,7 @@ Open **http://127.0.0.1:8787** → IT Login. You should go to `accounts.google.c
 | Consent screen Internal | Switch to External or you cannot use personal Gmail. |
 
 The mock email form is **only** used when Flask `TESTING=1` (unit tests). If you still see “Simulated Google Sign-In” in the browser, `.env` is missing, empty, or the server was started before you saved it.
+
+## 7. Local test server (:8788)
+
+Posted Google credentials are still verified. An unsigned token is rejected. The Mac teacher and student-view bots do not use that shortcut anymore. They sign in through `/auth/test-staff` on the local test server (`scripts/run_local_test_server.sh`, `LLOVES_TEST_LOGIN=1`, `127.0.0.1:8788`). That route never reads a Google credential. The process refuses to start when the flag is set with `FLY_APP_NAME` or `FLASK_ENV=production`. See [README.md](README.md).
