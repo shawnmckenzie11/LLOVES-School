@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import ipaddress
 import os
 import secrets
+import sqlite3
+import threading
+import time
 import urllib.parse
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
@@ -822,6 +826,218 @@ _GOOGLE_SIGN_IN_FAILED = "Google One Tap authentication failed."
 _GOOGLE_ISSUERS = frozenset(
     {"accounts.google.com", "https://accounts.google.com"}
 )
+# Inside the 10–30 second window QA asked for. Applied to exp, nbf, and iat.
+_GOOGLE_CLOCK_SKEW_SEC = 20
+_GOOGLE_CERT_FETCH_TIMEOUT_SEC = 5
+_GOOGLE_CERT_CACHE_TTL_SEC = 60 * 60
+_GOOGLE_TOKEN_SEEN_DDL = """
+CREATE TABLE IF NOT EXISTS google_id_token_seen (
+    token_key TEXT PRIMARY KEY,
+    expires_at INTEGER NOT NULL
+)
+"""
+
+_cert_cache_lock = threading.Lock()
+_cert_cache: dict[str, tuple[float, bytes]] = {}
+_cert_transport: "_CachedGoogleCertRequest | None" = None
+_cert_transport_lock = threading.Lock()
+
+
+class _CachedCertResponse:
+    """Signing-key response reused from the in-process cache."""
+
+    def __init__(self, data: bytes) -> None:
+        """Store the cert-document bytes.
+
+        Args:
+            data: JSON body previously fetched from Google's cert endpoint.
+        """
+        self.status = 200
+        self.data = data
+
+    @property
+    def headers(self) -> dict[str, str]:
+        """Empty headers. Verification only reads the cert body."""
+        return {}
+
+
+class _CachedGoogleCertRequest(google_auth_requests.Request):
+    """Fetch Google signing keys with a short timeout and reuse them.
+
+    A fresh cache entry is returned without a network call. A failed fetch
+    propagates so the caller rejects the sign-in.
+    """
+
+    def __call__(
+        self,
+        url,
+        method="GET",
+        body=None,
+        headers=None,
+        timeout=_GOOGLE_CERT_FETCH_TIMEOUT_SEC,
+        **kwargs,
+    ):
+        """Return cached signing keys or fetch them with a short timeout.
+
+        Args:
+            url: Cert endpoint.
+            method: HTTP method. Google's helper uses GET.
+            body: Unused for the cert fetch.
+            headers: Optional request headers.
+            timeout: Ignored. The fetch always uses the short timeout.
+            **kwargs: Passed through to the underlying session on a miss.
+
+        Returns:
+            A response with ``status`` and ``data``.
+        """
+        cached = _cached_google_certs(url)
+        if cached is not None:
+            return cached
+        response = super().__call__(
+            url,
+            method=method,
+            body=body,
+            headers=headers,
+            timeout=_GOOGLE_CERT_FETCH_TIMEOUT_SEC,
+            **kwargs,
+        )
+        if getattr(response, "status", None) == 200:
+            data = getattr(response, "data", b"") or b""
+            if isinstance(data, str):
+                data = data.encode("utf-8")
+            _store_google_certs(url, bytes(data))
+        return response
+
+
+def _cached_google_certs(url: str) -> _CachedCertResponse | None:
+    """Return a fresh cached cert body, or None when a fetch is required.
+
+    Args:
+        url: Cert endpoint used as the cache key.
+    """
+    now = time.monotonic()
+    with _cert_cache_lock:
+        row = _cert_cache.get(url)
+        if row is None:
+            return None
+        stored_at, data = row
+        if now - stored_at > _GOOGLE_CERT_CACHE_TTL_SEC:
+            _cert_cache.pop(url, None)
+            return None
+        return _CachedCertResponse(data)
+
+
+def _store_google_certs(url: str, data: bytes) -> None:
+    """Remember a successful cert response until the cache window ends.
+
+    Args:
+        url: Cert endpoint.
+        data: Response body. This is Google's public key document, not a credential.
+    """
+    with _cert_cache_lock:
+        _cert_cache[url] = (time.monotonic(), data)
+
+
+def _clear_google_cert_cache() -> None:
+    """Drop cached signing keys so the next verification fetches them."""
+    with _cert_cache_lock:
+        _cert_cache.clear()
+
+
+def _google_cert_transport() -> _CachedGoogleCertRequest:
+    """Return the process-wide cert transport.
+
+    One session is reused so sign-in does not open a new connection every time.
+    """
+    global _cert_transport
+    with _cert_transport_lock:
+        if _cert_transport is None:
+            _cert_transport = _CachedGoogleCertRequest()
+        return _cert_transport
+
+
+def _unix_claim(value: object) -> float | None:
+    """Parse a numeric JWT time claim.
+
+    Args:
+        value: Claim value from a verified payload.
+
+    Returns:
+        Seconds since the epoch, or None when the value is not numeric.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _google_token_seen_key(raw_token: str, claims: dict[str, Any]) -> str:
+    """Return the replay key: a jti, or a hash when the token has no jti.
+
+    The raw credential is never the stored value.
+
+    Args:
+        raw_token: Posted credential.
+        claims: Verified claims.
+
+    Returns:
+        A short primary key for ``google_id_token_seen``.
+    """
+    jti = claims.get("jti")
+    if isinstance(jti, str):
+        jti = jti.strip()
+        if jti and len(jti) <= 128:
+            return "jti:" + jti
+    digest = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    return "h:" + digest
+
+
+def _consume_google_id_token(raw_token: str, claims: dict[str, Any]) -> bool:
+    """Record this credential until it expires. False when it was already used.
+
+    Expired rows are deleted in the same write so the table stays small.
+    The raw credential is not stored.
+
+    Args:
+        raw_token: Posted credential, hashed only when there is no jti.
+        claims: Verified claims, including ``exp``.
+
+    Returns:
+        True the first time this credential is accepted.
+    """
+    expires_at = _unix_claim(claims.get("exp"))
+    if expires_at is None:
+        return False
+    keep_until = int(expires_at) + _GOOGLE_CLOCK_SKEW_SEC
+    key = _google_token_seen_key(raw_token, claims)
+    now = int(datetime.now(timezone.utc).timestamp())
+    db = school_db()
+    with db._lock:
+        try:
+            db.conn.execute(_GOOGLE_TOKEN_SEEN_DDL)
+            if db.conn.in_transaction:
+                db.conn.execute("COMMIT")
+            db.conn.execute("BEGIN IMMEDIATE")
+            db.conn.execute(
+                "DELETE FROM google_id_token_seen WHERE expires_at <= ?",
+                (now,),
+            )
+            db.conn.execute(
+                "INSERT INTO google_id_token_seen (token_key, expires_at) VALUES (?, ?)",
+                (key, keep_until),
+            )
+            db.conn.execute("COMMIT")
+        except sqlite3.IntegrityError:
+            if db.conn.in_transaction:
+                db.conn.execute("ROLLBACK")
+            return False
+        except Exception:  # noqa: BLE001 - a store failure must not open a session
+            if db.conn.in_transaction:
+                db.conn.execute("ROLLBACK")
+            return False
+    return True
 
 
 def _google_sign_in_failed():
@@ -866,13 +1082,44 @@ def _google_sub_conflicts(user: dict[str, Any], google_sub: str) -> bool:
     return bool(stored and incoming and stored != incoming)
 
 
+def _google_time_claims_ok(claims: dict[str, Any], now: float) -> bool:
+    """Apply the clock-skew window to exp, nbf, and iat.
+
+    google-auth checks exp and iat when it verifies a signature. It does
+    not check nbf, and a test double can return claims without those checks,
+    so the window is applied here as well.
+
+    Args:
+        claims: Verified claim mapping.
+        now: Current time as seconds since the epoch.
+
+    Returns:
+        True when exp, nbf, and iat sit inside the skew window.
+    """
+    skew = _GOOGLE_CLOCK_SKEW_SEC
+    issued_at = _unix_claim(claims.get("iat"))
+    expires_at = _unix_claim(claims.get("exp"))
+    if issued_at is None or expires_at is None:
+        return False
+    if now < issued_at - skew:
+        return False
+    if expires_at + skew < now:
+        return False
+    if "nbf" in claims and claims.get("nbf") is not None:
+        not_before = _unix_claim(claims.get("nbf"))
+        if not_before is None or not_before > now + skew:
+            return False
+    return True
+
+
 def _verify_google_id_token(raw_token: str) -> dict[str, Any] | None:
     """Verify a Google ID token and return its claims.
 
-    google-auth checks the signature. This function then requires the
-    audience to match the configured client id, the issuer to be Google
-    accounts, a future ``exp``, and ``email_verified`` true. Any failure
-    returns None. The token is not logged.
+    google-auth checks the signature against cached signing keys. This
+    function then requires the audience to match the configured client id,
+    a Google accounts issuer, exp, nbf, and iat inside the clock-skew
+    window, and ``email_verified`` true. A credential is accepted once.
+    Any failure returns None. The token is not logged or stored.
 
     Args:
         raw_token: Posted credential value.
@@ -886,8 +1133,9 @@ def _verify_google_id_token(raw_token: str) -> dict[str, Any] | None:
     try:
         claims = google_id_token.verify_oauth2_token(
             raw_token,
-            google_auth_requests.Request(),
+            _google_cert_transport(),
             client_id,
+            clock_skew_in_seconds=_GOOGLE_CLOCK_SKEW_SEC,
         )
     except Exception:  # noqa: BLE001 - fail closed; do not return verifier text
         return None
@@ -897,13 +1145,12 @@ def _verify_google_id_token(raw_token: str) -> dict[str, Any] | None:
         return None
     if claims.get("iss") not in _GOOGLE_ISSUERS:
         return None
-    try:
-        expires_at = float(claims.get("exp"))
-    except (TypeError, ValueError):
-        return None
-    if expires_at <= datetime.now(timezone.utc).timestamp():
+    now = datetime.now(timezone.utc).timestamp()
+    if not _google_time_claims_ok(claims, now):
         return None
     if claims.get("email_verified") is not True:
+        return None
+    if not _consume_google_id_token(raw_token, claims):
         return None
     return claims
 

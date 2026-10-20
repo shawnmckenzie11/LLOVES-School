@@ -24,6 +24,7 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.pop("GOOGLE_CLIENT_SECRET", None)
 
+import auth  # noqa: E402
 from app import create_app  # noqa: E402
 
 CLIENT_ID = "fake-client-id"
@@ -64,6 +65,7 @@ class GoogleIdTokenTests(unittest.TestCase):
         os.environ.pop("REQUIRE_PRIVILEGED_MFA", None)
         os.environ.pop("LOCAL_DEV_LOGIN", None)
         os.environ["GOOGLE_CLIENT_ID"] = CLIENT_ID
+        auth._clear_google_cert_cache()
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         self.app = create_app(
@@ -239,19 +241,151 @@ class GoogleIdTokenTests(unittest.TestCase):
     def test_valid_token_opens_staff_session(self) -> None:
         """A verified token links an empty subject once and opens a staff session."""
         self._allow(stored_sub=None)
-        for issuer in ("https://accounts.google.com", "accounts.google.com"):
-            claims = self._claims(iss=issuer, sub=TOKEN_SUB)
+        issuers = (
+            ("https://accounts.google.com", "fake-signed-token-a"),
+            ("accounts.google.com", "fake-signed-token-b"),
+        )
+        for issuer, credential in issuers:
+            claims = self._claims(iss=issuer, sub=TOKEN_SUB, jti=f"fake-jti-{issuer[:8]}")
             with patch(
                 "google.oauth2.id_token.verify_oauth2_token", return_value=claims
             ) as verify:
-                response = self._post("fake-signed-token")
+                response = self._post(credential)
             self.assertEqual(response.status_code, 302)
             self.assertIn("/staff", response.headers.get("Location", ""))
-            self.assertEqual(verify.call_args.args[0], "fake-signed-token")
+            self.assertEqual(verify.call_args.args[0], credential)
             self.assertIsInstance(verify.call_args.args[1], google_requests.Request)
             self.assertEqual(verify.call_args.args[2], CLIENT_ID)
+            skew = verify.call_args.kwargs["clock_skew_in_seconds"]
+            self.assertGreaterEqual(skew, 10)
+            self.assertLessEqual(skew, 30)
             self.assertEqual(self._row().get("google_sub"), TOKEN_SUB)
             with self.client.session_transaction() as sess:
                 self.assertTrue(sess.get("logged_in"))
                 self.assertEqual(sess.get("user_id"), self._row()["id"])
             self.client.get("/logout")
+
+    def test_nbf_in_the_future_is_rejected(self) -> None:
+        """A token whose nbf is past the clock-skew window is rejected."""
+        self._allow(stored_sub=TOKEN_SUB)
+        before = self._row()
+        now = int(datetime.now(timezone.utc).timestamp())
+        claims = self._claims(nbf=now + 31)
+        with patch(
+            "google.oauth2.id_token.verify_oauth2_token", return_value=claims
+        ):
+            response = self._post("fake-signed-token-nbf")
+        self._assert_rejected(response, before)
+
+    def test_clock_skew_window(self) -> None:
+        """Ten seconds of skew is accepted. More than thirty seconds is not."""
+        self._allow(stored_sub=TOKEN_SUB)
+        now = int(datetime.now(timezone.utc).timestamp())
+        accepted = (("exp", now - 10), ("nbf", now + 10), ("iat", now + 10))
+        for index, (field, value) in enumerate(accepted):
+            claims = self._claims(**{field: value}, jti=f"fake-jti-ok-{index}")
+            with patch(
+                "google.oauth2.id_token.verify_oauth2_token", return_value=claims
+            ):
+                response = self._post(f"fake-signed-token-ok-{index}")
+            self.assertEqual(response.status_code, 302, field)
+            self.client.get("/logout")
+        before = self._row()
+        rejected = (("exp", now - 31), ("nbf", now + 31), ("iat", now + 31))
+        for index, (field, value) in enumerate(rejected):
+            claims = self._claims(**{field: value}, jti=f"fake-jti-no-{index}")
+            with patch(
+                "google.oauth2.id_token.verify_oauth2_token", return_value=claims
+            ):
+                response = self._post(f"fake-signed-token-no-{index}")
+            self._assert_rejected(response, before)
+
+    def test_replay_after_logout_is_rejected(self) -> None:
+        """The same credential cannot open a second session after logout."""
+        self._allow(stored_sub=None)
+        credential = "fake-signed-token"
+        claims = self._claims()
+        with patch(
+            "google.oauth2.id_token.verify_oauth2_token", return_value=claims
+        ):
+            first = self._post(credential)
+        self.assertEqual(first.status_code, 302)
+        self.client.get("/logout")
+        before = self._row()
+        with patch(
+            "google.oauth2.id_token.verify_oauth2_token", return_value=claims
+        ):
+            second = self._post(credential)
+        self._assert_rejected(second, before)
+        rows = self.school.conn.execute(
+            "SELECT token_key FROM google_id_token_seen"
+        ).fetchall()
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertNotIn(credential, str(row[0]))
+        with patch(
+            "google.oauth2.id_token.verify_oauth2_token", return_value=claims
+        ):
+            other = self._post("fake-signed-token-other")
+        self.assertEqual(other.status_code, 302)
+
+    def test_expired_replay_rows_are_pruned(self) -> None:
+        """Rows past exp are removed when another credential is accepted."""
+        self._allow(stored_sub=TOKEN_SUB)
+        now = int(datetime.now(timezone.utc).timestamp())
+        with self.school._lock:
+            self.school.conn.execute(auth._GOOGLE_TOKEN_SEEN_DDL)
+            self.school.conn.execute(
+                "INSERT INTO google_id_token_seen (token_key, expires_at) VALUES (?, ?)",
+                ("jti:expired-row", now - 5),
+            )
+        claims = self._claims(jti="fake-jti-live")
+        with patch(
+            "google.oauth2.id_token.verify_oauth2_token", return_value=claims
+        ):
+            response = self._post("fake-signed-token-live")
+        self.assertEqual(response.status_code, 302)
+        keys = [
+            row[0]
+            for row in self.school.conn.execute(
+                "SELECT token_key FROM google_id_token_seen"
+            )
+        ]
+        self.assertNotIn("jti:expired-row", keys)
+        self.assertIn("jti:fake-jti-live", keys)
+        self.assertNotIn("fake-signed-token-live", " ".join(keys))
+
+    def test_signing_keys_are_cached_with_a_short_timeout(self) -> None:
+        """Signing keys are fetched once, with a timeout of about five seconds."""
+        auth._clear_google_cert_cache()
+        timeouts: list[object] = []
+
+        class _Resp:
+            status_code = 200
+            content = b"{}"
+            headers: dict[str, str] = {}
+
+        def fake_request(self, method, url, **kwargs):
+            timeouts.append(kwargs.get("timeout"))
+            return _Resp()
+
+        with patch("requests.Session.request", fake_request):
+            self.assertIsNone(auth._verify_google_id_token("unsigned.token.value"))
+            self.assertIsNone(auth._verify_google_id_token("unsigned.token.value"))
+        self.assertEqual(timeouts, [auth._GOOGLE_CERT_FETCH_TIMEOUT_SEC])
+        self.assertLessEqual(auth._GOOGLE_CERT_FETCH_TIMEOUT_SEC, 5)
+
+    def test_signing_key_fetch_failure_is_rejected(self) -> None:
+        """A failed key fetch does not open a session."""
+        import requests
+
+        auth._clear_google_cert_cache()
+        self._allow(stored_sub=TOKEN_SUB)
+        before = self._row()
+
+        def fake_request(self, method, url, **kwargs):
+            raise requests.exceptions.ConnectTimeout()
+
+        with patch("requests.Session.request", fake_request):
+            response = self._post(_unsigned_credential(self._claims()))
+        self._assert_rejected(response, before)
