@@ -123,6 +123,10 @@
                     {% if live_here %}disabled aria-disabled="true" title="End the live class before editing the roster"{% endif %}>
               <span>{% if live_here %}Roster locked{% else %}Edit roster{% endif %}</span>
             </button>
+            {% with roster_students=cls.roster, roster_class_id=cls.id, roster_open=false, roster_test_switch=true, show_test_switch_id=not roster_switch.placed, show_roster_list=false %}
+            {% include "staff/_roster_names.html" %}
+            {% endwith %}
+            {% set roster_switch.placed = true %}
           </div>
           {% else %}
           <div class="course-action-row">
@@ -138,12 +142,6 @@
           </div>
           {% endif %}
         </div>
-        {% if cls %}
-        {% with roster_students=cls.roster, roster_class_id=cls.id, roster_open=false, roster_test_switch=true, show_test_switch_id=not roster_switch.placed, show_roster_list=false %}
-        {% include "staff/_roster_names.html" %}
-        {% endwith %}
-        {% set roster_switch.placed = true %}
-        {% endif %}
         <div class="course-card-pack-progress"{% if not o.pack_busy and not o.pack_error %} hidden{% endif %}>
           <progress class="course-card-pack-bar" max="100"{% if not o.pack_busy %} value="100"{% endif %}></progress>
           <p class="course-card-pack-error hint"{% if not o.pack_error %} hidden{% endif %}>{{ o.pack_error or "" }}</p>
@@ -232,9 +230,9 @@
       </div>
       <p id="award-fresh-toast" class="award-fresh-success" role="status" hidden></p>
       <form id="celebrate-form">
-        <label class="field" for="celebrate-student">{{ 'Student' if plain_teacher else 'Codename' }}</label>
+        <label class="field" for="celebrate-student">{{ 'Student' if plain_teacher else 'Name' }}</label>
         <select id="celebrate-student" required>
-          <option value="">{{ 'Select a student' if plain_teacher else 'Select a Codename' }}</option>
+          <option value="">{{ 'Select a student' if plain_teacher else 'Select a name' }}</option>
           {% for s in celebration_candidates %}
           <option value="{{ s.class_id }}:{{ s.student_id }}"
             {% if celebration_award and celebration_award.student_id == s.student_id and celebration_award.class_id == s.class_id %}selected{% endif %}>

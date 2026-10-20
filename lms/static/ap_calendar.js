@@ -116,7 +116,7 @@ export function resolveLogDate(logContext, dayState, opts = {}) {
  * @param {{ first: string, last: string, today: string, minIso: string, selected: string, allowedSet: Set<string>, logged: Set<string> }} ctx
  * @returns {string}
  */
-function monthDayCells(year, month, ctx) {
+export function monthDayCells(year, month, ctx) {
   const firstOfMonth = new Date(year, month, 1);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const lead = firstOfMonth.getDay();

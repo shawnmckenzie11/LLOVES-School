@@ -101,6 +101,17 @@ class OpenCourseLinkTests(unittest.TestCase):
             f"/staff/class/{self.class_id}?tab=live&amp;run=1",
             home,
         )
+        celebrate = home.index('id="celebrate-student"')
+        card = home[home.index('class="course-link-row"') : celebrate]
+        self.assertIn("Open course", card)
+        self.assertIn("Edit roster", card)
+        self.assertIn("Show test students", card)
+        self.assertIn(
+            '<label class="field" for="celebrate-student">Name</label>',
+            home,
+        )
+        self.assertIn("Select a name", home)
+        self.assertNotIn("Select a Codename", home)
 
 
 class CelebrationCourseTitleTests(unittest.TestCase):
@@ -228,3 +239,182 @@ if (failed.length) {
         self.assertIn('picked !== "previous" && picked !== "course"', seed)
         self.assertIn('body: JSON.stringify({ mode: "test_copy" })', seed)
         self.assertIn("body.source_module = sourceModule;", seed)
+
+
+class LoggedCalendarMarkTests(unittest.TestCase):
+    """A logged past day keeps its check; a future day does not invent one."""
+
+    def setUp(self) -> None:
+        """One MCF3M class for a signed-in teacher."""
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.app = create_app(db_path=root / "lloves.sqlite", data_dir=root, testing=True)
+        self.school = self.app.config["SCHOOL_DB"]
+        self.client = self.app.test_client()
+        self.school.activate_from_semester_json()
+        self.teacher = self.school.register_staff("teacher@gmail.com")
+        offering = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]), ontario_code="MCF3M"
+        )
+        self.client.get("/auth/google?portal=staff")
+        self.client.get("/auth/google/callback?email=teacher@gmail.com&name=T")
+        self.client.post(
+            "/verify-email",
+            data={"code": self.school.get_user_by_email("teacher@gmail.com")["verification_code"]},
+        )
+        created = self.client.post(
+            "/api/staff/classes",
+            json={
+                "offering_id": offering["id"],
+                "days": "M/W/F",
+                "time": "2:00pm",
+                "codenames": ["Maple"],
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.get_json())
+        self.class_id = int(created.get_json()["class"]["id"])
+
+    def tearDown(self) -> None:
+        """Close the throwaway database."""
+        self.school.close()
+        self.tmp.cleanup()
+
+    def _insert_session(self, day: str, status: str) -> int:
+        """Insert one tracker column and return its id.
+
+        Args:
+            day: ISO calendar day.
+            status: ``ended`` for a logged class, ``active`` for a template.
+        """
+        game = self.school.game
+        with game._lock:
+            game.conn.execute(
+                """
+                INSERT INTO sessions (class_id, starts_at, header_label, status, source)
+                VALUES (?, ?, ?, ?, 'game')
+                """,
+                (self.class_id, f"{day}T14:00:00", day, status),
+            )
+            game.conn.commit()
+            row = game.conn.execute("SELECT last_insert_rowid()").fetchone()
+        return int(row[0])
+
+    def test_past_logged_day_is_listed_and_future_only_when_logged(self) -> None:
+        """Log-context includes a past logged day and a really logged future day."""
+        from datetime import date, timedelta
+
+        today = date.today()
+        past = (today - timedelta(days=6)).isoformat()
+        future_logged = (today + timedelta(days=8)).isoformat()
+        future_plain = (today + timedelta(days=15)).isoformat()
+        self._insert_session(past, "ended")
+        self._insert_session(future_logged, "ended")
+        ctx = self.client.get(f"/api/classes/{self.class_id}/log-context").get_json()
+        logged = set(ctx["logged_dates"])
+        self.assertIn(past, logged)
+        self.assertIn(future_logged, logged)
+        self.assertNotIn(future_plain, logged)
+
+    def test_disabled_past_cell_still_shows_the_check(self) -> None:
+        """October 14 stays disabled and still renders the logged check."""
+        script = r"""
+import { monthDayCells } from "./static/ap_calendar.js";
+
+const allowed = [];
+for (let day = 1; day <= 31; day += 1) {
+  const iso = `2026-10-${String(day).padStart(2, "0")}`;
+  const weekday = new Date(2026, 9, day).getDay();
+  if (weekday === 1 || weekday === 3 || weekday === 5) allowed.push(iso);
+}
+const html = monthDayCells(2026, 9, {
+  first: "2026-09-08",
+  last: "2027-01-25",
+  today: "2026-10-20",
+  minIso: "2026-10-20",
+  selected: "",
+  allowedSet: new Set(allowed),
+  logged: new Set(["2026-10-14", "2026-10-28"]),
+});
+const failed = [];
+function cell(iso) {
+  const match = html.match(new RegExp(`<button[^>]*data-day-iso="${iso}"[^>]*>[\\s\\S]*?</button>`));
+  if (!match) failed.push("missing " + iso);
+  return match ? match[0] : "";
+}
+const past = cell("2026-10-14");
+const futurePlain = cell("2026-10-21");
+const futureLogged = cell("2026-10-28");
+function check(cond, message) {
+  if (!cond) failed.push(message);
+}
+check(past.includes("is-disabled"), "past disabled");
+check(past.includes("is-logged"), "past logged class");
+check(past.includes("\u2713") || past.includes("✓"), "past check");
+check(past.includes('aria-label="14, logged"'), "past accessible name");
+check(/\sdisabled[\s>]/.test(past), "past not selectable");
+check(!futurePlain.includes("ap-day-logged"), "unlogged future has no check");
+check(!futurePlain.includes("logged"), "unlogged future has no logged name");
+check(futureLogged.includes("is-valid"), "logged future stays selectable");
+check(futureLogged.includes("is-logged"), "logged future class");
+check(futureLogged.includes("\u2713") || futureLogged.includes("✓"), "logged future check");
+check(!/\sdisabled[\s>]/.test(futureLogged), "logged future is not disabled");
+if (failed.length) {
+  console.error(failed.join("\n"));
+  process.exit(1);
+}
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=LMS_DIR,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        css = (LMS_DIR / "static" / "staff-shell.css").read_text(encoding="utf-8")
+        marker = "button.ap-day-cell.is-logged:disabled .ap-day-logged"
+        self.assertIn(marker, css)
+        block = css.split(marker, 1)[1].split("}", 1)[0]
+        self.assertIn("opacity: 1", block)
+        self.assertIn("visibility: visible", block)
+        self.assertNotIn("display: none", block)
+        self.assertNotIn("opacity: 0", block)
+
+    def test_repair_moves_only_future_demo_columns(self) -> None:
+        """Three future ended columns move onto past days and stay there."""
+        from datetime import date, timedelta
+
+        from local_dev_seed import _repair_demo_future_columns
+
+        today = date.today()
+        future_days = [
+            (today + timedelta(days=offset)).isoformat() for offset in (3, 5, 7)
+        ]
+        ended_ids = [self._insert_session(day, "ended") for day in future_days]
+        active_day = (today + timedelta(days=9)).isoformat()
+        active_id = self._insert_session(active_day, "active")
+        _repair_demo_future_columns(self.school, self.class_id)
+        game = self.school.game
+        with game._lock:
+            rows = {
+                int(row["id"]): str(row["starts_at"])[:10]
+                for row in game.conn.execute(
+                    "SELECT id, starts_at, status FROM sessions WHERE class_id = ?",
+                    (self.class_id,),
+                )
+            }
+        for session_id in ended_ids:
+            self.assertLessEqual(rows[session_id], today.isoformat())
+            self.assertNotIn(rows[session_id], future_days)
+        self.assertEqual(rows[active_id], active_day)
+        stamped = [rows[session_id] for session_id in ended_ids]
+        _repair_demo_future_columns(self.school, self.class_id)
+        with game._lock:
+            again = [
+                str(row["starts_at"])[:10]
+                for row in game.conn.execute(
+                    "SELECT starts_at FROM sessions WHERE id IN (?, ?, ?) ORDER BY id",
+                    tuple(ended_ids),
+                )
+            ]
+        self.assertEqual(again, stamped)

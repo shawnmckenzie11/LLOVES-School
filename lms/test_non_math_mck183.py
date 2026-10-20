@@ -119,7 +119,7 @@ class NonMathTests(unittest.TestCase):
         self.assertIn("<span>Populate Class</span>", card)
         self.assertIn("Ask Admin to attach a module pack", card)
         self.assertNotIn('data-simple="1"', home)
-        self.assertIn('<label class="field" for="celebrate-student">Codename</label>', home)
+        self.assertIn('<label class="field" for="celebrate-student">Name</label>', home)
         part = self.client.get(
             f"/staff/class/{class_id}?tab=ap&view=participation"
         ).get_data(as_text=True)

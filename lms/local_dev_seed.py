@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -244,6 +245,85 @@ def _seed_engagement_ap_roster(school: Any, class_id: int) -> dict[str, Any]:
     }
 
 
+def _stamp_demo_column_on_class_day(
+    school: Any, session_id: int | None, when: datetime
+) -> None:
+    """Point one ended demo column at the scheduled class day.
+
+    End Class opens the attendance column on the next meeting, which can
+    be a future day. The Set Class calendar then checks that future day
+    and leaves the day the class actually ran blank.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        session_id: Ended ``sessions.id``, or None when nothing was written.
+        when: Scheduled class end. Only the calendar day is kept; the
+            column starts at the demo class time.
+    """
+    if not session_id:
+        return
+    day = when.date() if isinstance(when, datetime) else when
+    meeting = datetime(day.year, day.month, day.day, 14, 0)
+    from schedule import format_header_label
+
+    header = format_header_label(meeting, LOCAL_DEV_TIME)
+    game = school.game
+    with game._lock:
+        game.conn.execute(
+            """
+            UPDATE sessions
+            SET starts_at = ?, header_label = ?
+            WHERE id = ? AND status = 'ended'
+            """,
+            (meeting.isoformat(), header, int(session_id)),
+        )
+        game.conn.commit()
+
+
+def _repair_demo_future_columns(school: Any, class_id: int) -> None:
+    """Move a fresh demo's ended columns off future days onto past class days.
+
+    Runs only when every ended column is strictly after today and there
+    are exactly three (M1 C1, M1 C2, and M3). Any column already on or
+    before today makes this a no-op, so a second seed does not shuffle
+    dates. Active template sessions are left alone.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        class_id: Demo class id.
+    """
+    from gradebook import session_meeting_date
+    from live_class_run import LiveClassSchedule, scheduled_class_end_datetime
+
+    sched_row = school.live_class_schedule_for_class(int(class_id))
+    if not sched_row:
+        return
+    schedule = LiveClassSchedule(
+        days_key=str(sched_row["live_days"]),
+        end_time_label=str(sched_row["live_end_time"]),
+    )
+    game = school.game
+    with game._lock:
+        rows = game.conn.execute(
+            """
+            SELECT id, starts_at FROM sessions
+            WHERE class_id = ? AND status = 'ended'
+            ORDER BY id
+            """,
+            (int(class_id),),
+        ).fetchall()
+    if len(rows) != 3:
+        return
+    today = date.today()
+    for row in rows:
+        meeting = session_meeting_date(str(row["starts_at"] or ""))
+        if meeting is None or meeting <= today:
+            return
+    for row, which in zip(rows, (0, 1, 4)):
+        ended = scheduled_class_end_datetime(schedule, which=which)
+        _stamp_demo_column_on_class_day(school, int(row["id"]), ended)
+
+
 def _seed_demo_participation(school: Any, class_id: int, teacher_id: int) -> dict[str, Any]:
     """Run and End M1 C1 + C2 once so the teacher Participation page has data.
 
@@ -269,12 +349,15 @@ def _seed_demo_participation(school: Any, class_id: int, teacher_id: int) -> dic
         (class_id,),
     ).fetchone():
         _backfill_demo_live_participation_credits(school, int(class_id))
+        _repair_demo_future_columns(school, int(class_id))
         return {"skipped": "already seeded"}
     if conn.execute(
         "SELECT 1 FROM participation_items WHERE class_id = ? LIMIT 1", (class_id,)
     ).fetchone():
         _backfill_demo_live_participation_credits(school, int(class_id))
-        return _seed_demo_m3_participation(school, class_id, teacher_id)
+        seeded = _seed_demo_m3_participation(school, class_id, teacher_id)
+        _repair_demo_future_columns(school, int(class_id))
+        return seeded
     if school.get_active_live_session_for_class(class_id):
         return {"skipped": "live class in progress"}
     maple = school.game.find_student_by_codename(class_id, "Maple")
@@ -432,9 +515,12 @@ def _run_demo_individual_live_end(
             (int(class_id), run_key),
         )
         conn.commit()
-        _persist_demo_live_participation_credit(
+        persisted = _persist_demo_live_participation_credit(
             school, int(class_id), maple_id, run_key, answered
         )
+        session_id = persisted.get("session_id") if isinstance(persisted, dict) else None
+        if session_id:
+            _stamp_demo_column_on_class_day(school, int(session_id), ended_dt)
     return str(live_slot)
 
 
@@ -474,11 +560,15 @@ def _persist_demo_live_participation_credit(
     maple_id: int,
     run_key: str,
     answered: int,
-) -> None:
+) -> dict | None:
     """Link one demo live run to a game-show column via ``live_participation_credits``.
 
     Idempotent when a credit row already exists for ``run_key``. Gives the
     Participation tab session metadata and Finish Module actions in local dev.
+
+    Returns:
+        The End Class persist payload (including ``session_id``), or None
+        when this run was already credited.
     """
     key = str(run_key or "").strip()
     if not key:
@@ -491,7 +581,7 @@ def _persist_demo_live_participation_credit(
     if existing is not None:
         return
     credits = {int(maple_id): int(answered)} if answered > 0 else {}
-    game.persist_end_class_column(
+    return game.persist_end_class_column(
         int(class_id),
         [int(maple_id)],
         credits,
