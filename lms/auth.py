@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import base64
 import hmac
 import ipaddress
-import json
 import os
 import secrets
 import urllib.parse
@@ -15,6 +13,8 @@ from functools import wraps
 from typing import Any, Callable
 
 import requests
+from google.auth.transport import requests as google_auth_requests
+from google.oauth2 import id_token as google_id_token
 from flask import (
     Flask,
     current_app,
@@ -817,23 +817,95 @@ def _send_first_login_code(user: dict[str, Any], *, force: bool = False) -> tupl
     return code, emailed
 
 
-def _decode_google_jwt(jwt_token: str) -> dict[str, Any] | None:
-    """Decode a Google Identity Services JWT payload without verifying.
+# Shown for every credential-path failure so the caller cannot tell which check failed.
+_GOOGLE_SIGN_IN_FAILED = "Google One Tap authentication failed."
+_GOOGLE_ISSUERS = frozenset(
+    {"accounts.google.com", "https://accounts.google.com"}
+)
 
-    Signature verification is skipped only when used as a convenience parse
-    after GIS posts to our callback; production OAuth code flow uses userinfo.
+
+def _google_sign_in_failed():
+    """Return the generic Google sign-in failure page.
+
+    Signature, claim, cookie, and subject-mismatch failures all use this
+    response. Nothing about the token is included.
     """
-    try:
-        parts = jwt_token.split(".")
-        if len(parts) < 2:
-            return None
-        payload_b64 = parts[1]
-        payload_b64 += "=" * (-len(payload_b64) % 4)
-        payload_json = base64.b64decode(payload_b64).decode("utf-8")
-        payload = json.loads(payload_json)
-        return payload if isinstance(payload, dict) else None
-    except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+    return (
+        render_template("forbidden.html", message=_GOOGLE_SIGN_IN_FAILED),
+        401,
+    )
+
+
+def _google_gis_csrf_ok() -> bool:
+    """True when the GIS double-submit cookie matches the posted value.
+
+    Google Identity Services sets ``g_csrf_token`` as a cookie and repeats
+    it in the POST body. A missing or different value is a failed sign-in.
+    """
+    return _secret_equal(
+        request.cookies.get("g_csrf_token"),
+        request.form.get("g_csrf_token"),
+    )
+
+
+def _google_sub_conflicts(user: dict[str, Any], google_sub: str) -> bool:
+    """True when the stored Google subject is present and different.
+
+    An empty stored subject may be linked once. A different subject is a
+    failed login and must not replace the stored one.
+
+    Args:
+        user: Allowlisted user row.
+        google_sub: Subject from the verified Google identity.
+
+    Returns:
+        True when the stored subject must be left unchanged.
+    """
+    stored = str(user.get("google_sub") or "")
+    incoming = str(google_sub or "")
+    return bool(stored and incoming and stored != incoming)
+
+
+def _verify_google_id_token(raw_token: str) -> dict[str, Any] | None:
+    """Verify a Google ID token and return its claims.
+
+    google-auth checks the signature. This function then requires the
+    audience to match the configured client id, the issuer to be Google
+    accounts, a future ``exp``, and ``email_verified`` true. Any failure
+    returns None. The token is not logged.
+
+    Args:
+        raw_token: Posted credential value.
+
+    Returns:
+        Claim mapping, or None when verification fails.
+    """
+    client_id = google_client_id()
+    if not client_id or not str(raw_token or "").strip():
         return None
+    try:
+        claims = google_id_token.verify_oauth2_token(
+            raw_token,
+            google_auth_requests.Request(),
+            client_id,
+        )
+    except Exception:  # noqa: BLE001 - fail closed; do not return verifier text
+        return None
+    if not isinstance(claims, dict):
+        return None
+    if claims.get("aud") != client_id:
+        return None
+    if claims.get("iss") not in _GOOGLE_ISSUERS:
+        return None
+    try:
+        expires_at = float(claims.get("exp"))
+    except (TypeError, ValueError):
+        return None
+    if expires_at <= datetime.now(timezone.utc).timestamp():
+        return None
+    if claims.get("email_verified") is not True:
+        return None
+    return claims
 
 
 def _finish_google_identity(
@@ -852,13 +924,20 @@ def _finish_google_identity(
         portal: Requested ``staff`` or ``it``.
 
     Returns:
-        Flask redirect or 403 response.
+        Flask redirect, 403 for an unknown account, or 401 when the Google
+        subject does not match the one already stored.
     """
+    db = school_db()
+    email_key = (email or "").strip().lower()
+    # Reject a different subject before invite acceptance or any other write.
+    existing = db.get_user_by_google_sub(google_sub) or db.get_user_by_email(email_key)
+    if existing is not None and _google_sub_conflicts(existing, google_sub):
+        session.pop("google_oauth_next", None)
+        return _google_sign_in_failed()
+
     invite_page = _check_pending_invite(email)
     if invite_page is not None:
         return invite_page
-    db = school_db()
-    email_key = (email or "").strip().lower()
     user = db.get_user_by_google_sub(google_sub) or db.get_user_by_email(email_key)
     if not user:
         session.pop("google_oauth_next", None)
@@ -869,10 +948,14 @@ def _finish_google_identity(
     if user.get("archived_at"):
         session.clear()
         return redirect(url_for("landing"))
-    if google_sub and user.get("google_sub") != google_sub:
-        user = db.link_google(int(user["id"]), google_sub, name)
+    if _google_sub_conflicts(user, google_sub):
+        session.pop("google_oauth_next", None)
+        return _google_sign_in_failed()
+    stored_sub = str(user.get("google_sub") or "")
+    if google_sub and stored_sub != str(google_sub):
+        user = db.link_google(int(user["id"]), str(google_sub), name)
     elif name and not user.get("display_name"):
-        user = db.link_google(int(user["id"]), user.get("google_sub") or google_sub, name)
+        user = db.link_google(int(user["id"]), stored_sub or str(google_sub), name)
 
     portal_key = "it" if portal == "it" else "staff"
     email_l = str(user["email"]).lower()
@@ -1092,7 +1175,7 @@ def register_auth_routes(app: Flask) -> None:
 
     @app.route("/auth/google/callback", methods=["GET", "POST"])
     def auth_google_callback():
-        """Complete OAuth, One Tap JWT, or mock Google login."""
+        """Complete OAuth, a verified GIS credential, or mock Google login."""
         portal = session.get("oauth_portal") or request.args.get("portal") or "staff"
         client_id = google_client_id()
         client_secret = google_client_secret()
@@ -1100,22 +1183,22 @@ def register_auth_routes(app: Flask) -> None:
 
         jwt_token = request.form.get("credential")
         if jwt_token:
-            payload = _decode_google_jwt(jwt_token)
+            # Cookie check first so a bad post never reaches the verifier.
+            payload = (
+                _verify_google_id_token(jwt_token) if _google_gis_csrf_ok() else None
+            )
             if not payload:
-                return render_template(
-                    "forbidden.html",
-                    message="Google One Tap authentication failed.",
-                ), 401
+                return _google_sign_in_failed()
             email = payload.get("email")
             google_id = payload.get("sub")
             name = payload.get("name") or payload.get("given_name")
             if not email or not google_id:
-                return render_template(
-                    "forbidden.html",
-                    message="Google One Tap authentication failed.",
-                ), 401
+                return _google_sign_in_failed()
             return _finish_google_identity(
-                email=email, google_sub=str(google_id), name=name, portal=portal
+                email=str(email),
+                google_sub=str(google_id),
+                name=str(name) if name else None,
+                portal=portal,
             )
 
         if not oauth_ready:
