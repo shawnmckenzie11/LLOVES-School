@@ -608,11 +608,19 @@ def _artifact_busy(action: str):
 
 
 def _wants_json() -> bool:
-    """True when the client asked for a JSON module-pack response."""
+    """True when the client asked for a JSON module-pack response.
+
+    A no-JS form post sends ``Accept: text/html`` or ``*/*``. Those
+    requests are sent back to the form with the error on the page. JSON
+    is reserved for the upload script's XHR header or an Accept value
+    that prefers ``application/json`` over HTML.
+    """
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
         return True
-    best = request.accept_mimetypes.best_match(("application/json", "text/html"))
-    return best == "application/json"
+    accept = request.accept_mimetypes
+    json_q = accept["application/json"]
+    html_q = accept["text/html"]
+    return json_q > html_q and json_q > 0
 
 
 def _library_source(school: SchoolDB, offering: dict[str, Any] | None) -> str | None:
@@ -1391,12 +1399,11 @@ def create_app(
         except Exception:  # noqa: BLE001 - migration must not block boot
             app.logger.exception("MCK-210 catch-up migration failed")
         try:
-            from pack_install import resume_interrupted_packs
+            from pack_install import schedule_pack_resume
 
-            # A dead installer leaves course.imscc on disk. Retry once per boot.
-            run_once_per_boot(
-                "pack-resume", lambda: resume_interrupted_packs(school)
-            )
+            # A dead installer leaves course.imscc on disk. Retry once per boot
+            # on a background thread so startup can finish serving.
+            run_once_per_boot("pack-resume", lambda: schedule_pack_resume(school))
         except Exception:  # noqa: BLE001 - resume must not block boot
             app.logger.exception("module pack resume failed")
     if local_dev_login_enabled() and not secure:
@@ -1841,17 +1848,42 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         if _wants_json():
             return jsonify({"ok": False, "error": message}), 413
-        if "/module-pack" in (request.path or ""):
-            session["pack_error"] = message
-            parts = request.path.strip("/").split("/")
+        session["pack_error"] = message
+        parts = (request.path or "").strip("/").split("/")
+        if "module-pack" in parts and "class" in parts:
             try:
                 class_id = int(parts[parts.index("class") + 1])
+            except (ValueError, IndexError):
+                class_id = 0
+            if class_id:
                 return redirect(
                     url_for("staff_course", class_id=class_id, tab="modules")
                 )
-            except (ValueError, IndexError):
+        if (
+            len(parts) >= 4
+            and parts[0] == "it"
+            and parts[1] == "offerings"
+            and parts[3] == "module-pack"
+        ):
+            try:
+                return redirect(url_for("it_offering_pack", offering_id=int(parts[2])))
+            except ValueError:
                 pass
+        if (
+            len(parts) >= 4
+            and parts[0] == "it"
+            and parts[1] == "staff"
+            and parts[3] == "assign"
+        ):
+            try:
+                return redirect(url_for("it_staff_assign", staff_id=int(parts[2])))
+            except ValueError:
+                pass
+        if "/module-pack" in (request.path or "") or (request.path or "").rstrip("/").endswith(
+            "/assign"
+        ):
             return redirect(url_for("it_dashboard", tab="offerings"))
+        session.pop("pack_error", None)
         return (message, 413)
 
     @app.route("/static/<path:filename>")
@@ -2149,6 +2181,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             staff_2fa_modes=STAFF_2FA_MODE_LABELS,
             invite_presets=onboarding_preset_lists(school),
             invite_flash=session.pop("invite_flash", None),
+            pack_error=session.pop("pack_error", None),
             invite_tabs=staff_invites.invite_tabs(school, tenant_id),
         )
         resp = make_response(html)
@@ -2995,6 +3028,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 time_options=list(TIME_OPTIONS),
                 end_time_options=end_time_options(),
                 school_name=SCHOOL_NAME,
+                pack_error=session.pop("pack_error", None),
             )
 
         code = (request.form.get("ontario_code") or "").strip().upper()
@@ -3067,6 +3101,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             "it/assign.html",
             replace_offering=replace_offering,
             school_name=SCHOOL_NAME,
+            pack_error=session.pop("pack_error", None),
         )
 
     #: Shawn's accounts when ``SENTRY_OWNER_EMAILS`` is unset (fly.toml sets it).

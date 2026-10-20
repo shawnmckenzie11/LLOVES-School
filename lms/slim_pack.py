@@ -1,14 +1,14 @@
 """Slim Common Cartridge builder and lean streaming materializer.
 
-IT course assignment only needs the module outline, quiz metadata, QTI banks,
-wiki pages, and the images those files actually reference. A full Canvas
-export also carries video and unused ``web_resources``. Copying that tree
-peaks at several times the pack size on a 1 GB machine.
+IT course assignment needs the module outline, quiz metadata, QTI banks,
+wiki pages, assignment folders, and every file those actually reference.
+A full Canvas export also carries unused ``web_resources``. Copying that
+tree peaks at several times the pack size on a 1 GB machine.
 
-:func:`build_slim_imscc` writes a new ``.imscc`` at the zip root with the
-extra files removed. :func:`materialize_import_tree` is what install uses:
-it streams the members ingest reads (including assignments and referenced
-PDFs) and leaves unreferenced media inside the archive.
+:func:`build_slim_imscc` writes a new ``.imscc`` at the zip root. It drops
+only files nothing links to, plus course-settings files ingest does not
+read. :func:`materialize_import_tree` is what install uses: it streams the
+members ingest reads and leaves unreferenced media inside the archive.
 """
 
 from __future__ import annotations
@@ -23,19 +23,29 @@ from pathlib import Path
 from urllib.parse import unquote
 from xml.etree import ElementTree as ET
 
-# Extensions the importer treats as pictures embedded in stems and pages.
-IMAGE_SUFFIXES = frozenset(
-    {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".ico"}
-)
 _TEXT_SUFFIXES = frozenset({".xml", ".html", ".htm", ".qti", ".txt"})
 _BANK_SUFFIXES = frozenset({".xml", ".qti", ".html", ".htm"})
 _CHUNK = 1024 * 1024
 
 # ``$IMS-CC-FILEBASE$`` is the cartridge root for web_resources. Canvas also
 # percent-encodes the token, and pages link with ``../web_resources/...``.
-_MEDIA_REF_RE = re.compile(
-    r"""(?ix)
-    (?:\$IMS-CC-FILEBASE\$|%24IMS-CC-FILEBASE%24)/+
+# Quoted paths may contain spaces (``Uploaded Media/<file>``). The match
+# runs to the closing quote. Unquoted paths still stop at whitespace.
+_FILEBASE_TOKEN = r"(?:\$IMS-CC-FILEBASE\$|%24IMS-CC-FILEBASE%24)"
+_QUOTED_MEDIA_RE = re.compile(
+    rf"""(?ix)
+    (?P<q>["'])
+    (?P<body>
+        (?:(?:\.\./)+)?
+        (?:{_FILEBASE_TOKEN}|web_resources)
+        /[^"'<>]*
+    )
+    (?P=q)
+    """
+)
+_UNQUOTED_MEDIA_RE = re.compile(
+    rf"""(?ix)
+    (?:{_FILEBASE_TOKEN})/+
     (?P<filebase>[^\s"'<>?#]+)
     |
     (?:(?:\.\./)+)?
@@ -111,40 +121,72 @@ def _clean_ref(raw: str) -> str:
     return text
 
 
+def _path_from_ref_body(body: str) -> str | None:
+    """Turn one filebase or ``web_resources`` reference into a zip path.
+
+    Args:
+        body: Text between quotes, or an unquoted path match.
+    """
+    text = (body or "").strip()
+    while text.startswith("../"):
+        text = text[3:]
+    while text.startswith("./"):
+        text = text[2:]
+    lowered = text.lower()
+    path = ""
+    for token in ("$IMS-CC-FILEBASE$", "%24IMS-CC-FILEBASE%24"):
+        if lowered.startswith(token.lower()):
+            rest = _clean_ref(text[len(token) :].lstrip("/"))
+            if not rest:
+                return None
+            if rest.startswith("web_resources/"):
+                path = rest
+            else:
+                path = f"web_resources/{rest.lstrip('/')}"
+            break
+    else:
+        if not lowered.startswith("web_resources/"):
+            return None
+        path = _clean_ref(text)
+    if not path or ".." in path.split("/"):
+        return None
+    return path
+
+
 def referenced_media_paths(text: str) -> set[str]:
     """Return cartridge-relative media paths mentioned in HTML or XML.
 
     ``$IMS-CC-FILEBASE$/diagram.png`` is rooted at ``web_resources/``.
-    Paths that already start with ``web_resources/`` are kept as written.
+    A quoted path such as ``Uploaded Media/<uuid>`` is kept through the
+    closing quote, including spaces. Paths that already start with
+    ``web_resources/`` are kept as written.
 
     Args:
         text: Wiki HTML, QTI, or quiz metadata.
     """
     found: set[str] = set()
-    for match in _MEDIA_REF_RE.finditer(text or ""):
+    source = text or ""
+
+    def _take_quoted(match: re.Match[str]) -> str:
+        """Record a quoted media path and hide it from the unquoted scan."""
+        path = _path_from_ref_body(match.group("body") or "")
+        if path:
+            found.add(path)
+        return " " * len(match.group(0))
+
+    remainder = _QUOTED_MEDIA_RE.sub(_take_quoted, source)
+    for match in _UNQUOTED_MEDIA_RE.finditer(remainder):
         web = match.group("web")
         filebase = match.group("filebase")
         if web:
-            path = _clean_ref(web)
+            path = _path_from_ref_body(web)
         elif filebase:
-            path = _clean_ref(filebase)
-            if path.startswith("web_resources/"):
-                pass
-            elif path:
-                path = f"web_resources/{path.lstrip('/')}"
-            else:
-                continue
+            path = _path_from_ref_body(f"$IMS-CC-FILEBASE$/{filebase}")
         else:
-            continue
-        if not path or ".." in path.split("/"):
-            continue
-        found.add(path)
+            path = None
+        if path:
+            found.add(path)
     return found
-
-
-def _is_image(rel: str) -> bool:
-    """Return True when ``rel`` has an image suffix."""
-    return Path(rel).suffix.lower() in IMAGE_SUFFIXES
 
 
 def _is_scannable(rel: str) -> bool:
@@ -198,8 +240,8 @@ def _structural_member(
         rel: Cartridge-relative path.
         quiz_dirs: Folders that hold ``assessment_meta.xml``.
         assignment_dirs: Folders that hold ``assignment_settings.xml``.
-        include_assignments: Full import keeps assignment bodies. The slim
-            pack does not.
+        include_assignments: When True, keep ``assignment_settings.xml`` and
+            the HTML beside it so assignment module items resolve.
     """
     if rel in {
         "imsmanifest.xml",
@@ -379,8 +421,8 @@ def _plan_archive(archive: zipfile.ZipFile, *, slim: bool) -> _Plan:
 
     Args:
         archive: Open ``.imscc``.
-        slim: When True, drop assignments and non-image media and rewrite
-            the manifest. When False, keep every file ingest reads.
+        slim: When True, rewrite the manifest so dropped members are not
+            listed. Both modes keep assignments and every referenced file.
     """
     rel_to_zip: dict[str, str] = {}
     for info in archive.infolist():
@@ -409,7 +451,7 @@ def _plan_archive(archive: zipfile.ZipFile, *, slim: bool) -> _Plan:
             rel,
             quiz_dirs=quiz_dirs,
             assignment_dirs=assignment_dirs,
-            include_assignments=not slim,
+            include_assignments=True,
         )
     ]
     referenced: set[str] = set()
@@ -430,8 +472,6 @@ def _plan_archive(archive: zipfile.ZipFile, *, slim: bool) -> _Plan:
     for rel in rels:
         if rel not in referenced:
             continue
-        if slim and not _is_image(rel):
-            continue
         media.append(rel)
     keep = list(dict.fromkeys([*structural, *media]))
     rewritten: bytes | None = None
@@ -446,13 +486,58 @@ def _plan_archive(archive: zipfile.ZipFile, *, slim: bool) -> _Plan:
     )
 
 
-def _stream_member(archive: zipfile.ZipFile, zip_name: str, target: Path) -> None:
+class UncompressedLimit(ValueError):
+    """Raised when unpack would write more bytes than the configured cap."""
+
+
+def _unpack_limit_message(cap: int) -> str:
+    """Return the teacher-facing message for an oversized unpack.
+
+    Args:
+        cap: Maximum uncompressed bytes the unpack may write.
+    """
+    if cap >= 1024 * 1024:
+        limit = f"{cap // (1024 * 1024)} MB"
+    else:
+        limit = f"{cap} bytes"
+    return (
+        f"Module pack expands past the {limit} unpack limit "
+        "(LLOVES_IMSCC_MAX_BYTES). The archive was not installed."
+    )
+
+
+def _configured_unpack_cap() -> int | None:
+    """Return the uncompressed write cap, matching the upload cap.
+
+    ``LLOVES_IMSCC_MAX_BYTES`` limits both the uploaded archive and the
+    bytes an unpack may write. ``none`` disables both.
+    """
+    try:
+        from modules import configured_imscc_max_bytes
+    except ImportError:
+        from lms.modules import configured_imscc_max_bytes
+
+    return configured_imscc_max_bytes()
+
+
+def _stream_member(
+    archive: zipfile.ZipFile,
+    zip_name: str,
+    target: Path,
+    budget: list[int] | None = None,
+) -> None:
     """Copy one zip member to ``target`` in chunks.
 
     Args:
         archive: Open cartridge.
         zip_name: Member to read.
         target: Destination file.
+        budget: When set, ``budget[0]`` is the remaining uncompressed bytes
+            this unpack may still write. The member is not kept if it would
+            pass that cap.
+
+    Raises:
+        UncompressedLimit: Writing this member would pass ``budget``.
     """
     target.parent.mkdir(parents=True, exist_ok=True)
     partial = target.with_name(target.name + ".part")
@@ -462,9 +547,13 @@ def _stream_member(archive: zipfile.ZipFile, zip_name: str, target: Path) -> Non
                 chunk = src.read(_CHUNK)
                 if not chunk:
                     break
+                if budget is not None:
+                    if len(chunk) > budget[0]:
+                        raise UncompressedLimit(_unpack_limit_message(0))
+                    budget[0] -= len(chunk)
                 out.write(chunk)
         os.replace(partial, target)
-    except (zipfile.BadZipFile, zlib.error, RuntimeError, OSError):
+    except (zipfile.BadZipFile, zlib.error, RuntimeError, OSError, UncompressedLimit):
         if partial.exists():
             partial.unlink()
         raise
@@ -494,6 +583,8 @@ def materialize_import_tree(
     *,
     clean: bool = False,
     progress: Callable[[int, int, str], None] | None = None,
+    max_uncompressed_bytes: int | None = None,
+    use_configured_cap: bool = True,
 ) -> int:
     """Stream the members a full import needs into ``out_dir``.
 
@@ -502,11 +593,19 @@ def materialize_import_tree(
     (including a PDF a module item points at) are written so ingest matches
     a full unpack for everything it reads.
 
+    The total uncompressed size of written members is capped. A small zip
+    that expands past ``LLOVES_IMSCC_MAX_BYTES`` is rejected and the partial
+    tree is removed.
+
     Args:
         imscc_path: Stored ``.imscc`` archive.
         out_dir: Destination working tree.
         clean: When True, replace an existing tree first.
         progress: Optional ``(done, total, member_name)`` callback.
+        max_uncompressed_bytes: Explicit unpack cap. ``None`` with
+            ``use_configured_cap`` uses ``LLOVES_IMSCC_MAX_BYTES``.
+        use_configured_cap: When False and ``max_uncompressed_bytes`` is
+            ``None``, unpack size is not limited.
 
     Returns:
         Number of members written.
@@ -514,7 +613,8 @@ def materialize_import_tree(
     Raises:
         FileNotFoundError: The archive is missing.
         zipfile.BadZipFile: The archive or a member cannot be read.
-        ValueError: The archive has no ``imsmanifest.xml``.
+        ValueError: The archive has no ``imsmanifest.xml``, or the
+            uncompressed size exceeds the cap.
     """
     import shutil
 
@@ -526,22 +626,40 @@ def materialize_import_tree(
         shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     written = 0
-    with zipfile.ZipFile(imscc_path, "r") as archive:
-        plan = _plan_archive(archive, slim=False)
-        total = len(plan.keep)
-        for index, rel in enumerate(plan.keep, start=1):
-            target = _contained(out_dir, rel)
-            if target is None:
-                continue
-            try:
-                _stream_member(archive, plan.rel_to_zip[rel], target)
-            except (zipfile.BadZipFile, zlib.error, RuntimeError, OSError) as exc:
-                raise zipfile.BadZipFile(
-                    f"Could not decompress '{rel}' in the cartridge: {exc}"
-                ) from exc
-            written += 1
-            if progress is not None:
-                progress(index, total, rel)
+    cap = max_uncompressed_bytes
+    if cap is None and use_configured_cap:
+        cap = _configured_unpack_cap()
+    budget: list[int] | None = [cap] if cap is not None else None
+    try:
+        with zipfile.ZipFile(imscc_path, "r") as archive:
+            plan = _plan_archive(archive, slim=False)
+            if cap is not None:
+                declared = 0
+                for rel in plan.keep:
+                    declared += max(archive.getinfo(plan.rel_to_zip[rel]).file_size, 0)
+                if declared > cap:
+                    raise UncompressedLimit(_unpack_limit_message(cap))
+            total = len(plan.keep)
+            for index, rel in enumerate(plan.keep, start=1):
+                target = _contained(out_dir, rel)
+                if target is None:
+                    continue
+                try:
+                    _stream_member(archive, plan.rel_to_zip[rel], target, budget)
+                except UncompressedLimit:
+                    raise UncompressedLimit(_unpack_limit_message(cap or 0)) from None
+                except (zipfile.BadZipFile, zlib.error, RuntimeError, OSError) as exc:
+                    raise zipfile.BadZipFile(
+                        f"Could not decompress '{rel}' in the cartridge: {exc}"
+                    ) from exc
+                written += 1
+                if progress is not None:
+                    progress(index, total, rel)
+    except UncompressedLimit:
+        import shutil
+
+        shutil.rmtree(out_dir, ignore_errors=True)
+        raise
     return written
 
 
@@ -552,11 +670,15 @@ def build_slim_imscc(source: Path, dest: Path) -> SlimPackResult:
     limited to kept paths), ``course_settings/module_meta.xml``,
     ``course_settings/course_settings.xml``, ``non_cc_assessments`` QTI
     banks, quiz folders (``assessment_meta.xml``, ``assessment_qti.xml``,
-    and other per-question XML metadata), wiki HTML (the importer reads
-    it), and images those files reference.
+    and other per-question XML metadata), assignment folders (so assignment
+    module items resolve), wiki HTML (the importer reads it), and every
+    file those members reference. That includes images with no extension,
+    PDFs, documents, and video.
 
-    Dropped: learning outcomes, ``assignment_groups.xml``, ``rubrics.xml``,
-    assignment folders, and every other ``web_resources`` file.
+    Dropped: only unreferenced files, plus course-settings files ingest
+    does not read (``learning_outcomes.xml``, ``assignment_groups.xml``,
+    ``rubrics.xml``, and any other ``course_settings`` file besides
+    ``module_meta.xml`` and ``course_settings.xml``).
 
     Args:
         source: Full Canvas ``.imscc`` or ``.zip``.

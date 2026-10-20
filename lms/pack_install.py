@@ -20,6 +20,28 @@ from typing import Any, Iterator
 logger = logging.getLogger(__name__)
 
 
+def schedule_pack_resume(school: Any) -> None:
+    """Resume abandoned cartridge installs on a daemon thread.
+
+    Boot calls this once so ``create_app`` can finish serving while a
+    saved pack is retried. The thread is a daemon, so process shutdown
+    does not wait on it.
+
+    Args:
+        school: Open school database.
+    """
+
+    def _run() -> None:
+        """Scan library folders and retry abandoned installs."""
+        try:
+            resume_interrupted_packs(school)
+        except Exception:
+            logger.exception("module pack resume failed")
+
+    threading.Thread(target=_run, name="pack-resume", daemon=True).start()
+
+
+
 def _claim_install(dest_root: Path) -> int | None:
     """Take an exclusive lock so two workers do not install one library.
 
