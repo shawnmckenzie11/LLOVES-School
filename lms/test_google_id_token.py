@@ -6,8 +6,10 @@ from __future__ import annotations
 import base64
 import json
 import os
+import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,6 +47,15 @@ def _unsigned_credential(claims: dict) -> str:
     header = _b64(b'{"alg":"none","typ":"JWT"}')
     body = _b64(json.dumps(claims, separators=(",", ":")).encode("utf-8"))
     return f"{header}.{body}."
+
+
+def _kid_token(kid: str) -> str:
+    """Synthetic credential whose header names a signing key."""
+    header = _b64(
+        json.dumps({"alg": "RS256", "kid": kid, "typ": "JWT"}).encode("utf-8")
+    )
+    body = _b64(b'{"sub":"fake-sub-one"}')
+    return f"{header}.{body}.sig"
 
 
 class GoogleIdTokenTests(unittest.TestCase):
@@ -389,3 +400,81 @@ class GoogleIdTokenTests(unittest.TestCase):
         with patch("requests.Session.request", fake_request):
             response = self._post(_unsigned_credential(self._claims()))
         self._assert_rejected(response, before)
+
+    def test_unknown_kid_refreshes_signing_keys_once(self) -> None:
+        """A missing kid fetches keys once more, then waits a minute."""
+        self.assertEqual(auth._GOOGLE_CERT_REFRESH_INTERVAL_SEC, 60)
+        auth._clear_google_cert_cache()
+        timeouts: list[object] = []
+        documents = (
+            b'{"old-kid":"not-a-certificate"}',
+            b'{"rotated-kid":"not-a-certificate"}',
+        )
+
+        class _Resp:
+            """Cert response stand-in. Only status and body are read."""
+
+            def __init__(self, content: bytes) -> None:
+                """Store the cert body the verifier will read.
+
+                Args:
+                    content: JSON cert document.
+                """
+                self.status_code = 200
+                self.content = content
+                self.headers: dict[str, str] = {}
+
+        def fake_request(self, method, url, **kwargs):
+            """Record the timeout and return the next cert document."""
+            timeouts.append(kwargs.get("timeout"))
+            content = documents[min(len(timeouts), len(documents)) - 1]
+            return _Resp(content)
+
+        token = _kid_token("rotated-kid")
+        with patch("requests.Session.request", fake_request):
+            self.assertIsNone(auth._verify_google_id_token(token))
+            self.assertEqual(
+                timeouts,
+                [
+                    auth._GOOGLE_CERT_FETCH_TIMEOUT_SEC,
+                    auth._GOOGLE_CERT_FETCH_TIMEOUT_SEC,
+                ],
+            )
+            auth._store_google_certs(
+                auth._GOOGLE_CERTS_URL,
+                b'{"old-kid":"not-a-certificate"}',
+            )
+            self.assertIsNone(auth._verify_google_id_token(token))
+            self.assertEqual(len(timeouts), 2)
+            auth._cert_refresh_mono = time.monotonic() - (
+                auth._GOOGLE_CERT_REFRESH_INTERVAL_SEC + 1
+            )
+            self.assertIsNone(auth._verify_google_id_token(token))
+            self.assertEqual(len(timeouts), 3)
+            self.assertEqual(timeouts[-1], auth._GOOGLE_CERT_FETCH_TIMEOUT_SEC)
+
+    def test_replay_does_not_commit_an_open_transaction(self) -> None:
+        """A replay write joins an open transaction instead of committing it."""
+        conn = self.school.conn
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("CREATE TABLE replay_guard_probe (id INTEGER)")
+        conn.execute("INSERT INTO replay_guard_probe (id) VALUES (1)")
+        claims = self._claims(jti="fake-jti-guard")
+        try:
+            with self.app.app_context():
+                self.assertTrue(
+                    auth._consume_google_id_token("fake-signed-token-guard", claims)
+                )
+                self.assertFalse(
+                    auth._consume_google_id_token("fake-signed-token-guard", claims)
+                )
+            self.assertTrue(conn.in_transaction)
+            other = sqlite3.connect(self.school.db_path)
+            try:
+                with self.assertRaises(sqlite3.OperationalError):
+                    other.execute("SELECT id FROM replay_guard_probe").fetchall()
+            finally:
+                other.close()
+        finally:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")

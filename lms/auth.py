@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import ipaddress
+import json
 import os
 import secrets
 import sqlite3
@@ -830,6 +832,9 @@ _GOOGLE_ISSUERS = frozenset(
 _GOOGLE_CLOCK_SKEW_SEC = 20
 _GOOGLE_CERT_FETCH_TIMEOUT_SEC = 5
 _GOOGLE_CERT_CACHE_TTL_SEC = 60 * 60
+# One forced refetch per worker when a token's kid is missing from the cache.
+_GOOGLE_CERT_REFRESH_INTERVAL_SEC = 60
+_GOOGLE_CERTS_URL = google_id_token._GOOGLE_OAUTH2_CERTS_URL
 _GOOGLE_TOKEN_SEEN_DDL = """
 CREATE TABLE IF NOT EXISTS google_id_token_seen (
     token_key TEXT PRIMARY KEY,
@@ -839,6 +844,7 @@ CREATE TABLE IF NOT EXISTS google_id_token_seen (
 
 _cert_cache_lock = threading.Lock()
 _cert_cache: dict[str, tuple[float, bytes]] = {}
+_cert_refresh_mono = 0.0
 _cert_transport: "_CachedGoogleCertRequest | None" = None
 _cert_transport_lock = threading.Lock()
 
@@ -939,9 +945,100 @@ def _store_google_certs(url: str, data: bytes) -> None:
 
 
 def _clear_google_cert_cache() -> None:
-    """Drop cached signing keys so the next verification fetches them."""
+    """Drop cached signing keys and the per-worker refresh clock.
+
+    Tests call this between cases. A rotation refetch uses
+    ``_take_cert_refresh`` so it does not reset the rate limit.
+    """
+    global _cert_refresh_mono
     with _cert_cache_lock:
         _cert_cache.clear()
+        _cert_refresh_mono = 0.0
+
+
+def _take_cert_refresh() -> bool:
+    """Clear cached signing keys if this worker may refetch them.
+
+    At most one rotation refetch is allowed per minute on this process.
+    Other workers keep their own clocks.
+
+    Returns:
+        True when the cache was cleared and a fetch should run.
+    """
+    global _cert_refresh_mono
+    now = time.monotonic()
+    with _cert_cache_lock:
+        if now - _cert_refresh_mono < _GOOGLE_CERT_REFRESH_INTERVAL_SEC:
+            return False
+        _cert_refresh_mono = now
+        _cert_cache.clear()
+        return True
+
+
+def _unverified_jwt_header(raw_token: str) -> dict[str, Any] | None:
+    """Read a JWT header without trusting the signature.
+
+    Args:
+        raw_token: Posted credential.
+
+    Returns:
+        Header mapping, or None when the header is not JSON.
+    """
+    try:
+        segment = str(raw_token).split(".", 2)[0]
+        padded = segment + "=" * (-len(segment) % 4)
+        payload = base64.urlsafe_b64decode(padded.encode("ascii"))
+        header = json.loads(payload.decode("utf-8"))
+    except (ValueError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(header, dict):
+        return None
+    return header
+
+
+def _cert_document_has_kid(data: bytes, kid: str) -> bool | None:
+    """Whether a cached cert document lists this key id.
+
+    Args:
+        data: JSON body from Google's cert endpoint.
+        kid: Key id from the token header.
+
+    Returns:
+        True or False for a cert map or JWK set. None when the body is not
+        a cert document.
+    """
+    try:
+        document = json.loads(data.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(document, dict):
+        return None
+    keys = document.get("keys")
+    if isinstance(keys, list):
+        for item in keys:
+            if isinstance(item, dict) and item.get("kid") == kid:
+                return True
+        return False
+    return kid in document
+
+
+def _cached_cert_missing_kid(raw_token: str) -> bool:
+    """True when cached signing keys do not include this token's kid.
+
+    Args:
+        raw_token: Posted credential.
+    """
+    header = _unverified_jwt_header(raw_token)
+    if header is None:
+        return False
+    kid = header.get("kid")
+    if not isinstance(kid, str) or not kid.strip():
+        return False
+    with _cert_cache_lock:
+        row = _cert_cache.get(_GOOGLE_CERTS_URL)
+    if row is None:
+        return False
+    return _cert_document_has_kid(row[1], kid) is False
 
 
 def _google_cert_transport() -> _CachedGoogleCertRequest:
@@ -994,11 +1091,36 @@ def _google_token_seen_key(raw_token: str, claims: dict[str, Any]) -> str:
     return "h:" + digest
 
 
+def _abort_google_token_seen(conn: sqlite3.Connection, *, own: bool, started: bool) -> None:
+    """Undo only the replay write.
+
+    An outer transaction on the shared connection is left open.
+
+    Args:
+        conn: School database connection.
+        own: True when this write opened the transaction.
+        started: True when a transaction or savepoint was opened.
+    """
+    if not started:
+        return
+    try:
+        if own:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            return
+        conn.execute("ROLLBACK TO google_id_token_seen")
+        conn.execute("RELEASE google_id_token_seen")
+    except sqlite3.Error:
+        return
+
+
 def _consume_google_id_token(raw_token: str, claims: dict[str, Any]) -> bool:
     """Record this credential until it expires. False when it was already used.
 
     Expired rows are deleted in the same write so the table stays small.
-    The raw credential is not stored.
+    The raw credential is not stored. When the shared connection already
+    has a transaction open, the write uses a savepoint and does not commit
+    that transaction.
 
     Args:
         raw_token: Posted credential, hashed only when there is no jti.
@@ -1015,27 +1137,34 @@ def _consume_google_id_token(raw_token: str, claims: dict[str, Any]) -> bool:
     now = int(datetime.now(timezone.utc).timestamp())
     db = school_db()
     with db._lock:
+        conn = db.conn
+        own = False
+        started = False
         try:
-            db.conn.execute(_GOOGLE_TOKEN_SEEN_DDL)
-            if db.conn.in_transaction:
-                db.conn.execute("COMMIT")
-            db.conn.execute("BEGIN IMMEDIATE")
-            db.conn.execute(
+            conn.execute(_GOOGLE_TOKEN_SEEN_DDL)
+            own = not conn.in_transaction
+            if own:
+                conn.execute("BEGIN IMMEDIATE")
+            else:
+                conn.execute("SAVEPOINT google_id_token_seen")
+            started = True
+            conn.execute(
                 "DELETE FROM google_id_token_seen WHERE expires_at <= ?",
                 (now,),
             )
-            db.conn.execute(
+            conn.execute(
                 "INSERT INTO google_id_token_seen (token_key, expires_at) VALUES (?, ?)",
                 (key, keep_until),
             )
-            db.conn.execute("COMMIT")
+            if own:
+                conn.execute("COMMIT")
+            else:
+                conn.execute("RELEASE google_id_token_seen")
         except sqlite3.IntegrityError:
-            if db.conn.in_transaction:
-                db.conn.execute("ROLLBACK")
+            _abort_google_token_seen(conn, own=own, started=started)
             return False
         except Exception:  # noqa: BLE001 - a store failure must not open a session
-            if db.conn.in_transaction:
-                db.conn.execute("ROLLBACK")
+            _abort_google_token_seen(conn, own=own, started=started)
             return False
     return True
 
@@ -1112,14 +1241,42 @@ def _google_time_claims_ok(claims: dict[str, Any], now: float) -> bool:
     return True
 
 
+def _google_verified_claims(raw_token: str, client_id: str) -> dict[str, Any]:
+    """Verify the signature against the current signing-key cache.
+
+    Args:
+        raw_token: Posted credential value.
+        client_id: Configured Google client id.
+
+    Returns:
+        Claim mapping from google-auth.
+
+    Raises:
+        Exception: Any verifier or transport failure. Callers fail closed.
+    """
+    claims = google_id_token.verify_oauth2_token(
+        raw_token,
+        _google_cert_transport(),
+        client_id,
+        clock_skew_in_seconds=_GOOGLE_CLOCK_SKEW_SEC,
+    )
+    if not isinstance(claims, dict):
+        raise ValueError("verified claims were not a mapping")
+    return claims
+
+
 def _verify_google_id_token(raw_token: str) -> dict[str, Any] | None:
     """Verify a Google ID token and return its claims.
 
-    google-auth checks the signature against cached signing keys. This
-    function then requires the audience to match the configured client id,
-    a Google accounts issuer, exp, nbf, and iat inside the clock-skew
-    window, and ``email_verified`` true. A credential is accepted once.
-    Any failure returns None. The token is not logged or stored.
+    google-auth checks the signature against cached signing keys. When the
+    token's key id is missing from that cache, the cache is cleared and
+    verification runs once more. That refetch is limited to once a minute
+    per worker and uses the short cert timeout. A failed fetch rejects the
+    sign-in. This function then requires the audience to match the
+    configured client id, a Google accounts issuer, exp, nbf, and iat
+    inside the clock-skew window, and ``email_verified`` true. A credential
+    is accepted once. Any failure returns None. The token is not logged
+    or stored.
 
     Args:
         raw_token: Posted credential value.
@@ -1131,16 +1288,14 @@ def _verify_google_id_token(raw_token: str) -> dict[str, Any] | None:
     if not client_id or not str(raw_token or "").strip():
         return None
     try:
-        claims = google_id_token.verify_oauth2_token(
-            raw_token,
-            _google_cert_transport(),
-            client_id,
-            clock_skew_in_seconds=_GOOGLE_CLOCK_SKEW_SEC,
-        )
+        claims = _google_verified_claims(raw_token, client_id)
     except Exception:  # noqa: BLE001 - fail closed; do not return verifier text
-        return None
-    if not isinstance(claims, dict):
-        return None
+        if not _cached_cert_missing_kid(raw_token) or not _take_cert_refresh():
+            return None
+        try:
+            claims = _google_verified_claims(raw_token, client_id)
+        except Exception:  # noqa: BLE001 - second fetch or verify failed closed
+            return None
     if claims.get("aud") != client_id:
         return None
     if claims.get("iss") not in _GOOGLE_ISSUERS:
