@@ -409,6 +409,153 @@ if (html.includes("Your answer") || html.includes("<textarea")) process.exit(3);
         again = self.school.catchup_questions(token, student_id)
         self.assertTrue(again[0]["answered"])
 
+    def test_submitted_drawing_scores_one_of_one_live_and_catchup(self) -> None:
+        """A submitted drawing is 1/1 participation, live and catch-up.
+
+        The item carries a key the drawing does not match. Scoring does not
+        read that key. Typed catch-up text stays 0. A team drawing stays out
+        of the individual fraction.
+        """
+        from participation_weight import (
+            item_participation_weight,
+            participation_fraction,
+        )
+
+        keyed = {"type": "team_draw", "correct_answer": "B", "key": "B"}
+        self.assertEqual(
+            item_participation_weight(
+                "team_draw", publish_mode="individual", item_json=keyed
+            ),
+            1,
+        )
+        self.assertEqual(
+            item_participation_weight(
+                "team_draw",
+                publish_mode="group_submit",
+                item_json={"type": "team_draw"},
+            ),
+            0,
+        )
+        self.school.set_live_session_teacher_state(
+            self.session_id, live_module="M1", live_slot="C1", stage="round"
+        )
+        published = self._add_publish_team_draw(publish_mode="individual")
+        live_id = int(published["id"])
+        row = self.school.conn.execute(
+            "SELECT prompt_id, item_json FROM live_session_items WHERE id = ?",
+            (live_id,),
+        ).fetchone()
+        item = json.loads(row["item_json"] or "{}")
+        item["correct_answer"] = "B"
+        item["key"] = "B"
+        payload = json.dumps(item)
+        self.school.conn.execute(
+            "UPDATE live_session_items SET item_json = ? WHERE id = ?",
+            (payload, live_id),
+        )
+        if row["prompt_id"]:
+            self.school.conn.execute(
+                "UPDATE live_session_prompts SET payload = ? WHERE id = ?",
+                (payload, int(row["prompt_id"])),
+            )
+        self.school.conn.commit()
+        image = base64.b64encode(_TINY_PNG).decode("ascii")
+        card = self.school.submit_individual_draw(
+            self.session_id,
+            live_id,
+            self.student_ids[0],
+            image_b64=image,
+        )
+        self.assertTrue(card.get("submitted"))
+        self.school.conn.execute(
+            "UPDATE live_class_sessions SET ended_at = ?, status = 'ended' WHERE id = ?",
+            ("2026-10-20T12:00:00", self.session_id),
+        )
+        self.school.conn.commit()
+        self.school.cleanup_live_session_response_data(
+            self.session_id, live_run=True
+        )
+        stored_item = self.school.conn.execute(
+            """
+            SELECT prompt_kind, item_json FROM participation_items
+            WHERE class_id = ? AND prompt_kind = 'team_draw'
+            """,
+            (self.class_id,),
+        ).fetchone()
+        self.assertIsNotNone(stored_item)
+        self.assertEqual(
+            json.loads(stored_item["item_json"]).get("correct_answer"), "B"
+        )
+        live_answer = self.school.conn.execute(
+            """
+            SELECT answer_json FROM participation_answers
+            WHERE class_id = ? AND student_id = ? AND source = 'live'
+            """,
+            (self.class_id, self.student_ids[0]),
+        ).fetchone()
+        self.assertIsNotNone(live_answer)
+        self.assertNotIn("correct", live_answer["answer_json"])
+
+        def cell_for(student_id: int) -> dict:
+            data = self.school.class_participation(self.class_id)
+            match = next(
+                row for row in data["students"] if row["student_id"] == student_id
+            )
+            return match["modules"]["M1"]
+
+        live_cell = cell_for(self.student_ids[0])
+        self.assertEqual(
+            participation_fraction(live_cell["answered"], live_cell["offered"]),
+            "1/1",
+        )
+        absent_cell = cell_for(self.student_ids[1])
+        self.assertEqual(absent_cell["answered"], 0)
+        self.assertEqual(absent_cell["offered"], 1)
+        links = self.school.list_catchup_links(self.class_id)
+        self.assertEqual(len(links), 1)
+        token = links[0]["token"]
+        questions = self.school.catchup_questions(token, self.student_ids[1])
+        draws = [q for q in questions if q.get("prompt_kind") == "team_draw"]
+        self.assertEqual(len(draws), 1)
+        question_key = draws[0]["question_key"]
+        content = draws[0].get("content") or {}
+        self.assertNotIn("correct_answer", content)
+        self.assertNotIn("key", content)
+        self.assertFalse(
+            self.school.submit_catchup_answer(
+                token, self.student_ids[1], question_key, "typed words"
+            )
+        )
+        still_absent = cell_for(self.student_ids[1])
+        self.assertEqual(still_absent["answered"], 0)
+        data_url = "data:image/png;base64," + image
+        self.assertTrue(
+            self.school.submit_catchup_answer(
+                token, self.student_ids[1], question_key, data_url
+            )
+        )
+        catch_cell = cell_for(self.student_ids[1])
+        self.assertEqual(
+            participation_fraction(catch_cell["answered"], catch_cell["offered"]),
+            "1/1",
+        )
+        self.assertEqual(
+            participation_fraction(cell_for(self.student_ids[0])["answered"], 1),
+            "1/1",
+        )
+        catch_row = self.school.conn.execute(
+            """
+            SELECT answer_json FROM participation_answers
+            WHERE class_id = ? AND student_id = ? AND source = 'catchup'
+            """,
+            (self.class_id, self.student_ids[1]),
+        ).fetchone()
+        catch_payload = json.loads(catch_row["answer_json"])
+        self.assertEqual(catch_payload.get("kind"), "team_draw")
+        self.assertNotIn("correct_answer", catch_payload)
+        self.assertNotIn("correct", catch_payload)
+        self.assertNotEqual(catch_payload.get("value"), "B")
+
     def test_submit_stores_title_not_in_snapshot_on_test_run(self) -> None:
         published = self._add_publish_team_draw()
         live_id = int(published["id"])
