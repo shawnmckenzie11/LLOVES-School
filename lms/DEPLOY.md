@@ -155,15 +155,18 @@ curl -s https://alc.mckenzian.com/health
 
 Startup copies **active** sqlite sessions into Postgres once. Heartbeats after that do not `UPDATE live_session_attendees`. Details: `lms/LIVE_PRESENCE.md`.
 
-## Large module-pack uploads (any size the volume can hold)
+## Large module-pack uploads
 
-LLOVES does **not** enforce an app-level byte ceiling on Admin/IT `.imscc` uploads.
+IT assignment streams the cartridge instead of extracting every media file.
+The app still rejects an upload over the configured ceiling so a 1 GB machine
+is not asked to spool an unbounded body. Set `LLOVES_IMSCC_MAX_BYTES` to a
+byte count, or to `none` to disable the cap. The default is 1 GiB.
 Fly Proxy streams request bodies and does **not** advertise a hard body-size limit
 that requires a paid upgrade to raise. Config already set (no machine upsell):
 
 | Layer | Setting | Notes |
 |-------|---------|--------|
-| Flask / Werkzeug | `MAX_CONTENT_LENGTH` / `IMSCC_MAX_BYTES` | **`None`** (unlimited) in `lms/modules.py` |
+| Flask / Werkzeug | `MAX_CONTENT_LENGTH` / `IMSCC_MAX_BYTES` | **1 GiB** default in `lms/modules.py`. `LLOVES_IMSCC_MAX_BYTES=none` disables it. Over-size uploads return a clear "too large" error. |
 | gunicorn | **4 workers, 8 threads, `--timeout 120`**, keepalive 0, `worker_connections` 32 per worker, **backlog 64** | Same line in `lms/Dockerfile` and `fly.toml` `[processes]`. A silent worker is killed after 120s. Poll slices stop at 8s. Boot `/state` sheds for 8s. Keepalive is 0 so a pooled client cannot reuse a socket gunicorn is about to close. |
 | Fly `http_service.http_options.idle_timeout` | **600s** | Free config; quiet periods while the body is received / unpack runs |
 | Fly Proxy body size | streaming | No documented hard cap; >10 MB skips replay buffering (latency quirk only, not a reject) |
