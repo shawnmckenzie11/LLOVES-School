@@ -1878,6 +1878,11 @@ class WhiteboardReopenConflict(ValueError):
         self.reason = reason
 GROUP_MC_PICK_THEN_AGREE = "pick_then_agree"
 GROUP_ROW_RESPONSE_MODES = frozenset({"group_submit", "team_draw"})
+# Lesson Slides treats these publish and response tokens as team questions.
+# group_submit finals are one row per team with a null student id.
+LESSON_SLIDE_GROUP_MODES = frozenset(
+    {"group", "group_consensus", "group_shared", "group_submit", "team_draw"}
+)
 
 
 class GroupAnswerLocked(ValueError):
@@ -35240,9 +35245,10 @@ class SchoolDB(LovesDB):
                 payload.setdefault("type", str(row["kind"] or payload.get("type") or ""))
                 qkey = f"item:{row['placement_key']}"
                 pub = str(row["publish_mode"] or "individual").strip().lower()
+                resp = str(row["response_mode"] or "").strip().lower()
                 mode = (
                     "group"
-                    if pub in {"group_consensus", "group_shared", "group"}
+                    if pub in LESSON_SLIDE_GROUP_MODES or resp in LESSON_SLIDE_GROUP_MODES
                     else "individual"
                 )
                 questions.append(
@@ -35332,6 +35338,33 @@ class SchoolDB(LovesDB):
         )
 
 
+    @staticmethod
+    def _lesson_slides_question_is_group(
+        question: dict[str, Any], *, has_team_final: bool
+    ) -> bool:
+        """Whether a Lesson Slides question is answered by teams.
+
+        Group submit rows saved before team questions were labeled
+        ``group`` still say ``individual``. A ``group_final`` snapshot
+        for that question key means teams answered it.
+
+        Args:
+            question: One stored Lesson Slides question.
+            has_team_final: True when this run has a ``group_final``
+                snapshot for the question key.
+
+        Returns:
+            True when the Live done cell should count teams.
+        """
+        mode = str(question.get("mode") or "").strip().lower()
+        if mode == "group":
+            return True
+        publish = str(question.get("publish_mode") or "").strip().lower()
+        response = str(question.get("response_mode") or "").strip().lower()
+        if publish in LESSON_SLIDE_GROUP_MODES or response in LESSON_SLIDE_GROUP_MODES:
+            return True
+        return bool(has_team_final)
+
     def lesson_slides_question_rows(
         self,
         class_id: int,
@@ -35341,7 +35374,26 @@ class SchoolDB(LovesDB):
         latest: dict[str, Any] | None,
         excluded_student_ids: set[int] | None = None,
     ) -> list[dict[str, Any]]:
-        """Question rows for Lesson Slides with live/catch-up completion counts."""
+        """Question rows for Lesson Slides with live, catch-up, and team counts.
+
+        Individual questions count distinct students on participation
+        answers (source ``live``), then prompt snapshots when that table
+        has none. Group questions count distinct ``team_id`` values on
+        ``live_result_snapshots`` where ``source`` is ``group_final`` and
+        ``class_id`` plus ``run_key`` match. Session ids are reused across
+        runs, so the team count is not keyed by ``live_session_id``.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Live module label.
+            slot: Live slot label.
+            latest: Stored Lesson Slides row, including ``questions`` and
+                ``run_key``.
+            excluded_student_ids: Roster ids left out of student counts.
+
+        Returns:
+            Question dicts. Group rows include ``group_completed``.
+        """
         from bank_lint import fix_codes
 
         cid = int(class_id)
@@ -35363,6 +35415,7 @@ class SchoolDB(LovesDB):
         lint_map = fix_codes(self, lint_ids) if lint_ids else {}
         live_counts: dict[str, int] = {}
         catch_counts: dict[str, int] = {}
+        group_counts: dict[str, int] = {}
         if run_key:
             exclude = ",".join("?" * len(test_ids)) if test_ids else ""
             live_params: list[Any] = [cid, run_key]
@@ -35421,20 +35474,36 @@ class SchoolDB(LovesDB):
                 catch_sql += " GROUP BY question_key"
                 for row in self.conn.execute(catch_sql, catch_params).fetchall():
                     catch_counts[str(row["question_key"])] = int(row["n"])
+                for row in self.conn.execute(
+                    """
+                    SELECT question_key, COUNT(DISTINCT team_id) AS n
+                    FROM live_result_snapshots
+                    WHERE class_id = ? AND run_key = ? AND source = 'group_final'
+                      AND team_id IS NOT NULL
+                    GROUP BY question_key
+                    """,
+                    (cid, run_key),
+                ).fetchall():
+                    group_counts[str(row["question_key"])] = int(row["n"])
         out: list[dict[str, Any]] = []
         for q in base:
             qid = int(q.get("bank_question_id") or 0)
             codes = lint_map.get(qid, []) if qid else []
             key = str(q.get("question_key") or "")
-            out.append(
-                {
-                    **q,
-                    "lint_codes": codes,
-                    "lint_ok": not codes,
-                    "live_completed": int(live_counts.get(key, 0)),
-                    "catchup_completed": int(catch_counts.get(key, 0)),
-                }
+            is_group = self._lesson_slides_question_is_group(
+                q, has_team_final=key in group_counts
             )
+            row = {
+                **q,
+                "lint_codes": codes,
+                "lint_ok": not codes,
+                "live_completed": int(live_counts.get(key, 0)),
+                "catchup_completed": int(catch_counts.get(key, 0)),
+            }
+            if is_group:
+                row["mode"] = "group"
+                row["group_completed"] = int(group_counts.get(key, 0))
+            out.append(row)
         return out
 
     def module_complete(self, class_id: int, module: str) -> bool:
