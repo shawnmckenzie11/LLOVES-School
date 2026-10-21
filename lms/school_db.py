@@ -2849,11 +2849,13 @@ class LovesDB:
     def student_group_engagement_display(
         self, class_id: int, live_session_id: int, student_id: int
     ) -> str:
-        """Stored group points for this run, on the same scale as teacher totals.
+        """Group points for the student live card.
 
-        Reads ``group_engagement`` and applies ``display_points``. It does
-        not rescore the questions that are still live. An old rank row of
-        2/1, 1/1, or 0/1 shows as 4/2, 2/2, or 0/2.
+        While the session is still active, this is the live total. A
+        correct rank with no check is 4/2. Every other rank completion
+        is 2/2. A group multiple-choice send is 1/1. After End, saved
+        rows are shown, including an older rank of 1 possible (earned
+        2, 1, and 0 display as 4, 2, and 0 on a maximum of 2).
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -2862,9 +2864,17 @@ class LovesDB:
         """
         with self._lock:
             row = self.conn.execute(
-                "SELECT run_key FROM live_class_sessions WHERE id = ? AND class_id = ?",
+                """
+                SELECT run_key, status FROM live_class_sessions
+                WHERE id = ? AND class_id = ?
+                """,
                 (int(live_session_id), int(class_id)),
             ).fetchone()
+            if row is not None and str(row["status"] or "") == "active":
+                earned, possible = self._live_group_engagement_totals(
+                    int(live_session_id), int(student_id)
+                )
+                return format_fraction(earned, possible)
         run_key = str(row["run_key"] or "") if row is not None else ""
         if not run_key:
             return "0/0"

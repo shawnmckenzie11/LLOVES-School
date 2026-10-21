@@ -321,11 +321,14 @@ class OldScaleRowTests(GroupEngagementTests):
     def _student_points(self, student_id: int) -> tuple[str, str]:
         """Dashboard fraction and the live-card fraction for one student.
 
+        The dashboard reads saved rows. The live card reads the live
+        total while the session is active, and the saved rows after End.
+
         Args:
             student_id: Roster id.
 
         Returns:
-            ``(dashboard, live card)``. Both read stored rows.
+            ``(dashboard, live card)``.
         """
         dash = self.school.student_dashboard_payload(self.class_id, student_id)
         card = self.school.student_group_engagement_display(
@@ -336,8 +339,9 @@ class OldScaleRowTests(GroupEngagementTests):
     def test_old_two_of_one_displays_as_four_of_two(self) -> None:
         """An old 2/1 rank shows as 4/2. The stored row stays 2/1.
 
-        A checked send would rescore as 2/2 from the live items. The
-        student dashboard and the live card both show the stored 4/2.
+        While the session is active the live card shows the checked
+        send, 2/2. The dashboard stays on the stored 4/2. After End the
+        card shows that saved 4/2 as well.
         """
         item = self._open()
         self._place(item, TEAM_A, KEY_IDS[:2])
@@ -354,7 +358,7 @@ class OldScaleRowTests(GroupEngagementTests):
         self.assertEqual(teacher[ava], "4/2")
         dash, card = self._student_points(ava)
         self.assertEqual(dash, "4/2")
-        self.assertEqual(card, "4/2")
+        self.assertEqual(card, "2/2")
         self._end()
         self.assertEqual(self._rows()[(ava, key)], (2, 1, "live"))
         teacher = self.school.group_engagement_fractions(self.class_id, run_key=run_key)
@@ -366,8 +370,9 @@ class OldScaleRowTests(GroupEngagementTests):
     def test_old_zero_of_one_displays_as_zero_of_two(self) -> None:
         """An old 0/1 rank shows as 0/2. The stored row stays 0/1.
 
-        A correct send with no check would rescore as 4/2 from the live
-        items. Student views stay on the stored 0/2.
+        While the session is active the live card shows the no-check
+        send, 4/2. The dashboard stays on the stored 0/2. After End the
+        card shows that saved 0/2 as well.
         """
         item = self._open()
         self._place(item, TEAM_A, KEY_IDS)
@@ -381,7 +386,7 @@ class OldScaleRowTests(GroupEngagementTests):
         self.assertEqual(teacher[ava], "0/2")
         dash, card = self._student_points(ava)
         self.assertEqual(dash, "0/2")
-        self.assertEqual(card, "0/2")
+        self.assertEqual(card, "4/2")
         self._end()
         self.assertEqual(self._rows()[(ava, key)], (0, 1, "live"))
         teacher = self.school.group_engagement_fractions(self.class_id, run_key=run_key)
@@ -393,8 +398,9 @@ class OldScaleRowTests(GroupEngagementTests):
     def test_old_two_plus_new_four_displays_eight_of_four(self) -> None:
         """An old 2/1 plus a new 4/2 shows as 8/4. Both stored rows stay put.
 
-        Before End the live items would rescore both sends. The student
-        card shows only the stored old row until the new row is written.
+        While the session is active the live card rescores both sends
+        as 8/4. The dashboard stays on the stored old row, 4/2. After
+        End the card shows the saved 8/4.
         """
         first = self._open()
         self._place(first, TEAM_A, KEY_IDS)
@@ -409,7 +415,7 @@ class OldScaleRowTests(GroupEngagementTests):
         self.assertEqual((live_earned, live_possible), (8, 4))
         dash, card = self._student_points(ava)
         self.assertEqual(dash, "4/2")
-        self.assertEqual(card, "4/2")
+        self.assertEqual(card, "8/4")
         self._end()
         rows = self._rows()
         self.assertEqual(rows[(ava, first_key)], (2, 1, "live"))
@@ -421,3 +427,50 @@ class OldScaleRowTests(GroupEngagementTests):
         self.assertEqual(card, "8/4")
         grid = self.school.participation_week_grid(self.class_id)
         self.assertEqual(grid["group_engagement"].get(str(ava)), "8/4")
+
+
+class LiveCardDuringClassTests(GroupEngagementTests):
+    """The student live card shows a send before End writes the row."""
+
+    def _live_card(self, student_id: int) -> str:
+        """Group points attached to the student live card.
+
+        Args:
+            student_id: Roster id.
+        """
+        payload = {"me": {}}
+        self.school.apply_student_live_engagement(
+            payload, self.session_id, self.class_id, student_id
+        )
+        return str(payload["me"]["group_engagement"])
+
+    def test_card_shows_live_points_then_saved_rows(self) -> None:
+        """During class a no-check send is 4/2 and a checked send adds 2/2.
+
+        Saved rows are still empty, so the card is not 0/0. After End
+        the card shows the saved total, 6/4.
+        """
+        ava = self.ids["Ava"]
+        first = self._open()
+        first_key = self._question_key(first)
+        self._place(first, TEAM_A, KEY_IDS)
+        self.assertEqual(self._rows(), {})
+        dash = self.school.student_dashboard_payload(self.class_id, ava)
+        self.assertEqual(dash["group_engagement"], "0/0")
+        self.assertEqual(self._live_card(ava), "4/2")
+        second = self._open()
+        second_key = self._question_key(second)
+        self._place(second, TEAM_A, KEY_IDS[:2])
+        checked = self._check(second)
+        self.assertEqual(checked.status_code, 200, checked.get_data(as_text=True)[:180])
+        self._place(second, TEAM_A, KEY_IDS[2:])
+        dash = self.school.student_dashboard_payload(self.class_id, ava)
+        self.assertEqual(dash["group_engagement"], "0/0")
+        self.assertEqual(self._live_card(ava), "6/4")
+        self._end()
+        rows = self._rows()
+        self.assertEqual(rows[(ava, first_key)][:2], (4, 2))
+        self.assertEqual(rows[(ava, second_key)][:2], (2, 2))
+        dash = self.school.student_dashboard_payload(self.class_id, ava)
+        self.assertEqual(dash["group_engagement"], "6/4")
+        self.assertEqual(self._live_card(ava), "6/4")
