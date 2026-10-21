@@ -47,7 +47,7 @@ check(
     "Everyone writes their own answer first. Then your group sends one answer together.",
   "open copy"
 );
-check(GROUP_INSTRUCTION_COPY.rank_turns === "Take turns. Each person places one item, then passes.", "turns copy");
+check(GROUP_INSTRUCTION_COPY.rank_turns === undefined, "rank copy lives on the card");
 check(GROUP_INSTRUCTION_COPY.mc_pick === "Pick your own answer first.", "mc step 1 copy (Wonder v2)");
 check(
   GROUP_INSTRUCTION_COPY.mc_agree === "Now agree on one answer. Whoever sends it writes why.",
@@ -55,9 +55,13 @@ check(
 );
 
 // One line, only while active.
-const active = groupInstructionHtml({ response_mode: "group_submit", status: "active" }, { type: "rank" });
+const active = groupInstructionHtml({ response_mode: "group_consensus", status: "active" }, { type: "open" });
 check(active.split("<p").length - 1 === 1, "one line");
-check(active.includes('data-group-instruction="rank_turns"'), "rank marker");
+check(active.includes('data-group-instruction="open"'), "open marker");
+check(
+  groupInstructionHtml({ response_mode: "group_submit", status: "active" }, { type: "rank" }) === "",
+  "rank card owns the line",
+);
 check(groupInstructionHtml({ response_mode: "group_submit", status: "closed" }, { type: "rank" }) === "", "none when closed");
 check(groupInstructionHtml({ response_mode: "individual", status: "active" }, { type: "mc" }) === "", "none individual");
 

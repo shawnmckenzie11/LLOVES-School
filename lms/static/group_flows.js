@@ -25,7 +25,6 @@ export const GROUP_FLOW_COPY = Object.freeze({
   sent: "{name} sent your group's answer.",
   locked: "Your group's answer is locked.",
   mcInstruction: "Everyone in your group picks the same answer to send it.",
-  teamPicks: "Team picks",
   matchReason: "Everyone needs the same pick ({matched} of {total} match)",
   // Rank take turns
   rankInstruction:
@@ -351,12 +350,16 @@ export function rankTurnsHtml(group, opts) {
     : check.available
       ? `<button type="button" class="secondary rank-check" data-rank-check>${esc(C.check)}</button>`
       : "";
-  const checkRow =
-    header || checkControl
-      ? `<div class="rank-check-row">${checkControl}${
-          header ? helpControl(helpId, "How Check our ranking works", RANK_CHECK_HELP) : ""
-        }</div>`
-      : "";
+  // The instruction and the check help render on every student ranking
+  // card. ``header`` only adds the pinned Send our ranking (a team
+  // challenge uses Lock in our order instead).
+  const checkRow = checkControl
+    ? `<div class="rank-check-row">${checkControl}${helpControl(
+        helpId,
+        "How Check our ranking works",
+        RANK_CHECK_HELP
+      )}</div>`
+    : "";
   const pendingSend = header && Boolean(turns.done) && !group?.submitted;
   const sendPin = header
     ? `<div class="rank-send-pin">
@@ -370,9 +373,7 @@ export function rankTurnsHtml(group, opts) {
         <p class="rank-send-note">${esc(C.finalOnce)}</p>
       </div>`
     : "";
-  const instruction = header
-    ? `<p class="group-flow-instruction">${esc(C.rankInstruction)}</p>`
-    : "";
+  const instruction = `<p class="group-flow-instruction">${esc(C.rankInstruction)}</p>`;
   return `<div class="rank-turns" data-rank-turns="${itemId}" data-turn-rev="${Number(turns.rev) || 0}">
     ${instruction}
     ${checkRow}
@@ -386,7 +387,39 @@ export function rankTurnsHtml(group, opts) {
 }
 
 /**
- * Group multiple choice: picks stay visible, send waits for one letter.
+ * Student live take-turns ranking card.
+ *
+ * The student portal paints this for a published group rank, including a
+ * team-challenge race (``opts.race``). The instruction line and the check
+ * help always render. A race does not add Send our ranking; the caller
+ * passes the lock control as trusted HTML.
+ *
+ * @param {any} group ``item.group_submit``
+ * @param {{options: {id: string, label: string}[], itemId: number, note?: string, lockRow?: string, strip?: string, race?: boolean}} opts
+ * @returns {string}
+ */
+export function liveRankCardHtml(group, opts) {
+  const race = Boolean(opts.race);
+  const strip = String(opts.strip || "").trim();
+  const body = rankTurnsHtml(group, {
+    options: opts.options,
+    itemId: opts.itemId,
+    note: opts.note || "",
+    header: !race,
+  });
+  return `<div class="student-group-card${race ? " race-phone" : ""}" data-live-action="group" data-rank-turns-card="1">
+    ${!race && strip ? `<p class="student-group-strip">${esc(strip)}</p>` : ""}
+    ${body}
+    ${race ? String(opts.lockRow || "") : ""}
+  </div>`;
+}
+
+/**
+ * Group multiple choice: one instruction, send waits until the picks match.
+ *
+ * Teammate names and letters stay off the card. Students talk to match.
+ * The server still decides ``match.ready``.
+ *
  * @param {any} group
  * @param {{choices: string[], optionsHtml?: string[], itemId: number}} opts
  * @returns {string}
@@ -402,28 +435,11 @@ export function mcMatchHtml(group, opts) {
   const reason = C.matchReason
     .replace("{matched}", String(matched))
     .replace("{total}", String(total));
-  const rows = Array.isArray(group?.member_picks) ? group.member_picks : [];
-  const picks = rows.length
-    ? `<ul class="team-picks" aria-label="${esc(C.teamPicks)}">${rows
-        .map((row) => {
-          const who = row?.mine ? C.you : String(row?.name || "");
-          const letter = choiceLetter(opts.choices || [], row?.value);
-          return `<li${row?.mine ? ' class="is-mine"' : ""}><span class="team-pick-name">${esc(
-            who
-          )}</span><span class="team-pick-letter">${esc(letter)}</span></li>`;
-        })
-        .join("")}</ul>`
-    : "";
   return `<div class="mc-match" data-mc-match="1">
-    <div class="group-flow-head">
-      <p class="group-flow-instruction">${esc(C.mcInstruction)}</p>
-      ${helpControl(`mc-help-${itemId}`, "How Send group answer works", MC_MATCH_HELP)}
-    </div>
+    <p class="group-flow-instruction">${esc(C.mcInstruction)}</p>
     <div class="student-live-answer-controls" data-live-action="group-pick" data-mc-step="match">
       ${choiceButtons(opts.choices || [], opts.optionsHtml || [], mine)}
     </div>
-    <p class="team-picks-label">${esc(C.teamPicks)}</p>
-    ${picks}
     <button type="button" class="prompt-submit" data-live-submit="group" aria-describedby="group-send-reason-${itemId}"${
       ready ? "" : " disabled"
     }>${esc(C.send)}</button>

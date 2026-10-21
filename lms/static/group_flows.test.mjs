@@ -1,11 +1,13 @@
 /**
  * MCK-155 PR C node checks: option B MC steps and the take-turns card.
  */
+import { readFileSync } from "node:fs";
 import {
   GROUP_FLOW_COPY,
   MC_MATCH_HELP,
   RANK_CHECK_HELP,
   choiceLetter,
+  liveRankCardHtml,
   mcAgreeStepHtml,
   mcFlowStep,
   mcLockedHtml,
@@ -17,6 +19,7 @@ import {
   stillChoosingLine,
   turnsCardIsStale,
 } from "./group_flows.js";
+import { groupInstructionHtml } from "./group_instructions.js";
 import { groupSetupHtml, groupSetupOptionsHtml, groupSubmitVariant } from "./group_setup.js";
 
 let failures = 0;
@@ -226,13 +229,14 @@ const matchOpen = mcMatchHtml(
   { choices: ["Graph", "Table"], itemId: 4 },
 );
 check(matchOpen.includes("Everyone in your group picks the same answer to send it."), "mc instruction");
-check(matchOpen.includes(MC_MATCH_HELP), "mc help is the instruction sentence");
 check(
   MC_MATCH_HELP === "Everyone in your group picks the same answer to send it.",
-  "mc help replaces the placeholder",
+  "mc instruction sentence stays",
 );
+check(!matchOpen.includes("data-group-help") && !matchOpen.includes("group-help-pop"), "no mc help popover");
 check(!matchOpen.includes("data-group-why") && !matchOpen.includes("Why this answer?"), "no why box");
-check(matchOpen.includes("Team picks") && matchOpen.includes(">A<"), "team pick letter");
+check(!matchOpen.includes("team-picks") && !matchOpen.includes("Team picks"), "no visible team picks");
+check(!matchOpen.includes(">A<") && !matchOpen.includes("team-pick-name"), "no pick letters on the card");
 check(matchOpen.includes("Everyone needs the same pick (1 of 2 match)"), "match gate copy");
 check(matchOpen.includes("Send group answer") && matchOpen.includes("disabled"), "send disabled until match");
 const matchReady = mcMatchHtml(
@@ -247,6 +251,55 @@ const matchReady = mcMatchHtml(
   { choices: ["Graph", "Table"], itemId: 4 },
 );
 check(matchReady.includes('data-group-send-reason hidden') && !matchReady.includes("disabled"), "send on when everyone matches");
+
+const oldPass = "Take turns. Each person places one item, then passes.";
+const oldCue = "Talk it through. Lock in when your whole team agrees.";
+const raceCard = liveRankCardHtml(
+  {
+    rank_mode: "turns",
+    turns: { spots: [], total: 3, can_place: true, done: false, rev: 2 },
+    check: { available: true, used: false },
+    submitted: false,
+    race: { mode: "turns" },
+  },
+  { options, itemId: 9, race: true, lockRow: '<div class="race-phone-actions">lock</div>' },
+);
+check(raceCard.includes(GROUP_FLOW_COPY.rankInstruction), "race card instruction");
+check((raceCard.match(/group-flow-instruction/g) || []).length === 1, "race card one instruction");
+check(raceCard.includes("Check our ranking") && raceCard.includes("data-group-help"), "race card help next to check");
+check(raceCard.includes(RANK_CHECK_HELP.replaceAll("'", "&#39;")), "race card help copy");
+check(!raceCard.includes(oldPass) && !raceCard.includes(oldCue), "race card drops the old lines");
+check(!raceCard.includes('data-live-submit="group"'), "race card does not pin send");
+check(raceCard.includes("race-phone-actions"), "race card keeps lock in");
+check(!raceCard.includes("race-phone-cue"), "race card has no old cue box");
+const plainCard = liveRankCardHtml(
+  {
+    rank_mode: "turns",
+    turns: { spots: [], total: 3, can_place: true, done: false },
+    check: { available: true, used: false },
+    submitted: false,
+  },
+  { options, itemId: 9, race: false, strip: "North" },
+);
+check(plainCard.includes('data-live-submit="group"') && plainCard.includes("Send our ranking"), "plain card pins send");
+check(plainCard.includes("student-group-strip"), "plain card can name the team");
+const bare = rankTurnsHtml(
+  { turns: { spots: [], total: 3, can_place: true }, check: { available: true, used: false } },
+  { options, itemId: 9 },
+);
+check(bare.includes(GROUP_FLOW_COPY.rankInstruction) && bare.includes("data-group-help"), "help without the send header");
+check(!bare.includes('data-live-submit="group"'), "no send pin unless the card asks");
+const rankStack = groupInstructionHtml(
+  { response_mode: "group_submit", status: "active", group_submit: { race: { mode: "turns" } } },
+  { type: "rank" },
+);
+check(rankStack === "", "stack does not prepend a second ranking line");
+const portal = readFileSync(new URL("./student-portal.js", import.meta.url), "utf8");
+const turnsAt = portal.indexOf('if (race.mode === "turns" && status !== "closed")');
+const turnsBranch = portal.slice(turnsAt, portal.indexOf("if (locked || status === \"closed\")", turnsAt));
+check(turnsBranch.includes("liveRankCardHtml"), "student race path renders the live card");
+check(!turnsBranch.includes("phoneCueHtml") && !turnsBranch.includes("rankTurnsHtml("), "student race path skips the old cue");
+check(!portal.includes(oldPass) && !portal.includes(oldCue), "student portal has neither old line");
 
 if (failures) {
   console.error(`${failures} failure(s)`);

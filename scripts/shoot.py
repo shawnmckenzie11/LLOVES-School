@@ -3568,15 +3568,19 @@ def shoot_mck281(base: str, state_path: Path, out_dir: Path, path: Path) -> list
         phone = student.new_page()
         try:
             phone.goto(student_url, wait_until="domcontentloaded", timeout=60000)
-            phone.locator('[data-group-instruction="rank_turns"]').wait_for(
+            phone.locator(".group-flow-instruction").wait_for(
                 state="visible", timeout=30000
             )
+            phone.locator("[data-group-help]").wait_for(state="visible", timeout=15000)
             phone.locator("[data-rank-turns-card]").wait_for(state="visible", timeout=15000)
         except Exception:
-            raise SystemExit("student card did not show Take turns") from None
+            raise SystemExit("student card did not show the ranking line") from None
         phone_text = phone.locator("#live-response").inner_text()
-        if "Take turns. Each person places one item, then passes." not in phone_text:
-            raise SystemExit("student instruction is not Take turns")
+        if (
+            "Take turns moving the cards. Talk it through, then lock in your ranking together."
+            not in phone_text
+        ):
+            raise SystemExit("student instruction is not the ranking line")
         if "Rank together" in phone_text:
             raise SystemExit("student card still shows Rank together")
         _mck281_blank_identity(phone)

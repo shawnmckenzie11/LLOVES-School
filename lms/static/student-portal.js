@@ -78,10 +78,10 @@ import {
   groupInstructionHtml,
 } from "/static/group_instructions.js";
 import {
+  liveRankCardHtml,
   mcFlowStep,
   mcLockedHtml,
   mcMatchHtml,
-  rankTurnsHtml,
   turnsCardIsStale,
 } from "/static/group_flows.js";
 import {
@@ -3175,11 +3175,13 @@ function rankChallengeCardHtml(item) {
     const turns = group.turns || {};
     const lockRow =
       turns.done && !locked ? `<div class="race-phone-actions">${lockButtonHtml(group)}</div>` : "";
-    return `<div class="student-group-card race-phone" data-live-action="group" data-rank-turns-card="1">
-      ${phoneCueHtml(group, status)}
-      ${rankTurnsHtml(group, { options, itemId, note: groupFlowNotes.get(itemId) || "" })}
-      ${lockRow}
-    </div>`;
+    return liveRankCardHtml(group, {
+      options,
+      itemId,
+      note: groupFlowNotes.get(itemId) || "",
+      lockRow,
+      race: true,
+    });
   }
   if (locked || status === "closed") {
     const shown = locked && Array.isArray(group.submitted_order) && group.submitted_order.length
@@ -3699,15 +3701,13 @@ function studentGroupCardBodyHtml(item) {
       : [];
     const strip = [String(group.team_name || "").trim(), ...members].filter(Boolean).join(" · ");
     const itemId = Number(item.id) || 0;
-    return `<div class="student-group-card" data-live-action="group" data-rank-turns-card="1">
-      ${strip ? `<p class="student-group-strip">${escapeText(strip)}</p>` : ""}
-      ${rankTurnsHtml(group, {
-        options: rankOptionsFromContent(content),
-        itemId,
-        note: groupFlowNotes.get(itemId) || "",
-        header: true,
-      })}
-    </div>`;
+    return liveRankCardHtml(group, {
+      options: rankOptionsFromContent(content),
+      itemId,
+      note: groupFlowNotes.get(itemId) || "",
+      strip,
+      race: false,
+    });
   }
   if (rank) {
     const options = rankOptionsFromContent(content);
@@ -3745,10 +3745,7 @@ function studentGroupCardBodyHtml(item) {
   const flowStep = mcFlowStep(group);
   if (flowStep) {
     // MCK-155 PR C option B: pick alone, then agree; sending locks it.
-    const members = Array.isArray(group.members)
-      ? group.members.map((name) => String(name || "").trim()).filter(Boolean)
-      : [];
-    const strip = [String(group.team_name || "").trim(), ...members].filter(Boolean).join(" · ");
+    // No team label on the question. Students talk to match.
     const itemId = Number(item.id) || 0;
     const pickDraft = liveCardDrafts.get(`${itemId}:group-pick`) || {};
     const body =
@@ -3766,7 +3763,6 @@ function studentGroupCardBodyHtml(item) {
         data-group-submitted="${group.submitted ? "1" : "0"}"
         data-submitted-choice="${escapeText(group.submitted_choice || "")}"
         data-submitted-why="${escapeText(group.submitted_why || "")}">
-      ${strip ? `<p class="student-group-strip">${escapeText(strip)}</p>` : ""}
       ${body}
       ${note ? `<p class="rank-turn-note" role="status">${escapeText(note)}</p>` : ""}
     </div>`;
@@ -3776,17 +3772,11 @@ function studentGroupCardBodyHtml(item) {
     submittedChoice: String(group.submitted_choice || ""),
     submittedWhy: String(group.submitted_why || ""),
   });
-  const members = Array.isArray(group.members)
-    ? group.members.map((name) => String(name || "").trim()).filter(Boolean)
-    : [];
-  const teamName = String(group.team_name || "").trim();
-  const strip = [teamName, ...members].filter(Boolean).join(" · ");
   const last = String(group.last_submitter || "").trim();
   return `<div class="student-group-card" data-live-action="group"
       data-group-submitted="${group.submitted ? "1" : "0"}"
       data-submitted-choice="${escapeText(group.submitted_choice || "")}"
       data-submitted-why="${escapeText(group.submitted_why || "")}">
-    ${strip ? `<p class="student-group-strip">${escapeText(strip)}</p>` : ""}
     <p class="student-group-phase" data-group-phase>${groupSubmitPhaseLabel(phase)}</p>
     <div class="student-live-answer-controls" data-live-action="group">
       ${choices
