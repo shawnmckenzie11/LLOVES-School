@@ -6052,7 +6052,9 @@ class LovesDB:
         blocked = self._shared_offering_block_message(uid, offering_ids, present)
         if blocked:
             raise ValueError(blocked)
-        past_sessions, past_keys = self._delete_dangling_class_rows(present)
+        past_sessions, past_keys = self._delete_account_leftovers(
+            uid, class_ids, offering_ids, present
+        )
         self._clear_sessions_started_for_other_classes(uid, class_ids, present)
         session_ids = self._staff_owned_session_ids(class_ids, present)
         session_ids = list(dict.fromkeys([*past_sessions, *session_ids]))
@@ -6068,7 +6070,9 @@ class LovesDB:
         self._delete_game_graph(class_ids, present)
         self._delete_ids("live_class_sessions", "id", session_ids, present)
         self._delete_ids("classes", "id", class_ids, present)
-        later_sessions, later_keys = self._delete_dangling_class_rows(present)
+        later_sessions, later_keys = self._delete_account_leftovers(
+            uid, class_ids, offering_ids, present
+        )
         session_ids = list(dict.fromkeys([*session_ids, *later_sessions]))
         board_keys = list(dict.fromkeys([*board_keys, *later_keys]))
         run_keys = list(dict.fromkeys([*run_keys, *later_keys]))
@@ -6231,26 +6235,36 @@ class LovesDB:
             tuple(class_ids),
         )
 
-    def _delete_dangling_class_rows(
-        self, present: set[str]
+    def _delete_account_leftovers(
+        self,
+        user_id: int,
+        class_ids: list[int],
+        offering_ids: list[int],
+        present: set[str],
     ) -> tuple[list[int], list[str]]:
-        """Remove soft-reference rows whose class row is already gone.
+        """Remove leftover rows that still name this account.
 
-        An earlier delete committed the class and then failed on the
-        account. Those rows no longer join back to a teacher. A class id
-        that is not in ``classes`` is a leftover. Rows for a class that
-        still exists stay, including rows kept after a live session ends.
+        A class, offering, session, or teacher id has to belong to this
+        account. Rows for another class, including a class row that is
+        already gone in another school, stay. Copy pointers are cleared
+        only when they name one of this account's offerings.
 
         Args:
+            user_id: Staff ``users.id`` being deleted.
+            class_ids: Classes this account still owns.
+            offering_ids: This account's ``course_offerings.id`` values.
             present: Table names in this database.
 
         Returns:
-            Live session ids and run keys copied off the leftover rows
-            before they are deleted.
+            Live session ids and run keys copied off this account's
+            leftover rows before they are deleted.
         """
-        if "classes" not in present:
+        owned_classes = self._class_ids_named_by_account(
+            int(user_id), class_ids, present
+        )
+        self._null_account_offering_copies(offering_ids, present)
+        if not owned_classes:
             return [], []
-        self._null_dangling_offering_copies(present)
         ident = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
         skip = {
             "access_audit_log",
@@ -6265,14 +6279,13 @@ class LovesDB:
             "math_processes",
             "quick_phrases",
             "live_class_sessions",
+            "course_offerings",
         }
+        marks = ",".join("?" * len(owned_classes))
+        params = tuple(int(class_id) for class_id in owned_classes)
+        where = f"class_id IN ({marks})"
         session_ids: list[int] = []
         run_keys: list[str] = []
-        class_tables = [
-            table
-            for table in self._sqlite_tables_with_column("class_id")
-            if table not in skip and ident.fullmatch(table)
-        ]
         if "live_class_sessions" in present:
             session_columns = {
                 str(col["name"])
@@ -6280,41 +6293,39 @@ class LovesDB:
             }
             session_ids.extend(
                 self._select_ids(
-                    """
-                    SELECT id FROM live_class_sessions
-                    WHERE class_id IS NOT NULL
-                      AND class_id NOT IN (SELECT id FROM classes)
-                    """,
-                    (),
+                    f"SELECT id FROM live_class_sessions WHERE {where}",
+                    params,
                 )
             )
             if "run_key" in session_columns:
                 run_keys.extend(
                     str(row[0])
                     for row in self.conn.execute(
-                        """
+                        f"""
                         SELECT run_key FROM live_class_sessions
-                        WHERE class_id IS NOT NULL
-                          AND class_id NOT IN (SELECT id FROM classes)
+                        WHERE {where}
                           AND run_key IS NOT NULL AND TRIM(run_key) != ''
-                        """
+                        """,
+                        params,
                     )
                     if str(row[0] or "").strip()
                 )
+        class_tables = [
+            table
+            for table in self._sqlite_tables_with_column("class_id")
+            if table not in skip and ident.fullmatch(table)
+        ]
         for table in class_tables:
             columns = {
                 str(col["name"])
                 for col in self.conn.execute(f'PRAGMA table_info("{table}")')
             }
-            where = (
-                "class_id IS NOT NULL AND class_id NOT IN (SELECT id FROM classes)"
-            )
             if "live_session_id" in columns:
                 session_ids.extend(
                     self._select_ids(
                         f'SELECT live_session_id FROM "{table}" '
                         f"WHERE {where} AND live_session_id IS NOT NULL",
-                        (),
+                        params,
                     )
                 )
             if "run_key" in columns:
@@ -6322,69 +6333,88 @@ class LovesDB:
                     str(row[0])
                     for row in self.conn.execute(
                         f'SELECT run_key FROM "{table}" WHERE {where} '
-                        "AND run_key IS NOT NULL AND TRIM(run_key) != ''"
+                        "AND run_key IS NOT NULL AND TRIM(run_key) != ''",
+                        params,
                     )
                     if str(row[0] or "").strip()
                 )
-            self.conn.execute(f'DELETE FROM "{table}" WHERE {where}')
-        if "live_class_sessions" in present:
-            self.conn.execute(
-                """
-                DELETE FROM live_class_sessions
-                WHERE class_id IS NOT NULL
-                  AND class_id NOT IN (SELECT id FROM classes)
-                """
-            )
-        self._delete_board_rows(list(dict.fromkeys(run_keys)), present)
-        self._delete_end_claims([], list(dict.fromkeys(run_keys)), present)
-        self._delete_dangling_class_scopes(present, session_ids)
-        return list(dict.fromkeys(session_ids)), list(dict.fromkeys(run_keys))
+            self.conn.execute(f'DELETE FROM "{table}" WHERE {where}', params)
+        session_ids = list(dict.fromkeys(int(session_id) for session_id in session_ids))
+        run_keys = list(dict.fromkeys(run_keys))
+        self._delete_board_rows(run_keys, present)
+        self._delete_end_claims(owned_classes, run_keys, present)
+        self._delete_seq_floors(owned_classes, session_ids, present)
+        return session_ids, run_keys
 
-    def _delete_dangling_class_scopes(
-        self, present: set[str], session_ids: list[int]
+    def _class_ids_named_by_account(
+        self, user_id: int, class_ids: list[int], present: set[str]
+    ) -> list[int]:
+        """Class ids this account owns or still names on a leftover row.
+
+        A class that still exists and belongs to someone else is not
+        included, even when this account started its live session.
+
+        Args:
+            user_id: Staff ``users.id`` being deleted.
+            class_ids: Classes this account still owns.
+            present: Table names in this database.
+        """
+        found = {int(class_id) for class_id in class_ids}
+        if "classes" not in present:
+            return sorted(found)
+        living = set(self._select_ids("SELECT id FROM classes", ()))
+        ident = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+        teacher_columns = ("teacher_user_id", "observer_user_id", "user_id")
+        skip = {
+            "access_audit_log",
+            "classes",
+            "users",
+            "content_libraries",
+            "question_banks",
+            "questions",
+            "ontario_courses",
+            "expectations",
+            "live_problems",
+            "math_processes",
+            "quick_phrases",
+        }
+        for table in self._sqlite_tables_with_column("class_id"):
+            if table in skip or not ident.fullmatch(table):
+                continue
+            columns = {
+                str(col["name"])
+                for col in self.conn.execute(f'PRAGMA table_info("{table}")')
+            }
+            for column in teacher_columns:
+                if column not in columns or not ident.fullmatch(column):
+                    continue
+                rows = self.conn.execute(
+                    f"""
+                    SELECT DISTINCT class_id FROM "{table}"
+                    WHERE "{column}" = ? AND class_id IS NOT NULL
+                    """,
+                    (int(user_id),),
+                ).fetchall()
+                for row in rows:
+                    class_id = int(row[0])
+                    if class_id in living and class_id not in found:
+                        continue
+                    found.add(class_id)
+        return sorted(found)
+
+    def _null_account_offering_copies(
+        self, offering_ids: list[int], present: set[str]
     ) -> None:
-        """Drop seq floors and finish claims for classes that no longer exist.
+        """Clear copy pointers that name this account's offerings.
 
-        Soft rows can outlive the class row from an earlier partial delete.
-        A scope whose class id is still in ``classes`` is left alone.
-
-        Args:
-            present: Table names in this database.
-            session_ids: Live session ids already harvested from leftover rows.
-        """
-        if "live_seq_floors" in present:
-            scopes = [f"sid:{int(session_id)}" for session_id in session_ids]
-            gone = self.conn.execute(
-                """
-                SELECT scope FROM live_seq_floors
-                WHERE scope GLOB 'class:[0-9]*'
-                  AND CAST(substr(scope, 7) AS INTEGER)
-                      NOT IN (SELECT id FROM classes)
-                """
-            ).fetchall()
-            scopes.extend(str(row[0]) for row in gone)
-            self._delete_ids("live_seq_floors", "scope", scopes, present)
-        if "live_end_claims" not in present:
-            return
-        self.conn.execute(
-            """
-            DELETE FROM live_end_claims
-            WHERE run_key GLOB 'finish:[0-9]*'
-              AND CAST(substr(run_key, 8) AS INTEGER)
-                  NOT IN (SELECT id FROM classes)
-            """
-        )
-
-    def _null_dangling_offering_copies(self, present: set[str]) -> None:
-        """Clear copy pointers that name an offering row which is gone.
-
-        A reused offering id must not attach a remaining course to the
-        wrong source. Pointers to an offering that still exists stay.
+        Pointers at any other offering, including one that is already
+        gone, stay.
 
         Args:
+            offering_ids: This account's ``course_offerings.id`` values.
             present: Table names in this database.
         """
-        if "course_offerings" not in present:
+        if not offering_ids or "course_offerings" not in present:
             return
         columns = {
             str(col["name"])
@@ -6392,16 +6422,16 @@ class LovesDB:
         }
         if "copied_from_offering_id" not in columns:
             return
+        marks = ",".join("?" * len(offering_ids))
         self.conn.execute(
-            """
+            f"""
             UPDATE course_offerings
             SET copied_from_offering_id = NULL
-            WHERE copied_from_offering_id IS NOT NULL
-              AND copied_from_offering_id NOT IN (
-                    SELECT id FROM course_offerings
-              )
-            """
+            WHERE copied_from_offering_id IN ({marks})
+            """,
+            tuple(int(offering_id) for offering_id in offering_ids),
         )
+
 
     def _staff_owned_board_keys(
         self, session_ids: list[int], present: set[str]
@@ -6882,16 +6912,64 @@ class LovesDB:
                 len(session_ids),
             )
             return
+        purged = 0
         try:
             tape = log_for(data_dir)
             for session_id in session_ids:
                 tape.purge_session(int(session_id))
+                purged += 1
         except Exception as exc:
+            pending = [int(session_id) for session_id in session_ids[purged:]]
             logger.warning(
-                "live news purge failed after account delete (%s, sessions=%s)",
+                "live news purge stopped early after account delete "
+                "(%s, sessions=%s, unpurged=%s, rows_left=%s)",
                 type(exc).__name__,
                 len(session_ids),
+                len(pending),
+                self._news_rows_left(data_dir, pending),
             )
+
+    def _news_rows_left(self, data_dir: Path, session_ids: list[int]) -> int:
+        """Count postcards and ink windows still stored for these sessions.
+
+        Used when a news purge stops early. The count is the log line.
+        A read failure returns ``-1`` and does not raise.
+
+        Args:
+            data_dir: School data root.
+            session_ids: Live session ids that were not purged.
+        """
+        if not session_ids:
+            return 0
+        try:
+            from live_news_wire import news_db_path
+
+            path = news_db_path(data_dir)
+            if not path.exists():
+                return 0
+            marks = ",".join("?" * len(session_ids))
+            params = tuple(int(session_id) for session_id in session_ids)
+            conn = sqlite3.connect(path)
+            try:
+                events = conn.execute(
+                    "SELECT COUNT(*) FROM live_news_events "
+                    f"WHERE session_id IN ({marks})",
+                    params,
+                ).fetchone()[0]
+                ink = conn.execute(
+                    "SELECT COUNT(*) FROM board_ink_coalesce "
+                    f"WHERE session_id IN ({marks})",
+                    params,
+                ).fetchone()[0]
+            finally:
+                conn.close()
+            return int(events or 0) + int(ink or 0)
+        except Exception as exc:
+            logger.warning(
+                "live news row count failed after account delete (%s)",
+                type(exc).__name__,
+            )
+            return -1
 
     def _remove_offering_instance_dirs(
         self, data_dir: Path, relative_paths: list[str]

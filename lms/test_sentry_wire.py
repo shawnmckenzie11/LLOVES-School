@@ -414,6 +414,31 @@ console.log("ok");
 
 
 
+    def test_before_send_scrubs_a_deep_address(self) -> None:
+        """An address nested past the old cap is still removed."""
+        node: dict = {"message": "person@example.com"}
+        for _ in range(12):
+            node = {"wrap": node}
+        event = {
+            "extra": node,
+            "request": {"url": "https://alc.example/it/staff/2/delete"},
+        }
+        sent = before_send(event, None)
+        self.assertIs(sent, event)
+        self.assertNotIn("person@example.com", str(sent))
+        self.assertIn("[redacted]", str(sent))
+
+    def test_before_send_drops_a_cyclic_payload(self) -> None:
+        """A cycle is dropped instead of leaving an unscrubbed node."""
+        event: dict = {"message": "keep"}
+        event["loop"] = event
+        with self.assertLogs("sentry_wire", level="WARNING") as logs:
+            sent = before_send(event, None)
+        self.assertIsNone(sent)
+        self.assertTrue(any("dropped the event" in line for line in logs.output))
+        self.assertFalse(any("@" in line for line in logs.output))
+
+
 
 if __name__ == "__main__":
     unittest.main()

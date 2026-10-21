@@ -349,30 +349,71 @@ _IDENTITY_KEYS = frozenset({"email", "confirm_email", "login_hint"})
 _EMAIL_TEXT_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
 
-def _scrub_identity(value: Any, depth: int = 0) -> Any:
+def _scrub_identity(value: Any) -> Any:
     """Drop address and confirm fields and redact address text.
+
+    Walks every nested dict and list with an explicit stack, so a deep
+    payload is still scrubbed. A cycle raises and the caller drops the
+    event instead of sending an unscrubbed node.
 
     Args:
         value: Event node.
-        depth: Nesting cap so a cyclic payload cannot recurse forever.
 
     Returns:
-        The same node, with those fields removed.
+        The same shape, with those fields removed.
+
+    Raises:
+        ValueError: The payload contains a cycle.
     """
-    if depth > 8:
-        return value
     if isinstance(value, str):
         return _EMAIL_TEXT_RE.sub("[redacted]", value)
-    if isinstance(value, list):
-        return [_scrub_identity(item, depth + 1) for item in value]
-    if isinstance(value, dict):
-        cleaned: dict[str, Any] = {}
-        for key, item in value.items():
-            if str(key).lower() in _IDENTITY_KEYS:
-                continue
-            cleaned[str(key)] = _scrub_identity(item, depth + 1)
-        return cleaned
-    return value
+    if not isinstance(value, (dict, list)):
+        return value
+
+    def fresh(node: Any) -> dict[str, Any] | list[Any]:
+        """Return an empty container of the same kind as ``node``."""
+        return [] if isinstance(node, list) else {}
+
+    def children(node: Any):
+        """Yield kept children. Address and confirm keys are skipped."""
+        if isinstance(node, dict):
+            for key, child in node.items():
+                if str(key).lower() in _IDENTITY_KEYS:
+                    continue
+                yield str(key), child
+            return
+        for index, child in enumerate(node):
+            yield index, child
+
+    def put(clone: Any, key: Any, child: Any) -> None:
+        """Store one scrubbed child on its new parent."""
+        if isinstance(clone, list):
+            clone.append(child)
+            return
+        clone[key] = child
+
+    clones: dict[int, Any] = {id(value): fresh(value)}
+    stack: list[tuple[Any, Any]] = [(value, iter(children(value)))]
+    while stack:
+        node, pending = stack[-1]
+        try:
+            key, child = next(pending)
+        except StopIteration:
+            stack.pop()
+            continue
+        if isinstance(child, str):
+            put(clones[id(node)], key, _EMAIL_TEXT_RE.sub("[redacted]", child))
+            continue
+        if isinstance(child, (dict, list)):
+            child_id = id(child)
+            if child_id in clones:
+                raise ValueError("cyclic sentry payload")
+            clones[child_id] = fresh(child)
+            put(clones[id(node)], key, clones[child_id])
+            stack.append((child, iter(children(child))))
+            continue
+        put(clones[id(node)], key, child)
+    return clones[id(value)]
 
 
 def _drop_request_body(event: dict[str, Any]) -> dict[str, Any]:

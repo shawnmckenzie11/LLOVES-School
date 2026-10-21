@@ -79,7 +79,12 @@ class _Presence:
         """Match the presence store the school database closes on shutdown."""
 
 
-def _owned_hits(conn: sqlite3.Connection, owned: dict[str, list]) -> list[str]:
+def _owned_hits(
+    conn: sqlite3.Connection,
+    owned: dict[str, list],
+    *,
+    session_ids_are_live: bool = False,
+) -> list[str]:
     """Return leftover rows by walking every table's id columns.
 
     Column names are read from ``PRAGMA table_info``, not from the tables
@@ -89,6 +94,8 @@ def _owned_hits(conn: sqlite3.Connection, owned: dict[str, list]) -> list[str]:
     Args:
         conn: Open sqlite connection.
         owned: Id lists for the deleted account, plus ``run_keys``.
+        session_ids_are_live: When True, a ``session_id`` column is a live
+            session id. The news tape uses that shape.
     """
     hits: list[str] = []
     tables = [
@@ -116,6 +123,8 @@ def _owned_hits(conn: sqlite3.Connection, owned: dict[str, list]) -> list[str]:
                 values = list(owned.get(id_kind) or [])
             else:
                 kind = _column_kind(column)
+                if session_ids_are_live and kind == "game_session_ids":
+                    kind = "live_session_ids"
                 if kind is None:
                     continue
                 values = list(owned.get(kind) or [])
@@ -531,7 +540,7 @@ class PermanentStaffDeleteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302, response.get_data(as_text=True))
         self.assertIsNone(self.school.get_user(self.owned_user_id))
         self.assertIsNone(self.school.get_user_by_email("owned@example.com"))
-        self.assertEqual(_owned_hits(self.school.conn, owned), [])
+        self.assertEqual(self._every_owned_hit(owned), [])
         self.assertEqual(
             self.school.conn.execute(
                 "SELECT COUNT(*) FROM students WHERE class_id = ?",
@@ -652,6 +661,25 @@ class PermanentStaffDeleteTests(unittest.TestCase):
         text = "\n".join(logs.output)
         self.assertIn("presence purge failed", text)
         self.assertNotIn("@", text)
+
+
+    def _every_owned_hit(self, owned: dict[str, list]) -> list[str]:
+        """Leftover ids in the school file and the live-news file."""
+        from live_news_wire import news_db_path
+
+        hits = _owned_hits(self.school.conn, owned)
+        path = news_db_path(self.school.data_dir)
+        if not path.exists():
+            return hits
+        news = sqlite3.connect(path)
+        try:
+            hits.extend(
+                f"live_news.{hit}"
+                for hit in _owned_hits(news, owned, session_ids_are_live=True)
+            )
+        finally:
+            news.close()
+        return hits
 
     def _seed_news(self, session_id: int, marker: str) -> None:
         """Store one postcard and one ink window for a live session."""
@@ -899,10 +927,6 @@ class PermanentStaffDeleteTests(unittest.TestCase):
             (class_id,),
         )
         self.school.conn.execute("DELETE FROM classes WHERE id = ?", (class_id,))
-        self.school.conn.execute(
-            "DELETE FROM course_offerings WHERE id = ?",
-            (offering_id,),
-        )
         self.school.conn.commit()
         self.assertGreater(
             self.school.conn.execute(
@@ -912,7 +936,13 @@ class PermanentStaffDeleteTests(unittest.TestCase):
         )
         self.school.delete_staff_permanently(self.owned_user_id, self.actor_id)
         self.assertIsNone(self.school.get_user(self.owned_user_id))
-        self.assertEqual(_owned_hits(self.school.conn, owned), [])
+        self.assertIsNone(
+            self.school.conn.execute(
+                "SELECT id FROM course_offerings WHERE id = ?",
+                (offering_id,),
+            ).fetchone()
+        )
+        self.assertEqual(self._every_owned_hit(owned), [])
         self.assertEqual(
             self.school.conn.execute(
                 "SELECT COUNT(*) FROM catchup_links WHERE token = 'kept-link'"
@@ -1001,6 +1031,111 @@ class PermanentStaffDeleteTests(unittest.TestCase):
         conn.close()
 
 
+
+
+    def test_other_school_classless_rows_stay(self) -> None:
+        """Another school's class-less rows are not part of this delete."""
+        self._seed_owned_graph()
+        other_tenant = self.school.create_tenant("other-school", "Other School")
+        other = self.school.register_staff(
+            "other-orphan@example.com",
+            "Other",
+            tenant_id=int(other_tenant["id"]),
+        )
+        offering = self.school.assign_course(
+            teacher_user_id=int(other["id"]), ontario_code="MCF3M"
+        )
+        missing_offering = 900001
+        missing_class = 900002
+        missing_session = 900003
+        self.school.conn.execute(
+            """
+            UPDATE course_offerings
+            SET copied_from_offering_id = ?
+            WHERE id = ?
+            """,
+            (missing_offering, int(offering["id"])),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO catchup_links (
+                token, class_id, run_key, live_module, live_slot, created_at, updated_at
+            ) VALUES ('other-orphan', ?, 'other-orphan-run', 'M1', 'C1', 't', 't')
+            """,
+            (missing_class,),
+        )
+        self.school.conn.execute(
+            "INSERT INTO live_seq_floors (scope, max_seq) VALUES (?, 4)",
+            (f"class:{missing_class}",),
+        )
+        self.school.conn.execute(
+            "INSERT INTO live_end_claims (run_key, claimed_at) VALUES (?, 't')",
+            (f"finish:{missing_class}",),
+        )
+        self.school.conn.commit()
+        self._seed_news(missing_session, "other")
+        self.school.delete_staff_permanently(self.owned_user_id, self.actor_id)
+        self.assertIsNone(self.school.get_user(self.owned_user_id))
+        self.assertIsNotNone(self.school.get_user(int(other["id"])))
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT copied_from_offering_id FROM course_offerings WHERE id = ?",
+                (int(offering["id"]),),
+            ).fetchone()[0],
+            missing_offering,
+        )
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM catchup_links WHERE token = 'other-orphan'"
+            ).fetchone()[0],
+            1,
+        )
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM live_seq_floors WHERE scope = ?",
+                (f"class:{missing_class}",),
+            ).fetchone()[0],
+            1,
+        )
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM live_end_claims WHERE run_key = ?",
+                (f"finish:{missing_class}",),
+            ).fetchone()[0],
+            1,
+        )
+        self._assert_news_kept(missing_session)
+
+    def test_news_purge_logs_rows_left_when_it_stops(self) -> None:
+        """A news purge that stops early logs how many rows remain."""
+        from unittest.mock import patch
+
+        owned = self._seed_owned_graph()
+        session_ids = [int(session_id) for session_id in owned["live_session_ids"]]
+        self.assertGreaterEqual(len(session_ids), 2)
+
+        class _Tape:
+            """Fail on the second session and delete nothing."""
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def purge_session(self, session_id: int) -> int:
+                """Count calls, then raise before the tape is cleared."""
+                self.calls += 1
+                if self.calls >= 2:
+                    raise RuntimeError("tape stopped")
+                return 0
+
+        with patch("live_news_wire.log_for", return_value=_Tape()):
+            with self.assertLogs("school_db", level="WARNING") as logs:
+                self.school._purge_news_tape_best_effort(
+                    self.school.data_dir, session_ids
+                )
+        text = "\n".join(logs.output)
+        self.assertIn("rows_left=", text)
+        self.assertNotIn("@", text)
+        self.assertNotIn("rows_left=0", text)
 
 
 if __name__ == "__main__":
