@@ -207,34 +207,54 @@ class LocalDevSeedTests(unittest.TestCase):
 
 
     def test_ended_demo_columns_are_not_future_days(self) -> None:
-        """Logged demo columns sit on or before today, and a second seed keeps them."""
+        """Logged demo columns sit on or before a frozen class day.
+
+        The seed and this test share ``local_dev_today``. Freezing that day
+        keeps the result off the wall clock, including a UTC midnight that
+        has already rolled onto a class day while Ontario has not.
+        """
         from datetime import date
 
-        seeded = seed_local_dev_school(self.school)
-        class_id = int(seeded["class_id"])
-        today = date.today().isoformat()
+        import local_dev_seed
 
-        def dates() -> list[str]:
-            """ISO days of ended columns, oldest id first."""
-            with self.school.game._lock:
-                return [
-                    str(row["starts_at"])[:10]
-                    for row in self.school.game.conn.execute(
-                        """
-                        SELECT starts_at FROM sessions
-                        WHERE class_id = ? AND status = 'ended'
-                        ORDER BY id
-                        """,
-                        (class_id,),
-                    )
-                ]
+        frozen = date(2026, 10, 21)
+        today = frozen.isoformat()
+        with mock.patch.object(local_dev_seed, "local_dev_today", return_value=frozen):
+            tmp = tempfile.TemporaryDirectory()
+            root = Path(tmp.name)
+            app = create_app(db_path=root / "lloves.sqlite", data_dir=root)
+            school = app.config["SCHOOL_DB"]
+            try:
+                seeded = seed_local_dev_school(school)
+                class_id = int(seeded["class_id"])
 
-        ended = dates()
-        self.assertEqual(len(ended), 3)
-        self.assertTrue(all(day <= today for day in ended))
-        self.assertTrue(any(day < today for day in ended))
-        seed_local_dev_school(self.school)
-        self.assertEqual(dates(), ended)
+                def dates() -> list[str]:
+                    """ISO days of ended columns, oldest id first."""
+                    with school.game._lock:
+                        return [
+                            str(row["starts_at"])[:10]
+                            for row in school.game.conn.execute(
+                                """
+                                SELECT starts_at FROM sessions
+                                WHERE class_id = ? AND status = 'ended'
+                                ORDER BY id
+                                """,
+                                (class_id,),
+                            )
+                        ]
+
+                ended = dates()
+                self.assertEqual(
+                    ended,
+                    ["2026-10-21", "2026-10-19", "2026-10-12"],
+                )
+                self.assertTrue(all(day <= today for day in ended))
+                self.assertTrue(any(day < today for day in ended))
+                seed_local_dev_school(school)
+                self.assertEqual(dates(), ended)
+            finally:
+                school.close()
+                tmp.cleanup()
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

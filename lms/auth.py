@@ -35,9 +35,12 @@ from flask import (
 
 import email_service
 from live_class_constants import (
+    MOCK_SLIDES_READ_REFRESH_TOKEN,
     MOCK_SLIDES_REFRESH_TOKEN,
+    SLIDES_READONLY_SCOPE,
     SLIDES_SCOPES,
     is_slides_operator_email,
+    slides_read_scopes_ok,
 )
 from school_db import (
     STAFF_2FA_DAILY,
@@ -98,6 +101,26 @@ VERIFY_MAX_GUESSES = 5
 # A staff sign-in code stops working this long after it was issued.
 # Re-sign-in reuses a code only inside this window (not the old 15 minutes).
 VERIFY_CODE_TTL_SEC = 10 * 60
+
+
+def _log_slides_oauth_failure(exc: BaseException, *, kind: str) -> None:
+    """Log a Slides token exchange failure without codes or tokens.
+
+    The exception text can echo the authorization code or a refresh
+    token, so the log keeps the exception type and HTTP status only.
+
+    Args:
+        exc: ``requests`` failure from the token endpoint.
+        kind: ``read`` for the live-class grant, ``deck`` for lesson decks.
+    """
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    current_app.logger.error(
+        "Google Slides %s token exchange failed (%s status=%s)",
+        kind,
+        type(exc).__name__,
+        status,
+    )
 
 
 def _env_flag(name: str) -> bool:
@@ -572,6 +595,15 @@ def _google_slides_redirect_uri() -> str:
         return configured
     scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
     return f"{scheme}://{request.host}/auth/google/slides/callback"
+
+
+def _google_slides_read_redirect_uri() -> str:
+    """OAuth callback for the live-class Slides read-only grant."""
+    configured = (os.getenv("GOOGLE_SLIDES_READ_REDIRECT_URI") or "").strip()
+    if configured:
+        return configured
+    scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
+    return f"{scheme}://{request.host}/auth/google/slides-read/callback"
 
 
 def establish_user_session(user: dict[str, Any], *, portal: str) -> None:
@@ -1848,10 +1880,134 @@ def register_auth_routes(app: Flask) -> None:
             )
             return redirect(_with_query(next_url, slides="connected"))
         except requests.RequestException as exc:
-            app.logger.exception("Google Slides token exchange failed")
+            _log_slides_oauth_failure(exc, kind="deck")
             return render_template(
                 "forbidden.html",
-                message=f"Google Slides connect failed: {exc}",
+                message="Google Slides connect failed. Try again.",
+            ), 401
+
+
+    @app.route("/auth/google/slides-read")
+    @login_required
+    def auth_google_slides_read():
+        """Start incremental read-only Slides consent for a private deck.
+
+        This does not request Drive and does not replace the lesson-deck token.
+        """
+        user = current_user()
+        assert user is not None
+        if not is_slides_operator_email(user.get("email")):
+            return render_template(
+                "forbidden.html",
+                message="Google Slides connect is limited to solutions@ and Shawn's Gmail.",
+            ), 403
+        next_url = _safe_next_url(request.args.get("next")) or url_for("staff_home")
+        session["slides_read_oauth_next"] = next_url
+        if slides_connect_uses_mock():
+            school_db().store_google_slides_read_token(
+                int(user["id"]),
+                refresh_token=MOCK_SLIDES_READ_REFRESH_TOKEN,
+                scopes=SLIDES_READONLY_SCOPE,
+                access_token="mock-access",
+                expires_in=3600,
+            )
+            return redirect(_with_query(next_url, slides_read="mock"))
+        if not google_credentials_present():
+            return render_template(
+                "google_setup.html",
+                portal=session.get("portal") or "staff",
+                school=SCHOOL_SHORT,
+                school_name=SCHOOL_NAME,
+                redirect_uri=_google_slides_read_redirect_uri(),
+            ), 503
+        from live_class_slides import slides_read_oauth_url
+
+        state = secrets.token_urlsafe(32)
+        session["slides_read_oauth_state"] = state
+        return redirect(
+            slides_read_oauth_url(
+                client_id=google_client_id(),
+                redirect_uri=_google_slides_read_redirect_uri(),
+                state=state,
+            )
+        )
+
+    @app.route("/auth/google/slides-read/callback")
+    @login_required
+    def auth_google_slides_read_callback():
+        """Store a Slides read-only refresh token, apart from the Drive token."""
+        user = current_user()
+        assert user is not None
+        if not is_slides_operator_email(user.get("email")):
+            return render_template(
+                "forbidden.html",
+                message="Google Slides connect is limited to solutions@ and Shawn's Gmail.",
+            ), 403
+        next_url = _safe_next_url(session.pop("slides_read_oauth_next", None)) or url_for(
+            "staff_home"
+        )
+        if slides_connect_uses_mock():
+            school_db().store_google_slides_read_token(
+                int(user["id"]),
+                refresh_token=MOCK_SLIDES_READ_REFRESH_TOKEN,
+                scopes=SLIDES_READONLY_SCOPE,
+                access_token="mock-access",
+                expires_in=3600,
+            )
+            return redirect(_with_query(next_url, slides_read="mock"))
+        code = request.args.get("code")
+        state = request.args.get("state")
+        stored_state = session.pop("slides_read_oauth_state", None)
+        if not code or not _secret_equal(stored_state, state):
+            return render_template(
+                "forbidden.html",
+                message="Google Slides connect failed: state mismatch.",
+            ), 401
+        try:
+            token_resp = requests.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "code": code,
+                    "client_id": google_client_id(),
+                    "client_secret": google_client_secret(),
+                    "redirect_uri": _google_slides_read_redirect_uri(),
+                    "grant_type": "authorization_code",
+                },
+                timeout=10,
+            )
+            token_resp.raise_for_status()
+            payload = token_resp.json()
+            scope = str(payload.get("scope") or "")
+            if not slides_read_scopes_ok(scope):
+                return render_template(
+                    "forbidden.html",
+                    message=(
+                        "That Google grant is not Slides read-only. "
+                        "Drive access was not stored."
+                    ),
+                ), 401
+            refresh = payload.get("refresh_token")
+            if not refresh:
+                existing = school_db().get_google_slides_read_token(int(user["id"]))
+                refresh = (existing or {}).get("refresh_token")
+            if not refresh:
+                return render_template(
+                    "forbidden.html",
+                    message="Google did not return a refresh token. Reconnect with consent.",
+                ), 401
+            school_db().store_google_slides_read_token(
+                int(user["id"]),
+                refresh_token=str(refresh),
+                scopes=scope,
+                access_token=payload.get("access_token"),
+                expires_in=int(payload.get("expires_in") or 3500),
+            )
+            return redirect(_with_query(next_url, slides_read="connected"))
+        except requests.RequestException as exc:
+            _log_slides_oauth_failure(exc, kind="read")
+            return render_template(
+                "forbidden.html",
+                message="Google Slides connect failed. Try again.",
             ), 401
 
     @app.route("/api/auth/slides-status")
@@ -2275,6 +2431,9 @@ def register_auth_routes(app: Flask) -> None:
             "codename": join_name,
             "first_name": join_name,
         }
+        from catchup_session import clear_catchup_browser_session
+
+        clear_catchup_browser_session(session)
         bind_student_session(
             session,
             offering,

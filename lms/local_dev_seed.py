@@ -245,6 +245,54 @@ def _seed_engagement_ap_roster(school: Any, class_id: int) -> dict[str, Any]:
     }
 
 
+def local_dev_today() -> date:
+    """Return the calendar day the demo seed treats as today.
+
+    America/Toronto, matching the attendance grid. A UTC date just after
+    midnight is still the previous evening in Ontario, so ``date.today()``
+    on a class day would disagree with the columns this seed writes.
+
+    Returns:
+        Today's date in ``America/Toronto``.
+    """
+    from zoneinfo import ZoneInfo
+
+    return datetime.now(ZoneInfo("America/Toronto")).date()
+
+
+def _ended_column_for_demo_run(school: Any, run_key: str, persisted: Any) -> int | None:
+    """Return the attendance column id for one demo End.
+
+    End Class writes the participation credit itself, so the follow-up
+    persist often finds that row and returns no new session id. The column
+    still has to move onto the scheduled class day.
+
+    Args:
+        school: ``SchoolDB`` instance.
+        run_key: Participation run key for the demo End.
+        persisted: Return value of ``_persist_demo_live_participation_credit``.
+
+    Returns:
+        ``sessions.id``, or None when this run has no column.
+    """
+    if isinstance(persisted, dict) and persisted.get("session_id"):
+        return int(persisted["session_id"])
+    key = str(run_key or "").strip()
+    if not key:
+        return None
+    row = school.game.conn.execute(
+        """
+        SELECT session_id FROM live_participation_credits
+        WHERE run_key = ?
+        LIMIT 1
+        """,
+        (key,),
+    ).fetchone()
+    if row is None or row["session_id"] is None:
+        return None
+    return int(row["session_id"])
+
+
 def _stamp_demo_column_on_class_day(
     school: Any, session_id: int | None, when: datetime
 ) -> None:
@@ -281,12 +329,14 @@ def _stamp_demo_column_on_class_day(
 
 
 def _repair_demo_future_columns(school: Any, class_id: int) -> None:
-    """Move a fresh demo's ended columns off future days onto past class days.
+    """Move ended demo columns onto past class days when none are in the past.
 
-    Runs only when every ended column is strictly after today and there
-    are exactly three (M1 C1, M1 C2, and M3). Any column already on or
-    before today makes this a no-op, so a second seed does not shuffle
-    dates. Active template sessions are left alone.
+    Runs when there are exactly three ended columns (M1 C1, M1 C2, and M3)
+    and every one is today or later. End Class can open those columns on
+    the next meeting, which is today once UTC has crossed midnight ahead
+    of the class timezone. A column already before today makes this a
+    no-op, so a second seed does not shuffle dates. Active template
+    sessions are left alone.
 
     Args:
         school: ``SchoolDB`` instance.
@@ -314,13 +364,15 @@ def _repair_demo_future_columns(school: Any, class_id: int) -> None:
         ).fetchall()
     if len(rows) != 3:
         return
-    today = date.today()
+    today = local_dev_today()
     for row in rows:
         meeting = session_meeting_date(str(row["starts_at"] or ""))
-        if meeting is None or meeting <= today:
+        if meeting is None or meeting < today:
             return
     for row, which in zip(rows, (0, 1, 4)):
-        ended = scheduled_class_end_datetime(schedule, which=which)
+        ended = scheduled_class_end_datetime(
+            schedule, which=which, reference=local_dev_today()
+        )
         _stamp_demo_column_on_class_day(school, int(row["id"]), ended)
 
 
@@ -431,7 +483,9 @@ def _run_demo_individual_live_end(
 
     conn = school.conn
     session_id = int(school.start_live_class_session(class_id, teacher_id)["id"])
-    ended_dt = scheduled_class_end_datetime(schedule, which=run_index)
+    ended_dt = scheduled_class_end_datetime(
+        schedule, which=run_index, reference=local_dev_today()
+    )
     ended_iso = ended_dt.replace(microsecond=0).isoformat()
     stamp = ended_iso
     mod = str(live_module)
@@ -518,9 +572,9 @@ def _run_demo_individual_live_end(
         persisted = _persist_demo_live_participation_credit(
             school, int(class_id), maple_id, run_key, answered
         )
-        session_id = persisted.get("session_id") if isinstance(persisted, dict) else None
-        if session_id:
-            _stamp_demo_column_on_class_day(school, int(session_id), ended_dt)
+        column_id = _ended_column_for_demo_run(school, run_key, persisted)
+        if column_id:
+            _stamp_demo_column_on_class_day(school, column_id, ended_dt)
     return str(live_slot)
 
 

@@ -28,6 +28,8 @@ from team_draw import (  # noqa: E402
     BLANK_DRAWING_ERROR,
     BUILTIN_PROMPTS,
     DRAWING_TOO_LARGE_ERROR,
+    MAX_PNG_PIXELS,
+    MAX_PNG_SIDE,
     decode_png_payload,
     is_team_draw_item,
     load_inked_png,
@@ -1004,6 +1006,32 @@ class DrawingInkTests(unittest.TestCase):
         self.assertEqual(str(raised.exception), BLANK_DRAWING_ERROR)
         self.assertTrue(load_inked_png(_png_b64(_INKED_PNG)).startswith(b"\x89PNG"))
 
+
+    def test_blank_png_at_pixel_cap_is_fast(self) -> None:
+        """A blank image at the pixel cap is refused or scanned in under a second.
+
+        A square at the per-side limit is over 8 million pixels, so the
+        header refuses it before inflate. The widest blank that still fits
+        is all zeros and must not walk every pixel.
+        """
+        import time
+
+        started = time.perf_counter()
+        with self.assertRaises(ValueError) as raised:
+            png_has_ink(_png_shell(MAX_PNG_SIDE, MAX_PNG_SIDE, b"\x00\x00"))
+        self.assertEqual(str(raised.exception), DRAWING_TOO_LARGE_ERROR)
+        self.assertLess(time.perf_counter() - started, 1.0)
+
+        width = MAX_PNG_SIDE
+        height = MAX_PNG_PIXELS // width
+        self.assertGreater(height, 1)
+        self.assertLessEqual(width * height, MAX_PNG_PIXELS)
+        self.assertGreater(width * (height + 1), MAX_PNG_PIXELS)
+        blob = _png_shell(width, height, _zero_idat(width, height))
+        started = time.perf_counter()
+        self.assertFalse(png_has_ink(blob))
+        elapsed = time.perf_counter() - started
+        self.assertLess(elapsed, 1.0)
 
     def test_mck242_shoot_fixture_has_ink(self) -> None:
         """The mck242 screenshot seeder submits a drawing that has a stroke."""

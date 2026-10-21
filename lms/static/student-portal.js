@@ -1818,10 +1818,53 @@ function paintStudentCanvas(payload) {
 }
 
 /**
- * Paint the metadata-connected slide deck without exposing teacher fields.
+ * Shared Google Slide card, or null when this class has no attached deck.
+ * @param {any} payload
+ * @returns {any}
+ */
+function googleSlideCard(payload) {
+  const card = payload?.google_slide;
+  if (!card || card.attached !== true) return null;
+  return card;
+}
+
+/**
+ * Hide the full-size slide image without touching a metadata iframe deck.
+ */
+function clearStudentGoogleSlide() {
+  const image = document.getElementById("slides-card");
+  if (image instanceof HTMLImageElement) {
+    image.hidden = true;
+    image.removeAttribute("src");
+  }
+  slidesPane?.classList.remove("is-google-slide");
+}
+
+/**
+ * Paint the shared slide card, or the metadata deck when no Google deck is attached.
  * @param {any} payload
  */
 function paintStudentSlides(payload) {
+  const card = googleSlideCard(payload);
+  const image = document.getElementById("slides-card");
+  if (card) {
+    const url = String(card.image_url || "");
+    if (slidesFrame instanceof HTMLIFrameElement) {
+      slidesFrame.hidden = true;
+      slidesFrame.removeAttribute("src");
+    }
+    if (slidesEmpty) slidesEmpty.hidden = true;
+    if (image instanceof HTMLImageElement && url) {
+      if (image.getAttribute("src") !== url) image.src = url;
+      image.alt = `Slide ${Number(card.page_number) || 1}`;
+      image.hidden = false;
+      slidesPane?.classList.add("is-google-slide");
+    } else {
+      clearStudentGoogleSlide();
+    }
+    return;
+  }
+  clearStudentGoogleSlide();
   const published = activePublishedItem(payload, "slides");
   const deckRef = String(
     published?.content?.deck_ref || payload?.live_metadata?.slides?.deck_ref || ""
@@ -2147,10 +2190,20 @@ function applyTeacherProjection(payload) {
     }
   }
   if (slidesPane) {
-    if (!paneIsBeingGrabbed(slidesPane)) {
-      slidesPane.hidden = !proj.slides || dockedLiveCardKeys.has("surface:slides");
+    const card = googleSlideCard(payload);
+    if (card) {
+      const docked = dockedLiveCardKeys.has("surface:slides");
+      const show = Boolean(card.image_url) && !docked;
+      if (!paneIsBeingGrabbed(slidesPane)) slidesPane.hidden = !show;
+      if (show) paintStudentSlides(payload);
+      else clearStudentGoogleSlide();
+    } else {
+      slidesPane.classList.remove("is-google-slide");
+      if (!paneIsBeingGrabbed(slidesPane)) {
+        slidesPane.hidden = !proj.slides || dockedLiveCardKeys.has("surface:slides");
+      }
+      if (proj.slides && !dockedLiveCardKeys.has("surface:slides")) paintStudentSlides(payload);
     }
-    if (proj.slides && !dockedLiveCardKeys.has("surface:slides")) paintStudentSlides(payload);
   }
   syncTeamDrawChrome(payload, proj);
   return proj;
