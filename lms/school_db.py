@@ -41002,6 +41002,97 @@ class SchoolDB(LovesDB):
                 self.conn.commit()
         return updated
 
+    def _delete_quit_owned_rows_unlocked(
+        self,
+        class_id: int,
+        session_ids: list[int],
+        run_keys: list[str],
+    ) -> None:
+        """Delete the rows Quit owns for these sessions.
+
+        Caller holds ``self._lock`` and commits later. Items, group
+        votes, group members, group responses, group engagement, the
+        catch-up link, and the Lesson Slides row are removed for these
+        session ids and run keys. Another session's run key is left
+        in place. Foreign-key cascade is not required.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            session_ids: ``live_class_sessions.id`` values being quit.
+            run_keys: Non-empty run keys of those sessions.
+        """
+        if not session_ids:
+            return
+        placeholders = ",".join("?" * len(session_ids))
+        id_params = [int(sid) for sid in session_ids]
+        item_rows = self.conn.execute(
+            f"""
+            SELECT id FROM live_session_items
+            WHERE live_session_id IN ({placeholders})
+            """,
+            id_params,
+        ).fetchall()
+        item_ids = [int(row["id"]) for row in item_rows]
+        if item_ids:
+            item_ph = ",".join("?" * len(item_ids))
+            for table in (
+                "live_group_votes",
+                "live_group_members",
+                "live_group_responses",
+            ):
+                self.conn.execute(
+                    f"DELETE FROM {table} WHERE live_item_id IN ({item_ph})",
+                    item_ids,
+                )
+        self.conn.execute(
+            f"""
+            DELETE FROM live_session_items
+            WHERE live_session_id IN ({placeholders})
+            """,
+            id_params,
+        )
+        keys = [str(key).strip() for key in run_keys if str(key).strip()]
+        if keys:
+            key_ph = ",".join("?" * len(keys))
+            key_params = (int(class_id), *keys)
+            for table in ("group_engagement", "group_engagement_items"):
+                self.conn.execute(
+                    f"""
+                    DELETE FROM {table}
+                    WHERE class_id = ? AND run_key IN ({key_ph})
+                    """,
+                    key_params,
+                )
+            self.conn.execute(
+                f"""
+                DELETE FROM catchup_links
+                WHERE class_id = ? AND run_key IN ({key_ph})
+                """,
+                key_params,
+            )
+            self.conn.execute(
+                f"""
+                DELETE FROM lesson_slides_latest
+                WHERE class_id = ? AND run_key IN ({key_ph})
+                """,
+                key_params,
+            )
+        self.conn.execute(
+            f"""
+            DELETE FROM catchup_links
+            WHERE live_session_id IN ({placeholders})
+            """,
+            id_params,
+        )
+        self.conn.execute(
+            f"""
+            DELETE FROM lesson_slides_latest
+            WHERE live_session_id IN ({placeholders})
+            """,
+            id_params,
+        )
+
+
     def wipe_live_sessions_for_class(
         self,
         class_id: int,
@@ -41018,16 +41109,20 @@ class SchoolDB(LovesDB):
 
         Quit passes ``purge_kept=True``. That deletes this session's
         engagement events, engagement rollup, observation history,
-        Google Slides page images, and Postgres presence rows, and does
-        not copy notes forward. Start does not call this. An ended
-        session stays so Lesson Slides can still open it (MCK-311).
-        Board assignment rows are always removed: the next Start can
-        reuse the session id, and a stale row would match it.
+        Google Slides page images, Postgres presence rows, items, group
+        votes, group engagement, catch-up link, and Lesson Slides row,
+        and does not copy notes forward. Quit saves nothing for that
+        session. Start does not call this. An ended session stays so
+        Lesson Slides can still open it (MCK-311). Board assignment
+        rows are always removed: the next Start can reuse the session
+        id, and a stale row would match it.
 
         Args:
             class_id: Game-show ``classes.id``.
             session_ids: Optional subset. Default is every session.
-            purge_kept: Quit. Drop notes and engagement for these sessions.
+            purge_kept: Quit. Drop notes, engagement, items, group votes,
+                group engagement, the catch-up link, and the Lesson
+                Slides row for these sessions.
 
         Returns:
             ``{ok, class_id, wiped_session_ids, wiped_count}``.
@@ -41095,6 +41190,9 @@ class SchoolDB(LovesDB):
                         run_keys,
                         class_id=int(class_id),
                         require_session=True,
+                    )
+                    self._delete_quit_owned_rows_unlocked(
+                        int(class_id), session_ids, run_keys
                     )
                 else:
                     # Next Start after End still keeps notes from that run.
