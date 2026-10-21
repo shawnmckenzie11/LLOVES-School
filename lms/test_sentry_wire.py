@@ -377,5 +377,68 @@ console.log("ok");
         self.assertIn("ok", completed.stdout)
 
 
+    def test_before_send_scrubs_address_and_confirm_field(self) -> None:
+        """Address text and confirm fields never leave the process."""
+        event = {
+            "message": "delete failed for person@example.com",
+            "request": {
+                "url": "https://alc.example/it/staff/2/delete",
+                "data": {"confirm_email": "person@example.com"},
+            },
+            "user": {"email": "person@example.com", "id": "2"},
+            "extra": {
+                "email": "person@example.com",
+                "confirm_email": "person@example.com",
+                "note": "staff person@example.com",
+            },
+            "breadcrumbs": {
+                "values": [{"message": "posted person@example.com"}]
+            },
+        }
+        sent = before_send(event, None)
+        self.assertIs(sent, event)
+        blob = str(sent)
+        self.assertNotIn("person@example.com", blob)
+        self.assertNotIn("confirm_email", blob)
+        self.assertNotIn("@", blob)
+        self.assertIn("[redacted]", blob)
+
+    def test_before_send_drops_the_event_when_scrub_fails(self) -> None:
+        """A scrub error drops the event instead of sending it."""
+        with patch("sentry_wire._drop_request_body", side_effect=RuntimeError("scrub")):
+            with self.assertLogs("sentry_wire", level="WARNING") as logs:
+                sent = before_send({"message": "keep"}, None)
+        self.assertIsNone(sent)
+        self.assertTrue(any("dropped the event" in line for line in logs.output))
+        self.assertFalse(any("@" in line for line in logs.output))
+
+
+
+    def test_before_send_scrubs_a_deep_address(self) -> None:
+        """An address nested past the old cap is still removed."""
+        node: dict = {"message": "person@example.com"}
+        for _ in range(12):
+            node = {"wrap": node}
+        event = {
+            "extra": node,
+            "request": {"url": "https://alc.example/it/staff/2/delete"},
+        }
+        sent = before_send(event, None)
+        self.assertIs(sent, event)
+        self.assertNotIn("person@example.com", str(sent))
+        self.assertIn("[redacted]", str(sent))
+
+    def test_before_send_drops_a_cyclic_payload(self) -> None:
+        """A cycle is dropped instead of leaving an unscrubbed node."""
+        event: dict = {"message": "keep"}
+        event["loop"] = event
+        with self.assertLogs("sentry_wire", level="WARNING") as logs:
+            sent = before_send(event, None)
+        self.assertIsNone(sent)
+        self.assertTrue(any("dropped the event" in line for line in logs.output))
+        self.assertFalse(any("@" in line for line in logs.output))
+
+
+
 if __name__ == "__main__":
     unittest.main()

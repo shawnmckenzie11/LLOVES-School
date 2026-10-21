@@ -2966,6 +2966,20 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             _audit("staff.delete", "staff", resource_id=staff_id)
         except ValueError as exc:
             return render_template("forbidden.html", message=str(exc)), 400
+        except sqlite3.Error as exc:
+            # The delete rolls back. The page stays a normal error, and the
+            # log is the error class only so an address cannot land in it.
+            app.logger.warning(
+                "staff permanent delete failed (%s)",
+                type(exc).__name__,
+            )
+            return (
+                render_template(
+                    "forbidden.html",
+                    message="The account could not be deleted. Nothing was changed.",
+                ),
+                400,
+            )
         return redirect(url_for("it_dashboard", tab="staff"))
 
     @app.route("/it/staff/<int:staff_id>/assign", methods=["GET", "POST"])

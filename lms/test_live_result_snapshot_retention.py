@@ -116,10 +116,12 @@ class SnapshotRetentionTests(shell.LiveShellTests):
         """Permanently deleting the teacher drops their classes' snapshots."""
         self._run_once()
         self.assertGreater(self._count("class_id = ?", (self.class_id,)), 0)
-        it_user = self.school.register_staff("it-desk@gmail.com")
-        self.school.delete_staff_permanently(
-            int(self.teacher["id"]), int(it_user["id"])
+        actor_id = int(
+            self.school.conn.execute(
+                "SELECT id FROM users WHERE role = 'it' ORDER BY id LIMIT 1"
+            ).fetchone()[0]
         )
+        self.school.delete_staff_permanently(int(self.teacher["id"]), actor_id)
         self.assertEqual(self._count("class_id = ?", (self.class_id,)), 0)
 
     def test_roster_delete_removes_only_that_student(self) -> None:

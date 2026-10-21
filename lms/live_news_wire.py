@@ -623,20 +623,25 @@ class LiveNewsLog:
         return stored
 
     def purge_session(self, session_id: int) -> int:
-        """Delete every postcard for one session id.
+        """Delete postcards and ink windows for one session id.
 
         ``id`` is AUTOINCREMENT, so a tab holding an old ``Last-Event-ID``
-        still gets every later append.
+        still gets every later append. ``board_ink_coalesce`` is the
+        shared tap for that session and goes with the postcards.
 
         Args:
             session_id: ``live_class_sessions.id``.
 
         Returns:
-            Rows deleted.
+            Postcard rows deleted.
         """
         with self._lock:
             cursor = self._conn.execute(
                 "DELETE FROM live_news_events WHERE session_id = ?",
+                (int(session_id),),
+            )
+            self._conn.execute(
+                "DELETE FROM board_ink_coalesce WHERE session_id = ?",
                 (int(session_id),),
             )
             self._conn.commit()
