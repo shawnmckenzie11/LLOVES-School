@@ -18,9 +18,12 @@ from urllib.parse import urlencode
 import requests
 
 from live_class_constants import (
+    MOCK_SLIDES_READ_REFRESH_TOKEN,
     MOCK_SLIDES_REFRESH_TOKEN,
+    SLIDES_READONLY_SCOPE,
     SLIDES_SCOPES,
     is_slides_operator_email,
+    slides_read_scopes_ok,
 )
 from paths import MCF3M_EXPECTATIONS
 
@@ -998,6 +1001,61 @@ class GoogleSlidesClient:
         )
         return str(access)
 
+    def _read_access_token(self) -> str:
+        """Return an access token from the Slides read-only grant.
+
+        The lesson-deck Drive token is never read here.
+
+        Returns:
+            Bearer token string.
+
+        Raises:
+            SlidesConnectRequired: No read-only grant, or the grant
+                includes Drive or the write Slides scope.
+        """
+        row = self.school.get_google_slides_read_token(int(self.user["id"]))
+        if not row or not row.get("refresh_token"):
+            raise SlidesConnectRequired()
+        if not slides_read_scopes_ok(str(row.get("scopes") or "")):
+            raise SlidesConnectRequired()
+        if str(row.get("refresh_token")) == MOCK_SLIDES_READ_REFRESH_TOKEN:
+            return str(row.get("access_token") or "mock-access")
+        expires = str(row.get("access_token_expires_at") or "")
+        if row.get("access_token") and expires:
+            try:
+                if datetime.fromisoformat(expires) > datetime.now():
+                    return str(row["access_token"])
+            except ValueError:
+                pass
+        from auth import google_client_id, google_client_secret
+
+        resp = self.http.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": google_client_id(),
+                "client_secret": google_client_secret(),
+                "refresh_token": row["refresh_token"],
+                "grant_type": "refresh_token",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        access = payload.get("access_token")
+        if not access:
+            raise RuntimeError("Google did not return an access token for Slides.")
+        stored_scopes = str(row.get("scopes") or "")
+        if not slides_read_scopes_ok(stored_scopes):
+            raise SlidesConnectRequired()
+        self.school.store_google_slides_read_token(
+            int(self.user["id"]),
+            refresh_token=str(row["refresh_token"]),
+            scopes=stored_scopes,
+            access_token=access,
+            expires_in=int(payload.get("expires_in") or 3500),
+        )
+        return str(access)
+
     def _headers(self) -> dict[str, str]:
         """Authorization header for Slides/Drive REST."""
         return {"Authorization": f"Bearer {self._access_token()}"}
@@ -1252,71 +1310,103 @@ class GoogleSlidesClient:
         )
         batch.raise_for_status()
 
-    def download_slide_pngs(self, presentation_id: str) -> list[bytes]:
-        """Download each slide as a PNG using the stored Slides token.
+    def download_slide_pngs(
+        self, presentation_id: str, deadline: float | None = None
+    ) -> tuple[list[bytes], bool]:
+        """Download each slide as a PNG using the Slides read-only token.
 
         Used only when the public PDF export is not readable. Page ids come
         from ``presentations.get``; each image comes from the thumbnail API.
-        Thumbnail URLs must stay on googleusercontent.
+        Redirects stay on Google, and the page count and PNG size use the
+        same caps as the public export.
 
         Args:
             presentation_id: Google file id from a share link.
+            deadline: ``time.monotonic`` cutoff for the whole import.
 
         Returns:
-            PNG bytes, one per slide, in deck order.
+            PNG bytes in deck order, and whether the deck was longer than
+            the page cap.
 
         Raises:
             SlidesShareNotPublic: Google refused the file or the token.
-            ValueError: The presentation has no slides, or an id is unsafe.
+            ValueError: The presentation has no slides, or a page is too large.
         """
         from google_slides_import import (
+            MAX_GOOGLE_SLIDE_PAGES,
             SlidesShareNotPublic,
+            _MAX_PNG_BYTES,
+            limited_google_get,
             require_presentation_id,
+            slides_api_url_allowed,
             thumbnail_url_allowed,
         )
 
         token = require_presentation_id(presentation_id)
-        listed = self.http.get(
+        access = self._read_access_token()
+        headers = {"Authorization": f"Bearer {access}"}
+        listed = limited_google_get(
+            self.http,
             f"https://slides.googleapis.com/v1/presentations/{token}",
-            headers=self._headers(),
+            headers=headers,
             params={"fields": "slides(objectId)"},
             timeout=20,
+            allow=slides_api_url_allowed,
+            limit=1_000_000,
+            deadline=deadline,
         )
-        if int(getattr(listed, "status_code", 0) or 0) in {401, 403, 404}:
+        if listed.status_code in {401, 403, 404}:
             raise SlidesShareNotPublic()
         listed.raise_for_status()
         slides = (listed.json() or {}).get("slides") or []
         pngs: list[bytes] = []
+        truncated = False
         for slide in slides:
             if not isinstance(slide, dict):
                 continue
             object_id = str(slide.get("objectId") or "")
             if not object_id or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", object_id):
                 continue
-            thumb = self.http.get(
-                f"https://slides.googleapis.com/v1/presentations/{token}/pages/{object_id}/thumbnail",
-                headers=self._headers(),
+            if len(pngs) >= MAX_GOOGLE_SLIDE_PAGES:
+                truncated = True
+                break
+            thumb = limited_google_get(
+                self.http,
+                (
+                    f"https://slides.googleapis.com/v1/presentations/{token}"
+                    f"/pages/{object_id}/thumbnail"
+                ),
+                headers=headers,
                 params={
                     "thumbnailProperties.mimeType": "PNG",
                     "thumbnailProperties.thumbnailSize": "LARGE",
                 },
                 timeout=20,
+                allow=slides_api_url_allowed,
+                limit=1_000_000,
+                deadline=deadline,
             )
-            if int(getattr(thumb, "status_code", 0) or 0) in {401, 403, 404}:
+            if thumb.status_code in {401, 403, 404}:
                 raise SlidesShareNotPublic()
             thumb.raise_for_status()
             content_url = str((thumb.json() or {}).get("contentUrl") or "")
             if not thumbnail_url_allowed(content_url):
                 raise SlidesShareNotPublic()
-            image = self.http.get(content_url, timeout=20)
+            image = limited_google_get(
+                self.http,
+                content_url,
+                timeout=20,
+                allow=thumbnail_url_allowed,
+                limit=_MAX_PNG_BYTES,
+                deadline=deadline,
+            )
             image.raise_for_status()
-            raw = image.content if isinstance(image.content, (bytes, bytearray)) else b""
-            if not bytes(raw).startswith(b"\x89PNG"):
+            if not image.content.startswith(b"\x89PNG"):
                 raise ValueError("That download was not a slide deck.")
-            pngs.append(bytes(raw))
+            pngs.append(image.content)
         if not pngs:
             raise ValueError("That deck has no slides.")
-        return pngs
+        return pngs, truncated
 
     def upload_public_png(self, *, folder_id: str, name: str, png_path: Path) -> str:
         """Upload a PNG into the module folder and return a public image URL.
@@ -1529,6 +1619,35 @@ def slides_oauth_url(*, client_id: str, redirect_uri: str, state: str) -> str:
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": " ".join(SLIDES_SCOPES),
+        "state": state,
+        "access_type": "offline",
+        "prompt": "consent",
+        "include_granted_scopes": "true",
+    }
+    return "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
+
+
+def slides_read_oauth_url(*, client_id: str, redirect_uri: str, state: str) -> str:
+    """Incremental consent for the live-class thumbnail path.
+
+    Requests only ``presentations.readonly``. That scope covers
+    ``presentations.get`` and ``pages.getThumbnail``. Drive is not
+    requested. ``include_granted_scopes`` is set; the callback still
+    refuses a grant that comes back with Drive attached.
+
+    Args:
+        client_id: Web OAuth client id.
+        redirect_uri: ``/auth/google/slides-read/callback``.
+        state: CSRF token.
+
+    Returns:
+        Full accounts.google.com URL.
+    """
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": SLIDES_READONLY_SCOPE,
         "state": state,
         "access_type": "offline",
         "prompt": "consent",

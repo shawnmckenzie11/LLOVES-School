@@ -5912,9 +5912,27 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         "/api/classes/<int:class_id>/live-question-images/<path:filename>"
     )
     def serve_live_question_image(class_id: int, filename: str):
-        """Serve one staff-authored live question image to class participants."""
+        """Serve one staff-authored live question image to class participants.
+
+        Google Slides page files use this store too. Those files are
+        returned only while an active session is sharing that page.
+        Unpublished or closed pages, and catch-up, get 404. The class
+        owner can still preview an unpublished page. Other question
+        images keep the existing class-access rule.
+        """
         if not _can_access_class_live_asset(class_id):
             abort(403)
+        visibility = school.google_slide_image_visibility(int(class_id), filename)
+        if visibility != "absent":
+            user = current_user()
+            owner = user is not None and school.teacher_owns_class(
+                int(user["id"]), int(class_id)
+            )
+            if not owner:
+                if _catchup_student_for_class(school, int(class_id)) is not None:
+                    abort(404)
+                if visibility != "published":
+                    abort(404)
         path = school.live_question_image_path(int(class_id), filename)
         if path is None:
             abort(404)

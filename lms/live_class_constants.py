@@ -40,6 +40,18 @@ SLIDES_SCOPES: tuple[str, ...] = (
     "https://www.googleapis.com/auth/drive",
 )
 
+# Live-class thumbnail reads. presentations.readonly covers presentations.get
+# and pages.getThumbnail. Drive is intentionally absent.
+SLIDES_READONLY_SCOPE = "https://www.googleapis.com/auth/presentations.readonly"
+SLIDES_READ_BLOCKED_SCOPES = frozenset(
+    {
+        "https://www.googleapis.com/auth/drive",
+        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/drive.file",
+        "https://www.googleapis.com/auth/presentations",
+    }
+)
+
 ALC_DRIVE_FOLDER_ID = "1l8dvsNvKlXEcl8gIsNYDbvj9hB9GOM40"
 CURRICULUM_DRIVE_FOLDER_ID = "1pAiRUjiS9SrTJpX5QhVcewcUusqhvRK5"
 CURRICULUM_COURSE_DRIVE_FOLDERS: dict[str, str] = {
@@ -65,6 +77,24 @@ OBSERVATION_SCOPES: tuple[str, ...] = ("student", "students", "team", "class")
 EVIDENCE_STRENGTHS: tuple[str, ...] = ("emerging", "developing", "clear")
 
 MOCK_SLIDES_REFRESH_TOKEN = "mock-local-slides"
+MOCK_SLIDES_READ_REFRESH_TOKEN = "mock-local-slides-read"
+
+
+def slides_read_scopes_ok(scopes: str) -> bool:
+    """True when a grant is Slides read-only and does not include Drive.
+
+    Whole scope tokens are compared. ``presentations.readonly`` is not
+    the write ``presentations`` scope, and a Drive scope on the same
+    grant is refused so this path cannot reuse the lesson-deck token.
+
+    Args:
+        scopes: Space-separated OAuth scope string from Google.
+    """
+    parts = set(str(scopes or "").split())
+    if SLIDES_READONLY_SCOPE not in parts:
+        return False
+    return not parts.intersection(SLIDES_READ_BLOCKED_SCOPES)
+
 
 DEFAULT_LIVES_PER_MODULE = 4
 DEFAULT_WEEKS_PER_MODULE = 2

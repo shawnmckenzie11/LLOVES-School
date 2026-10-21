@@ -940,6 +940,15 @@ CREATE TABLE IF NOT EXISTS google_api_tokens (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS google_slides_read_tokens (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    refresh_token TEXT NOT NULL,
+    access_token TEXT,
+    access_token_expires_at TEXT,
+    scopes TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS lesson_slide_decks (
     id INTEGER PRIMARY KEY,
     class_id INTEGER NOT NULL,
@@ -7031,6 +7040,88 @@ class LovesDB:
                 (int(user_id),),
             )
             self.conn.commit()
+
+    def get_google_slides_read_token(self, user_id: int) -> dict[str, Any] | None:
+        """Return the live-class Slides read-only token, if any.
+
+        This row is separate from the lesson-deck Drive token.
+
+        Args:
+            user_id: ``users.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM google_slides_read_tokens WHERE user_id = ?",
+                (int(user_id),),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def store_google_slides_read_token(
+        self,
+        user_id: int,
+        *,
+        refresh_token: str,
+        scopes: str,
+        access_token: str | None = None,
+        expires_in: int | None = None,
+    ) -> dict[str, Any]:
+        """Insert or update the Slides read-only token for thumbnail reads.
+
+        Does not write ``google_api_tokens``. Callers must pass a grant
+        that is read-only for Slides.
+
+        Args:
+            user_id: Operator ``users.id``.
+            refresh_token: Offline refresh token (or mock marker).
+            scopes: Space-separated OAuth scopes.
+            access_token: Optional short-lived token.
+            expires_in: Seconds until access token expiry.
+
+        Returns:
+            Stored token row.
+        """
+        expires_at = None
+        if expires_in:
+            expires_at = (
+                datetime.now().replace(microsecond=0)
+                + timedelta(seconds=int(expires_in))
+            ).isoformat()
+        now = _now()
+        with self._lock:
+            existing = self.conn.execute(
+                "SELECT refresh_token FROM google_slides_read_tokens WHERE user_id = ?",
+                (int(user_id),),
+            ).fetchone()
+            keep_refresh = refresh_token or (
+                str(existing["refresh_token"]) if existing else ""
+            )
+            self.conn.execute(
+                """
+                INSERT INTO google_slides_read_tokens (
+                    user_id, refresh_token, access_token,
+                    access_token_expires_at, scopes, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    refresh_token = excluded.refresh_token,
+                    access_token = excluded.access_token,
+                    access_token_expires_at = excluded.access_token_expires_at,
+                    scopes = excluded.scopes,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    int(user_id),
+                    keep_refresh,
+                    access_token,
+                    expires_at,
+                    scopes,
+                    now,
+                ),
+            )
+            self.conn.commit()
+        row = self.get_google_slides_read_token(user_id)
+        assert row is not None
+        return row
+
 
     def _live_problem_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
         """Attach process keys and parsed expectation codes to a problem row.
@@ -14497,6 +14588,150 @@ class SchoolDB(LovesDB):
             return normalize_scope_token(bank_scope)
         except ValueError:
             return str(current_module or "M1").strip().upper() or "M1"
+
+
+    def _google_slide_image_name(self, filename: str) -> str:
+        """Return a content-addressed image name, or ``""`` when it is not one.
+
+        Args:
+            filename: Path segment from an image URL or a request.
+        """
+        name = Path(str(filename or "")).name
+        if name != str(filename or "").strip():
+            return ""
+        if re.fullmatch(r"[a-f0-9]{64}\.(?:png|jpg|jpeg|gif|webp)", name):
+            return name
+        return ""
+
+    def google_slide_image_visibility(self, class_id: int, filename: str) -> str:
+        """Return how a stored file relates to Google Slides pages.
+
+        ``absent`` means the file is not a slide page, so question images
+        keep the existing class-access rule. ``published`` means an active
+        session is sharing that page. ``closed`` means a deck names the
+        file, but the page is unpublished or the session is not active.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            filename: Stored image filename.
+        """
+        name = self._google_slide_image_name(filename)
+        if not name:
+            return "absent"
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT status, google_slides_json
+                FROM live_class_sessions
+                WHERE class_id = ?
+                """,
+                (int(class_id),),
+            ).fetchall()
+        seen = False
+        published = False
+        for row in rows:
+            raw = str(row["google_slides_json"] or "")
+            if name not in raw:
+                continue
+            try:
+                deck = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            active = str(row["status"] or "") == "active"
+            for page in deck.get("pages") or []:
+                if not isinstance(page, dict):
+                    continue
+                page_name = self._google_slide_image_name(
+                    str(page.get("image_url") or "").rsplit("/", 1)[-1]
+                )
+                if page_name != name:
+                    continue
+                seen = True
+                if active and page.get("published"):
+                    published = True
+        if published:
+            return "published"
+        if seen:
+            return "closed"
+        return "absent"
+
+    def delete_google_slide_page_images(self, session_id: int) -> None:
+        """Remove this session's slide page files when nothing else names them.
+
+        Quit saves nothing, so those PNGs go with the session. A file that
+        another session's deck or a playlist item still references is left
+        in place. Question images that are not slide pages are not touched.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT class_id, google_slides_json
+                FROM live_class_sessions
+                WHERE id = ?
+                """,
+                (int(session_id),),
+            ).fetchone()
+        if row is None:
+            return
+        class_id = int(row["class_id"])
+        try:
+            deck = json.loads(str(row["google_slides_json"] or "") or "{}")
+        except json.JSONDecodeError:
+            return
+        names: list[str] = []
+        for page in deck.get("pages") or []:
+            if not isinstance(page, dict):
+                continue
+            name = self._google_slide_image_name(
+                str(page.get("image_url") or "").rsplit("/", 1)[-1]
+            )
+            if name and name not in names:
+                names.append(name)
+        for name in names:
+            if self._google_slide_image_still_used(class_id, int(session_id), name):
+                continue
+            path = (
+                Path(self.data_dir)
+                / "live-question-images"
+                / str(class_id)
+                / name
+            )
+            if path.is_file():
+                path.unlink()
+
+    def _google_slide_image_still_used(
+        self, class_id: int, session_id: int, filename: str
+    ) -> bool:
+        """True when another row in this class still names the file.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            session_id: Session whose deck is being removed.
+            filename: Content-addressed image name. Already validated.
+        """
+        with self._lock:
+            others = self.conn.execute(
+                """
+                SELECT google_slides_json
+                FROM live_class_sessions
+                WHERE class_id = ? AND id != ?
+                """,
+                (int(class_id), int(session_id)),
+            ).fetchall()
+            placed = self.conn.execute(
+                """
+                SELECT 1 FROM class_live_playlist_placements
+                WHERE class_id = ? AND item_json LIKE ?
+                LIMIT 1
+                """,
+                (int(class_id), f"%{filename}%"),
+            ).fetchone()
+        if placed is not None:
+            return True
+        return any(filename in str(other["google_slides_json"] or "") for other in others)
 
     def live_question_image_path(
         self, class_id: int, filename: str
@@ -40388,8 +40623,9 @@ class SchoolDB(LovesDB):
         gradebook, and lesson-slide decks stay intact.
 
         Quit passes ``purge_kept=True``. That deletes this session's
-        engagement events, engagement rollup, observation history, and
-        Postgres presence rows, and does not copy notes forward. A
+        engagement events, engagement rollup, observation history,
+        Google Slides page images, and Postgres presence rows, and does
+        not copy notes forward. A
         celebrating wipe on the next Start still copies notes (MCK-52)
         for a class that was ended.
         Board assignment rows are always removed: the next Start can
@@ -40412,6 +40648,8 @@ class SchoolDB(LovesDB):
                 int(row["id"]) for row in sessions if int(row["id"]) in wanted
             ]
         for sid in session_ids:
+            if purge_kept:
+                self.delete_google_slide_page_images(int(sid))
             self.release_eyes_up(int(sid))
             # Moods need the attendee list. The discard clear below
             # deletes those rows, plus responses and board ops, now.
@@ -43587,7 +43825,8 @@ class SchoolDB(LovesDB):
         (MCK-108). End Live Class flips both, so a tab that still sends its
         pre-End seq and stamp can never get the unchanged short-circuit
         and miss the celebration, even if ``state_seq`` was not bumped.
-        The MVP ballot count sits just before the presence token. The
+        The Google Slides revision sits immediately before the MVP ballot
+        count. That count stays just before the presence token, and the
         last field stays that token while a Take turns item is open.
 
         Args:
@@ -43747,8 +43986,8 @@ class SchoolDB(LovesDB):
             f"{item_max}:{response_max}:{group_vote_max}:{event_max}:"
             f"{prompt_rev}:{item_rev}:{group_vote_rev}:{status}:{celebrate}:"
             f"{group_response_rev}:{race_step_rev}:"
-            f"{self._mvp_voter_count(int(session_id))}:{presence_rev}:"
-            f"{self._google_slides_stamp_token(int(session_id))}"
+            f"{self._google_slides_stamp_token(int(session_id))}:"
+            f"{self._mvp_voter_count(int(session_id))}:{presence_rev}"
         )
 
     #: Last good presence token per session (MCK-186), so a presence blip

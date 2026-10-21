@@ -55,10 +55,12 @@ Add the same hosts for **incremental Slides connect** (login OAuth stays identit
 
 - `http://127.0.0.1:8787/auth/google/slides/callback`
 - `https://alc.mckenzian.com/auth/google/slides/callback`
+- `http://127.0.0.1:8787/auth/google/slides-read/callback`
+- `https://alc.mckenzian.com/auth/google/slides-read/callback`
 
 Allowlisted operator accounts: `solutions@mckenzian.com` and `shawnmckenzie11.sm@gmail.com`. **Connect Google Slides** (`/auth/google/slides`) uses real Google when `GOOGLE_CLIENT_ID` / `SECRET` are set, even if `LOCAL_DEV_LOGIN=1` (that flag only skips *login*). Unit tests and a missing client secret still store a mock token.
 
-**Run Live Class → Content → Slides** can attach a share link without that token. The deck must be shared so anyone with the link can view. The server downloads the public PDF export and stores one PNG per page with the other live deck images. A private deck falls back to the connected operator's Slides token and the thumbnail API. Students only receive the page currently being shared.
+**Run Live Class → Content → Slides** attaches a share link. When anyone with the link can view, the server streams the public PDF export (20 MB cap) and stores one PNG per page with the other live deck images. A private deck uses a separate incremental consent at `/auth/google/slides-read`. That consent requests only `https://www.googleapis.com/auth/presentations.readonly`, which is enough for `presentations.get` and the thumbnail call. The refresh token is stored in `google_slides_read_tokens`, not in the lesson-deck `google_api_tokens` row. Drive is not requested. If Google returns a grant that includes Drive or the write `presentations` scope, the callback does not store it. Students only receive the page currently being shared.
 
 Google treats `localhost` and `127.0.0.1` as different. This repo’s default for local is **http://127.0.0.1:8787**. Production is **https://alc.mckenzian.com** (not a `.fly.dev` placeholder).
 
