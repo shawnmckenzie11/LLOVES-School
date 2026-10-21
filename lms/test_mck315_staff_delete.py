@@ -847,6 +847,224 @@ class PermanentStaffDeleteTests(unittest.TestCase):
         self.assertIsNotNone(self.school.get_user(int(owner["id"])))
         self.assertIsNone(self.school.get_user(int(starter["id"])))
 
+    def _seat_and_cross_tag(
+        self, session_id: int, tagged_class_id: int
+    ) -> tuple[str, int]:
+        """Store attendance and a snapshot tagged with another class.
+
+        The snapshot's class id is ``tagged_class_id`` while its live
+        session id is ``session_id``. Board rows, the session seq floor,
+        and the news tape use that session's own run.
+
+        Args:
+            session_id: Live session that must survive the delete.
+            tagged_class_id: Class id written on the snapshot only.
+
+        Returns:
+            The session run key and the prompt id.
+        """
+        row = self.school.conn.execute(
+            "SELECT run_key FROM live_class_sessions WHERE id = ?",
+            (int(session_id),),
+        ).fetchone()
+        run_key = str(row["run_key"] or "")
+        self.school.conn.execute(
+            """
+            INSERT INTO live_session_attendees (
+                live_session_id, participant_uuid, codename, joined_at
+            ) VALUES (?, 'seat-cross', 'N2', 't')
+            """,
+            (int(session_id),),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO live_session_prompts (
+                live_session_id, slide_index, kind, payload, active, created_at, updated_at
+            ) VALUES (?, 0, 'poll', '{}', 1, 't', 't')
+            """,
+            (int(session_id),),
+        )
+        prompt_id = int(self.school.conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+        self.school.conn.execute(
+            """
+            INSERT INTO live_session_responses (
+                prompt_id, response_json, created_at, updated_at
+            ) VALUES (?, '{}', 't', 't')
+            """,
+            (prompt_id,),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO live_result_snapshots (
+                live_session_id, class_id, session_code, run_key,
+                live_module, live_slot, source, question_key, question_json,
+                codename, answer_json, snapshot_at
+            ) VALUES (?, ?, '', ?, 'M1', 'C1', 'live', 'item:1', '{}', '', '{}', 't')
+            """,
+            (int(session_id), int(tagged_class_id), run_key),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO board_ops (
+                run_key, board_key, board_seq, op, owner, created_at
+            ) VALUES (?, 'teacher', 1, '{}', 'seat', 't')
+            """,
+            (run_key,),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO live_seq_floors (scope, max_seq) VALUES (?, 3)
+            """,
+            (f"sid:{int(session_id)}",),
+        )
+        self.school.conn.commit()
+        self._seed_news(int(session_id), "cross-tag")
+        return run_key, prompt_id
+
+    def test_cross_tagged_snapshot_keeps_the_other_session(self) -> None:
+        """A snapshot tagged with this class does not delete another class's session."""
+        target = self.school.register_staff("snapshot-target@example.com", "Target")
+        other = self.school.register_staff("snapshot-other@example.com", "Other")
+        target_offering = self.school.assign_course(
+            teacher_user_id=int(target["id"]), ontario_code="MCF3M"
+        )
+        other_offering = self.school.assign_course(
+            teacher_user_id=int(other["id"]), ontario_code="MCF3M"
+        )
+        target_class = self._class(
+            int(target["id"]), int(target_offering["id"]), ["N1"], "8:00am"
+        )
+        other_class = self._class(
+            int(other["id"]), int(other_offering["id"]), ["N2"], "9:15am"
+        )
+        started = self.school.start_live_class_session(
+            other_class, int(other["id"]), live_module="M1", live_slot="C1"
+        )
+        session_id = int(started["id"])
+        run_key, prompt_id = self._seat_and_cross_tag(session_id, target_class)
+        self.assertTrue(run_key)
+        self.school.delete_staff_permanently(int(target["id"]), self.actor_id)
+        row = self.school.conn.execute(
+            "SELECT class_id, teacher_user_id FROM live_class_sessions WHERE id = ?",
+            (session_id,),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(int(row["class_id"]), other_class)
+        self.assertEqual(int(row["teacher_user_id"]), int(other["id"]))
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM live_session_attendees WHERE live_session_id = ?",
+                (session_id,),
+            ).fetchone()[0],
+            1,
+        )
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM live_session_responses WHERE prompt_id = ?",
+                (prompt_id,),
+            ).fetchone()[0],
+            1,
+        )
+        snapshot = self.school.conn.execute(
+            """
+            SELECT class_id, run_key FROM live_result_snapshots
+            WHERE live_session_id = ?
+            """,
+            (session_id,),
+        ).fetchone()
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(int(snapshot["class_id"]), target_class)
+        self.assertEqual(str(snapshot["run_key"]), run_key)
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM board_ops WHERE run_key = ?",
+                (run_key,),
+            ).fetchone()[0],
+            1,
+        )
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT max_seq FROM live_seq_floors WHERE scope = ?",
+                (f"sid:{session_id}",),
+            ).fetchone()[0],
+            3,
+        )
+        self._assert_news_kept(session_id)
+        self.assertIsNone(self.school.get_user(int(target["id"])))
+        self.assertIsNotNone(self.school.get_user(int(other["id"])))
+        self.assertIsNone(
+            self.school.conn.execute(
+                "SELECT id FROM classes WHERE id = ?",
+                (target_class,),
+            ).fetchone()
+        )
+        self.assertIsNotNone(
+            self.school.conn.execute(
+                "SELECT id FROM classes WHERE id = ?",
+                (other_class,),
+            ).fetchone()
+        )
+
+    def test_cross_tagged_snapshot_keeps_a_session_the_target_started(self) -> None:
+        """A cross-tag does not delete a session this account started elsewhere."""
+        target = self.school.register_staff("starter-target@example.com", "Target")
+        other = self.school.register_staff("starter-other@example.com", "Other")
+        target_offering = self.school.assign_course(
+            teacher_user_id=int(target["id"]), ontario_code="MCF3M"
+        )
+        other_offering = self.school.assign_course(
+            teacher_user_id=int(other["id"]), ontario_code="MCF3M"
+        )
+        target_class = self._class(
+            int(target["id"]), int(target_offering["id"]), ["N1"], "2:00pm"
+        )
+        other_class = self._class(
+            int(other["id"]), int(other_offering["id"]), ["N2"], "3:15pm"
+        )
+        started = self.school.start_live_class_session(
+            other_class, int(target["id"]), live_module="M1", live_slot="C1"
+        )
+        session_id = int(started["id"])
+        run_key, prompt_id = self._seat_and_cross_tag(session_id, target_class)
+        self.school.delete_staff_permanently(int(target["id"]), self.actor_id)
+        row = self.school.conn.execute(
+            "SELECT class_id, teacher_user_id FROM live_class_sessions WHERE id = ?",
+            (session_id,),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(int(row["class_id"]), other_class)
+        self.assertIsNone(row["teacher_user_id"])
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM live_session_attendees WHERE live_session_id = ?",
+                (session_id,),
+            ).fetchone()[0],
+            1,
+        )
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM live_session_responses WHERE prompt_id = ?",
+                (prompt_id,),
+            ).fetchone()[0],
+            1,
+        )
+        self.assertIsNotNone(
+            self.school.conn.execute(
+                "SELECT id FROM live_result_snapshots WHERE live_session_id = ?",
+                (session_id,),
+            ).fetchone()
+        )
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM board_ops WHERE run_key = ?",
+                (run_key,),
+            ).fetchone()[0],
+            1,
+        )
+        self._assert_news_kept(session_id)
+        self.assertIsNone(self.school.get_user(int(target["id"])))
+        self.assertIsNotNone(self.school.get_user(int(other["id"])))
+
     def test_refuses_when_another_class_uses_the_offering(self) -> None:
         """Another teacher's class on this offering blocks the delete."""
         owner = self.school.register_staff("offering-owner@example.com", "Owner")

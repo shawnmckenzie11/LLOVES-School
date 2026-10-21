@@ -6247,7 +6247,10 @@ class LovesDB:
         A class, offering, session, or teacher id has to belong to this
         account. Rows for another class, including a class row that is
         already gone in another school, stay. Copy pointers are cleared
-        only when they name one of this account's offerings.
+        only when they name one of this account's offerings. A child row
+        tagged with this account's class does not by itself choose a
+        session. When that row points at a session whose own class still
+        belongs to someone else, the row and the session stay.
 
         Args:
             user_id: Staff ``users.id`` being deleted.
@@ -6256,8 +6259,10 @@ class LovesDB:
             present: Table names in this database.
 
         Returns:
-            Live session ids and run keys copied off this account's
-            leftover rows before they are deleted.
+            Live session ids and run keys taken from this account's
+            leftover rows. A session id is included only when that
+            session's own class belongs to this account, that class row
+            is already gone, or the class id is null or blank.
         """
         owned_classes = self._class_ids_named_by_account(
             int(user_id), class_ids, present
@@ -6285,18 +6290,48 @@ class LovesDB:
         params = tuple(int(class_id) for class_id in owned_classes)
         where = f"class_id IN ({marks})"
         session_ids: list[int] = []
-        run_keys: list[str] = []
+        tagged_session_ids: list[int] = []
         if "live_class_sessions" in present:
-            session_columns = {
-                str(col["name"])
-                for col in self.conn.execute("PRAGMA table_info(live_class_sessions)")
-            }
             session_ids.extend(
                 self._select_ids(
                     f"SELECT id FROM live_class_sessions WHERE {where}",
                     params,
                 )
             )
+        class_tables = [
+            table
+            for table in self._sqlite_tables_with_column("class_id")
+            if table not in skip and ident.fullmatch(table)
+        ]
+        table_columns: dict[str, set[str]] = {}
+        for table in class_tables:
+            columns = {
+                str(col["name"])
+                for col in self.conn.execute(f'PRAGMA table_info("{table}")')
+            }
+            table_columns[table] = columns
+            if "live_session_id" in columns:
+                tagged_session_ids.extend(
+                    self._select_ids(
+                        f'SELECT live_session_id FROM "{table}" '
+                        f"WHERE {where} AND live_session_id IS NOT NULL",
+                        params,
+                    )
+                )
+        kept_sessions = self._session_ids_kept_for_another_class(
+            [*session_ids, *tagged_session_ids], owned_classes, present
+        )
+        session_ids.extend(
+            session_id
+            for session_id in tagged_session_ids
+            if session_id not in kept_sessions
+        )
+        run_keys: list[str] = []
+        if "live_class_sessions" in present:
+            session_columns = {
+                str(col["name"])
+                for col in self.conn.execute("PRAGMA table_info(live_class_sessions)")
+            }
             if "run_key" in session_columns:
                 run_keys.extend(
                     str(row[0])
@@ -6310,41 +6345,182 @@ class LovesDB:
                     )
                     if str(row[0] or "").strip()
                 )
-        class_tables = [
-            table
-            for table in self._sqlite_tables_with_column("class_id")
-            if table not in skip and ident.fullmatch(table)
-        ]
         for table in class_tables:
-            columns = {
-                str(col["name"])
-                for col in self.conn.execute(f'PRAGMA table_info("{table}")')
-            }
-            if "live_session_id" in columns:
-                session_ids.extend(
-                    self._select_ids(
-                        f'SELECT live_session_id FROM "{table}" '
-                        f"WHERE {where} AND live_session_id IS NOT NULL",
-                        params,
-                    )
-                )
+            columns = table_columns[table]
+            session_column = (
+                "live_session_id" if "live_session_id" in columns else None
+            )
+            clause, clause_params = self._class_tagged_predicate(
+                owned_classes, kept_sessions, session_column
+            )
             if "run_key" in columns:
                 run_keys.extend(
                     str(row[0])
                     for row in self.conn.execute(
-                        f'SELECT run_key FROM "{table}" WHERE {where} '
+                        f'SELECT run_key FROM "{table}" WHERE {clause} '
                         "AND run_key IS NOT NULL AND TRIM(run_key) != ''",
-                        params,
+                        clause_params,
                     )
                     if str(row[0] or "").strip()
                 )
-            self.conn.execute(f'DELETE FROM "{table}" WHERE {where}', params)
-        session_ids = list(dict.fromkeys(int(session_id) for session_id in session_ids))
+            self.conn.execute(
+                f'DELETE FROM "{table}" WHERE {clause}', clause_params
+            )
+        run_keys = self._without_kept_session_run_keys(
+            run_keys, kept_sessions, present
+        )
+        session_ids = list(
+            dict.fromkeys(
+                int(session_id)
+                for session_id in session_ids
+                if int(session_id) not in kept_sessions
+            )
+        )
         run_keys = list(dict.fromkeys(run_keys))
         self._delete_board_rows(run_keys, present)
         self._delete_end_claims(owned_classes, run_keys, present)
         self._delete_seq_floors(owned_classes, session_ids, present)
         return session_ids, run_keys
+
+    def _session_ids_kept_for_another_class(
+        self,
+        session_ids: list[int],
+        owned_class_ids: list[int],
+        present: set[str],
+    ) -> set[int]:
+        """Session ids that stay because their own class is someone else's.
+
+        A collected id may be deleted only when ``live_class_sessions.class_id``
+        belongs to this account, that class row is already gone, or the
+        class id is null or blank. The id is kept when the session row
+        exists and names a class that still exists and is not one of
+        ``owned_class_ids``. A missing session row is not kept, so news
+        for an id stored on this account's leftover rows can still be purged.
+
+        Args:
+            session_ids: Ids gathered from this account's rows.
+            owned_class_ids: Classes this account owns or still names.
+            present: Table names in this database.
+
+        Returns:
+            Ids whose session row points at a living class this account
+            does not own.
+        """
+        if not session_ids or "live_class_sessions" not in present:
+            return set()
+        unique = list(dict.fromkeys(int(session_id) for session_id in session_ids))
+        owned = {int(class_id) for class_id in owned_class_ids}
+        marks = ",".join("?" * len(unique))
+        rows = self.conn.execute(
+            f"SELECT id, class_id FROM live_class_sessions WHERE id IN ({marks})",
+            tuple(unique),
+        ).fetchall()
+        foreign: list[tuple[int, int]] = []
+        for row in rows:
+            raw = row["class_id"]
+            if raw is None or str(raw).strip() == "":
+                continue
+            try:
+                class_id = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if class_id in owned:
+                continue
+            foreign.append((int(row["id"]), class_id))
+        if not foreign or "classes" not in present:
+            return set()
+        living_ids = list(dict.fromkeys(class_id for _, class_id in foreign))
+        living_marks = ",".join("?" * len(living_ids))
+        living = {
+            int(found[0])
+            for found in self.conn.execute(
+                f"SELECT id FROM classes WHERE id IN ({living_marks})",
+                tuple(living_ids),
+            )
+        }
+        return {
+            session_id
+            for session_id, class_id in foreign
+            if class_id in living
+        }
+
+    def _class_tagged_predicate(
+        self,
+        class_ids: list[int],
+        kept_session_ids: set[int],
+        session_column: str | None,
+    ) -> tuple[str, tuple[Any, ...]]:
+        """Predicate for rows tagged with this account's classes.
+
+        Rows whose ``session_column`` points at a kept session are left
+        out. ``session_column`` is a fixed identifier from this module.
+
+        Args:
+            class_ids: Classes this account owns or still names.
+            kept_session_ids: Live sessions that must stay.
+            session_column: ``live_session_id`` or ``live_session``, or
+                ``None`` when the table has no session column.
+
+        Returns:
+            SQL without the ``WHERE`` keyword, and its bind values.
+        """
+        if session_column and not re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_]*", session_column
+        ):
+            raise ValueError("session column")
+        marks = ",".join("?" * len(class_ids))
+        params: list[Any] = [int(class_id) for class_id in class_ids]
+        clause = f"class_id IN ({marks})"
+        if session_column and kept_session_ids:
+            kept = list(
+                dict.fromkeys(int(session_id) for session_id in kept_session_ids)
+            )
+            kept_marks = ",".join("?" * len(kept))
+            clause += (
+                f" AND ({session_column} IS NULL OR "
+                f"{session_column} NOT IN ({kept_marks}))"
+            )
+            params.extend(kept)
+        return clause, tuple(params)
+
+    def _without_kept_session_run_keys(
+        self, run_keys: list[str], kept_session_ids: set[int], present: set[str]
+    ) -> list[str]:
+        """Drop run keys that belong to sessions this delete must keep.
+
+        Args:
+            run_keys: Keys copied off rows this account is deleting.
+            kept_session_ids: Live sessions that must stay.
+            present: Table names in this database.
+
+        Returns:
+            ``run_keys`` without the kept sessions' keys.
+        """
+        if not run_keys or not kept_session_ids or "live_class_sessions" not in present:
+            return run_keys
+        columns = {
+            str(col["name"])
+            for col in self.conn.execute("PRAGMA table_info(live_class_sessions)")
+        }
+        if "run_key" not in columns:
+            return run_keys
+        kept = list(dict.fromkeys(int(session_id) for session_id in kept_session_ids))
+        marks = ",".join("?" * len(kept))
+        kept_keys = {
+            str(row[0])
+            for row in self.conn.execute(
+                f"""
+                SELECT run_key FROM live_class_sessions
+                WHERE id IN ({marks})
+                  AND run_key IS NOT NULL AND TRIM(run_key) != ''
+                """,
+                tuple(kept),
+            )
+            if str(row[0] or "").strip()
+        }
+        if not kept_keys:
+            return run_keys
+        return [key for key in run_keys if key not in kept_keys]
 
     def _class_ids_named_by_account(
         self, user_id: int, class_ids: list[int], present: set[str]
@@ -6555,8 +6731,10 @@ class LovesDB:
         """Delete notes this account wrote or that sit on its classes.
 
         ``observations.observer_user_id`` references ``users`` with no
-        cascade, so the note has to go before the account. Subjects and
-        process rows cascade from the note.
+        cascade, so a note this account wrote has to go before the
+        account. A note someone else wrote that only shares this
+        account's class id stays when it points at a session being kept.
+        Subjects and process rows cascade from the note.
 
         Args:
             user_id: Staff ``users.id``.
@@ -6566,23 +6744,72 @@ class LovesDB:
         """
         if "observations" not in present:
             return
+        tagged: list[int] = []
+        history_session = False
+        if class_ids:
+            class_marks = ",".join("?" * len(class_ids))
+            class_params = tuple(int(class_id) for class_id in class_ids)
+            tagged.extend(
+                self._select_ids(
+                    "SELECT live_session_id FROM observations "
+                    f"WHERE class_id IN ({class_marks}) "
+                    "AND live_session_id IS NOT NULL",
+                    class_params,
+                )
+            )
+            if "observation_history" in present:
+                history_columns = {
+                    str(col["name"])
+                    for col in self.conn.execute(
+                        "PRAGMA table_info(observation_history)"
+                    )
+                }
+                history_session = "live_session" in history_columns
+                if history_session:
+                    tagged.extend(
+                        self._select_ids(
+                            "SELECT live_session FROM observation_history "
+                            f"WHERE class_id IN ({class_marks}) "
+                            "AND live_session IS NOT NULL",
+                            class_params,
+                        )
+                    )
+        kept_sessions = self._session_ids_kept_for_another_class(
+            tagged, class_ids, present
+        )
         clauses = ["observer_user_id = ?"]
         params: list[Any] = [int(user_id)]
         if class_ids:
-            marks = ",".join("?" * len(class_ids))
-            clauses.append(f"class_id IN ({marks})")
-            params.extend(class_ids)
-        if session_ids:
-            marks = ",".join("?" * len(session_ids))
+            clause, clause_params = self._class_tagged_predicate(
+                class_ids, kept_sessions, "live_session_id"
+            )
+            clauses.append(f"({clause})")
+            params.extend(clause_params)
+        deleting = [
+            int(session_id)
+            for session_id in session_ids
+            if int(session_id) not in kept_sessions
+        ]
+        if deleting:
+            marks = ",".join("?" * len(deleting))
             clauses.append(f"live_session_id IN ({marks})")
-            params.extend(session_ids)
+            params.extend(deleting)
         self.conn.execute(
             f"DELETE FROM observations WHERE {' OR '.join(clauses)}",
             tuple(params),
         )
         if "observation_history" not in present:
             return
-        self._delete_ids("observation_history", "class_id", class_ids, present)
+        if class_ids:
+            clause, clause_params = self._class_tagged_predicate(
+                class_ids,
+                kept_sessions,
+                "live_session" if history_session else None,
+            )
+            self.conn.execute(
+                f"DELETE FROM observation_history WHERE {clause}",
+                clause_params,
+            )
         self.conn.execute(
             "DELETE FROM observation_history WHERE observer_user_id = ?",
             (int(user_id),),
@@ -6593,7 +6820,9 @@ class LovesDB:
 
         Roster PIN material lives on ``students`` and is removed with the
         game graph. This pass clears gradebook, catch-up, engagement,
-        boards, and playlist rows keyed only by class id.
+        boards, and playlist rows keyed only by class id. A row that
+        points at a live session whose own class still belongs to someone
+        else is left in place.
 
         Args:
             class_ids: Class ids being removed.
@@ -6633,8 +6862,48 @@ class LovesDB:
             "live_class_feedback",
             "student_moods",
         )
+        if not class_ids:
+            return
+        tagged: list[int] = []
+        columns_by_table: dict[str, set[str]] = {}
+        class_marks = ",".join("?" * len(class_ids))
+        class_params = tuple(int(class_id) for class_id in class_ids)
         for table in tables:
-            self._delete_ids(table, "class_id", class_ids, present)
+            if table not in present:
+                continue
+            columns = {
+                str(col["name"])
+                for col in self.conn.execute(f"PRAGMA table_info({table})")
+            }
+            columns_by_table[table] = columns
+            if "live_session_id" in columns and "class_id" in columns:
+                tagged.extend(
+                    self._select_ids(
+                        f"SELECT live_session_id FROM {table} "
+                        f"WHERE class_id IN ({class_marks}) "
+                        "AND live_session_id IS NOT NULL",
+                        class_params,
+                    )
+                )
+        kept_sessions = self._session_ids_kept_for_another_class(
+            tagged, class_ids, present
+        )
+        for table in tables:
+            if table not in present:
+                continue
+            columns = columns_by_table[table]
+            session_column = (
+                "live_session_id" if "live_session_id" in columns else None
+            )
+            if not session_column or not kept_sessions:
+                self._delete_ids(table, "class_id", class_ids, present)
+                continue
+            clause, clause_params = self._class_tagged_predicate(
+                class_ids, kept_sessions, session_column
+            )
+            self.conn.execute(
+                f"DELETE FROM {table} WHERE {clause}", clause_params
+            )
 
     def _delete_board_rows(self, board_keys: list[str], present: set[str]) -> None:
         """Delete sqlite board ops for these run keys.
