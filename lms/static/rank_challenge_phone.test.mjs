@@ -4,6 +4,7 @@ import {
   raceDisplayOptions,
   PHONE_COPY,
   lockButtonHtml,
+  showLockButton,
   undoButtonHtml,
   phoneCue,
   phoneState,
@@ -50,6 +51,15 @@ check(phoneState(closedT, "closed") === "closed" && phoneCue(closedT, "closed") 
 check(phoneStripHtml(base({})) === "", "no team strip on student phones");
 check(lockButtonHtml(base({ can_lock: true })).includes("Lock in our order"), "lock button");
 check(lockButtonHtml(base({})).includes("disabled"), "lock waits for can_lock");
+check(lockButtonHtml(base({ locked: true, can_lock: true })) === "", "locked hides the lock button");
+check(!showLockButton(base({ locked: true, can_lock: true })), "locked is not clickable");
+check(!showLockButton({ ...base({ can_lock: true }), submitted: true }), "sent hides the lock button");
+const turnsOpen = { race: { mode: "turns", locked: false }, turns: { done: false }, submitted: false };
+const turnsReady = { race: { mode: "turns", locked: false, can_lock: true }, turns: { done: true }, submitted: false };
+const turnsLocked = { race: { mode: "turns", locked: true, can_lock: true }, turns: { done: true }, submitted: false };
+check(!showLockButton(turnsOpen), "take turns hides lock until the order is in");
+check(showLockButton(turnsReady) && lockButtonHtml(turnsReady).includes("Lock in our order"), "take turns shows lock when ready");
+check(!showLockButton(turnsLocked) && lockButtonHtml(turnsLocked) === "", "take turns hides lock after lock-in");
 check(undoButtonHtml(base({ can_undo: true })).includes("Undo"), "undo when allowed");
 check(!undoButtonHtml(base({})).includes("Undo"), "no undo without flag");
 

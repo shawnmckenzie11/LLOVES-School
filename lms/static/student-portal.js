@@ -65,6 +65,7 @@ import { nameWithAvatar, paintAvatar } from "/static/student_avatars.js";
 import { rankStackHtml } from "/static/rank_stack.js";
 import {
   lockButtonHtml,
+  showLockButton,
   undoButtonHtml,
   phoneCueHtml,
   phoneResultsHtml,
@@ -78,6 +79,7 @@ import {
   groupInstructionHtml,
 } from "/static/group_instructions.js";
 import {
+  RANK_ORDER_CHANGED_NOTE,
   liveRankCardHtml,
   mcFlowStep,
   mcLockedHtml,
@@ -143,9 +145,6 @@ const meNameEl = document.getElementById("me-name");
 const meChipEl = document.getElementById("me-meet-chip");
 const meEngagementEl = document.getElementById("me-engagement");
 const meGroupEngagementEl = document.getElementById("me-group-engagement");
-const meTeamStatEl = document.getElementById("me-team-stat");
-const meTeamLabelEl = document.getElementById("me-team-label");
-const meTeamPointsEl = document.getElementById("me-team-points");
 const meRankEl = document.getElementById("me-rank");
 const meRankValueEl = document.getElementById("me-rank-value");
 const meRankOfEl = document.getElementById("me-rank-of");
@@ -676,10 +675,6 @@ function paintMe(payload) {
   if (meGroupEngagementEl) {
     meGroupEngagementEl.textContent = String(me.group_engagement || "0/0");
   }
-  const showTeam = Boolean(me.show_team_score);
-  if (meTeamStatEl) meTeamStatEl.hidden = !showTeam;
-  if (meTeamLabelEl) meTeamLabelEl.textContent = String(me.team_name || "Team");
-  if (meTeamPointsEl) meTeamPointsEl.textContent = pts(me.team_points);
   if (meRankEl) meRankEl.hidden = true;
   setTabTitle(String(me.codename || ""));
 }
@@ -2987,6 +2982,43 @@ function rankOrderFromCard(card) {
 }
 
 /**
+ * The order Lock in our order should send.
+ *
+ * Take-turns spots are not rank rows. Reading only ``data-rank-id`` posted
+ * an empty list and the server answered that the order had changed.
+ *
+ * @param {HTMLElement} card
+ * @returns {string[]}
+ */
+function lockOrderFromCard(card) {
+  const spots = [...card.querySelectorAll("[data-rank-spot]")]
+    .map((el) => el.getAttribute("data-rank-spot") || "")
+    .filter(Boolean);
+  if (spots.length) return spots;
+  return rankOrderFromCard(card);
+}
+
+/**
+ * One-off note for a ranking card. A locked or sent order drops the
+ * order-changed line so every teammate stops seeing it.
+ *
+ * @param {number} itemId
+ * @param {any} group
+ * @returns {string}
+ */
+function rankFlowNote(itemId, group) {
+  const note = groupFlowNotes.get(itemId) || "";
+  if (
+    note === RANK_ORDER_CHANGED_NOTE &&
+    (group?.race?.locked || group?.submitted)
+  ) {
+    groupFlowNotes.delete(itemId);
+    return "";
+  }
+  return note;
+}
+
+/**
  * Rank rows. Badges stay contiguous. Submit stays off until n/n.
  *
  * The gate is the disabled control. No instructional sentence and no
@@ -3172,13 +3204,13 @@ function rankChallengeCardHtml(item) {
   // R6: after Close, with results on, the phone shows its own results.
   if (status === "closed" && race.results) return phoneResultsHtml(group);
   if (race.mode === "turns" && status !== "closed") {
-    const turns = group.turns || {};
-    const lockRow =
-      turns.done && !locked ? `<div class="race-phone-actions">${lockButtonHtml(group)}</div>` : "";
+    const lockRow = showLockButton(group)
+      ? `<div class="race-phone-actions">${lockButtonHtml(group)}</div>`
+      : "";
     return liveRankCardHtml(group, {
       options,
       itemId,
-      note: groupFlowNotes.get(itemId) || "",
+      note: rankFlowNote(itemId, group),
       lockRow,
       race: true,
     });
@@ -3194,7 +3226,7 @@ function rankChallengeCardHtml(item) {
   }
   // One shared order: always the server's (a teammate's move shows here).
   const shown = order;
-  const note = groupFlowNotes.get(itemId) || "";
+  const note = rankFlowNote(itemId, group);
   return `<div class="student-group-card race-phone" data-live-action="group" data-rank-shared="1" data-race-card="1">
     ${phoneCueHtml(group, status)}
     ${rankInputHtml(options, shown, "group", { noSubmit: true })}
@@ -3704,7 +3736,7 @@ function studentGroupCardBodyHtml(item) {
     return liveRankCardHtml(group, {
       options: rankOptionsFromContent(content),
       itemId,
-      note: groupFlowNotes.get(itemId) || "",
+      note: rankFlowNote(itemId, group),
       strip,
       race: false,
     });
@@ -3729,7 +3761,7 @@ function studentGroupCardBodyHtml(item) {
       group.phase === "submitted" && !editing
         ? rankWaitingHtml(options, (group.submitted_order || order).map(String), "Change team order")
         : rankInputHtml(options, shown, "group");
-    const note = groupFlowNotes.get(itemId) || "";
+    const note = rankFlowNote(itemId, group);
     return `<div class="student-group-card" data-live-action="group" data-rank-shared="1">
       ${strip ? `<p class="student-group-strip">${escapeText(strip)}</p>` : ""}
       ${body}
@@ -3758,7 +3790,7 @@ function studentGroupCardBodyHtml(item) {
             },
             { choices, optionsHtml, itemId }
           );
-    const note = groupFlowNotes.get(itemId) || "";
+    const note = rankFlowNote(itemId, group);
     return `<div class="student-group-card" data-live-action="group" data-mc-flow="${escapeText(flowStep)}"
         data-group-submitted="${group.submitted ? "1" : "0"}"
         data-submitted-choice="${escapeText(group.submitted_choice || "")}"
@@ -3797,7 +3829,7 @@ function studentGroupCardBodyHtml(item) {
       }>Submit for team</button>
     </div>
     ${last ? `<p class="group-submit-last">Last submitter: ${escapeText(last)}</p>` : ""}
-    ${groupFlowNotes.get(Number(item.id) || 0) ? `<p class="rank-turn-note" role="status">${escapeText(groupFlowNotes.get(Number(item.id) || 0))}</p>` : ""}
+    ${rankFlowNote(Number(item.id) || 0, group) ? `<p class="rank-turn-note" role="status">${escapeText(rankFlowNote(Number(item.id) || 0, group))}</p>` : ""}
   </div>`;
 }
 
@@ -3878,11 +3910,17 @@ async function postGroupFlow(card, path, body) {
         }
       }
     }
-    if (res && res.ok && data.ok !== false) {
+    const lockedNow = Boolean(
+      data.locked || data.group_submit?.race?.locked || data.group_submit?.submitted
+    );
+    if ((res && res.ok && data.ok !== false) || lockedNow) {
       groupFlowNotes.delete(itemId);
-      liveCardDrafts.delete(`${itemId}:group-pick`);
+      if (res && res.ok) liveCardDrafts.delete(`${itemId}:group-pick`);
     } else if (groupFlowReplySkipsResync(res && res.status, data)) {
-      groupFlowNotes.set(itemId, String(data.error || ""));
+      const message = String(data.error || "");
+      if (message !== RANK_ORDER_CHANGED_NOTE || !lockedNow) {
+        groupFlowNotes.set(itemId, message);
+      }
       skipResync = true;
     } else {
       groupFlowNotes.set(itemId, draftFailureNote(res ? res.status : 0, data.error));
@@ -6219,7 +6257,7 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
     if (card instanceof HTMLElement && !raceLock.disabled) {
       raceLock.disabled = true;
       const itemId = Number(card.dataset.liveCardId) || 0;
-      const order = rankOrderFromCard(card);
+      const order = lockOrderFromCard(card);
       if (itemId) rankLocalDrafts.delete(itemId);
       void postGroupFlow(card, "rank-agree", { agree: true, order });
     }

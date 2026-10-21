@@ -128,10 +128,9 @@ class StepMixin:
         return int(row["n"] or 0)
 
     def _lock_team(self, item: dict[str, Any], names: tuple[str, ...], order: list[str]) -> None:
+        """Place ``order`` and lock it. A later teammate tap is refused."""
         self.assertEqual(self._order(names[0], item, order).status_code, 200)
-        for name in names:
-            rv = self._post(name, item, "rank-agree", {"agree": True, "order": order})
-            self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        self._lock_once(item, names, order)
 
 
 class PaysOnMixin:

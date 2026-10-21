@@ -19,7 +19,7 @@ from live_news_wire import (
     _maybe_sync_group_teams,
     event_visible,
 )
-from test_rank_challenge_mck171 import NAMES
+from test_rank_challenge_mck171 import KEY_IDS, NAMES
 from test_rank_turns_mck184 import TurnsHarness
 
 LMS_DIR = Path(__file__).resolve().parent
@@ -370,6 +370,90 @@ class TeamScopedStampTests(TurnsHarness):
             placer_before,
             self.school.live_student_poll_stamp(
                 self.session_id, self.class_id, self.ids[placer]
+            ),
+        )
+
+    def test_fanout_guard(self) -> None:
+        """A rank lock and a group pick rebuild that team only.
+
+        The gap is longer than one second, so a full placement sync would
+        restamp every question and make every phone reload ``/state``.
+        The other team's poll stamp must stay put. A locked ranking stays
+        locked for the teammate who did not tap.
+        """
+        self.race = True
+        placer, teammate, outsider = NAMES[0], NAMES[2], NAMES[1]
+        item = self._turns_item()
+        self.assertEqual(self._order(placer, item, KEY_IDS).status_code, 200)
+        out_seq, out_stamp, out_direct = self._snapshot(outsider)
+        mate_before = self.school.live_student_poll_stamp(
+            self.session_id, self.class_id, self.ids[teammate]
+        )
+        time.sleep(1.1)
+        locked = self._post(placer, item, "rank-agree", {"agree": True, "order": []})
+        self.assertEqual(locked.status_code, 200)
+        locked_body = locked.get_json()
+        self.assertTrue(locked_body["group_submit"]["race"]["locked"])
+        self.assertNotIn("order changed", str(locked_body.get("error") or "").lower())
+        self.assertEqual(
+            out_direct,
+            self.school.live_student_poll_stamp(
+                self.session_id, self.class_id, self.ids[outsider]
+            ),
+        )
+        self.assertTrue(self._poll(outsider, out_seq, out_stamp).get("unchanged"))
+        self.assertNotEqual(
+            mate_before,
+            self.school.live_student_poll_stamp(
+                self.session_id, self.class_id, self.ids[teammate]
+            ),
+        )
+        for name in (placer, teammate):
+            card = self._card(name, item)
+            self.assertTrue(card["race"]["locked"])
+            self.assertFalse(card["race"]["can_lock"])
+        again = self._post(teammate, item, "rank-agree", {"agree": True, "order": []})
+        self.assertEqual(again.status_code, 409)
+        refused = again.get_json()
+        self.assertTrue(refused.get("locked"))
+        self.assertNotIn("order changed", str(refused.get("error") or "").lower())
+        self.assertEqual(self._row(item, placer).get("submit_count"), 1)
+        self.assertEqual(
+            out_direct,
+            self.school.live_student_poll_stamp(
+                self.session_id, self.class_id, self.ids[outsider]
+            ),
+        )
+
+        self._close(item)
+        mc = self._publish(
+            self._add(
+                {
+                    "type": "mc",
+                    "text": "Which representation?",
+                    "options": ["Graph", "Table", "Equation", "Points"],
+                    "correct_index": 0,
+                }
+            )
+        )
+        out_seq, out_stamp, out_direct = self._snapshot(outsider)
+        mate_direct = self.school.live_student_poll_stamp(
+            self.session_id, self.class_id, self.ids[teammate]
+        )
+        time.sleep(1.1)
+        picked = self._post(placer, mc, "group-pick", {"choice": "Graph"})
+        self.assertEqual(picked.status_code, 200)
+        self.assertEqual(
+            out_direct,
+            self.school.live_student_poll_stamp(
+                self.session_id, self.class_id, self.ids[outsider]
+            ),
+        )
+        self.assertTrue(self._poll(outsider, out_seq, out_stamp).get("unchanged"))
+        self.assertNotEqual(
+            mate_direct,
+            self.school.live_student_poll_stamp(
+                self.session_id, self.class_id, self.ids[teammate]
             ),
         )
 

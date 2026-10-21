@@ -42,6 +42,7 @@ TEAM_ACTIONS = (
     "rank_place",
     "rank_check",
     "rank_send",
+    "rank_lock",
     "join",
     "rejoin",
     "team_draw",
@@ -470,6 +471,54 @@ class FanoutGuardTests(unittest.TestCase):
             self._ok_status(rv, 200)
 
         self._guard_team(0, send, "rank_send")
+
+    def rank_lock(self) -> None:
+        """One Lock in our order tap stays on that team.
+
+        Placements finish the take-turns order first. Only the rank-agree
+        tap is inside the guard.
+        """
+        self._close_open()
+        row = self._add("rank", True)
+        rv = self.staff.patch(
+            f"/api/live-sessions/{self.session_id}/items/{row['id']}/settings",
+            json={"group_rank_mode": "turns", "group_rank_race": True},
+        )
+        self._ok_status(rv, 200)
+        item = self._publish(row, True)
+        item_id = int(item["id"])
+        for _ in range(8):
+            holder = self._holder(item_id)
+            if holder is None:
+                break
+            opts = self._rank_ids(holder, item_id)
+            used = {
+                str(spot.get("option_id"))
+                for spot in (self._turns(holder, item_id).get("spots") or [])
+                if isinstance(spot, dict)
+            }
+            left = [opt for opt in opts if opt not in used]
+            self.assertTrue(left, "rank lock stalled")
+            placed = self._post_item(
+                holder, item_id, "rank-turn", {"option_id": left[0]}
+            )
+            self._ok_status(placed, 200)
+        self.assertIsNone(self._holder(item_id), "rank lock order is not complete")
+        order = [
+            str(spot.get("option_id"))
+            for spot in (self._turns(0, item_id).get("spots") or [])
+            if isinstance(spot, dict) and spot.get("option_id")
+        ]
+        self.assertEqual(len(order), 4, "rank lock order is short")
+
+        def lock() -> None:
+            """Lock the finished order."""
+            locked = self._post_item(
+                0, item_id, "rank-agree", {"agree": True, "order": order}
+            )
+            self._ok_status(locked, 200)
+
+        self._guard_team(0, lock, "rank_lock")
 
     def join(self) -> None:
         """A first join moves that team only."""

@@ -40,7 +40,7 @@ export const GROUP_FLOW_COPY = Object.freeze({
   waitingFor: "Waiting for {names}.", // gate LOW-2, NEW for the Wonder pass
   spot: "Spot {n}",
   placedBy: "placed by {name}",
-  check: "Check our ranking",
+  check: "Check",
   sendRanking: "Send our ranking",
   finalOnce: "Final once sent",
 });
@@ -234,14 +234,23 @@ export function choiceLetter(choices, value) {
 }
 
 /**
- * 44px help control and its popover. Copy is a swappable constant.
+ * The sentence a locked ranking must not keep showing.
+ * Matches ``RACE_AGREE_RESET_COPY`` in ``lms/school_db.py``.
+ */
+export const RANK_ORDER_CHANGED_NOTE =
+  "The order changed. Agree again when you're ready.";
+
+/**
+ * Help control and its popover. ``onCheck`` draws the small ? on the Check button.
  * @param {string} id
  * @param {string} label Accessible name.
  * @param {string} copy
+ * @param {{onCheck?: boolean}} [opts]
  * @returns {string}
  */
-function helpControl(id, label, copy) {
-  return `<button type="button" class="group-help" data-group-help aria-label="${esc(
+function helpControl(id, label, copy, opts = {}) {
+  const onCheck = Boolean(opts.onCheck);
+  return `<button type="button" class="group-help${onCheck ? " is-on-check" : ""}" data-group-help aria-label="${esc(
     label
   )}" aria-expanded="false" aria-controls="${esc(id)}">?</button>
     <p class="group-help-pop" id="${esc(id)}" role="dialog" hidden>${esc(copy)}</p>`;
@@ -303,7 +312,7 @@ export function rankTurnsHtml(group, opts) {
     if (spot) {
       const who = spot.mine ? C.you : String(spot.by_name || "");
       spotRows.push(
-        `<li class="rank-turn-spot is-filled" aria-label="${esc(
+        `<li class="rank-turn-spot is-filled" data-rank-spot="${esc(spot.option_id)}" aria-label="${esc(
           `${C.spot.replace("{n}", String(n))}, ${spot.label || ""}, ${C.placedBy.replace("{name}", who)}`
         )}"><span class="rank-turn-n">${n}</span><span class="rank-turn-label">${esc(spot.label || "")}</span><span class="rank-turn-by">${esc(who)}</span></li>`
       );
@@ -336,11 +345,14 @@ export function rankTurnsHtml(group, opts) {
     .map((line) => `<p class="rank-turn-skipped">${esc(line)}</p>`)
     .join("");
   // MCK-184: Undo is only for the teammate whose pick is the last spot.
+  // MCK-310: it sits beside Check, not in the cue line.
   const lastSpot = spots.length ? spots[spots.length - 1] : null;
   const undo = turns.can_undo && lastSpot && lastSpot.mine === true
-    ? ` <button type="button" class="link-button rank-turn-undo" data-rank-turn-undo>${esc(C.undo)}</button>`
+    ? `<button type="button" class="link-button rank-turn-undo" data-rank-turn-undo>${esc(C.undo)}</button>`
     : "";
   const note = String(opts.note || "").trim();
+  const quietNote =
+    note === RANK_ORDER_CHANGED_NOTE && (group?.race?.locked || group?.submitted) ? "" : note;
   const check = group?.check && typeof group.check === "object" ? group.check : {};
   const header = Boolean(opts.header);
   const itemId = Number(opts.itemId) || 0;
@@ -353,12 +365,16 @@ export function rankTurnsHtml(group, opts) {
   // The instruction and the check help render on every student ranking
   // card. ``header`` only adds the pinned Send our ranking (a team
   // challenge uses Lock in our order instead).
-  const checkRow = checkControl
-    ? `<div class="rank-check-row">${checkControl}${helpControl(
+  const checkWrap = checkControl
+    ? `<div class="rank-check-wrap">${checkControl}${helpControl(
         helpId,
-        "How Check our ranking works",
-        RANK_CHECK_HELP
+        "How Check works",
+        RANK_CHECK_HELP,
+        { onCheck: true }
       )}</div>`
+    : "";
+  const checkRow = checkWrap || undo
+    ? `<div class="rank-check-row">${checkWrap}${undo}</div>`
     : "";
   const pendingSend = header && Boolean(turns.done) && !group?.submitted;
   const sendPin = header
@@ -377,11 +393,11 @@ export function rankTurnsHtml(group, opts) {
   return `<div class="rank-turns" data-rank-turns="${itemId}" data-turn-rev="${Number(turns.rev) || 0}">
     ${instruction}
     ${checkRow}
-    <p class="rank-turn-cue" aria-live="polite">${esc(rankTurnCue(turns, pendingSend))}${undo}</p>
+    <p class="rank-turn-cue" aria-live="polite">${esc(rankTurnCue(turns, pendingSend))}</p>
     <ol class="rank-turn-spots">${spotRows.join("")}</ol>
     ${optionRows}
     ${skipped}
-    ${note ? `<p class="rank-turn-note" role="status">${esc(note)}</p>` : ""}
+    ${quietNote ? `<p class="rank-turn-note" role="status">${esc(quietNote)}</p>` : ""}
     ${sendPin}
   </div>`;
 }

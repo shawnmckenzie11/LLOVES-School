@@ -3092,10 +3092,23 @@ body.rw-open { overflow: hidden; }
   min-width: 0;
   margin: 0;
 }
-.rank-check-row .rank-check,
-.rank-check-row .rank-check-chip {
+.rank-check-row .rank-check-wrap {
+  position: relative;
   flex: 1;
   min-width: 0;
+}
+.rank-check-wrap > .rank-check,
+.rank-check-wrap > .rank-check-chip {
+  width: 100%;
+  box-sizing: border-box;
+}
+.rank-check-wrap > .rank-check {
+  padding-right: 28px;
+}
+.rank-check-row .rank-turn-undo {
+  flex: none;
+  margin: 0;
+  min-height: 36px;
 }
 button.secondary.rank-check {
   min-height: 36px;
@@ -3114,6 +3127,19 @@ button.secondary.rank-check {
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+}
+.group-help.is-on-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 16px;
+}
+.rank-check-wrap .group-help-pop {
+  top: calc(100% + 4px);
 }
 .group-help-pop {
   position: absolute;

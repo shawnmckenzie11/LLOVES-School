@@ -21530,10 +21530,14 @@ class SchoolDB(LovesDB):
             ValueError: Not a Rank together Team challenge, not a member, or
                 the order is not complete.
             RankAgreeConflict: The order changed before the tap landed.
-            GroupAnswerLocked: "Not yet" after the order is in.
+            GroupAnswerLocked: The order is already locked. A repeat tap is
+                refused and does not use the order-changed line.
         """
         self._require_active_live_session(session_id)
-        item = self.get_live_session_item(session_id, live_item_id)
+        # MCK-307: a student tap must not rewrite every placement. A full
+        # sync stamps ``updated_at`` on every question and every phone
+        # reloads ``/state``.
+        item = self.get_live_session_item(session_id, live_item_id, sync="if_stale")
         return self._rank_race_agree_item(item, student_id, agree=agree, order=order)
 
     def _rank_race_agree_item(
@@ -21547,6 +21551,12 @@ class SchoolDB(LovesDB):
         """Body of :meth:`rank_race_agree` for a loaded lifecycle row.
 
         MCK-216: one explicit "Lock in our order" tap; no I-agree quorum.
+
+        MCK-310: the lock is final. A second tap is refused, and it never
+        answers with the "order changed" line. An empty order is not a
+        different order — the phone's take-turns card used to post ``[]``
+        because the spots are not rank rows — so a complete stored order
+        still locks.
         """
         if not self._rank_race_on(item):
             raise ValueError("This question has no team lock-in.")
@@ -21584,13 +21594,6 @@ class SchoolDB(LovesDB):
                 raise ValueError("This group is not on the question.")
             if int(current["submit_count"] or 0) > 0:
                 outcome = "already"
-                try:
-                    final = json.loads(current["final_answer_json"] or "null")
-                except (TypeError, json.JSONDecodeError):
-                    final = None
-                locked_order = [
-                    str(opt) for opt in ((final or {}).get("order") or [])
-                ] if isinstance(final, dict) else []
             else:
                 try:
                     parsed = json.loads(current["proposed_answer_json"] or "null")
@@ -21614,6 +21617,10 @@ class SchoolDB(LovesDB):
                         "order": existing,
                         "complete": complete,
                     }
+                # [] is the take-turns phone posting no rank rows. It is
+                # not a different order, so the stored order can still lock.
+                if seen is not None and not seen:
+                    seen = None
                 if seen is not None and seen != existing:
                     outcome = "stale"
                 elif not complete:
@@ -21633,8 +21640,6 @@ class SchoolDB(LovesDB):
             )
         card = self.student_group_submit_state(item, student_id) or {}
         if outcome == "already":
-            if seen is None or seen == locked_order:
-                return card
             raise GroupAnswerLocked(RACE_LOCKED_COPY, card)
         if outcome == "stale":
             raise RankAgreeConflict(RACE_AGREE_RESET_COPY, "order_changed", card)

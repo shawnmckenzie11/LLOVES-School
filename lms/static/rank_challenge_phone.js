@@ -81,11 +81,31 @@ export function phoneCueHtml(group, status) {
 }
 
 /**
+ * True while Lock in our order should still be on the card.
+ *
+ * Once the order is locked or sent, the button is gone for every teammate.
+ * Take turns shows it only after the last spot is filled.
+ *
+ * @param {any} group ``item.group_submit``
+ * @returns {boolean}
+ */
+export function showLockButton(group) {
+  if (group?.submitted || group?.race?.locked) return false;
+  if (group?.race?.mode === "turns") return Boolean(group?.turns?.done);
+  return true;
+}
+
+/**
  * Lock in our order (enabled when the server says ``race.can_lock``).
+ *
+ * A locked or sent order returns an empty string so the control cannot
+ * be pressed again.
+ *
  * @param {any} group
  * @returns {string}
  */
 export function lockButtonHtml(group) {
+  if (!showLockButton(group)) return "";
   const ready = Boolean(group?.race?.can_lock);
   return `<button type="button" class="prompt-submit race-phone-btn" data-race-lock="1"${
     ready ? "" : " disabled"
