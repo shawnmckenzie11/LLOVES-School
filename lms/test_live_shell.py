@@ -2001,7 +2001,10 @@ class LiveShellTests(unittest.TestCase):
         )
         self.assertEqual(quit.status_code, 302)
         self.assertIsNone(self.school.get_live_session(sid2))
-        self.assertEqual(self.school.list_live_sessions_for_class(self.class_id), [])
+        self.assertEqual(
+            [int(row["id"]) for row in self.school.list_live_sessions_for_class(self.class_id)],
+            [sid],
+        )
         with self.school.game._lock:
             ended_after = int(
                 self.school.game.conn.execute(

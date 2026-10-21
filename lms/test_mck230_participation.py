@@ -19,7 +19,7 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 from app import create_app  # noqa: E402
 from local_dev_seed import LOCAL_DEV_SHAWN_EMAIL, seed_local_dev_school  # noqa: E402
 from participation_weight import participation_fraction  # noqa: E402
-from test_participation_mck198 import Base  # noqa: E402
+from test_participation_mck198 import Base, open_catchup_ended_iso  # noqa: E402
 
 
 class Mck230ParticipationUiTests(unittest.TestCase):
@@ -389,9 +389,15 @@ class Mck230ProdLikeModuleOfferedTests(Base):
         answers: dict[int, int],
         *,
         wipe: bool = True,
-        ended_iso: str = "2026-10-14T14:30:00",
+        ended_iso: str = "",
     ) -> str:
-        """Like ``Base.run_class`` but targets an explicit class id."""
+        """Like ``Base.run_class`` but targets an explicit class id.
+
+        An omitted end time uses the pinned catch-up morning, so the
+        link stays open at 08:00 and at 23:30.
+        """
+        if not ended_iso:
+            ended_iso = open_catchup_ended_iso()
         live = self.school.start_live_class_session(class_id, int(self.teacher["id"]))
         sid = int(live["id"])
         c = self.school.conn

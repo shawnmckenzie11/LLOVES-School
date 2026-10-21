@@ -282,6 +282,7 @@ class ReusedIdTests(Base):
         return int(self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))["id"])
 
     def test_h1_quit_drops_that_run_and_keeps_the_ended_run(self) -> None:
+        """Quit removes the live run and leaves the earlier ended note in place."""
         self._note(self.session_id, "run one")
         first = self.school.get_live_session(self.session_id)
         first_key = str(first["run_key"] or "")
@@ -296,8 +297,11 @@ class ReusedIdTests(Base):
             "present.join", session_id=second, student_id=self.students[0]
         )
         self.school.finish_live_class(self.class_id, persist=False, celebrate=False)
-        kept = sorted(k["note"] for k in self.school.list_observation_history(self.class_id))
+        self.assertIsNotNone(self.school.get_live_session(self.session_id))
+        self.assertIsNone(self.school.get_live_session(second))
+        kept = [row["note"] for row in self.school.list_observations(self.session_id)]
         self.assertEqual(kept, ["run one"])
+        self.assertEqual(self.school.list_observations(second), [])
         self.assertEqual(
             [r["kind"] for r in self.school.list_engagement_events(self.class_id, run_key=first_key)],
             ["note", "present.join"],

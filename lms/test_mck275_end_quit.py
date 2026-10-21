@@ -750,10 +750,11 @@ class EndAlwaysSavesTests(Base):
             follow_redirects=False,
         )
         self.assertEqual(response.status_code, 302)
-        kept = sorted(
-            row["note"] for row in self.school.list_observation_history(self.class_id)
-        )
+        self.assertIsNotNone(self.school.get_live_session(first_id))
+        self.assertIsNone(self.school.get_live_session(second_id))
+        kept = [row["note"] for row in self.school.list_observations(first_id)]
         self.assertEqual(kept, ["older note"])
+        self.assertEqual(self.school.list_observations(second_id), [])
         older_kinds = [
             row["kind"]
             for row in self.school.list_engagement_events(self.class_id, run_key=first_key)

@@ -1228,7 +1228,7 @@ class RosterTests(unittest.TestCase):
         }
 
     def test_end_live_class_wipes_all_sessions_and_data(self) -> None:
-        """End Live Class deletes every session for the class, not just status."""
+        """End keeps every session. The next Start closes celebration and adds a row."""
         created = self.client.post(
             "/api/staff/classes",
             json={
@@ -1335,8 +1335,11 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(fresh["status"], "active")
         ids = [int(row["id"]) for row in self.school.list_live_sessions_for_class(class_id)]
         self.assertIn(first_id, ids)
+        self.assertIn(second_id, ids)
         self.assertIn(int(fresh["id"]), ids)
-        self.assertEqual(len(ids), 2)
+        self.assertEqual(len(ids), 3)
+        self.assertFalse(self.school.session_is_celebrating(second_id))
+        self.assertGreater(self._count_session_children([second_id])["observations"], 0)
         children = self._count_session_children([int(fresh["id"])])
         self.assertEqual(children["attendees"], 0)
         self.assertEqual(children["responses"], 0)

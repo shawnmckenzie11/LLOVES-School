@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""MCK-108 follow-up: End then Start on a reused session id, and End's postcard.
+"""MCK-108 follow-up: End then Start keeps the ended row, and End's postcard.
 
 After End, open student tabs hold the celebration's ``state_seq``. Their
-poll guard and their LiveNewsWire drop any lower seq. The next Start can
-reuse the wiped session id, so the new run must start above that seq.
-End must also tell streaming tabs, or they wait for the 20 s safety poll.
+poll guard and their LiveNewsWire drop any lower seq. The next Start
+keeps that row and must start above that seq. End must also tell
+streaming tabs, or they wait for the 20 s safety poll.
 """
 
 from __future__ import annotations
@@ -104,8 +104,9 @@ class EndStartSeqTests(shell.LiveShellTests):
             self.class_id, int(self.teacher["id"])
         )
         new_sid = int(live["id"])
-        # SQLite gives the wiped row's id to the new run (the Ops repro).
-        self.assertEqual(new_sid, sid)
+        # The ended row keeps its id. The next run is a new row (MCK-311).
+        self.assertNotEqual(new_sid, sid)
+        self.assertEqual(self.school.get_live_session(sid)["status"], "ended")
         self.school.join_live_class_session(new_sid, student_id, codename="Aspen")
         self._bind_aspen_live_session(new_sid, student_id)
 

@@ -40,7 +40,8 @@ class QuitStartSeqTests(EndStartSeqTests):
             self.class_id, int(self.teacher["id"])
         )
         new_sid = int(live["id"])
-        self.assertEqual(new_sid, sid)
+        self.assertNotEqual(new_sid, sid)
+        self.assertEqual(self.school.get_live_session(sid)["status"], "ended")
         self.school.join_live_class_session(new_sid, student_id, codename="Aspen")
         self._bind_aspen_live_session(new_sid, student_id)
         body = self.client.get(
@@ -92,7 +93,7 @@ class QuitStartSeqTests(EndStartSeqTests):
             self.class_id, int(self.teacher["id"])
         )
         new_sid = int(live["id"])
-        self.assertEqual(new_sid, sid)
+        self.assertNotEqual(new_sid, sid)
         self.assertEqual(self._tape(new_sid), [], "old postcards replay")
         stream = self.client.get(f"/api/live/session/{new_sid}/events")
         self.assertEqual(stream.status_code, 200)

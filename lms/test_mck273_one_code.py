@@ -574,8 +574,8 @@ class OneCodeTests(Base):
             ).fetchone()["run_key"]
         )
         if close == "expired":
-            # Start wipes a celebrating session. The open-until date then
-            # comes from the result snapshot, so both have to be in the past.
+            # The ended row stays. The open-until date also comes from the
+            # result snapshot, so both have to be in the past.
             self.school.conn.execute(
                 """
                 UPDATE live_class_sessions
