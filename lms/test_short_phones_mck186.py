@@ -38,7 +38,8 @@ class PresenceTokenTests(t184.TurnsHarness):
         raw = self.school._present_attendee_rev(self.session_id)
         self.assertRegex(raw, r"^[sp]\d+\.\d+\.\d+$")  # raw stays on the server
         stamp = self._poll("Ava")["stamp"]
-        self.assertIn(token, stamp)
+        phone = stamp.rsplit(":", 1)[1]
+        self.assertRegex(phone, r"^h[0-9a-f]{12}$")
         self.assertNotIn(raw, stamp)
         self.assertNotIn(raw[1:], stamp)
 

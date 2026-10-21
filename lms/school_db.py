@@ -1930,6 +1930,8 @@ GROUP_ROW_RESPONSE_MODES = frozenset({"group_submit", "team_draw"})
 LESSON_SLIDE_GROUP_MODES = frozenset(
     {"group", "group_consensus", "group_shared", "group_submit", "team_draw"}
 )
+# Staff-authored live questions. test_fanout_guard lists every one of these.
+LIVE_QUESTION_TYPES = frozenset({"mc", "numeric", "poll", "rank", "team_draw"})
 
 
 class GroupAnswerLocked(ValueError):
@@ -14943,7 +14945,7 @@ class SchoolDB(LovesDB):
             from lms.bank_mc_normalize import parse_module_token
 
         kind = str(question_type or "").strip().lower()
-        if kind not in {"mc", "numeric", "poll", "rank", "team_draw"}:
+        if kind not in LIVE_QUESTION_TYPES:
             raise ValueError("type must be mc, numeric, poll, rank, or team_draw")
         stem = str(text or "").strip()
         if not stem:
@@ -17456,13 +17458,15 @@ class SchoolDB(LovesDB):
             return prompt
         self._attach_singular_answer_key(payload, question)
         with self._lock:
+            # The key stays on the server. Touching updated_at would move
+            # every phone's poll stamp on the first answer.
             self.conn.execute(
                 """
                 UPDATE live_session_prompts
-                SET payload = ?, updated_at = ?
+                SET payload = ?
                 WHERE id = ?
                 """,
-                (json.dumps(payload), _now(), int(prompt["id"])),
+                (json.dumps(payload), int(prompt["id"])),
             )
             self.conn.commit()
             row = self.conn.execute(
@@ -44073,20 +44077,135 @@ class SchoolDB(LovesDB):
             payload.append(item)
         return payload
 
+    def _is_session_attendee(self, session_id: int, student_id: int) -> bool:
+        """True when this roster id has a row on the live session.
+
+        A leave keeps the row. An id that never joined is not an attendee
+        and keeps the class-wide poll token.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id.
+        """
+        try:
+            sid = int(session_id)
+            student = int(student_id)
+        except (TypeError, ValueError):
+            return False
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT 1 AS ok FROM live_session_attendees
+                WHERE live_session_id = ? AND student_id = ?
+                LIMIT 1
+                """,
+                (sid, student),
+            ).fetchone()
+        return row is not None
+
+    def _solo_attendee(
+        self, session_id: int, class_id: int | None, student_id: int
+    ) -> bool:
+        """True when a joined student is not on a game team.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            class_id: Game-show class id. ``None`` is not a solo.
+            student_id: Roster id.
+        """
+        if class_id in (None, ""):
+            return False
+        try:
+            sid = int(session_id)
+            cid = int(class_id)
+            student = int(student_id)
+        except (TypeError, ValueError):
+            return False
+        if not self._is_session_attendee(sid, student):
+            return False
+        return self.student_team_id_for_class(cid, student) is None
+
+    def _scoped_response_max(self, session_id: int, student_id: int) -> int | None:
+        """This attendee's own response id, or None for the class-wide max.
+
+        A private answer must move only that student's stamp. Someone who
+        never joined keeps the class-wide max.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id.
+        """
+        try:
+            sid = int(session_id)
+            student = int(student_id)
+        except (TypeError, ValueError):
+            return None
+        if not self._is_session_attendee(sid, student):
+            return None
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT COALESCE(MAX(r.id), 0) AS response_max
+                FROM live_session_responses r
+                INNER JOIN live_session_prompts p ON p.id = r.prompt_id
+                WHERE p.live_session_id = ? AND r.student_id = ?
+                """,
+                (sid, student),
+            ).fetchone()
+        try:
+            return int(row["response_max"] if row is not None else 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def _presence_scope_ids(
+        self, session_id: int, class_id: int, student_id: int
+    ) -> tuple[int, ...] | None:
+        """Roster ids whose presence this phone watches, or None for everyone.
+
+        None when the id never joined. An attendee on a game team watches
+        that team. An attendee with no team watches only themselves.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            class_id: Game-show class id.
+            student_id: Roster id.
+        """
+        try:
+            sid = int(session_id)
+            cid = int(class_id)
+            student = int(student_id)
+        except (TypeError, ValueError):
+            return None
+        if not self._is_session_attendee(sid, student):
+            return None
+        team_id = self.student_team_id_for_class(cid, student)
+        if team_id is None:
+            return (student,)
+        mates = self._teammate_ids_for_class(cid, team_id)
+        found = {int(sid_) for sid_ in mates}
+        found.add(student)
+        return tuple(sorted(found))
+
     def _team_group_response_rev(
-        self, session_id: int, student_id: int
+        self,
+        session_id: int,
+        student_id: int,
+        class_id: int | None = None,
     ) -> str | None:
         """Group-response stamp for one student's teams, or None if unknown.
 
         None keeps the class-wide token. A student with no membership on an
         open group item must not get a stamp that ignores another team's
-        write they might still be waiting on. When membership is known, only
-        that student's team rows are folded in, so another team's draft does
-        not force a full ``/state`` build.
+        write they might still be waiting on, unless they joined and are
+        not on a game team. That solo attendee gets ``""``. When membership
+        is known, only that student's team rows are folded in, so another
+        team's draft does not force a full ``/state`` build.
 
         Args:
             session_id: ``live_class_sessions.id``.
             student_id: Roster id.
+            class_id: Game-show class id, to recognize a solo attendee.
+                Omit it to keep the class-wide fallback.
         """
         try:
             sid = int(session_id)
@@ -44106,46 +44225,54 @@ class SchoolDB(LovesDB):
                 """,
                 (sid, student),
             ).fetchone()
-            if member is None:
-                return None
-            row = self.conn.execute(
-                """
-                SELECT COALESCE((
-                    SELECT MAX(COALESCE(g.updated_at, '') || '|' || COALESCE(g.voting_ended_at, ''))
-                           || '|' || TOTAL(COALESCE(g.submit_count, 0))
-                           || '|' || TOTAL(CASE WHEN json_valid(g.proposed_answer_json)
-                                THEN COALESCE(json_extract(g.proposed_answer_json, '$.rev'), 0)
-                                ELSE 0 END)
-                    FROM live_group_responses g
-                    INNER JOIN live_session_items i ON i.id = g.live_item_id
-                    WHERE i.live_session_id = ?
-                      AND EXISTS (
-                        SELECT 1 FROM live_group_members m
-                        WHERE m.live_item_id = g.live_item_id
-                          AND m.student_id = ?
-                          AND m.team_id = g.team_id
-                      )
-                ), '') AS rev
-                """,
-                (sid, student),
-            ).fetchone()
-        return str(row["rev"] if row is not None else "")
+            if member is not None:
+                row = self.conn.execute(
+                    """
+                    SELECT COALESCE((
+                        SELECT MAX(COALESCE(g.updated_at, '') || '|' || COALESCE(g.voting_ended_at, ''))
+                               || '|' || TOTAL(COALESCE(g.submit_count, 0))
+                               || '|' || TOTAL(CASE WHEN json_valid(g.proposed_answer_json)
+                                    THEN COALESCE(json_extract(g.proposed_answer_json, '$.rev'), 0)
+                                    ELSE 0 END)
+                        FROM live_group_responses g
+                        INNER JOIN live_session_items i ON i.id = g.live_item_id
+                        WHERE i.live_session_id = ?
+                          AND EXISTS (
+                            SELECT 1 FROM live_group_members m
+                            WHERE m.live_item_id = g.live_item_id
+                              AND m.student_id = ?
+                              AND m.team_id = g.team_id
+                          )
+                    ), '') AS rev
+                    """,
+                    (sid, student),
+                ).fetchone()
+                return str(row["rev"] if row is not None else "")
+        if self._solo_attendee(sid, class_id, student):
+            return ""
+        return None
 
     def _team_group_vote_rev(
-        self, session_id: int, student_id: int
+        self,
+        session_id: int,
+        student_id: int,
+        class_id: int | None = None,
     ) -> tuple[int, str] | None:
         """Vote-row stamp for one student's teams, or None if unknown.
 
         None keeps the class-wide token. A student with no membership on an
-        open group item keeps the class-wide vote revision. When membership
-        is known, only that student's team vote rows are folded in, so
-        another team's pick does not force a full ``/state`` build. A
-        member with no vote row yet still gets ``(0, "")``, which stays
-        put while another team picks.
+        open group item keeps the class-wide vote revision, unless they
+        joined and are not on a game team. That solo attendee gets
+        ``(0, "")``. When membership is known, only that student's team
+        vote rows are folded in, so another team's pick does not force a
+        full ``/state`` build. A member with no vote row yet still gets
+        ``(0, "")``, which stays put while another team picks.
 
         Args:
             session_id: ``live_class_sessions.id``.
             student_id: Roster id.
+            class_id: Game-show class id, to recognize a solo attendee.
+                Omit it to keep the class-wide fallback.
 
         Returns:
             ``(max vote id, latest updated_at)`` for those teams.
@@ -44168,31 +44295,33 @@ class SchoolDB(LovesDB):
                 """,
                 (sid, student),
             ).fetchone()
-            if member is None:
-                return None
-            row = self.conn.execute(
-                """
-                SELECT COALESCE(MAX(v.id), 0) AS vote_max,
-                       COALESCE(MAX(v.updated_at), '') AS vote_rev
-                FROM live_group_votes v
-                INNER JOIN live_session_items i ON i.id = v.live_item_id
-                WHERE i.live_session_id = ?
-                  AND EXISTS (
-                    SELECT 1 FROM live_group_members m
-                    WHERE m.live_item_id = v.live_item_id
-                      AND m.student_id = ?
-                      AND m.team_id = v.team_id
-                  )
-                """,
-                (sid, student),
-            ).fetchone()
-        if row is None:
+            if member is not None:
+                row = self.conn.execute(
+                    """
+                    SELECT COALESCE(MAX(v.id), 0) AS vote_max,
+                           COALESCE(MAX(v.updated_at), '') AS vote_rev
+                    FROM live_group_votes v
+                    INNER JOIN live_session_items i ON i.id = v.live_item_id
+                    WHERE i.live_session_id = ?
+                      AND EXISTS (
+                        SELECT 1 FROM live_group_members m
+                        WHERE m.live_item_id = v.live_item_id
+                          AND m.student_id = ?
+                          AND m.team_id = v.team_id
+                      )
+                    """,
+                    (sid, student),
+                ).fetchone()
+                if row is None:
+                    return 0, ""
+                try:
+                    vote_max = int(row["vote_max"] or 0)
+                except (TypeError, ValueError):
+                    vote_max = 0
+                return vote_max, str(row["vote_rev"] or "")
+        if self._solo_attendee(sid, class_id, student):
             return 0, ""
-        try:
-            vote_max = int(row["vote_max"] or 0)
-        except (TypeError, ValueError):
-            vote_max = 0
-        return vote_max, str(row["vote_rev"] or "")
+        return None
 
     def live_student_poll_stamp(
         self,
@@ -44219,12 +44348,13 @@ class SchoolDB(LovesDB):
         Args:
             session_id: ``live_class_sessions.id``.
             class_id: Game-show class id (accepted for call-site clarity).
-            student_id: When set, the group-response field and the vote
-                revision are only that student's teams. Omit it for the
-                class-wide token tests and callers already use. Every
-                other field stays class-wide.
+            student_id: When set, the group-response field, the vote
+                revision, that attendee's own response id, and (while a
+                Take turns item is open) the presence token follow that
+                student. A solo attendee gets an empty group field and
+                only their own presence. Omit it for the class-wide
+                token. An id that never joined keeps the class-wide token.
         """
-        del class_id
         teacher = self.live_session_teacher_state_payload(session_id)
         seq = int(teacher.get("state_seq") or 0)
         celebrate = 1 if teacher.get("celebrate") else 0
@@ -44350,15 +44480,21 @@ class SchoolDB(LovesDB):
         # touches the team row; teammates must not keep a stale card.
         group_response_rev = str(row["group_response_rev"] if row is not None else "")
         if student_id not in (None, ""):
-            scoped = self._team_group_response_rev(int(session_id), int(student_id))
+            sid_i = int(student_id)
+            scoped = self._team_group_response_rev(int(session_id), sid_i, class_id)
             if scoped is not None:
                 group_response_rev = scoped
                 # MCK-307: picks and consensus votes live in live_group_votes.
                 # Those two fields were still class-wide, so one team's letter
                 # rebuilt /state on every phone. Fold the same membership.
-                vote_scoped = self._team_group_vote_rev(int(session_id), int(student_id))
+                vote_scoped = self._team_group_vote_rev(int(session_id), sid_i, class_id)
                 if vote_scoped is not None:
                     group_vote_max, group_vote_rev = vote_scoped
+            # A private answer is this student's row only. The class-wide
+            # max would rebuild every other phone.
+            response_scoped = self._scoped_response_max(int(session_id), sid_i)
+            if response_scoped is not None:
+                response_max = response_scoped
         status = str(status_row["status"] if status_row is not None else "")
         # MCK-171: the Team challenge reveal step (the podium step writes no
         # point event, so phones would otherwise get "unchanged").
@@ -44368,11 +44504,14 @@ class SchoolDB(LovesDB):
         # sweep or a rejoin writes no item row, so without this a waiting
         # phone got "unchanged" forever and its turn never enabled. Only
         # read while such an item is open (one cheap query).
-        presence_rev = (
-            self._presence_stamp_token(int(session_id))
-            if row is not None and row["presence_gated"]
-            else ""
-        )
+        presence_rev = ""
+        if row is not None and row["presence_gated"]:
+            if student_id not in (None, ""):
+                presence_rev = self._presence_stamp_token(
+                    int(session_id), int(student_id), class_id
+                )
+            else:
+                presence_rev = self._presence_stamp_token(int(session_id))
         # Ink lives in board_ops. It must not change this stamp, or every
         # stroke forces a full ``/state`` rebuild.
         return (
@@ -44389,7 +44528,12 @@ class SchoolDB(LovesDB):
     #: rebuilds on every Take turns phone). Bounded; per process.
     _PRESENCE_TOKEN_CACHE_MAX = 256
 
-    def _presence_stamp_token(self, session_id: int) -> str:
+    def _presence_stamp_token(
+        self,
+        session_id: int,
+        student_id: int | None = None,
+        class_id: int | None = None,
+    ) -> str:
         """Short keyed hash of the present set, for the student poll stamp.
 
         The raw token (count, SUM(id), SUM(id²)) told every phone how many
@@ -44397,38 +44541,65 @@ class SchoolDB(LovesDB):
         The stamp only needs "did it change", so phones get the first 12
         hex of an HMAC over it, keyed with the app secret (shared by every
         worker, so all workers agree). During a presence outage the last
-        good token for the session is kept.
+        good token for that scope is kept. The cache key is the session
+        plus the watched roster, so one team's token cannot replace the
+        class-wide token.
 
         Args:
             session_id: ``live_class_sessions.id``.
+            student_id: When set with ``class_id``, hash only that
+                student's team (or only themselves when they have no team).
+            class_id: Game-show class id for the team lookup.
         """
+        scope: tuple[int, ...] | None = None
+        if student_id not in (None, "") and class_id not in (None, ""):
+            scope = self._presence_scope_ids(int(session_id), int(class_id), int(student_id))
+        cache_key = (int(session_id), scope)
         cache = self.__dict__.setdefault("_presence_token_cache", {})
-        raw = self._present_attendee_rev(int(session_id))
+        raw = self._present_attendee_rev(int(session_id), scope)
         if not raw:
-            return str(cache.get(int(session_id), ""))
+            return str(cache.get(cache_key, ""))
         from rank_alias import rank_alias_secret
 
         key = (str(getattr(self, "rank_alias_secret", "") or "") or rank_alias_secret()).encode("utf-8")
-        msg = f"presence\x1f{int(session_id)}\x1f{raw}".encode("utf-8")
+        scope_msg = "" if scope is None else ",".join(str(sid) for sid in scope)
+        msg = f"presence\x1f{int(session_id)}\x1f{scope_msg}\x1f{raw}".encode("utf-8")
         token = "h" + hmac.new(key, msg, hashlib.sha256).hexdigest()[:12]
-        if int(session_id) not in cache and len(cache) >= self._PRESENCE_TOKEN_CACHE_MAX:
+        if cache_key not in cache and len(cache) >= self._PRESENCE_TOKEN_CACHE_MAX:
             cache.pop(next(iter(cache)), None)
-        cache[int(session_id)] = token
+        cache[cache_key] = token
         return token
 
-    def _present_attendee_rev(self, session_id: int) -> str:
-        """Token that changes whenever the session's present set changes.
+    def _present_attendee_rev(
+        self,
+        session_id: int,
+        student_ids: tuple[int, ...] | list[int] | None = None,
+    ) -> str:
+        """Token that changes whenever the present set changes.
 
         Postgres presence (when on) is the source of truth; otherwise the
         sqlite ``left_at`` column. A presence outage reads as ``""`` (the
         stamp then behaves as before) rather than failing the poll.
+        ``student_ids`` limits the token to those roster ids. Omit it for
+        the whole session.
 
         Args:
             session_id: ``live_class_sessions.id``.
+            student_ids: Roster ids to include. ``None`` is everyone still
+                present.
         """
+        scope: tuple[int, ...] | None
+        if student_ids is None:
+            scope = None
+        else:
+            scope = tuple(int(sid) for sid in student_ids)
         if self.presence is not None:
             try:
-                return "p" + str(self.presence.present_rev(int(session_id)))
+                if scope is None:
+                    raw = self.presence.present_rev(int(session_id))
+                else:
+                    raw = self.presence.present_rev_for_students(int(session_id), list(scope))
+                return "p" + str(raw)
             except Exception as exc:
                 from live_presence import LivePresenceUnavailable, note_presence_blip
 
@@ -44436,16 +44607,31 @@ class SchoolDB(LovesDB):
                     raise
                 note_presence_blip(f"present rev skipped session={session_id}")
                 return ""
+        if scope is not None and not scope:
+            return "s0.0.0"
         with self._lock:
-            row = self.conn.execute(
-                """
-                SELECT COUNT(*) AS n, COALESCE(SUM(id), 0) AS s1,
-                       COALESCE(SUM(id * id), 0) AS s2
-                FROM live_session_attendees
-                WHERE live_session_id = ? AND left_at IS NULL
-                """,
-                (int(session_id),),
-            ).fetchone()
+            if scope is None:
+                row = self.conn.execute(
+                    """
+                    SELECT COUNT(*) AS n, COALESCE(SUM(id), 0) AS s1,
+                           COALESCE(SUM(id * id), 0) AS s2
+                    FROM live_session_attendees
+                    WHERE live_session_id = ? AND left_at IS NULL
+                    """,
+                    (int(session_id),),
+                ).fetchone()
+            else:
+                marks = ",".join("?" for _ in scope)
+                row = self.conn.execute(
+                    f"""
+                    SELECT COUNT(*) AS n, COALESCE(SUM(id), 0) AS s1,
+                           COALESCE(SUM(id * id), 0) AS s2
+                    FROM live_session_attendees
+                    WHERE live_session_id = ? AND left_at IS NULL
+                      AND student_id IN ({marks})
+                    """,
+                    (int(session_id), *scope),
+                ).fetchone()
         if row is None:
             return ""
         return f"s{int(row['n'])}.{int(row['s1'])}.{int(row['s2'])}"

@@ -332,7 +332,7 @@ def submit_team_draw(
 
     del title
 
-    item = self.get_live_session_item(session_id, live_item_id)
+    item = self.get_live_session_item(session_id, live_item_id, sync="if_stale")
     if str(item.get("response_mode") or "") != TEAM_DRAW_RESPONSE_MODE:
         raise ValueError("Not a Team Draw question.")
     if str(item.get("status") or "") != "active":
@@ -474,7 +474,7 @@ def submit_individual_draw(
     """
     from school_db import GroupAnswerLocked, _now
 
-    item = self.get_live_session_item(session_id, live_item_id)
+    item = self.get_live_session_item(session_id, live_item_id, sync="if_stale")
     if self._question_answer_kind(item) != "team_draw":
         raise ValueError("Not a draw question.")
     if str(item.get("response_mode") or "") != "individual":

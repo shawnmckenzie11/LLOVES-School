@@ -9,8 +9,10 @@ import secrets
 import sys
 import unittest
 import urllib.parse
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 LMS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(LMS_DIR))
@@ -481,13 +483,17 @@ class OneCodeTests(Base):
         self.school.set_student_pin(self.class_id, self.students[0], numeric)
         still = self.school.catchup_sign_in(token, self.first, numeric)
         self.assertTrue(still.get("ok"), still.get("reason"))
+        # Two days ago stays inside the seven-day legacy window.
+        ended = (
+            datetime.now(ZoneInfo("America/Toronto")) - timedelta(days=2)
+        ).replace(microsecond=0, tzinfo=None)
         self.school.conn.execute(
             """
             UPDATE live_class_sessions
             SET ended_at = ?
             WHERE class_id = ? AND run_key = ?
             """,
-            ("2026-10-14T13:20:00", self.class_id, run_key),
+            (ended.isoformat(timespec="seconds"), self.class_id, run_key),
         )
         self.school.conn.execute(
             """
