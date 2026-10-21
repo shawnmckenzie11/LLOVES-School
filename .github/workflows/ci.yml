@@ -53,3 +53,43 @@ jobs:
         # sitting in_progress for hours.
         timeout-minutes: 30
         run: timeout -s ABRT 25m python -X faulthandler -m unittest discover -s lms -p 'test_*.py' -v
+
+  fanout-guard:
+    name: fan-out guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r lms/requirements.txt
+
+      - name: Fan-out guard
+        env:
+          ALLOW_DEV_VERIFICATION_CODE: "1"
+        timeout-minutes: 15
+        run: python -m unittest discover -s lms -p 'test_fanout_guard.py' -v
+
+  load-budget:
+    name: 30-seat load budget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r lms/requirements.txt
+
+      - name: 30-seat load budget
+        env:
+          ALLOW_DEV_VERIFICATION_CODE: "1"
+        timeout-minutes: 15
+        run: python scripts/load_class.py --sqlite-budget --students 30 --out lc-qa/load-budget
