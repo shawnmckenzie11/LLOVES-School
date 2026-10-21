@@ -5749,149 +5749,707 @@ class LovesDB:
         return self.get_user(user_id) or {}
 
     def delete_staff_permanently(self, user_id: int, by_user_id: int) -> dict[str, Any]:
-        """Hard-delete a staff user and their offerings / live-class data.
+        """Hard-delete one staff account and the rows that account owns.
 
-        Frees the email for re-registration. Shared content libraries are kept.
-        Offering instance directories under the data volume are removed when present.
+        Runs in one sqlite transaction. Child rows go before the user row,
+        with foreign keys left on. A failure rolls the transaction back and
+        raises. Shared course packs and question banks stay. Offering
+        instance directories are removed only after the transaction commits.
 
         Args:
             user_id: Primary key of the staff user to delete.
-            by_user_id: Primary key of the requesting IT user (cannot equal user_id).
+            by_user_id: Primary key of the admin requesting the delete.
 
         Returns:
             Snapshot of the deleted user row (before delete).
 
         Raises:
-            ValueError: Self-delete, IT target, missing user, or non-staff role.
+            ValueError: The actor is not an admin, the target is the actor,
+                the target is in another school, the target is missing, or
+                the target is not a staff account.
+            sqlite3.IntegrityError: A owned row still references the account.
+                Nothing from this delete is kept.
         """
-        if user_id == by_user_id:
+        data_dir = Path(getattr(self, "data_dir", self.db_path.parent))
+        with self._lock:
+            snapshot = self._validate_staff_permanent_delete(int(user_id), int(by_user_id))
+            uid = int(user_id)
+            if self.conn.in_transaction:
+                self.conn.execute("ROLLBACK")
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                instance_paths, external = self._delete_staff_owned_unlocked(uid)
+                self._purge_staff_external_stores(external)
+                self.conn.execute("COMMIT")
+            except Exception:
+                if self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                raise
+        self._remove_offering_instance_dirs(data_dir, instance_paths)
+        return snapshot
+
+    def _validate_staff_permanent_delete(
+        self, user_id: int, by_user_id: int
+    ) -> dict[str, Any]:
+        """Refuse a permanent delete the admin is not allowed to run.
+
+        Caller holds ``self._lock``. This does not write.
+
+        Args:
+            user_id: Account to delete.
+            by_user_id: Signed-in admin.
+
+        Returns:
+            A copy of the target user row.
+
+        Raises:
+            ValueError: The delete is not allowed.
+        """
+        if int(user_id) == int(by_user_id):
             raise ValueError("You cannot permanently delete your own account.")
-        target = self.get_user(user_id)
+        target = self.get_user(int(user_id))
         if target is None:
-            raise ValueError(f"User {user_id} not found.")
+            raise ValueError(f"User {int(user_id)} not found.")
+        actor = self.get_user(int(by_user_id))
+        if actor is None or str(actor.get("role") or "") != "it":
+            raise ValueError("Only an admin can permanently delete an account.")
+        if not self.same_tenant(actor, target):
+            raise ValueError("That account is in another school.")
         if target.get("role") == "it":
             raise ValueError("IT accounts cannot be permanently deleted.")
         if target.get("role") != "staff":
             raise ValueError("Only staff accounts can be permanently deleted.")
+        return dict(target)
 
-        snapshot = dict(target)
+    def _sqlite_table_names(self) -> set[str]:
+        """Return every application table name in this sqlite file.
+
+        Caller holds ``self._lock``.
+        """
+        rows = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+        return {str(row[0]) for row in rows}
+
+    def _delete_ids(
+        self,
+        table: str,
+        column: str,
+        values: list[Any],
+        present: set[str],
+    ) -> None:
+        """Delete rows whose ``column`` is one of ``values``.
+
+        ``table`` and ``column`` are fixed identifiers from this module.
+        Empty ``values`` and a missing table are a no-op. Caller holds the
+        open delete transaction.
+
+        Args:
+            table: Table to delete from.
+            column: Column compared to ``values``.
+            values: Ids or keys to remove.
+            present: Table names from :meth:`_sqlite_table_names`.
+        """
+        if not values or table not in present:
+            return
+        marks = ",".join("?" * len(values))
+        self.conn.execute(
+            f"DELETE FROM {table} WHERE {column} IN ({marks})",
+            tuple(values),
+        )
+
+    def _select_ids(self, sql: str, params: tuple[Any, ...]) -> list[int]:
+        """Return the first column of ``sql`` as ints.
+
+        Args:
+            sql: A ``SELECT`` of one id column.
+            params: Bind values.
+        """
+        return [int(row[0]) for row in self.conn.execute(sql, params).fetchall()]
+
+    def _delete_staff_owned_unlocked(
+        self, user_id: int
+    ) -> tuple[list[str], dict[str, list[Any]]]:
+        """Delete one staff account's rows, children before parents.
+
+        Caller holds ``self._lock`` and an open transaction. Foreign keys
+        stay on. Shared libraries, banks, and questions are not deleted.
+        Copy pointers on offerings that remain are cleared so a reused
+        offering id cannot attach to the wrong course.
+
+        Args:
+            user_id: Staff ``users.id``.
+
+        Returns:
+            Instance directory paths to remove after commit, and the ids
+            external stores still need (sessions, board keys, classes,
+            run keys).
+        """
         uid = int(user_id)
-        data_dir = Path(getattr(self, "data_dir", self.db_path.parent))
+        present = self._sqlite_table_names()
+        offering_rows = self.conn.execute(
+            """
+            SELECT id, instance_relpath FROM course_offerings
+            WHERE teacher_user_id = ?
+            """,
+            (uid,),
+        ).fetchall()
+        offering_ids = [int(row["id"]) for row in offering_rows]
+        instance_paths = [
+            str(row["instance_relpath"] or "").strip()
+            for row in offering_rows
+            if str(row["instance_relpath"] or "").strip()
+        ]
+        class_ids = self._staff_owned_class_ids(uid, offering_ids, present)
+        session_ids = self._staff_owned_session_ids(
+            uid, offering_ids, class_ids, present
+        )
+        board_keys, run_keys = self._staff_owned_board_keys(session_ids, present)
+        self._delete_live_session_children(session_ids, present)
+        self._delete_staff_observations(uid, class_ids, session_ids, present)
+        self._delete_class_owned_rows(class_ids, present)
+        self._delete_board_rows(board_keys, present)
+        self._delete_seq_floors(class_ids, session_ids, present)
+        self._delete_end_claims(class_ids, run_keys, present)
+        self._delete_game_graph(class_ids, present)
+        self._delete_ids("live_class_sessions", "id", session_ids, present)
+        self._delete_ids("classes", "id", class_ids, present)
+        self._delete_owned_offerings(offering_ids, present)
+        self._delete_staff_invites(uid, present)
+        self._null_staff_user_pointers(uid, present)
+        self._delete_ids("google_api_tokens", "user_id", [uid], present)
+        self._delete_ids("google_slides_read_tokens", "user_id", [uid], present)
+        self.conn.execute("DELETE FROM users WHERE id = ?", (uid,))
+        external = {
+            "session_ids": session_ids,
+            "board_keys": board_keys,
+            "class_ids": class_ids,
+            "run_keys": run_keys,
+        }
+        return instance_paths, external
 
-        with self._lock:
-            offering_rows = self.conn.execute(
-                "SELECT id, instance_relpath FROM course_offerings WHERE teacher_user_id = ?",
+    def _staff_owned_class_ids(
+        self, user_id: int, offering_ids: list[int], present: set[str]
+    ) -> list[int]:
+        """Class ids taught by this account, not another teacher's class.
+
+        A class linked to this account's offering is included only when its
+        teacher is this account or unset.
+
+        Args:
+            user_id: Staff ``users.id``.
+            offering_ids: This account's ``course_offerings.id`` values.
+            present: Table names in this database.
+        """
+        if "classes" not in present:
+            return []
+        if offering_ids:
+            marks = ",".join("?" * len(offering_ids))
+            return self._select_ids(
+                f"""
+                SELECT id FROM classes
+                WHERE teacher_user_id = ?
+                   OR (
+                        offering_id IN ({marks})
+                        AND (teacher_user_id IS NULL OR teacher_user_id = ?)
+                   )
+                """,
+                (int(user_id), *offering_ids, int(user_id)),
+            )
+        return self._select_ids(
+            "SELECT id FROM classes WHERE teacher_user_id = ?",
+            (int(user_id),),
+        )
+
+    def _staff_owned_session_ids(
+        self,
+        user_id: int,
+        offering_ids: list[int],
+        class_ids: list[int],
+        present: set[str],
+    ) -> list[int]:
+        """Live session ids this account started or that belong to its classes.
+
+        Args:
+            user_id: Staff ``users.id``.
+            offering_ids: This account's offering ids.
+            class_ids: This account's class ids.
+            present: Table names in this database.
+        """
+        if "live_class_sessions" not in present:
+            return []
+        clauses = ["teacher_user_id = ?"]
+        params: list[Any] = [int(user_id)]
+        if class_ids:
+            marks = ",".join("?" * len(class_ids))
+            clauses.append(f"class_id IN ({marks})")
+            params.extend(class_ids)
+        if offering_ids:
+            marks = ",".join("?" * len(offering_ids))
+            clauses.append(
+                f"(offering_id IN ({marks}) AND "
+                "(teacher_user_id IS NULL OR teacher_user_id = ?))"
+            )
+            params.extend(offering_ids)
+            params.append(int(user_id))
+        sql = f"SELECT id FROM live_class_sessions WHERE {' OR '.join(clauses)}"
+        return self._select_ids(sql, tuple(params))
+
+    def _staff_owned_board_keys(
+        self, session_ids: list[int], present: set[str]
+    ) -> tuple[list[str], list[str]]:
+        """Board partition keys and run keys for these live sessions.
+
+        Reads ``run_key`` and ``board_gen`` only. It does not mint a key.
+
+        Args:
+            session_ids: ``live_class_sessions.id`` values.
+            present: Table names in this database.
+
+        Returns:
+            ``(board_keys, run_keys)``. Generation 0 is the run key itself.
+        """
+        if not session_ids or "live_class_sessions" not in present:
+            return [], []
+        marks = ",".join("?" * len(session_ids))
+        rows = self.conn.execute(
+            f"""
+            SELECT run_key, COALESCE(board_gen, 0) AS board_gen
+            FROM live_class_sessions WHERE id IN ({marks})
+            """,
+            tuple(session_ids),
+        ).fetchall()
+        board_keys: list[str] = []
+        run_keys: list[str] = []
+        seen: set[str] = set()
+        for row in rows:
+            base = str(row["run_key"] or "").strip()
+            if not base:
+                continue
+            run_keys.append(base)
+            gen = int(row["board_gen"] or 0)
+            for step in range(gen + 1):
+                key = self.board_generation_key(base, step)
+                if key not in seen:
+                    seen.add(key)
+                    board_keys.append(key)
+        return board_keys, run_keys
+
+    def _delete_live_session_children(
+        self, session_ids: list[int], present: set[str]
+    ) -> None:
+        """Delete live-session children before the session row.
+
+        Prompt responses and group rows go first. Item rows drop their
+        prompt link before either parent is removed, so the prompt foreign
+        key does not fail the session delete.
+
+        Args:
+            session_ids: ``live_class_sessions.id`` values.
+            present: Table names in this database.
+        """
+        if not session_ids:
+            return
+        marks = ",".join("?" * len(session_ids))
+        params = tuple(session_ids)
+        prompt_sub = (
+            f"SELECT id FROM live_session_prompts WHERE live_session_id IN ({marks})"
+        )
+        item_sub = (
+            f"SELECT id FROM live_session_items WHERE live_session_id IN ({marks})"
+        )
+        for table, column, sub in (
+            ("live_session_responses", "prompt_id", prompt_sub),
+            ("live_group_members", "live_item_id", item_sub),
+            ("live_group_votes", "live_item_id", item_sub),
+            ("live_group_responses", "live_item_id", item_sub),
+            ("live_rank_race_steps", "live_item_id", item_sub),
+            ("live_rank_race_awards", "live_item_id", item_sub),
+            ("live_rank_team_awards", "live_item_id", item_sub),
+        ):
+            if table in present and (
+                "live_session_prompts" in present
+                if column == "prompt_id"
+                else "live_session_items" in present
+            ):
+                self.conn.execute(
+                    f"DELETE FROM {table} WHERE {column} IN ({sub})",
+                    params,
+                )
+        if "live_session_items" in present:
+            self.conn.execute(
+                f"""
+                UPDATE live_session_items SET prompt_id = NULL
+                WHERE live_session_id IN ({marks})
+                """,
+                params,
+            )
+            self.conn.execute(
+                f"DELETE FROM live_session_items WHERE live_session_id IN ({marks})",
+                params,
+            )
+        for table in (
+            "live_session_prompts",
+            "live_session_attendees",
+            "live_session_interactions",
+            "live_team_draw_images",
+            "live_individual_draw_images",
+        ):
+            if table in present:
+                self.conn.execute(
+                    f"DELETE FROM {table} WHERE live_session_id IN ({marks})",
+                    params,
+                )
+        for table in ("gamification_mvp_voters", "gamification_mvp_tallies"):
+            if table in present:
+                self.conn.execute(
+                    f"DELETE FROM {table} WHERE session_id IN ({marks})",
+                    params,
+                )
+
+    def _delete_staff_observations(
+        self,
+        user_id: int,
+        class_ids: list[int],
+        session_ids: list[int],
+        present: set[str],
+    ) -> None:
+        """Delete notes this account wrote or that sit on its classes.
+
+        ``observations.observer_user_id`` references ``users`` with no
+        cascade, so the note has to go before the account. Subjects and
+        process rows cascade from the note.
+
+        Args:
+            user_id: Staff ``users.id``.
+            class_ids: Class ids being removed.
+            session_ids: Live session ids being removed.
+            present: Table names in this database.
+        """
+        if "observations" not in present:
+            return
+        clauses = ["observer_user_id = ?"]
+        params: list[Any] = [int(user_id)]
+        if class_ids:
+            marks = ",".join("?" * len(class_ids))
+            clauses.append(f"class_id IN ({marks})")
+            params.extend(class_ids)
+        if session_ids:
+            marks = ",".join("?" * len(session_ids))
+            clauses.append(f"live_session_id IN ({marks})")
+            params.extend(session_ids)
+        self.conn.execute(
+            f"DELETE FROM observations WHERE {' OR '.join(clauses)}",
+            tuple(params),
+        )
+        if "observation_history" not in present:
+            return
+        self._delete_ids("observation_history", "class_id", class_ids, present)
+        self.conn.execute(
+            "DELETE FROM observation_history WHERE observer_user_id = ?",
+            (int(user_id),),
+        )
+
+    def _delete_class_owned_rows(self, class_ids: list[int], present: set[str]) -> None:
+        """Delete per-class rows that have no foreign key to ``classes``.
+
+        Roster PIN material lives on ``students`` and is removed with the
+        game graph. This pass clears gradebook, catch-up, engagement,
+        boards, and playlist rows keyed only by class id.
+
+        Args:
+            class_ids: Class ids being removed.
+            present: Table names in this database.
+        """
+        tables = (
+            "live_result_snapshots",
+            "avatar_reward_grants",
+            "grade_category_weights",
+            "grade_module_rules",
+            "module_reflection_flags",
+            "celebration_award_periods",
+            "participation_items",
+            "participation_answers",
+            "participation_module_marks",
+            "participation_module_settings",
+            "participation_runs",
+            "catchup_links",
+            "catchup_pin_failures",
+            "catchup_pin_unlocks",
+            "class_catchup_settings",
+            "live_board_assignments",
+            "lesson_slide_decks",
+            "lesson_slides_latest",
+            "lesson_slides_dismissed",
+            "class_live_playlist_placements",
+            "class_live_playlist_item_overrides",
+            "class_live_playlist_pages",
+            "class_live_media_overlays",
+            "class_live_deck_seeds",
+            "engagement_level_overrides",
+            "group_engagement",
+            "group_engagement_items",
+            "engagement_events",
+            "engagement_rollup",
+            "portfolio_mark_suggestions",
+            "live_class_feedback",
+            "student_moods",
+        )
+        for table in tables:
+            self._delete_ids(table, "class_id", class_ids, present)
+
+    def _delete_board_rows(self, board_keys: list[str], present: set[str]) -> None:
+        """Delete sqlite board ops for these run keys.
+
+        Postgres board stores are purged separately so this transaction is
+        not committed early.
+
+        Args:
+            board_keys: Board partition keys, including fresh-board generations.
+            present: Table names in this database.
+        """
+        for table in ("board_ops", "board_counters", "board_batches", "board_sessions"):
+            self._delete_ids(table, "run_key", board_keys, present)
+
+    def _delete_seq_floors(
+        self, class_ids: list[int], session_ids: list[int], present: set[str]
+    ) -> None:
+        """Delete seq floors saved for these classes and sessions.
+
+        Args:
+            class_ids: Class ids being removed.
+            session_ids: Live session ids being removed.
+            present: Table names in this database.
+        """
+        if "live_seq_floors" not in present:
+            return
+        scopes = [f"class:{int(class_id)}" for class_id in class_ids]
+        scopes.extend(f"sid:{int(session_id)}" for session_id in session_ids)
+        self._delete_ids("live_seq_floors", "scope", scopes, present)
+
+    def _delete_end_claims(
+        self, class_ids: list[int], run_keys: list[str], present: set[str]
+    ) -> None:
+        """Delete End/Quit claim rows for these classes and runs.
+
+        Args:
+            class_ids: Class ids being removed.
+            run_keys: Live run keys being removed.
+            present: Table names in this database.
+        """
+        if "live_end_claims" not in present:
+            return
+        keys = list(run_keys)
+        keys.extend(self._finish_claim_key(int(class_id)) for class_id in class_ids)
+        self._delete_ids("live_end_claims", "run_key", keys, present)
+
+    def _delete_game_graph(self, class_ids: list[int], present: set[str]) -> None:
+        """Delete roster, gradebook sessions, and games for these classes.
+
+        Children go before parents. Student rows include stored PIN material.
+        Caller deletes the class rows after this returns.
+
+        Args:
+            class_ids: Class ids being removed.
+            present: Table names in this database.
+        """
+        if not class_ids or "classes" not in present:
+            return
+        marks = ",".join("?" * len(class_ids))
+        params = tuple(class_ids)
+        student_ids = (
+            self._select_ids(
+                f"SELECT id FROM students WHERE class_id IN ({marks})", params
+            )
+            if "students" in present
+            else []
+        )
+        game_ids = (
+            self._select_ids(
+                f"SELECT id FROM games WHERE class_id IN ({marks})", params
+            )
+            if "games" in present
+            else []
+        )
+        game_session_ids = (
+            self._select_ids(
+                f"SELECT id FROM sessions WHERE class_id IN ({marks})", params
+            )
+            if "sessions" in present
+            else []
+        )
+        subtotal_ids = (
+            self._select_ids(
+                f"SELECT id FROM subtotals WHERE class_id IN ({marks})", params
+            )
+            if "subtotals" in present
+            else []
+        )
+        for table in (
+            "team_name_votes",
+            "team_name_proposals",
+            "team_buckets",
+            "game_memberships",
+            "point_events",
+            "game_teams",
+        ):
+            self._delete_ids(table, "game_id", game_ids, present)
+        self._delete_ids("point_events", "session_id", game_session_ids, present)
+        self._delete_ids("games", "id", game_ids, present)
+        self._delete_ids(
+            "live_participation_credits", "student_id", student_ids, present
+        )
+        self._delete_ids(
+            "live_participation_credits", "session_id", game_session_ids, present
+        )
+        self._delete_ids("session_scores", "session_id", game_session_ids, present)
+        self._delete_ids("session_scores", "student_id", student_ids, present)
+        self._delete_ids("subtotal_scores", "subtotal_id", subtotal_ids, present)
+        self._delete_ids("subtotals", "id", subtotal_ids, present)
+        self._delete_ids("student_moods", "class_id", class_ids, present)
+        self._delete_ids("sessions", "id", game_session_ids, present)
+        self._delete_ids("students", "id", student_ids, present)
+
+    def _delete_owned_offerings(
+        self, offering_ids: list[int], present: set[str]
+    ) -> None:
+        """Clear copy pointers, then delete this account's offerings.
+
+        Args:
+            offering_ids: ``course_offerings.id`` values to remove.
+            present: Table names in this database.
+        """
+        if not offering_ids or "course_offerings" not in present:
+            return
+        marks = ",".join("?" * len(offering_ids))
+        self.conn.execute(
+            f"""
+            UPDATE course_offerings
+            SET copied_from_offering_id = NULL
+            WHERE copied_from_offering_id IN ({marks})
+            """,
+            tuple(offering_ids),
+        )
+        self._delete_ids("course_offerings", "id", offering_ids, present)
+
+    def _delete_staff_invites(self, user_id: int, present: set[str]) -> None:
+        """Delete invite sends, then the invite rows for this account.
+
+        ``staff_invites.user_id`` references ``users`` with no cascade, and
+        sends reference invites with no cascade. Both have to go before the
+        account. The stored token hash goes with the invite row.
+
+        Args:
+            user_id: Staff ``users.id``.
+            present: Table names in this database.
+        """
+        if "staff_invites" not in present:
+            return
+        invite_ids = self._select_ids(
+            "SELECT id FROM staff_invites WHERE user_id = ?",
+            (int(user_id),),
+        )
+        self._delete_ids("staff_invite_sends", "invite_id", invite_ids, present)
+        self._delete_ids("staff_invites", "id", invite_ids, present)
+
+    def _null_staff_user_pointers(self, user_id: int, present: set[str]) -> None:
+        """Clear leftover user id columns on rows that are not this account.
+
+        Invite rows for other people keep their invite. Only the pointer at
+        this account is cleared. The access audit log is left as written.
+
+        Args:
+            user_id: Staff ``users.id``.
+            present: Table names in this database.
+        """
+        uid = int(user_id)
+        if "staff_invites" in present:
+            self.conn.execute(
+                """
+                UPDATE staff_invites SET created_by_user_id = NULL
+                WHERE created_by_user_id = ?
+                """,
                 (uid,),
-            ).fetchall()
-            offering_ids = [int(row["id"]) for row in offering_rows]
-            instance_paths = [
-                str(row["instance_relpath"] or "").strip()
-                for row in offering_rows
-                if str(row["instance_relpath"] or "").strip()
-            ]
+            )
+        if "staff_invite_sends" in present:
+            self.conn.execute(
+                """
+                UPDATE staff_invite_sends SET by_user_id = NULL
+                WHERE by_user_id = ?
+                """,
+                (uid,),
+            )
+        if "access_requests" in present:
+            self.conn.execute(
+                """
+                UPDATE access_requests SET reviewed_by_user_id = NULL
+                WHERE reviewed_by_user_id = ?
+                """,
+                (uid,),
+            )
 
-            class_ids: list[int] = []
-            has_classes = self.conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='classes'"
-            ).fetchone()
-            if has_classes:
-                if offering_ids:
-                    placeholders = ",".join("?" * len(offering_ids))
-                    class_rows = self.conn.execute(
-                        f"""
-                        SELECT id FROM classes
-                        WHERE teacher_user_id = ?
-                           OR offering_id IN ({placeholders})
-                        """,
-                        (uid, *offering_ids),
-                    ).fetchall()
-                else:
-                    class_rows = self.conn.execute(
-                        "SELECT id FROM classes WHERE teacher_user_id = ?",
-                        (uid,),
-                    ).fetchall()
-                class_ids = [int(row["id"]) for row in class_rows]
+    def _purge_staff_external_stores(self, external: dict[str, list[Any]]) -> None:
+        """Delete presence, board, and engagement rows that are not in sqlite.
 
-            if offering_ids:
-                placeholders = ",".join("?" * len(offering_ids))
-                self.conn.execute(
-                    f"""
-                    DELETE FROM live_class_sessions
-                    WHERE teacher_user_id = ?
-                       OR offering_id IN ({placeholders})
-                    """,
-                    (uid, *offering_ids),
-                )
-            else:
-                self.conn.execute(
-                    "DELETE FROM live_class_sessions WHERE teacher_user_id = ?",
-                    (uid,),
-                )
+        Sqlite copies are already deleted in the open transaction. A store
+        whose connection is this sqlite connection is skipped so it cannot
+        commit that transaction early. Failures propagate.
 
-            if class_ids:
-                placeholders = ",".join("?" * len(class_ids))
-                # Saved End-of-class answers carry names; no FK (MCK-45).
-                self.conn.execute(
-                    f"DELETE FROM live_result_snapshots WHERE class_id IN ({placeholders})",
-                    class_ids,
-                )
-                # Reward rows are keyed by roster ids SQLite can reuse (MCK-116).
-                self.conn.execute(
-                    f"DELETE FROM avatar_reward_grants WHERE class_id IN ({placeholders})",
-                    class_ids,
-                )
-                has_weights = self.conn.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' "
-                    "AND name='grade_category_weights'"
-                ).fetchone()
-                if has_weights:
-                    self.conn.execute(
-                        f"DELETE FROM grade_category_weights WHERE class_id IN ({placeholders})",
-                        class_ids,
+        Args:
+            external: Session ids, board keys, class ids, and run keys.
+        """
+        session_ids = [int(sid) for sid in external.get("session_ids") or []]
+        board_keys = [str(key) for key in external.get("board_keys") or [] if str(key)]
+        class_ids = [int(cid) for cid in external.get("class_ids") or []]
+        presence = getattr(self, "presence", None)
+        if presence is not None:
+            for session_id in session_ids:
+                presence.delete_session_tree(int(session_id))
+        boards = getattr(self, "boards", None)
+        if boards is not None and getattr(boards, "conn", None) is not self.conn:
+            for key in board_keys:
+                boards.purge(key)
+                drop = getattr(boards, "_transaction", None)
+                if drop is not None:
+                    drop(
+                        lambda exec_, run_key=key: exec_(
+                            "DELETE FROM board_sessions WHERE run_key = ?",
+                            (run_key,),
+                        )
                     )
-                # MCK-133 award periods (no FK).
-                self.conn.execute(
-                    f"DELETE FROM celebration_award_periods WHERE class_id IN ({placeholders})",
-                    class_ids,
+        events = getattr(self, "engagement", None)
+        if events is not None and getattr(events, "conn", None) is not self.conn:
+            for class_id in class_ids:
+                events._write(
+                    "DELETE FROM engagement_events WHERE class_id = ?",
+                    (int(class_id),),
                 )
-                self.conn.execute(
-                    f"DELETE FROM classes WHERE id IN ({placeholders})",
-                    class_ids,
-                )
-            elif has_classes:
-                self.conn.execute(
-                    "DELETE FROM classes WHERE teacher_user_id = ?",
-                    (uid,),
+                events._write(
+                    "DELETE FROM engagement_rollup WHERE class_id = ?",
+                    (int(class_id),),
                 )
 
-            if offering_ids:
-                placeholders = ",".join("?" * len(offering_ids))
-                self.conn.execute(
-                    f"""
-                    UPDATE course_offerings
-                    SET copied_from_offering_id = NULL
-                    WHERE copied_from_offering_id IN ({placeholders})
-                    """,
-                    offering_ids,
-                )
-                self.conn.execute(
-                    f"DELETE FROM course_offerings WHERE id IN ({placeholders})",
-                    offering_ids,
-                )
+    def _remove_offering_instance_dirs(
+        self, data_dir: Path, relative_paths: list[str]
+    ) -> None:
+        """Remove offering instance directories that sit under ``data_dir``.
 
-            self.conn.execute("DELETE FROM users WHERE id = ?", (uid,))
-            self.conn.commit()
+        Called only after the account delete has committed. A path outside
+        the data directory is left in place.
 
-        for rel in instance_paths:
+        Args:
+            data_dir: School data root.
+            relative_paths: ``course_offerings.instance_relpath`` values.
+        """
+        root = data_dir.resolve()
+        for rel in relative_paths:
             path = (data_dir / rel).resolve()
             try:
-                path.relative_to(data_dir.resolve())
+                path.relative_to(root)
             except ValueError:
                 continue
             if path.is_dir():
                 shutil.rmtree(path, ignore_errors=True)
-
-        return snapshot
 
     def rename_staff(self, user_id: int, display_name: str) -> dict[str, Any]:
         """Update display_name for any non-IT user.

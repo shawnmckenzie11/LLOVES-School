@@ -424,7 +424,12 @@ class StartFreshTests(unittest.TestCase):
         self.assertEqual(self._fresh(scope="all").status_code, 200)
         semester_id = int(self.school.get_active_semester()["id"])
         self.assertEqual(len(periods.current_periods(self.school, semester_id)), 2)
-        self.school.delete_staff_permanently(int(self.teacher["id"]), 999999)
+        actor_id = int(
+            self.school.conn.execute(
+                "SELECT id FROM users WHERE role = 'it' ORDER BY id LIMIT 1"
+            ).fetchone()[0]
+        )
+        self.school.delete_staff_permanently(int(self.teacher["id"]), actor_id)
         self.assertEqual(periods.current_periods(self.school, semester_id), {})
         del rows
 
