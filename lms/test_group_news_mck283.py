@@ -252,13 +252,24 @@ class TeamScopedStampTests(TurnsHarness):
             )
         )
         time.sleep(1.1)
+        same_team = NAMES[3]
+        self.assertEqual(
+            self.school.student_open_group_team_ids(self.session_id, self.ids[outsider]),
+            self.school.student_open_group_team_ids(self.session_id, self.ids[same_team]),
+        )
+        self.assertNotEqual(
+            self.school.student_open_group_team_ids(self.session_id, self.ids[outsider]),
+            self.school.student_open_group_team_ids(self.session_id, self.ids[teammate]),
+        )
         mate_rev = self.school._team_group_response_rev(self.session_id, self.ids[teammate])
         out_rev = self.school._team_group_response_rev(self.session_id, self.ids[outsider])
+        wide_before_pick = self.school.live_student_poll_stamp(self.session_id, self.class_id)
         mate_seq, mate_stamp, mate_direct = self._snapshot(teammate)
+        same_seq, same_stamp, same_direct = self._snapshot(same_team)
+        out_seq, out_stamp, out_direct = self._snapshot(outsider)
         rv = self._post(outsider, mc, "group-pick", {"choice": "Graph"})
         self.assertEqual(rv.status_code, 200)
-        # The team row moves only for the picker's team. Vote rows stay
-        # class-wide, so the other phone's full stamp still changes.
+        # The team row and the vote revision both stay on the picker's team.
         self.assertEqual(
             mate_rev,
             self.school._team_group_response_rev(self.session_id, self.ids[teammate]),
@@ -267,13 +278,31 @@ class TeamScopedStampTests(TurnsHarness):
             out_rev,
             self.school._team_group_response_rev(self.session_id, self.ids[outsider]),
         )
-        self.assertNotEqual(
+        self.assertEqual(
             mate_direct,
             self.school.live_student_poll_stamp(
                 self.session_id, self.class_id, self.ids[teammate]
             ),
         )
-        self.assertFalse(self._poll(teammate, mate_seq, mate_stamp).get("unchanged"))
+        self.assertTrue(self._poll(teammate, mate_seq, mate_stamp).get("unchanged"))
+        self.assertNotEqual(
+            same_direct,
+            self.school.live_student_poll_stamp(
+                self.session_id, self.class_id, self.ids[same_team]
+            ),
+        )
+        self.assertFalse(self._poll(same_team, same_seq, same_stamp).get("unchanged"))
+        self.assertNotEqual(
+            out_direct,
+            self.school.live_student_poll_stamp(
+                self.session_id, self.class_id, self.ids[outsider]
+            ),
+        )
+        self.assertFalse(self._poll(outsider, out_seq, out_stamp).get("unchanged"))
+        self.assertNotEqual(
+            wide_before_pick,
+            self.school.live_student_poll_stamp(self.session_id, self.class_id),
+        )
 
 
 if __name__ == "__main__":

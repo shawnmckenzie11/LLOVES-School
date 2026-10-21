@@ -44104,6 +44104,69 @@ class SchoolDB(LovesDB):
             ).fetchone()
         return str(row["rev"] if row is not None else "")
 
+    def _team_group_vote_rev(
+        self, session_id: int, student_id: int
+    ) -> tuple[int, str] | None:
+        """Vote-row stamp for one student's teams, or None if unknown.
+
+        None keeps the class-wide token. A student with no membership on an
+        open group item keeps the class-wide vote revision. When membership
+        is known, only that student's team vote rows are folded in, so
+        another team's pick does not force a full ``/state`` build. A
+        member with no vote row yet still gets ``(0, "")``, which stays
+        put while another team picks.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id.
+
+        Returns:
+            ``(max vote id, latest updated_at)`` for those teams.
+        """
+        try:
+            sid = int(session_id)
+            student = int(student_id)
+        except (TypeError, ValueError):
+            return None
+        with self._lock:
+            member = self.conn.execute(
+                """
+                SELECT 1 AS ok
+                FROM live_group_members m
+                INNER JOIN live_session_items i ON i.id = m.live_item_id
+                WHERE i.live_session_id = ?
+                  AND i.status = 'active'
+                  AND m.student_id = ?
+                LIMIT 1
+                """,
+                (sid, student),
+            ).fetchone()
+            if member is None:
+                return None
+            row = self.conn.execute(
+                """
+                SELECT COALESCE(MAX(v.id), 0) AS vote_max,
+                       COALESCE(MAX(v.updated_at), '') AS vote_rev
+                FROM live_group_votes v
+                INNER JOIN live_session_items i ON i.id = v.live_item_id
+                WHERE i.live_session_id = ?
+                  AND EXISTS (
+                    SELECT 1 FROM live_group_members m
+                    WHERE m.live_item_id = v.live_item_id
+                      AND m.student_id = ?
+                      AND m.team_id = v.team_id
+                  )
+                """,
+                (sid, student),
+            ).fetchone()
+        if row is None:
+            return 0, ""
+        try:
+            vote_max = int(row["vote_max"] or 0)
+        except (TypeError, ValueError):
+            vote_max = 0
+        return vote_max, str(row["vote_rev"] or "")
+
     def live_student_poll_stamp(
         self,
         session_id: int,
@@ -44129,9 +44192,10 @@ class SchoolDB(LovesDB):
         Args:
             session_id: ``live_class_sessions.id``.
             class_id: Game-show class id (accepted for call-site clarity).
-            student_id: When set, the group-response field is only that
-                student's teams. Omit it for the class-wide token tests
-                and callers already use. Every other field stays class-wide.
+            student_id: When set, the group-response field and the vote
+                revision are only that student's teams. Omit it for the
+                class-wide token tests and callers already use. Every
+                other field stays class-wide.
         """
         del class_id
         teacher = self.live_session_teacher_state_payload(session_id)
@@ -44262,6 +44326,12 @@ class SchoolDB(LovesDB):
             scoped = self._team_group_response_rev(int(session_id), int(student_id))
             if scoped is not None:
                 group_response_rev = scoped
+                # MCK-307: picks and consensus votes live in live_group_votes.
+                # Those two fields were still class-wide, so one team's letter
+                # rebuilt /state on every phone. Fold the same membership.
+                vote_scoped = self._team_group_vote_rev(int(session_id), int(student_id))
+                if vote_scoped is not None:
+                    group_vote_max, group_vote_rev = vote_scoped
         status = str(status_row["status"] if status_row is not None else "")
         # MCK-171: the Team challenge reveal step (the podium step writes no
         # point event, so phones would otherwise get "unchanged").
