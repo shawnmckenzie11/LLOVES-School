@@ -424,13 +424,33 @@ body.student-home.has-media .student-live-response {
   display: none !important;
 }
 
-.slides-pane iframe {
+.slides-pane iframe,
+.slides-pane .slides-card-image {
   display: block;
   width: 100%;
   height: calc(100% - 2.2rem);
   min-height: 12rem;
   border: 0;
   background: #fff;
+  object-fit: contain;
+}
+body.student-home .slides-pane.is-google-slide:not([hidden]) {
+  flex: 1 1 auto;
+  align-self: stretch;
+  width: auto;
+  min-height: min(68dvh, 40rem);
+  display: flex;
+  flex-direction: column;
+}
+body.student-home .slides-pane.is-google-slide .slides-card-image {
+  flex: 1 1 auto;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  object-fit: contain;
+}
+body.student-home .student-live-response:has(.slides-pane.is-google-slide:not([hidden])) > .student-wait {
+  display: none;
 }
 
 .slides-empty {

@@ -60,6 +60,16 @@ export async function api(url, options = {}) {
     const error = new Error(data.error || `HTTP ${response.status}`);
     // Deck copy 409 carries needs_confirm. Callers key on the flag.
     if (data.needs_confirm === true) error.needsConfirm = true;
+    // Private live decks carry the read-only consent URL. Drive connect
+    // URLs are not copied onto the error.
+    if (data.needs_slides_read === true) error.needsSlidesRead = true;
+    if (
+      typeof data.connect_url === "string" &&
+      data.connect_url.startsWith("/auth/google/slides-read") &&
+      !data.connect_url.startsWith("/auth/google/slides-read/callback")
+    ) {
+      error.connectUrl = data.connect_url;
+    }
     throw error;
   }
   return data;

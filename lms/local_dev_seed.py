@@ -329,12 +329,14 @@ def _stamp_demo_column_on_class_day(
 
 
 def _repair_demo_future_columns(school: Any, class_id: int) -> None:
-    """Move a fresh demo's ended columns off future days onto past class days.
+    """Move ended demo columns onto past class days when none are in the past.
 
-    Runs only when every ended column is strictly after today and there
-    are exactly three (M1 C1, M1 C2, and M3). Any column already on or
-    before today makes this a no-op, so a second seed does not shuffle
-    dates. Active template sessions are left alone.
+    Runs when there are exactly three ended columns (M1 C1, M1 C2, and M3)
+    and every one is today or later. End Class can open those columns on
+    the next meeting, which is today once UTC has crossed midnight ahead
+    of the class timezone. A column already before today makes this a
+    no-op, so a second seed does not shuffle dates. Active template
+    sessions are left alone.
 
     Args:
         school: ``SchoolDB`` instance.
@@ -365,7 +367,7 @@ def _repair_demo_future_columns(school: Any, class_id: int) -> None:
     today = local_dev_today()
     for row in rows:
         meeting = session_meeting_date(str(row["starts_at"] or ""))
-        if meeting is None or meeting <= today:
+        if meeting is None or meeting < today:
             return
     for row, which in zip(rows, (0, 1, 4)):
         ended = scheduled_class_end_datetime(
