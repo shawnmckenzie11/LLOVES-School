@@ -3,9 +3,13 @@
  */
 import {
   GROUP_FLOW_COPY,
+  MC_MATCH_HELP,
+  RANK_CHECK_HELP,
+  choiceLetter,
   mcAgreeStepHtml,
   mcFlowStep,
   mcLockedHtml,
+  mcMatchHtml,
   mcMemberPicksHtml,
   mcPickStepHtml,
   rankTurnCue,
@@ -172,6 +176,77 @@ const checked = rankTurnsHtml(
 );
 check(checked.includes("2 of 4 in the right spot.") && !checked.includes("data-rank-check"), "count only, one check");
 check(!checked.includes("rank_key") && !checked.includes(extraGrade), "check result names no answer order");
+check(checked.includes('<p class="rank-check-chip"'), "used check is a chip");
+
+const header = rankTurnsHtml(
+  { turns: { spots: [], total: 3, can_place: true, done: false }, check: { available: true, used: false }, submitted: false },
+  { options, itemId: 9, header: true },
+);
+check(header.includes("Take turns moving the cards. Talk it through, then lock in your ranking together."), "one ranking instruction");
+check(header.includes("Check our ranking") && header.includes("group-help"), "check row and help");
+check(header.includes("Send our ranking") && header.includes("Final once sent"), "pinned send");
+check(header.includes("data-live-submit=\"group\" disabled"), "send waits for a full order");
+check(
+  header.includes(RANK_CHECK_HELP.replaceAll("'", "&#39;")),
+  "ranking help is the final popover copy",
+);
+check(
+  RANK_CHECK_HELP ===
+    "Your group gets one check, and anyone can use it at any time. It shows how many cards are in the right spot. Send your ranking whenever you're ready, but you can't change it once it's sent. Get every card right without the check to earn two bonus participation points.",
+  "ranking help sentence",
+);
+const readyRank = rankTurnsHtml(
+  {
+    turns: { spots: [], total: 3, done: true },
+    check: { available: false, used: true, message: "Checked: 1 of 3 in the right spot" },
+    submitted: false,
+  },
+  { options, itemId: 9, header: true },
+);
+check(readyRank.includes("Checked: 1 of 3 in the right spot"), "chip copy");
+check(readyRank.includes("rank-check-chip") && !readyRank.includes("data-rank-check"), "chip is not pressable");
+check(!readyRank.includes("disabled\">Send our ranking") && readyRank.includes("Send our ranking"), "send is on when the order is full");
+check(readyRank.includes("Every card is placed. Send when your team agrees."), "turn cue before send");
+const sent = rankTurnsHtml(
+  { turns: { spots: [], total: 3, done: true }, submitted: true, check: { available: false, used: false } },
+  { options, itemId: 9, header: true },
+);
+check(!sent.includes("Send our ranking") && sent.includes("Final once sent"), "final once sent");
+
+check(choiceLetter(["Graph", "Table"], "Table") === "B", "letter from choice index");
+const matchOpen = mcMatchHtml(
+  {
+    my_pick: "Graph",
+    match: { matched: 1, total: 2, ready: false },
+    member_picks: [
+      { name: "Ava", value: "Graph", mine: false },
+      { name: "Cy", value: "", mine: true },
+    ],
+  },
+  { choices: ["Graph", "Table"], itemId: 4 },
+);
+check(matchOpen.includes("Everyone in your group picks the same answer to send it."), "mc instruction");
+check(matchOpen.includes(MC_MATCH_HELP), "mc help is the instruction sentence");
+check(
+  MC_MATCH_HELP === "Everyone in your group picks the same answer to send it.",
+  "mc help replaces the placeholder",
+);
+check(!matchOpen.includes("data-group-why") && !matchOpen.includes("Why this answer?"), "no why box");
+check(matchOpen.includes("Team picks") && matchOpen.includes(">A<"), "team pick letter");
+check(matchOpen.includes("Everyone needs the same pick (1 of 2 match)"), "match gate copy");
+check(matchOpen.includes("Send group answer") && matchOpen.includes("disabled"), "send disabled until match");
+const matchReady = mcMatchHtml(
+  {
+    my_pick: "Graph",
+    match: { matched: 2, total: 2, ready: true },
+    member_picks: [
+      { name: "Ava", value: "Graph", mine: true },
+      { name: "Cy", value: "Graph", mine: false },
+    ],
+  },
+  { choices: ["Graph", "Table"], itemId: 4 },
+);
+check(matchReady.includes('data-group-send-reason hidden') && !matchReady.includes("disabled"), "send on when everyone matches");
 
 if (failures) {
   console.error(`${failures} failure(s)`);

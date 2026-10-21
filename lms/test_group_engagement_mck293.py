@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """MCK-293 group-rank participation points.
 
-A keyed rank sent all correct, without Check our ranking, stores 2 on a
-question whose maximum is 1. Every other completion stores 1. The check
-may be used once and returns a count only. Catch-up never stores 2.
+A keyed rank sent all correct, without Check our ranking, stores 4 on a
+question whose maximum is 2. Every other completion stores 2. The check
+may be used once and returns a count only. Catch-up stores 2, never 4.
 """
 
 from __future__ import annotations
@@ -19,12 +19,12 @@ LMS_DIR = Path(__file__).resolve().parent
 if str(LMS_DIR) not in sys.path:
     sys.path.insert(0, str(LMS_DIR))
 
-from group_engagement import catchup_earned, check_message, send_earned
+from group_engagement import catchup_earned, check_message, display_points, old_rank_scale, send_earned
 from test_rank_challenge_mck171 import KEY_IDS, ChallengeHarness
 
 TEAM_A = ("Ava", "Cy", "Eli")
 TEAM_B = ("Ben", "Dee", "Fay")
-COUNT_ONLY = re.compile(r"^\d+ of \d+ in the right spot\.$")
+COUNT_ONLY = re.compile(r"^Checked: \d+ of \d+ in the right spot$")
 CHECK_KEYS = {"available", "used", "right", "total", "message"}
 BANNED = "A" + "+"
 FEATURE_ROOTS = (
@@ -37,16 +37,25 @@ class PointRuleTests(unittest.TestCase):
     """Pure point rules. No database and no answer order."""
 
     def test_bonus_only_without_the_check(self) -> None:
-        self.assertEqual(send_earned(keyed=True, all_correct=True, check_used=False), 2)
-        self.assertEqual(send_earned(keyed=True, all_correct=True, check_used=True), 1)
-        self.assertEqual(send_earned(keyed=True, all_correct=False, check_used=False), 1)
-        self.assertEqual(send_earned(keyed=False, all_correct=True, check_used=False), 1)
-        self.assertEqual(catchup_earned(None), 1)
-        self.assertEqual(catchup_earned(0), 1)
-        self.assertEqual(catchup_earned(1), 1)
+        self.assertEqual(send_earned(keyed=True, all_correct=True, check_used=False), 4)
+        self.assertEqual(send_earned(keyed=True, all_correct=True, check_used=True), 2)
+        self.assertEqual(send_earned(keyed=True, all_correct=False, check_used=False), 2)
+        self.assertEqual(send_earned(keyed=False, all_correct=True, check_used=False), 2)
+        self.assertEqual(catchup_earned(None), 2)
+        self.assertEqual(catchup_earned(0), 2)
+        self.assertEqual(catchup_earned(1), 2)
         self.assertEqual(catchup_earned(2), 2)
-        self.assertEqual(check_message(2, 4), "2 of 4 in the right spot.")
-        self.assertEqual(check_message(1, 1), "1 of 1 in the right spot.")
+        self.assertEqual(catchup_earned(4), 4)
+        self.assertTrue(old_rank_scale(1, "rank"))
+        self.assertFalse(old_rank_scale(1, "mc"))
+        self.assertFalse(old_rank_scale(2, "rank"))
+        self.assertEqual(display_points(2, 1, "rank"), (4, 2))
+        self.assertEqual(display_points(1, 1, "rank"), (2, 2))
+        self.assertEqual(display_points(0, 1, "rank"), (0, 2))
+        self.assertEqual(display_points(1, 1, "mc"), (1, 1))
+        self.assertEqual(display_points(4, 2, "rank"), (4, 2))
+        self.assertEqual(check_message(2, 4), "Checked: 2 of 4 in the right spot")
+        self.assertEqual(check_message(1, 1), "Checked: 1 of 1 in the right spot")
 
     def test_feature_files_have_no_extra_grade_word(self) -> None:
         """The withdrawn grade word does not appear in this feature."""
@@ -88,6 +97,10 @@ class GroupEngagementTests(ChallengeHarness):
                     break
             else:
                 self.fail(f"place status {status}")
+        card = self._card(names[0], item)
+        if card.get("turns", {}).get("done") and not card.get("submitted") and not card.get("race"):
+            sent = self._post(names[0], item, "group-submit", {})
+            self.assertEqual(sent.status_code, 200, sent.get_data(as_text=True)[:200])
 
     def _check(self, item: dict[str, Any], name: str = "Ava"):
         return self._post(name, item, "rank-check", {})
@@ -132,7 +145,7 @@ class GroupEngagementTests(ChallengeHarness):
         question_key: str,
         names: tuple[str, ...],
         earned: int,
-        possible: int = 1,
+        possible: int = 2,
         source: str = "live",
     ) -> None:
         rows = self._rows()
@@ -150,7 +163,7 @@ class GroupEngagementTests(ChallengeHarness):
                 self.assertIn("run_key", cols, table)
                 self.assertIn("class_id", cols, table)
 
-    def test_one_check_then_a_correct_send_is_one(self) -> None:
+    def test_one_check_then_a_correct_send_is_two_of_two(self) -> None:
         item = self._open()
         empty = self._check(item)
         self.assertEqual(empty.status_code, 400, empty.get_data(as_text=True)[:180])
@@ -165,7 +178,7 @@ class GroupEngagementTests(ChallengeHarness):
         self.assertNotIn("spots", check)
         self.assertFalse(check["available"])
         self.assertTrue(check["used"])
-        self.assertEqual(check["message"], "2 of 4 in the right spot.")
+        self.assertEqual(check["message"], "Checked: 2 of 4 in the right spot")
         self.assertRegex(check["message"], COUNT_ONLY)
         for label in ("Two points", "A graph", "An equation", "A table"):
             self.assertNotIn(label, check["message"])
@@ -175,13 +188,13 @@ class GroupEngagementTests(ChallengeHarness):
         held = self._card("Ava", item)["check"]
         self.assertEqual(held["right"], 2)
         self.assertEqual(held["total"], 4)
-        self.assertEqual(held["message"], "2 of 4 in the right spot.")
+        self.assertEqual(held["message"], "Checked: 2 of 4 in the right spot")
         self._place(item, TEAM_A, KEY_IDS[2:])
         sent = self._check(item)
         self.assertEqual(sent.status_code, 400)
         key = self._question_key(item)
         self._end()
-        self._assert_team(key, TEAM_A, 1)
+        self._assert_team(key, TEAM_A, 2)
         self._assert_team(key, TEAM_B, 0)
         with self.school._lock:
             items = self.school.conn.execute(
@@ -190,7 +203,7 @@ class GroupEngagementTests(ChallengeHarness):
             ).fetchone()
         self.assertEqual(int(items["n"]), 0)
 
-    def test_perfect_send_without_a_check_is_two(self) -> None:
+    def test_perfect_send_without_a_check_is_four_of_two(self) -> None:
         item = self._open()
         self._place(item, TEAM_A, KEY_IDS)
         card = self._card("Ava", item)
@@ -198,16 +211,16 @@ class GroupEngagementTests(ChallengeHarness):
         self.assertFalse(card["check"]["available"])
         key = self._question_key(item)
         self._end()
-        self._assert_team(key, TEAM_A, 2)
+        self._assert_team(key, TEAM_A, 4)
         self._assert_team(key, TEAM_B, 0)
         run_key = self._run_key()
         ava = self.ids["Ava"]
         ben = self.ids["Ben"]
         dash = self.school.student_dashboard_payload(self.class_id, ava)
-        self.assertEqual(dash["group_engagement"], "2/1")
+        self.assertEqual(dash["group_engagement"], "4/2")
         self.assertEqual(dash["individual_engagement"], "0/0")
         other = self.school.student_dashboard_payload(self.class_id, ben)
-        self.assertEqual(other["group_engagement"], "0/1")
+        self.assertEqual(other["group_engagement"], "0/2")
         summary = self.school.engagement_summary_for_run(self.class_id, run_key)
         self.assertIsNotNone(summary)
         stamped = {}
@@ -215,17 +228,17 @@ class GroupEngagementTests(ChallengeHarness):
             for student in group.get("students") or []:
                 if "group_engagement" in student:
                     stamped[int(student["student_id"])] = student["group_engagement"]
-        self.assertEqual(stamped.get(ava), "2/1")
-        self.assertEqual(stamped.get(ben), "0/1")
+        self.assertEqual(stamped.get(ava), "4/2")
+        self.assertEqual(stamped.get(ben), "0/2")
         runs = {row["run_key"] for row in self.school.list_engagement_summary_runs(self.class_id)}
         self.assertIn(run_key, runs)
         grid = self.school.participation_week_grid(self.class_id)
-        self.assertEqual(grid["group_engagement"].get(str(ava)), "2/1")
-        self.assertEqual(grid["group_engagement"].get(str(ben)), "0/1")
+        self.assertEqual(grid["group_engagement"].get(str(ava)), "4/2")
+        self.assertEqual(grid["group_engagement"].get(str(ben)), "0/2")
         self.school.delete_lesson_slides_entry(self.class_id, "M1", "C2", False, run_key)
-        self._assert_team(key, TEAM_A, 2)
+        self._assert_team(key, TEAM_A, 4)
 
-    def test_unkeyed_and_wrong_orders_are_one(self) -> None:
+    def test_unkeyed_and_wrong_orders_are_two_of_two(self) -> None:
         plain = self._open(key=False)
         keyed = self._open()
         self._place(plain, TEAM_A, KEY_IDS)
@@ -238,10 +251,10 @@ class GroupEngagementTests(ChallengeHarness):
         plain_key = self._question_key(plain)
         keyed_key = self._question_key(keyed)
         self._end()
-        self._assert_team(plain_key, TEAM_A, 1)
-        self._assert_team(keyed_key, TEAM_A, 1)
+        self._assert_team(plain_key, TEAM_A, 2)
+        self._assert_team(keyed_key, TEAM_A, 2)
         dash = self.school.student_dashboard_payload(self.class_id, self.ids["Ava"])
-        self.assertEqual(dash["group_engagement"], "2/2")
+        self.assertEqual(dash["group_engagement"], "4/4")
 
     def test_a_test_run_writes_nothing(self) -> None:
         item = self._open()
@@ -294,10 +307,10 @@ class GroupEngagementTests(ChallengeHarness):
             self.school.conn.commit()
         key = self._question_key(item)
         self._end()
-        self._assert_team(key, TEAM_A, 2)
+        self._assert_team(key, TEAM_A, 4)
         self.assertEqual(self._rows()[(ben, key)][0], 0)
 
-    def test_catchup_stays_at_one_even_for_the_answer_order(self) -> None:
+    def test_catchup_stays_at_two_of_two_even_for_the_answer_order(self) -> None:
         item = self._open()
         self._place(item, TEAM_A, KEY_IDS)
         key = self._question_key(item)
@@ -340,20 +353,20 @@ class GroupEngagementTests(ChallengeHarness):
         self.assertTrue(
             self.school.submit_catchup_answer(token, ben, key, answer_order)
         )
-        self.assertEqual(self._rows()[(ben, key)], (1, 1, "catchup"))
+        self.assertEqual(self._rows()[(ben, key)], (2, 2, "catchup"))
         self.assertTrue(
             self.school._store_group_engagement_catchup(link, ben, key, list(reversed(public_ids)))
         )
-        self.assertEqual(self._rows()[(ben, key)], (1, 1, "catchup"))
+        self.assertEqual(self._rows()[(ben, key)], (2, 2, "catchup"))
         self.assertTrue(
             self.school._store_group_engagement_catchup(link, ava, key, answer_order)
         )
-        self.assertEqual(self._rows()[(ava, key)], (2, 1, "live"))
+        self.assertEqual(self._rows()[(ava, key)], (4, 2, "live"))
         again = self.school.catchup_questions(token, ben)
         answered = next(q for q in again if q.get("question_key") == key)
         self.assertTrue(answered["answered"])
         self.assertFalse(self.school.submit_catchup_answer(token, ben, key, public_ids))
-        self.assertEqual(self._rows()[(ben, key)], (1, 1, "catchup"))
+        self.assertEqual(self._rows()[(ben, key)], (2, 2, "catchup"))
 
     def _item_keys(self) -> list[str]:
         """Question keys stored for this class."""
@@ -377,14 +390,14 @@ class GroupEngagementTests(ChallengeHarness):
         self.assertNotIn(key, self._item_keys())
 
     def test_one_team_sending_still_scores_the_other_zero(self) -> None:
-        """When any team sends, members who did not send still store 0/1."""
+        """When any team sends, members who did not send still store 0/2."""
         sent = self._open()
         quiet = self._open()
         self._place(sent, TEAM_A, KEY_IDS)
         sent_key = self._question_key(sent)
         quiet_key = self._question_key(quiet)
         self._end()
-        self._assert_team(sent_key, TEAM_A, 2)
+        self._assert_team(sent_key, TEAM_A, 4)
         self._assert_team(sent_key, TEAM_B, 0)
         rows = self._rows()
         for sid in self._ids(TEAM_A + TEAM_B):

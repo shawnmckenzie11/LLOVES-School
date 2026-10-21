@@ -89,7 +89,7 @@ class SpotsHarness(StepMixin, ChallengeHarness):
         return self._publish(row)
 
     def _submit(self, item: dict[str, Any], name: str, order: list[str]) -> None:
-        """Send ``order`` by Take turns. The last spot submits a plain rank."""
+        """Send ``order`` by Take turns, then the pinned send when it is full."""
         self._turns(item, tuple(self._turn_roster(name, item)), order)
 
     def _turns(self, item: dict[str, Any], names: tuple[str, ...], order: list[str]) -> None:
@@ -101,6 +101,10 @@ class SpotsHarness(StepMixin, ChallengeHarness):
                     break
             else:
                 self.fail(f"no one could place {token}: {rv.get_data(as_text=True)[:200]}")
+        card = self._card(names[0], item)
+        if card.get("turns", {}).get("done") and not card.get("submitted") and not card.get("race"):
+            sent = self._post(names[0], item, "group-submit", {})
+            self.assertEqual(sent.status_code, 200, sent.get_data(as_text=True)[:200])
 
     def _team_score(self, team_id: int) -> float:
         state = self.client.get(f"/api/classes/{self.class_id}/game").get_json()

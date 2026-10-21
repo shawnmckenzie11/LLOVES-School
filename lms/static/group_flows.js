@@ -11,7 +11,7 @@
 
 import { waitingLine } from "./group_instructions.js";
 
-/** Final copy. */
+/** Final copy. Help strings are the swap point for Wonder. */
 export const GROUP_FLOW_COPY = Object.freeze({
   // MC option B
   stillChoosing: "Still choosing: {names}",
@@ -24,19 +24,39 @@ export const GROUP_FLOW_COPY = Object.freeze({
   send: "Send group answer",
   sent: "{name} sent your group's answer.",
   locked: "Your group's answer is locked.",
+  mcInstruction: "Everyone in your group picks the same answer to send it.",
+  teamPicks: "Team picks",
+  matchReason: "Everyone needs the same pick ({matched} of {total} match)",
   // Rank take turns
+  rankInstruction:
+    "Take turns moving the cards. Talk it through, then lock in your ranking together.",
   yourTurn: "Your turn. Place one item.", // Wonder v1
   blocked: "You've placed one. Waiting for {names}.",
   placed: "Placed in spot {n}.",
   undo: "Undo",
   done: "Your group's order is in.",
+  readyToSend: "Every card is placed. Send when your team agrees.",
   skipped: "{name}'s turn was skipped.",
   skippedYou: "Your turn was skipped.", // gate LOW-2
   waitingFor: "Waiting for {names}.", // gate LOW-2, NEW for the Wonder pass
   spot: "Spot {n}",
   placedBy: "placed by {name}",
   check: "Check our ranking",
+  sendRanking: "Send our ranking",
+  finalOnce: "Final once sent",
 });
+
+/**
+ * Final ranking help popover. One string so a later edit stays in one place.
+ */
+export const RANK_CHECK_HELP =
+  "Your group gets one check, and anyone can use it at any time. It shows how many cards are in the right spot. Send your ranking whenever you're ready, but you can't change it once it's sent. Get every card right without the check to earn two bonus participation points.";
+
+/**
+ * Group multiple-choice help popover. Same sentence as the instruction line.
+ */
+export const MC_MATCH_HELP =
+  "Everyone in your group picks the same answer to send it.";
 
 /**
  * Minimal HTML escape.
@@ -200,10 +220,44 @@ export function mcLockedHtml(group) {
  * @param {any} turns ``group.turns``
  * @returns {string}
  */
-export function rankTurnCue(turns) {
+/**
+ * Letter for a pick, A for the first choice.
+ * @param {string[]} choices
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function choiceLetter(choices, value) {
+  const list = Array.isArray(choices) ? choices : [];
+  const index = list.findIndex((label) => String(label) === String(value ?? ""));
+  if (index >= 0 && index < 26) return String.fromCharCode(65 + index);
+  const text = String(value ?? "").trim();
+  return text ? text.slice(0, 1).toUpperCase() : "";
+}
+
+/**
+ * 44px help control and its popover. Copy is a swappable constant.
+ * @param {string} id
+ * @param {string} label Accessible name.
+ * @param {string} copy
+ * @returns {string}
+ */
+function helpControl(id, label, copy) {
+  return `<button type="button" class="group-help" data-group-help aria-label="${esc(
+    label
+  )}" aria-expanded="false" aria-controls="${esc(id)}">?</button>
+    <p class="group-help-pop" id="${esc(id)}" role="dialog" hidden>${esc(copy)}</p>`;
+}
+
+/**
+ * The one cue line for a take-turns card.
+ * @param {any} turns ``group.turns``
+ * @param {boolean} [pendingSend] Complete order that has not been sent.
+ * @returns {string}
+ */
+export function rankTurnCue(turns, pendingSend = false) {
   const C = GROUP_FLOW_COPY;
   if (!turns) return "";
-  if (turns.done) return C.done;
+  if (turns.done) return pendingSend ? C.readyToSend : C.done;
   if (turns.can_place) return C.yourTurn;
   if (Number(turns.placed_spot) > 0 && turns.can_undo) {
     return C.placed.replace("{n}", String(Number(turns.placed_spot)));
@@ -289,20 +343,92 @@ export function rankTurnsHtml(group, opts) {
     : "";
   const note = String(opts.note || "").trim();
   const check = group?.check && typeof group.check === "object" ? group.check : {};
-  const checkBtn = check.available
-    ? `<button type="button" class="secondary rank-check" data-rank-check>${esc(C.check)}</button>`
-    : "";
-  const checkMsg =
-    check.used && check.message
-      ? `<p class="rank-check-result" role="status">${esc(check.message)}</p>`
+  const header = Boolean(opts.header);
+  const itemId = Number(opts.itemId) || 0;
+  const helpId = `rank-help-${itemId}`;
+  const checkControl = check.used
+    ? `<p class="rank-check-chip" role="status">${esc(check.message || "")}</p>`
+    : check.available
+      ? `<button type="button" class="secondary rank-check" data-rank-check>${esc(C.check)}</button>`
       : "";
-  return `<div class="rank-turns" data-rank-turns="${Number(opts.itemId) || 0}" data-turn-rev="${Number(turns.rev) || 0}">
+  const checkRow =
+    header || checkControl
+      ? `<div class="rank-check-row">${checkControl}${
+          header ? helpControl(helpId, "How Check our ranking works", RANK_CHECK_HELP) : ""
+        }</div>`
+      : "";
+  const pendingSend = header && Boolean(turns.done) && !group?.submitted;
+  const sendPin = header
+    ? `<div class="rank-send-pin">
+        ${
+          group?.submitted
+            ? ""
+            : `<button type="button" class="prompt-submit" data-live-submit="group"${
+                turns.done ? "" : " disabled"
+              }>${esc(C.sendRanking)}</button>`
+        }
+        <p class="rank-send-note">${esc(C.finalOnce)}</p>
+      </div>`
+    : "";
+  const instruction = header
+    ? `<p class="group-flow-instruction">${esc(C.rankInstruction)}</p>`
+    : "";
+  return `<div class="rank-turns" data-rank-turns="${itemId}" data-turn-rev="${Number(turns.rev) || 0}">
+    ${instruction}
+    ${checkRow}
+    <p class="rank-turn-cue" aria-live="polite">${esc(rankTurnCue(turns, pendingSend))}${undo}</p>
     <ol class="rank-turn-spots">${spotRows.join("")}</ol>
     ${optionRows}
     ${skipped}
     ${note ? `<p class="rank-turn-note" role="status">${esc(note)}</p>` : ""}
-    <p class="rank-turn-cue" aria-live="polite">${esc(rankTurnCue(turns))}${undo}</p>
-    ${checkBtn}
-    ${checkMsg}
+    ${sendPin}
+  </div>`;
+}
+
+/**
+ * Group multiple choice: picks stay visible, send waits for one letter.
+ * @param {any} group
+ * @param {{choices: string[], optionsHtml?: string[], itemId: number}} opts
+ * @returns {string}
+ */
+export function mcMatchHtml(group, opts) {
+  const C = GROUP_FLOW_COPY;
+  const itemId = Number(opts.itemId) || 0;
+  const match = group?.match && typeof group.match === "object" ? group.match : {};
+  const matched = Number(match.matched) || 0;
+  const total = Number(match.total) || 0;
+  const ready = Boolean(match.ready);
+  const mine = String(group?.my_pick || "");
+  const reason = C.matchReason
+    .replace("{matched}", String(matched))
+    .replace("{total}", String(total));
+  const rows = Array.isArray(group?.member_picks) ? group.member_picks : [];
+  const picks = rows.length
+    ? `<ul class="team-picks" aria-label="${esc(C.teamPicks)}">${rows
+        .map((row) => {
+          const who = row?.mine ? C.you : String(row?.name || "");
+          const letter = choiceLetter(opts.choices || [], row?.value);
+          return `<li${row?.mine ? ' class="is-mine"' : ""}><span class="team-pick-name">${esc(
+            who
+          )}</span><span class="team-pick-letter">${esc(letter)}</span></li>`;
+        })
+        .join("")}</ul>`
+    : "";
+  return `<div class="mc-match" data-mc-match="1">
+    <div class="group-flow-head">
+      <p class="group-flow-instruction">${esc(C.mcInstruction)}</p>
+      ${helpControl(`mc-help-${itemId}`, "How Send group answer works", MC_MATCH_HELP)}
+    </div>
+    <div class="student-live-answer-controls" data-live-action="group-pick" data-mc-step="match">
+      ${choiceButtons(opts.choices || [], opts.optionsHtml || [], mine)}
+    </div>
+    <p class="team-picks-label">${esc(C.teamPicks)}</p>
+    ${picks}
+    <button type="button" class="prompt-submit" data-live-submit="group" aria-describedby="group-send-reason-${itemId}"${
+      ready ? "" : " disabled"
+    }>${esc(C.send)}</button>
+    <p class="student-group-send-reason" id="group-send-reason-${itemId}" data-group-send-reason${
+      ready ? " hidden" : ""
+    }>${esc(reason)}</p>
   </div>`;
 }

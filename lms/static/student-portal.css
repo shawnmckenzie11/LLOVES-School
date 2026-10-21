@@ -3069,13 +3069,114 @@ body.rw-open { overflow: hidden; }
   font-weight: 600;
 }
 .rank-check {
-  margin-top: 0.65rem;
+  margin-top: 0;
 }
-.rank-check-result {
-  margin: 0.45rem 0 0;
-  font-size: 0.9rem;
+/* MCK-301 phone header. 44px help target, muted check chip, pinned send. */
+.group-flow-instruction {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.group-flow-head,
+.rank-check-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin: 0 0 8px;
+}
+.group-flow-head .group-flow-instruction {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+.rank-check-row .rank-check,
+.rank-check-row .rank-check-chip {
+  flex: 1;
+  min-width: 0;
+}
+button.secondary.rank-check {
+  min-height: 36px;
+  border-radius: 10px;
+  font: inherit;
   font-weight: 600;
-  color: #cbd5e1;
+}
+.group-help {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.group-help-pop {
+  position: absolute;
+  right: 0;
+  top: 46px;
+  z-index: 3;
+  max-width: 240px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  font-size: 14px;
+  line-height: 1.35;
+}
+.rank-check-chip {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.3;
+}
+.rank-send-pin {
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 8px 0 4px;
+  background: #122033;
+}
+.rank-send-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.team-picks-label {
+  margin: 8px 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.team-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+.team-picks li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+}
+.team-pick-letter {
+  font-weight: 700;
+  color: var(--accent);
 }
 .rank-turn-undo {
   margin-left: 0.4rem;
@@ -3095,6 +3196,7 @@ body.rw-open { overflow: hidden; }
 .student-live-card .student-group-card > .student-group-picks,
 .student-live-card .student-group-card > .student-group-locked,
 .student-live-card .student-group-card > .student-group-sent,
+.student-live-card .student-group-card > .mc-match,
 .student-live-card .student-group-card > .rank-turns {
   margin-left: 1rem;
   margin-right: 1rem;

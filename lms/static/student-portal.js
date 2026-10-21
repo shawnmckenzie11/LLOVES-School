@@ -78,10 +78,9 @@ import {
   groupInstructionHtml,
 } from "/static/group_instructions.js";
 import {
-  mcAgreeStepHtml,
   mcFlowStep,
   mcLockedHtml,
-  mcPickStepHtml,
+  mcMatchHtml,
   rankTurnsHtml,
   turnsCardIsStale,
 } from "/static/group_flows.js";
@@ -3706,6 +3705,7 @@ function studentGroupCardBodyHtml(item) {
         options: rankOptionsFromContent(content),
         itemId,
         note: groupFlowNotes.get(itemId) || "",
+        header: true,
       })}
     </div>`;
   }
@@ -3754,14 +3754,13 @@ function studentGroupCardBodyHtml(item) {
     const body =
       flowStep === "locked"
         ? mcLockedHtml(group)
-        : flowStep === "agree"
-          ? mcAgreeStepHtml(group, { choices, optionsHtml, choice, why, itemId })
-          : mcPickStepHtml(group, {
-              choices,
-              optionsHtml,
-              draftChoice: String(pickDraft.choice || ""),
-              itemId,
-            });
+        : mcMatchHtml(
+            {
+              ...group,
+              my_pick: String(group.my_pick || pickDraft.choice || ""),
+            },
+            { choices, optionsHtml, itemId }
+          );
     const note = groupFlowNotes.get(itemId) || "";
     return `<div class="student-group-card" data-live-action="group" data-mc-flow="${escapeText(flowStep)}"
         data-group-submitted="${group.submitted ? "1" : "0"}"
@@ -4361,8 +4360,10 @@ async function submitLifecycleAnswer(card, action) {
     item = promptAsLifecycleItem(lastStudentPayload);
   }
   const response = lifecycleAnswerFromCard(card);
+  const turnsSend = action === "group" && Boolean(card.querySelector("[data-rank-turns]"));
+  const matchSend = action === "group" && Boolean(card.querySelector("[data-mc-match]"));
   try {
-    if (!response) {
+    if (!response && !turnsSend && !matchSend) {
       const numeric = card.querySelector("[data-live-value]");
       throw new Error(
         numeric
@@ -4389,12 +4390,18 @@ async function submitLifecycleAnswer(card, action) {
     } else if (action === "group") {
       const whyEl = card.querySelector("[data-group-why]");
       url = `/api/student/live-items/${itemId}/group-submit`;
-      body = card.querySelector("[data-rank-input]")
-        ? { order: response.order }
-        : {
-            choice: response.choice,
-            why: whyEl instanceof HTMLTextAreaElement ? whyEl.value : "",
-          };
+      if (turnsSend) {
+        body = {};
+      } else if (card.querySelector("[data-rank-input]")) {
+        body = { order: response.order };
+      } else if (matchSend) {
+        body = { choice: response?.choice || "", why: "" };
+      } else {
+        body = {
+          choice: response.choice,
+          why: whyEl instanceof HTMLTextAreaElement ? whyEl.value : "",
+        };
+      }
     }
     const promptId = Number(item.prompt?.id) || promptIdFromCard || 0;
     const holdDetails = { promptId, itemId, action, url, body, response };
@@ -6177,6 +6184,16 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
     event.preventDefault();
     return;
   }
+  const helpButton = event.target.closest("[data-group-help]");
+  if (helpButton instanceof HTMLButtonElement) {
+    event.preventDefault();
+    const popId = helpButton.getAttribute("aria-controls") || "";
+    const pop = popId ? document.getElementById(popId) : null;
+    const open = helpButton.getAttribute("aria-expanded") !== "true";
+    helpButton.setAttribute("aria-expanded", open ? "true" : "false");
+    if (pop instanceof HTMLElement) pop.hidden = !open;
+    return;
+  }
   const rankChange = event.target.closest("[data-rank-change]");
   if (rankChange instanceof HTMLButtonElement) {
     const card = rankChange.closest("[data-live-card-id]");
@@ -6342,6 +6359,9 @@ document.getElementById("live-response")?.addEventListener("click", (event) => {
         if (action === "group-pick") {
           const send = card.querySelector("[data-group-pick-send]");
           if (send instanceof HTMLButtonElement) send.disabled = false;
+          if (card.querySelector("[data-mc-match]")) {
+            void postGroupFlow(card, "group-pick", { choice: next.choice });
+          }
         }
       }
     }

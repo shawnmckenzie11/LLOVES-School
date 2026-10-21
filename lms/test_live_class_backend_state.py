@@ -174,6 +174,25 @@ class LiveBackendStateTests(unittest.TestCase):
         )
         return result["game"]["teams"]
 
+    def _same_group_picks(self, item_id: int, student_index: int, choice: str) -> None:
+        """Store one shared multiple-choice pick for every teammate.
+
+        ``_setup_groups`` pairs students by index modulo 2. The group
+        send stays refused until each present teammate has this choice.
+
+        Args:
+            item_id: ``live_session_items.id``.
+            student_index: Any member of the team that is sending.
+            choice: Option label every teammate picks.
+        """
+        team = student_index % 2
+        for index, student_id in enumerate(self.student_ids):
+            if index % 2 != team:
+                continue
+            self.school.submit_group_mc_pick(
+                self.session_id, int(item_id), int(student_id), choice=choice
+            )
+
     def test_v2_join_question_requires_explicit_publish(self) -> None:
         """An inactive v2 JOIN card stays hidden until its lifecycle publish."""
 
@@ -1762,7 +1781,7 @@ class LiveBackendStateTests(unittest.TestCase):
             self.assertEqual(team["status"], "waiting")
             self.assertNotIn("final_answer", team)
             self.assertNotIn("member_answers", team)
-        self.school.end_group_mc_pick_step(self.session_id, int(published["id"]))
+        self._same_group_picks(int(published["id"]), 0, "A")
         self.school.submit_group_mc_answer(
             self.session_id,
             int(published["id"]),
@@ -3350,7 +3369,7 @@ class LiveBackendStateTests(unittest.TestCase):
         self.assertEqual(prompt["payload"].get("choices"), ["Red", "Blue"])
 
     def test_group_mc_ready_gate_one_switch_and_blank_miss(self) -> None:
-        """Group MC is one switch, gated on why, and a miss stays blank."""
+        """Group MC sends when every teammate matches, and a miss stays blank."""
 
         self._begin_and_join(4)
         self._setup_groups()
@@ -3387,8 +3406,8 @@ class LiveBackendStateTests(unittest.TestCase):
             self.school.submit_live_prompt_response(
                 int(prompt["id"]), self.student_ids[0], {"choice": "A"}
             )
-        # MCK-155 option B: everyone picks alone first. The shared draft
-        # is refused until then; the teacher's Start group step ends step 1.
+        # Everyone picks alone first. A shared draft is refused until
+        # that pick exists, and the send is refused until the team matches.
         with self.assertRaisesRegex(ValueError, "own pick first"):
             self.school.save_group_mc_draft(
                 self.session_id,
@@ -3397,17 +3416,13 @@ class LiveBackendStateTests(unittest.TestCase):
                 choice="A",
                 why="  ",
             )
-        self.school.end_group_mc_pick_step(self.session_id, int(published["id"]))
-        drafting = self.school.save_group_mc_draft(
+        self.school.submit_group_mc_pick(
             self.session_id,
             int(published["id"]),
             self.student_ids[0],
             choice="A",
-            why="  ",
         )
-        self.assertEqual(drafting["phase"], "drafting")
-        self.assertFalse(drafting["can_submit"])
-        with self.assertRaisesRegex(ValueError, "why"):
+        with self.assertRaisesRegex(ValueError, "same pick"):
             self.school.submit_group_mc_answer(
                 self.session_id,
                 int(published["id"]),
@@ -3415,6 +3430,7 @@ class LiveBackendStateTests(unittest.TestCase):
                 choice="A",
                 why="",
             )
+        self._same_group_picks(int(published["id"]), 0, "A")
         submitted = self.school.submit_group_mc_answer(
             self.session_id,
             int(published["id"]),
@@ -3501,7 +3517,7 @@ class LiveBackendStateTests(unittest.TestCase):
                 self.session_id,
                 int(published["id"]),
                 self.student_ids[0],
-                choice="A",
+                choice="B",
                 why="because the graph still rises",
             )
         revised_view = self.school.live_session_item_results(
@@ -3524,7 +3540,7 @@ class LiveBackendStateTests(unittest.TestCase):
             int(q_two["id"]),
             publish_mode="group_submit",
         )
-        self.school.end_group_mc_pick_step(self.session_id, int(second["id"]))
+        self._same_group_picks(int(second["id"]), 0, "B")
         self.school.submit_group_mc_answer(
             self.session_id,
             int(second["id"]),
@@ -3564,8 +3580,8 @@ class LiveBackendStateTests(unittest.TestCase):
         hits = [row for row in reveal if not row["missed"]]
         self.assertEqual(len(hits), 1)
         self.assertEqual(hits[0]["answer"], "A")
-        # MCK-155 option B: the locked first send's why stands.
-        self.assertEqual(hits[0]["why"], "because the graph rises")
+        # The send stores the matched letter and no why.
+        self.assertEqual(hits[0]["why"], "")
         self.assertTrue(misses)
         for row in misses:
             self.assertEqual(row["answer"], "")
@@ -3578,7 +3594,7 @@ class LiveBackendStateTests(unittest.TestCase):
         # MCK-155 option B: the answer locks on send, so no resubmits.
         self.assertEqual(aspen["resubmit_count"], 0)
         self.assertTrue(aspen["repeat_submitter"])
-        self.assertTrue(aspen["why_present"])
+        self.assertFalse(aspen["why_present"])
         missed_log = next(
             row for row in closed_view["submitter_log"] if row["no_submit_at_reveal"]
         )
@@ -3812,7 +3828,8 @@ class LiveBackendStateTests(unittest.TestCase):
         prompt = self.school._prompt_for_live_item(published)
         assert prompt is not None
         prompt_id = int(prompt["id"])
-        self.school.end_group_mc_pick_step(self.session_id, int(published["id"]))
+        self._same_group_picks(int(published["id"]), 0, "The graph rises")
+        self._same_group_picks(int(published["id"]), 1, "The graph falls")
         self.school.submit_group_mc_answer(
             self.session_id,
             int(published["id"]),

@@ -248,6 +248,11 @@ class RankShuffleLiveTests(unittest.TestCase):
                     break
             else:
                 self.fail(last.get_data(as_text=True)[:200] if last is not None else token)
+        if last is not None and last.status_code == 200:
+            card = (last.get_json() or {}).get("group_submit") or {}
+            if card.get("turns", {}).get("done") and not card.get("submitted") and not card.get("race"):
+                sent = self._post(names[0], item, "group-submit", {})
+                self.assertEqual(sent.status_code, 200, sent.get_data(as_text=True)[:200])
 
     def test_rank_together_submission_scores_against_the_key(self) -> None:
         item = self._publish(self._keyed())
@@ -271,7 +276,10 @@ class RankShuffleLiveTests(unittest.TestCase):
         for name, opt in zip(("Ava", "Cy", "Ava", "Cy"), self._to_student(item, key)):
             rv = self._post(name, item, "rank-turn", {"option_id": opt})
             self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
-        card = self._card("Ava", item)
+        self.assertFalse(self._card("Ava", item)["submitted"])
+        sent = self._post("Ava", item, "group-submit", {})
+        self.assertEqual(sent.status_code, 200, sent.get_data(as_text=True))
+        card = sent.get_json()["group_submit"]
         self.assertTrue(card["submitted"])
         submitted = self._from_student(item, card["submitted_order"])
         self.assertEqual(submitted, key)
@@ -678,6 +686,11 @@ class OptionAliasTests(unittest.TestCase):
                 rv = self._post(name, live, "rank-turn", {"option_id": opt})
                 self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
                 replies[f"turn {opt}"] = rv.get_json()
+            card = (rv.get_json() or {}).get("group_submit") or {}
+            if card.get("turns", {}).get("done") and not card.get("submitted") and not card.get("race"):
+                sent = self._post("Ava", live, "group-submit", {})
+                self.assertEqual(sent.status_code, 200, sent.get_data(as_text=True))
+                replies["send"] = sent.get_json()
         return replies
 
     def _saved_order(self, mode: str, live: dict[str, Any], prompt_id: int | None) -> list[str]:
