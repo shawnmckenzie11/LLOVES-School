@@ -205,7 +205,7 @@ if __name__ == "__main__":
 
 
 class OldScaleRowTests(GroupEngagementTests):
-    """A stored 1/1 rank row stays finished and is only rescaled on screen."""
+    """Old 1-possible rank rows stay stored and are only rescaled on screen."""
 
     def test_old_one_point_rank_is_not_rewritten_or_offered(self) -> None:
         """End and catch-up leave a 1/1 rank row. Teachers see 2/2.
@@ -277,3 +277,147 @@ class OldScaleRowTests(GroupEngagementTests):
             self.school._store_group_engagement_catchup(link, ava, key, order)
         )
         self.assertEqual(self._rows()[(ava, key)], (1, 1, "live"))
+
+    def _insert_old_rank(self, item: dict[str, Any], student_id: int, earned: int) -> tuple[str, str]:
+        """Store one old-scale rank row. Does not change earned or possible later.
+
+        The item row is rank so display mapping can see the kind. The
+        student's current module is stamped so the dashboard includes it.
+
+        Args:
+            item: Published live rank.
+            student_id: Roster id.
+            earned: Stored points. Possible stays 1.
+
+        Returns:
+            ``(run_key, question_key)``.
+        """
+        key = self._question_key(item)
+        run_key = self._run_key()
+        dash = self.school.student_dashboard_payload(self.class_id, student_id)
+        module = str(dash.get("current_module") or "M1")
+        with self.school._lock:
+            self.school.conn.execute(
+                """
+                INSERT INTO group_engagement_items (
+                    class_id, run_key, question_key, live_module, live_slot,
+                    item_json, prompt_kind, offered_at
+                ) VALUES (?, ?, ?, ?, 'C1', '{}', 'rank', '2026-09-01T00:00:00Z')
+                """,
+                (self.class_id, run_key, key, module),
+            )
+            self.school.conn.execute(
+                """
+                INSERT INTO group_engagement (
+                    class_id, run_key, question_key, student_id,
+                    earned, possible, source, recorded_at
+                ) VALUES (?, ?, ?, ?, ?, 1, 'live', '2026-09-01T00:00:00Z')
+                """,
+                (self.class_id, run_key, key, student_id, int(earned)),
+            )
+            self.school.conn.commit()
+        return run_key, key
+
+    def _student_points(self, student_id: int) -> tuple[str, str]:
+        """Dashboard fraction and the live-card fraction for one student.
+
+        Args:
+            student_id: Roster id.
+
+        Returns:
+            ``(dashboard, live card)``. Both read stored rows.
+        """
+        dash = self.school.student_dashboard_payload(self.class_id, student_id)
+        card = self.school.student_group_engagement_display(
+            self.class_id, self.session_id, student_id
+        )
+        return str(dash["group_engagement"]), card
+
+    def test_old_two_of_one_displays_as_four_of_two(self) -> None:
+        """An old 2/1 rank shows as 4/2. The stored row stays 2/1.
+
+        A checked send would rescore as 2/2 from the live items. The
+        student dashboard and the live card both show the stored 4/2.
+        """
+        item = self._open()
+        self._place(item, TEAM_A, KEY_IDS[:2])
+        checked = self._check(item)
+        self.assertEqual(checked.status_code, 200, checked.get_data(as_text=True)[:180])
+        self._place(item, TEAM_A, KEY_IDS[2:])
+        ava = self.ids["Ava"]
+        run_key, key = self._insert_old_rank(item, ava, 2)
+        live_earned, live_possible = self.school._live_group_engagement_totals(
+            self.session_id, ava
+        )
+        self.assertEqual((live_earned, live_possible), (2, 2))
+        teacher = self.school.group_engagement_fractions(self.class_id, run_key=run_key)
+        self.assertEqual(teacher[ava], "4/2")
+        dash, card = self._student_points(ava)
+        self.assertEqual(dash, "4/2")
+        self.assertEqual(card, "4/2")
+        self._end()
+        self.assertEqual(self._rows()[(ava, key)], (2, 1, "live"))
+        teacher = self.school.group_engagement_fractions(self.class_id, run_key=run_key)
+        self.assertEqual(teacher[ava], "4/2")
+        dash, card = self._student_points(ava)
+        self.assertEqual(dash, "4/2")
+        self.assertEqual(card, "4/2")
+
+    def test_old_zero_of_one_displays_as_zero_of_two(self) -> None:
+        """An old 0/1 rank shows as 0/2. The stored row stays 0/1.
+
+        A correct send with no check would rescore as 4/2 from the live
+        items. Student views stay on the stored 0/2.
+        """
+        item = self._open()
+        self._place(item, TEAM_A, KEY_IDS)
+        ava = self.ids["Ava"]
+        run_key, key = self._insert_old_rank(item, ava, 0)
+        live_earned, live_possible = self.school._live_group_engagement_totals(
+            self.session_id, ava
+        )
+        self.assertEqual((live_earned, live_possible), (4, 2))
+        teacher = self.school.group_engagement_fractions(self.class_id, run_key=run_key)
+        self.assertEqual(teacher[ava], "0/2")
+        dash, card = self._student_points(ava)
+        self.assertEqual(dash, "0/2")
+        self.assertEqual(card, "0/2")
+        self._end()
+        self.assertEqual(self._rows()[(ava, key)], (0, 1, "live"))
+        teacher = self.school.group_engagement_fractions(self.class_id, run_key=run_key)
+        self.assertEqual(teacher[ava], "0/2")
+        dash, card = self._student_points(ava)
+        self.assertEqual(dash, "0/2")
+        self.assertEqual(card, "0/2")
+
+    def test_old_two_plus_new_four_displays_eight_of_four(self) -> None:
+        """An old 2/1 plus a new 4/2 shows as 8/4. Both stored rows stay put.
+
+        Before End the live items would rescore both sends. The student
+        card shows only the stored old row until the new row is written.
+        """
+        first = self._open()
+        self._place(first, TEAM_A, KEY_IDS)
+        ava = self.ids["Ava"]
+        run_key, first_key = self._insert_old_rank(first, ava, 2)
+        second = self._open()
+        self._place(second, TEAM_A, KEY_IDS)
+        second_key = self._question_key(second)
+        live_earned, live_possible = self.school._live_group_engagement_totals(
+            self.session_id, ava
+        )
+        self.assertEqual((live_earned, live_possible), (8, 4))
+        dash, card = self._student_points(ava)
+        self.assertEqual(dash, "4/2")
+        self.assertEqual(card, "4/2")
+        self._end()
+        rows = self._rows()
+        self.assertEqual(rows[(ava, first_key)], (2, 1, "live"))
+        self.assertEqual(rows[(ava, second_key)][:2], (4, 2))
+        teacher = self.school.group_engagement_fractions(self.class_id, run_key=run_key)
+        self.assertEqual(teacher[ava], "8/4")
+        dash, card = self._student_points(ava)
+        self.assertEqual(dash, "8/4")
+        self.assertEqual(card, "8/4")
+        grid = self.school.participation_week_grid(self.class_id)
+        self.assertEqual(grid["group_engagement"].get(str(ava)), "8/4")

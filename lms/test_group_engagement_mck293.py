@@ -49,6 +49,7 @@ class PointRuleTests(unittest.TestCase):
         self.assertTrue(old_rank_scale(1, "rank"))
         self.assertFalse(old_rank_scale(1, "mc"))
         self.assertFalse(old_rank_scale(2, "rank"))
+        self.assertEqual(display_points(2, 1, "rank"), (4, 2))
         self.assertEqual(display_points(1, 1, "rank"), (2, 2))
         self.assertEqual(display_points(0, 1, "rank"), (0, 2))
         self.assertEqual(display_points(1, 1, "mc"), (1, 1))

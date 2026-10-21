@@ -28,6 +28,7 @@ import threading
 import time
 import urllib.parse
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 LMS_DIR = ROOT / "lms"
@@ -3729,11 +3730,33 @@ def _mck293_arm(path: Path, origin: str, meta: dict[str, int | str]) -> dict[str
     }
 
 
+def _mck293_send(school: Any, session_id: int, live_item_id: int, student_id: int) -> None:
+    """Send a group rank after the last card is placed.
+
+    Placing the last card leaves the order unsent. This is the pinned
+    send. A checked completion stores 2/2. A correct send with no check
+    stores 4/2.
+
+    Args:
+        school: School database for this scenario.
+        session_id: ``live_class_sessions.id``.
+        live_item_id: ``live_session_items.id``.
+        student_id: Roster id of the person pressing Send our ranking.
+    """
+    school.submit_group_mc_answer(
+        int(session_id),
+        int(live_item_id),
+        int(student_id),
+        choice="",
+        why="",
+    )
+
+
 def _mck293_finish(path: Path, meta: dict[str, int | str], last_option_id: str) -> None:
     """Send the checked rank, send a second rank with no check, then End.
 
-    The first send used the check, so it stores 1. The second matches the
-    answer order with no check, so it stores 2. Catch-up is not offered
+    The checked completion stores 2/2. The second matches the answer
+    order with no check, so it stores 4/2. Catch-up is not offered
     the check.
 
     Args:
@@ -3761,6 +3784,7 @@ def _mck293_finish(path: Path, meta: dict[str, int | str], last_option_id: str) 
             student_id,
             option_id=last_option_id,
         )
+        _mck293_send(school, session_id, int(meta["live_item_id"]), student_id)
         placement = school.add_staff_question_to_class_playlist(
             class_id,
             "M1",
@@ -3788,6 +3812,7 @@ def _mck293_finish(path: Path, meta: dict[str, int | str], last_option_id: str) 
             raise SystemExit("second rank has no answer order")
         for option_id in order:
             school.rank_turn_place(session_id, second_id, student_id, option_id=option_id)
+        _mck293_send(school, session_id, second_id, student_id)
         dash = school.student_dashboard_payload(class_id, student_id)
         module = str(dash.get("current_module") or "M1")
         school.set_live_session_teacher_state(

@@ -6,7 +6,7 @@ question whose maximum is 2. Every other rank completion is 2.
 Catch-up never writes 4. A rank row still stored as 1 possible is
 the older scale and is already finished: catch-up does not offer it
 and nothing rewrites it. Teacher totals show that row on the 2-point
-scale. A group multiple-choice send is 1 on a question whose maximum
+scale: earned 2 displays as 4, earned 1 as 2, and earned 0 as 0. A group multiple-choice send is 1 on a question whose maximum
 is 1.
 
 This module is pure. It does not read the database or the answer order.
@@ -122,9 +122,11 @@ def old_rank_scale(possible: int | None, kind: str) -> bool:
 def display_points(earned: int, possible: int, kind: str) -> tuple[int, int]:
     """Normalize one stored row for teacher totals. Does not write.
 
-    A rank row stored as 1/1 displays as 2/2. A rank row stored as 0/1
-    displays as 0/2. Multiple choice and the current rank scale pass
-    through unchanged.
+    A rank row stored with 1 possible stays in the database and is shown
+    on the 2-point scale. Earned 2 displays as 4, earned 1 as 2, and
+    earned 0 as 0, each with 2 possible. An old 2/1 plus a new 4/2
+    therefore totals 8/4. Multiple choice and the current rank scale
+    pass through unchanged.
 
     Args:
         earned: Stored points for this question.
@@ -135,7 +137,8 @@ def display_points(earned: int, possible: int, kind: str) -> tuple[int, int]:
         ``(earned, possible)`` to add into a displayed total.
     """
     if old_rank_scale(possible, kind):
-        shown = RANK_POSSIBLE if int(earned) >= 1 else 0
+        stored = int(earned)
+        shown = {0: 0, 1: RANK_EARNED_BASE, 2: RANK_EARNED_BONUS}.get(stored, stored * 2)
         return shown, RANK_POSSIBLE
     return int(earned), int(possible)
 

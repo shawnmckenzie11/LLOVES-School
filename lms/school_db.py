@@ -2726,7 +2726,8 @@ class LovesDB:
         """``earned/possible`` per student. Discarded runs are left out.
 
         A rank row still stored as 1 possible (the older scale) is added
-        on the 2-point scale. The stored numbers are not changed.
+        on the 2-point scale: earned 2 counts as 4, 1 as 2, and 0 as 0.
+        The stored numbers are not changed.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -2839,7 +2840,11 @@ class LovesDB:
     def student_group_engagement_display(
         self, class_id: int, live_session_id: int, student_id: int
     ) -> str:
-        """Group-rank points for the live card, then the saved run after End.
+        """Stored group points for this run, on the same scale as teacher totals.
+
+        Reads ``group_engagement`` and applies ``display_points``. It does
+        not rescore the questions that are still live. An old rank row of
+        2/1, 1/1, or 0/1 shows as 4/2, 2/2, or 0/2.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -2851,11 +2856,6 @@ class LovesDB:
                 "SELECT run_key FROM live_class_sessions WHERE id = ? AND class_id = ?",
                 (int(live_session_id), int(class_id)),
             ).fetchone()
-            earned, possible = self._live_group_engagement_totals(
-                int(live_session_id), int(student_id)
-            )
-        if possible > 0:
-            return format_fraction(earned, possible)
         run_key = str(row["run_key"] or "") if row is not None else ""
         if not run_key:
             return "0/0"
