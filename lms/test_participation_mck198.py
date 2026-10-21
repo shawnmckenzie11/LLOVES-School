@@ -24,18 +24,39 @@ from app import create_app  # noqa: E402
 import participation as P  # noqa: E402
 
 
+TORONTO = ZoneInfo("America/Toronto")
+# Catch-up closes at the same clock time the class ended, seven days later.
+# 14:30 fixtures therefore shut at 14:30. 10:00 stays open at 08:00 and 23:30.
+CATCHUP_PIN_HOUR = 10
+
+
+def pinned_catchup_now() -> datetime:
+    """10:00 America/Toronto on the calendar day the test clock reports.
+
+    The hour is fixed. The date follows the process clock, including a
+    test run whose clock is set to 08:00 or 23:30.
+
+    Returns:
+        An aware Toronto datetime.
+    """
+    current = datetime.now(TORONTO)
+    return current.replace(
+        hour=CATCHUP_PIN_HOUR, minute=0, second=0, microsecond=0
+    )
+
+
 def open_catchup_ended_iso() -> str:
     """Class end that is still inside the seven-day catch-up window.
 
-    A fixed 2026-10-14 end closes on 2026-10-21. Callers that need a
-    closed window pass their own timestamp.
+    The end is 10:00 Toronto, two days before the pinned morning. A fixed
+    2026-10-14 14:30 end closes at 14:30 seven days later, so an afternoon
+    run sees a closed catch-up. Callers that need a closed window pass
+    their own timestamp.
 
     Returns:
-        A Toronto wall time two days ago, without a timezone suffix.
+        A Toronto wall time, without a timezone suffix.
     """
-    ended = (
-        datetime.now(ZoneInfo("America/Toronto")) - timedelta(days=2)
-    ).replace(microsecond=0, tzinfo=None)
+    ended = (pinned_catchup_now() - timedelta(days=2)).replace(tzinfo=None)
     return ended.isoformat(timespec="seconds")
 
 
