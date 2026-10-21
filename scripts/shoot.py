@@ -3499,8 +3499,10 @@ def _mck281_student_url(path: Path, origin: str, session_id: int, live_item_id: 
 def shoot_mck281(base: str, state_path: Path, out_dir: Path, path: Path) -> list[Path]:
     """MCK-281: teacher group setup and the student Take turns card.
 
-    A question saved as Rank together is opened as Take turns. Shots hide
-    roster names and the join code.
+    A question saved as Rank together is opened as Take turns. The student
+    card shows the ranking instruction and Send our ranking. This question
+    has no answer order, so Check and its ? stay off. Shots hide roster
+    names and the join code.
 
     Args:
         base: Loopback LMS origin.
@@ -3519,8 +3521,9 @@ def shoot_mck281(base: str, state_path: Path, out_dir: Path, path: Path) -> list
     notes = [
         "teacher card shows take-turns style line",
         "teacher card has no Rank together control",
-        "student card instructs Take turns",
+        "student card shows the ranking instruction",
         "student card has no Rank together line",
+        "unkeyed card has no Check button",
     ]
     written: list[Path] = []
     with sync_playwright() as playwright:
@@ -3560,18 +3563,26 @@ def shoot_mck281(base: str, state_path: Path, out_dir: Path, path: Path) -> list
             phone.locator(".group-flow-instruction").wait_for(
                 state="visible", timeout=30000
             )
-            phone.locator("[data-group-help]").wait_for(state="visible", timeout=15000)
             phone.locator("[data-rank-turns-card]").wait_for(state="visible", timeout=15000)
+            phone.locator('[data-live-submit="group"]').wait_for(
+                state="visible", timeout=15000
+            )
         except Exception:
             raise SystemExit("student card did not show the ranking line") from None
-        phone_text = phone.locator("#live-response").inner_text()
+        instruction = phone.locator(".group-flow-instruction").inner_text().strip()
         if (
-            "Take turns moving the cards. Talk it through, then lock in your ranking together."
-            not in phone_text
+            instruction
+            != "Take turns moving the cards. Talk it through, then lock in your ranking together."
         ):
             raise SystemExit("student instruction is not the ranking line")
+        phone_text = phone.locator("#live-response").inner_text()
         if "Rank together" in phone_text:
             raise SystemExit("student card still shows Rank together")
+        # No answer order, so Check stays off. The ? only sits on that button.
+        if phone.locator("[data-rank-check]").count() or phone.locator("[data-group-help]").count():
+            raise SystemExit("unkeyed ranking card showed Check")
+        if phone.locator('[data-live-submit="group"]').inner_text().strip() != "Send our ranking":
+            raise SystemExit("student card did not show Send our ranking")
         _mck281_blank_identity(phone)
         phone.wait_for_timeout(600)
         student_shot = out_dir / "mck281-student-turns-390.png"
