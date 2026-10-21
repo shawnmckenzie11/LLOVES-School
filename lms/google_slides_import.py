@@ -13,6 +13,8 @@ not use the lesson-deck Drive token.
 from __future__ import annotations
 
 import re
+import socket
+import threading
 import time
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -83,11 +85,11 @@ def _hop_timeout(timeout: float, deadline: float | None) -> float:
 def _request_timeout(
     timeout: float, deadline: float | None
 ) -> tuple[float, float]:
-    """Connect and socket-read timeouts inside the import deadline.
+    """Connect and idle-read timeouts inside the import deadline.
 
-    ``requests`` applies the read value to each socket recv, not to the
-    whole download. It is the time still left, so one blocked read cannot
-    run past the deadline. Callers also check the deadline between chunks.
+    ``requests`` applies the read value to idle time between bytes.
+    ``read_capped_response`` closes the socket when the deadline arrives,
+    which also stops a body that keeps trickling.
 
     Args:
         timeout: Caller's per-hop cap.
@@ -101,6 +103,96 @@ def _request_timeout(
     """
     budget = _hop_timeout(timeout, deadline)
     return (min(10.0, budget), budget)
+
+
+def _response_socket(response: Any) -> socket.socket | None:
+    """Return the TCP socket behind a streamed ``requests`` response.
+
+    Test doubles have no socket. urllib3 keeps the live socket on the
+    raw response (``raw._fp.fp.raw._sock`` or the connection ``sock``).
+
+    Args:
+        response: ``requests`` response or a test double.
+    """
+    raw = getattr(response, "raw", None)
+    if raw is None:
+        return None
+    seen: set[int] = set()
+    pending: list[Any] = [
+        raw,
+        getattr(raw, "_connection", None),
+        getattr(raw, "_fp", None),
+    ]
+    while pending:
+        obj = pending.pop()
+        if obj is None or id(obj) in seen:
+            continue
+        seen.add(id(obj))
+        if isinstance(obj, socket.socket):
+            return obj
+        if len(seen) > 24:
+            break
+        for name in ("_sock", "sock", "raw", "fp", "_fp", "_connection"):
+            child = getattr(obj, name, None)
+            if child is not None and child is not obj:
+                pending.append(child)
+    return None
+
+
+class _WallClockCut:
+    """Close a download socket when the import deadline arrives.
+
+    ``iter_content`` returns only after a whole chunk is buffered, and the
+    requests read timeout measures idle time. A server that sends one byte
+    at a time never looks idle and never finishes a chunk. Closing the
+    socket makes that blocked read return.
+    """
+
+    def __init__(self, response: Any, deadline: float | None) -> None:
+        """Arm a daemon timer for ``deadline``, when a socket is present.
+
+        Args:
+            response: Streamed response whose socket should close.
+            deadline: ``time.monotonic`` cutoff, or None.
+        """
+        self.fired = False
+        self._timer: threading.Timer | None = None
+        self._sock: socket.socket | None = None
+        if deadline is None:
+            return
+        sock = _response_socket(response)
+        if sock is None:
+            return
+        self._sock = sock
+        delay = float(deadline) - time.monotonic()
+        if delay <= 0:
+            self._cut()
+            return
+        timer = threading.Timer(delay, self._cut)
+        timer.daemon = True
+        self._timer = timer
+        timer.start()
+
+    def _cut(self) -> None:
+        """Shut the socket down so a blocked read returns."""
+        self.fired = True
+        sock = self._sock
+        if sock is None:
+            return
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+    def cancel(self) -> None:
+        """Disarm the timer after the body finished or was refused."""
+        timer = self._timer
+        if timer is not None:
+            timer.cancel()
 
 
 def _close_response(response: Any) -> None:
@@ -120,8 +212,9 @@ def read_capped_response(
     """Read a response body up to ``limit`` bytes and the import deadline.
 
     Streamed responses use ``iter_content``. The deadline is checked
-    before every chunk, so a slow drip cannot outlive the import. A
-    response without ``iter_content`` is read from ``content``.
+    before every chunk. When the response has a real socket, a timer
+    closes that socket at the deadline so a slow drip cannot sit inside
+    one chunk. A response without ``iter_content`` is read from ``content``.
 
     Args:
         response: ``requests`` response or a test double.
@@ -158,20 +251,31 @@ def read_capped_response(
             chunks: list[bytes] = []
             total = 0
             pending = iter(stream)
-            while True:
-                _check_time()
-                try:
-                    chunk = next(pending)
-                except StopIteration:
-                    break
-                if not chunk:
-                    continue
-                block = bytes(chunk)
-                total += len(block)
-                if total > cap:
-                    _stop("That deck is too large to attach.")
-                chunks.append(block)
-            return b"".join(chunks)
+            cut = _WallClockCut(response, deadline)
+            try:
+                while True:
+                    _check_time()
+                    try:
+                        chunk = next(pending)
+                    except StopIteration:
+                        break
+                    except Exception:
+                        if cut.fired or (
+                            deadline is not None
+                            and time.monotonic() >= float(deadline)
+                        ):
+                            _stop("That deck took too long to attach.")
+                        raise
+                    if not chunk:
+                        continue
+                    block = bytes(chunk)
+                    total += len(block)
+                    if total > cap:
+                        _stop("That deck is too large to attach.")
+                    chunks.append(block)
+                return b"".join(chunks)
+            finally:
+                cut.cancel()
     _check_time()
     data = getattr(response, "content", b"") or b""
     if not isinstance(data, (bytes, bytearray)):

@@ -5925,12 +5925,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """Serve one staff-authored live question image to class participants.
 
         Google Slides page files use this store too. Those files are
-        returned only while an active session is sharing that page.
-        A student joined to that live session is served from the live
-        session, including when the same browser also holds catch-up.
-        Catch-up alone, and unpublished or closed pages, get 404. The
-        class owner can still preview an unpublished page. Other
-        question images keep the existing class-access rule.
+        returned only while an active session is sharing that page, and
+        only to a student whose join is that active session. The same
+        browser may also hold catch-up. Catch-up alone, a join from an
+        ended session of this class, and unpublished or closed pages
+        get 404. The class owner can still preview an unpublished page.
+        Other question images keep the existing class-access rule.
         """
         if not _can_access_class_live_asset(class_id):
             abort(403)
@@ -5942,17 +5942,25 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
             if not owner:
                 ctx = _student_live_context()
-                joined_live = (
+                active = school.get_active_live_session_for_class(int(class_id))
+                try:
+                    active_id = int(active["id"]) if active else 0
+                except (TypeError, ValueError, KeyError):
+                    active_id = 0
+                joined_id = 0
+                if (
                     isinstance(ctx, dict)
                     and int(ctx.get("class_id") or 0) == int(class_id)
-                    and int(ctx.get("live_session_id") or 0) > 0
-                )
-                if (
-                    not joined_live
-                    and _catchup_student_for_class(school, int(class_id)) is not None
                 ):
-                    abort(404)
-                if visibility != "published":
+                    try:
+                        joined_id = int(ctx.get("live_session_id") or 0)
+                    except (TypeError, ValueError):
+                        joined_id = 0
+                if (
+                    active_id <= 0
+                    or joined_id != active_id
+                    or visibility != "published"
+                ):
                     abort(404)
         path = school.live_question_image_path(int(class_id), filename)
         if path is None:
