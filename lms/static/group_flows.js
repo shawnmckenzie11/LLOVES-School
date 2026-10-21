@@ -47,11 +47,10 @@ export const GROUP_FLOW_COPY = Object.freeze({
 });
 
 /**
- * Placeholder until Wonder ships the ranking help popover.
- * Swap this string in one place.
+ * Final ranking help popover. One string so a later edit stays in one place.
  */
 export const RANK_CHECK_HELP =
-  "Your group gets one check. Anyone can use it. It shows how many are in the right spot, not which ones, and it does not send.";
+  "Your group gets one check, and anyone can use it at any time. It shows how many cards are in the right spot. Send your ranking whenever you're ready, but you can't change it once it's sent. Get every card right without the check to earn a bonus participation point.";
 
 /**
  * Placeholder until Wonder ships the group multiple-choice help popover.

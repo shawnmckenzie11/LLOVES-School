@@ -186,7 +186,10 @@ check(header.includes("Take turns moving the cards. Talk it through, then lock i
 check(header.includes("Check our ranking") && header.includes("group-help"), "check row and help");
 check(header.includes("Send our ranking") && header.includes("Final once sent"), "pinned send");
 check(header.includes("data-live-submit=\"group\" disabled"), "send waits for a full order");
-check(header.includes(RANK_CHECK_HELP), "ranking help is the swap constant");
+check(
+  header.includes(RANK_CHECK_HELP.replaceAll("'", "&#39;")),
+  "ranking help is the final popover copy",
+);
 const readyRank = rankTurnsHtml(
   {
     turns: { spots: [], total: 3, done: true },
