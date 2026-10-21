@@ -155,12 +155,13 @@ def smoke_gate_errors(
 def seed(
     data: Path,
     students: int,
-    presence_url: str,
+    presence_url: str | None,
     *,
     classes: int = 1,
     items: int = RANK_ITEMS,
     include_mc: bool = False,
-) -> list[dict[str, Any]]:
+    retain: bool = False,
+) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], Any]:
     """Build concurrent live classes in one sqlite file.
 
     Each class has its own teacher, because one staff user can run only one
@@ -172,12 +173,14 @@ def seed(
         data: Private data directory (sqlite and uploads).
         students: Roster size of each class.
         presence_url: Postgres URL for live presence. Loopback only.
+            ``None`` keeps presence on sqlite.
         classes: How many classes to open at once. At least 1.
         items: Rank questions prepared on each class.
         include_mc: Also prepare one group multiple-choice item, published first.
+        retain: Keep the app and test clients open and return ``(fixtures, app)``.
 
     Returns:
-        One fixture dict per class.
+        One fixture dict per class, or ``(fixtures, app)`` when ``retain`` is set.
     """
     if classes < 1:
         raise ValueError("classes must be at least 1")
@@ -236,6 +239,7 @@ def seed(
         ids = {str(r["codename"]): int(r["id"]) for r in rows}
         cookies: dict[str, str] = {}
         rejoins: dict[str, str] = {}
+        phones: dict[str, Any] = {}
         for name in names:
             client = app.test_client()
             rv = client.post(
@@ -247,6 +251,8 @@ def seed(
             cookies[name] = client.get_cookie("session").value
             rejoin = client.get_cookie("lloves_live_rejoin")
             rejoins[name] = rejoin.value if rejoin is not None else ""
+            if retain:
+                phones[name] = client
         n_teams = max(2, students // 4)
         order = [ids[n] for n in names]
         school.setup_live_session_groups(
@@ -321,12 +327,16 @@ def seed(
                         "cookie": cookies[n],
                         "rejoin": rejoins.get(n, ""),
                         "team": i % n_teams,
+                        **({"client": phones[n]} if retain else {}),
                     }
                     for i, n in enumerate(names)
                 ],
                 "items": prepared,
+                **({"staff_client": staff} if retain else {}),
             }
         )
+    if retain:
+        return fixtures, app
     school.close()
     return fixtures
 
@@ -499,6 +509,31 @@ def builds_per_tap(builds: int, taps: int) -> float | None:
     if int(taps) < 1:
         return None
     return int(builds) / int(taps)
+
+
+def state_rebuild_budget(team_size: int) -> int:
+    """Most full ``/state`` builds one tap may cause.
+
+    The tapping team may each rebuild, and the teacher poll always counts
+    as one build. Any other phone is over the cap.
+
+    Args:
+        team_size: Students on the tapping team.
+
+    Returns:
+        Hard cap, team size plus the teacher.
+    """
+    return int(team_size) + 1
+
+
+def tap_over_budget(builds: int, team_size: int) -> bool:
+    """True when a tap rebuilt more states than the team plus the teacher.
+
+    Args:
+        builds: Full ``/state`` responses counted for that tap.
+        team_size: Students on the tapping team.
+    """
+    return int(builds) > state_rebuild_budget(team_size)
 
 
 def _phone_can_place(payload: dict[str, Any] | None, item_id: int) -> bool:
@@ -1197,6 +1232,216 @@ def summarize(
     return summary
 
 
+def _budget_warmup(fx: dict[str, Any]) -> None:
+    """Store each phone's seq and stamp after a full ``/state``.
+
+    Args:
+        fx: One retained class fixture.
+    """
+    for student in fx["students"]:
+        rv = student["client"].get("/api/student/state")
+        body = rv.get_json(silent=True) or {}
+        student["seq"] = body.get("state_seq")
+        student["stamp"] = body.get("stamp")
+        student["payload"] = body
+
+
+def _budget_rebuilds(fx: dict[str, Any]) -> int:
+    """Count student polls that rebuilt, plus the teacher poll.
+
+    Args:
+        fx: One retained class fixture with seq and stamp stored.
+    """
+    builds = 0
+    for student in fx["students"]:
+        rv = student["client"].get(
+            "/api/student/state",
+            query_string={"seq": student.get("seq"), "stamp": student.get("stamp")},
+        )
+        body = rv.get_json(silent=True) or {}
+        if not body.get("unchanged"):
+            builds += 1
+    fx["staff_client"].get(f"/api/live-sessions/{fx['session_id']}/state")
+    return builds + 1
+
+
+def _budget_show_prepared_page(school: Any, fx: dict[str, Any]) -> None:
+    """Open the teacher on the page the prepared questions already use.
+
+    Students build a take-turns card only for the page on screen. The
+    seed adds questions on a later page than the opening rail page.
+    Rewriting those rows would make the next tap stamp every placement
+    and rebuild every phone, so the rail moves instead.
+
+    Args:
+        school: Open school database.
+        fx: One retained class fixture.
+    """
+    session_id = int(fx["session_id"])
+    wanted: int | None = None
+    for item in fx["items"]:
+        row = school.get_live_session_item(
+            session_id, int(item["live_item_id"]), sync="skip"
+        )
+        raw = row.get("page_number")
+        if raw in (None, ""):
+            continue
+        try:
+            wanted = int(raw)
+        except (TypeError, ValueError):
+            continue
+        break
+    if wanted is None or school._current_student_page_number(session_id) == wanted:
+        return
+    meta = school.live_class_metadata_for_session(session_id)
+    teacher = school.live_session_teacher_state_payload(session_id)
+    match: dict[str, Any] | None = None
+    for page in meta.get("pages") or []:
+        if not isinstance(page, dict) or not str(page.get("id") or "").strip():
+            continue
+        raw = page.get("page_number")
+        try:
+            number = int(raw) if raw not in (None, "") else None
+        except (TypeError, ValueError):
+            number = None
+        if number == wanted:
+            match = page
+            break
+    if match is None:
+        return
+    fx["staff_client"].post(
+        f"/api/live-sessions/{session_id}/teacher-state",
+        json={
+            "live_module": teacher.get("live_module"),
+            "live_slot": teacher.get("live_slot"),
+            "stage": str(match.get("stage") or teacher.get("stage") or ""),
+            "page_id": str(match["id"]),
+        },
+    )
+
+
+def _budget_publish(fx: dict[str, Any], item: dict[str, Any]) -> int:
+    """Publish one prepared item to the group. Returns the HTTP status.
+
+    Args:
+        fx: One retained class fixture.
+        item: Prepared item from ``seed``.
+    """
+    rv = fx["staff_client"].post(
+        f"/api/live-sessions/{fx['session_id']}/items/{item['live_item_id']}/publish",
+        json={"publish_mode": "group_submit"},
+    )
+    return int(rv.status_code)
+
+
+def _budget_close(fx: dict[str, Any], item: dict[str, Any]) -> None:
+    """Close one item so the next tap is the only open question.
+
+    Args:
+        fx: One retained class fixture.
+        item: Prepared item from ``seed``.
+    """
+    fx["staff_client"].post(
+        f"/api/live-sessions/{fx['session_id']}/items/{item['live_item_id']}/close"
+    )
+
+
+def run_sqlite_budget(students: int, out: Path) -> int:
+    """Group multiple-choice pick and one rank tap on sqlite.
+
+    No Postgres and no gunicorn. After a warmup, each tap may rebuild at
+    most that team plus the teacher. A tap that does not land also fails.
+
+    Args:
+        students: Roster size.
+        out: Directory for the one-line summary.
+
+    Returns:
+        0 when both taps stay inside the cap, 1 otherwise.
+    """
+    data = Path(tempfile.mkdtemp(prefix="load-budget-"))
+    out.mkdir(parents=True, exist_ok=True)
+    fixtures, app = seed(
+        data,
+        students,
+        None,
+        classes=1,
+        items=1,
+        include_mc=True,
+        retain=True,
+    )
+    errors: list[str] = []
+    summary: dict[str, Any] = {"students": int(students)}
+    try:
+        fx = fixtures[0]
+        _budget_show_prepared_page(app.config["SCHOOL_DB"], fx)
+        mc = next(item for item in fx["items"] if item.get("kind") == "mc")
+        rank = next(item for item in fx["items"] if item.get("kind") == "rank")
+        if _budget_publish(fx, mc) != 200:
+            errors.append("group question did not publish")
+        else:
+            _budget_warmup(fx)
+            team = int(fx["students"][0]["team"])
+            members = [row for row in fx["students"] if int(row["team"]) == team]
+            rv = members[0]["client"].post(
+                f"/api/student/live-items/{mc['live_item_id']}/group-pick",
+                json={"choice": mc.get("choice") or "Graph"},
+            )
+            if rv.status_code != 200:
+                errors.append(f"group pick status {rv.status_code}")
+            else:
+                builds = _budget_rebuilds(fx)
+                summary["group_pick_builds"] = builds
+                summary["group_pick_budget"] = state_rebuild_budget(len(members))
+                if tap_over_budget(builds, len(members)):
+                    errors.append(
+                        f"group pick rebuilt {builds}, budget {summary['group_pick_budget']}"
+                    )
+        _budget_close(fx, mc)
+        if _budget_publish(fx, rank) != 200:
+            errors.append("rank question did not publish")
+        else:
+            _budget_warmup(fx)
+            actor = None
+            for row in fx["students"]:
+                if _phone_can_place(row.get("payload"), int(rank["live_item_id"])):
+                    actor = row
+                    break
+            if actor is None:
+                errors.append("rank tap found no turn")
+            else:
+                team = int(actor["team"])
+                members = [row for row in fx["students"] if int(row["team"]) == team]
+                rv = actor["client"].post(
+                    f"/api/student/live-items/{rank['live_item_id']}/rank-turn",
+                    json={"option_id": rank["options"][0]},
+                )
+                if rv.status_code != 200:
+                    errors.append(f"rank tap status {rv.status_code}")
+                else:
+                    builds = _budget_rebuilds(fx)
+                    summary["rank_builds"] = builds
+                    summary["rank_budget"] = state_rebuild_budget(len(members))
+                    if tap_over_budget(builds, len(members)):
+                        errors.append(
+                            f"rank tap rebuilt {builds}, budget {summary['rank_budget']}"
+                        )
+        summary["ok"] = not errors
+        summary["errors"] = errors
+        (out / "summary.json").write_text(json.dumps(summary, indent=2))
+        if errors:
+            print("\n".join(errors), file=sys.stderr)
+            return 1
+        print(
+            f"sqlite budget ok pick={summary.get('group_pick_builds')}"
+            f"/{summary.get('group_pick_budget')}"
+            f" rank={summary.get('rank_builds')}/{summary.get('rank_budget')}"
+        )
+        return 0
+    finally:
+        app.config["SCHOOL_DB"].close()
+
+
 def main() -> int:
     """Seed local classes, run gunicorn, and optionally fail the deploy gate.
 
@@ -1229,6 +1474,11 @@ def main() -> int:
         help="Postcard /state fetches and one team tap every few seconds.",
     )
     ap.add_argument(
+        "--sqlite-budget",
+        action="store_true",
+        help="In-process sqlite group pick and rank tap. Fail above team size plus the teacher.",
+    )
+    ap.add_argument(
         "--cpu-quota",
         type=float,
         default=0,
@@ -1241,6 +1491,8 @@ def main() -> int:
         help="Checkout gunicorn imports. Default is this script's repo.",
     )
     args = ap.parse_args()
+    if args.sqlite_budget:
+        return run_sqlite_budget(args.students, args.out.resolve())
     if not presence_is_local(args.presence_url):
         print("refusing non-local presence URL; this smoke never targets production", file=sys.stderr)
         return 2

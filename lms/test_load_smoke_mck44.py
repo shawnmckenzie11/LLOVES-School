@@ -75,6 +75,15 @@ class LoadSmokeGateTests(unittest.TestCase):
         )
         self.assertEqual(errors, [])
 
+    def test_state_rebuild_budget_is_team_plus_teacher(self) -> None:
+        """One tap may rebuild the team and the teacher, and no one else."""
+        self.assertEqual(self.mod.state_rebuild_budget(3), 4)
+        self.assertEqual(self.mod.state_rebuild_budget(5), 6)
+        self.assertFalse(self.mod.tap_over_budget(4, 3))
+        self.assertFalse(self.mod.tap_over_budget(6, 5))
+        self.assertTrue(self.mod.tap_over_budget(5, 3))
+        self.assertTrue(self.mod.tap_over_budget(31, 5))
+
     def test_gate_blocks_errors_p95_restarts_and_one_class(self) -> None:
         """Each Ops limit is its own failure, including p95 of exactly 250."""
         cases = [

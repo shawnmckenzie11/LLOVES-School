@@ -31,6 +31,7 @@ agents/         School-facing agent prompts (semester, syllabus calendar)
 - **No `.imscc` in git** — Admin uploads create `content_libraries` on the Fly volume `/data`
 - Do not commit banks, contest dumps, or `.local-data/curriculum/`
 - Include docstrings on any new functions/methods
+- No change may break MCK-283 fan-out protection. Any PR touching live-class state must keep test_fanout_guard and the 30-seat load budget green; never skip or weaken them.
 - Do not commit unless Shawn asks
 - Do not `flyctl deploy` unless Shawn explicitly asks
 

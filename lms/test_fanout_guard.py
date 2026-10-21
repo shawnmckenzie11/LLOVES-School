@@ -1,0 +1,602 @@
+#!/usr/bin/env python3
+"""One student's action must not rebuild every other phone.
+
+Two teams of three and two students with no team share one live session.
+After each student action the other team's stamps and a solo stamp stay
+put. The actor and that actor's teammates move. Publish, close, and end
+still move every joined phone.
+
+``INDIVIDUAL_ROWS`` is the staff question-type list. A new type fails
+this module until a row is added.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import sys
+import tempfile
+import time
+import unittest
+from pathlib import Path
+from typing import Any, Callable
+
+LMS_DIR = Path(__file__).resolve().parent
+REPO = LMS_DIR.parent
+sys.path.insert(0, str(LMS_DIR))
+sys.path.insert(0, str(REPO))
+
+os.environ.pop("GOOGLE_CLIENT_ID", None)
+os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
+
+from app import create_app  # noqa: E402
+from school_db import LIVE_QUESTION_TYPES  # noqa: E402
+from test_team_draw_mck242 import _INKED_PNG, _png_b64  # noqa: E402
+
+# Whole-second ``updated_at`` values need a gap past one second.
+GAP_S = 1.15
+
+TEAM_ACTIONS = (
+    "group_mc_pick",
+    "group_mc_send",
+    "rank_place",
+    "rank_check",
+    "rank_send",
+    "join",
+    "rejoin",
+    "team_draw",
+)
+
+INDIVIDUAL_ROWS = (
+    "mc",
+    "numeric",
+    "poll",
+    "rank",
+    "team_draw",
+)
+
+_MC = ["Red", "Blue", "Green", "Gold"]
+
+
+class FanoutGuardTests(unittest.TestCase):
+    """Live session: team A, team B, and two solos."""
+
+    def setUp(self) -> None:
+        logging.disable(logging.WARNING)
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.app = create_app(
+            db_path=root / "school.sqlite",
+            data_dir=root,
+            testing=True,
+            live_database_url=None,
+        )
+        self.school = self.app.config["SCHOOL_DB"]
+        self.staff = self.app.test_client()
+        self.school.activate_from_semester_json()
+        course = self.school.conn.execute(
+            "SELECT code FROM ontario_courses ORDER BY code LIMIT 1"
+        ).fetchone()
+        self.assertIsNotNone(course)
+        code = str(course["code"])
+        teacher = self.school.register_staff("staff@example.com")
+        offering = self.school.assign_course(
+            teacher_user_id=int(teacher["id"]), ontario_code=code
+        )
+        self.seats = [f"seat{n:02d}" for n in range(1, 9)]
+        self.class_id = int(
+            self.school.game.create_class(
+                year="2026/27",
+                semester="Semester 1",
+                course_code=code,
+                days_preset="M/W/F",
+                time_label="2:00pm",
+                codenames=self.seats,
+                offering_id=int(offering["id"]),
+                teacher_user_id=int(teacher["id"]),
+            )["id"]
+        )
+        self.staff.get("/auth/google?portal=staff")
+        self.staff.get("/auth/google/callback?email=staff@example.com&name=Staff")
+        verify = self.school.get_user_by_email("staff@example.com")["verification_code"]
+        self.staff.post("/verify-email", data={"code": verify})
+        live = self.school.start_live_class_session(self.class_id, int(teacher["id"]))
+        self.session_id = int(live["id"])
+        self.session_code = str(live["session_code"])
+        self.staff.post(
+            f"/api/live-sessions/{self.session_id}/teacher-state",
+            json={
+                "live_module": "M1",
+                "live_slot": "C2",
+                "stage": "round",
+                "page_id": "round_1",
+            },
+        )
+        self.school.game.begin_game(self.class_id)
+        with self.school.game._lock:
+            rows = self.school.game.conn.execute(
+                "SELECT id, codename FROM students WHERE class_id = ? ORDER BY id",
+                (self.class_id,),
+            ).fetchall()
+        by_name = {str(row["codename"]): int(row["id"]) for row in rows}
+        self.ids = [by_name[seat] for seat in self.seats]
+        self.phones: dict[int, Any] = {}
+        self.present: set[int] = set()
+        for index in (0, 1, 3, 4, 5, 6, 7):
+            self._enter(index)
+        team_ids = self.ids[:6]
+        self.school.setup_live_session_groups(
+            self.session_id,
+            n_teams=2,
+            mode="manual",
+            present_ids=team_ids,
+            assignments=[
+                {"student_id": sid, "team_index": 0 if i < 3 else 1}
+                for i, sid in enumerate(team_ids)
+            ],
+        )
+        self.school.ensure_live_session_items(self.session_id)
+        self.rank_id = 0
+        self._q = 0
+
+    def tearDown(self) -> None:
+        logging.disable(logging.NOTSET)
+        self.school.close()
+        self.tmp.cleanup()
+
+    def _enter(self, index: int) -> None:
+        """Join one seat and keep the phone."""
+        client = self.app.test_client()
+        rv = client.post(
+            "/auth/student-code",
+            data={"code": self.session_code, "name": self.seats[index]},
+        )
+        self._ok_status(rv, 302)
+        self.phones[index] = client
+        self.present.add(index)
+
+    def _ok_status(self, rv: Any, code: int) -> None:
+        """Fail with the status and a short error, never a session code."""
+        if rv.status_code == code:
+            return
+        err = ""
+        body = rv.get_json(silent=True)
+        if isinstance(body, dict):
+            err = str(body.get("error") or "")[:160]
+        self.fail(f"status {rv.status_code} {err}")
+
+    def _spec(self, kind: str, group: bool) -> dict[str, Any]:
+        """Staff add-question body for one live type."""
+        self._q += 1
+        stem = f"Question {self._q}"
+        if kind == "mc":
+            return {
+                "type": "mc",
+                "text": stem,
+                "options": list(_MC),
+                "correct_index": 0,
+            }
+        if kind == "numeric":
+            return {
+                "type": "numeric",
+                "text": stem,
+                "correct_answer": "4",
+                "tolerance": 0,
+            }
+        if kind == "poll":
+            return {"type": "poll", "text": stem}
+        if kind == "rank":
+            body: dict[str, Any] = {
+                "type": "rank",
+                "text": stem,
+                "options": list(_MC),
+            }
+            if group:
+                body["rank_key"] = [0, 1, 2, 3]
+            return body
+        if kind == "team_draw":
+            return {"type": "team_draw", "text": stem}
+        self.fail(f"unknown type {kind}")
+        return {}
+
+    def _add(self, kind: str, group: bool) -> dict[str, Any]:
+        """Add one question and return its lifecycle row."""
+        spec = self._spec(kind, group)
+        rv = self.staff.post(
+            f"/api/staff/class/{self.class_id}/live-lessons/M1/C2/add-question",
+            json={"page_number": 4, "stage": "round", **spec},
+        )
+        self._ok_status(rv, 200)
+        item_id = rv.get_json()["placement"]["item"]["id"]
+        matches = [
+            row
+            for row in self.school.list_live_session_items(self.session_id)
+            if str(row.get("item_id") or "") == str(item_id)
+            and str(row.get("status") or "") != "closed"
+            and self._row_type(row) == kind
+        ]
+        self.assertTrue(matches, "new question did not mint a lifecycle row")
+        return matches[-1]
+
+    def _row_type(self, row: dict[str, Any]) -> str:
+        """Question type stored on one lifecycle row."""
+        item = row.get("item") if isinstance(row.get("item"), dict) else {}
+        return str(item.get("type") or row.get("kind") or "")
+
+    def _publish(self, row: dict[str, Any], group: bool) -> dict[str, Any]:
+        """Publish one lifecycle row and return the published item."""
+        mode = "group_submit" if group else "individual"
+        rv = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/items/{row['id']}/publish",
+            json={"publish_mode": mode},
+        )
+        self._ok_status(rv, 200)
+        item = dict((rv.get_json() or {}).get("item") or {})
+        item["id"] = int(item.get("id") or row["id"])
+        if item.get("prompt_id") in (None, ""):
+            stored = self.school.get_live_session_item(self.session_id, int(row["id"]))
+            item["prompt_id"] = stored.get("prompt_id")
+        return item
+
+    def _close(self, item: dict[str, Any]) -> None:
+        """Close one lifecycle row."""
+        rv = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/items/{item['id']}/close"
+        )
+        self._ok_status(rv, 200)
+
+    def _close_open(self) -> None:
+        """Close every active item. Not part of a student guard."""
+        for row in self.school.list_live_session_items(self.session_id):
+            if str(row.get("status") or "") != "active":
+                continue
+            if str(row.get("kind") or "") == "whiteboard":
+                continue
+            self._close(row)
+
+    def _full(self, index: int) -> dict[str, Any]:
+        """One full student poll."""
+        rv = self.phones[index].get("/api/student/state")
+        self._ok_status(rv, 200)
+        body = rv.get_json()
+        self.assertIsInstance(body, dict)
+        return body
+
+    def _card(self, index: int, item_id: int) -> dict[str, Any]:
+        """The active card for one lifecycle id, or an empty dict."""
+        for row in self._full(index).get("active_questions") or []:
+            if int(row.get("id") or 0) == int(item_id):
+                return row
+        return {}
+
+    def _rank_ids(self, index: int, item_id: int) -> list[str]:
+        """Option ids exactly as this phone lists them."""
+        card = self._card(index, item_id)
+        content = card.get("content") if isinstance(card.get("content"), dict) else {}
+        opts = content.get("rank_options") or card.get("rank_options") or []
+        found = [str(opt.get("id")) for opt in opts if isinstance(opt, dict) and opt.get("id")]
+        self.assertTrue(found, "rank list missing")
+        return found
+
+    def _turns(self, index: int, item_id: int) -> dict[str, Any]:
+        """Take-turns block on this phone, or an empty dict."""
+        card = self._card(index, item_id)
+        turns = (card.get("group_submit") or {}).get("turns") or {}
+        return turns if isinstance(turns, dict) else {}
+
+    def _holder(self, item_id: int) -> int | None:
+        """Joined teammate whose phone says it can place, if any."""
+        for index in (0, 1, 2):
+            if index not in self.present:
+                continue
+            if self._turns(index, item_id).get("can_place"):
+                return index
+        return None
+
+    def _post_item(self, index: int, item_id: int, path: str, body: dict[str, Any]) -> Any:
+        """Student POST against one live item."""
+        return self.phones[index].post(
+            f"/api/student/live-items/{item_id}/{path}",
+            json=body,
+        )
+
+    def _snap(self, index: int) -> tuple[Any, Any, str]:
+        """Poll seq, poll stamp, and the direct per-student stamp."""
+        body = self._full(index)
+        direct = self.school.live_student_poll_stamp(
+            self.session_id, self.class_id, self.ids[index]
+        )
+        return body.get("state_seq"), body.get("stamp"), direct
+
+    def _assert_same(self, index: int, snap: tuple[Any, Any, str], label: str) -> None:
+        """This phone's poll and direct stamp did not move."""
+        seq, stamp, direct = snap
+        rv = self.phones[index].get(
+            "/api/student/state",
+            query_string={"seq": seq, "stamp": stamp},
+        )
+        self._ok_status(rv, 200)
+        body = rv.get_json() or {}
+        self.assertTrue(body.get("unchanged"), label)
+        now = self.school.live_student_poll_stamp(
+            self.session_id, self.class_id, self.ids[index]
+        )
+        self.assertEqual(now, direct, label)
+
+    def _assert_moved(self, index: int, snap: tuple[Any, Any, str], label: str) -> None:
+        """This phone rebuilt and its direct stamp changed."""
+        seq, stamp, direct = snap
+        rv = self.phones[index].get(
+            "/api/student/state",
+            query_string={"seq": seq, "stamp": stamp},
+        )
+        self._ok_status(rv, 200)
+        body = rv.get_json() or {}
+        self.assertFalse(body.get("unchanged"), label)
+        now = self.school.live_student_poll_stamp(
+            self.session_id, self.class_id, self.ids[index]
+        )
+        self.assertNotEqual(now, direct, label)
+
+    def _guard_team(self, actor: int, action: Callable[[], None], label: str) -> None:
+        """Teammates move. The other team and solos stay."""
+        mates = [i for i in (0, 1, 2) if i != actor and i in self.present]
+        watchers = [i for i in (3, 4, 5, 6, 7) if i in self.present]
+        before = {i: self._snap(i) for i in [actor, *mates, *watchers]}
+        time.sleep(GAP_S)
+        action()
+        self._assert_moved(actor, before[actor], label)
+        for index in mates:
+            self._assert_moved(index, before[index], f"{label} mate {index}")
+        for index in watchers:
+            self._assert_same(index, before[index], f"{label} watcher {index}")
+
+    def _guard_join(self, action: Callable[[], None], label: str) -> None:
+        """A join moves the team already in the room and leaves everyone else."""
+        mates = [i for i in (0, 1) if i in self.present]
+        watchers = [i for i in (3, 4, 5, 6, 7) if i in self.present]
+        before = {i: self._snap(i) for i in [*mates, *watchers]}
+        time.sleep(GAP_S)
+        action()
+        for index in mates:
+            self._assert_moved(index, before[index], f"{label} mate {index}")
+        for index in watchers:
+            self._assert_same(index, before[index], f"{label} watcher {index}")
+        body = self._full(2)
+        self.assertTrue(body.get("stamp"), label)
+        self.assertFalse(body.get("unchanged"), label)
+
+    def _guard_self(self, actor: int, action: Callable[[], None], label: str) -> None:
+        """Only the actor moves."""
+        others = [i for i in sorted(self.present) if i != actor]
+        before = {i: self._snap(i) for i in [actor, *others]}
+        time.sleep(GAP_S)
+        action()
+        self._assert_moved(actor, before[actor], label)
+        for index in others:
+            self._assert_same(index, before[index], f"{label} other {index}")
+
+    def _guard_all(self, action: Callable[[], None], label: str) -> None:
+        """Every joined phone moves."""
+        before = {i: self._snap(i) for i in sorted(self.present)}
+        time.sleep(GAP_S)
+        action()
+        for index in sorted(self.present):
+            self._assert_moved(index, before[index], f"{label} seat {index}")
+
+    def group_mc_pick(self) -> None:
+        """Each present teammate's pick stays on that team."""
+        row = self._add("mc", True)
+        self.mc = self._publish(row, True)
+        choice = _MC[0]
+
+        def pick(index: int) -> None:
+            rv = self._post_item(index, int(self.mc["id"]), "group-pick", {"choice": choice})
+            self._ok_status(rv, 200)
+
+        self._guard_team(0, lambda: pick(0), "group_mc_pick")
+        self._guard_team(1, lambda: pick(1), "group_mc_pick_mate")
+
+    def group_mc_send(self) -> None:
+        """The shared send stays on that team."""
+
+        def send() -> None:
+            """Send the pick both present teammates already share."""
+            rv = self._post_item(0, int(self.mc["id"]), "group-submit", {})
+            self._ok_status(rv, 200)
+
+        self._guard_team(0, send, "group_mc_send")
+
+    def rank_place(self) -> None:
+        """The first take-turns placement stays on that team."""
+        self._close_open()
+        row = self._add("rank", True)
+        rv = self.staff.patch(
+            f"/api/live-sessions/{self.session_id}/items/{row['id']}/settings",
+            json={"group_rank_mode": "turns"},
+        )
+        self._ok_status(rv, 200)
+        item = self._publish(row, True)
+        self.rank_id = int(item["id"])
+        holder = self._holder(self.rank_id)
+        self.assertIsNotNone(holder)
+        assert holder is not None
+        choice = self._rank_ids(holder, self.rank_id)[0]
+
+        def place() -> None:
+            """Place the first card."""
+            rv = self._post_item(holder, self.rank_id, "rank-turn", {"option_id": choice})
+            self._ok_status(rv, 200)
+
+        self._guard_team(holder, place, "rank_place")
+
+    def rank_check(self) -> None:
+        """One check of the partial order stays on that team."""
+
+        def check() -> None:
+            """Check the partial order once."""
+            rv = self._post_item(0, self.rank_id, "rank-check", {})
+            self._ok_status(rv, 200)
+
+        self._guard_team(0, check, "rank_check")
+
+    def rank_send(self) -> None:
+        """Each remaining placement, then the send, stays on that team."""
+        for _ in range(6):
+            holder = self._holder(self.rank_id)
+            if holder is None:
+                break
+            opts = self._rank_ids(holder, self.rank_id)
+            used = {
+                str(spot.get("option_id"))
+                for spot in (self._turns(holder, self.rank_id).get("spots") or [])
+                if isinstance(spot, dict)
+            }
+            left = [opt for opt in opts if opt not in used]
+            self.assertTrue(left, "rank send stalled")
+            choice = left[0]
+
+            def place(index: int = holder, option_id: str = choice) -> None:
+                """Place one remaining card."""
+                rv = self._post_item(index, self.rank_id, "rank-turn", {"option_id": option_id})
+                self._ok_status(rv, 200)
+
+            self._guard_team(holder, place, "rank_send_place")
+        self.assertIsNone(self._holder(self.rank_id))
+
+        def send() -> None:
+            """Send the finished order."""
+            rv = self._post_item(0, self.rank_id, "group-submit", {})
+            self._ok_status(rv, 200)
+
+        self._guard_team(0, send, "rank_send")
+
+    def join(self) -> None:
+        """A first join moves that team only."""
+
+        def act() -> None:
+            """Join the late seat."""
+            self._enter(2)
+
+        self._guard_join(act, "join")
+
+    def rejoin(self) -> None:
+        """A rejoin moves that team only. The leave is outside the guard."""
+        self.school.mark_live_session_attendee_left(
+            self.session_id, student_id=self.ids[2]
+        )
+        self.present.discard(2)
+
+        def act() -> None:
+            """Rejoin the same phone."""
+            rv = self.phones[2].post(
+                "/auth/student-code",
+                data={"code": self.session_code, "name": self.seats[2]},
+            )
+            self._ok_status(rv, 302)
+            self.present.add(2)
+
+        self._guard_join(act, "rejoin")
+
+    def team_draw(self) -> None:
+        """A team drawing stays on that team."""
+        self._close_open()
+        row = self._add("team_draw", True)
+        item = self._publish(row, True)
+
+        def draw() -> None:
+            """Submit the team drawing."""
+            rv = self._post_item(
+                0,
+                int(item["id"]),
+                "team-draw",
+                {"image": _png_b64(_INKED_PNG)},
+            )
+            self._ok_status(rv, 200)
+
+        self._guard_team(0, draw, "team_draw")
+
+    def _answer(self, index: int, item: dict[str, Any], kind: str) -> None:
+        """One individual answer for this question type."""
+        if kind == "team_draw":
+            rv = self._post_item(
+                index,
+                int(item["id"]),
+                "team-draw",
+                {"image": _png_b64(_INKED_PNG)},
+            )
+            self._ok_status(rv, 200)
+            return
+        if kind == "rank":
+            order = self._rank_ids(index, int(item["id"]))
+            response: dict[str, Any] = {"order": order}
+        elif kind == "numeric":
+            response = {"value": 4}
+        elif kind == "mc":
+            response = {"choice": _MC[0]}
+        else:
+            response = {"choice": "yes"}
+        rv = self.phones[index].post(
+            "/api/student/live-prompt/response",
+            json={"prompt_id": int(item["prompt_id"]), "response": response},
+        )
+        self._ok_status(rv, 200)
+
+    def _individual(self, kind: str) -> None:
+        """Publish outside the guard, then one solo answer."""
+        row = self._add(kind, False)
+        item = self._publish(row, False)
+        self._guard_self(6, lambda: self._answer(6, item, kind), kind)
+        self._close(item)
+
+    def test_student_actions_do_not_fan_out(self) -> None:
+        """Each student action, then one answer of every live question type."""
+        self.assertEqual(set(INDIVIDUAL_ROWS), set(LIVE_QUESTION_TYPES))
+        self.assertEqual(len(INDIVIDUAL_ROWS), len(LIVE_QUESTION_TYPES))
+        for name in TEAM_ACTIONS:
+            getattr(self, name)()
+        self._close_open()
+        for kind in INDIVIDUAL_ROWS:
+            self._individual(kind)
+
+    def test_teacher_actions_update_everyone(self) -> None:
+        """Publish, close, and end each rebuild every joined phone."""
+        self._enter(2)
+        row = self._add("mc", False)
+        self._guard_all(lambda: self._publish(row, False), "publish")
+        published = self.school.list_live_session_items(self.session_id)
+        active = next(item for item in published if str(item.get("status") or "") == "active")
+        self._guard_all(lambda: self._close(active), "close")
+        self._guard_all(self._end, "end")
+
+    def _end(self) -> None:
+        """End the live class."""
+        rv = self.staff.post(
+            f"/staff/class/{self.class_id}/end-live",
+            data={"end_options": "1"},
+            follow_redirects=False,
+        )
+        self._ok_status(rv, 302)
+
+
+class FanoutGuardTableTests(unittest.TestCase):
+    """The action table and the required CI job names."""
+
+    def test_table_lists_every_live_question_type(self) -> None:
+        """A new staff question type has to be added to the individual rows."""
+        self.assertEqual(set(INDIVIDUAL_ROWS), set(LIVE_QUESTION_TYPES))
+        self.assertEqual(len(set(INDIVIDUAL_ROWS)), len(INDIVIDUAL_ROWS))
+        for name in TEAM_ACTIONS:
+            self.assertTrue(callable(getattr(FanoutGuardTests, name)), name)
+
+    def test_ci_job_names(self) -> None:
+        """The workflow names are the ones branch protection can require."""
+        text = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertIn("name: fan-out guard", text)
+        self.assertIn("name: 30-seat load budget", text)
+        self.assertIn("test_fanout_guard.py", text)
+        self.assertIn("--sqlite-budget", text)
+
+
+if __name__ == "__main__":
+    unittest.main()
