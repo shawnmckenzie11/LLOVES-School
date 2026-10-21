@@ -12,7 +12,6 @@
 /** Final copy. */
 export const GROUP_INSTRUCTION_COPY = Object.freeze({
   open: "Everyone writes their own answer first. Then your group sends one answer together.",
-  rank_turns: "Take turns. Each person places one item, then passes.",
   // Gate MED-2: an item published before option B keeps the one-step copy.
   mc: "Talk it over. One person sends your group's answer and why.",
   mc_pick: "Pick your own answer first.",
@@ -52,7 +51,8 @@ export function groupInstructionKey(item, content = {}) {
 export function groupInstructionHtml(item, content = {}) {
   if (String(item?.status || "active") !== "active") return "";
   const key = groupInstructionKey(item, content);
-  if (!key) return "";
+  // A ranking card paints its own instruction and the check help.
+  if (!key || key === "rank_turns") return "";
   return `<p class="student-group-instruction" data-group-instruction="${key}">${esc(
     GROUP_INSTRUCTION_COPY[key]
   )}</p>`;

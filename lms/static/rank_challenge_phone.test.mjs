@@ -1,4 +1,5 @@
 // MCK-171 / MCK-216 Team challenge phone states (node harness, no DOM).
+import { GROUP_FLOW_COPY } from "./group_flows.js";
 import {
   raceDisplayOptions,
   PHONE_COPY,
@@ -18,7 +19,7 @@ function check(cond, label) {
   }
 }
 
-check(PHONE_COPY.cue === "Talk it through. Lock in when your whole team agrees.", "race.cue.together");
+check(PHONE_COPY.cue === undefined, "old ranking cue is gone");
 check(PHONE_COPY.lockIn === "Lock in our order", "lock in label");
 check(PHONE_COPY.undo === "Undo", "undo label");
 check(PHONE_COPY.locked === "Waiting for the reveal.", "locked copy");
@@ -34,9 +35,9 @@ const base = (race, extra = {}) => ({
 });
 
 check(phoneState(base({}), "active") === "ranking", "ranking");
-check(phoneCue(base({}), "active") === PHONE_COPY.cue, "ranking cue");
+check(phoneCue(base({}), "active") === GROUP_FLOW_COPY.rankInstruction, "ranking cue");
 const ready = base({ can_lock: true });
-check(phoneState(ready, "active") === "ready" && phoneCue(ready, "active") === PHONE_COPY.cue, "ready cue");
+check(phoneState(ready, "active") === "ready" && phoneCue(ready, "active") === GROUP_FLOW_COPY.rankInstruction, "ready cue");
 const locked = base({ locked: true, locked_by: "team" });
 check(phoneCue(locked, "active") === PHONE_COPY.locked, "locked waiting");
 const teacher = base({ locked: true, locked_by: "teacher" });

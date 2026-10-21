@@ -6,10 +6,10 @@
  */
 
 import { fill, teamMark } from "./rank_challenge_view.js";
+import { GROUP_FLOW_COPY } from "./group_flows.js";
 
 /** Wonder / MCK-216 strings on the phone. */
 export const PHONE_COPY = Object.freeze({
-  cue: "Talk it through. Lock in when your whole team agrees.", // race.cue.together
   lockIn: "Lock in our order",
   undo: "Undo",
   locked: "Waiting for the reveal.",
@@ -56,7 +56,7 @@ export function phoneCue(group, status) {
   if (state === "locked") return C.locked;
   if (state === "timesup") return C.timesup;
   if (state === "closed") return C.closed;
-  return C.cue;
+  return GROUP_FLOW_COPY.rankInstruction;
 }
 
 /**

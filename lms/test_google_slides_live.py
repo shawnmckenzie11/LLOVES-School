@@ -1138,14 +1138,16 @@ class GoogleSlidesLimitTests(unittest.TestCase):
                 self.path = path
 
             def get(self, url: str, **kwargs: object):
-                """Stream the local response.
+                """Stream the local response and ignore proxy environment variables.
 
                 Args:
                     url: Ignored Google export URL.
                     **kwargs: Timeout and stream flags from the importer.
                 """
                 del url
-                return requests.get(
+                session = requests.Session()
+                session.trust_env = False
+                return session.get(
                     f"http://127.0.0.1:{port}{self.path}",
                     stream=True,
                     timeout=kwargs.get("timeout"),
