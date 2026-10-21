@@ -190,6 +190,11 @@ check(
   header.includes(RANK_CHECK_HELP.replaceAll("'", "&#39;")),
   "ranking help is the final popover copy",
 );
+check(
+  RANK_CHECK_HELP ===
+    "Your group gets one check, and anyone can use it at any time. It shows how many cards are in the right spot. Send your ranking whenever you're ready, but you can't change it once it's sent. Get every card right without the check to earn two bonus participation points.",
+  "ranking help sentence",
+);
 const readyRank = rankTurnsHtml(
   {
     turns: { spots: [], total: 3, done: true },
@@ -221,7 +226,11 @@ const matchOpen = mcMatchHtml(
   { choices: ["Graph", "Table"], itemId: 4 },
 );
 check(matchOpen.includes("Everyone in your group picks the same answer to send it."), "mc instruction");
-check(matchOpen.includes(MC_MATCH_HELP), "mc help is the swap constant");
+check(matchOpen.includes(MC_MATCH_HELP), "mc help is the instruction sentence");
+check(
+  MC_MATCH_HELP === "Everyone in your group picks the same answer to send it.",
+  "mc help replaces the placeholder",
+);
 check(!matchOpen.includes("data-group-why") && !matchOpen.includes("Why this answer?"), "no why box");
 check(matchOpen.includes("Team picks") && matchOpen.includes(">A<"), "team pick letter");
 check(matchOpen.includes("Everyone needs the same pick (1 of 2 match)"), "match gate copy");

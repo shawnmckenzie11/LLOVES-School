@@ -19,7 +19,7 @@ LMS_DIR = Path(__file__).resolve().parent
 if str(LMS_DIR) not in sys.path:
     sys.path.insert(0, str(LMS_DIR))
 
-from group_engagement import catchup_earned, check_message, send_earned
+from group_engagement import catchup_earned, check_message, display_points, old_rank_scale, send_earned
 from test_rank_challenge_mck171 import KEY_IDS, ChallengeHarness
 
 TEAM_A = ("Ava", "Cy", "Eli")
@@ -46,6 +46,13 @@ class PointRuleTests(unittest.TestCase):
         self.assertEqual(catchup_earned(1), 2)
         self.assertEqual(catchup_earned(2), 2)
         self.assertEqual(catchup_earned(4), 4)
+        self.assertTrue(old_rank_scale(1, "rank"))
+        self.assertFalse(old_rank_scale(1, "mc"))
+        self.assertFalse(old_rank_scale(2, "rank"))
+        self.assertEqual(display_points(1, 1, "rank"), (2, 2))
+        self.assertEqual(display_points(0, 1, "rank"), (0, 2))
+        self.assertEqual(display_points(1, 1, "mc"), (1, 1))
+        self.assertEqual(display_points(4, 2, "rank"), (4, 2))
         self.assertEqual(check_message(2, 4), "Checked: 2 of 4 in the right spot")
         self.assertEqual(check_message(1, 1), "Checked: 1 of 1 in the right spot")
 
@@ -155,7 +162,7 @@ class GroupEngagementTests(ChallengeHarness):
                 self.assertIn("run_key", cols, table)
                 self.assertIn("class_id", cols, table)
 
-    def test_one_check_then_a_correct_send_is_one(self) -> None:
+    def test_one_check_then_a_correct_send_is_two_of_two(self) -> None:
         item = self._open()
         empty = self._check(item)
         self.assertEqual(empty.status_code, 400, empty.get_data(as_text=True)[:180])
@@ -195,7 +202,7 @@ class GroupEngagementTests(ChallengeHarness):
             ).fetchone()
         self.assertEqual(int(items["n"]), 0)
 
-    def test_perfect_send_without_a_check_is_two(self) -> None:
+    def test_perfect_send_without_a_check_is_four_of_two(self) -> None:
         item = self._open()
         self._place(item, TEAM_A, KEY_IDS)
         card = self._card("Ava", item)
@@ -230,7 +237,7 @@ class GroupEngagementTests(ChallengeHarness):
         self.school.delete_lesson_slides_entry(self.class_id, "M1", "C2", False, run_key)
         self._assert_team(key, TEAM_A, 4)
 
-    def test_unkeyed_and_wrong_orders_are_one(self) -> None:
+    def test_unkeyed_and_wrong_orders_are_two_of_two(self) -> None:
         plain = self._open(key=False)
         keyed = self._open()
         self._place(plain, TEAM_A, KEY_IDS)
@@ -302,7 +309,7 @@ class GroupEngagementTests(ChallengeHarness):
         self._assert_team(key, TEAM_A, 4)
         self.assertEqual(self._rows()[(ben, key)][0], 0)
 
-    def test_catchup_stays_at_one_even_for_the_answer_order(self) -> None:
+    def test_catchup_stays_at_two_of_two_even_for_the_answer_order(self) -> None:
         item = self._open()
         self._place(item, TEAM_A, KEY_IDS)
         key = self._question_key(item)

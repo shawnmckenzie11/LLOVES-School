@@ -3051,12 +3051,6 @@ body.rw-open { overflow: hidden; }
 .rank-check {
   margin-top: 0;
 }
-.rank-check-result {
-  margin: 0.45rem 0 0;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--muted);
-}
 /* MCK-301 phone header. 44px help target, muted check chip, pinned send. */
 .group-flow-instruction {
   margin: 0 0 8px;

@@ -123,11 +123,29 @@ class GroupQuestionTests(unittest.TestCase):
         )
 
     def _send(self, item: dict[str, Any], student_index: int, choice: str) -> None:
-        sid = self.ids[student_index]
-        # Option B: the teacher's Start group step ends the pick step (idempotent).
-        self.school.end_group_mc_pick_step(self.session_id, int(item["id"]))
+        """Every teammate picks ``choice``, then one member sends it.
+
+        Teams are pairs from the setup (index modulo 2). The stored answer
+        is that shared pick.
+
+        Args:
+            item: Published group multiple-choice row.
+            student_index: Sender, and the team that must match.
+            choice: Option label every teammate picks.
+        """
+        team = student_index % 2
+        for index, sid in enumerate(self.ids):
+            if index % 2 != team:
+                continue
+            self.school.submit_group_mc_pick(
+                self.session_id, int(item["id"]), sid, choice=choice
+            )
         self.school.submit_group_mc_answer(
-            self.session_id, int(item["id"]), sid, choice=choice, why="because"
+            self.session_id,
+            int(item["id"]),
+            self.ids[student_index],
+            choice=choice,
+            why="because",
         )
 
     def _student_row(self, student_index: int, item: dict[str, Any]) -> dict[str, Any]:

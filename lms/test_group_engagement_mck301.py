@@ -9,6 +9,7 @@ A correct rank with no check stores 4/2. Any other rank completion stores
 from __future__ import annotations
 
 import sys
+import json
 import unittest
 from pathlib import Path
 from typing import Any
@@ -201,3 +202,78 @@ class GroupMcMatchTests(GroupEngagementTests):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OldScaleRowTests(GroupEngagementTests):
+    """A stored 1/1 rank row stays finished and is only rescaled on screen."""
+
+    def test_old_one_point_rank_is_not_rewritten_or_offered(self) -> None:
+        """End and catch-up leave a 1/1 rank row. Teachers see 2/2.
+
+        The row is inserted before End, which is the write that would
+        otherwise replace it with the current scale. Catch-up does not
+        list it and a direct catch-up store does not change it.
+        """
+        item = self._open()
+        self._place(item, TEAM_A, KEY_IDS)
+        key = self._question_key(item)
+        ava = self.ids["Ava"]
+        run_key = self._run_key()
+        with self.school._lock:
+            self.school.conn.execute(
+                """
+                INSERT INTO group_engagement (
+                    class_id, run_key, question_key, student_id,
+                    earned, possible, source, recorded_at
+                ) VALUES (?, ?, ?, ?, 1, 1, 'live', '2026-09-01T00:00:00Z')
+                """,
+                (self.class_id, run_key, key, ava),
+            )
+            self.school.conn.commit()
+        self._end()
+        self.assertEqual(self._rows()[(ava, key)], (1, 1, "live"))
+        shown = self.school.group_engagement_fractions(
+            self.class_id, run_key=run_key
+        )
+        self.assertEqual(shown[ava], "2/2")
+        summary = self.school.engagement_summary_for_run(self.class_id, run_key)
+        stamped = {}
+        for group in list(summary["groups"]) + [{"students": summary["ungrouped"]}]:
+            for student in group.get("students") or []:
+                if "group_engagement" in student:
+                    stamped[int(student["student_id"])] = student["group_engagement"]
+        self.assertEqual(stamped.get(ava), "2/2")
+        grid = self.school.participation_week_grid(self.class_id)
+        self.assertEqual(grid["group_engagement"].get(str(ava)), "2/2")
+        with self.school._lock:
+            link_row = self.school.conn.execute(
+                """
+                SELECT token FROM catchup_links
+                WHERE class_id = ? AND run_key = ? AND COALESCE(is_test, 0) = 0
+                """,
+                (self.class_id, run_key),
+            ).fetchone()
+        self.assertIsNotNone(link_row)
+        token = str(link_row["token"])
+        offered = [
+            q for q in self.school.catchup_questions(token, ava) if q.get("group_rank")
+        ]
+        self.assertEqual(offered, [])
+        link = self.school.get_catchup_link(token)
+        self.assertIsNotNone(summary)
+        with self.school._lock:
+            stored = self.school.conn.execute(
+                """
+                SELECT item_json FROM group_engagement_items
+                WHERE class_id = ? AND run_key = ? AND question_key = ?
+                """,
+                (self.class_id, run_key, key),
+            ).fetchone()
+        item_json = json.loads(stored["item_json"])
+        options = item_json.get("rank_options") or item_json.get("options") or []
+        order = [str(opt["id"]) for opt in options]
+        self.assertEqual(len(order), 4)
+        self.assertTrue(
+            self.school._store_group_engagement_catchup(link, ava, key, order)
+        )
+        self.assertEqual(self._rows()[(ava, key)], (1, 1, "live"))

@@ -3,8 +3,11 @@
 A real live class records one row per student when the class ends.
 A keyed rank sent all correct, without Check our ranking, is 4 on a
 question whose maximum is 2. Every other rank completion is 2.
-Catch-up never writes 4. A group multiple-choice send is 1 on a
-question whose maximum is 1.
+Catch-up never writes 4. A rank row still stored as 1 possible is
+the older scale and is already finished: catch-up does not offer it
+and nothing rewrites it. Teacher totals show that row on the 2-point
+scale. A group multiple-choice send is 1 on a question whose maximum
+is 1.
 
 This module is pure. It does not read the database or the answer order.
 """
@@ -88,7 +91,8 @@ def catchup_earned(current: int | None) -> int:
     """Catch-up completion for a group rank. Never raises a score to 4.
 
     A student who already earned 2 or 4 keeps that value. Anyone else
-    earns 2.
+    earns 2. This does not see ``possible``. A stored rank of 1 possible
+    is the older scale and is handled by ``old_rank_scale``, not here.
 
     Args:
         current: Points already stored for this question, if any.
@@ -96,6 +100,44 @@ def catchup_earned(current: int | None) -> int:
     if current is not None and int(current) >= RANK_EARNED_BASE:
         return int(current)
     return RANK_EARNED_BASE
+
+
+def old_rank_scale(possible: int | None, kind: str) -> bool:
+    """True when a rank row is still stored on the one-point scale.
+
+    Those rows (1 possible, from the scale in #388) are already
+    finished. Catch-up must not offer them, and no writer may change
+    their earned or possible values. Multiple choice is also 1 possible
+    and is not this scale.
+
+    Args:
+        possible: Stored ``group_engagement.possible``, if a row exists.
+        kind: ``group_engagement_items.prompt_kind``.
+    """
+    if str(kind or "") != "rank" or possible is None:
+        return False
+    return int(possible) == 1
+
+
+def display_points(earned: int, possible: int, kind: str) -> tuple[int, int]:
+    """Normalize one stored row for teacher totals. Does not write.
+
+    A rank row stored as 1/1 displays as 2/2. A rank row stored as 0/1
+    displays as 0/2. Multiple choice and the current rank scale pass
+    through unchanged.
+
+    Args:
+        earned: Stored points for this question.
+        possible: Stored maximum for this question.
+        kind: ``group_engagement_items.prompt_kind``.
+
+    Returns:
+        ``(earned, possible)`` to add into a displayed total.
+    """
+    if old_rank_scale(possible, kind):
+        shown = RANK_POSSIBLE if int(earned) >= 1 else 0
+        return shown, RANK_POSSIBLE
+    return int(earned), int(possible)
 
 
 def match_tally(picks: list[str], total: int) -> dict[str, Any]:

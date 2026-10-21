@@ -123,10 +123,12 @@ try:
         RANK_POSSIBLE,
         catchup_earned,
         check_message,
+        display_points,
         format_fraction,
         match_reason,
         match_tally,
         member_ids_from_json,
+        old_rank_scale,
         send_earned,
     )
     from live_rank import (
@@ -297,10 +299,12 @@ except ImportError:  # ``python3 lms/app.py`` package import
         RANK_POSSIBLE,
         catchup_earned,
         check_message,
+        display_points,
         format_fraction,
         match_reason,
         match_tally,
         member_ids_from_json,
+        old_rank_scale,
         send_earned,
     )
     from lms.live_rank import (
@@ -2721,6 +2725,9 @@ class LovesDB:
     ) -> dict[int, str]:
         """``earned/possible`` per student. Discarded runs are left out.
 
+        A rank row still stored as 1 possible (the older scale) is added
+        on the 2-point scale. The stored numbers are not changed.
+
         Args:
             class_id: Game-show ``classes.id``.
             run_key: Limit to one ended run.
@@ -2732,9 +2739,8 @@ class LovesDB:
         with self._lock:
             rows = self.conn.execute(
                 """
-                SELECT g.student_id,
-                       COALESCE(SUM(g.earned), 0) AS earned,
-                       COALESCE(SUM(g.possible), 0) AS possible
+                SELECT g.student_id, g.earned, g.possible,
+                       COALESCE(i.prompt_kind, '') AS prompt_kind
                 FROM group_engagement g
                 LEFT JOIN group_engagement_items i
                     ON i.class_id = g.class_id AND i.run_key = g.run_key
@@ -2745,16 +2751,24 @@ class LovesDB:
                   AND COALESCE(r.discarded, 0) = 0
                   AND (? = '' OR g.run_key = ?)
                   AND (? = '' OR i.live_module = ?)
-                GROUP BY g.student_id
                 """,
                 (int(class_id), key, key, mod, mod),
             ).fetchall()
-        out: dict[int, str] = {}
+        totals: dict[int, list[int]] = {}
         for row in rows:
-            possible = int(row["possible"] or 0)
+            shown_earned, shown_possible = display_points(
+                int(row["earned"] or 0),
+                int(row["possible"] or 0),
+                str(row["prompt_kind"] or ""),
+            )
+            bucket = totals.setdefault(int(row["student_id"]), [0, 0])
+            bucket[0] += shown_earned
+            bucket[1] += shown_possible
+        out: dict[int, str] = {}
+        for student_id, (earned, possible) in totals.items():
             if omit_empty and possible <= 0:
                 continue
-            out[int(row["student_id"])] = format_fraction(int(row["earned"] or 0), possible)
+            out[student_id] = format_fraction(earned, possible)
         return out
 
     def _live_group_engagement_totals(
@@ -19625,6 +19639,11 @@ class SchoolDB(LovesDB):
             card["can_submit"] = bool(
                 active and not card["locked"] and card["match"]["ready"]
             )
+            # A matched send stores no why. The shared-draft phase still
+            # treats an empty why as drafting, so the locked send sets it.
+            if card["submitted"]:
+                card["phase"] = "submitted"
+                card["can_submit"] = False
             if step_open:
                 picked = {int(vote["student_id"]) for vote in picks}
                 waiting = [
@@ -35122,10 +35141,26 @@ class SchoolDB(LovesDB):
                         ) VALUES (?, ?, ?, ?, ?, ?, 'live', ?)
                         ON CONFLICT(class_id, run_key, question_key, student_id)
                         DO UPDATE SET
-                            earned = excluded.earned,
-                            possible = excluded.possible,
-                            source = 'live',
-                            recorded_at = excluded.recorded_at
+                            earned = CASE
+                                WHEN group_engagement.possible = 1 AND ? = 'rank'
+                                    THEN group_engagement.earned
+                                ELSE excluded.earned
+                            END,
+                            possible = CASE
+                                WHEN group_engagement.possible = 1 AND ? = 'rank'
+                                    THEN group_engagement.possible
+                                ELSE excluded.possible
+                            END,
+                            source = CASE
+                                WHEN group_engagement.possible = 1 AND ? = 'rank'
+                                    THEN group_engagement.source
+                                ELSE 'live'
+                            END,
+                            recorded_at = CASE
+                                WHEN group_engagement.possible = 1 AND ? = 'rank'
+                                    THEN group_engagement.recorded_at
+                                ELSE excluded.recorded_at
+                            END
                         """,
                         (
                             class_id,
@@ -35135,6 +35170,10 @@ class SchoolDB(LovesDB):
                             int(earned),
                             int(offered),
                             now,
+                            kind,
+                            kind,
+                            kind,
+                            kind,
                         ),
                     )
         if not wrote:
@@ -39236,10 +39275,11 @@ class SchoolDB(LovesDB):
     ) -> list[dict[str, Any]]:
         """Group ranks this student has not already earned in the live class.
 
-        A live 2 or 4 is omitted. Catch-up never offers the 4. A catch-up
-        completion stays on the page as answered. Multiple choice is not
-        a catch-up question. The content is the student payload: no
-        answer order.
+        A live 2 or 4 is omitted. A rank row still stored as 1 possible
+        is the older scale and is omitted too. Catch-up never offers the
+        4. A catch-up completion stays on the page as answered. Multiple
+        choice is not a catch-up question. The content is the student
+        payload: no answer order.
 
         Args:
             link: Catch-up row for one run.
@@ -39250,7 +39290,7 @@ class SchoolDB(LovesDB):
             rows = self.conn.execute(
                 """
                 SELECT i.question_key, i.item_json, i.prompt_kind,
-                       g.earned, g.source
+                       g.earned, g.possible, g.source
                 FROM group_engagement_items i
                 LEFT JOIN group_engagement g
                     ON g.class_id = i.class_id AND g.run_key = i.run_key
@@ -39262,10 +39302,16 @@ class SchoolDB(LovesDB):
             ).fetchall()
         out: list[dict[str, Any]] = []
         for row in rows:
-            if str(row["prompt_kind"] or "") != "rank":
+            kind = str(row["prompt_kind"] or "")
+            if kind != "rank":
                 continue
             earned = int(row["earned"] or 0) if row["earned"] is not None else 0
             source = str(row["source"] or "")
+            # A stored 1-possible rank is the older scale and already done.
+            if row["earned"] is not None and old_rank_scale(
+                int(row["possible"] or 0), kind
+            ):
+                continue
             if source == "live" and earned >= RANK_POSSIBLE:
                 continue
             try:
@@ -39288,8 +39334,9 @@ class SchoolDB(LovesDB):
         """Record a solo catch-up rank. Completion is 2, never 4.
 
         Any full permutation counts. The answer order is not scored.
-        A live 2 or 4 already stored is left as it is. Multiple choice
-        rows are refused.
+        A live 2 or 4 already stored is left as it is. A rank row still
+        stored as 1 possible is left as it is. Multiple choice rows are
+        refused.
 
         Args:
             link: Open catch-up row.
@@ -39338,7 +39385,7 @@ class SchoolDB(LovesDB):
         with self._lock:
             current = self.conn.execute(
                 """
-                SELECT earned FROM group_engagement
+                SELECT earned, possible FROM group_engagement
                 WHERE class_id = ? AND run_key = ? AND question_key = ? AND student_id = ?
                 """,
                 (
@@ -39348,6 +39395,8 @@ class SchoolDB(LovesDB):
                     int(student_id),
                 ),
             ).fetchone()
+            if current is not None and old_rank_scale(int(current["possible"]), "rank"):
+                return True
             earned = catchup_earned(
                 int(current["earned"]) if current is not None else None
             )
@@ -39359,15 +39408,21 @@ class SchoolDB(LovesDB):
                 ) VALUES (?, ?, ?, ?, ?, ?, 'catchup', ?)
                 ON CONFLICT(class_id, run_key, question_key, student_id) DO UPDATE SET
                     earned = CASE
+                        WHEN group_engagement.possible = 1 THEN group_engagement.earned
                         WHEN group_engagement.earned >= ? THEN group_engagement.earned
                         ELSE ?
                     END,
-                    possible = ?,
+                    possible = CASE
+                        WHEN group_engagement.possible = 1 THEN group_engagement.possible
+                        ELSE ?
+                    END,
                     source = CASE
+                        WHEN group_engagement.possible = 1 THEN group_engagement.source
                         WHEN group_engagement.earned >= ? THEN group_engagement.source
                         ELSE 'catchup'
                     END,
                     recorded_at = CASE
+                        WHEN group_engagement.possible = 1 THEN group_engagement.recorded_at
                         WHEN group_engagement.earned >= ? THEN group_engagement.recorded_at
                         ELSE excluded.recorded_at
                     END

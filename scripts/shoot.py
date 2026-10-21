@@ -3892,10 +3892,10 @@ def shoot_mck293(base: str, state_path: Path, out_dir: Path, path: Path) -> list
             phone.goto(str(armed["visit"]), wait_until="domcontentloaded", timeout=60000)
             phone.locator("[data-rank-check]").wait_for(state="visible", timeout=30000)
             phone.locator("[data-rank-check]").click()
-            phone.locator(".rank-check-result").wait_for(state="visible", timeout=15000)
+            phone.locator(".rank-check-chip").wait_for(state="visible", timeout=15000)
         except Exception:
             raise SystemExit("check feedback did not appear") from None
-        feedback = phone.locator(".rank-check-result").inner_text()
+        feedback = phone.locator(".rank-check-chip").inner_text()
         if "in the right spot" not in feedback:
             raise SystemExit("check feedback was not a count")
         if phone.locator("[data-rank-check]").count():

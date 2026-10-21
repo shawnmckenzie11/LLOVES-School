@@ -50,14 +50,13 @@ export const GROUP_FLOW_COPY = Object.freeze({
  * Final ranking help popover. One string so a later edit stays in one place.
  */
 export const RANK_CHECK_HELP =
-  "Your group gets one check, and anyone can use it at any time. It shows how many cards are in the right spot. Send your ranking whenever you're ready, but you can't change it once it's sent. Get every card right without the check to earn a bonus participation point.";
+  "Your group gets one check, and anyone can use it at any time. It shows how many cards are in the right spot. Send your ranking whenever you're ready, but you can't change it once it's sent. Get every card right without the check to earn two bonus participation points.";
 
 /**
- * Placeholder until Wonder ships the group multiple-choice help popover.
- * Swap this string in one place.
+ * Group multiple-choice help popover. Same sentence as the instruction line.
  */
 export const MC_MATCH_HELP =
-  "Each person picks a letter. The group can send only when every pick matches.";
+  "Everyone in your group picks the same answer to send it.";
 
 /**
  * Minimal HTML escape.
