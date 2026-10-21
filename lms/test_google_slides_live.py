@@ -582,6 +582,68 @@ class GoogleSlidesLiveTests(unittest.TestCase):
         with self.student.session_transaction() as sess:
             self.assertIsNone(peek_catchup_identity(sess, self.school))
 
+    def test_ended_session_join_does_not_see_the_active_slide(self) -> None:
+        """Catch-up plus an ended-session join does not receive the new slide.
+
+        The published page is served only when the join is the class's
+        active session. Joining that session makes the page available.
+        """
+        ended_id = int(self.live_session_id)
+        ended = self.school.end_live_class_session(ended_id)
+        self.assertIsNotNone(ended)
+        assert ended is not None
+        self.assertEqual(str(ended.get("status") or ""), "ended")
+        started = self.staff.post(
+            f"/staff/class/{self.class_id}/run-live",
+            follow_redirects=False,
+        )
+        self.assertIn(started.status_code, (302, 303), started.get_data(as_text=True))
+        active = self.school.get_active_live_session_for_class(self.class_id)
+        self.assertIsNotNone(active)
+        assert active is not None
+        active_id = int(active["id"])
+        self.assertNotEqual(active_id, ended_id)
+        self.live_session_id = active_id
+        deck = self._attach()["google_slides"]
+        image_url = deck["pages"][0]["image_url"]
+        published = self.staff.post(
+            f"/api/live-sessions/{active_id}/google-slides/pages/0/publish"
+        )
+        self.assertEqual(published.status_code, 200)
+        preview = self.staff.get(image_url)
+        self.assertEqual(preview.status_code, 200)
+        preview.close()
+        rows = self.school.game.conn.execute(
+            "SELECT id FROM students WHERE class_id = ? ORDER BY id",
+            (self.class_id,),
+        ).fetchall()
+        student_id = int(rows[0]["id"])
+        self.school.set_student_pin(
+            self.class_id, student_id, "5678", pin_set_by="default"
+        )
+        stamp = self.school.catchup_pin_stamp(self.class_id, student_id)
+        from catchup_session import establish_catchup_identity
+
+        with self.student.session_transaction() as sess:
+            self.assertEqual(int(sess.get("student_live_session_id") or 0), ended_id)
+            establish_catchup_identity(
+                sess, self.school, self.class_id, student_id, stamp
+            )
+            self.assertEqual(int(sess.get("student_live_session_id") or 0), ended_id)
+        hidden = self.student.get(image_url)
+        self.assertEqual(hidden.status_code, 404)
+        hidden.close()
+        joined = self.student.post(
+            "/auth/student-code",
+            data={"code": str(active["session_code"]), "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.assertIn(joined.status_code, (302, 303), joined.get_data(as_text=True))
+        shown = self.student.get(image_url)
+        self.assertEqual(shown.status_code, 200)
+        self.assertTrue(shown.get_data().startswith(b"\x89PNG"))
+        shown.close()
+
     def test_reimport_deletes_replaced_page_files(self) -> None:
         """A new deck drops the previous page files and keeps the new ones."""
         first = self._attach()["google_slides"]
@@ -1001,6 +1063,120 @@ class GoogleSlidesLimitTests(unittest.TestCase):
             )
         self.assertEqual(got, b"%PDF-1.4 tiny")
         self.assertEqual(seen["timeout"], (10.0, 12.0))
+
+    def test_real_socket_drip_stops_at_the_deadline(self) -> None:
+        """One byte every 0.3s on a local socket stops at a 2s deadline.
+
+        A short body on the same server still returns, so the wall-clock
+        cut does not close a download that finishes in time.
+        """
+        import socket
+        import threading
+        import time
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class _Handler(BaseHTTPRequestHandler):
+            """Local PDF that is either immediate or one byte at a time."""
+
+            protocol_version = "HTTP/1.1"
+
+            def do_GET(self) -> None:
+                """Write a tiny PDF, or 200 bytes with a 0.3s gap."""
+                try:
+                    self.connection.setsockopt(
+                        socket.IPPROTO_TCP, socket.TCP_NODELAY, 1
+                    )
+                except OSError:
+                    pass
+                if self.path.startswith("/fast"):
+                    body = b"%PDF-1.4 tiny"
+                    self._send(body)
+                    return
+                body = b"x" * 200
+                self._send_headers(len(body))
+                try:
+                    for index in range(len(body)):
+                        self.wfile.write(body[index : index + 1])
+                        self.wfile.flush()
+                        time.sleep(0.3)
+                except OSError:
+                    return
+
+            def _send_headers(self, length: int) -> None:
+                """Send a 200 response with a fixed content length.
+
+                Args:
+                    length: Body size in bytes.
+                """
+                self.send_response(200)
+                self.send_header("Content-Type", "application/pdf")
+                self.send_header("Content-Length", str(length))
+                self.end_headers()
+
+            def _send(self, body: bytes) -> None:
+                """Send one complete body.
+
+                Args:
+                    body: Response bytes.
+                """
+                self._send_headers(len(body))
+                self.wfile.write(body)
+
+            def log_message(self, fmt: str, *args: object) -> None:
+                """Drop the default access log."""
+                del fmt, args
+
+        class _LocalHttp:
+            """GET the local server instead of the Google export URL."""
+
+            def __init__(self, path: str) -> None:
+                """Remember which local path to fetch.
+
+                Args:
+                    path: Path on the local server.
+                """
+                self.path = path
+
+            def get(self, url: str, **kwargs: object):
+                """Stream the local response.
+
+                Args:
+                    url: Ignored Google export URL.
+                    **kwargs: Timeout and stream flags from the importer.
+                """
+                del url
+                return requests.get(
+                    f"http://127.0.0.1:{port}{self.path}",
+                    stream=True,
+                    timeout=kwargs.get("timeout"),
+                )
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        port = int(server.server_address[1])
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            started = time.monotonic()
+            with self.assertRaises(ValueError) as caught:
+                fetch_public_pdf(
+                    _FILE_ID,
+                    http=_LocalHttp("/slow"),
+                    timeout=30,
+                    deadline=started + 2.0,
+                )
+            elapsed = time.monotonic() - started
+            self.assertIn("too long", str(caught.exception))
+            self.assertLess(elapsed, 8.0)
+            fast = fetch_public_pdf(
+                _FILE_ID,
+                http=_LocalHttp("/fast"),
+                timeout=30,
+                deadline=time.monotonic() + 10.0,
+            )
+            self.assertEqual(fast, b"%PDF-1.4 tiny")
+        finally:
+            server.shutdown()
+            server.server_close()
 
 
 class GoogleSlidesScopeTests(unittest.TestCase):
