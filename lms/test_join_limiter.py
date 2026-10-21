@@ -273,7 +273,7 @@ class JoinLimiterTests(test_auth.AuthTests):
             self.assertEqual(back.status_code, 302, back.get_data(as_text=True)[:300])
 
     def test_session_block_clears_on_end_and_start(self) -> None:
-        """Ops #217 HIGH: End then Start reuses the row id; the new run starts clean."""
+        """End then Start leaves the ended row and the new run starts clean."""
         live = self._boot_live_class(["Maple", "Birch"])
         code = str(live["session_code"])
         old_key = join_limit_session_key(live)
@@ -293,7 +293,10 @@ class JoinLimiterTests(test_auth.AuthTests):
         self.client.get("/logout")
         fresh = self.school.get_active_live_session_for_class(class_id)
         self.assertIsNotNone(fresh)
-        self.assertEqual(int(fresh["id"]), int(live["id"]))  # the row id is reused
+        self.assertNotEqual(int(fresh["id"]), int(live["id"]))
+        self.assertEqual(
+            self.school.get_live_session(int(live["id"]))["status"], "ended"
+        )
         self.assertNotEqual(str(fresh["session_code"]), code)
         self.assertNotEqual(join_limit_session_key(fresh), old_key)
         joined = self._post(str(fresh["session_code"]), "Maple", remote="127.0.6.1")

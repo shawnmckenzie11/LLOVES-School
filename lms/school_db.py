@@ -40941,6 +40941,67 @@ class SchoolDB(LovesDB):
             )
         return total
 
+    def dismiss_ended_celebrations(
+        self, class_id: int, session_ids: list[int]
+    ) -> int:
+        """Turn off End Class celebration and keep those session rows.
+
+        Start used to delete every celebrating session of the same kind.
+        SQLite then reused the freed id, so Monday's live class disappeared
+        from ``live_class_sessions`` the next time that class started.
+        Attendance, participation, and the Lesson Slides row need that id.
+        This only clears ``celebrate`` and bumps ``state_seq`` so a tab
+        still polling the old id leaves the overlay. Quit still deletes,
+        and only the session it is ending.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            session_ids: Ended sessions whose celebration should close.
+
+        Returns:
+            How many rows were updated.
+        """
+        if not session_ids:
+            return 0
+        updated = 0
+        with self._lock:
+            for sid in session_ids:
+                row = self.conn.execute(
+                    """
+                    SELECT teacher_state_json
+                    FROM live_class_sessions
+                    WHERE id = ? AND class_id = ? AND status = 'ended'
+                    """,
+                    (int(sid), int(class_id)),
+                ).fetchone()
+                if row is None:
+                    continue
+                stored: dict[str, Any] = {}
+                raw = row["teacher_state_json"]
+                if isinstance(raw, str) and raw.strip():
+                    try:
+                        parsed = json.loads(raw)
+                    except json.JSONDecodeError:
+                        parsed = {}
+                    if isinstance(parsed, dict):
+                        stored = parsed
+                if not stored.get("celebrate"):
+                    continue
+                stored["celebrate"] = False
+                stored["state_seq"] = int(stored.get("state_seq") or 0) + 1
+                self.conn.execute(
+                    """
+                    UPDATE live_class_sessions
+                    SET teacher_state_json = ?
+                    WHERE id = ? AND class_id = ?
+                    """,
+                    (json.dumps(stored), int(sid), int(class_id)),
+                )
+                updated += 1
+            if updated and self.conn.in_transaction:
+                self.conn.commit()
+        return updated
+
     def wipe_live_sessions_for_class(
         self,
         class_id: int,
@@ -40958,9 +41019,8 @@ class SchoolDB(LovesDB):
         Quit passes ``purge_kept=True``. That deletes this session's
         engagement events, engagement rollup, observation history,
         Google Slides page images, and Postgres presence rows, and does
-        not copy notes forward. A
-        celebrating wipe on the next Start still copies notes (MCK-52)
-        for a class that was ended.
+        not copy notes forward. Start does not call this. An ended
+        session stays so Lesson Slides can still open it (MCK-311).
         Board assignment rows are always removed: the next Start can
         reuse the session id, and a stale row would match it.
 
@@ -41084,9 +41144,8 @@ class SchoolDB(LovesDB):
                 # retried while the session is still the live run.
                 self._delete_presence_sessions(session_ids)
             if session_ids:
-                # MCK-52 P0.5: a subset wipe (celebrating sessions at Run)
-                # no longer drops every session of the class, which used to
-                # cascade away other sessions' notes.
+                # Only the ids passed in are deleted. Start does not call
+                # this. Quit passes the active session of this class.
                 self.conn.execute(
                     f"DELETE FROM live_class_sessions WHERE class_id = ? "
                     f"AND id IN ({','.join('?' * len(session_ids))})",
@@ -42544,11 +42603,12 @@ class SchoolDB(LovesDB):
         *,
         is_test: bool,
     ) -> dict[str, Any]:
-        """Stamp the active session and wipe only same-kind celebrations.
+        """Stamp the active session and close only same-kind celebrations.
 
         Run Live Class opens a session before the teacher picks Test or
-        Live. This is the pick. A test start never wipes a real celebrating
-        session, and a live start never wipes a test run.
+        Live. This is the pick. A test start never closes a real
+        celebration, and a live start never closes a test run. Ended
+        session rows stay either way.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -42593,9 +42653,7 @@ class SchoolDB(LovesDB):
                 and int(row.get("is_test") or 0) == flag
             ]
             if celebrating:
-                self.wipe_live_sessions_for_class(
-                    int(class_id), session_ids=celebrating
-                )
+                self.dismiss_ended_celebrations(int(class_id), celebrating)
         refreshed = self.get_live_session(int(active["id"]))
         return refreshed or active
 
@@ -43354,8 +43412,9 @@ class SchoolDB(LovesDB):
             live_module: Optional catalogue module (``M1``).
             live_slot: Optional live class (``C1`` / ``C2`` / ``C3``).
             is_test: True for a rehearsal that must not touch real counts.
-            defer_wipe: When true, leave celebrating sessions for
+            defer_wipe: When true, leave celebration flags for
                 ``commit_live_run_kind`` (the teacher has not picked yet).
+                Neither path deletes an ended session.
 
         Returns:
             The newly created active session row, or this teacher's
@@ -43541,9 +43600,9 @@ class SchoolDB(LovesDB):
                 live_module=live_module,
                 live_slot=live_slot,
             )
-        # Drop a leftover End-Live celebration SID; keep historical ended rows.
+        # Close the End Class overlay. The ended row stays (MCK-311).
         prior_rows = self.list_live_sessions_for_class(int(class_id))
-        # Read before the wipe: SQLite can hand the wiped id to the new row.
+        # The new run starts above every earlier seq, including rows we keep.
         seq_floor = max(
             self._live_class_seq_floor(prior_rows),
             self.stored_seq_floor(class_id=int(class_id)),
@@ -43556,7 +43615,7 @@ class SchoolDB(LovesDB):
             and int(row.get("is_test") or 0) == kind
         ]
         if celebrating and not defer_wipe:
-            self.wipe_live_sessions_for_class(int(class_id), session_ids=celebrating)
+            self.dismiss_ended_celebrations(int(class_id), celebrating)
         self.game.clear_class_moods_and_characters(int(class_id))
         code = self.mint_unique_active_session_code()
         meeting_iso = self._open_game_meeting_iso(int(class_id))

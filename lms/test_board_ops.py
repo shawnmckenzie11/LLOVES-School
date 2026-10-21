@@ -930,7 +930,7 @@ class BoardRouteTests(unittest.TestCase):
         return int(row[0])
 
     def test_restart_after_end_draws_on_an_empty_board_at_seq_1(self) -> None:
-        """A reused session id does not keep the previous run closed."""
+        """End then Start draws on a new session, with an empty board at seq 1."""
         tokens = self._publish_two_groups()
         aspen = self._student(tokens["Aspen"])
         first = self._draw(aspen, "old-ink")
@@ -946,7 +946,8 @@ class BoardRouteTests(unittest.TestCase):
         )
         self.session_id = int(live["id"])
         new_key = self.school.live_board_run_key(self.session_id)
-        self.assertEqual(self.session_id, old_id)
+        self.assertNotEqual(self.session_id, old_id)
+        self.assertEqual(self.school.get_live_session(old_id)["status"], "ended")
         self.assertNotEqual(new_key, old_key)
         closed = self.school.boards.conn.execute(
             "SELECT COUNT(*) FROM board_sessions WHERE closed = 1"

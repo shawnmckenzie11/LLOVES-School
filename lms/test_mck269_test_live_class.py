@@ -289,14 +289,16 @@ class TestLiveClassTests(Base):
         fresh_live = self.school.start_live_class_session(
             self.class_id, int(self.teacher["id"]), is_test=False
         )
-        self.assertIsNone(self.school.get_live_session(int(live["id"])))
-        self.assertIsNotNone(self.school.get_live_session(int(test["id"])))
+        self.assertIsNotNone(self.school.get_live_session(int(live["id"])))
+        self.assertFalse(self.school.session_is_celebrating(int(live["id"])))
+        self.assertTrue(self.school.session_is_celebrating(int(test["id"])))
         self.school.finish_live_class(self.class_id, celebrate=True, live_run=True)
         self.school.start_live_class_session(
             self.class_id, int(self.teacher["id"]), is_test=True
         )
-        self.assertIsNone(self.school.get_live_session(int(test["id"])))
-        self.assertIsNotNone(self.school.get_live_session(int(fresh_live["id"])))
+        self.assertIsNotNone(self.school.get_live_session(int(test["id"])))
+        self.assertFalse(self.school.session_is_celebrating(int(test["id"])))
+        self.assertTrue(self.school.session_is_celebrating(int(fresh_live["id"])))
 
     def test_catchup_answers_stay_on_test_run_key(self) -> None:
         """Catch-up answers for a test class credit only that test run_key."""

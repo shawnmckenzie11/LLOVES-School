@@ -68,7 +68,8 @@ class SnapshotRetentionTests(shell.LiveShellTests):
         first = self.school.live_result_snapshot_rows(self.class_id, run_key=key1)
         self.assertTrue(first)
         sid2, key2, _ = self._run_once()
-        self.assertEqual(sid2, sid1)  # the Ops repro: the id is reused
+        self.assertNotEqual(sid2, sid1)
+        self.assertEqual(self.school.get_live_session(sid1)["status"], "ended")
         self.assertNotEqual(key2, key1)
         again = self.school.live_result_snapshot_rows(self.class_id, run_key=key1)
         second = self.school.live_result_snapshot_rows(self.class_id, run_key=key2)
@@ -79,7 +80,7 @@ class SnapshotRetentionTests(shell.LiveShellTests):
         runs = self.school.live_result_snapshot_runs(self.class_id)
         self.assertEqual([r["run_key"] for r in runs], [key2, key1])
         self.assertEqual(runs[1]["rows"], len(first))
-        self.assertEqual({r["live_session_id"] for r in runs}, {sid1})
+        self.assertEqual({r["live_session_id"] for r in runs}, {sid1, sid2})
         with self.assertRaises(ValueError):
             self.school.live_result_snapshot_rows(self.class_id, run_key="")
 

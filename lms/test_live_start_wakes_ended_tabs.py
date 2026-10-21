@@ -40,7 +40,7 @@ class StartWakesEndedTabsTests(seqtests.EndStartSeqTests):
         self.assertIn("event: state_seq", stream.get_data(as_text=True))
 
     def test_api_start_wakes_the_old_celebration_stream(self) -> None:
-        """``live-session/start`` after End posts to the reused session id."""
+        """``live-session/start`` after End posts to the ended session's stream."""
         sid, _student_id, held = self._end_with_old_tab()
         cursor = self._cursor(sid)
         started = self.client.post(
@@ -48,7 +48,8 @@ class StartWakesEndedTabsTests(seqtests.EndStartSeqTests):
         )
         self.assertEqual(started.status_code, 200, started.get_json())
         new_sid = int(started.get_json()["live_session_id"])
-        self.assertEqual(new_sid, sid)
+        self.assertNotEqual(new_sid, sid)
+        self.assertEqual(self.school.get_live_session(sid)["status"], "ended")
         self._assert_wakes(sid, cursor, int(held["state_seq"]), new_sid)
 
     def test_run_live_wakes_the_old_celebration_stream(self) -> None:
