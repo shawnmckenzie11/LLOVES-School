@@ -96,12 +96,16 @@ export function catchupCardHtml(question, tag) {
 
 /**
  * The answer a card holds right now, or "" when nothing is chosen/typed.
+ * A draw card stays empty until the board has a stroke.
  * @param {Element} card
  * @returns {string}
  */
 function cardAnswer(card) {
   const draw = card.querySelector("canvas.catchup-draw-canvas");
-  if (draw instanceof HTMLCanvasElement) return canvasToPngDataUrl(draw);
+  if (draw instanceof HTMLCanvasElement) {
+    if (draw.dataset.hasStroke !== "1") return "";
+    return canvasToPngDataUrl(draw);
+  }
   const rank = card.querySelector("[data-catchup-rank-order]");
   if (rank) {
     const ids = [...rank.querySelectorAll("[data-catchup-rank-id]")].map((node) =>
@@ -166,7 +170,14 @@ function mountCatchup() {
   const questions = Array.isArray(data.questions) ? data.questions : [];
   root.innerHTML = questions.map((q) => catchupCardHtml(q, String(data.tag || ""))).join("");
   root.querySelectorAll("canvas.catchup-draw-canvas").forEach((canvas) => {
-    if (canvas instanceof HTMLCanvasElement) bindWhiteboard(canvas);
+    if (!(canvas instanceof HTMLCanvasElement)) return;
+    const submit = canvas.closest(".student-live-card")?.querySelector("[data-live-submit]");
+    bindWhiteboard(canvas, {
+      onInkChange(hasStroke) {
+        canvas.dataset.hasStroke = hasStroke ? "1" : "";
+        if (submit instanceof HTMLButtonElement) submit.disabled = !hasStroke;
+      },
+    });
   });
   void renderLiveQuestionMath(root);
   root.addEventListener("click", (event) => {
@@ -185,7 +196,9 @@ function mountCatchup() {
       });
       return;
     }
-    if (!target.closest("[data-live-submit]")) return;
+    const submit = target.closest("[data-live-submit]");
+    if (!submit) return;
+    if (submit instanceof HTMLButtonElement && submit.disabled) return;
     const answer = cardAnswer(card);
     if (!answer) return;
     form.elements.namedItem("question_key").value = card.getAttribute("data-question-key") || "";

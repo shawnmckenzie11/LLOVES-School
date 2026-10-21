@@ -10768,6 +10768,13 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 )
             except PermissionError:
                 return closed()
+            except ValueError as exc:
+                from team_draw import BLANK_DRAWING_ERROR, DRAWING_TOO_LARGE_ERROR
+
+                message = str(exc)
+                if message not in (BLANK_DRAWING_ERROR, DRAWING_TOO_LARGE_ERROR):
+                    raise
+                return jsonify({"ok": False, "error": message}), 400
         if student_id is None:
             if landing_pending_student(session, class_id) is not None:
                 return pin_screen()

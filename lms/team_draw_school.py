@@ -7,8 +7,8 @@ from typing import Any, TYPE_CHECKING
 
 from team_draw import (
     TEAM_DRAW_RESPONSE_MODE,
-    decode_png_payload,
     gallery_row_title,
+    load_inked_png,
     is_mystery_rule_item,
     is_team_draw_item,
     mystery_steps_for_item,
@@ -326,7 +326,7 @@ def submit_team_draw(
         live_item_id: ``live_session_items.id``.
         student_id: Roster id of the student sending the drawing.
         title: Ignored. Older callers may still pass one.
-        image_b64: PNG data URL or raw base64.
+        image_b64: PNG data URL or raw base64. A blank canvas is refused.
     """
     from school_db import GroupAnswerLocked, _now
 
@@ -343,7 +343,7 @@ def submit_team_draw(
     if int(row.get("submit_count") or 0) > 0:
         card = self.student_team_draw_state(item, student_id)
         raise GroupAnswerLocked("Your team already submitted.", card=card)
-    png = decode_png_payload(image_b64)
+    png = load_inked_png(image_b64)
     answer = team_draw_answer_json("")
     now = _now()
     with self._lock:
@@ -467,7 +467,7 @@ def submit_individual_draw(
         session_id: ``live_class_sessions.id``.
         live_item_id: ``live_session_items.id``.
         student_id: Roster id of the student sending the drawing.
-        image_b64: PNG data URL or raw base64.
+        image_b64: PNG data URL or raw base64. A blank canvas is refused.
 
     Returns:
         Student card with ``submitted`` and ``can_submit``.
@@ -487,7 +487,7 @@ def submit_individual_draw(
     prior = self.get_live_prompt_response(int(prompt["id"]), int(student_id))
     if prior is not None:
         raise GroupAnswerLocked("You already submitted.", card={"submitted": True, "can_submit": False})
-    png = decode_png_payload(image_b64)
+    png = load_inked_png(image_b64)
     answer = team_draw_answer_json("")
     self.submit_live_prompt_response(int(prompt["id"]), int(student_id), answer)
     now = _now()
