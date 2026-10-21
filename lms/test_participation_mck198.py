@@ -10,7 +10,9 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 LMS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(LMS_DIR))
@@ -20,6 +22,21 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
 import participation as P  # noqa: E402
+
+
+def open_catchup_ended_iso() -> str:
+    """Class end that is still inside the seven-day catch-up window.
+
+    A fixed 2026-10-14 end closes on 2026-10-21. Callers that need a
+    closed window pass their own timestamp.
+
+    Returns:
+        A Toronto wall time two days ago, without a timezone suffix.
+    """
+    ended = (
+        datetime.now(ZoneInfo("America/Toronto")) - timedelta(days=2)
+    ).replace(microsecond=0, tzinfo=None)
+    return ended.isoformat(timespec="seconds")
 
 
 def catchup_data(html: str) -> dict:
@@ -209,7 +226,7 @@ class Base(unittest.TestCase):
         answers: dict[int, int],
         *,
         wipe: bool = True,
-        ended_iso: str = "2026-10-14T14:30:00",
+        ended_iso: str = "",
         ensure_data_indices: tuple[int, ...] = (),
         live_run: bool = True,
     ) -> str:
@@ -256,9 +273,11 @@ class Base(unittest.TestCase):
                     )
                     answered_prompts.add(pid)
         run_key = str(c.execute("SELECT run_key FROM live_class_sessions WHERE id = ?", (sid,)).fetchone()[0] or "")
+        # Empty means "still open". A literal past date stays literal.
+        ended_at = ended_iso or open_catchup_ended_iso()
         c.execute(
             "UPDATE live_class_sessions SET ended_at = ?, status = 'ended' WHERE id = ?",
-            (ended_iso, sid),
+            (ended_at, sid),
         )
         c.commit()
         self.school.cleanup_live_session_response_data(sid, live_run=live_run)
