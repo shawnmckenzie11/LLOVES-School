@@ -233,7 +233,11 @@ class TwoPlayerRotationTests(SeededTurnsHarness):
             self._post("Ava", item, "rank-agree", {"agree": True, "order": order})
             self._undo("Ava", item, 409)
         else:
-            self.assertFalse(self._phone("Ava", item)["can_undo"])  # no Undo once the order is in
+            # The last placer can still undo until Send our ranking.
+            self.assertTrue(self._phone("Ava", item)["can_undo"])
+            sent = self._post("Ava", item, "group-submit", {})
+            self.assertEqual(sent.status_code, 200, sent.get_data(as_text=True))
+            self.assertFalse(self._phone("Ava", item)["can_undo"])
             self._undo("Ava", item, 409)
         self.assertEqual([s["by_name"] for s in turns["spots"]], ["Ava", "Cy", "Ava", "Cy", "Ava"])
         self.assertEqual([s["label"] for s in turns["spots"]], [L[3], L[0], L[2], L[4], L[1]])

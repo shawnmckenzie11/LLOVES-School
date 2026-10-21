@@ -489,16 +489,23 @@ class AsTodayTests(ChallengeHarness):
     """Without Team challenge, group rank is byte-for-byte today's flow."""
 
     def test_plain_rank_together_sends_once_and_has_no_race(self) -> None:
-        """A plain rank sends on the last spot. A shared resend is refused."""
+        """A plain rank stays a draft on the last spot. Send is final."""
         item = self._publish(self._rank_row())  # key, but no Team challenge
         rv = self._order("Ava", item, KEY_IDS)
         self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
         card = rv.get_json()["group_submit"]
         self.assertNotIn("race", card)
         self.assertTrue(card["turns"]["done"])
-        self.assertEqual(self._post("Ava", item, "group-submit", {"order": KEY_IDS}).status_code, 400)
+        self.assertFalse(card["submitted"])
+        sent = self._post("Ava", item, "group-submit", {"order": KEY_IDS})
+        self.assertEqual(sent.status_code, 200, sent.get_data(as_text=True))
+        self.assertEqual(self._post("Ava", item, "group-submit", {"order": KEY_IDS}).status_code, 200)
+        # The send button uses the placed order. A different body does not replace it.
         rv = self._post("Cy", item, "group-submit", {"order": ["o1", "o2", "o3", "o4"]})
-        self.assertEqual(rv.status_code, 400)
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        undone = self._post("Ava", item, "rank-turn", {"undo": True})
+        self.assertEqual(undone.status_code, 409)
+        self.assertEqual(undone.get_json()["error"], "Final once sent.")
         row = self._row(item, "Ava")
         self.assertEqual(row["submit_count"], 1)
         self.assertIsNone(row["finalized_at"])

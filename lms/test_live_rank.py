@@ -279,7 +279,8 @@ class RankLiveSessionTests(unittest.TestCase):
     ) -> dict[str, Any]:
         """Place one option per turn, rotating present teammates from the starter.
 
-        The last place of a full order sends it. A shorter list stays a draft.
+        A full order is then sent. A shorter list stays a draft. Placing
+        the last card does not send by itself.
         """
 
         roster = self._turn_roster(item, starter_id)
@@ -291,6 +292,14 @@ class RankLiveSessionTests(unittest.TestCase):
                 int(item["id"]),
                 roster[index % len(roster)],
                 option_id=option_id,
+            )
+        if card.get("turns", {}).get("done") and not card.get("submitted") and not card.get("race"):
+            card = self.school.submit_group_mc_answer(
+                self.session_id,
+                int(item["id"]),
+                int(roster[0]),
+                choice="",
+                why="",
             )
         return card
 
@@ -424,9 +433,10 @@ class RankLiveSessionTests(unittest.TestCase):
 
         The staff light poll does not rebuild Borda. It reports how many
         teams have submitted plus a revision. A partial place keeps the
-        submitted-team count at 0. Finishing the order counts the team and
-        moves the revision. A place after the order is in changes nothing.
-        The other team's finish counts a second vote.
+        submitted-team count at 0. Placing the last card does not count
+        the team. Send our ranking does, and moves the revision. A place
+        after the send changes nothing. The other team's send counts a
+        second vote.
         """
 
         self._join(4)
@@ -458,6 +468,9 @@ class RankLiveSessionTests(unittest.TestCase):
         )
         self.school.rank_turn_place(
             self.session_id, item_id, self.student_ids[0], option_id="o3"
+        )
+        self.school.submit_group_mc_answer(
+            self.session_id, item_id, self.student_ids[0], choice="", why=""
         )
         after = self.school.get_live_session_state(self.session_id, light=True)
         self.assertEqual(
@@ -549,10 +562,10 @@ class RankLiveSessionTests(unittest.TestCase):
     def test_resubmit_after_clear_changes_order_submitter_and_revision(self) -> None:
         """Undo before the last spot leaves the team free to send a new order.
 
-        Taking back the latest place must not freeze the draft. Finishing a
-        different order sets ``submitted_order`` and ``last_submitter`` and
-        moves ``lifecycle_rank_revs``. Undo after the order is in is refused
-        and the sent order stays.
+        Taking back the latest place must not freeze the draft. The last
+        card stays a draft. Send our ranking sets ``submitted_order`` and
+        ``last_submitter`` and moves ``lifecycle_rank_revs``. Undo after
+        that send is refused and the sent order stays.
         """
 
         self._join(4)
@@ -576,8 +589,14 @@ class RankLiveSessionTests(unittest.TestCase):
         self.assertEqual(drafted["phase"], "drafting")
         self.assertEqual(drafted["submitted_order"], [])
         before = self.school.get_live_session_state(self.session_id, light=True)
-        revised = self.school.rank_turn_place(
+        drafted_last = self.school.rank_turn_place(
             self.session_id, item_id, self.student_ids[2], option_id="o2"
+        )
+        self.assertEqual(drafted_last["order"], ["o1", "o3", "o2"])
+        self.assertEqual(drafted_last["submitted_order"], [])
+        self.assertEqual(drafted_last["phase"], "ready")
+        revised = self.school.submit_group_mc_answer(
+            self.session_id, item_id, self.student_ids[2], choice="", why=""
         )
         self.assertEqual(revised["submitted_order"], ["o1", "o3", "o2"])
         self.assertEqual(revised["last_submitter"], "Cedar")

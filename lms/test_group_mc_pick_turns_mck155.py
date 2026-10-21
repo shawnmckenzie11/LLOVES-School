@@ -217,8 +217,9 @@ class PickThenAgreeAndTurnsTests(unittest.TestCase):
         self.assertEqual(card["waiting_names"], ["Cy"])
         self.assertEqual(card["waiting_count"], 1)
         self.assertFalse(card["can_submit"])
-        self.assertNotIn("member_picks", card)
-        # No shared draft or send until everyone has picked.
+        self.assertEqual(card["member_picks"], [{"name": "Ava", "value": "2", "mine": True}])
+        self.assertFalse(card["match"]["ready"])
+        # No shared draft while picks are still open.
         # Ava has picked: wait for the rest. Cy has not: send yours first.
         rv = self._post("Ava", item, "group-draft", {"choice": "2", "why": "x"})
         self.assertEqual(rv.status_code, 400)
@@ -228,7 +229,10 @@ class PickThenAgreeAndTurnsTests(unittest.TestCase):
         self.assertEqual(rv.get_json()["error"], "Send your own pick first.")
         rv = self._post("Cy", item, "group-pick", {"choice": "1"})
         card = rv.get_json()["group_submit"]
-        self.assertFalse(card["pick_step"])
+        # Different letters stay open. Send waits until they match.
+        self.assertTrue(card["pick_step"])
+        self.assertFalse(card["can_submit"])
+        self.assertEqual(card["match"]["matched"], 1)
         self.assertEqual(
             card["member_picks"],
             [{"name": "Ava", "value": "2", "mine": False}, {"name": "Cy", "value": "1", "mine": True}],
@@ -237,14 +241,14 @@ class PickThenAgreeAndTurnsTests(unittest.TestCase):
         self.assertNotIn("correct", str(card["member_picks"]))
         ben = self._card("Ben", item)
         self.assertTrue(ben["pick_step"])
-        self.assertNotIn("member_picks", ben)
+        self.assertEqual(ben["member_picks"], [])
         # Staff see each pick with a right/wrong mark on keyed MC.
         team = next(r for r in self._view(item)["status_board"] if r.get("picks"))
         self.assertEqual(
             team["picks"],
             [{"name": "Ava", "value": "2", "correct": True}, {"name": "Cy", "value": "1", "correct": False}],
         )
-        self.assertFalse(team["pick_step"])
+        self.assertTrue(team["pick_step"])
 
     def test_sending_locks_the_answer_for_the_team(self) -> None:
         item = self._mc()
@@ -252,10 +256,15 @@ class PickThenAgreeAndTurnsTests(unittest.TestCase):
         self._post("Cy", item, "group-pick", {"choice": "1"})
         rv = self._post("Cy", item, "group-submit", {"choice": "1", "why": ""})
         self.assertEqual(rv.status_code, 400)
-        self.assertIn("why", rv.get_json()["error"])
-        rv = self._post("Cy", item, "group-submit", {"choice": "2", "why": "Ava convinced me"})
+        self.assertEqual(rv.get_json()["error"], "Everyone needs the same pick (1 of 2 match)")
+        self.assertNotIn("why", rv.get_json()["error"])
+        self._post("Cy", item, "group-pick", {"choice": "2"})
+        rv = self._post("Cy", item, "group-submit", {"choice": "1", "why": "Ava convinced me"})
         self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
-        self.assertTrue(rv.get_json()["group_submit"]["locked"])
+        locked = rv.get_json()["group_submit"]
+        self.assertTrue(locked["locked"])
+        self.assertEqual(locked["submitted_choice"], "2")
+        self.assertEqual(locked["submitted_why"], "")
         # Ava sends something else: 409 and the locked card, nothing changes.
         rv = self._post("Ava", item, "group-submit", {"choice": "-2", "why": "no"})
         self.assertEqual(rv.status_code, 409)
@@ -279,20 +288,25 @@ class PickThenAgreeAndTurnsTests(unittest.TestCase):
         self._leave("Cy")
         rv = self._post("Ava", item, "group-pick", {"choice": "2"})
         card = rv.get_json()["group_submit"]
-        self.assertFalse(card["pick_step"])
+        self.assertTrue(card["pick_step"])
+        self.assertTrue(card["match"]["ready"])
+        self.assertTrue(card["can_submit"])
         self.assertEqual([p["name"] for p in card["member_picks"]], ["Ava"])
 
     def test_teacher_move_on_ends_the_pick_step(self) -> None:
         item = self._mc()
         self._post("Ava", item, "group-pick", {"choice": "2"})
+        self._post("Cy", item, "group-pick", {"choice": "2"})
         self.assertTrue(self._view(item)["any_picking"])
         rv = self.client.post(f"/api/live-sessions/{self.session_id}/items/{item['id']}/end-voting")
         self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
         self.assertFalse(rv.get_json()["group_submit"]["any_picking"])
         self.assertFalse(self._card("Cy", item)["pick_step"])
         self.assertFalse(self._card("Ben", item)["pick_step"])
-        rv = self._post("Cy", item, "group-submit", {"choice": "2", "why": "Ava's pick"})
+        rv = self._post("Cy", item, "group-submit", {"choice": "1", "why": "Ava's pick"})
         self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        self.assertEqual(rv.get_json()["group_submit"]["submitted_choice"], "2")
+        self.assertEqual(rv.get_json()["group_submit"]["submitted_why"], "")
 
     def test_light_poll_carries_picks_for_staff(self) -> None:
         item = self._mc()
@@ -306,11 +320,13 @@ class PickThenAgreeAndTurnsTests(unittest.TestCase):
 
     # Gate fixes (189dd07) ---------------------------------------------------
     def _picked_mc(self) -> dict[str, Any]:
-        """Keyed MC with Ava and Cy (team 1) past the pick step."""
+        """Keyed MC with Ava and Cy (team 1) on the same pick, still open."""
         item = self._mc()
         self._post("Ava", item, "group-pick", {"choice": "2"})
-        self._post("Cy", item, "group-pick", {"choice": "1"})
-        self.assertFalse(self._card("Ava", item)["pick_step"])
+        self._post("Cy", item, "group-pick", {"choice": "2"})
+        card = self._card("Ava", item)
+        self.assertTrue(card["pick_step"])
+        self.assertTrue(card["match"]["ready"])
         return item
 
     def _team_row(self, item: dict[str, Any], name: str) -> dict[str, Any]:
@@ -318,7 +334,8 @@ class PickThenAgreeAndTurnsTests(unittest.TestCase):
         return self.school._group_response_row(int(item["id"]), team_id) or {}
 
     def _assert_one_winner(self, item: dict[str, Any], results: dict[str, Any], sent: dict[str, tuple[str, str]]) -> str:
-        """Exactly one send won; the lock holds the winner's own text."""
+        """Exactly one send won; the lock holds the matched pick and no why."""
+        del sent
         codes = sorted(results.values())
         self.assertEqual(codes, [200, 409], results)
         winner = next(n for n, code in results.items() if code == 200)
@@ -326,7 +343,7 @@ class PickThenAgreeAndTurnsTests(unittest.TestCase):
         self.assertEqual(int(row["submit_count"]), 1)
         self.assertEqual(int(row["last_submitter_student_id"]), self.ids[winner])
         final = row["final_answer"]
-        self.assertEqual((final["value"], final["why"]), sent[winner])
+        self.assertEqual((final["value"], final["why"]), ("2", ""))
         return winner
 
     def test_two_teammates_send_at_once_one_wins(self) -> None:
@@ -334,7 +351,7 @@ class PickThenAgreeAndTurnsTests(unittest.TestCase):
         winners = set()
         for round_no in range(6):
             item = self._picked_mc()
-            sent = {"Ava": ("2", f"ava why {round_no}"), "Cy": ("1", f"cy why {round_no}")}
+            sent = {"Ava": ("2", ""), "Cy": ("2", "")}
             barrier = threading.Barrier(2)
             results: dict[str, int] = {}
 
@@ -358,7 +375,11 @@ class PickThenAgreeAndTurnsTests(unittest.TestCase):
         self.assertTrue(winners)
 
     def test_one_student_two_tabs_send_at_once(self) -> None:
-        """Gate MED-1: the same student in two tabs; different whys race."""
+        """Gate MED-1: the same student in two tabs sends once.
+
+        Group multiple choice stores no why, so both tabs carry the
+        matched pick. The second tab is a safe no-op, not a second send.
+        """
         item = self._picked_mc()
         live = self.school.get_live_session_item(self.session_id, int(item["id"]))
         ava = self.ids["Ava"]
@@ -378,11 +399,11 @@ class PickThenAgreeAndTurnsTests(unittest.TestCase):
             t.start()
         for t in threads:
             t.join(30)
-        self.assertEqual(sorted(out.values()), ["locked", "ok"], out)
-        won = next(n for n, v in out.items() if v == "ok")
-        self.assertEqual(self._team_row(item, "Ava")["final_answer"]["why"], f"tab {won}")
+        self.assertEqual(sorted(out.values()), ["ok", "ok"], out)
+        self.assertEqual(self._team_row(item, "Ava")["final_answer"]["why"], "")
+        self.assertEqual(self._team_row(item, "Ava")["final_answer"]["value"], "2")
         # The winning tab's repeat tap is still a safe no-op.
-        self.school.submit_group_mc_answer(self.session_id, int(live["id"]), ava, choice="2", why=f"tab {won}")
+        self.school.submit_group_mc_answer(self.session_id, int(live["id"]), ava, choice="2", why="")
         self.assertEqual(int(self._team_row(item, "Ava")["submit_count"]), 1)
 
     def test_a_draft_never_lands_on_a_locked_answer(self) -> None:
@@ -392,8 +413,9 @@ class PickThenAgreeAndTurnsTests(unittest.TestCase):
         rv = self._post("Cy", item, "group-draft", {"choice": "1", "why": "late"})
         self.assertEqual(rv.status_code, 409)
         row = self._team_row(item, "Cy")
-        self.assertEqual(row["why_text"], "slope")
-        self.assertEqual(row["final_answer"]["why"], "slope")
+        self.assertEqual(row["why_text"], "")
+        self.assertEqual(row["final_answer"]["why"], "")
+        self.assertEqual(row["final_answer"]["value"], "2")
 
     def test_two_processes_send_at_once_one_wins(self) -> None:
         """Gate MED-1 across processes: two SchoolDB connections, one DB file."""
@@ -422,7 +444,7 @@ try:
 except GroupAnswerLocked:
     print("RESULT locked")
 """
-        sent = {"Ava": ("2", "ava xproc"), "Cy": ("1", "cy xproc")}
+        sent = {"Ava": ("2", ""), "Cy": ("2", "")}
         procs = {}
         for name, (choice, why) in sent.items():
             args = {"session": self.session_id, "item": live_id, "student": self.ids[name], "choice": choice, "why": why}
@@ -597,6 +619,10 @@ except GroupAnswerLocked:
         rv = self._post("Ava", item, "rank-turn", {"option_id": o[2]})
         card = rv.get_json()["group_submit"]
         self.assertTrue(card["turns"]["done"])
+        self.assertFalse(card["submitted"])
+        sent = self._post("Ava", item, "group-submit", {})
+        self.assertEqual(sent.status_code, 200, sent.get_data(as_text=True)[:200])
+        card = sent.get_json()["group_submit"]
         self.assertTrue(card["submitted"])
         self.assertEqual(card["submitted_order"], [o[1], o[0], o[3], o[2]])
         self.assertEqual([s["by_name"] for s in card["turns"]["spots"]], ["Cy", "Ava", "Cy", "Ava"])

@@ -258,6 +258,11 @@ class RankKeyLiveTests(unittest.TestCase):
                     break
             else:
                 self.fail(last.get_data(as_text=True)[:200] if last is not None else str(token))
+        if last is not None and last.status_code == 200:
+            card = (last.get_json() or {}).get("group_submit") or {}
+            if card.get("turns", {}).get("done") and not card.get("submitted") and not card.get("race"):
+                sent = self._post(names[0], item, "group-submit", {})
+                self.assertEqual(sent.status_code, 200, sent.get_data(as_text=True)[:200])
 
     def test_students_never_see_the_key_rank_together(self) -> None:
         """Group rank saved as together: state, prompt, page, and places stay keyless."""

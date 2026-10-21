@@ -118,9 +118,14 @@ try:
     from live_mc import build_live_tally, build_mc_tally, numeric_prompt_without_key
     from rank_alias import RankAliases, rank_aliases
     from group_engagement import (
+        MC_EARNED,
+        MC_POSSIBLE,
+        RANK_POSSIBLE,
         catchup_earned,
         check_message,
         format_fraction,
+        match_reason,
+        match_tally,
         member_ids_from_json,
         send_earned,
     )
@@ -287,9 +292,14 @@ except ImportError:  # ``python3 lms/app.py`` package import
     from lms.live_mc import build_live_tally, build_mc_tally, numeric_prompt_without_key
     from lms.rank_alias import RankAliases, rank_aliases
     from lms.group_engagement import (
+        MC_EARNED,
+        MC_POSSIBLE,
+        RANK_POSSIBLE,
         catchup_earned,
         check_message,
         format_fraction,
+        match_reason,
+        match_tally,
         member_ids_from_json,
         send_earned,
     )
@@ -2750,10 +2760,11 @@ class LovesDB:
     def _live_group_engagement_totals(
         self, session_id: int, student_id: int
     ) -> tuple[int, int]:
-        """Points this student would earn from group ranks still on the live rows.
+        """Points this student would earn from group questions still live.
 
-        Uses the same rules as End: send-time roster, 2 only for an
-        all-correct keyed send that never used the check.
+        Uses the same rules as End. A keyed rank sent all correct, with
+        no check, is 4 on a maximum of 2. Every other rank completion is
+        2. A group multiple-choice send is 1 on a maximum of 1.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -2775,13 +2786,9 @@ class LovesDB:
             (int(session_id),),
         ).fetchall()
         for item in items:
-            payload = self._group_rank_capture_payload(item["item_json"], item["payload"])
-            if payload is None:
+            kind, stored = self._classify_group_engagement(item["item_json"], item["payload"])
+            if not kind:
                 continue
-            options = safe_rank_options(
-                payload.get("rank_options") or payload.get("options") or payload.get("choices")
-            )
-            key = safe_rank_key(payload.get("rank_key"), options) or []
             member_rows = self.conn.execute(
                 "SELECT team_id, student_id FROM live_group_members WHERE live_item_id = ?",
                 (int(item["id"]),),
@@ -2809,24 +2816,9 @@ class LovesDB:
                     members = live_members.get(team_id, [])
                 if int(student_id) not in members:
                     continue
-                possible += 1
-                if not submitted:
-                    break
-                try:
-                    final = json.loads(response["final_answer_json"] or "null")
-                except (TypeError, ValueError):
-                    final = None
-                order = list(final.get("order") or []) if isinstance(final, dict) else []
-                all_correct = bool(
-                    key
-                    and len(order) == len(key)
-                    and int(rank_race_score(order, key)["right"]) == len(key)
-                )
-                earned += send_earned(
-                    keyed=bool(key),
-                    all_correct=all_correct,
-                    check_used=bool(int(response["rank_check_used"] or 0)),
-                )
+                points, offered = self._group_engagement_points(kind, stored, response)
+                possible += offered
+                earned += points
                 break
         return earned, possible
 
@@ -19626,6 +19618,13 @@ class SchoolDB(LovesDB):
             card["pick_step"] = bool(step_open)
             card["my_pick"] = mine
             card["locked"] = bool(card["submitted"])
+            card["member_picks"] = self._group_mc_member_picks(
+                item, int(team_id), class_id, viewer_id=int(student_id)
+            )
+            card["match"] = self._group_mc_match(item, int(team_id))
+            card["can_submit"] = bool(
+                active and not card["locked"] and card["match"]["ready"]
+            )
             if step_open:
                 picked = {int(vote["student_id"]) for vote in picks}
                 waiting = [
@@ -19645,14 +19644,6 @@ class SchoolDB(LovesDB):
                     )
                     if name
                 ]
-                card["can_submit"] = False
-            else:
-                card["member_picks"] = self._group_mc_member_picks(
-                    item, int(team_id), class_id, viewer_id=int(student_id)
-                )
-                card["can_submit"] = bool(
-                    card["can_submit"] and not card["locked"]
-                )
         if self._question_answer_kind(item) == "rank":
             proposed = row.get("proposed_answer") if isinstance(row.get("proposed_answer"), dict) else {}
             draft_order = (
@@ -19949,11 +19940,12 @@ class SchoolDB(LovesDB):
         team_id: int,
         row: dict[str, Any] | None = None,
     ) -> bool:
-        """True while this team is still on step 1 (everyone picks alone).
+        """True while this team can still change individual picks.
 
-        Absent members never block: only present teammates
-        (``_active_team_member_ids``) must pick. When they all have, step 1
-        is closed on the row so a late joiner cannot reopen it.
+        Picks stay open until the group sends or the teacher ends the
+        step. Matching does not close the step: a teammate can change
+        a letter until Send group answer locks it. Absent members never
+        count.
 
         Args:
             item: Lifecycle row.
@@ -19968,16 +19960,6 @@ class SchoolDB(LovesDB):
             self._group_response_row(int(item["id"]), int(team_id)) or {}
         )
         if state.get("voting_ended_at") or int(state.get("submit_count") or 0) > 0:
-            return False
-        picked = {
-            int(vote["student_id"])
-            for vote in self._group_mc_pick_rows(item, int(team_id))
-        }
-        active = self._active_team_member_ids(
-            int(item["live_session_id"]), int(team_id)
-        )
-        if active and set(active).issubset(picked):
-            self._end_group_mc_pick_step(int(item["id"]), int(team_id))
             return False
         return True
 
@@ -20134,11 +20116,30 @@ class SchoolDB(LovesDB):
             out.append(row)
         return out
 
+    def _group_mc_match(self, item: dict[str, Any], team_id: int) -> dict[str, Any]:
+        """Whether every present member has the same multiple-choice pick.
+
+        Absent members are not in the total. The shared choice is returned
+        only when ``ready`` is true, so a partial majority is not a send.
+
+        Args:
+            item: Group multiple-choice lifecycle row.
+            team_id: Team.
+        """
+        active = self._active_team_member_ids(int(item["live_session_id"]), int(team_id))
+        by_student: dict[int, str] = {}
+        for vote in self._group_mc_pick_rows(item, int(team_id)):
+            by_student[int(vote["student_id"])] = str(
+                (vote.get("answer") or {}).get("value") or ""
+            ).strip()
+        picks = [by_student.get(int(sid), "") for sid in active]
+        return match_tally(picks, len(active))
+
     # ------------------------------------------------------------------
     # MCK-155 "Take turns" group rank (approved). State lives on the team
     # row's ``proposed_answer_json`` (``mode: "turns"``); see live_rank.py
-    # for the first-come, no-repeat rule. The order sends itself when the
-    # last spot fills.
+    # for the first-come, no-repeat rule. The last spot stays a draft.
+    # Send our ranking is the only send.
     # ------------------------------------------------------------------
 
     def _group_rank_mode(self, item: dict[str, Any]) -> str:
@@ -20241,12 +20242,12 @@ class SchoolDB(LovesDB):
             )
             row = self._group_response_row(int(item["id"]), int(team_id)) or {}
             race_locked = self._rank_race_on(item) and self._rank_race_locked(row)
-            plain_done = not self._rank_race_on(item) and bool(state.get("complete"))
+            plain_sent = not self._rank_race_on(item) and int(row.get("submit_count") or 0) > 0
             block["can_undo"] = bool(
                 mine_last
                 and str(item.get("status") or "") == "active"
                 and not race_locked
-                and not plain_done
+                and not plain_sent
             )
             block["placed_spot"] = len(placers) if mine_last else 0
             # MCK-155 gate LOW-2: a skipped student reads "Your turn was
@@ -20354,8 +20355,9 @@ class SchoolDB(LovesDB):
 
         Runs under the school lock, so two teammates tapping at once get
         one placement and one :class:`RankTurnConflict` (409). A retry of
-        my own last placement is a safe no-op. The last spot sends the
-        order as the team's answer (same columns as a group rank submit).
+        my own last placement is a safe no-op. Filling the last spot does
+        not send. The team sends with Send our ranking. A check does not
+        send either.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -20405,29 +20407,31 @@ class SchoolDB(LovesDB):
                 and self._rank_race_on(item)
             ):
                 conflict = TurnConflict("done", "Your group's order is already in.")
+            submitted = current is not None and int(current["submit_count"] or 0) > 0
             try:
-                if conflict is None and undo:
-                    if self._rank_race_on(item) and state.get("complete"):
-                        events = list(state.get("events") or [])
-                        if (
-                            not events
-                            or events[-1][1] != "place"
-                            or int(events[-1][0]) != int(student_id)
-                        ):
-                            raise TurnConflict("no_undo", "That spot is locked now.")
-                        events.pop()
-                        order = [str(e[2]) for e in events if e[1] == "place"]
-                        state = {
-                            **state,
-                            "order": order,
-                            "events": events,
-                            "rev": int(state.get("rev") or 0) + 1,
-                            "complete": len(order) == len(allowed),
-                        }
-                        changed = True
-                    else:
-                        state = apply_turn_undo(state, int(student_id))
-                        changed = True
+                if conflict is None and undo and state.get("complete"):
+                    if submitted and not self._rank_race_on(item):
+                        raise TurnConflict("done", "Final once sent.")
+                    events = list(state.get("events") or [])
+                    if (
+                        not events
+                        or events[-1][1] != "place"
+                        or int(events[-1][0]) != int(student_id)
+                    ):
+                        raise TurnConflict("no_undo", "That spot is locked now.")
+                    events.pop()
+                    order = [str(e[2]) for e in events if e[1] == "place"]
+                    state = {
+                        **state,
+                        "order": order,
+                        "events": events,
+                        "rev": int(state.get("rev") or 0) + 1,
+                        "complete": len(order) == len(allowed),
+                    }
+                    changed = True
+                elif conflict is None and undo:
+                    state = apply_turn_undo(state, int(student_id))
+                    changed = True
                 elif conflict is None:
                     state, changed = apply_turn_place(
                         state, int(student_id), str(option_id or ""), allowed, active
@@ -20435,49 +20439,17 @@ class SchoolDB(LovesDB):
             except TurnConflict as exc:
                 conflict = exc
             if conflict is None and changed:
-                if state.get("complete") and not self._rank_race_on(item):
-                    try:
-                        ids = json.loads((current["submitter_ids_json"] if current else None) or "[]")
-                    except (TypeError, json.JSONDecodeError):
-                        ids = []
-                    ids = [int(x) for x in ids if str(x).lstrip("-").isdigit()] if isinstance(ids, list) else []
-                    ids.append(int(student_id))
-                    stored = {"kind": "rank", "order": list(state["order"]), "why": ""}
-                    self.conn.execute(
-                        """
-                        UPDATE live_group_responses
-                        SET status = 'submitted', proposed_answer_json = ?,
-                            final_answer_json = ?,
-                            submit_count = COALESCE(submit_count, 0) + 1,
-                            last_submitter_student_id = ?,
-                            submitter_ids_json = ?, updated_at = ?
-                        WHERE live_item_id = ? AND team_id = ?
-                        """,
-                        (
-                            json.dumps(state),
-                            json.dumps(stored),
-                            int(student_id),
-                            json.dumps(ids),
-                            now,
-                            int(item["id"]),
-                            int(team_id),
-                        ),
-                    )
-                    self._stamp_engagement_members_unlocked(
-                        int(item["id"]),
-                        int(team_id),
-                        self._roster_team_member_ids(session_id, int(team_id)),
-                    )
-                else:
-                    self.conn.execute(
-                        """
-                        UPDATE live_group_responses
-                        SET status = 'drafting', proposed_answer_json = ?,
-                            updated_at = ?
-                        WHERE live_item_id = ? AND team_id = ?
-                        """,
-                        (json.dumps(state), now, int(item["id"]), int(team_id)),
-                    )
+                # MCK-301: the last card stays a draft. Send our ranking
+                # is the only write that sets submit_count.
+                self.conn.execute(
+                    """
+                    UPDATE live_group_responses
+                    SET status = 'drafting', proposed_answer_json = ?,
+                        updated_at = ?
+                    WHERE live_item_id = ? AND team_id = ?
+                    """,
+                    (json.dumps(state), now, int(item["id"]), int(team_id)),
+                )
                 self.conn.commit()
         card = self.student_group_submit_state(item, student_id) or {}
         if conflict is not None:
@@ -22048,41 +22020,42 @@ class SchoolDB(LovesDB):
         choice: Any,
         why: Any,
     ) -> dict[str, Any]:
-        """MCK-155 option B send: the first send locks the team's answer.
+        """Send the group's multiple-choice answer once every pick matches.
 
-        Gate MED-1: the claim is one conditional UPDATE (``submit_count``
-        still 0) that writes the sender's own choice and why. Nothing is
-        re-read from the shared draft, so a teammate's draft or send that
-        lands at the same instant can neither swap the locked text nor get
-        a 200: the loser of the claim gets 409.
+        The why box is not part of this send. The stored choice is the
+        pick every present member already shares. A client choice that
+        differs is refused. The claim is one conditional UPDATE
+        (``submit_count`` still 0). The loser of a simultaneous send
+        gets 409. A check is not involved.
 
         Args:
-            item: Open group-submit lifecycle row (option B).
+            item: Open group-submit lifecycle row.
             student_id: Roster id of the sender.
-            choice: Shared multiple-choice label.
-            why: Shared why line.
+            choice: Ignored. The stored answer is the pick everyone shares.
+            why: Ignored. Group multiple choice does not store a why.
 
         Returns:
             The public group-submit card for this student.
 
         Raises:
-            ValueError: No why, no or unknown choice, or step 1 still open.
+            ValueError: Present members do not all share one pick.
             GroupAnswerLocked: The answer is already locked by another send.
         """
+        del why
         team_id = self._require_group_submit_member(item, student_id)
-        choice_text = str(choice or "").strip()[:500]
-        why_text = str(why or "").strip()[:500]
         row = self._group_response_row(int(item["id"]), team_id) or {}
         if int(row.get("submit_count") or 0) > 0:
-            return self._group_mc_send_lost(item, team_id, student_id, choice_text, why_text)
-        if not why_text:
-            raise ValueError("Add your why to send.")
+            client = str(choice or "").strip()[:500]
+            return self._group_mc_send_lost(item, team_id, student_id, client, "")
+        tally = self._group_mc_match(item, team_id)
+        if not tally["ready"]:
+            raise ValueError(match_reason(int(tally["matched"]), int(tally["total"])))
+        choice_text = str(tally["choice"] or "").strip()[:500]
+        del choice
         labels = self._mc_option_labels(item)
-        if not choice_text:
-            raise ValueError("Add a shared answer and a why before submitting.")
         if labels and choice_text not in labels:
             raise ValueError("Choose one of the options.")
-        self._require_group_mc_pick_step_done(item, team_id, student_id, row)
+        why_text = ""
         ids = self._group_submitter_ids(row)
         ids.append(int(student_id))
         now = _now()
@@ -22112,6 +22085,12 @@ class SchoolDB(LovesDB):
                     team_id,
                 ),
             )
+            if cursor.rowcount == 1:
+                self._stamp_engagement_members_unlocked(
+                    int(item["id"]),
+                    int(team_id),
+                    self._roster_team_member_ids(int(item["live_session_id"]), int(team_id)),
+                )
             self.conn.commit()
         if cursor.rowcount != 1:
             return self._group_mc_send_lost(item, team_id, student_id, choice_text, why_text)
@@ -22130,10 +22109,10 @@ class SchoolDB(LovesDB):
     ) -> dict[str, Any]:
         """Submit the shared MC answer or shared rank order for the team.
 
-        The ready-gate rejects a missing choice or an empty why on multiple
-        choice. Rank is ready when every option is numbered; why stays off.
-        An unchanged double-tap does not append another log line. A changed
-        re-submit overwrites the live answer. No celebration cue is written.
+        Group multiple choice sends only when every present member has the
+        same pick. There is no why. A take-turns rank sends from the pinned
+        button once every card is placed. An unchanged double-tap does not
+        append another log line. No celebration cue is written.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -22209,6 +22188,110 @@ class SchoolDB(LovesDB):
             self.conn.commit()
         return self.student_group_submit_state(item, student_id) or {}
 
+    def _submit_turns_ranking(
+        self,
+        session_id: int,
+        item: dict[str, Any],
+        student_id: int,
+    ) -> dict[str, Any]:
+        """Send one team's take-turns order. Check never calls this.
+
+        The stored order must include every option. The first send is
+        final. A repeat of that same order is a no-op. A different order
+        after the send is refused. ``rank_check_used`` is left as it is.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            item: Open group-submit rank row in take-turns mode.
+            student_id: Roster id of the person pressing Send our ranking.
+
+        Returns:
+            The public group-submit card.
+
+        Raises:
+            ValueError: The order is incomplete, or it was already sent
+                as a different order.
+        """
+        team_id = self._require_group_submit_member(item, student_id)
+        allowed = [opt["id"] for opt in self._rank_option_rows(item)]
+        now = _now()
+        with self._lock:
+            current = self.conn.execute(
+                """
+                SELECT proposed_answer_json, final_answer_json, submit_count,
+                       submitter_ids_json
+                FROM live_group_responses
+                WHERE live_item_id = ? AND team_id = ?
+                """,
+                (int(item["id"]), int(team_id)),
+            ).fetchone()
+            if current is None:
+                raise ValueError("This group is not on the question.")
+            try:
+                proposed = json.loads(current["proposed_answer_json"] or "null")
+            except (TypeError, json.JSONDecodeError):
+                proposed = None
+            state = turns_state(proposed, allowed)
+            order = [str(opt) for opt in (state.get("order") or [])]
+            complete = bool(allowed) and len(order) == len(allowed) and set(order) == set(allowed)
+            if not complete:
+                raise ValueError("Place every card before sending.")
+            try:
+                final = json.loads(current["final_answer_json"] or "null")
+            except (TypeError, json.JSONDecodeError):
+                final = None
+            previous = (
+                [str(opt) for opt in (final.get("order") or [])]
+                if isinstance(final, dict) and final.get("kind") == "rank"
+                else []
+            )
+            if int(current["submit_count"] or 0) > 0:
+                if previous == order:
+                    already = True
+                else:
+                    raise ValueError("Final once sent.")
+            else:
+                already = False
+            if not already:
+                try:
+                    ids = json.loads(current["submitter_ids_json"] or "[]")
+                except (TypeError, json.JSONDecodeError):
+                    ids = []
+                ids = (
+                    [int(x) for x in ids if str(x).lstrip("-").isdigit()]
+                    if isinstance(ids, list)
+                    else []
+                )
+                ids.append(int(student_id))
+                stored = {"kind": "rank", "order": order, "why": ""}
+                self.conn.execute(
+                    """
+                    UPDATE live_group_responses
+                    SET status = 'submitted',
+                        final_answer_json = ?,
+                        submit_count = COALESCE(submit_count, 0) + 1,
+                        last_submitter_student_id = ?,
+                        submitter_ids_json = ?,
+                        updated_at = ?
+                    WHERE live_item_id = ? AND team_id = ?
+                    """,
+                    (
+                        json.dumps(stored),
+                        int(student_id),
+                        json.dumps(ids),
+                        now,
+                        int(item["id"]),
+                        int(team_id),
+                    ),
+                )
+                self._stamp_engagement_members_unlocked(
+                    int(item["id"]),
+                    int(team_id),
+                    self._roster_team_member_ids(session_id, int(team_id)),
+                )
+                self.conn.commit()
+        return self.student_group_submit_state(item, student_id) or {}
+
     def _submit_group_rank_answer(
         self,
         session_id: int,
@@ -22235,6 +22318,10 @@ class SchoolDB(LovesDB):
             # MCK-171: in a Team challenge, Send is this member's "I agree"
             # on the order they see. The order locks when everyone agrees.
             return self._rank_race_agree_item(item, student_id, agree=True, order=order)
+        if self._group_rank_mode(item) == "turns" and not self._rank_race_on(item):
+            # MCK-301: take-turns sends only from this button. The check
+            # and the last card both leave the order unsent.
+            return self._submit_turns_ranking(session_id, item, student_id)
         self._save_group_rank_draft(
             session_id,
             item,
@@ -34783,6 +34870,86 @@ class SchoolDB(LovesDB):
                 inferred_ended_at="",
             )
 
+    @staticmethod
+    def _json_object(raw: Any) -> dict[str, Any]:
+        """Return a dict from JSON text or a dict. Anything else is empty.
+
+        Args:
+            raw: Stored JSON text or an already-parsed object.
+        """
+        if isinstance(raw, dict):
+            return raw
+        try:
+            parsed = json.loads(raw or "null")
+        except (TypeError, ValueError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    def _classify_group_engagement(
+        self, item_json: Any, prompt_payload: Any
+    ) -> tuple[str, dict[str, Any]]:
+        """Return ``rank`` or ``mc`` plus the catalogue dict to store.
+
+        Rank wins when either copy is a rank question. Multiple choice
+        requires an explicit ``mc`` or ``poll`` type. Other group items
+        are not engagement questions.
+
+        Args:
+            item_json: ``live_session_items.item_json``.
+            prompt_payload: Linked prompt payload, if any.
+        """
+        rank_payload = self._group_rank_capture_payload(item_json, prompt_payload)
+        if rank_payload is not None:
+            return "rank", rank_payload
+        for raw in (item_json, prompt_payload):
+            data = self._json_object(raw)
+            nested = data.get("payload") if isinstance(data.get("payload"), dict) else None
+            bodies = [data] if nested is None else [data, nested]
+            for body in bodies:
+                token = str(body.get("type") or body.get("kind") or "").strip().lower()
+                if token in {"mc", "poll"}:
+                    return "mc", body
+        return "", {}
+
+    def _group_engagement_points(
+        self, kind: str, stored: dict[str, Any], response: Any
+    ) -> tuple[int, int]:
+        """Points for one team's send on one group question.
+
+        An unsent team is ``(0, possible)`` so a question another team
+        sent still counts. Ranking possible is 2. Multiple choice is 1.
+
+        Args:
+            kind: ``rank`` or ``mc``.
+            stored: Catalogue dict, including a rank answer order when keyed.
+            response: ``live_group_responses`` row.
+        """
+        submitted = int(response["submit_count"] or 0) > 0
+        if kind == "mc":
+            return (MC_EARNED if submitted else 0, MC_POSSIBLE)
+        if not submitted:
+            return (0, RANK_POSSIBLE)
+        options = safe_rank_options(
+            stored.get("rank_options") or stored.get("options") or stored.get("choices")
+        )
+        key = safe_rank_key(stored.get("rank_key"), options) or []
+        try:
+            final = json.loads(response["final_answer_json"] or "null")
+        except (TypeError, ValueError):
+            final = None
+        order = list(final.get("order") or []) if isinstance(final, dict) else []
+        all_correct = bool(
+            key
+            and len(order) == len(key)
+            and int(rank_race_score(order, key)["right"]) == len(key)
+        )
+        earned = send_earned(
+            keyed=bool(key),
+            all_correct=all_correct,
+            check_used=bool(int(response["rank_check_used"] or 0)),
+        )
+        return earned, RANK_POSSIBLE
+
     def _group_rank_capture_payload(self, item_json: Any, prompt_payload: Any) -> dict[str, Any] | None:
         """Pick the server rank payload to store at End.
 
@@ -34817,14 +34984,15 @@ class SchoolDB(LovesDB):
     def _capture_group_engagement_unlocked(
         self, session_id: int, *, live_run: bool = True
     ) -> None:
-        """At End, write per-student group-rank points before group rows go.
+        """At End, write per-student group points before group rows go.
 
         Real Ends only. A test run returns without writing. Quit and
         close-without-End never call this. Rows are keyed by class and
         run, not by ``live_session_id``.
 
-        A keyed rank sent all correct, with no check, stores 2 on a
-        question whose maximum is 1. Every other completion stores 1.
+        A keyed rank sent all correct, with no check, stores 4 on a
+        question whose maximum is 2. Every other rank completion stores
+        2. A group multiple-choice send stores 1 on a maximum of 1.
         A question counts only when at least one team sent. When nobody
         sent, the question is skipped: no item row and no member rows.
         When at least one team sent, a team that never sent stores 0
@@ -34879,18 +35047,15 @@ class SchoolDB(LovesDB):
         ).fetchall()
         wrote = False
         for item in items:
-            payload = self._group_rank_capture_payload(item["item_json"], item["payload"])
-            if payload is None:
+            kind, payload = self._classify_group_engagement(item["item_json"], item["payload"])
+            if not kind:
                 continue
             placement = str(item["placement_key"] or "").strip() or str(item["id"])
             question_key = f"item:{placement}"
             stored = dict(payload)
             if placement and not stored.get("placement_key"):
                 stored["placement_key"] = placement
-            options = safe_rank_options(
-                stored.get("rank_options") or stored.get("options") or stored.get("choices")
-            )
-            key = safe_rank_key(stored.get("rank_key"), options) or []
+            offered = RANK_POSSIBLE if kind == "rank" else MC_POSSIBLE
             responses = self.conn.execute(
                 """
                 SELECT team_id, submit_count, final_answer_json,
@@ -34921,7 +35086,7 @@ class SchoolDB(LovesDB):
                     module,
                     slot,
                     json.dumps(stored),
-                    str(item["kind"] or "rank"),
+                    kind,
                     now,
                 ),
             )
@@ -34945,35 +35110,16 @@ class SchoolDB(LovesDB):
                     members = member_ids_from_json(response["engagement_member_ids_json"])
                     if not members:
                         members = live_members.get(team_id, [])
-                    try:
-                        final = json.loads(response["final_answer_json"] or "null")
-                    except (TypeError, ValueError):
-                        final = None
-                    order = (
-                        list(final.get("order") or [])
-                        if isinstance(final, dict)
-                        else []
-                    )
-                    all_correct = bool(
-                        key
-                        and len(order) == len(key)
-                        and int(rank_race_score(order, key)["right"]) == len(key)
-                    )
-                    earned = send_earned(
-                        keyed=bool(key),
-                        all_correct=all_correct,
-                        check_used=bool(int(response["rank_check_used"] or 0)),
-                    )
                 else:
                     members = live_members.get(team_id, [])
-                    earned = 0
+                earned, _offered = self._group_engagement_points(kind, stored, response)
                 for student_id in sorted(set(members)):
                     self.conn.execute(
                         """
                         INSERT INTO group_engagement (
                             class_id, run_key, question_key, student_id,
                             earned, possible, source, recorded_at
-                        ) VALUES (?, ?, ?, ?, ?, 1, 'live', ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, 'live', ?)
                         ON CONFLICT(class_id, run_key, question_key, student_id)
                         DO UPDATE SET
                             earned = excluded.earned,
@@ -34981,7 +35127,15 @@ class SchoolDB(LovesDB):
                             source = 'live',
                             recorded_at = excluded.recorded_at
                         """,
-                        (class_id, run_key, question_key, int(student_id), int(earned), now),
+                        (
+                            class_id,
+                            run_key,
+                            question_key,
+                            int(student_id),
+                            int(earned),
+                            int(offered),
+                            now,
+                        ),
                     )
         if not wrote:
             return
@@ -39082,8 +39236,10 @@ class SchoolDB(LovesDB):
     ) -> list[dict[str, Any]]:
         """Group ranks this student has not already earned in the live class.
 
-        A live 1 or 2 is omitted. A catch-up completion stays on the page
-        as answered. The content is the student payload: no answer order.
+        A live 2 or 4 is omitted. Catch-up never offers the 4. A catch-up
+        completion stays on the page as answered. Multiple choice is not
+        a catch-up question. The content is the student payload: no
+        answer order.
 
         Args:
             link: Catch-up row for one run.
@@ -39106,9 +39262,11 @@ class SchoolDB(LovesDB):
             ).fetchall()
         out: list[dict[str, Any]] = []
         for row in rows:
+            if str(row["prompt_kind"] or "") != "rank":
+                continue
             earned = int(row["earned"] or 0) if row["earned"] is not None else 0
             source = str(row["source"] or "")
-            if source == "live" and earned >= 1:
+            if source == "live" and earned >= RANK_POSSIBLE:
                 continue
             try:
                 item = json.loads(row["item_json"] or "{}")
@@ -39120,17 +39278,18 @@ class SchoolDB(LovesDB):
                 "content": self._student_public_item_payload(item, class_id=class_id),
                 "prompt_kind": str(row["prompt_kind"] or "rank"),
                 "group_rank": True,
-                "answered": source == "catchup" and earned >= 1,
+                "answered": source == "catchup" and earned >= RANK_POSSIBLE,
             })
         return out
 
     def _store_group_engagement_catchup(
         self, link: dict[str, Any], student_id: int, question_key: str, answer: Any
     ) -> bool:
-        """Record a solo catch-up rank. Completion is at most 1, never 2.
+        """Record a solo catch-up rank. Completion is 2, never 4.
 
         Any full permutation counts. The answer order is not scored.
-        A live 1 or 2 already stored is left as it is.
+        A live 2 or 4 already stored is left as it is. Multiple choice
+        rows are refused.
 
         Args:
             link: Open catch-up row.
@@ -39141,12 +39300,12 @@ class SchoolDB(LovesDB):
         with self._lock:
             row = self.conn.execute(
                 """
-                SELECT item_json FROM group_engagement_items
+                SELECT item_json, prompt_kind FROM group_engagement_items
                 WHERE class_id = ? AND run_key = ? AND question_key = ?
                 """,
                 (int(link["class_id"]), str(link["run_key"]), str(question_key)),
             ).fetchone()
-        if row is None:
+        if row is None or str(row["prompt_kind"] or "") != "rank":
             return False
         try:
             stored = json.loads(row["item_json"] or "{}")
@@ -39197,19 +39356,19 @@ class SchoolDB(LovesDB):
                 INSERT INTO group_engagement (
                     class_id, run_key, question_key, student_id,
                     earned, possible, source, recorded_at
-                ) VALUES (?, ?, ?, ?, ?, 1, 'catchup', ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, 'catchup', ?)
                 ON CONFLICT(class_id, run_key, question_key, student_id) DO UPDATE SET
                     earned = CASE
-                        WHEN group_engagement.earned >= 1 THEN group_engagement.earned
-                        ELSE 1
+                        WHEN group_engagement.earned >= ? THEN group_engagement.earned
+                        ELSE ?
                     END,
-                    possible = 1,
+                    possible = ?,
                     source = CASE
-                        WHEN group_engagement.earned >= 1 THEN group_engagement.source
+                        WHEN group_engagement.earned >= ? THEN group_engagement.source
                         ELSE 'catchup'
                     END,
                     recorded_at = CASE
-                        WHEN group_engagement.earned >= 1 THEN group_engagement.recorded_at
+                        WHEN group_engagement.earned >= ? THEN group_engagement.recorded_at
                         ELSE excluded.recorded_at
                     END
                 """,
@@ -39219,7 +39378,13 @@ class SchoolDB(LovesDB):
                     str(question_key),
                     int(student_id),
                     int(earned),
+                    RANK_POSSIBLE,
                     now,
+                    RANK_POSSIBLE,
+                    RANK_POSSIBLE,
+                    RANK_POSSIBLE,
+                    RANK_POSSIBLE,
+                    RANK_POSSIBLE,
                 ),
             )
             if self.conn.in_transaction:
