@@ -27,6 +27,7 @@ from participation_real_students import exclude_participation_answer_student_ids
 from team_draw import (  # noqa: E402
     BLANK_DRAWING_ERROR,
     BUILTIN_PROMPTS,
+    DRAWING_TOO_LARGE_ERROR,
     decode_png_payload,
     is_team_draw_item,
     load_inked_png,
@@ -80,6 +81,42 @@ def _png_b64(blob: bytes) -> str:
         blob: PNG bytes.
     """
     return base64.b64encode(blob).decode("ascii")
+
+
+
+def _zero_idat(width: int, height: int) -> bytes:
+    """Zlib stream of a blank RGBA image, compressed a row at a time.
+
+    Args:
+        width: Pixel width.
+        height: Pixel height.
+    """
+    comp = zlib.compressobj(level=9)
+    parts: list[bytes] = []
+    row = bytes(1 + width * 4)
+    for _ in range(height):
+        piece = comp.compress(row)
+        if piece:
+            parts.append(piece)
+    parts.append(comp.flush())
+    return b"".join(parts)
+
+
+def _png_shell(width: int, height: int, idat: bytes) -> bytes:
+    """PNG with the given header wrapped around an existing IDAT.
+
+    Args:
+        width: IHDR width.
+        height: IHDR height.
+        idat: Zlib-wrapped IDAT payload.
+    """
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    return (
+        b'\x89PNG\r\n\x1a\n'
+        + _png_chunk(b"IHDR", ihdr)
+        + _png_chunk(b"IDAT", idat)
+        + _png_chunk(b"IEND", b"")
+    )
 
 
 # Clear pixel plus one pen-coloured pixel: a stroke on an empty canvas.
@@ -572,6 +609,98 @@ if (!boardHasStroke(1, 0) || !boardHasStroke(0, 2)) process.exit(6);
                 view = self.school.team_draw_teacher_view(self.session_id, published)
             self.assertEqual(view["response_count"], 0)
 
+
+    def test_oversized_blank_png_is_rejected_quickly(self) -> None:
+        """A compressed blank canvas over the side cap is a fast 400.
+
+        A 13000 by 13000 zero PNG is a few hundred kilobytes compressed and
+        about two gigabytes once inflated. The header cap refuses it before
+        that inflate. The same bytes are a 400 on catch-up and on both live
+        draw submits, and they are not stored.
+        """
+        import time
+        import tracemalloc
+
+        from catchup_session import establish_catchup_identity
+
+        idat = _zero_idat(13000, 13000)
+        bomb = _png_shell(13000, 13000, idat)
+        self.assertLess(len(bomb), 750_000)
+        tracemalloc.start()
+        started = time.perf_counter()
+        with self.assertRaises(ValueError) as raised:
+            png_has_ink(bomb)
+        elapsed = time.perf_counter() - started
+        _current, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        self.assertEqual(str(raised.exception), DRAWING_TOO_LARGE_ERROR)
+        self.assertLess(elapsed, 0.5)
+        self.assertLess(peak, 8 * 1024 * 1024)
+        # Declared 1x1, but the stream would expand to the bomb. Stop inflate.
+        tracemalloc.start()
+        started = time.perf_counter()
+        with self.assertRaises(ValueError) as raised:
+            png_has_ink(_png_shell(1, 1, idat))
+        elapsed = time.perf_counter() - started
+        _current, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        self.assertEqual(str(raised.exception), DRAWING_TOO_LARGE_ERROR)
+        self.assertLess(elapsed, 0.5)
+        self.assertLess(peak, 8 * 1024 * 1024)
+        self.assertFalse(png_has_ink(_png_shell(4096, 1, _zero_idat(4096, 1))))
+        with self.assertRaises(ValueError) as raised:
+            png_has_ink(_png_shell(4097, 1, idat[:32]))
+        self.assertEqual(str(raised.exception), DRAWING_TOO_LARGE_ERROR)
+
+        image = "data:image/png;base64," + _png_b64(bomb)
+        token, student_id = self._seed_draw_catchup()
+        self.school.set_student_pin(self.class_id, student_id, "2468")
+        client = self.app.test_client()
+        stamp = self.school.catchup_pin_stamp(self.class_id, student_id)
+        with client.session_transaction() as sess:
+            establish_catchup_identity(
+                sess, self.school, self.class_id, student_id, stamp
+            )
+        started = time.perf_counter()
+        rv = client.post(
+            f"/catchup/{token}",
+            data={"question_key": "item:draw1", "answer": image},
+        )
+        self.assertLess(time.perf_counter() - started, 2.0)
+        self.assertEqual(rv.status_code, 400)
+        body = rv.get_json() or {}
+        self.assertEqual(body.get("ok"), False)
+        self.assertEqual(body.get("error"), DRAWING_TOO_LARGE_ERROR)
+        stored = self.school.conn.execute(
+            """
+            SELECT COUNT(*) FROM participation_answers
+            WHERE class_id = ? AND question_key = 'item:draw1' AND student_id = ?
+            """,
+            (self.class_id, student_id),
+        ).fetchone()[0]
+        self.assertEqual(int(stored), 0)
+
+        live = self._student_client(0)
+        for publish_mode in ("individual", "group_submit"):
+            published = self._add_publish_team_draw(publish_mode=publish_mode)
+            started = time.perf_counter()
+            rv = live.post(
+                f"/api/student/live-items/{int(published['id'])}/team-draw",
+                json={"image": image},
+            )
+            self.assertLess(time.perf_counter() - started, 2.0)
+            self.assertEqual(rv.status_code, 400, rv.get_data(as_text=True)[:300])
+            body = rv.get_json() or {}
+            self.assertEqual(body.get("ok"), False)
+            self.assertEqual(body.get("error"), DRAWING_TOO_LARGE_ERROR)
+            if publish_mode == "individual":
+                view = self.school.individual_draw_teacher_view(
+                    self.session_id, published
+                )
+            else:
+                view = self.school.team_draw_teacher_view(self.session_id, published)
+            self.assertEqual(view["response_count"], 0)
+
     def test_submitted_drawing_scores_one_of_one_live_and_catchup(self) -> None:
         """A submitted drawing is 1/1 participation, live and catch-up.
 
@@ -874,6 +1003,17 @@ class DrawingInkTests(unittest.TestCase):
             load_inked_png(_png_b64(_FLAT_PNG))
         self.assertEqual(str(raised.exception), BLANK_DRAWING_ERROR)
         self.assertTrue(load_inked_png(_png_b64(_INKED_PNG)).startswith(b"\x89PNG"))
+
+
+    def test_mck242_shoot_fixture_has_ink(self) -> None:
+        """The mck242 screenshot seeder submits a drawing that has a stroke."""
+        source = (Path(__file__).resolve().parents[1] / "scripts" / "shoot.py").read_text()
+        label = source.find("_MCK242_INKED_PNG_B64")
+        self.assertGreater(label, 0)
+        quote = source.find('"', label)
+        end = source.find('"', quote + 1)
+        blob = base64.b64decode(source[quote + 1 : end])
+        self.assertTrue(png_has_ink(blob))
 
 
 if __name__ == "__main__":

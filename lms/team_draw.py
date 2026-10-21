@@ -16,6 +16,12 @@ TEAM_DRAW_KIND = "team_draw"
 TEAM_DRAW_RESPONSE_MODE = "team_draw"
 MAX_TITLE_LEN = 80
 MAX_IMAGE_BYTES = 750_000
+# Whiteboard cards are about 720×360. Refuse a larger canvas before inflate.
+MAX_PNG_SIDE = 4096
+MAX_PNG_PIXELS = 4096 * 4096
+# Largest in-cap RGBA image: one filter byte per row plus four bytes a pixel.
+MAX_DECOMPRESSED_BYTES = MAX_PNG_PIXELS * 4 + MAX_PNG_SIDE
+DRAWING_TOO_LARGE_ERROR = "Image is too large."
 BLANK_DRAWING_ERROR = "Draw on the board before submitting."
 
 BUILTIN_PROMPTS: tuple[dict[str, str], ...] = (
@@ -137,7 +143,7 @@ def decode_png_payload(image_b64: str | None) -> bytes:
     except (TypeError, ValueError) as exc:
         raise ValueError("Invalid image data.") from exc
     if len(blob) > MAX_IMAGE_BYTES:
-        raise ValueError("Image is too large.")
+        raise ValueError(DRAWING_TOO_LARGE_ERROR)
     if not blob.startswith(b"\x89PNG\r\n\x1a\n"):
         raise ValueError("Only PNG drawings are supported.")
     return blob
@@ -187,54 +193,6 @@ def _paeth(left: int, up: int, up_left: int) -> int:
     return up_left
 
 
-def _unfilter_png_rows(raw: bytes, height: int, stride: int, bpp: int) -> bytes:
-    """Undo PNG row filters.
-
-    Args:
-        raw: Decompressed IDAT bytes, one filter byte plus ``stride`` per row.
-        height: Pixel height from IHDR.
-        stride: Row width in bytes, without the filter byte.
-        bpp: Bytes per pixel, at least 1.
-
-    Returns:
-        Unfiltered image bytes, ``height * stride`` long.
-
-    Raises:
-        ValueError: The filtered stream is short or uses an unknown filter.
-    """
-    need = height * (stride + 1)
-    if height <= 0 or stride <= 0 or len(raw) < need:
-        raise ValueError("Invalid image data.")
-    out = bytearray(height * stride)
-    prior = bytearray(stride)
-    src = 0
-    for y in range(height):
-        kind = raw[src]
-        row = raw[src + 1 : src + 1 + stride]
-        src += stride + 1
-        recon = bytearray(stride)
-        for index, value in enumerate(row):
-            left = recon[index - bpp] if index >= bpp else 0
-            above = prior[index]
-            above_left = prior[index - bpp] if index >= bpp else 0
-            if kind == 0:
-                recon[index] = value
-            elif kind == 1:
-                recon[index] = (value + left) & 255
-            elif kind == 2:
-                recon[index] = (value + above) & 255
-            elif kind == 3:
-                recon[index] = (value + ((left + above) // 2)) & 255
-            elif kind == 4:
-                recon[index] = (value + _paeth(left, above, above_left)) & 255
-            else:
-                raise ValueError("Invalid image data.")
-        start = y * stride
-        out[start : start + stride] = recon
-        prior = recon
-    return bytes(out)
-
-
 def _remember_pixel(
     seen: set[tuple[int, int, int, int] | None],
     red: int,
@@ -261,8 +219,227 @@ def _remember_pixel(
     return len(seen) >= 2
 
 
+def _reject_oversized_png(width: int, height: int) -> None:
+    """Refuse a canvas that would expand far past a whiteboard.
+
+    Non-positive sizes are left for the caller. A side over
+    ``MAX_PNG_SIDE`` or a pixel count over ``MAX_PNG_PIXELS`` raises
+    before any inflate.
+
+    Args:
+        width: IHDR width.
+        height: IHDR height.
+
+    Raises:
+        ValueError: ``DRAWING_TOO_LARGE_ERROR`` when the canvas is over the cap.
+    """
+    if width <= 0 or height <= 0:
+        return
+    if width > MAX_PNG_SIDE or height > MAX_PNG_SIDE or width * height > MAX_PNG_PIXELS:
+        raise ValueError(DRAWING_TOO_LARGE_ERROR)
+
+
+def _reconstruct_row(kind: int, row: bytes, prior: bytes, bpp: int) -> bytearray:
+    """Undo one PNG filter and return the reconstructed row.
+
+    Args:
+        kind: Filter type 0–4.
+        row: Filtered row bytes, without the filter byte.
+        prior: Previous reconstructed row. Empty bytes stand in for the first row.
+        bpp: Bytes per pixel.
+
+    Raises:
+        ValueError: ``kind`` is not a PNG filter.
+    """
+    recon = bytearray(len(row))
+    for index, value in enumerate(row):
+        left = recon[index - bpp] if index >= bpp else 0
+        above = prior[index] if prior else 0
+        above_left = prior[index - bpp] if prior and index >= bpp else 0
+        if kind == 0:
+            recon[index] = value
+        elif kind == 1:
+            recon[index] = (value + left) & 255
+        elif kind == 2:
+            recon[index] = (value + above) & 255
+        elif kind == 3:
+            recon[index] = (value + ((left + above) // 2)) & 255
+        elif kind == 4:
+            recon[index] = (value + _paeth(left, above, above_left)) & 255
+        else:
+            raise ValueError("Invalid image data.")
+    return recon
+
+
+def _iter_unfiltered_rows(idat: bytes, height: int, stride: int, bpp: int):
+    """Yield each unfiltered row, inflating at most the declared image.
+
+    The caller can stop iterating to stop decompression. Output past
+    ``height * (stride + 1)`` bytes raises ``DRAWING_TOO_LARGE_ERROR``.
+    A short or corrupt stream raises ``ValueError``.
+
+    Args:
+        idat: Concatenated IDAT bytes (zlib wrapper).
+        height: Declared pixel height.
+        stride: Unfiltered bytes per row.
+        bpp: Bytes per pixel.
+    """
+    if height <= 0 or stride <= 0 or bpp <= 0:
+        raise ValueError("Invalid image data.")
+    row_in = stride + 1
+    limit = height * row_in
+    if limit > MAX_DECOMPRESSED_BYTES:
+        raise ValueError(DRAWING_TOO_LARGE_ERROR)
+    decomp = zlib.decompressobj()
+    pending = bytearray()
+    produced = 0
+    prior = b""
+    src = memoryview(idat)
+    pos = 0
+
+    def pull() -> None:
+        """Fill ``pending`` until one filtered row is buffered, or the stream ends."""
+        nonlocal pos, produced
+        while len(pending) < row_in:
+            room = min(row_in - len(pending), limit - produced)
+            if room <= 0:
+                return
+            if decomp.unconsumed_tail:
+                data = decomp.unconsumed_tail
+            elif pos < len(src):
+                take = min(65536, len(src) - pos)
+                data = bytes(src[pos : pos + take])
+                pos += take
+            else:
+                try:
+                    piece = b"" if decomp.eof else decomp.flush()
+                except zlib.error as exc:
+                    raise ValueError("Invalid image data.") from exc
+                if not piece:
+                    return
+                if produced + len(piece) > limit:
+                    raise ValueError(DRAWING_TOO_LARGE_ERROR)
+                produced += len(piece)
+                pending.extend(piece)
+                continue
+            try:
+                piece = decomp.decompress(data, room)
+            except zlib.error as exc:
+                raise ValueError("Invalid image data.") from exc
+            if not piece:
+                if decomp.unconsumed_tail or pos < len(src):
+                    if decomp.unconsumed_tail:
+                        raise ValueError("Invalid image data.")
+                    continue
+                try:
+                    piece = b"" if decomp.eof else decomp.flush()
+                except zlib.error as exc:
+                    raise ValueError("Invalid image data.") from exc
+                if not piece:
+                    return
+            if produced + len(piece) > limit:
+                raise ValueError(DRAWING_TOO_LARGE_ERROR)
+            produced += len(piece)
+            pending.extend(piece)
+
+    for _ in range(height):
+        pull()
+        if len(pending) < row_in:
+            raise ValueError("Invalid image data.")
+        kind = pending[0]
+        row = bytes(pending[1:row_in])
+        del pending[:row_in]
+        recon = _reconstruct_row(kind, row, prior, bpp)
+        prior = bytes(recon)
+        yield recon
+    if pending:
+        raise ValueError(DRAWING_TOO_LARGE_ERROR)
+    try:
+        extra = b""
+        if decomp.unconsumed_tail:
+            extra = decomp.decompress(decomp.unconsumed_tail, 1)
+        elif pos < len(src):
+            extra = decomp.decompress(bytes(src[pos:]), 1)
+        flushed = b"" if decomp.eof or extra else decomp.flush()
+    except zlib.error as exc:
+        raise ValueError("Invalid image data.") from exc
+    if extra or flushed:
+        raise ValueError(DRAWING_TOO_LARGE_ERROR)
+
+
+def _scan_row(
+    seen: set[tuple[int, int, int, int] | None],
+    recon: bytes,
+    color_type: int,
+    trns: bytes,
+    colours: list[tuple[int, int, int]],
+    alphas: list[int],
+) -> bool:
+    """Return True when this row introduces a second colour.
+
+    Args:
+        seen: Colours already found. Updated in place.
+        recon: Unfiltered row bytes.
+        color_type: PNG colour type 0, 2, 3, 4, or 6.
+        trns: Raw tRNS chunk, possibly empty.
+        colours: Palette RGB tuples. Used for colour type 3.
+        alphas: Palette alpha bytes. Used for colour type 3.
+
+    Raises:
+        ValueError: The row does not match the colour type.
+    """
+    if color_type == 6:
+        if len(recon) % 4:
+            raise ValueError("Invalid image data.")
+        for index in range(0, len(recon), 4):
+            if _remember_pixel(
+                seen, recon[index], recon[index + 1], recon[index + 2], recon[index + 3]
+            ):
+                return True
+        return False
+    if color_type == 2:
+        if len(recon) % 3:
+            raise ValueError("Invalid image data.")
+        transparent = None
+        if len(trns) >= 6:
+            transparent = (trns[1], trns[3], trns[5])
+        for index in range(0, len(recon), 3):
+            pixel = (recon[index], recon[index + 1], recon[index + 2])
+            alpha = 0 if transparent is not None and pixel == transparent else 255
+            if _remember_pixel(seen, pixel[0], pixel[1], pixel[2], alpha):
+                return True
+        return False
+    if color_type == 0:
+        transparent_gray = trns[1] if len(trns) >= 2 else None
+        for gray in recon:
+            alpha = 0 if transparent_gray is not None and gray == transparent_gray else 255
+            if _remember_pixel(seen, gray, gray, gray, alpha):
+                return True
+        return False
+    if color_type == 4:
+        if len(recon) % 2:
+            raise ValueError("Invalid image data.")
+        for index in range(0, len(recon), 2):
+            gray, alpha = recon[index], recon[index + 1]
+            if _remember_pixel(seen, gray, gray, gray, alpha):
+                return True
+        return False
+    for index in recon:
+        if index >= len(colours):
+            raise ValueError("Invalid image data.")
+        red, green, blue = colours[index]
+        if _remember_pixel(seen, red, green, blue, alphas[index]):
+            return True
+    return False
+
+
 def png_has_ink(blob: bytes) -> bool:
     """True when the PNG shows more than a blank canvas.
+
+    Width and height are read from the header and refused before inflate
+    when a side is over ``MAX_PNG_SIDE`` or the pixel count is over
+    ``MAX_PNG_PIXELS``. Inflation stops at the declared size, and the scan
+    stops at the first pixel of a second colour.
 
     Fully transparent pixels count as one background, even when their
     colour channels differ. A flat fill is a single colour. Either case
@@ -272,7 +449,8 @@ def png_has_ink(blob: bytes) -> bool:
         blob: Raw PNG bytes.
 
     Raises:
-        ValueError: The PNG cannot be read.
+        ValueError: The PNG cannot be read, or it is over the canvas cap
+            (``DRAWING_TOO_LARGE_ERROR``).
     """
     width = height = bit_depth = color_type = interlace = None
     palette = b""
@@ -287,17 +465,20 @@ def png_has_ink(blob: bytes) -> bool:
                 height,
                 bit_depth,
                 color_type,
-                compression,
-                png_filter,
+                _compression,
+                _png_filter,
                 interlace,
             ) = struct.unpack(">IIBBBBB", data[:13])
-            if compression != 0 or png_filter != 0:
+            if _compression != 0 or _png_filter != 0:
                 raise ValueError("Invalid image data.")
+            _reject_oversized_png(int(width), int(height))
         elif kind == b"PLTE":
             palette = data
         elif kind == b"tRNS":
             trns = data
         elif kind == b"IDAT":
+            if width is None:
+                raise ValueError("Invalid image data.")
             idat.extend(data)
     if width is None or bit_depth != 8 or interlace not in (0, None):
         raise ValueError("Invalid image data.")
@@ -306,68 +487,27 @@ def png_has_ink(blob: bytes) -> bool:
     channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}.get(int(color_type))
     if channels is None:
         raise ValueError("Invalid image data.")
-    try:
-        raw = zlib.decompress(bytes(idat))
-    except zlib.error as exc:
-        raise ValueError("Invalid image data.") from exc
-    rows = _unfilter_png_rows(raw, int(height), int(width) * channels, channels)
+    colours: list[tuple[int, int, int]] = []
+    alphas: list[int] = []
+    if int(color_type) == 3:
+        if len(palette) < 3 or len(palette) % 3:
+            raise ValueError("Invalid image data.")
+        colours = [
+            (palette[index], palette[index + 1], palette[index + 2])
+            for index in range(0, len(palette), 3)
+        ]
+        alphas = [255] * len(colours)
+        for index, alpha in enumerate(trns[: len(colours)]):
+            alphas[index] = alpha
     seen: set[tuple[int, int, int, int] | None] = set()
-    if color_type == 6:
-        if len(rows) % 4:
-            raise ValueError("Invalid image data.")
-        for index in range(0, len(rows), 4):
-            if _remember_pixel(
-                seen, rows[index], rows[index + 1], rows[index + 2], rows[index + 3]
-            ):
-                return True
-        return False
-    if color_type == 2:
-        if len(rows) % 3:
-            raise ValueError("Invalid image data.")
-        transparent = None
-        if len(trns) >= 6:
-            transparent = (trns[1], trns[3], trns[5])
-        for index in range(0, len(rows), 3):
-            pixel = (rows[index], rows[index + 1], rows[index + 2])
-            alpha = 0 if transparent is not None and pixel == transparent else 255
-            if _remember_pixel(seen, pixel[0], pixel[1], pixel[2], alpha):
-                return True
-        return False
-    if color_type == 0:
-        transparent_gray = trns[1] if len(trns) >= 2 else None
-        for gray in rows:
-            alpha = 0 if transparent_gray is not None and gray == transparent_gray else 255
-            if _remember_pixel(seen, gray, gray, gray, alpha):
-                return True
-        return False
-    if color_type == 4:
-        if len(rows) % 2:
-            raise ValueError("Invalid image data.")
-        for index in range(0, len(rows), 2):
-            gray, alpha = rows[index], rows[index + 1]
-            if _remember_pixel(seen, gray, gray, gray, alpha):
-                return True
-        return False
-    if len(palette) < 3 or len(palette) % 3:
-        raise ValueError("Invalid image data.")
-    colours = [
-        (palette[index], palette[index + 1], palette[index + 2])
-        for index in range(0, len(palette), 3)
-    ]
-    alphas = [255] * len(colours)
-    for index, alpha in enumerate(trns[: len(colours)]):
-        alphas[index] = alpha
-    for index in rows:
-        if index >= len(colours):
-            raise ValueError("Invalid image data.")
-        red, green, blue = colours[index]
-        if _remember_pixel(seen, red, green, blue, alphas[index]):
+    for recon in _iter_unfiltered_rows(bytes(idat), int(height), int(width) * channels, channels):
+        if _scan_row(seen, recon, int(color_type), trns, colours, alphas):
             return True
     return False
 
 
 def load_inked_png(image_b64: str | None) -> bytes:
-    """Decode a PNG drawing and refuse a canvas with no ink.
+    """Decode a PNG drawing and refuse a blank or oversized canvas.
 
     Args:
         image_b64: Data URL or raw base64 PNG.
@@ -376,13 +516,17 @@ def load_inked_png(image_b64: str | None) -> bytes:
         Raw PNG bytes that contain ink.
 
     Raises:
-        ValueError: The image is missing, not a PNG, unreadable, or blank.
-            A blank canvas raises ``BLANK_DRAWING_ERROR``.
+        ValueError: The image is missing, not a PNG, unreadable, blank,
+            or larger than the canvas cap. A blank canvas raises
+            ``BLANK_DRAWING_ERROR``. An oversized canvas raises
+            ``DRAWING_TOO_LARGE_ERROR``.
     """
     blob = decode_png_payload(image_b64)
     try:
         inked = png_has_ink(blob)
     except ValueError as exc:
+        if str(exc) == DRAWING_TOO_LARGE_ERROR:
+            raise
         raise ValueError("Invalid image data.") from exc
     if not inked:
         raise ValueError(BLANK_DRAWING_ERROR)

@@ -1980,8 +1980,10 @@ def _mck216_wait_ready_to_lock(page) -> None:
         raise SystemExit("race-phone-pips visible; MCK-216 shots expect no agree pips.")
 
 
-_MCK242_TINY_PNG_B64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+# 2×1 RGBA with a clear pixel and one pen-coloured pixel. A 1×1 PNG is a
+# single colour, which the ink check rejects.
+_MCK242_INKED_PNG_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAD0lEQVR4nGNgAAIhBb3/AAIMAWAoJxdbAAAAAElFTkSuQmCC"
 )
 
 
@@ -2064,7 +2066,7 @@ def prepare_mck242_live(path: Path, origin: str) -> dict[str, int | str]:
         live_item_id,
         cedar_id,
         title="Forest Friends",
-        image_b64=_MCK242_TINY_PNG_B64,
+        image_b64=_MCK242_INKED_PNG_B64,
     )
     rows = school.list_live_session_attendees(session_id)
     visit = str(next(r["visit_token"] for r in rows if r.get("codename") == "Maple"))
