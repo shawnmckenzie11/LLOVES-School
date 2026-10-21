@@ -264,9 +264,12 @@ class TeamScopedStampTests(TurnsHarness):
         mate_rev = self.school._team_group_response_rev(self.session_id, self.ids[teammate])
         out_rev = self.school._team_group_response_rev(self.session_id, self.ids[outsider])
         wide_before_pick = self.school.live_student_poll_stamp(self.session_id, self.class_id)
-        mate_seq, mate_stamp, mate_direct = self._snapshot(teammate)
+        # The phone that must stay unchanged is snapshotted last. An earlier
+        # full poll can still be writing the first group rows, and that
+        # phone would then be holding a stamp from before those rows.
         same_seq, same_stamp, same_direct = self._snapshot(same_team)
         out_seq, out_stamp, out_direct = self._snapshot(outsider)
+        mate_seq, mate_stamp, mate_direct = self._snapshot(teammate)
         rv = self._post(outsider, mc, "group-pick", {"choice": "Graph"})
         self.assertEqual(rv.status_code, 200)
         # The team row and the vote revision both stay on the picker's team.
