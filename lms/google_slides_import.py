@@ -80,20 +80,74 @@ def _hop_timeout(timeout: float, deadline: float | None) -> float:
     return budget
 
 
-def read_capped_response(response: Any, limit: int) -> bytes:
-    """Read a response body, stopping once ``limit`` bytes are exceeded.
+def _request_timeout(
+    timeout: float, deadline: float | None
+) -> tuple[float, float]:
+    """Connect and socket-read timeouts inside the import deadline.
 
-    Streamed responses use ``iter_content``. A response without that
-    method is read from ``content`` and still refused when it is too big.
+    ``requests`` applies the read value to each socket recv, not to the
+    whole download. It is the time still left, so one blocked read cannot
+    run past the deadline. Callers also check the deadline between chunks.
+
+    Args:
+        timeout: Caller's per-hop cap.
+        deadline: ``time.monotonic`` cutoff, or None.
+
+    Returns:
+        ``(connect_seconds, read_seconds)``.
+
+    Raises:
+        ValueError: No time remains.
+    """
+    budget = _hop_timeout(timeout, deadline)
+    return (min(10.0, budget), budget)
+
+
+def _close_response(response: Any) -> None:
+    """Close a streamed response when it has a close method.
+
+    Args:
+        response: ``requests`` response or a test double.
+    """
+    closer = getattr(response, "close", None)
+    if callable(closer):
+        closer()
+
+
+def read_capped_response(
+    response: Any, limit: int, *, deadline: float | None = None
+) -> bytes:
+    """Read a response body up to ``limit`` bytes and the import deadline.
+
+    Streamed responses use ``iter_content``. The deadline is checked
+    before every chunk, so a slow drip cannot outlive the import. A
+    response without ``iter_content`` is read from ``content``.
 
     Args:
         response: ``requests`` response or a test double.
         limit: Maximum accepted size in bytes.
+        deadline: ``time.monotonic`` cutoff, or None.
 
     Raises:
-        ValueError: The body is larger than ``limit``.
+        ValueError: The body is larger than ``limit``, or the deadline
+            passed before the body finished.
     """
     cap = int(limit)
+
+    def _stop(message: str) -> None:
+        """Close the stream and refuse the deck.
+
+        Args:
+            message: Student-safe error text.
+        """
+        _close_response(response)
+        raise ValueError(message)
+
+    def _check_time() -> None:
+        """Refuse when the import deadline has passed."""
+        if deadline is not None and time.monotonic() >= float(deadline):
+            _stop("That deck took too long to attach.")
+
     iterator = getattr(response, "iter_content", None)
     if callable(iterator):
         try:
@@ -103,21 +157,22 @@ def read_capped_response(response: Any, limit: int) -> bytes:
         if stream is not None:
             chunks: list[bytes] = []
             total = 0
-            try:
-                for chunk in stream:
-                    if not chunk:
-                        continue
-                    block = bytes(chunk)
-                    total += len(block)
-                    if total > cap:
-                        closer = getattr(response, "close", None)
-                        if callable(closer):
-                            closer()
-                        raise ValueError("That deck is too large to attach.")
-                    chunks.append(block)
-            except ValueError:
-                raise
+            pending = iter(stream)
+            while True:
+                _check_time()
+                try:
+                    chunk = next(pending)
+                except StopIteration:
+                    break
+                if not chunk:
+                    continue
+                block = bytes(chunk)
+                total += len(block)
+                if total > cap:
+                    _stop("That deck is too large to attach.")
+                chunks.append(block)
             return b"".join(chunks)
+    _check_time()
     data = getattr(response, "content", b"") or b""
     if not isinstance(data, (bytes, bytearray)):
         data = bytes(data)
@@ -197,7 +252,7 @@ def limited_google_get(
             current,
             headers=headers,
             params=hop_params,
-            timeout=_hop_timeout(timeout, deadline),
+            timeout=_request_timeout(timeout, deadline),
             allow_redirects=False,
             stream=True,
         )
@@ -214,7 +269,7 @@ def limited_google_get(
                     raise SlidesShareNotPublic()
                 current = nxt
                 continue
-            body = read_capped_response(response, int(limit))
+            body = read_capped_response(response, int(limit), deadline=deadline)
             return _LimitedResponse(status, body)
         finally:
             closer = getattr(response, "close", None)
@@ -360,7 +415,7 @@ def fetch_public_pdf(
         response = client.get(
             url,
             headers=headers,
-            timeout=_hop_timeout(timeout, deadline),
+            timeout=_request_timeout(timeout, deadline),
             allow_redirects=False,
             stream=True,
         )
@@ -378,7 +433,7 @@ def fetch_public_pdf(
                 continue
             if status != 200:
                 raise SlidesShareNotPublic()
-            data = read_capped_response(response, _MAX_PDF_BYTES)
+            data = read_capped_response(response, _MAX_PDF_BYTES, deadline=deadline)
         finally:
             closer = getattr(response, "close", None)
             if callable(closer):

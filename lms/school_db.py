@@ -7552,8 +7552,9 @@ class LovesDB:
         """Store one PNG per slide and an unpublished deck on the session.
 
         Images go through ``store_live_question_image``, the same class
-        file store as other live deck pictures. The lesson-slides
-        ``slides_json`` snapshot is left alone.
+        file store as other live deck pictures. Page files from the deck
+        this import replaces are removed when nothing else still names
+        them. The lesson-slides ``slides_json`` snapshot is left alone.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -7608,6 +7609,19 @@ class LovesDB:
             "pages": pages,
         }
         self._write_google_slides(int(session_id), deck)
+        kept = {
+            name
+            for name in (
+                self._google_slide_image_name(
+                    str(page.get("image_url") or "").rsplit("/", 1)[-1]
+                )
+                for page in pages
+            )
+            if name
+        }
+        self._delete_replaced_google_slide_images(
+            int(session_id), class_id, previous, kept
+        )
         saved = self.google_slides_deck(int(session_id))
         if saved is None:
             raise ValueError("That deck has no slides.")
@@ -14654,6 +14668,48 @@ class SchoolDB(LovesDB):
         if seen:
             return "closed"
         return "absent"
+
+    def _delete_replaced_google_slide_images(
+        self,
+        session_id: int,
+        class_id: int,
+        previous: Any,
+        kept: set[str],
+    ) -> None:
+        """Delete page files from the deck a re-import replaced.
+
+        A name kept by the new deck, another session, or a playlist item
+        stays on disk. Question images are not part of the previous deck,
+        so they are left alone.
+
+        Args:
+            session_id: ``live_class_sessions.id`` that was replaced.
+            class_id: Game-show ``classes.id``.
+            previous: Prior teacher deck, or None on the first import.
+            kept: Content-addressed filenames stored for the new deck.
+        """
+        if not isinstance(previous, dict):
+            return
+        names: list[str] = []
+        for page in previous.get("pages") or []:
+            if not isinstance(page, dict):
+                continue
+            name = self._google_slide_image_name(
+                str(page.get("image_url") or "").rsplit("/", 1)[-1]
+            )
+            if name and name not in kept and name not in names:
+                names.append(name)
+        for name in names:
+            if self._google_slide_image_still_used(class_id, int(session_id), name):
+                continue
+            path = (
+                Path(self.data_dir)
+                / "live-question-images"
+                / str(int(class_id))
+                / name
+            )
+            if path.is_file():
+                path.unlink()
 
     def delete_google_slide_page_images(self, session_id: int) -> None:
         """Remove this session's slide page files when nothing else names them.

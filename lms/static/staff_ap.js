@@ -3397,6 +3397,51 @@ async function showGoogleSlideIndex(index) {
  * @param {Event} event
  * @returns {Promise<void>}
  */
+/**
+ * Read-only Slides consent URL from an attach error, or "".
+ * Only the incremental presentations.readonly route is accepted.
+ * @param {unknown} err
+ * @returns {string}
+ */
+function slidesReadConnectUrl(err) {
+  if (!err || typeof err !== "object") return "";
+  const raw = "connectUrl" in err ? String(err.connectUrl || "") : "";
+  if (!raw.startsWith("/auth/google/slides-read")) return "";
+  if (raw.startsWith("/auth/google/slides-read/callback")) return "";
+  if (raw.includes("://") || raw.includes("\\")) return "";
+  return raw;
+}
+
+/**
+ * Show an attach failure. A private deck links Connect Google Slides
+ * at the read-only consent route. The server sentence stays text.
+ * @param {HTMLElement} errorEl
+ * @param {unknown} err
+ */
+function paintSlidesAttachError(errorEl, err) {
+  const message = err instanceof Error ? err.message : "Could not attach that deck.";
+  const connectUrl = slidesReadConnectUrl(err);
+  errorEl.replaceChildren();
+  if (!connectUrl) {
+    errorEl.textContent = message;
+    return;
+  }
+  const label = "Connect Google Slides";
+  const at = message.indexOf(label);
+  const link = document.createElement("a");
+  link.href = connectUrl;
+  link.textContent = label;
+  if (at < 0) {
+    if (message) errorEl.append(document.createTextNode(`${message} `));
+    errorEl.append(link);
+    return;
+  }
+  if (at > 0) errorEl.append(document.createTextNode(message.slice(0, at)));
+  errorEl.append(link);
+  const rest = message.slice(at + label.length);
+  if (rest) errorEl.append(document.createTextNode(rest));
+}
+
 async function attachGoogleSlides(event) {
   event.preventDefault();
   const input = $("live-google-slides-url");
@@ -3434,7 +3479,7 @@ async function attachGoogleSlides(event) {
   } catch (err) {
     if (error) {
       error.hidden = false;
-      error.textContent = err instanceof Error ? err.message : "Could not attach that deck.";
+      paintSlidesAttachError(error, err);
     }
   } finally {
     if (button instanceof HTMLButtonElement) button.disabled = false;

@@ -103,6 +103,26 @@ VERIFY_MAX_GUESSES = 5
 VERIFY_CODE_TTL_SEC = 10 * 60
 
 
+def _log_slides_oauth_failure(exc: BaseException, *, kind: str) -> None:
+    """Log a Slides token exchange failure without codes or tokens.
+
+    The exception text can echo the authorization code or a refresh
+    token, so the log keeps the exception type and HTTP status only.
+
+    Args:
+        exc: ``requests`` failure from the token endpoint.
+        kind: ``read`` for the live-class grant, ``deck`` for lesson decks.
+    """
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    current_app.logger.error(
+        "Google Slides %s token exchange failed (%s status=%s)",
+        kind,
+        type(exc).__name__,
+        status,
+    )
+
+
 def _env_flag(name: str) -> bool:
     """True when an env var is a common truthy string."""
     return (os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
@@ -1860,10 +1880,10 @@ def register_auth_routes(app: Flask) -> None:
             )
             return redirect(_with_query(next_url, slides="connected"))
         except requests.RequestException as exc:
-            app.logger.exception("Google Slides token exchange failed")
+            _log_slides_oauth_failure(exc, kind="deck")
             return render_template(
                 "forbidden.html",
-                message=f"Google Slides connect failed: {exc}",
+                message="Google Slides connect failed. Try again.",
             ), 401
 
 
@@ -1984,10 +2004,10 @@ def register_auth_routes(app: Flask) -> None:
             )
             return redirect(_with_query(next_url, slides_read="connected"))
         except requests.RequestException as exc:
-            app.logger.exception("Google Slides read token exchange failed")
+            _log_slides_oauth_failure(exc, kind="read")
             return render_template(
                 "forbidden.html",
-                message=f"Google Slides connect failed: {exc}",
+                message="Google Slides connect failed. Try again.",
             ), 401
 
     @app.route("/api/auth/slides-status")
@@ -2411,6 +2431,9 @@ def register_auth_routes(app: Flask) -> None:
             "codename": join_name,
             "first_name": join_name,
         }
+        from catchup_session import clear_catchup_browser_session
+
+        clear_catchup_browser_session(session)
         bind_student_session(
             session,
             offering,

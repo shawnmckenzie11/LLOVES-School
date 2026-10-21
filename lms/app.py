@@ -5916,9 +5916,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
 
         Google Slides page files use this store too. Those files are
         returned only while an active session is sharing that page.
-        Unpublished or closed pages, and catch-up, get 404. The class
-        owner can still preview an unpublished page. Other question
-        images keep the existing class-access rule.
+        A student joined to that live session is served from the live
+        session, including when the same browser also holds catch-up.
+        Catch-up alone, and unpublished or closed pages, get 404. The
+        class owner can still preview an unpublished page. Other
+        question images keep the existing class-access rule.
         """
         if not _can_access_class_live_asset(class_id):
             abort(403)
@@ -5929,7 +5931,16 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 int(user["id"]), int(class_id)
             )
             if not owner:
-                if _catchup_student_for_class(school, int(class_id)) is not None:
+                ctx = _student_live_context()
+                joined_live = (
+                    isinstance(ctx, dict)
+                    and int(ctx.get("class_id") or 0) == int(class_id)
+                    and int(ctx.get("live_session_id") or 0) > 0
+                )
+                if (
+                    not joined_live
+                    and _catchup_student_for_class(school, int(class_id)) is not None
+                ):
                     abort(404)
                 if visibility != "published":
                     abort(404)
@@ -8534,7 +8545,19 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 user=current_user(),
             )
         except SlidesShareNotPublic as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 403
+            class_id = int(_row["class_id"])
+            connect_url = url_for(
+                "auth_google_slides_read",
+                next=url_for("staff_course", class_id=class_id, tab="live"),
+            )
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": str(exc),
+                    "needs_slides_read": True,
+                    "connect_url": connect_url,
+                }
+            ), 403
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         except Exception:

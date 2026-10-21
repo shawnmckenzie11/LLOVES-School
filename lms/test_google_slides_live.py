@@ -10,6 +10,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+from urllib.parse import parse_qs, unquote, urlparse
+
+import requests
 
 LMS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = LMS_DIR.parent
@@ -419,6 +422,220 @@ class GoogleSlidesLiveTests(unittest.TestCase):
         self.assertTrue(question.get_data().startswith(b"\x89PNG"))
         self.assertNotEqual(stored["image_url"], image_url)
 
+    def test_private_deck_prompt_saves_the_readonly_token(self) -> None:
+        """A refused deck links the read-only consent route and stores that token."""
+        with mock.patch(
+            "google_slides_import.import_shared_deck",
+            side_effect=SlidesShareNotPublic(),
+        ):
+            response = self.staff.post(
+                f"/api/live-sessions/{self.live_session_id}/google-slides",
+                json={
+                    "url": (
+                        "https://docs.google.com/presentation/d/"
+                        f"{_FILE_ID}/edit"
+                    )
+                },
+            )
+        self.assertEqual(response.status_code, 403)
+        body = response.get_json()
+        connect = str(body["connect_url"])
+        parsed = urlparse(connect)
+        self.assertEqual(parsed.path, "/auth/google/slides-read")
+        self.assertNotEqual(parsed.path, "/auth/google/slides")
+        self.assertNotIn("drive", connect)
+        self.assertTrue(body["needs_slides_read"])
+        nxt = unquote(parse_qs(parsed.query)["next"][0])
+        self.assertIn(f"/staff/class/{self.class_id}", nxt)
+        self.assertIn("tab=live", nxt)
+        page = self.staff.get(f"/staff/class/{self.class_id}?tab=live")
+        self.assertNotIn("Connect Google Slides", page.get_data(as_text=True))
+        script = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        self.assertIn("/auth/google/slides-read", script)
+        self.assertIn("paintSlidesAttachError", script)
+        self.assertNotIn('"/auth/google/slides"', script)
+        common = (
+            REPO_ROOT / "tools" / "math-game-show" / "static" / "common.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn("needsSlidesRead", common)
+        self.assertIn("/auth/google/slides-read", common)
+
+        operator = self.school.register_staff("solutions@mckenzian.com")
+        client = self.app.test_client()
+        client.get("/auth/google?portal=staff")
+        client.get("/auth/google/callback?email=solutions@mckenzian.com&name=Op")
+        code = self.school.get_user_by_email("solutions@mckenzian.com")[
+            "verification_code"
+        ]
+        client.post("/verify-email", data={"code": code})
+        started = client.get(connect)
+        self.assertIn(started.status_code, (302, 303))
+        read = self.school.get_google_slides_read_token(int(operator["id"]))
+        self.assertIsNotNone(read)
+        assert read is not None
+        self.assertEqual(read["scopes"], SLIDES_READONLY_SCOPE)
+        self.assertNotIn("drive", read["scopes"])
+        self.assertIsNone(self.school.get_google_api_token(int(operator["id"])))
+
+    def test_callback_hides_the_token_exchange_error(self) -> None:
+        """A failed read-only callback shows a generic message and logs no secret."""
+        operator = self.school.register_staff("solutions@mckenzian.com")
+        del operator
+        client = self.app.test_client()
+        client.get("/auth/google?portal=staff")
+        client.get("/auth/google/callback?email=solutions@mckenzian.com&name=Op")
+        code = self.school.get_user_by_email("solutions@mckenzian.com")[
+            "verification_code"
+        ]
+        client.post("/verify-email", data={"code": code})
+        marker = "oauth-secret-marker"
+        with client.session_transaction() as sess:
+            sess["slides_read_oauth_state"] = "state-read"
+        with mock.patch("auth.slides_connect_uses_mock", return_value=False), mock.patch(
+            "auth.google_client_id", return_value="cid"
+        ), mock.patch("auth.google_client_secret", return_value="secret"), mock.patch(
+            "auth.requests.post",
+            side_effect=requests.RequestException(f"code={marker} refresh=1//token"),
+        ):
+            with self.assertLogs(self.app.logger, level="ERROR") as logs:
+                page = client.get(
+                    "/auth/google/slides-read/callback",
+                    query_string={"code": marker, "state": "state-read"},
+                )
+        html = page.get_data(as_text=True)
+        self.assertEqual(page.status_code, 401)
+        self.assertIn("Try again", html)
+        self.assertNotIn(marker, html)
+        self.assertNotIn("1//token", html)
+        logged = "\n".join(logs.output)
+        self.assertNotIn(marker, logged)
+        self.assertNotIn("1//token", logged)
+        self.assertIn("RequestException", logged)
+        self.assertIn("status=None", logged)
+        with client.session_transaction() as sess:
+            sess["slides_oauth_state"] = "state-deck"
+        with mock.patch("auth.slides_connect_uses_mock", return_value=False), mock.patch(
+            "auth.google_client_id", return_value="cid"
+        ), mock.patch("auth.google_client_secret", return_value="secret"), mock.patch(
+            "auth.requests.post",
+            side_effect=requests.RequestException(f"code={marker}"),
+        ):
+            with self.assertLogs(self.app.logger, level="ERROR") as deck_logs:
+                deck = client.get(
+                    "/auth/google/slides/callback",
+                    query_string={"code": marker, "state": "state-deck"},
+                )
+        deck_html = deck.get_data(as_text=True)
+        self.assertEqual(deck.status_code, 401)
+        self.assertIn("Try again", deck_html)
+        self.assertNotIn(marker, deck_html)
+        self.assertNotIn(marker, "\n".join(deck_logs.output))
+
+    def test_same_browser_catchup_uses_the_joined_live_session(self) -> None:
+        """A published slide follows the live join, and the code clears catch-up."""
+        deck = self._attach()["google_slides"]
+        image_url = deck["pages"][0]["image_url"]
+        published = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/google-slides/pages/0/publish"
+        )
+        self.assertEqual(published.status_code, 200)
+        rows = self.school.game.conn.execute(
+            "SELECT id FROM students WHERE class_id = ? ORDER BY id",
+            (self.class_id,),
+        ).fetchall()
+        student_id = int(rows[0]["id"])
+        self.school.set_student_pin(
+            self.class_id, student_id, "5678", pin_set_by="default"
+        )
+        stamp = self.school.catchup_pin_stamp(self.class_id, student_id)
+        from catchup_session import establish_catchup_identity, peek_catchup_identity
+
+        with self.student.session_transaction() as sess:
+            establish_catchup_identity(
+                sess, self.school, self.class_id, student_id, stamp
+            )
+        shown = self.student.get(image_url)
+        self.assertEqual(shown.status_code, 200)
+        self.assertTrue(shown.get_data().startswith(b"\x89PNG"))
+        shown.close()
+        with self.student.session_transaction() as sess:
+            self.assertIsNotNone(peek_catchup_identity(sess, self.school))
+
+        self.student.post("/api/student/leave")
+        with self.student.session_transaction() as sess:
+            establish_catchup_identity(
+                sess, self.school, self.class_id, student_id, stamp
+            )
+        self.assertEqual(self.student.get(image_url).status_code, 404)
+        live = self.school.get_live_session(self.live_session_id)
+        assert live is not None
+        joined = self.student.post(
+            "/auth/student-code",
+            data={"code": str(live["session_code"]), "name": "Maple"},
+            follow_redirects=False,
+        )
+        self.assertIn(joined.status_code, (302, 303))
+        fixed = self.student.get(image_url)
+        self.assertEqual(fixed.status_code, 200)
+        self.assertTrue(fixed.get_data().startswith(b"\x89PNG"))
+        fixed.close()
+        with self.student.session_transaction() as sess:
+            self.assertIsNone(peek_catchup_identity(sess, self.school))
+
+    def test_reimport_deletes_replaced_page_files(self) -> None:
+        """A new deck drops the previous page files and keeps the new ones."""
+        first = self._attach()["google_slides"]
+        old_names = [page["image_url"].rsplit("/", 1)[-1] for page in first["pages"]]
+        for name in old_names:
+            self.assertIsNotNone(
+                self.school.live_question_image_path(self.class_id, name)
+            )
+        import fitz
+
+        drawing = fitz.open()
+        try:
+            page = drawing.new_page(width=200, height=120)
+            page.insert_text((12, 60), "Replacement")
+            other = drawing.tobytes()
+        finally:
+            drawing.close()
+        with mock.patch("google_slides_import.fetch_public_pdf", return_value=other):
+            response = self.staff.post(
+                f"/api/live-sessions/{self.live_session_id}/google-slides",
+                json={
+                    "url": (
+                        "https://docs.google.com/presentation/d/"
+                        f"{_FILE_ID}/edit?usp=sharing"
+                    )
+                },
+            )
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        second = response.get_json()["google_slides"]
+        new_names = [page["image_url"].rsplit("/", 1)[-1] for page in second["pages"]]
+        self.assertTrue(new_names)
+        self.assertTrue(set(old_names).isdisjoint(new_names))
+        for name in old_names:
+            self.assertIsNone(self.school.live_question_image_path(self.class_id, name))
+        for name in new_names:
+            self.assertIsNotNone(
+                self.school.live_question_image_path(self.class_id, name)
+            )
+        with mock.patch("google_slides_import.fetch_public_pdf", return_value=other):
+            again = self.staff.post(
+                f"/api/live-sessions/{self.live_session_id}/google-slides",
+                json={
+                    "url": (
+                        "https://docs.google.com/presentation/d/"
+                        f"{_FILE_ID}/edit?usp=sharing"
+                    )
+                },
+            )
+        self.assertEqual(again.status_code, 200)
+        for name in new_names:
+            self.assertIsNotNone(
+                self.school.live_question_image_path(self.class_id, name)
+            )
+
     def test_quit_deletes_slide_pages_and_keeps_question_images(self) -> None:
         """Quit removes this session's slide files and leaves other images."""
         deck = self._attach()["google_slides"]
@@ -699,6 +916,91 @@ class GoogleSlidesLimitTests(unittest.TestCase):
         self.assertFalse(slides_api_url_allowed("https://evil.example/x"))
         self.assertEqual(_MAX_PDF_BYTES, 20 * 1024 * 1024)
         self.assertGreater(_MAX_PNG_BYTES, 32)
+
+    def test_slow_drip_stops_at_the_deadline(self) -> None:
+        """A socket read timeout and a between-chunk check bound the download."""
+        clock = {"now": 100.0}
+
+        def monotonic() -> float:
+            """Return the test clock."""
+            return clock["now"]
+
+        class _Drip:
+            """Body that would keep yielding after the deadline."""
+
+            def __init__(self) -> None:
+                self.reads = 0
+                self.closed = False
+                self.status_code = 200
+                self.headers: dict[str, str] = {}
+
+            def iter_content(self, _size: int = 65536):
+                """Yield one chunk, then move the clock past the deadline."""
+                self.reads += 1
+                clock["now"] = 200.0
+                yield b"%PDF-1.4 drip"
+                self.reads += 1
+                yield b"late-bytes"
+
+            def close(self) -> None:
+                """Record that the reader stopped."""
+                self.closed = True
+
+        body = _Drip()
+        captured: dict[str, object] = {}
+
+        class _Http:
+            """Captures the timeout passed to the streamed GET."""
+
+            def get(self, url: str, **kwargs: object) -> _Drip:
+                """Return the drip body and record the timeout tuple."""
+                del url
+                captured["timeout"] = kwargs.get("timeout")
+                if kwargs.get("stream") is not True:
+                    raise AssertionError("download was not streamed")
+                return body
+
+        with mock.patch("google_slides_import.time.monotonic", monotonic):
+            with self.assertRaises(ValueError) as caught:
+                fetch_public_pdf(
+                    _FILE_ID, http=_Http(), timeout=30, deadline=130.0
+                )
+        self.assertIn("too long", str(caught.exception))
+        self.assertEqual(body.reads, 1)
+        self.assertTrue(body.closed)
+        self.assertEqual(captured["timeout"], (10.0, 30.0))
+
+        class _Fast:
+            """One short PDF chunk."""
+
+            def __init__(self) -> None:
+                self.status_code = 200
+                self.headers: dict[str, str] = {}
+
+            def iter_content(self, _size: int = 65536):
+                """Yield a tiny PDF."""
+                yield b"%PDF-1.4 tiny"
+
+            def close(self) -> None:
+                """No-op close."""
+
+        seen: dict[str, object] = {}
+
+        class _ClockHttp:
+            """Records the timeout for a download inside a short deadline."""
+
+            def get(self, url: str, **kwargs: object) -> _Fast:
+                """Return the short PDF."""
+                del url
+                seen["timeout"] = kwargs.get("timeout")
+                return _Fast()
+
+        with mock.patch("google_slides_import.time.monotonic", return_value=100.0):
+            got = fetch_public_pdf(
+                _FILE_ID, http=_ClockHttp(), timeout=30, deadline=112.0
+            )
+        self.assertEqual(got, b"%PDF-1.4 tiny")
+        self.assertEqual(seen["timeout"], (10.0, 12.0))
 
 
 class GoogleSlidesScopeTests(unittest.TestCase):
