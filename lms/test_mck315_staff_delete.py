@@ -20,28 +20,34 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 from app import create_app  # noqa: E402
 import staff_invites  # noqa: E402
 
-# Columns that store an account, class, roster, offering, or live-session id.
-_ID_COLUMNS = {
-    "class_id": "class_ids",
-    "student_id": "student_ids",
-    "finalizer_student_id": "student_ids",
-    "last_submitter_student_id": "student_ids",
-    "last_editor_student_id": "student_ids",
-    "teacher_user_id": "user_ids",
-    "observer_user_id": "user_ids",
-    "user_id": "user_ids",
-    "created_by_user_id": "user_ids",
-    "by_user_id": "user_ids",
-    "reviewed_by_user_id": "user_ids",
-    "marked_by": "user_ids",
-    "discarded_by": "user_ids",
-    "updated_by": "user_ids",
-    "offering_id": "offering_ids",
-    "copied_from_offering_id": "offering_ids",
-    "live_session_id": "session_ids",
-}
 # The audit log is kept. It is not a child of the account.
 _SKIP_TABLES = frozenset({"access_audit_log", "sqlite_sequence"})
+
+
+def _column_kind(name: str) -> str | None:
+    """Map a column name to the owned-id list it should be checked against.
+
+    Args:
+        name: Column name from ``PRAGMA table_info``.
+    """
+    lowered = name.lower()
+    if lowered == "class_id" or lowered.endswith("_class_id"):
+        return "class_ids"
+    if lowered == "student_id" or lowered.endswith("_student_id"):
+        return "student_ids"
+    if (
+        lowered == "user_id"
+        or lowered.endswith("_user_id")
+        or ("teacher" in lowered and lowered.endswith("id"))
+    ):
+        return "user_ids"
+    if lowered == "offering_id" or lowered.endswith("offering_id"):
+        return "offering_ids"
+    if "session" in lowered and lowered.endswith("id"):
+        if "live" in lowered:
+            return "live_session_ids"
+        return "game_session_ids"
+    return None
 
 
 class _Presence:
@@ -74,11 +80,15 @@ class _Presence:
 
 
 def _owned_hits(conn: sqlite3.Connection, owned: dict[str, list]) -> list[str]:
-    """Return ``table.column`` pairs that still hold a deleted id.
+    """Return leftover rows by walking every table's id columns.
+
+    Column names are read from ``PRAGMA table_info``, not from the tables
+    the test inserted. A teacher, class, student, offering, or session id
+    column is checked against the deleted ids.
 
     Args:
         conn: Open sqlite connection.
-        owned: Id lists keyed like ``_ID_COLUMNS`` values, plus ``run_keys``.
+        owned: Id lists for the deleted account, plus ``run_keys``.
     """
     hits: list[str] = []
     tables = [
@@ -91,23 +101,38 @@ def _owned_hits(conn: sqlite3.Connection, owned: dict[str, list]) -> list[str]:
         if table in _SKIP_TABLES or table.startswith("sqlite_"):
             continue
         columns = [str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})")]
+        id_kind = {
+            "live_class_sessions": "live_session_ids",
+            "sessions": "game_session_ids",
+            "classes": "class_ids",
+            "students": "student_ids",
+            "users": "user_ids",
+            "course_offerings": "offering_ids",
+        }.get(table)
         for column in columns:
-            kind = _ID_COLUMNS.get(column)
-            values = owned.get(kind or "", [])
             if column == "run_key":
-                values = owned.get("run_keys") or []
+                values = list(owned.get("run_keys") or [])
+            elif column == "id" and id_kind:
+                values = list(owned.get(id_kind) or [])
+            else:
+                kind = _column_kind(column)
+                if kind is None:
+                    continue
+                values = list(owned.get(kind) or [])
             if not values:
                 continue
             marks = ",".join("?" * len(values))
             count = conn.execute(
-                f"SELECT COUNT(*) FROM {table} WHERE {column} IN ({marks})",
+                f'SELECT COUNT(*) FROM "{table}" WHERE "{column}" IN ({marks})',
                 tuple(values),
             ).fetchone()[0]
             if int(count):
                 hits.append(f"{table}.{column}")
         if table == "live_seq_floors" and "scope" in columns:
             scopes = [f"class:{int(cid)}" for cid in owned.get("class_ids") or []]
-            scopes.extend(f"sid:{int(sid)}" for sid in owned.get("session_ids") or [])
+            scopes.extend(
+                f"sid:{int(sid)}" for sid in owned.get("live_session_ids") or []
+            )
             if scopes:
                 marks = ",".join("?" * len(scopes))
                 count = conn.execute(
@@ -116,6 +141,8 @@ def _owned_hits(conn: sqlite3.Connection, owned: dict[str, list]) -> list[str]:
                 ).fetchone()[0]
                 if int(count):
                     hits.append("live_seq_floors.scope")
+    fk_rows = conn.execute("PRAGMA foreign_key_check").fetchall()
+    hits.extend(f"foreign_key_check.{row[0]}" for row in fk_rows)
     return hits
 
 
@@ -138,6 +165,10 @@ class PermanentStaffDeleteTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         """Close the database and remove the temp dir."""
+        from live_news_wire import reset_logs
+
+        self.school.presence = None
+        reset_logs()
         self.school.close()
         self.tmp.cleanup()
 
@@ -286,6 +317,7 @@ class PermanentStaffDeleteTests(unittest.TestCase):
             other_class, oid, live_module="M1", live_slot="C1"
         )
         self.school.end_live_class_session(int(kept_live["id"]), record_participation=False)
+        self.kept_live_session_id = int(kept_live["id"])
 
         self.school.conn.execute(
             """
@@ -462,12 +494,24 @@ class PermanentStaffDeleteTests(unittest.TestCase):
                 (class_id,),
             ).fetchone()
         )
+        game_session_ids = [
+            int(row[0])
+            for row in self.school.conn.execute(
+                "SELECT id FROM sessions WHERE class_id = ?",
+                (class_id,),
+            )
+        ]
+        for session_id in session_ids:
+            self._seed_news(int(session_id), "owned")
+        self._seed_news(self.kept_live_session_id, "kept")
         return {
             "user_ids": [uid],
             "class_ids": [class_id],
             "student_ids": students,
             "offering_ids": [int(offering["id"])],
             "session_ids": session_ids,
+            "live_session_ids": session_ids,
+            "game_session_ids": game_session_ids,
             "run_keys": run_keys,
         }
 
@@ -551,6 +595,8 @@ class PermanentStaffDeleteTests(unittest.TestCase):
             1,
         )
         self.assertCountEqual(presence.deleted, owned["session_ids"])
+        self._assert_news_gone(owned["live_session_ids"])
+        self._assert_news_kept(self.kept_live_session_id)
         again = self.school.register_staff("owned@example.com", "Fresh")
         self.assertIsNone(again.get("verified_at"))
 
@@ -594,21 +640,65 @@ class PermanentStaffDeleteTests(unittest.TestCase):
         )
         self.assertIsNotNone(self.school.get_user(self.kept_user_id))
 
-    def test_presence_failure_rolls_back(self) -> None:
-        """A presence failure undoes the sqlite delete."""
-        owned = self._seed_owned_graph()
+    def test_presence_failure_after_commit_keeps_the_delete(self) -> None:
+        """A presence failure after commit does not restore the account."""
+        self._seed_owned_graph()
         self.school.presence = _Presence(fail=True)
-        with self.assertRaises(RuntimeError):
+        with self.assertLogs("school_db", level="WARNING") as logs:
             self.school.delete_staff_permanently(self.owned_user_id, self.actor_id)
-        self.assertIsNotNone(self.school.get_user(self.owned_user_id))
-        self.assertEqual(
-            self.school.conn.execute(
-                "SELECT COUNT(*) FROM live_class_sessions WHERE id = ?",
-                (owned["session_ids"][0],),
-            ).fetchone()[0],
-            1,
-        )
+        self.assertIsNone(self.school.get_user(self.owned_user_id))
+        self.assertFalse(self.school.conn.in_transaction)
         self.assertIsNotNone(self.school.get_user(self.kept_user_id))
+        text = "\n".join(logs.output)
+        self.assertIn("presence purge failed", text)
+        self.assertNotIn("@", text)
+
+    def _seed_news(self, session_id: int, marker: str) -> None:
+        """Store one postcard and one ink window for a live session."""
+        from live_news_wire import log_for
+
+        tape = log_for(self.school.data_dir)
+        tape.append(int(session_id), [{"type": "stage", "stage": marker, "state_seq": 1}])
+        with tape._lock:
+            tape._conn.execute(
+                """
+                INSERT INTO board_ink_coalesce (
+                    session_id, board_key, window_ends_at, trail_due
+                ) VALUES (?, 'team:1', 1, 0)
+                """,
+                (int(session_id),),
+            )
+            tape._conn.commit()
+
+    def _news_counts(self, session_id: int) -> tuple[int, int]:
+        """Postcard and ink-window counts for one session."""
+        from live_news_wire import news_db_path
+
+        path = news_db_path(self.school.data_dir)
+        if not path.exists():
+            return 0, 0
+        conn = sqlite3.connect(path)
+        try:
+            events = conn.execute(
+                "SELECT COUNT(*) FROM live_news_events WHERE session_id = ?",
+                (int(session_id),),
+            ).fetchone()[0]
+            ink = conn.execute(
+                "SELECT COUNT(*) FROM board_ink_coalesce WHERE session_id = ?",
+                (int(session_id),),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        return int(events), int(ink)
+
+    def _assert_news_gone(self, session_ids: list[int]) -> None:
+        """The deleted sessions have no tape rows."""
+        for session_id in session_ids:
+            self.assertEqual(self._news_counts(int(session_id)), (0, 0), session_id)
+
+    def _assert_news_kept(self, session_id: int) -> None:
+        """The other teacher's tape rows are still there."""
+        self.assertEqual(self._news_counts(int(session_id)), (1, 1))
 
     def test_admin_cannot_delete_own_account(self) -> None:
         """The signed-in admin account stays when they confirm their own row."""
@@ -660,6 +750,257 @@ class PermanentStaffDeleteTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.school.delete_staff_permanently(int(target["id"]), int(teacher["id"]))
         self.assertIsNotNone(self.school.get_user(int(target["id"])))
+
+    def test_keeps_a_session_started_in_another_class(self) -> None:
+        """A session in someone else's class stays, without the starter id."""
+        starter = self.school.register_staff("starter@example.com", "Starter")
+        owner = self.school.register_staff("classowner@example.com", "Owner")
+        offering = self.school.assign_course(
+            teacher_user_id=int(owner["id"]), ontario_code="MCF3M"
+        )
+        class_id = self._class(
+            int(owner["id"]), int(offering["id"]), ["N9"], "10:40am"
+        )
+        started = self.school.start_live_class_session(
+            class_id, int(starter["id"]), live_module="M1", live_slot="C1"
+        )
+        session_id = int(started["id"])
+        self.school.conn.execute(
+            """
+            INSERT INTO live_session_attendees (
+                live_session_id, participant_uuid, codename, joined_at
+            ) VALUES (?, 'seat-kept', 'N9', 't')
+            """,
+            (session_id,),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO live_session_prompts (
+                live_session_id, slide_index, kind, payload, active, created_at, updated_at
+            ) VALUES (?, 0, 'poll', '{}', 1, 't', 't')
+            """,
+            (session_id,),
+        )
+        prompt_id = int(self.school.conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+        self.school.conn.execute(
+            """
+            INSERT INTO live_session_responses (
+                prompt_id, response_json, created_at, updated_at
+            ) VALUES (?, '{}', 't', 't')
+            """,
+            (prompt_id,),
+        )
+        self.school.conn.commit()
+        self.school.delete_staff_permanently(int(starter["id"]), self.actor_id)
+        row = self.school.conn.execute(
+            "SELECT class_id, teacher_user_id FROM live_class_sessions WHERE id = ?",
+            (session_id,),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(int(row["class_id"]), class_id)
+        self.assertIsNone(row["teacher_user_id"])
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM live_session_attendees WHERE live_session_id = ?",
+                (session_id,),
+            ).fetchone()[0],
+            1,
+        )
+        self.assertEqual(
+            self.school.conn.execute(
+                """
+                SELECT COUNT(*) FROM live_session_responses
+                WHERE prompt_id = ?
+                """,
+                (prompt_id,),
+            ).fetchone()[0],
+            1,
+        )
+        self.assertIsNotNone(self.school.get_user(int(owner["id"])))
+        self.assertIsNone(self.school.get_user(int(starter["id"])))
+
+    def test_refuses_when_another_class_uses_the_offering(self) -> None:
+        """Another teacher's class on this offering blocks the delete."""
+        owner = self.school.register_staff("offering-owner@example.com", "Owner")
+        other = self.school.register_staff("class-holder@example.com", "Holder")
+        offering = self.school.assign_course(
+            teacher_user_id=int(owner["id"]), ontario_code="MCF3M"
+        )
+        class_id = self._class(
+            int(other["id"]), int(offering["id"]), ["N8"], "12:35pm"
+        )
+        started = self.school.start_live_class_session(
+            class_id, int(other["id"]), live_module="M1", live_slot="C1"
+        )
+        session_id = int(started["id"])
+        with self.assertRaises(ValueError) as caught:
+            self.school.delete_staff_permanently(int(owner["id"]), self.actor_id)
+        message = str(caught.exception)
+        self.assertIn(f"class {class_id}", message)
+        self.assertIn(f"live session {session_id}", message)
+        self.assertIn(f"course offering {int(offering['id'])}", message)
+        self.assertNotIn("@", message)
+        self.assertIsNotNone(self.school.get_user(int(owner["id"])))
+        self.assertIsNotNone(self.school.get_user(int(other["id"])))
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT offering_id, teacher_user_id FROM classes WHERE id = ?",
+                (class_id,),
+            ).fetchone()["offering_id"],
+            int(offering["id"]),
+        )
+        self.assertIsNotNone(
+            self.school.conn.execute(
+                "SELECT id FROM course_offerings WHERE id = ?",
+                (int(offering["id"]),),
+            ).fetchone()
+        )
+
+    def test_half_deleted_account_leaves_no_owned_rows(self) -> None:
+        """Rows left after a partial delete are removed with the account."""
+        owned = self._seed_owned_graph()
+        class_id = self.owned_class_id
+        offering_id = owned["offering_ids"][0]
+        self.school.conn.execute(
+            """
+            UPDATE catchup_links
+            SET live_session_id = ?
+            WHERE token = 'owned-link'
+            """,
+            (owned["live_session_ids"][0],),
+        )
+        for key in owned["run_keys"]:
+            self.school.conn.execute(
+                """
+                INSERT OR IGNORE INTO participation_runs (
+                    class_id, run_key, is_real, auto_is_real, discarded
+                ) VALUES (?, ?, 1, 1, 0)
+                """,
+                (class_id, key),
+            )
+        for index, session_id in enumerate(owned["live_session_ids"]):
+            self.school.conn.execute(
+                """
+                INSERT INTO catchup_links (
+                    token, class_id, run_key, live_module, live_slot,
+                    live_session_id, created_at, updated_at
+                ) VALUES (?, ?, ?, 'M9', ?, ?, 't', 't')
+                """,
+                (
+                    f"owned-session-{index}",
+                    class_id,
+                    f"owned-session-{index}",
+                    f"S{index}",
+                    int(session_id),
+                ),
+            )
+        self.school.conn.execute(
+            "DELETE FROM live_class_sessions WHERE class_id = ?",
+            (class_id,),
+        )
+        self.school.conn.execute("DELETE FROM classes WHERE id = ?", (class_id,))
+        self.school.conn.execute(
+            "DELETE FROM course_offerings WHERE id = ?",
+            (offering_id,),
+        )
+        self.school.conn.commit()
+        self.assertGreater(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM catchup_links WHERE token = 'owned-link'"
+            ).fetchone()[0],
+            0,
+        )
+        self.school.delete_staff_permanently(self.owned_user_id, self.actor_id)
+        self.assertIsNone(self.school.get_user(self.owned_user_id))
+        self.assertEqual(_owned_hits(self.school.conn, owned), [])
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM catchup_links WHERE token = 'kept-link'"
+            ).fetchone()[0],
+            1,
+        )
+        self.assertIsNotNone(self.school.get_user(self.kept_user_id))
+        self._assert_news_gone(owned["live_session_ids"])
+
+    def test_database_error_returns_a_clean_page(self) -> None:
+        """A database failure is a 400 page and keeps the account."""
+        teacher = self.school.register_staff("blocked@example.com", "Blocked")
+        self.school.conn.execute(
+            """
+            CREATE TABLE staff_delete_probe (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id)
+            )
+            """
+        )
+        self.school.conn.execute(
+            "INSERT INTO staff_delete_probe (user_id) VALUES (?)",
+            (int(teacher["id"]),),
+        )
+        self._login_admin()
+        response = self.client.post(
+            f"/it/staff/{int(teacher['id'])}/delete",
+            data={"confirm_email": teacher["email"]},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 400)
+        body = response.get_data(as_text=True)
+        self.assertNotIn("@", body)
+        self.assertIn("could not be deleted", body)
+        self.assertIsNotNone(self.school.get_user(int(teacher["id"])))
+
+
+    def test_nullable_starter_rebuild_keeps_attendance(self) -> None:
+        """An older NOT NULL starter column can be cleared without losing children."""
+        from school_db import ensure_live_session_teacher_nullable
+
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute(
+            """
+            CREATE TABLE live_class_sessions (
+                id INTEGER PRIMARY KEY,
+                class_id INTEGER NOT NULL,
+                teacher_user_id INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE live_session_attendees (
+                id INTEGER PRIMARY KEY,
+                live_session_id INTEGER NOT NULL
+                    REFERENCES live_class_sessions(id) ON DELETE CASCADE,
+                codename TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO live_class_sessions (id, class_id, teacher_user_id) VALUES (1, 7, 3)"
+        )
+        conn.execute(
+            "INSERT INTO live_session_attendees (live_session_id, codename) VALUES (1, 'N1')"
+        )
+        conn.commit()
+        ensure_live_session_teacher_nullable(conn)
+        conn.execute(
+            "UPDATE live_class_sessions SET teacher_user_id = NULL WHERE id = 1"
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT teacher_user_id FROM live_class_sessions WHERE id = 1"
+        ).fetchone()
+        self.assertIsNone(row["teacher_user_id"])
+        self.assertEqual(
+            conn.execute("SELECT COUNT(*) FROM live_session_attendees").fetchone()[0],
+            1,
+        )
+        self.assertEqual(conn.execute("PRAGMA foreign_keys").fetchone()[0], 1)
+        self.assertEqual(list(conn.execute("PRAGMA foreign_key_check")), [])
+        conn.close()
+
+
 
 
 if __name__ == "__main__":

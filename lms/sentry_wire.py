@@ -202,9 +202,11 @@ def before_send(
             return event
         if _exception_type_names(hint, event) & _DISCONNECT_TYPES:
             return None
-    except Exception:
-        logger.exception("Sentry before_send failed open")
-        return event
+    except Exception as exc:
+        # Fail closed. The event can hold an address or a confirm field,
+        # so a scrub error drops it. The log is the exception type only.
+        logger.warning("Sentry before_send dropped the event (%s)", type(exc).__name__)
+        return None
     return event
 
 
@@ -343,13 +345,47 @@ def _mask_event_tokens(event: dict[str, Any]) -> None:
         event["breadcrumbs"] = _mask_nested(crumbs)
 
 
+_IDENTITY_KEYS = frozenset({"email", "confirm_email", "login_hint"})
+_EMAIL_TEXT_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+
+def _scrub_identity(value: Any, depth: int = 0) -> Any:
+    """Drop address and confirm fields and redact address text.
+
+    Args:
+        value: Event node.
+        depth: Nesting cap so a cyclic payload cannot recurse forever.
+
+    Returns:
+        The same node, with those fields removed.
+    """
+    if depth > 8:
+        return value
+    if isinstance(value, str):
+        return _EMAIL_TEXT_RE.sub("[redacted]", value)
+    if isinstance(value, list):
+        return [_scrub_identity(item, depth + 1) for item in value]
+    if isinstance(value, dict):
+        cleaned: dict[str, Any] = {}
+        for key, item in value.items():
+            if str(key).lower() in _IDENTITY_KEYS:
+                continue
+            cleaned[str(key)] = _scrub_identity(item, depth + 1)
+        return cleaned
+    return value
+
+
 def _drop_request_body(event: dict[str, Any]) -> dict[str, Any]:
-    """Remove request bodies, query strings and invite tokens from an event.
+    """Remove request bodies, query strings, addresses, and invite tokens.
 
     Roster names live in bodies; ``/invite/<token>`` paths carry a sign-in
     secret; ``?v=`` carries a student visit token and ``login_hint`` an
-    invited email.
+    invited email. ``confirm_email`` is the permanent-delete confirmation.
     """
+    cleaned = _scrub_identity(event)
+    if isinstance(cleaned, dict):
+        event.clear()
+        event.update(cleaned)
     request = event.get("request")
     if isinstance(request, dict):
         request.pop("data", None)
