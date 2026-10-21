@@ -307,6 +307,72 @@ class TeamScopedStampTests(TurnsHarness):
             self.school.live_student_poll_stamp(self.session_id, self.class_id),
         )
 
+    def test_tap_a_second_later_leaves_the_other_team_unchanged(self) -> None:
+        """A tap more than one second later does not rebuild the other team.
+
+        The class-wide item revision is one-second timestamps. The gap sits
+        after team B's snapshot and before team A's tap, for a take-turns
+        place and for a group multiple-choice pick.
+        """
+        placer, outsider = NAMES[0], NAMES[1]
+        item = self._turns_item()
+        self.assertNotEqual(
+            self.school.student_open_group_team_ids(self.session_id, self.ids[placer]),
+            self.school.student_open_group_team_ids(self.session_id, self.ids[outsider]),
+        )
+        out_seq, out_stamp, out_direct = self._snapshot(outsider)
+        time.sleep(1.1)
+        placer_before = self.school.live_student_poll_stamp(
+            self.session_id, self.class_id, self.ids[placer]
+        )
+        rv = self._post(placer, item, "rank-turn", {"option_id": "o1"})
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True)[:300])
+        self.assertEqual(
+            out_direct,
+            self.school.live_student_poll_stamp(
+                self.session_id, self.class_id, self.ids[outsider]
+            ),
+        )
+        self.assertTrue(self._poll(outsider, out_seq, out_stamp).get("unchanged"))
+        self.assertNotEqual(
+            placer_before,
+            self.school.live_student_poll_stamp(
+                self.session_id, self.class_id, self.ids[placer]
+            ),
+        )
+
+        self._close(item)
+        mc = self._publish(
+            self._add(
+                {
+                    "type": "mc",
+                    "text": "Which representation?",
+                    "options": ["Graph", "Table", "Equation", "Points"],
+                    "correct_index": 0,
+                }
+            )
+        )
+        out_seq, out_stamp, out_direct = self._snapshot(outsider)
+        time.sleep(1.1)
+        placer_before = self.school.live_student_poll_stamp(
+            self.session_id, self.class_id, self.ids[placer]
+        )
+        rv = self._post(placer, mc, "group-pick", {"choice": "Graph"})
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True)[:300])
+        self.assertEqual(
+            out_direct,
+            self.school.live_student_poll_stamp(
+                self.session_id, self.class_id, self.ids[outsider]
+            ),
+        )
+        self.assertTrue(self._poll(outsider, out_seq, out_stamp).get("unchanged"))
+        self.assertNotEqual(
+            placer_before,
+            self.school.live_student_poll_stamp(
+                self.session_id, self.class_id, self.ids[placer]
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
