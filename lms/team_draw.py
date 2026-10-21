@@ -16,9 +16,10 @@ TEAM_DRAW_KIND = "team_draw"
 TEAM_DRAW_RESPONSE_MODE = "team_draw"
 MAX_TITLE_LEN = 80
 MAX_IMAGE_BYTES = 750_000
-# Whiteboard cards are about 720×360. Refuse a larger canvas before inflate.
+# Whiteboard cards are about 720×360. Real drawings stay under 6 megapixels.
+# Refuse a side over 4096, or more than 8 million pixels, before inflate.
 MAX_PNG_SIDE = 4096
-MAX_PNG_PIXELS = 4096 * 4096
+MAX_PNG_PIXELS = 8_000_000
 # Largest in-cap RGBA image: one filter byte per row plus four bytes a pixel.
 MAX_DECOMPRESSED_BYTES = MAX_PNG_PIXELS * 4 + MAX_PNG_SIDE
 DRAWING_TOO_LARGE_ERROR = "Image is too large."
@@ -239,8 +240,12 @@ def _reject_oversized_png(width: int, height: int) -> None:
         raise ValueError(DRAWING_TOO_LARGE_ERROR)
 
 
-def _reconstruct_row(kind: int, row: bytes, prior: bytes, bpp: int) -> bytearray:
+def _reconstruct_row(kind: int, row: bytes, prior: bytes, bpp: int) -> bytes | bytearray:
     """Undo one PNG filter and return the reconstructed row.
+
+    Filter None is already reconstructed, so those rows are returned as-is.
+    The other filters rebuild each byte from the row above and the byte
+    to the left.
 
     Args:
         kind: Filter type 0–4.
@@ -251,23 +256,23 @@ def _reconstruct_row(kind: int, row: bytes, prior: bytes, bpp: int) -> bytearray
     Raises:
         ValueError: ``kind`` is not a PNG filter.
     """
+    if kind == 0:
+        return row
+    if kind not in (1, 2, 3, 4):
+        raise ValueError("Invalid image data.")
     recon = bytearray(len(row))
     for index, value in enumerate(row):
         left = recon[index - bpp] if index >= bpp else 0
         above = prior[index] if prior else 0
         above_left = prior[index - bpp] if prior and index >= bpp else 0
-        if kind == 0:
-            recon[index] = value
-        elif kind == 1:
+        if kind == 1:
             recon[index] = (value + left) & 255
         elif kind == 2:
             recon[index] = (value + above) & 255
         elif kind == 3:
             recon[index] = (value + ((left + above) // 2)) & 255
-        elif kind == 4:
-            recon[index] = (value + _paeth(left, above, above_left)) & 255
         else:
-            raise ValueError("Invalid image data.")
+            recon[index] = (value + _paeth(left, above, above_left)) & 255
     return recon
 
 
@@ -350,7 +355,7 @@ def _iter_unfiltered_rows(idat: bytes, height: int, stride: int, bpp: int):
         row = bytes(pending[1:row_in])
         del pending[:row_in]
         recon = _reconstruct_row(kind, row, prior, bpp)
-        prior = bytes(recon)
+        prior = recon if isinstance(recon, bytes) else bytes(recon)
         yield recon
     if pending:
         raise ValueError(DRAWING_TOO_LARGE_ERROR)
@@ -433,13 +438,62 @@ def _scan_row(
     return False
 
 
+def _row_changes_colours(
+    seen: set[tuple[int, int, int, int] | None],
+    recon: bytes | bytearray,
+    previous: bytes | None,
+    color_type: int,
+    trns: bytes,
+    colours: list[tuple[int, int, int]],
+    alphas: list[int],
+    channels: int,
+) -> tuple[bool, bytes]:
+    """Apply one reconstructed row to the colours seen so far.
+
+    An all-zero row is a single pixel of that colour. A row whose bytes
+    match the previous row cannot add a colour, so it is not scanned.
+
+    Args:
+        seen: Colours already found. Updated in place.
+        recon: Unfiltered row bytes.
+        previous: Previous reconstructed row, or None on the first row.
+        color_type: PNG colour type 0, 2, 3, 4, or 6.
+        trns: Raw tRNS chunk, possibly empty.
+        colours: Palette RGB tuples. Used for colour type 3.
+        alphas: Palette alpha bytes. Used for colour type 3.
+        channels: Bytes per pixel.
+
+    Returns:
+        ``(ink, snapshot)``. ``ink`` is True when a second colour appears.
+        ``snapshot`` is the row the next call should treat as previous.
+
+    Raises:
+        ValueError: The row does not match the colour type.
+    """
+    row = recon if isinstance(recon, bytes) else bytes(recon)
+    if previous is not None and row == previous:
+        return False, previous
+    if (
+        channels > 0
+        and len(row) >= channels
+        and len(row) % channels == 0
+        and not any(row)
+    ):
+        return (
+            _scan_row(seen, row[:channels], color_type, trns, colours, alphas),
+            row,
+        )
+    return _scan_row(seen, row, color_type, trns, colours, alphas), row
+
+
 def png_has_ink(blob: bytes) -> bool:
     """True when the PNG shows more than a blank canvas.
 
     Width and height are read from the header and refused before inflate
     when a side is over ``MAX_PNG_SIDE`` or the pixel count is over
-    ``MAX_PNG_PIXELS``. Inflation stops at the declared size, and the scan
-    stops at the first pixel of a second colour.
+    ``MAX_PNG_PIXELS`` (8 million). Inflation stops at the declared size.
+    All-zero rows and rows that repeat the previous row are not scanned
+    pixel by pixel. Any other row stops at the first pixel of a second colour.
 
     Fully transparent pixels count as one background, even when their
     colour channels differ. A flat fill is a single colour. Either case
@@ -500,8 +554,19 @@ def png_has_ink(blob: bytes) -> bool:
         for index, alpha in enumerate(trns[: len(colours)]):
             alphas[index] = alpha
     seen: set[tuple[int, int, int, int] | None] = set()
+    previous: bytes | None = None
     for recon in _iter_unfiltered_rows(bytes(idat), int(height), int(width) * channels, channels):
-        if _scan_row(seen, recon, int(color_type), trns, colours, alphas):
+        ink, previous = _row_changes_colours(
+            seen,
+            recon,
+            previous,
+            int(color_type),
+            trns,
+            colours,
+            alphas,
+            channels,
+        )
+        if ink:
             return True
     return False
 
