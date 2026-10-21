@@ -8095,7 +8095,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             from school_db import GroupAnswerLocked
 
             session_id = int(ctx["live_session_id"])
-            item = school.get_live_session_item(session_id, live_item_id)
+            item = school.get_live_session_item(
+                session_id, live_item_id, sync="if_stale"
+            )
             image_b64 = str(body.get("image") or body.get("image_png") or "")
             if (
                 school._question_answer_kind(item) == "team_draw"

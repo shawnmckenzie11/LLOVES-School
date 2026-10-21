@@ -662,6 +662,39 @@ class LivePresenceStore:
             return "0"
         return f"{int(row['n'])}.{int(row['s1'])}.{int(row['s2'])}"
 
+    def present_rev_for_students(
+        self, session_id: int, student_ids: list[int] | tuple[int, ...]
+    ) -> str:
+        """Cheap token for the present rows of these roster ids.
+
+        Same shape as :meth:`present_rev` (count, sum of attendee ids, sum
+        of squares) but only rows whose ``student_id`` is in
+        ``student_ids``. A join on another team does not move this token.
+
+        Args:
+            session_id: ``live_presence_sessions.id``.
+            student_ids: Roster ids this phone watches.
+        """
+        ids = [int(sid) for sid in student_ids]
+        if not ids:
+            return "0.0.0"
+        marks = ",".join(["%s"] * len(ids))
+        with self._conn() as conn:
+            row = conn.execute(
+                f"""
+                SELECT COUNT(*) AS n,
+                       COALESCE(SUM(id), 0) AS s1,
+                       COALESCE(SUM(id::bigint * id::bigint), 0) AS s2
+                FROM live_presence_attendees
+                WHERE live_session_id = %s AND left_at IS NULL
+                  AND student_id IN ({marks})
+                """,
+                (int(session_id), *ids),
+            ).fetchone()
+        if not row:
+            return "0"
+        return f"{int(row['n'])}.{int(row['s1'])}.{int(row['s2'])}"
+
     def resume_if_stale(
         self,
         attendee: dict[str, Any],
