@@ -18100,7 +18100,19 @@ class SchoolDB(LovesDB):
                             response_mode = live_session_items.response_mode,
                             show_live_results = live_session_items.show_live_results,
                             save_to_card = live_session_items.save_to_card,
-                            updated_at = excluded.updated_at
+                            updated_at = CASE
+                                WHEN live_session_items.item_id IS NOT excluded.item_id
+                                  OR live_session_items.stage IS NOT excluded.stage
+                                  OR live_session_items.page_number IS NOT excluded.page_number
+                                  OR live_session_items.sort_order IS NOT excluded.sort_order
+                                  OR live_session_items.kind IS NOT excluded.kind
+                                  OR live_session_items.item_json IS NOT excluded.item_json
+                                  OR live_session_items.prompt_id IS NOT COALESCE(
+                                      live_session_items.prompt_id, excluded.prompt_id
+                                  )
+                                THEN excluded.updated_at
+                                ELSE live_session_items.updated_at
+                            END
                         """,
                         (
                             int(session_id),
@@ -18315,15 +18327,30 @@ class SchoolDB(LovesDB):
         return self._live_item_row_to_dict(row) if row is not None else None
 
     def get_live_session_item(
-        self, session_id: int, placement_or_item: str | int
+        self,
+        session_id: int,
+        placement_or_item: str | int,
+        *,
+        sync: str = "full",
     ) -> dict[str, Any]:
         """Resolve one lifecycle row by id, placement key, or unique item id.
 
         Args:
             session_id: ``live_class_sessions.id``.
             placement_or_item: Row id, placement key, or metadata item id.
+            sync: ``full`` rewrites every placement. ``if_stale`` seeds only
+                when a placement is missing or has moved. ``skip`` reads the
+                stored row. Student taps pass ``if_stale`` so one tap does
+                not stamp ``updated_at`` on every question in the session.
         """
-        self.ensure_live_session_items(session_id)
+        if sync == "if_stale":
+            self.ensure_live_session_items_if_stale(session_id)
+        elif sync == "skip":
+            pass
+        elif sync == "full":
+            self.ensure_live_session_items(session_id)
+        else:
+            raise ValueError("sync must be full, if_stale, or skip")
         token = str(placement_or_item or "").strip()
         if not token:
             raise ValueError("placement_key is required")
@@ -20694,7 +20721,7 @@ class SchoolDB(LovesDB):
             ValueError: Not group MC, not a member, or not an option.
         """
         self._require_active_live_session(session_id)
-        item = self.get_live_session_item(session_id, live_item_id)
+        item = self.get_live_session_item(session_id, live_item_id, sync="if_stale")
         if not self._group_mc_picks_flow(item):
             raise ValueError("This question has no pick step.")
         team_id = self._require_group_submit_member(item, student_id)
@@ -21053,7 +21080,7 @@ class SchoolDB(LovesDB):
             RankTurnConflict: Out of turn, already placed, or locked.
         """
         self._require_active_live_session(session_id)
-        item = self.get_live_session_item(session_id, live_item_id)
+        item = self.get_live_session_item(session_id, live_item_id, sync="if_stale")
         if self._group_rank_mode(item) != "turns":
             raise ValueError("This question does not take turns.")
         team_id = self._require_group_submit_member(item, student_id)
@@ -22510,7 +22537,7 @@ class SchoolDB(LovesDB):
         """
 
         self._require_active_live_session(session_id)
-        item = self.get_live_session_item(session_id, live_item_id)
+        item = self.get_live_session_item(session_id, live_item_id, sync="if_stale")
         if self._question_answer_kind(item) == "rank":
             return self._save_group_rank_draft(
                 session_id,
@@ -22806,7 +22833,7 @@ class SchoolDB(LovesDB):
         """
 
         self._require_active_live_session(session_id)
-        item = self.get_live_session_item(session_id, live_item_id)
+        item = self.get_live_session_item(session_id, live_item_id, sync="if_stale")
         if self._question_answer_kind(item) == "rank":
             return self._submit_group_rank_answer(
                 session_id, item, student_id, order=order
@@ -22825,7 +22852,7 @@ class SchoolDB(LovesDB):
             choice=choice,
             why=why,
         )
-        item = self.get_live_session_item(session_id, live_item_id)
+        item = self.get_live_session_item(session_id, live_item_id, sync="if_stale")
         team_id = self._require_group_submit_member(item, student_id)
         row = self._group_response_row(int(item["id"]), team_id) or {}
         choice_text = self._group_draft_choice(row)
@@ -23079,7 +23106,7 @@ class SchoolDB(LovesDB):
                 order is already sent, or this team already checked.
         """
         self._require_active_live_session(session_id)
-        item = self.get_live_session_item(session_id, live_item_id)
+        item = self.get_live_session_item(session_id, live_item_id, sync="if_stale")
         if self._question_answer_kind(item) != "rank":
             raise ValueError("This question has no ranking to check.")
         if str(item.get("response_mode") or "") != "group_submit":
@@ -44104,6 +44131,69 @@ class SchoolDB(LovesDB):
             ).fetchone()
         return str(row["rev"] if row is not None else "")
 
+    def _team_group_vote_rev(
+        self, session_id: int, student_id: int
+    ) -> tuple[int, str] | None:
+        """Vote-row stamp for one student's teams, or None if unknown.
+
+        None keeps the class-wide token. A student with no membership on an
+        open group item keeps the class-wide vote revision. When membership
+        is known, only that student's team vote rows are folded in, so
+        another team's pick does not force a full ``/state`` build. A
+        member with no vote row yet still gets ``(0, "")``, which stays
+        put while another team picks.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            student_id: Roster id.
+
+        Returns:
+            ``(max vote id, latest updated_at)`` for those teams.
+        """
+        try:
+            sid = int(session_id)
+            student = int(student_id)
+        except (TypeError, ValueError):
+            return None
+        with self._lock:
+            member = self.conn.execute(
+                """
+                SELECT 1 AS ok
+                FROM live_group_members m
+                INNER JOIN live_session_items i ON i.id = m.live_item_id
+                WHERE i.live_session_id = ?
+                  AND i.status = 'active'
+                  AND m.student_id = ?
+                LIMIT 1
+                """,
+                (sid, student),
+            ).fetchone()
+            if member is None:
+                return None
+            row = self.conn.execute(
+                """
+                SELECT COALESCE(MAX(v.id), 0) AS vote_max,
+                       COALESCE(MAX(v.updated_at), '') AS vote_rev
+                FROM live_group_votes v
+                INNER JOIN live_session_items i ON i.id = v.live_item_id
+                WHERE i.live_session_id = ?
+                  AND EXISTS (
+                    SELECT 1 FROM live_group_members m
+                    WHERE m.live_item_id = v.live_item_id
+                      AND m.student_id = ?
+                      AND m.team_id = v.team_id
+                  )
+                """,
+                (sid, student),
+            ).fetchone()
+        if row is None:
+            return 0, ""
+        try:
+            vote_max = int(row["vote_max"] or 0)
+        except (TypeError, ValueError):
+            vote_max = 0
+        return vote_max, str(row["vote_rev"] or "")
+
     def live_student_poll_stamp(
         self,
         session_id: int,
@@ -44129,9 +44219,10 @@ class SchoolDB(LovesDB):
         Args:
             session_id: ``live_class_sessions.id``.
             class_id: Game-show class id (accepted for call-site clarity).
-            student_id: When set, the group-response field is only that
-                student's teams. Omit it for the class-wide token tests
-                and callers already use. Every other field stays class-wide.
+            student_id: When set, the group-response field and the vote
+                revision are only that student's teams. Omit it for the
+                class-wide token tests and callers already use. Every
+                other field stays class-wide.
         """
         del class_id
         teacher = self.live_session_teacher_state_payload(session_id)
@@ -44262,6 +44353,12 @@ class SchoolDB(LovesDB):
             scoped = self._team_group_response_rev(int(session_id), int(student_id))
             if scoped is not None:
                 group_response_rev = scoped
+                # MCK-307: picks and consensus votes live in live_group_votes.
+                # Those two fields were still class-wide, so one team's letter
+                # rebuilt /state on every phone. Fold the same membership.
+                vote_scoped = self._team_group_vote_rev(int(session_id), int(student_id))
+                if vote_scoped is not None:
+                    group_vote_max, group_vote_rev = vote_scoped
         status = str(status_row["status"] if status_row is not None else "")
         # MCK-171: the Team challenge reveal step (the podium step writes no
         # point event, so phones would otherwise get "unchanged").

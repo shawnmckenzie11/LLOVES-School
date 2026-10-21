@@ -252,13 +252,27 @@ class TeamScopedStampTests(TurnsHarness):
             )
         )
         time.sleep(1.1)
+        same_team = NAMES[3]
+        self.assertEqual(
+            self.school.student_open_group_team_ids(self.session_id, self.ids[outsider]),
+            self.school.student_open_group_team_ids(self.session_id, self.ids[same_team]),
+        )
+        self.assertNotEqual(
+            self.school.student_open_group_team_ids(self.session_id, self.ids[outsider]),
+            self.school.student_open_group_team_ids(self.session_id, self.ids[teammate]),
+        )
         mate_rev = self.school._team_group_response_rev(self.session_id, self.ids[teammate])
         out_rev = self.school._team_group_response_rev(self.session_id, self.ids[outsider])
+        wide_before_pick = self.school.live_student_poll_stamp(self.session_id, self.class_id)
+        # The phone that must stay unchanged is snapshotted last. An earlier
+        # full poll can still be writing the first group rows, and that
+        # phone would then be holding a stamp from before those rows.
+        same_seq, same_stamp, same_direct = self._snapshot(same_team)
+        out_seq, out_stamp, out_direct = self._snapshot(outsider)
         mate_seq, mate_stamp, mate_direct = self._snapshot(teammate)
         rv = self._post(outsider, mc, "group-pick", {"choice": "Graph"})
         self.assertEqual(rv.status_code, 200)
-        # The team row moves only for the picker's team. Vote rows stay
-        # class-wide, so the other phone's full stamp still changes.
+        # The team row and the vote revision both stay on the picker's team.
         self.assertEqual(
             mate_rev,
             self.school._team_group_response_rev(self.session_id, self.ids[teammate]),
@@ -267,13 +281,97 @@ class TeamScopedStampTests(TurnsHarness):
             out_rev,
             self.school._team_group_response_rev(self.session_id, self.ids[outsider]),
         )
-        self.assertNotEqual(
+        self.assertEqual(
             mate_direct,
             self.school.live_student_poll_stamp(
                 self.session_id, self.class_id, self.ids[teammate]
             ),
         )
-        self.assertFalse(self._poll(teammate, mate_seq, mate_stamp).get("unchanged"))
+        self.assertTrue(self._poll(teammate, mate_seq, mate_stamp).get("unchanged"))
+        self.assertNotEqual(
+            same_direct,
+            self.school.live_student_poll_stamp(
+                self.session_id, self.class_id, self.ids[same_team]
+            ),
+        )
+        self.assertFalse(self._poll(same_team, same_seq, same_stamp).get("unchanged"))
+        self.assertNotEqual(
+            out_direct,
+            self.school.live_student_poll_stamp(
+                self.session_id, self.class_id, self.ids[outsider]
+            ),
+        )
+        self.assertFalse(self._poll(outsider, out_seq, out_stamp).get("unchanged"))
+        self.assertNotEqual(
+            wide_before_pick,
+            self.school.live_student_poll_stamp(self.session_id, self.class_id),
+        )
+
+    def test_tap_a_second_later_leaves_the_other_team_unchanged(self) -> None:
+        """A tap more than one second later does not rebuild the other team.
+
+        The class-wide item revision is one-second timestamps. The gap sits
+        after team B's snapshot and before team A's tap, for a take-turns
+        place and for a group multiple-choice pick.
+        """
+        placer, outsider = NAMES[0], NAMES[1]
+        item = self._turns_item()
+        self.assertNotEqual(
+            self.school.student_open_group_team_ids(self.session_id, self.ids[placer]),
+            self.school.student_open_group_team_ids(self.session_id, self.ids[outsider]),
+        )
+        out_seq, out_stamp, out_direct = self._snapshot(outsider)
+        time.sleep(1.1)
+        placer_before = self.school.live_student_poll_stamp(
+            self.session_id, self.class_id, self.ids[placer]
+        )
+        rv = self._post(placer, item, "rank-turn", {"option_id": "o1"})
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True)[:300])
+        self.assertEqual(
+            out_direct,
+            self.school.live_student_poll_stamp(
+                self.session_id, self.class_id, self.ids[outsider]
+            ),
+        )
+        self.assertTrue(self._poll(outsider, out_seq, out_stamp).get("unchanged"))
+        self.assertNotEqual(
+            placer_before,
+            self.school.live_student_poll_stamp(
+                self.session_id, self.class_id, self.ids[placer]
+            ),
+        )
+
+        self._close(item)
+        mc = self._publish(
+            self._add(
+                {
+                    "type": "mc",
+                    "text": "Which representation?",
+                    "options": ["Graph", "Table", "Equation", "Points"],
+                    "correct_index": 0,
+                }
+            )
+        )
+        out_seq, out_stamp, out_direct = self._snapshot(outsider)
+        time.sleep(1.1)
+        placer_before = self.school.live_student_poll_stamp(
+            self.session_id, self.class_id, self.ids[placer]
+        )
+        rv = self._post(placer, mc, "group-pick", {"choice": "Graph"})
+        self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True)[:300])
+        self.assertEqual(
+            out_direct,
+            self.school.live_student_poll_stamp(
+                self.session_id, self.class_id, self.ids[outsider]
+            ),
+        )
+        self.assertTrue(self._poll(outsider, out_seq, out_stamp).get("unchanged"))
+        self.assertNotEqual(
+            placer_before,
+            self.school.live_student_poll_stamp(
+                self.session_id, self.class_id, self.ids[placer]
+            ),
+        )
 
 
 if __name__ == "__main__":
