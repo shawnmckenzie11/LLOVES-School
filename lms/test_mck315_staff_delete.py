@@ -848,17 +848,19 @@ class PermanentStaffDeleteTests(unittest.TestCase):
         self.assertIsNone(self.school.get_user(int(starter["id"])))
 
     def _seat_and_cross_tag(
-        self, session_id: int, tagged_class_id: int
+        self, session_id: int, tagged_class_id: int, other_user_id: int
     ) -> tuple[str, int]:
-        """Store attendance and a snapshot tagged with another class.
+        """Store attendance and rows tagged with another class.
 
-        The snapshot's class id is ``tagged_class_id`` while its live
-        session id is ``session_id``. Board rows, the session seq floor,
-        and the news tape use that session's own run.
+        The snapshot, participation, catch-up, Lesson Slides, engagement,
+        and observation rows use ``tagged_class_id`` and the surviving
+        session's run key. Their live-session column is left empty so a
+        class tag cannot stand in for that run key.
 
         Args:
             session_id: Live session that must survive the delete.
-            tagged_class_id: Class id written on the snapshot only.
+            tagged_class_id: Class id written on the cross-tagged rows.
+            other_user_id: Teacher who still owns the surviving session.
 
         Returns:
             The session run key and the prompt id.
@@ -917,9 +919,177 @@ class PermanentStaffDeleteTests(unittest.TestCase):
             """,
             (f"sid:{int(session_id)}",),
         )
+        self._insert_cross_tagged_run_rows(
+            int(session_id), int(tagged_class_id), run_key, int(other_user_id)
+        )
         self.school.conn.commit()
         self._seed_news(int(session_id), "cross-tag")
         return run_key, prompt_id
+
+    def _insert_cross_tagged_run_rows(
+        self,
+        session_id: int,
+        tagged_class_id: int,
+        run_key: str,
+        other_user_id: int,
+    ) -> None:
+        """Insert one cross-tagged row in each run-key table.
+
+        Args:
+            session_id: Live session the run key belongs to.
+            tagged_class_id: Class id stored on the row.
+            run_key: Run key of the session that must survive.
+            other_user_id: Teacher id stored where a teacher column is required.
+        """
+        student_id = int(
+            self.school.conn.execute(
+                """
+                SELECT id FROM students
+                WHERE class_id = (
+                    SELECT class_id FROM live_class_sessions WHERE id = ?
+                )
+                ORDER BY id LIMIT 1
+                """,
+                (int(session_id),),
+            ).fetchone()[0]
+        )
+        conn = self.school.conn
+        conn.execute(
+            """
+            INSERT INTO participation_items (
+                class_id, run_key, question_key, offered_at
+            ) VALUES (?, ?, 'cross', 't')
+            """,
+            (tagged_class_id, run_key),
+        )
+        conn.execute(
+            """
+            INSERT INTO participation_answers (
+                class_id, run_key, question_key, student_id, answered_at
+            ) VALUES (?, ?, 'cross', ?, 't')
+            """,
+            (tagged_class_id, run_key, student_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO participation_runs (class_id, run_key, is_real)
+            VALUES (?, ?, 1)
+            """,
+            (tagged_class_id, run_key),
+        )
+        conn.execute(
+            """
+            INSERT INTO catchup_links (
+                token, class_id, run_key, live_module, live_slot,
+                live_session_id, created_at, updated_at
+            ) VALUES (?, ?, ?, 'M1', 'C1', NULL, 't', 't')
+            """,
+            (f"cross-{int(session_id)}", tagged_class_id, run_key),
+        )
+        conn.execute(
+            """
+            INSERT INTO lesson_slides_latest (
+                class_id, live_module, live_slot, is_test, live_session_id,
+                run_key, ended_at, updated_at
+            ) VALUES (?, 'M1', 'C1', 0, NULL, ?, 't', 't')
+            """,
+            (tagged_class_id, run_key),
+        )
+        conn.execute(
+            """
+            INSERT INTO lesson_slides_dismissed (
+                class_id, live_module, live_slot, is_test, run_key, dismissed_at
+            ) VALUES (?, 'M1', 'C1', 0, ?, 't')
+            """,
+            (tagged_class_id, run_key),
+        )
+        conn.execute(
+            """
+            INSERT INTO engagement_level_overrides (
+                class_id, run_key, student_id, level, teacher_user_id, updated_at
+            ) VALUES (?, ?, ?, 1, ?, 't')
+            """,
+            (tagged_class_id, run_key, student_id, other_user_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO engagement_events (
+                class_id, live_session, run_key, kind, ts
+            ) VALUES (?, NULL, ?, 'note', 't')
+            """,
+            (tagged_class_id, run_key),
+        )
+        conn.execute(
+            """
+            INSERT INTO engagement_rollup (
+                class_id, live_session, run_key, rolled_at, scope, signal
+            ) VALUES (?, NULL, ?, 't', 'class', 'note')
+            """,
+            (tagged_class_id, run_key),
+        )
+        conn.execute(
+            """
+            INSERT INTO group_engagement (
+                class_id, run_key, question_key, student_id, earned, possible,
+                source, recorded_at
+            ) VALUES (?, ?, 'cross', ?, 0, 1, 'live', 't')
+            """,
+            (tagged_class_id, run_key, student_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO group_engagement_items (
+                class_id, run_key, question_key, item_json, offered_at
+            ) VALUES (?, ?, 'cross', '{}', 't')
+            """,
+            (tagged_class_id, run_key),
+        )
+        conn.execute(
+            """
+            INSERT INTO live_board_assignments (
+                class_id, run_key, board_key, student_id, team_sort_order,
+                live_session_id
+            ) VALUES (?, ?, 'team:1', ?, 1, NULL)
+            """,
+            (tagged_class_id, run_key, student_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO observation_history (
+                source_observation_id, live_session, run_key, class_id,
+                observer_user_id, created_at, scope, kept_at
+            ) VALUES (1, NULL, ?, ?, ?, 't', 'class', 't')
+            """,
+            (run_key, tagged_class_id, other_user_id),
+        )
+
+    def _assert_cross_tagged_rows_kept(self, run_key: str) -> None:
+        """Participation, catch-up, slides, engagement, and history stayed.
+
+        Args:
+            run_key: Run key of the session that had to survive.
+        """
+        tables = (
+            "participation_items",
+            "participation_answers",
+            "participation_runs",
+            "catchup_links",
+            "lesson_slides_latest",
+            "lesson_slides_dismissed",
+            "engagement_level_overrides",
+            "engagement_events",
+            "engagement_rollup",
+            "group_engagement",
+            "group_engagement_items",
+            "live_board_assignments",
+            "observation_history",
+        )
+        for table in tables:
+            count = self.school.conn.execute(
+                f'SELECT COUNT(*) FROM "{table}" WHERE run_key = ?',
+                (run_key,),
+            ).fetchone()[0]
+            self.assertEqual(count, 1, table)
 
     def test_cross_tagged_snapshot_keeps_the_other_session(self) -> None:
         """A snapshot tagged with this class does not delete another class's session."""
@@ -941,7 +1111,7 @@ class PermanentStaffDeleteTests(unittest.TestCase):
             other_class, int(other["id"]), live_module="M1", live_slot="C1"
         )
         session_id = int(started["id"])
-        run_key, prompt_id = self._seat_and_cross_tag(session_id, target_class)
+        run_key, prompt_id = self._seat_and_cross_tag(session_id, target_class, int(other["id"]))
         self.assertTrue(run_key)
         self.school.delete_staff_permanently(int(target["id"]), self.actor_id)
         row = self.school.conn.execute(
@@ -989,6 +1159,7 @@ class PermanentStaffDeleteTests(unittest.TestCase):
             ).fetchone()[0],
             3,
         )
+        self._assert_cross_tagged_rows_kept(run_key)
         self._assert_news_kept(session_id)
         self.assertIsNone(self.school.get_user(int(target["id"])))
         self.assertIsNotNone(self.school.get_user(int(other["id"])))
@@ -1025,7 +1196,7 @@ class PermanentStaffDeleteTests(unittest.TestCase):
             other_class, int(target["id"]), live_module="M1", live_slot="C1"
         )
         session_id = int(started["id"])
-        run_key, prompt_id = self._seat_and_cross_tag(session_id, target_class)
+        run_key, prompt_id = self._seat_and_cross_tag(session_id, target_class, int(other["id"]))
         self.school.delete_staff_permanently(int(target["id"]), self.actor_id)
         row = self.school.conn.execute(
             "SELECT class_id, teacher_user_id FROM live_class_sessions WHERE id = ?",
@@ -1061,6 +1232,7 @@ class PermanentStaffDeleteTests(unittest.TestCase):
             ).fetchone()[0],
             1,
         )
+        self._assert_cross_tagged_rows_kept(run_key)
         self._assert_news_kept(session_id)
         self.assertIsNone(self.school.get_user(int(target["id"])))
         self.assertIsNotNone(self.school.get_user(int(other["id"])))

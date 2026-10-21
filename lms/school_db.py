@@ -6291,6 +6291,7 @@ class LovesDB:
         where = f"class_id IN ({marks})"
         session_ids: list[int] = []
         tagged_session_ids: list[int] = []
+        tagged_run_keys: list[str] = []
         if "live_class_sessions" in present:
             session_ids.extend(
                 self._select_ids(
@@ -6310,14 +6311,34 @@ class LovesDB:
                 for col in self.conn.execute(f'PRAGMA table_info("{table}")')
             }
             table_columns[table] = columns
-            if "live_session_id" in columns:
+            session_column = self._session_link_column(columns)
+            if session_column:
                 tagged_session_ids.extend(
                     self._select_ids(
-                        f'SELECT live_session_id FROM "{table}" '
-                        f"WHERE {where} AND live_session_id IS NOT NULL",
+                        f'SELECT {session_column} FROM "{table}" '
+                        f"WHERE {where} AND {session_column} IS NOT NULL",
                         params,
                     )
                 )
+            if "run_key" in columns:
+                tagged_run_keys.extend(
+                    str(row[0])
+                    for row in self.conn.execute(
+                        f'SELECT run_key FROM "{table}" WHERE {where} '
+                        "AND run_key IS NOT NULL AND TRIM(run_key) != ''",
+                        params,
+                    )
+                    if str(row[0] or "").strip()
+                )
+        if tagged_run_keys and "live_class_sessions" in present:
+            key_marks = ",".join("?" * len(tagged_run_keys))
+            tagged_session_ids.extend(
+                self._select_ids(
+                    "SELECT id FROM live_class_sessions "
+                    f"WHERE run_key IN ({key_marks})",
+                    tuple(tagged_run_keys),
+                )
+            )
         kept_sessions = self._session_ids_kept_for_another_class(
             [*session_ids, *tagged_session_ids], owned_classes, present
         )
@@ -6326,49 +6347,35 @@ class LovesDB:
             for session_id in tagged_session_ids
             if session_id not in kept_sessions
         )
-        run_keys: list[str] = []
-        if "live_class_sessions" in present:
-            session_columns = {
-                str(col["name"])
-                for col in self.conn.execute("PRAGMA table_info(live_class_sessions)")
-            }
-            if "run_key" in session_columns:
-                run_keys.extend(
-                    str(row[0])
-                    for row in self.conn.execute(
-                        f"""
-                        SELECT run_key FROM live_class_sessions
-                        WHERE {where}
-                          AND run_key IS NOT NULL AND TRIM(run_key) != ''
-                        """,
-                        params,
-                    )
-                    if str(row[0] or "").strip()
-                )
+        run_keys = self._run_keys_for_removed_sessions(
+            owned_classes,
+            session_ids,
+            tagged_run_keys,
+            kept_sessions,
+            present,
+        )
         for table in class_tables:
             columns = table_columns[table]
-            session_column = (
-                "live_session_id" if "live_session_id" in columns else None
-            )
+            session_column = self._session_link_column(columns)
+            if table == "student_moods":
+                self._delete_student_moods(owned_classes, present)
+                continue
+            if "run_key" in columns:
+                self._delete_run_keyed_rows(
+                    table,
+                    owned_classes,
+                    run_keys,
+                    kept_sessions,
+                    session_column,
+                    present,
+                )
+                continue
             clause, clause_params = self._class_tagged_predicate(
                 owned_classes, kept_sessions, session_column
             )
-            if "run_key" in columns:
-                run_keys.extend(
-                    str(row[0])
-                    for row in self.conn.execute(
-                        f'SELECT run_key FROM "{table}" WHERE {clause} '
-                        "AND run_key IS NOT NULL AND TRIM(run_key) != ''",
-                        clause_params,
-                    )
-                    if str(row[0] or "").strip()
-                )
             self.conn.execute(
                 f'DELETE FROM "{table}" WHERE {clause}', clause_params
             )
-        run_keys = self._without_kept_session_run_keys(
-            run_keys, kept_sessions, present
-        )
         session_ids = list(
             dict.fromkeys(
                 int(session_id)
@@ -6381,6 +6388,148 @@ class LovesDB:
         self._delete_end_claims(owned_classes, run_keys, present)
         self._delete_seq_floors(owned_classes, session_ids, present)
         return session_ids, run_keys
+
+
+    def _session_link_column(self, columns: set[str]) -> str | None:
+        """Live-session column on a class-tagged table, if it has one.
+
+        ``live_session_id`` is the usual name. ``observation_history`` and
+        the engagement tables use ``live_session``. Deck seeds use
+        ``source_live_session_id``.
+
+        Args:
+            columns: Column names from ``PRAGMA table_info``.
+
+        Returns:
+            The column name, or ``None``.
+        """
+        if "live_session_id" in columns:
+            return "live_session_id"
+        if "live_session" in columns:
+            return "live_session"
+        if "source_live_session_id" in columns:
+            return "source_live_session_id"
+        return None
+
+    def _run_keys_for_removed_sessions(
+        self,
+        class_ids: list[int],
+        session_ids: list[int],
+        tagged_run_keys: list[str],
+        kept_session_ids: set[int],
+        present: set[str],
+    ) -> list[str]:
+        """Run keys of sessions this delete removes.
+
+        ``session_ids`` is the same set used to delete
+        ``live_class_sessions``: the account's own classes, a class row
+        that is already gone, or a null or blank class id. Run keys copied
+        off this account's class rows are included when they are not the
+        run key of a session that stays.
+
+        Args:
+            class_ids: Classes this account owns or still names.
+            session_ids: Live sessions this delete removes.
+            tagged_run_keys: Run keys found on this account's class rows.
+            kept_session_ids: Live sessions that must stay.
+            present: Table names in this database.
+
+        Returns:
+            Run keys safe to delete.
+        """
+        keys = [str(key) for key in tagged_run_keys if str(key or "").strip()]
+        if "live_class_sessions" in present:
+            columns = {
+                str(col["name"])
+                for col in self.conn.execute("PRAGMA table_info(live_class_sessions)")
+            }
+            if "run_key" in columns and session_ids:
+                marks = ",".join("?" * len(session_ids))
+                keys.extend(
+                    str(row[0])
+                    for row in self.conn.execute(
+                        f"""
+                        SELECT run_key FROM live_class_sessions
+                        WHERE id IN ({marks})
+                          AND run_key IS NOT NULL AND TRIM(run_key) != ''
+                        """,
+                        tuple(int(session_id) for session_id in session_ids),
+                    )
+                    if str(row[0] or "").strip()
+                )
+            if "run_key" in columns and class_ids:
+                marks = ",".join("?" * len(class_ids))
+                keys.extend(
+                    str(row[0])
+                    for row in self.conn.execute(
+                        f"""
+                        SELECT run_key FROM live_class_sessions
+                        WHERE class_id IN ({marks})
+                          AND run_key IS NOT NULL AND TRIM(run_key) != ''
+                        """,
+                        tuple(int(class_id) for class_id in class_ids),
+                    )
+                    if str(row[0] or "").strip()
+                )
+        return self._without_kept_session_run_keys(
+            list(dict.fromkeys(keys)), kept_session_ids, present
+        )
+
+    def _delete_run_keyed_rows(
+        self,
+        table: str,
+        class_ids: list[int],
+        delete_run_keys: list[str],
+        kept_session_ids: set[int],
+        session_column: str | None,
+        present: set[str],
+    ) -> None:
+        """Delete rows by the run key of a session this account removes.
+
+        The class id on the row is not enough. A row whose run key belongs
+        to a session that stays is left, including a row tagged with this
+        account's class. A blank run key on one of those classes is removed
+        when the row does not point at a kept session.
+
+        Args:
+            table: Table to delete from. A fixed or ``sqlite_master`` name.
+            class_ids: Classes this account owns or still names.
+            delete_run_keys: Run keys of sessions this delete removes.
+            kept_session_ids: Live sessions that must stay.
+            session_column: ``live_session_id`` or ``live_session``, or None.
+            present: Table names in this database.
+        """
+        if table not in present or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table):
+            return
+        if session_column and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", session_column):
+            raise ValueError("session column")
+        if delete_run_keys:
+            marks = ",".join("?" * len(delete_run_keys))
+            params: list[Any] = list(delete_run_keys)
+            clause = f"run_key IN ({marks})"
+            if session_column and kept_session_ids:
+                kept = list(
+                    dict.fromkeys(int(session_id) for session_id in kept_session_ids)
+                )
+                kept_marks = ",".join("?" * len(kept))
+                clause += (
+                    f" AND ({session_column} IS NULL OR "
+                    f"{session_column} NOT IN ({kept_marks}))"
+                )
+                params.extend(kept)
+            self.conn.execute(
+                f'DELETE FROM "{table}" WHERE {clause}', tuple(params)
+            )
+        if not class_ids:
+            return
+        clause, clause_params = self._class_tagged_predicate(
+            class_ids, kept_session_ids, session_column
+        )
+        self.conn.execute(
+            f'DELETE FROM "{table}" WHERE {clause} '
+            "AND (run_key IS NULL OR TRIM(run_key) = '')",
+            clause_params,
+        )
 
     def _session_ids_kept_for_another_class(
         self,
@@ -6774,6 +6923,26 @@ class LovesDB:
                             class_params,
                         )
                     )
+                if "run_key" in history_columns and "live_class_sessions" in present:
+                    history_keys = [
+                        str(row[0])
+                        for row in self.conn.execute(
+                            "SELECT run_key FROM observation_history "
+                            f"WHERE class_id IN ({class_marks}) "
+                            "AND run_key IS NOT NULL AND TRIM(run_key) != ''",
+                            class_params,
+                        )
+                        if str(row[0] or "").strip()
+                    ]
+                    if history_keys:
+                        key_marks = ",".join("?" * len(history_keys))
+                        tagged.extend(
+                            self._select_ids(
+                                "SELECT id FROM live_class_sessions "
+                                f"WHERE run_key IN ({key_marks})",
+                                tuple(history_keys),
+                            )
+                        )
         kept_sessions = self._session_ids_kept_for_another_class(
             tagged, class_ids, present
         )
@@ -6800,7 +6969,32 @@ class LovesDB:
         )
         if "observation_history" not in present:
             return
-        if class_ids:
+        history_columns = {
+            str(col["name"])
+            for col in self.conn.execute("PRAGMA table_info(observation_history)")
+        }
+        history_session = "live_session" in history_columns
+        if "run_key" in history_columns:
+            delete_keys = self._run_keys_for_removed_sessions(
+                class_ids,
+                [
+                    int(session_id)
+                    for session_id in session_ids
+                    if int(session_id) not in kept_sessions
+                ],
+                [],
+                kept_sessions,
+                present,
+            )
+            self._delete_run_keyed_rows(
+                "observation_history",
+                class_ids,
+                delete_keys,
+                kept_sessions,
+                "live_session" if history_session else None,
+                present,
+            )
+        elif class_ids:
             clause, clause_params = self._class_tagged_predicate(
                 class_ids,
                 kept_sessions,
@@ -6810,19 +7004,38 @@ class LovesDB:
                 f"DELETE FROM observation_history WHERE {clause}",
                 clause_params,
             )
+        observer_sql = "observer_user_id = ?"
+        observer_params: list[Any] = [int(user_id)]
+        if history_session and kept_sessions:
+            kept = list(dict.fromkeys(int(session_id) for session_id in kept_sessions))
+            kept_marks = ",".join("?" * len(kept))
+            observer_sql += (
+                f" AND (live_session IS NULL OR live_session NOT IN ({kept_marks}))"
+            )
+            observer_params.extend(kept)
+        if "run_key" in history_columns and kept_sessions and "live_class_sessions" in present:
+            kept = list(dict.fromkeys(int(session_id) for session_id in kept_sessions))
+            kept_marks = ",".join("?" * len(kept))
+            observer_sql += (
+                " AND (run_key IS NULL OR TRIM(run_key) = '' OR run_key NOT IN ("
+                "SELECT run_key FROM live_class_sessions "
+                f"WHERE id IN ({kept_marks}) "
+                "AND run_key IS NOT NULL AND TRIM(run_key) != ''))"
+            )
+            observer_params.extend(kept)
         self.conn.execute(
-            "DELETE FROM observation_history WHERE observer_user_id = ?",
-            (int(user_id),),
+            f"DELETE FROM observation_history WHERE {observer_sql}",
+            tuple(observer_params),
         )
 
     def _delete_class_owned_rows(self, class_ids: list[int], present: set[str]) -> None:
         """Delete per-class rows that have no foreign key to ``classes``.
 
         Roster PIN material lives on ``students`` and is removed with the
-        game graph. This pass clears gradebook, catch-up, engagement,
-        boards, and playlist rows keyed only by class id. A row that
-        points at a live session whose own class still belongs to someone
-        else is left in place.
+        game graph. Participation, catch-up, Lesson Slides, and engagement
+        rows are removed by the run key of a session this account removes.
+        A row whose run key belongs to a session that stays is left, even
+        when its class id is one of these classes.
 
         Args:
             class_ids: Class ids being removed.
@@ -6865,6 +7078,7 @@ class LovesDB:
         if not class_ids:
             return
         tagged: list[int] = []
+        tagged_run_keys: list[str] = []
         columns_by_table: dict[str, set[str]] = {}
         class_marks = ",".join("?" * len(class_ids))
         class_params = tuple(int(class_id) for class_id in class_ids)
@@ -6876,25 +7090,64 @@ class LovesDB:
                 for col in self.conn.execute(f"PRAGMA table_info({table})")
             }
             columns_by_table[table] = columns
-            if "live_session_id" in columns and "class_id" in columns:
+            session_column = self._session_link_column(columns)
+            if session_column and "class_id" in columns:
                 tagged.extend(
                     self._select_ids(
-                        f"SELECT live_session_id FROM {table} "
+                        f"SELECT {session_column} FROM {table} "
                         f"WHERE class_id IN ({class_marks}) "
-                        "AND live_session_id IS NOT NULL",
+                        f"AND {session_column} IS NOT NULL",
                         class_params,
                     )
                 )
+            if "run_key" in columns and "class_id" in columns:
+                tagged_run_keys.extend(
+                    str(row[0])
+                    for row in self.conn.execute(
+                        f"SELECT run_key FROM {table} "
+                        f"WHERE class_id IN ({class_marks}) "
+                        "AND run_key IS NOT NULL AND TRIM(run_key) != ''",
+                        class_params,
+                    )
+                    if str(row[0] or "").strip()
+                )
+        if tagged_run_keys and "live_class_sessions" in present:
+            key_marks = ",".join("?" * len(tagged_run_keys))
+            tagged.extend(
+                self._select_ids(
+                    "SELECT id FROM live_class_sessions "
+                    f"WHERE run_key IN ({key_marks})",
+                    tuple(tagged_run_keys),
+                )
+            )
         kept_sessions = self._session_ids_kept_for_another_class(
             tagged, class_ids, present
+        )
+        delete_keys = self._run_keys_for_removed_sessions(
+            class_ids,
+            self._staff_owned_session_ids(class_ids, present),
+            tagged_run_keys,
+            kept_sessions,
+            present,
         )
         for table in tables:
             if table not in present:
                 continue
             columns = columns_by_table[table]
-            session_column = (
-                "live_session_id" if "live_session_id" in columns else None
-            )
+            session_column = self._session_link_column(columns)
+            if table == "student_moods":
+                self._delete_student_moods(class_ids, present)
+                continue
+            if "run_key" in columns:
+                self._delete_run_keyed_rows(
+                    table,
+                    class_ids,
+                    delete_keys,
+                    kept_sessions,
+                    session_column,
+                    present,
+                )
+                continue
             if not session_column or not kept_sessions:
                 self._delete_ids(table, "class_id", class_ids, present)
                 continue
@@ -7013,9 +7266,51 @@ class LovesDB:
         self._delete_ids("session_scores", "student_id", student_ids, present)
         self._delete_ids("subtotal_scores", "subtotal_id", subtotal_ids, present)
         self._delete_ids("subtotals", "id", subtotal_ids, present)
-        self._delete_ids("student_moods", "class_id", class_ids, present)
+        self._delete_student_moods(class_ids, present)
         self._delete_ids("sessions", "id", game_session_ids, present)
         self._delete_ids("students", "id", student_ids, present)
+
+
+    def _delete_student_moods(self, class_ids: list[int], present: set[str]) -> None:
+        """Delete mood rows for classes this account is removing.
+
+        A row whose game session still belongs to a living class outside
+        ``class_ids`` stays. The class id on that row is not ownership.
+
+        Args:
+            class_ids: Class ids being removed.
+            present: Table names in this database.
+        """
+        if not class_ids or "student_moods" not in present:
+            return
+        columns = {
+            str(col["name"])
+            for col in self.conn.execute("PRAGMA table_info(student_moods)")
+        }
+        if (
+            "session_id" not in columns
+            or "sessions" not in present
+            or "classes" not in present
+        ):
+            self._delete_ids("student_moods", "class_id", class_ids, present)
+            return
+        marks = ",".join("?" * len(class_ids))
+        params = tuple(int(class_id) for class_id in class_ids)
+        self.conn.execute(
+            f"""
+            DELETE FROM student_moods
+            WHERE class_id IN ({marks})
+              AND (
+                session_id IS NULL
+                OR session_id NOT IN (
+                    SELECT id FROM sessions
+                    WHERE class_id NOT IN ({marks})
+                      AND class_id IN (SELECT id FROM classes)
+                )
+              )
+            """,
+            params + params,
+        )
 
     def _delete_owned_offerings(
         self, offering_ids: list[int], present: set[str]
@@ -7121,14 +7416,36 @@ class LovesDB:
                         )
                     )
         events = getattr(self, "engagement", None)
+        run_keys = [
+            str(key)
+            for key in external.get("run_keys") or []
+            if str(key or "").strip()
+        ]
         if events is not None and getattr(events, "conn", None) is not self.conn:
+            for key in run_keys:
+                events._write(
+                    "DELETE FROM engagement_events WHERE run_key = ?",
+                    (key,),
+                )
+                events._write(
+                    "DELETE FROM engagement_rollup WHERE run_key = ?",
+                    (key,),
+                )
             for class_id in class_ids:
                 events._write(
-                    "DELETE FROM engagement_events WHERE class_id = ?",
+                    """
+                    DELETE FROM engagement_events
+                    WHERE class_id = ?
+                      AND (run_key IS NULL OR TRIM(run_key) = '')
+                    """,
                     (int(class_id),),
                 )
                 events._write(
-                    "DELETE FROM engagement_rollup WHERE class_id = ?",
+                    """
+                    DELETE FROM engagement_rollup
+                    WHERE class_id = ?
+                      AND (run_key IS NULL OR TRIM(run_key) = '')
+                    """,
                     (int(class_id),),
                 )
 
