@@ -302,6 +302,26 @@ class ChallengeHarness(unittest.TestCase):
             return self._post(name, item, "rank-turn", {"option_id": order[-1]})
         return last
 
+    def _lock_once(self, item: dict[str, Any], names: tuple[str, ...], order: list[str]):
+        """Lock ``order``. The first tap sends it; every later tap is refused.
+
+        Args:
+            item: Published team-challenge rank.
+            names: Teammates. The first name sends the lock.
+            order: Positional option tokens the team is looking at.
+        """
+        first = self._post(names[0], item, "rank-agree", {"agree": True, "order": order})
+        self.assertEqual(first.status_code, 200)
+        self.assertTrue(first.get_json()["group_submit"]["race"]["locked"])
+        for name in names[1:]:
+            again = self._post(name, item, "rank-agree", {"agree": True, "order": order})
+            self.assertEqual(again.status_code, 409)
+            body = again.get_json()
+            self.assertTrue(body.get("locked"))
+            self.assertTrue(body.get("group_submit", {}).get("race", {}).get("locked"))
+            self.assertNotIn("order changed", str(body.get("error") or "").lower())
+        return first
+
     def _team(self, name: str, item: dict[str, Any]) -> int:
         return int(self._card(name, item)["team_id"])
 
@@ -391,9 +411,12 @@ class LockInTests(ChallengeHarness):
         self.assertEqual(rv.status_code, 400)
         rv = self._post("Eli", item, "rank-agree", {"agree": False})
         self.assertEqual(rv.status_code, 400)
-        # Agreeing again to the locked order is a quiet no-op.
+        # A second lock is refused. The stored send stays as it was.
         rv = self._post("Eli", item, "rank-agree", {"agree": True, "order": KEY_IDS})
-        self.assertEqual(rv.status_code, 200)
+        self.assertEqual(rv.status_code, 409)
+        body = rv.get_json()
+        self.assertTrue(body.get("locked"))
+        self.assertNotIn("order changed", str(body.get("error") or "").lower())
         rv = self._post("Eli", item, "group-submit", {"order": KEY_IDS})
         self.assertEqual(rv.status_code, 400)
         row = self._row(item, "Ava")
@@ -647,9 +670,7 @@ class NoLeakTests(ChallengeHarness):
     def test_locked_team_has_no_closed_line(self) -> None:
         item = self._challenge()
         self._order("Ava", item, KEY_IDS)
-        for name in ("Ava", "Cy", "Eli"):
-            rv = self._post(name, item, "rank-agree", {"agree": True, "order": KEY_IDS})
-            self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        self._lock_once(item, ("Ava", "Cy", "Eli"), KEY_IDS)
         self._close(item)
         race = self._card("Ava", item)["race"]
         self.assertTrue(race["locked"])
@@ -774,9 +795,7 @@ class DisplayOrderHookTests(ChallengeHarness):
         """Score by option id against the key, whatever order was shown."""
         item = self._challenge()
         self._order("Ava", item, KEY_IDS)
-        for name in ("Ava", "Cy", "Eli"):
-            rv = self._post(name, item, "rank-agree", {"agree": True, "order": KEY_IDS})
-            self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+        self._lock_once(item, ("Ava", "Cy", "Eli"), KEY_IDS)
         live = self._live(item)
         row = self.school._group_response_row(int(live["id"]), self._team("Ava", item)) or {}
         stored = self.school._rank_race_draft_order(live, row)
@@ -868,11 +887,16 @@ class AliasTests(ChallengeHarness):
                 f"/api/student/live-items/{item['id']}/rank-turn", json={"option_id": opt}
             )
             self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
-        for name in ("Ava", "Cy", "Eli"):
+        rv = self.students["Ava"].post(
+            f"/api/student/live-items/{item['id']}/rank-agree", json={"agree": True, "order": real}
+        )
+        self.assertEqual(rv.status_code, 200)
+        for name in ("Cy", "Eli"):
             rv = self.students[name].post(
                 f"/api/student/live-items/{item['id']}/rank-agree", json={"agree": True, "order": real}
             )
-            self.assertEqual(rv.status_code, 200, rv.get_data(as_text=True))
+            self.assertEqual(rv.status_code, 409)
+            self.assertTrue(rv.get_json().get("locked"))
         self.assertTrue(rv.get_json()["group_submit"]["race"]["locked"])
         self.assertEqual(self._row(item, "Ava")["final_answer"]["order"], real)
 

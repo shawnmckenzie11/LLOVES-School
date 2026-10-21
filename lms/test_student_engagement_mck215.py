@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""MCK-215: student live-class card shows Tier-1 engagement and gated team score."""
+"""MCK-215: student live-class card shows Tier-1 and group engagement.
+
+MCK-310 removes the Team score line under group engagement. The state
+flag ``show_team_score`` stays for callers that still read it.
+"""
 
 from __future__ import annotations
 
@@ -117,8 +121,10 @@ class StudentLiveCardTests(unittest.TestCase):
         html = (LMS_DIR / "templates" / "student" / "home.html").read_text(encoding="utf-8")
         self.assertIn("Engagement", html)
         self.assertIn('id="me-engagement"', html)
+        self.assertIn('id="me-group-engagement"', html)
         self.assertNotIn("My points", html)
-        self.assertIn('id="me-team-stat" hidden', html)
+        self.assertNotIn('id="me-team-stat"', html)
+        self.assertNotIn("Team score", html)
 
     def test_state_tier1_updates_and_team_hidden_until_group(self) -> None:
         self.school.record_engagement_event(
@@ -141,8 +147,9 @@ class StudentLiveCardTests(unittest.TestCase):
     def test_student_portal_paints_engagement(self) -> None:
         js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
         self.assertIn('getElementById("me-engagement")', js)
-        self.assertIn("me.show_team_score", js)
-        self.assertIn("meTeamStatEl.hidden", js)
+        self.assertIn('getElementById("me-group-engagement")', js)
+        self.assertNotIn("me-team-stat", js)
+        self.assertNotIn("me.show_team_score", js)
 
 
 if __name__ == "__main__":

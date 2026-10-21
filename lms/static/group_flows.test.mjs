@@ -6,6 +6,7 @@ import {
   GROUP_FLOW_COPY,
   MC_MATCH_HELP,
   RANK_CHECK_HELP,
+  RANK_ORDER_CHANGED_NOTE,
   choiceLetter,
   liveRankCardHtml,
   mcAgreeStepHtml,
@@ -157,6 +158,13 @@ check(!turnsCardIsStale({}, { turns: { rev: 1 } }) && !turnsCardIsStale({ turns:
 const undoOpts = { options: [{ id: "a", label: "A" }, { id: "b", label: "B" }, { id: "c", label: "C" }], itemId: 7 };
 const lastMine = rankTurnsHtml({ turns: { mode: "turns", total: 3, rev: 2, can_undo: true, spots: [{ option_id: "a", label: "A", by_name: "Eva", mine: false }, { option_id: "b", label: "B", by_name: "Iggy", mine: true }] } }, undoOpts);
 check(lastMine.includes("data-rank-turn-undo"), "last placer sees Undo");
+check(
+  lastMine.includes("rank-check-row") &&
+    lastMine.indexOf("rank-check-row") < lastMine.indexOf("data-rank-turn-undo") &&
+    lastMine.indexOf("data-rank-turn-undo") < lastMine.indexOf("rank-turn-spots"),
+  "undo sits beside check, above the spots",
+);
+check(lastMine.includes('data-rank-spot="a"') && lastMine.includes('data-rank-spot="b"'), "filled spots carry their option id");
 const notMine = rankTurnsHtml({ turns: { mode: "turns", total: 3, rev: 2, can_undo: false, can_place: true, spots: [{ option_id: "a", label: "A", by_name: "Iggy", mine: false }, { option_id: "b", label: "B", by_name: "Eva", mine: true }].slice(0, 1) } }, undoOpts);
 check(!notMine.includes("data-rank-turn-undo"), "teammate sees no Undo");
 const staleUndo = rankTurnsHtml({ turns: { mode: "turns", total: 3, rev: 3, can_undo: true, spots: [{ option_id: "a", label: "A", by_name: "Iggy", mine: true }, { option_id: "b", label: "B", by_name: "Eva", mine: false }] } }, undoOpts);
@@ -170,7 +178,13 @@ const withCheck = rankTurnsHtml(
   { turns: { spots: [], total: 3, can_place: true }, check: { available: true, used: false } },
   { options, itemId: 9 },
 );
-check(withCheck.includes("Check our ranking") && withCheck.includes("data-rank-check"), "check button");
+check(withCheck.includes("data-rank-check>Check</button>") && withCheck.includes("data-rank-check"), "check button");
+check(!withCheck.includes("Check our ranking"), "check button has no our-ranking label");
+check(withCheck.includes("is-on-check"), "small help sits on the check button");
+const checkAt = withCheck.indexOf("data-rank-check");
+const helpAt = withCheck.indexOf("is-on-check");
+const checkClose = withCheck.indexOf("</button>", checkAt);
+check(checkAt >= 0 && checkClose > checkAt && helpAt > checkClose, "help is beside the check button, not inside it");
 const extraGrade = ["A", "+"].join("");
 check(!withCheck.includes(extraGrade), "no extra grade wording on the check button");
 const checked = rankTurnsHtml(
@@ -186,7 +200,8 @@ const header = rankTurnsHtml(
   { options, itemId: 9, header: true },
 );
 check(header.includes("Take turns moving the cards. Talk it through, then lock in your ranking together."), "one ranking instruction");
-check(header.includes("Check our ranking") && header.includes("group-help"), "check row and help");
+check(header.includes("data-rank-check>Check</button>") && header.includes("group-help"), "check row and help");
+check(header.includes("rank-check-row") && header.indexOf("rank-check-row") < header.indexOf("rank-turn-spots"), "check row is above the spots");
 check(header.includes("Send our ranking") && header.includes("Final once sent"), "pinned send");
 check(header.includes("data-live-submit=\"group\" disabled"), "send waits for a full order");
 check(
@@ -215,6 +230,21 @@ const sent = rankTurnsHtml(
   { options, itemId: 9, header: true },
 );
 check(!sent.includes("Send our ranking") && sent.includes("Final once sent"), "final once sent");
+const lockedNote = rankTurnsHtml(
+  {
+    turns: { spots: [{ option_id: "a", label: "A", by_name: "Eva", mine: true }], total: 1, done: true },
+    race: { locked: true },
+    submitted: false,
+  },
+  { options, itemId: 9, note: RANK_ORDER_CHANGED_NOTE },
+);
+const escapedOrderNote = RANK_ORDER_CHANGED_NOTE.replaceAll("'", "&#39;");
+check(!lockedNote.includes(escapedOrderNote) && !lockedNote.includes("The order changed"), "locked card drops the order-changed line");
+const openNote = rankTurnsHtml(
+  { turns: { spots: [], total: 3, can_place: true }, race: { locked: false }, submitted: false },
+  { options, itemId: 9, note: RANK_ORDER_CHANGED_NOTE },
+);
+check(openNote.includes(escapedOrderNote), "an open card can still show the order-changed line");
 
 check(choiceLetter(["Graph", "Table"], "Table") === "B", "letter from choice index");
 const matchOpen = mcMatchHtml(
@@ -266,7 +296,8 @@ const raceCard = liveRankCardHtml(
 );
 check(raceCard.includes(GROUP_FLOW_COPY.rankInstruction), "race card instruction");
 check((raceCard.match(/group-flow-instruction/g) || []).length === 1, "race card one instruction");
-check(raceCard.includes("Check our ranking") && raceCard.includes("data-group-help"), "race card help next to check");
+check(raceCard.includes("data-rank-check>Check</button>") && raceCard.includes("data-group-help"), "race card help next to check");
+check(raceCard.includes("is-on-check"), "race card uses the small help");
 check(raceCard.includes(RANK_CHECK_HELP.replaceAll("'", "&#39;")), "race card help copy");
 check(!raceCard.includes(oldPass) && !raceCard.includes(oldCue), "race card drops the old lines");
 check(!raceCard.includes('data-live-submit="group"'), "race card does not pin send");
@@ -294,6 +325,10 @@ const rankStack = groupInstructionHtml(
   { type: "rank" },
 );
 check(rankStack === "", "stack does not prepend a second ranking line");
+const css = readFileSync(new URL("./student-portal.css", import.meta.url), "utf8");
+const helpRule = css.slice(css.indexOf(".group-help.is-on-check"), css.indexOf(".group-help.is-on-check") + 320);
+check(helpRule.includes("width: 18px") && helpRule.includes("position: absolute"), "help icon is the small overlay on Check");
+check(css.includes(".rank-check-row .rank-turn-undo"), "undo shares the check row");
 const portal = readFileSync(new URL("./student-portal.js", import.meta.url), "utf8");
 const turnsAt = portal.indexOf('if (race.mode === "turns" && status !== "closed")');
 const turnsBranch = portal.slice(turnsAt, portal.indexOf("if (locked || status === \"closed\")", turnsAt));

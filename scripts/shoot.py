@@ -1168,18 +1168,7 @@ def shoot_mck215(base: str, out_dir: Path, path: Path, widths: list[int]) -> lis
                 _mck215_reach_live_home(page)
                 _mck215_dismiss_catchup_pin(page)
                 page.locator("#me-engagement").wait_for(state="visible", timeout=30000)
-                if group_question:
-                    page.wait_for_function(
-                        "() => { const el = document.getElementById('me-team-stat'); "
-                        "return el && !el.hidden; }",
-                        timeout=30000,
-                    )
-                else:
-                    page.wait_for_function(
-                        "() => { const el = document.getElementById('me-team-stat'); "
-                        "return el && el.hidden; }",
-                        timeout=30000,
-                    )
+                page.locator("#me-group-engagement").wait_for(state="visible", timeout=30000)
                 dest = out_dir / f"{prefix}-{width}.png"
                 page.screenshot(path=str(dest), full_page=True)
                 written.append(dest)
