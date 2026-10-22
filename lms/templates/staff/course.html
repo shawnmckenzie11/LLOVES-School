@@ -68,6 +68,12 @@
         <span class="course-tabs-toggle-icon" aria-hidden="true">☰</span>
       </button>
       <div class="course-tabs-panel" id="course-tabs-panel">
+        {% if course_shell_tabs %}
+        <a class="course-tab {{ 'on' if tab == 'live' else '' }}" href="{{ url_for('staff_course', class_id=cls.id, tab='live') }}">Live Class</a>
+        <a class="course-tab {{ 'on' if tab == 'lesson-slides' else '' }}" href="{{ url_for('staff_course', class_id=cls.id, tab='lesson-slides') }}">Lesson Slides</a>
+        <a class="course-tab {{ 'on' if tab == 'ap' else '' }}" href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}">Attendance &amp; Participation</a>
+        <a class="course-tab {{ 'on' if tab == 'question-banks' else '' }}" href="{{ url_for('staff_course', class_id=cls.id, tab='question-banks') }}">Question banks</a>
+        {% else %}
         <a class="course-tab {{ 'on' if tab == 'live' else '' }}" href="{{ url_for('staff_course', class_id=cls.id, tab='live') }}">Live Class</a>
         {% if not course_simple %}<a class="course-tab {{ 'on' if tab == 'lesson-slides' else '' }}" href="{{ url_for('staff_course', class_id=cls.id, tab='lesson-slides') }}">Lesson Slides</a>{% endif %}
         <a class="course-tab {{ 'on' if tab == 'ap' else '' }}" href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}">Attendance &amp; Participation</a>
@@ -94,6 +100,7 @@
             {% endif %}
           </ul>
         </details>
+        {% endif %}
         {% endif %}
       </div>
     </nav>

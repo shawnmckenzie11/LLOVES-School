@@ -234,6 +234,10 @@ except ImportError:
         instances_payload,
         status_payload,
     )
+from course_shell import (  # noqa: E402
+    backfill_module_pack,
+    offering_uses_shell_tabs,
+)
 from modules import (  # noqa: E402
     IMSCC_MAX_BYTES,
     ensure_unpacked,
@@ -2736,10 +2740,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 library_id = int(created["library"]["id"])
                 dest_root = created["dest_root"]
                 stored = created["stored"]
-            if uploaded is None and not school.base_layer_available(code):
-                return _assign_error(
-                    f"A module pack (.imscc) is required for {code} — no template exists yet."
-                )
             offering = school.assign_course(
                 teacher_user_id=teacher_id,
                 ontario_code=code,
@@ -2799,6 +2799,49 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             stored=created["stored"],
             dest_root=created["dest_root"],
         )
+
+    @app.route(
+        "/it/offerings/<int:offering_id>/module-pack/backfill",
+        methods=["POST"],
+    )
+    def it_backfill_module_pack(offering_id: int):
+        """Merge a module pack into one course. Admin only.
+
+        Missing rows from the cartridge are added to the course-owned
+        library. Decks, slides, and questions already stored are left as
+        they are. Roster, PIN, and attendance tables are not written.
+
+        Args:
+            offering_id: ``course_offerings.id``.
+        """
+        user = current_user()
+        email = str((user or {}).get("email") or "").lower()
+        if user is None or (user.get("role") != "it" and email not in it_emails()):
+            return render_template(
+                "forbidden.html",
+                message="Ask Admin to grant access.",
+            ), 403
+        try:
+            offering = school.get_offering(int(offering_id))
+        except KeyError:
+            abort(404)
+        uploaded = _upload_file()
+        if uploaded is None:
+            return _assign_error("Choose a .imscc module pack to upload.")
+        try:
+            counts = backfill_module_pack(school, int(offering["id"]), uploaded)
+        except ValueError as exc:
+            return _assign_error(str(exc))
+        _audit(
+            "offering.pack_backfill",
+            "offering",
+            resource_id=int(offering["id"]),
+            detail={
+                "pages": int(counts.get("pages") or 0),
+                "questions": int(counts.get("questions") or 0),
+            },
+        )
+        return redirect(url_for("it_dashboard", tab="offerings"))
 
     @app.route("/it/offerings/<int:offering_id>/module-pack/status")
     @it_required
@@ -3036,10 +3079,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 library_id = int(created["library"]["id"])
                 dest_root = created["dest_root"]
                 stored = created["stored"]
-            if uploaded is None and not school.base_layer_available(code):
-                return _assign_error(
-                    f"A module pack (.imscc) is required for {code} — no template exists yet."
-                )
             offering = school.assign_course(
                 teacher_user_id=staff_id,
                 ontario_code=code,
@@ -4151,9 +4190,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             (offering or {}).get("ontario_code") or cls.get("ontario_code"),
             cls.get("library_id") or (offering or {}).get("library_id"),
         )
-        # Pack-less non-math courses open on Attendance & Participation.
+        course_shell_tabs = offering_uses_shell_tabs(school, offering)
+        # A default shell opens on Live Class. Pack-less non-math courses
+        # that are not on that shell still open on Attendance & Participation.
         # Every other course opens on Live Class (MCK-249).
-        default_tab = "ap" if course_simple else "live"
+        default_tab = "live" if course_shell_tabs or not course_simple else "ap"
         tab = (request.args.get("tab") or default_tab).strip().lower()
         if tab in {"track-live", "track_live"}:
             tab = "live"
@@ -4329,6 +4370,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             tour_offer=_tour_offer(user, [cls]),
             **tour,
             course_simple=course_simple,
+            course_shell_tabs=course_shell_tabs,
             live_session_id=live_session_id,
             live_run_key=live_run_key,
             live_session_code=live_session_code,

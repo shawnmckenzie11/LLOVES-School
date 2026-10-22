@@ -347,7 +347,10 @@ def seed_local_question_banks(school: Any, *, cache_root: Path | None = None) ->
     if not local_dev_login_enabled():
         return {"skipped": True, "reason": "LOCAL_DEV_LOGIN is off"}
     rows = school.conn.execute(
-        "SELECT id, ontario_code FROM content_libraries"
+        """
+        SELECT id, ontario_code FROM content_libraries
+        WHERE origin NOT IN ('shell', 'backfill-staging')
+        """
     ).fetchall()
     libraries = [
         seed_library_import_banks(

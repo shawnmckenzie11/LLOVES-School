@@ -2229,6 +2229,12 @@ class LovesDB:
             self._ensure_catchup_slot_unique()
             self._ensure_catchup_portal_join_code_column()
             self._ensure_library_schema()
+            try:
+                from course_shell import ensure_schema as ensure_course_shell_schema
+            except ImportError:
+                from lms.course_shell import ensure_schema as ensure_course_shell_schema
+
+            ensure_course_shell_schema(self.conn)
             self._ensure_question_editor_columns()
             self._ensure_module_bank_schema()
             self._ensure_archived_column()
@@ -3469,6 +3475,14 @@ class LovesDB:
         if "style_guide_file_id" not in cols:
             self.conn.execute(
                 "ALTER TABLE course_offerings ADD COLUMN style_guide_file_id TEXT"
+            )
+        if "course_shell" not in cols:
+            self.conn.execute(
+                "ALTER TABLE course_offerings ADD COLUMN course_shell TEXT"
+            )
+        if "shell_library_id" not in cols:
+            self.conn.execute(
+                "ALTER TABLE course_offerings ADD COLUMN shell_library_id INTEGER"
             )
 
     def _legacy_offering_unique_index(self) -> str | None:
@@ -7332,7 +7346,66 @@ class LovesDB:
             """,
             tuple(offering_ids),
         )
+        self._delete_ids("course_class_slots", "offering_id", offering_ids, present)
+        self._delete_shell_libraries(offering_ids, present)
         self._delete_ids("course_offerings", "id", offering_ids, present)
+
+    def _delete_shell_libraries(
+        self, offering_ids: list[int], present: set[str]
+    ) -> None:
+        """Delete course-owned shell libraries for offerings that are going away.
+
+        Shared upload, template, and legacy packs stay. A shell library that
+        another remaining offering still points at stays too.
+
+        Args:
+            offering_ids: ``course_offerings.id`` values about to be removed.
+            present: Table names in this database.
+        """
+        if (
+            not offering_ids
+            or "content_libraries" not in present
+            or "course_offerings" not in present
+        ):
+            return
+        columns = {
+            str(row["name"])
+            for row in self.conn.execute("PRAGMA table_info(course_offerings)")
+        }
+        if "shell_library_id" not in columns:
+            return
+        marks = ",".join("?" * len(offering_ids))
+        rows = self.conn.execute(
+            f"""
+            SELECT DISTINCT shell_library_id FROM course_offerings
+            WHERE id IN ({marks}) AND shell_library_id IS NOT NULL
+            """,
+            tuple(offering_ids),
+        ).fetchall()
+        library_ids = [int(row[0]) for row in rows]
+        if not library_ids:
+            return
+        lib_marks = ",".join("?" * len(library_ids))
+        still = self.conn.execute(
+            f"""
+            SELECT shell_library_id FROM course_offerings
+            WHERE shell_library_id IN ({lib_marks})
+              AND id NOT IN ({marks})
+            """,
+            (*library_ids, *offering_ids),
+        ).fetchall()
+        shared = {int(row[0]) for row in still}
+        doomed = [library_id for library_id in library_ids if library_id not in shared]
+        if not doomed:
+            return
+        doomed_marks = ",".join("?" * len(doomed))
+        self.conn.execute(
+            f"""
+            DELETE FROM content_libraries
+            WHERE id IN ({doomed_marks}) AND origin = 'shell'
+            """,
+            tuple(doomed),
+        )
 
     def _delete_staff_invites(self, user_id: int, present: set[str]) -> None:
         """Delete invite sends, then the invite rows for this account.
@@ -8275,7 +8348,10 @@ class LovesDB:
         """Return the newest library row for a course code (any origin).
 
         Used when a code has no git template so a later teacher shares an
-        IT upload. Args:
+        IT upload. Course-owned shell libraries and backfill staging rows
+        are not shared packs.
+
+        Args:
             ontario_code: Catalog course code.
         """
         code = (ontario_code or "").strip().upper()
@@ -8284,6 +8360,7 @@ class LovesDB:
                 """
                 SELECT * FROM content_libraries
                 WHERE ontario_code = ?
+                  AND origin NOT IN ('shell', 'backfill-staging')
                 ORDER BY id DESC
                 LIMIT 1
                 """,
@@ -8409,7 +8486,12 @@ class LovesDB:
         code = (ontario_code or "").strip().upper()
         with self._lock:
             lib_row = self.conn.execute(
-                "SELECT id FROM content_libraries WHERE ontario_code = ? LIMIT 1",
+                """
+                SELECT id FROM content_libraries
+                WHERE ontario_code = ?
+                  AND origin NOT IN ('shell', 'backfill-staging')
+                LIMIT 1
+                """,
                 (code,),
             ).fetchone()
         return lib_row is not None
@@ -10357,6 +10439,12 @@ class SchoolDB(LovesDB):
             style_guide_file_id=style_guide_file_id,
             base_offering=base,
         )
+        try:
+            from course_shell import ensure_default_course_shell
+        except ImportError:
+            from lms.course_shell import ensure_default_course_shell
+
+        ensure_default_course_shell(self, int(offering["id"]), mark=True)
         return self.get_offering(int(offering["id"]))
 
     def _save_offering_instance(

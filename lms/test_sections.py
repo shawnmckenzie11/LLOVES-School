@@ -174,7 +174,11 @@ class SectionTests(unittest.TestCase):
         self.assertIsNotNone(first.get("library_id"))
         self.assertEqual(first["library_id"], second["library_id"])
         libraries = self.school.conn.execute(
-            "SELECT COUNT(*) AS n FROM content_libraries WHERE ontario_code = 'MCF3M'"
+            """
+            SELECT COUNT(*) AS n FROM content_libraries
+            WHERE ontario_code = 'MCF3M'
+              AND origin NOT IN ('shell', 'backfill-staging')
+            """
         ).fetchone()["n"]
         self.assertEqual(int(libraries), 1)
         self.assertEqual(list(self.root.rglob("*.imscc")), [])
@@ -230,19 +234,18 @@ class SectionTests(unittest.TestCase):
         self.assertIn("<h1>MCF3M-2</h1>", course_html)
         self.assertIn(">Dashboard</a>", course_html)
         self.assertNotIn("Staff home", course_html)
-        self.assertIn(">Expectations</a>", course_html)
-        self.assertIn(">Profiles</a>", course_html)
-        exp_at = course_html.find(">Expectations</a>")
-        profiles_at = course_html.find(">Profiles</a>")
-        self.assertGreater(profiles_at, exp_at)
+        self.assertIn(">Lesson Slides</a>", course_html)
+        self.assertIn(">Question banks</a>", course_html)
+        self.assertNotIn(">Expectations</a>", course_html)
+        self.assertNotIn(">Profiles</a>", course_html)
+        self.assertNotIn(">Grades</a>", course_html)
+        self.assertNotIn(">Modules</a>", course_html)
         self.assertIn("Attendance &amp; Participation", course_html)
-        # Primary tabs lead; Modules sits in More, after Grades.
-        modules_at = course_html.find(">Modules</a>")
+        slides_at = course_html.find(">Lesson Slides</a>")
         ap_at = course_html.find("Attendance &amp; Participation")
-        grades_at = course_html.find(">Grades</a>")
-        self.assertGreater(modules_at, ap_at)
-        self.assertGreater(modules_at, grades_at)
-        self.assertLess(ap_at, grades_at)
+        banks_at = course_html.find(">Question banks</a>")
+        self.assertLess(slides_at, ap_at)
+        self.assertLess(ap_at, banks_at)
         self.assertNotIn("Inherited curriculum expectations", course_html)
         expectations_page = self.client.get(
             f"/staff/class/{second_class['id']}?tab=expectations"
@@ -396,7 +399,11 @@ class SectionTests(unittest.TestCase):
         self.assertIsNotNone(extra.get("library_id"))
         self.assertEqual(rehomed["library_id"], extra["library_id"])
         libraries = self.school.conn.execute(
-            "SELECT COUNT(*) AS n FROM content_libraries WHERE ontario_code = 'MCF3M'"
+            """
+            SELECT COUNT(*) AS n FROM content_libraries
+            WHERE ontario_code = 'MCF3M'
+              AND origin NOT IN ('shell', 'backfill-staging')
+            """
         ).fetchone()["n"]
         self.assertEqual(int(libraries), 1)
 
