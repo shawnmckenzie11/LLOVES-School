@@ -9847,3 +9847,38 @@ body.staff-shell #live-add-question-note {
   font-weight: 450;
   margin-left: 0.25rem;
 }
+
+/* MCK-316: 16:9 slide fitted to the Slides card, no crop. */
+body.staff-shell .live-google-slides-stage {
+  flex: 1 1 auto;
+  min-height: 12rem;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e4e1dc;
+  container-type: size;
+  overflow: hidden;
+  border-radius: 8px;
+}
+body.staff-shell .live-google-slides-stage[hidden] {
+  display: none !important;
+}
+body.staff-shell .live-google-slides-stage .live-google-slides-card {
+  display: block;
+  width: min(100cqw, calc(100cqh * 16 / 9));
+  height: min(100cqh, calc(100cqw * 9 / 16));
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  object-position: center;
+  background: transparent;
+  border: 0;
+}
+body.staff-shell.course-live #slides-zone:not(.is-parked) {
+  overflow: hidden;
+}
+body.staff-shell.course-live #slides-zone:not(.is-parked) .live-google-slides-stage {
+  min-height: 0;
+}

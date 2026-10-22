@@ -45,7 +45,7 @@ export function setClassStartFields(mode) {
  * "current deck" because it copies that deck. Office names the next open
  * office and leaves the deck clause off.
  *
- * @param {{mode?: string, module?: string, slot?: string, deck?: string}} parts
+ * @param {{mode?: string, module?: string, slot?: string, deck?: string, slides?: string}} parts
  * @returns {string} For example ``Starting test class: Module 2, Class 1, current deck.``
  */
 export function setClassSummaryLine(parts) {
@@ -63,5 +63,7 @@ export function setClassSummaryLine(parts) {
   const deck = parts?.deck === "previous" || parts?.deck === "course" ? parts.deck : "current";
   const deckPhrase =
     deck === "previous" ? "previous deck" : deck === "course" ? "course deck" : "current deck";
-  return `Starting ${type}: ${modLabel}, Class ${classNum}, ${deckPhrase}.`;
+  const slides = String(parts?.slides || "").replace(/\s+/g, " ").trim();
+  const slidesClause = slides ? `, ${slides}` : "";
+  return `Starting ${type}: ${modLabel}, Class ${classNum}, ${deckPhrase}${slidesClause}.`;
 }

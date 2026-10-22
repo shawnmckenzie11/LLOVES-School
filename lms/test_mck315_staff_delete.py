@@ -1113,6 +1113,67 @@ class PermanentStaffDeleteTests(unittest.TestCase):
         session_id = int(started["id"])
         run_key, prompt_id = self._seat_and_cross_tag(session_id, target_class, int(other["id"]))
         self.assertTrue(run_key)
+        import base64
+
+        png = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        )
+        self.school.save_course_slide_deck(
+            target_class,
+            "M1",
+            "C1",
+            title="Target deck",
+            source="pptx",
+            page_pngs=[png],
+            source_bytes=b"PK\x03\x04target-slide-source",
+            source_suffix=".pptx",
+        )
+        self.school.save_course_slide_deck(
+            other_class,
+            "M1",
+            "C1",
+            title="Other deck",
+            source="pptx",
+            page_pngs=[png],
+            source_bytes=b"PK\x03\x04other-slide-source",
+            source_suffix=".pptx",
+        )
+        target_rows = self.school.conn.execute(
+            """
+            SELECT source_relpath FROM course_slide_decks WHERE class_id = ?
+            """,
+            (target_class,),
+        ).fetchall()
+        other_rows = self.school.conn.execute(
+            """
+            SELECT source_relpath FROM course_slide_decks WHERE class_id = ?
+            """,
+            (other_class,),
+        ).fetchall()
+        target_pages = self.school.conn.execute(
+            """
+            SELECT pages.image_relpath
+            FROM course_slide_pages AS pages
+            JOIN course_slide_decks AS decks ON decks.id = pages.deck_id
+            WHERE decks.class_id = ?
+            """,
+            (target_class,),
+        ).fetchall()
+        other_pages = self.school.conn.execute(
+            """
+            SELECT pages.image_relpath
+            FROM course_slide_pages AS pages
+            JOIN course_slide_decks AS decks ON decks.id = pages.deck_id
+            WHERE decks.class_id = ?
+            """,
+            (other_class,),
+        ).fetchall()
+        data_dir = Path(self.school.data_dir)
+        target_files = [data_dir / str(row[0]) for row in (*target_rows, *target_pages)]
+        other_files = [data_dir / str(row[0]) for row in (*other_rows, *other_pages)]
+        self.assertTrue(target_files)
+        self.assertTrue(all(path.is_file() for path in target_files))
+        self.assertTrue(all(path.is_file() for path in other_files))
         self.school.delete_staff_permanently(int(target["id"]), self.actor_id)
         row = self.school.conn.execute(
             "SELECT class_id, teacher_user_id FROM live_class_sessions WHERE id = ?",
@@ -1174,6 +1235,33 @@ class PermanentStaffDeleteTests(unittest.TestCase):
                 "SELECT id FROM classes WHERE id = ?",
                 (other_class,),
             ).fetchone()
+        )
+        self.assertIsNone(self.school.course_slide_deck_summary(target_class, "M1", "C1"))
+        other_deck = self.school.course_slide_deck_summary(other_class, "M1", "C1")
+        self.assertIsNotNone(other_deck)
+        assert other_deck is not None
+        self.assertEqual(other_deck["title"], "Other deck")
+        self.assertTrue(all(not path.is_file() for path in target_files))
+        self.assertTrue(all(path.is_file() for path in other_files))
+        self.assertEqual(
+            self.school.conn.execute(
+                """
+                SELECT COUNT(*) FROM course_slide_pages
+                WHERE image_relpath LIKE ?
+                """,
+                (f"live-question-images/{target_class}/%",),
+            ).fetchone()[0],
+            0,
+        )
+        self.assertEqual(
+            self.school.conn.execute(
+                """
+                SELECT COUNT(*) FROM course_slide_pages
+                WHERE image_relpath LIKE ?
+                """,
+                (f"live-question-images/{other_class}/%",),
+            ).fetchone()[0],
+            1,
         )
 
     def test_cross_tagged_snapshot_keeps_a_session_the_target_started(self) -> None:

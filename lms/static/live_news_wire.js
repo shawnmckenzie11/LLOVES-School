@@ -88,6 +88,7 @@ const LIGHT_TYPES = new Set([
   "response_landed",
   "flag_work",
   "board_ink",
+  "google_slide",
 ]);
 
 /**

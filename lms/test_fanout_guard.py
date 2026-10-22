@@ -30,6 +30,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from live_news_wire import reset_logs  # noqa: E402
 from school_db import LIVE_QUESTION_TYPES  # noqa: E402
 from test_team_draw_mck242 import _INKED_PNG, _png_b64  # noqa: E402
 
@@ -142,6 +143,7 @@ class FanoutGuardTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         logging.disable(logging.NOTSET)
+        reset_logs()
         self.school.close()
         self.tmp.cleanup()
 
@@ -607,6 +609,54 @@ class FanoutGuardTests(unittest.TestCase):
         self._close_open()
         for kind in INDIVIDUAL_ROWS:
             self._individual(kind)
+
+    def test_slide_publish_and_page_change_do_not_fan_out(self) -> None:
+        """Publishing, moving, or unpublishing a slide leaves every phone unchanged."""
+        import fitz
+
+        pngs: list[bytes] = []
+        document = fitz.open()
+        try:
+            for label in ("A", "B"):
+                page = document.new_page(width=64, height=36)
+                page.insert_text((8, 24), label)
+                pngs.append(page.get_pixmap(alpha=False).tobytes("png"))
+        finally:
+            document.close()
+        self.school.import_google_slides_pages(
+            self.session_id,
+            presentation_id="DeckFanout01",
+            page_pngs=pngs,
+        )
+
+        def _same(label: str) -> None:
+            for index, snap in before.items():
+                self._assert_same(index, snap, label)
+
+        before = {index: self._snap(index) for index in sorted(self.present)}
+        time.sleep(GAP_S)
+        published = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/google-slides/pages/0/publish"
+        )
+        self._ok_status(published, 200)
+        _same("slide publish")
+
+        before = {index: self._snap(index) for index in sorted(self.present)}
+        time.sleep(GAP_S)
+        moved = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/google-slides/current",
+            json={"index": 1},
+        )
+        self._ok_status(moved, 200)
+        _same("slide page")
+
+        before = {index: self._snap(index) for index in sorted(self.present)}
+        time.sleep(GAP_S)
+        hidden = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/google-slides/pages/0/unpublish"
+        )
+        self._ok_status(hidden, 200)
+        _same("slide unpublish")
 
     def test_teacher_actions_update_everyone(self) -> None:
         """Publish, close, and end each rebuild every joined phone."""

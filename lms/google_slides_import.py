@@ -614,6 +614,8 @@ def import_shared_deck(
     user: dict[str, Any] | None,
     http: Any | None = None,
     time_limit: float = IMPORT_TIME_LIMIT_SECONDS,
+    default_published: bool = False,
+    title: str = "",
 ) -> dict[str, Any]:
     """Import one share link onto the live session as image pages.
 
@@ -629,6 +631,8 @@ def import_shared_deck(
         user: Signed-in staff row, used only for the read-only fallback.
         http: Optional HTTP client for tests.
         time_limit: Seconds allowed for this import. ``0`` fails immediately.
+        default_published: Initial shared flag stored with the course deck.
+        title: Deck name. Blank uses ``Google Slides``.
 
     Returns:
         Teacher deck dict (every page, published flags, current index).
@@ -660,6 +664,8 @@ def import_shared_deck(
         page_pngs=pngs,
         source=source,
         truncated=truncated,
+        default_published=bool(default_published),
+        title=title or "Google Slides",
     )
 
 

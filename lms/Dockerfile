@@ -10,6 +10,7 @@ ENV PORT=8080
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    libreoffice-impress \
     && rm -rf /var/lib/apt/lists/*
 
 COPY lms/requirements.txt lms/requirements.txt
