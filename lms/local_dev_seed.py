@@ -778,7 +778,11 @@ def _seed_existing_mcf3m_builder_banks(school: Any) -> dict[str, Any] | None:
     library_ids = {
         int(row["id"])
         for row in school.conn.execute(
-            "SELECT id FROM content_libraries WHERE ontario_code = ?",
+            """
+            SELECT id FROM content_libraries
+            WHERE ontario_code = ?
+              AND origin NOT IN ('shell', 'backfill-staging')
+            """,
             (LOCAL_DEV_COURSE,),
         ).fetchall()
     }

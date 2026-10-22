@@ -16,9 +16,10 @@ import test_welcome_gate_mck183 as gate  # noqa: E402
 
 NEW = gate.NEW
 API = "/api/staff/onboarding/course"
+SHELL_TABS = ("live", "lesson-slides", "ap", "question-banks")
 HIDDEN_TABS = (
-    "lesson-slides", "modules", "gradebook", "pages", "assignments", "quizzes",
-    "question-banks", "syllabus", "expectations", "profiles",
+    "modules", "gradebook", "pages", "assignments", "quizzes",
+    "syllabus", "expectations", "profiles",
 )
 
 
@@ -44,18 +45,19 @@ class NonMathTests(unittest.TestCase):
     def _tabs(self, html: str) -> str:
         return re.search(r'<div class="course-tabs-panel".*?</div>', html, re.S).group(0)
 
-    def test_non_math_course_opens_on_ap_with_two_tabs(self) -> None:
+    def test_non_math_course_opens_on_live_with_four_tabs(self) -> None:
         class_id = self._class_for("SBI4U")
         html = self.client.get(f"/staff/class/{class_id}").get_data(as_text=True)
         tabs = self._tabs(html)
-        self.assertIn("Live Class", tabs)
-        self.assertIn("Attendance &amp; Participation", tabs)
+        self.assertEqual(
+            re.findall(r"[?&]tab=([a-z0-9-]+)", tabs),
+            list(SHELL_TABS),
+        )
         for tab in HIDDEN_TABS:
             self.assertNotIn(f"tab={tab}", tabs, tab)
-        self.assertIn('<span class="course-tabs-toggle-label">Attendance &amp; Participation</span>', html)
-        # Unknown tab falls back to A&P too.
+        self.assertIn('<span class="course-tabs-toggle-label">Live Class</span>', html)
         other = self.client.get(f"/staff/class/{class_id}?tab=nope").get_data(as_text=True)
-        self.assertIn('<span class="course-tabs-toggle-label">Attendance &amp; Participation</span>', other)
+        self.assertIn('<span class="course-tabs-toggle-label">Live Class</span>', other)
 
     def test_non_math_set_class_and_kind_labels(self) -> None:
         class_id = self._class_for("SBI4U")
@@ -95,20 +97,22 @@ class NonMathTests(unittest.TestCase):
         self.assertNotIn('id="ap-evidence-coverage"', part)
         self.assertNotIn("Process evidence (this live session)", part)
 
-    def test_math_course_without_pack_is_unchanged(self) -> None:
-        """Math courses open on Live Class and keep the other sections under More."""
+    def test_math_course_without_pack_uses_shell_tabs(self) -> None:
+        """A new pack-less math course opens on Live Class with the four shell tabs."""
         class_id = self._class_for("MCF3M")
         html = self.client.get(f"/staff/class/{class_id}").get_data(as_text=True)
         self.assertIn('<span class="course-tabs-toggle-label">Live Class</span>', html)
         tabs = self._tabs(html)
-        for tab in ("lesson-slides", "modules", "gradebook", "question-banks", "syllabus", "expectations", "profiles"):
-            self.assertIn(f"tab={tab}", tabs, tab)
-        self.assertIn("tab=library", tabs)
-        self.assertIn(">Content library<", tabs)
+        self.assertEqual(
+            re.findall(r"[?&]tab=([a-z0-9-]+)", tabs),
+            list(SHELL_TABS),
+        )
+        for tab in HIDDEN_TABS:
+            self.assertNotIn(f"tab={tab}", tabs, tab)
         self.assertNotIn("tab=pages", tabs)
         pages = self.client.get(f"/staff/class/{class_id}?tab=pages").get_data(as_text=True)
         self.assertIn('data-kind="pages"', pages)
-        self.assertIn(">Content library<", pages)
+        self.assertIn("More: Content library", pages)
         live = self.client.get(f"/staff/class/{class_id}?tab=live").get_data(as_text=True)
         self.assertIn('<label class="live-pack-field" for="live-module-select">', live)
         self.assertIn('<option value="" selected>Core Math</option>', live)

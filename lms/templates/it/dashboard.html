@@ -365,6 +365,10 @@
                       <button type="submit" class="btn secondary">Rotate Code</button>
                     </form>
                     <a class="btn secondary" href="/it/offerings/{{ o.id }}/pack">Replace Pack</a>
+                    <form method="post" action="{{ url_for('it_backfill_module_pack', offering_id=o.id) }}" class="it-action-form" enctype="multipart/form-data">
+                      <input type="file" name="module_pack" accept=".imscc,.zip,application/zip" required>
+                      <button type="submit" class="btn secondary">Backfill/update with module pack</button>
+                    </form>
                     {% if o.archived_at %}
                     <form method="post" action="{{ url_for('it_unarchive_offering', offering_id=o.id) }}" class="it-action-form">
                       <button type="submit" class="btn secondary">Unarchive</button>

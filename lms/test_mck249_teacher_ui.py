@@ -85,7 +85,9 @@ class TeacherUiTests(Base):
         self.assertIn("course-live", html)
         self.assertIn('<span class="course-tabs-toggle-label">Live Class</span>', html)
         self.assertIn(">Question banks<", html)
-        self.assertIn(">Content library<", html)
+        self.assertIn(">Lesson Slides<", html)
+        self.assertNotIn(">Content library<", html)
+        self.assertNotIn(">Grades</a>", html)
         self.assertNotIn(">Engagement</a>", html)
 
     def test_old_catalog_urls_open_the_library_prefiltered(self) -> None:
@@ -107,7 +109,8 @@ class TeacherUiTests(Base):
             f"/staff/class/{self.class_id}?tab=syllabus"
         ).get_data(as_text=True)
         self.assertIn("More: Syllabus", html)
-        self.assertIn('class="course-more-summary on"', html)
+        self.assertNotIn('class="course-more-summary', html)
+        self.assertIn('title="Syllabus"', html)
 
     def test_engagement_route_still_renders(self) -> None:
         html = self.client.get(
