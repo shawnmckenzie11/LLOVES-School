@@ -616,15 +616,18 @@ class CourseSlideFileTests(unittest.TestCase):
     def test_root_sandbox_converts_pptx_as_nobody(self) -> None:
         """A root worker still renders a pptx after the uid drop."""
         lms_dir = str(Path(__file__).resolve().parent)
+        # Same interpreter as this process. sudo's python3 is a different
+        # build on CI, and mixing its stdlib with this one breaks ctypes.
+        pythonpath = [lms_dir]
+        for entry in sys.path:
+            if entry and "site-packages" in entry and entry not in pythonpath:
+                pythonpath.append(entry)
         deck = Path("/tmp/lloves-root-deck.pptx")
         driver = Path("/tmp/lloves-root-convert-driver.py")
         deck.write_bytes(_minimal_pptx())
         driver.write_text(
             "\n".join(
                 [
-                    "import sys",
-                    f"sys.path[:0] = {list(sys.path)!r}",
-                    f"sys.path.insert(0, {lms_dir!r})",
                     "from pathlib import Path",
                     "import course_slide_files as files",
                     "raw = Path('/tmp/lloves-root-deck.pptx').read_bytes()",
@@ -641,7 +644,14 @@ class CourseSlideFileTests(unittest.TestCase):
         )
         try:
             ran = subprocess.run(
-                ["sudo", "-n", "python3", str(driver)],
+                [
+                    "sudo",
+                    "-n",
+                    "env",
+                    "PYTHONPATH=" + os.pathsep.join(pythonpath),
+                    sys.executable,
+                    str(driver),
+                ],
                 timeout=80,
                 check=False,
                 capture_output=True,
