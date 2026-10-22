@@ -532,9 +532,10 @@ class CourseSlideFileTests(unittest.TestCase):
         script.write_text("#!/bin/sh\nsleep 323 &\nwait\n", encoding="utf-8")
         script.chmod(0o755)
         driver = Path("/tmp/lloves-pdeath-driver.py")
+        lms_dir = str(Path(__file__).resolve().parent)
         driver.write_text(
             "import os, sys, subprocess, threading, time\n"
-            "sys.path.insert(0, '/workspace/lms')\n"
+            f"sys.path.insert(0, {lms_dir!r})\n"
             "import course_slide_files as files\n"
             "def go():\n"
             "    try:\n"
@@ -552,7 +553,7 @@ class CourseSlideFileTests(unittest.TestCase):
         )
         try:
             ran = subprocess.run(["python3", str(driver)], timeout=20, check=False)
-            self.assertEqual(ran.returncode, 0)
+            self.assertEqual(ran.returncode, 0, ran.stderr)
             time.sleep(0.4)
             listed = subprocess.run(
                 ["ps", "-eo", "args"], capture_output=True, text=True, check=False
