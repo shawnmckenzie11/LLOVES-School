@@ -45,6 +45,14 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r lms/requirements.txt
 
+      - name: Install LibreOffice
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-impress
+
+      # Slide conversion uses unshare --map-root-user. Ubuntu 24.04 denies
+      # that write to uid_map until this restriction is off.
+      - name: Allow the slide sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Run tests
         env:
           ALLOW_DEV_VERIFICATION_CODE: "1"

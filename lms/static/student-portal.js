@@ -484,6 +484,7 @@ const liveSubmitInFlight = new Set();
 /** @type {number} */
 let lastStateSeq = -1;
 let lastPollStamp = "";
+let lastSlideRev = null;
 /** One student /state at a time. A second tick waits until it finishes. */
 let studentPollInFlight = false;
 /**
@@ -1839,9 +1840,24 @@ function clearStudentGoogleSlide() {
  * Paint the shared slide card, or the metadata deck when no Google deck is attached.
  * @param {any} payload
  */
+/**
+ * Paint one shared slide card and remember its rev for the next poll.
+ * @param {any} card
+ */
+function applyStudentGoogleSlide(card) {
+  if (!card || card.attached !== true) return;
+  if (card.rev != null) lastSlideRev = Number(card.rev) || 0;
+  const docked = dockedLiveCardKeys.has("surface:slides");
+  const show = Boolean(card.image_url) && !docked;
+  if (slidesPane && !paneIsBeingGrabbed(slidesPane)) slidesPane.hidden = !show;
+  if (show) paintStudentSlides({ google_slide: card });
+  else clearStudentGoogleSlide();
+}
+
 function paintStudentSlides(payload) {
   const card = googleSlideCard(payload);
   const image = document.getElementById("slides-card");
+  if (card && card.rev != null) lastSlideRev = Number(card.rev) || 0;
   if (card) {
     const url = String(card.image_url || "");
     if (slidesFrame instanceof HTMLIFrameElement) {
@@ -5888,6 +5904,18 @@ function ensureStudentNewsWire(sessionId) {
   if (studentNewsWire) studentNewsWire.stop();
   studentNewsWire = connectLiveNewsWire(sid, {
     onNews(event) {
+      if (event && event.type === "google_slide") {
+        applyStudentGoogleSlide({
+          attached: true,
+          shared: Number(event.shared) === 1,
+          index: Number(event.index) || 0,
+          page_number: (Number(event.index) || 0) + 1,
+          page_count: Number(event.page_count) || 0,
+          image_url: Number(event.shared) === 1 ? String(event.image_url || "") : "",
+          rev: Number(event.rev) || 0,
+        });
+        return;
+      }
       if (event && event.type === "board_ink") {
         kickStudentBoardDelta();
         return;
@@ -6005,6 +6033,7 @@ async function tick() {
     const params = new URLSearchParams();
     if (lastStateSeq >= 0) params.set("seq", String(lastStateSeq));
     if (lastPollStamp) params.set("stamp", lastPollStamp);
+    if (lastSlideRev != null) params.set("slide_rev", String(lastSlideRev));
     const qs = params.toString() ? `?${params}` : "";
     const res = await fetch(`/api/student/state${qs}`, visitFetchInit());
     if (!res.ok) {
@@ -6026,6 +6055,7 @@ async function tick() {
     if (data.unchanged) {
       if (data.stamp) lastPollStamp = String(data.stamp);
       if (data.state_seq != null) lastStateSeq = Number(data.state_seq);
+      if (data.google_slide) applyStudentGoogleSlide(data.google_slide);
       if (data.live_session_id && data.status !== "ended") {
         ensureStudentNewsWire(data.live_session_id);
       }

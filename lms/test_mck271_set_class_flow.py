@@ -40,6 +40,8 @@ const line = setClassSummaryLine({ mode: "test", module: "M2", slot: "C1", deck:
 const previous = setClassSummaryLine({ mode: "live", module: "M3", slot: "C3", deck: "previous" });
 const course = setClassSummaryLine({ mode: "live", module: "M1", slot: "C2", deck: "course" });
 const openOffice = setClassSummaryLine({ mode: "office", module: "M3", slot: "O1", deck: "current" });
+const named = setClassSummaryLine({ mode: "live", module: "M1", slot: "C2", deck: "current", slides: "Google Slides" });
+const officeNamed = setClassSummaryLine({ mode: "office", module: "M3", slot: "O1", slides: "Google Slides" });
 
 const failed = [];
 function check(cond, message) {
@@ -53,6 +55,8 @@ check(line === "Starting test class: Module 2, Class 1, current deck.", line);
 check(previous === "Starting live class: Module 3, Class 3, previous deck.", previous);
 check(course === "Starting live class: Module 1, Class 2, course deck.", course);
 check(openOffice === "Starting open office: Module 3, Open office 1.", openOffice);
+check(named === "Starting live class: Module 1, Class 2, current deck, Google Slides.", named);
+check(officeNamed === "Starting open office: Module 3, Open office 1.", officeNamed);
 if (failed.length) {
   console.error(failed.join("\n"));
   process.exit(1);

@@ -23,6 +23,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from slide_import_jobs import follow_slide_import  # noqa: E402
 from google_slides_import import (  # noqa: E402
     IMPORT_TIME_LIMIT_SECONDS,
     MAX_SLIDE_EDGE,
@@ -47,6 +48,7 @@ from live_class_slides import (  # noqa: E402
     SlidesConnectRequired,
     slides_read_oauth_url,
 )
+from live_news_wire import reset_logs  # noqa: E402
 
 _FILE_ID = "DeckSlide01"
 
@@ -206,6 +208,7 @@ class GoogleSlidesLiveTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         """Close the database and remove the temp directory."""
+        reset_logs()
         self.school.close()
         self.tmp.cleanup()
 
@@ -237,6 +240,7 @@ class GoogleSlidesLiveTests(unittest.TestCase):
                     )
                 },
             )
+            response = follow_slide_import(self.staff, response)
         self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
         body = response.get_json()
         self.assertTrue(body["ok"])
@@ -275,8 +279,14 @@ class GoogleSlidesLiveTests(unittest.TestCase):
         html = page.get_data(as_text=True)
         self.assertIn('data-tab="slides"', html)
         self.assertIn('id="live-google-slides-attach"', html)
-        self.assertIn('id="live-google-slides-prev"', html)
-        self.assertIn('id="live-google-slides-next"', html)
+        self.assertNotIn('id="live-google-slides-prev"', html)
+        self.assertNotIn('id="live-google-slides-next"', html)
+        self.assertIn('id="set-class-slides-add"', html)
+        self.assertLess(
+            html.index('id="set-class-slides-add"'),
+            html.index('id="set-class-day-step"'),
+        )
+        self.assertLess(html.index("Which deck?"), html.index('id="set-class-slides-add"'))
         home = self.student.get("/student/home")
         self.assertIn('id="slides-card"', home.get_data(as_text=True))
 
@@ -308,7 +318,7 @@ class GoogleSlidesLiveTests(unittest.TestCase):
         after_publish = self.school.live_student_poll_stamp(
             self.live_session_id, self.class_id
         )
-        self.assertNotEqual(before, after_publish)
+        self.assertEqual(before, after_publish)
 
         self.staff.post(
             f"/api/live-sessions/{self.live_session_id}/google-slides/pages/0/publish"
@@ -343,6 +353,58 @@ class GoogleSlidesLiveTests(unittest.TestCase):
         self.assertEqual(restored.get_json()["google_slide"]["image_url"], second)
         self.assertEqual(self._student_card()["image_url"], second)
         self.assertNotIn(first, self._student_blob())
+
+
+    def test_phone_joined_before_a_deck_still_receives_the_card(self) -> None:
+        """A poll with no slide revision still carries the card after attach.
+
+        The phone joined before any deck existed. The unchanged flag stays
+        true and the poll stamp does not move.
+        """
+        rows = self.school.game.conn.execute(
+            "SELECT id FROM students WHERE class_id = ? ORDER BY id",
+            (self.class_id,),
+        ).fetchall()
+        student_id = int(rows[0]["id"])
+        opened = self.student.get("/api/student/state").get_json()
+        self.assertIsNone(opened.get("google_slide"))
+        seq = opened["state_seq"]
+        stamp = opened["stamp"]
+        quiet = self.student.get(
+            "/api/student/state", query_string={"seq": seq, "stamp": stamp}
+        )
+        quiet_body = quiet.get_json()
+        self.assertTrue(quiet_body.get("unchanged"))
+        self.assertNotIn("google_slide", quiet_body)
+        direct = self.school.live_student_poll_stamp(
+            self.live_session_id, self.class_id, student_id
+        )
+        self._attach()
+        poll = self.student.get(
+            "/api/student/state", query_string={"seq": seq, "stamp": stamp}
+        )
+        body = poll.get_json()
+        self.assertTrue(body.get("unchanged"))
+        card = body.get("google_slide")
+        self.assertIsInstance(card, dict)
+        self.assertTrue(card.get("attached"))
+        self.assertEqual(
+            self.school.live_student_poll_stamp(
+                self.live_session_id, self.class_id, student_id
+            ),
+            direct,
+        )
+        same = self.student.get(
+            "/api/student/state",
+            query_string={
+                "seq": seq,
+                "stamp": stamp,
+                "slide_rev": str(card.get("rev")),
+            },
+        )
+        held = same.get_json()
+        self.assertTrue(held.get("unchanged"))
+        self.assertNotIn("google_slide", held)
 
     def test_bad_link_is_rejected(self) -> None:
         """A non-Google link does not attach a deck."""
@@ -437,6 +499,7 @@ class GoogleSlidesLiveTests(unittest.TestCase):
                     )
                 },
             )
+            response = follow_slide_import(self.staff, response)
         self.assertEqual(response.status_code, 403)
         body = response.get_json()
         connect = str(body["connect_url"])
@@ -671,6 +734,7 @@ class GoogleSlidesLiveTests(unittest.TestCase):
                     )
                 },
             )
+            response = follow_slide_import(self.staff, response)
         self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
         second = response.get_json()["google_slides"]
         new_names = [page["image_url"].rsplit("/", 1)[-1] for page in second["pages"]]
@@ -692,14 +756,15 @@ class GoogleSlidesLiveTests(unittest.TestCase):
                     )
                 },
             )
+            again = follow_slide_import(self.staff, again)
         self.assertEqual(again.status_code, 200)
         for name in new_names:
             self.assertIsNotNone(
                 self.school.live_question_image_path(self.class_id, name)
             )
 
-    def test_quit_deletes_slide_pages_and_keeps_question_images(self) -> None:
-        """Quit removes this session's slide files and leaves other images."""
+    def test_quit_keeps_course_slides_and_question_images(self) -> None:
+        """Quit leaves course slide files. The next run points at that copy."""
         deck = self._attach()["google_slides"]
         image_url = deck["pages"][0]["image_url"]
         filename = image_url.rsplit("/", 1)[-1]
@@ -723,10 +788,23 @@ class GoogleSlidesLiveTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertIn(quit_response.status_code, (200, 302, 303))
-        self.assertIsNone(
+        self.assertIsNotNone(
             self.school.live_question_image_path(self.class_id, filename)
         )
-        self.assertEqual(self.staff.get(image_url).status_code, 404)
+        kept_deck = self.school.course_slide_deck_summary(self.class_id, "M1", "C1")
+        self.assertIsNotNone(kept_deck)
+        assert kept_deck is not None
+        self.assertEqual(kept_deck["page_count"], 2)
+        again = self.school.start_live_class_session(
+            self.class_id,
+            int(self.teacher["id"]),
+            live_module="M1",
+            live_slot="C1",
+        )
+        rebound = self.school.google_slides_deck(int(again["id"]))
+        self.assertIsNotNone(rebound)
+        assert rebound is not None
+        self.assertEqual(rebound["pages"][0]["image_url"].rsplit("/", 1)[-1], filename)
         self.assertIsNotNone(
             self.school.live_question_image_path(self.class_id, stored["filename"])
         )

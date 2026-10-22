@@ -560,6 +560,20 @@
                   <button type="button" class="secondary" id="live-deck-copy-keep" hidden>Keep current</button>{# copy: Wonder #}
                 </div>
               </div>
+              <form id="set-class-slides-form" class="live-google-slides-form set-class-add-slides">
+                <label class="live-google-slides-label" for="set-class-slides-url">Share link
+                  <input id="set-class-slides-url" type="url" inputmode="url" autocomplete="off" placeholder="https://docs.google.com/presentation/d/…" spellcheck="false">
+                </label>
+                <label class="live-google-slides-label" for="set-class-slides-file">PowerPoint
+                  <input id="set-class-slides-file" type="file" accept=".ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation">
+                </label>
+                <label class="live-google-slides-publish" for="set-class-slides-publish">
+                  <input id="set-class-slides-publish" type="checkbox">
+                  Publish pages by default
+                </label>
+                <button type="submit" class="secondary" id="set-class-slides-add">Add Slides</button>
+              </form>
+              <p class="hint compact" id="set-class-slides-error" hidden></p>
             </div>
           </div>
           <div class="set-class-step" id="set-class-day-step">
@@ -838,16 +852,21 @@
                   <label class="live-google-slides-label" for="live-google-slides-url">Share link
                     <input id="live-google-slides-url" type="url" inputmode="url" autocomplete="off" placeholder="https://docs.google.com/presentation/d/…" spellcheck="false">
                   </label>
+                  <label class="live-google-slides-label" for="live-google-slides-file">PowerPoint
+                    <input id="live-google-slides-file" type="file" accept=".ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation">
+                  </label>
+                  <label class="live-google-slides-publish" for="live-google-slides-publish">
+                    <input id="live-google-slides-publish" type="checkbox">
+                    Publish pages by default
+                  </label>
                   <button type="submit" class="secondary" id="live-google-slides-attach">Attach</button>
                 </form>
                 <p class="hint compact">Share the deck so anyone with the link can view.</p>
                 <p class="hint compact" id="live-google-slides-error" hidden></p>
-                <div class="live-google-slides-nav" id="live-google-slides-nav" hidden>
-                  <button type="button" class="secondary" id="live-google-slides-prev">Prev</button>
-                  <span id="live-google-slides-count"></span>
-                  <button type="button" class="secondary" id="live-google-slides-next">Next</button>
+                <p class="hint compact" id="live-google-slides-count" hidden></p>
+                <div class="live-google-slides-stage" id="live-google-slides-stage" hidden>
+                  <img id="live-google-slides-card" class="live-google-slides-card" alt="">
                 </div>
-                <img id="live-google-slides-card" class="live-slides-preview live-google-slides-card" alt="" hidden>
                 <iframe id="live-slides-preview" class="live-slides-preview" title="Live class slides" hidden></iframe>
               </section>
             </div>

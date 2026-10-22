@@ -977,6 +977,49 @@ CREATE TABLE IF NOT EXISTS lesson_slide_decks (
     UNIQUE(class_id, module_number, live_index)
 );
 
+-- MCK-316: one slide deck per class + module + slot. Files live on the
+-- volume; these rows store paths only.
+CREATE TABLE IF NOT EXISTS course_slide_decks (
+    id INTEGER PRIMARY KEY,
+    class_id INTEGER NOT NULL,
+    module TEXT NOT NULL,
+    slot TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL,
+    presentation_id TEXT NOT NULL DEFAULT '',
+    source_relpath TEXT NOT NULL DEFAULT '',
+    default_published INTEGER NOT NULL DEFAULT 0,
+    truncated INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (class_id, module, slot)
+);
+
+CREATE TABLE IF NOT EXISTS course_slide_pages (
+    id INTEGER PRIMARY KEY,
+    deck_id INTEGER NOT NULL,
+    page_index INTEGER NOT NULL,
+    image_relpath TEXT NOT NULL,
+    UNIQUE (deck_id, page_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_course_slide_decks_class
+    ON course_slide_decks(class_id);
+
+CREATE TABLE IF NOT EXISTS slide_import_jobs (
+    id TEXT PRIMARY KEY,
+    owner_user_id INTEGER NOT NULL,
+    class_id INTEGER,
+    session_id INTEGER,
+    status TEXT NOT NULL,
+    error TEXT NOT NULL DEFAULT '',
+    needs_slides_read INTEGER NOT NULL DEFAULT 0,
+    http_status INTEGER NOT NULL DEFAULT 400,
+    result_json TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    started_at TEXT
+);
+
 -- MCK-229: latest real run per live class (one row per module/slot).
 CREATE TABLE IF NOT EXISTS lesson_slides_latest (
     class_id INTEGER NOT NULL,
@@ -2238,6 +2281,7 @@ class LovesDB:
             self._ensure_question_editor_columns()
             self._ensure_module_bank_schema()
             self._ensure_archived_column()
+            self._ensure_slide_import_started_at()
             self._ensure_gradebook_schema()
             self._ensure_live_session_schema()
             self._ensure_live_session_identity_schema()
@@ -3845,6 +3889,21 @@ class LovesDB:
         except ImportError:
             from lms.staff_invites import ensure_schema
         ensure_schema(self.conn)
+
+    def _ensure_slide_import_started_at(self) -> None:
+        """Add the slot-start clock on slide import jobs.
+
+        Existing databases were created before the column. The budget
+        is measured from ``started_at``, which stays empty until the
+        job takes an import slot.
+        """
+        cols = {
+            r[1] for r in self.conn.execute("PRAGMA table_info(slide_import_jobs)")
+        }
+        if "started_at" not in cols:
+            self.conn.execute(
+                "ALTER TABLE slide_import_jobs ADD COLUMN started_at TEXT"
+            )
 
     def _ensure_archived_column(self) -> None:
         """Add users.archived_at if the column does not yet exist (live migration).
@@ -5947,6 +6006,10 @@ class LovesDB:
         self._purge_presence_best_effort(session_ids)
         self._purge_news_tape_best_effort(data_dir, session_ids)
         self._remove_offering_instance_dirs(data_dir, instance_paths)
+        self._unlink_course_slide_files(
+            [int(class_id) for class_id in external.get("class_ids") or []],
+            [str(path) for path in external.get("slide_relpaths") or []],
+        )
         return snapshot
 
     def _validate_staff_permanent_delete(
@@ -6077,6 +6140,7 @@ class LovesDB:
         run_keys = list(dict.fromkeys([*past_keys, *run_keys]))
         self._delete_live_session_children(session_ids, present)
         self._delete_staff_observations(uid, class_ids, session_ids, present)
+        slide_relpaths = self._course_slide_relpaths(class_ids, present)
         self._delete_class_owned_rows(class_ids, present)
         self._delete_board_rows(board_keys, present)
         self._delete_seq_floors(class_ids, session_ids, present)
@@ -6102,6 +6166,7 @@ class LovesDB:
             "board_keys": board_keys,
             "class_ids": class_ids,
             "run_keys": run_keys,
+            "slide_relpaths": slide_relpaths,
         }
         return instance_paths, external
 
@@ -6281,6 +6346,7 @@ class LovesDB:
         owned_classes = self._class_ids_named_by_account(
             int(user_id), class_ids, present
         )
+        self._delete_slide_import_jobs(int(user_id), owned_classes, present)
         self._null_account_offering_copies(offering_ids, present)
         if not owned_classes:
             return [], []
@@ -6299,6 +6365,13 @@ class LovesDB:
             "quick_phrases",
             "live_class_sessions",
             "course_offerings",
+            # Page rows have no class id. The dedicated slide delete
+            # collects volume paths first, then removes pages by deck id.
+            "course_slide_decks",
+            "course_slide_pages",
+            # Rows name the staff user and the class. The dedicated
+            # delete below covers a null class id as well.
+            "slide_import_jobs",
         }
         marks = ",".join("?" * len(owned_classes))
         params = tuple(int(class_id) for class_id in owned_classes)
@@ -7042,6 +7115,414 @@ class LovesDB:
             tuple(observer_params),
         )
 
+    def _course_slide_relpaths(
+        self, class_ids: list[int], present: set[str]
+    ) -> list[str]:
+        """Relative slide paths for classes this account is removing.
+
+        Caller holds the delete transaction. Paths are collected before
+        the rows go, and unlinked only after commit.
+
+        Args:
+            class_ids: Class ids this account owns.
+            present: Table names in this database.
+        """
+        if not class_ids or "course_slide_decks" not in present:
+            return []
+        marks = ",".join("?" * len(class_ids))
+        params = tuple(int(class_id) for class_id in class_ids)
+        found: list[str] = []
+        rows = self.conn.execute(
+            f"""
+            SELECT source_relpath FROM course_slide_decks
+            WHERE class_id IN ({marks})
+              AND TRIM(source_relpath) != ''
+            """,
+            params,
+        ).fetchall()
+        for row in rows:
+            rel = str(row["source_relpath"] or "").strip()
+            if rel and rel not in found:
+                found.append(rel)
+        if "course_slide_pages" not in present:
+            return found
+        pages = self.conn.execute(
+            f"""
+            SELECT pages.image_relpath
+            FROM course_slide_pages AS pages
+            JOIN course_slide_decks AS decks ON decks.id = pages.deck_id
+            WHERE decks.class_id IN ({marks})
+            """,
+            params,
+        ).fetchall()
+        for row in pages:
+            rel = str(row["image_relpath"] or "").strip()
+            if rel and rel not in found:
+                found.append(rel)
+        return found
+
+    def _delete_course_slide_rows(
+        self, class_ids: list[int], present: set[str]
+    ) -> None:
+        """Delete course slide rows for these classes.
+
+        Page rows have no class id, so they go by deck id first. Files
+        are unlinked after the account delete commits.
+
+        Args:
+            class_ids: Class ids being removed.
+            present: Table names in this database.
+        """
+        if not class_ids or "course_slide_decks" not in present:
+            return
+        marks = ",".join("?" * len(class_ids))
+        params = tuple(int(class_id) for class_id in class_ids)
+        if "course_slide_pages" in present:
+            self.conn.execute(
+                f"""
+                DELETE FROM course_slide_pages
+                WHERE deck_id IN (
+                    SELECT id FROM course_slide_decks
+                    WHERE class_id IN ({marks})
+                )
+                """,
+                params,
+            )
+        self.conn.execute(
+            f"DELETE FROM course_slide_decks WHERE class_id IN ({marks})",
+            params,
+        )
+
+    def _unlink_course_slide_files(
+        self, class_ids: list[int], relpaths: list[str]
+    ) -> None:
+        """Remove slide files after a permanent delete has committed.
+
+        A path that is not inside one of these classes' image folders
+        is left alone. A missing file is not an error.
+
+        Args:
+            class_ids: Classes whose image folders may be unlinked.
+            relpaths: Paths relative to ``data_dir``, collected before
+                the rows were deleted.
+        """
+        owned = {int(class_id) for class_id in class_ids}
+        for rel in relpaths:
+            raw = str(rel or "").strip()
+            if not raw:
+                continue
+            parts = Path(raw).parts
+            if len(parts) < 3 or parts[0] != "live-question-images":
+                continue
+            try:
+                class_id = int(parts[1])
+            except (TypeError, ValueError):
+                continue
+            if class_id not in owned:
+                continue
+            path = self._owned_slide_file(class_id, raw)
+            if path is None or not path.is_file():
+                continue
+            if self._slide_relpath_still_referenced(raw):
+                continue
+            try:
+                path.unlink()
+            except OSError:
+                logger.warning("course slide file unlink failed")
+
+    def _slide_relpath_still_referenced(self, relpath: str) -> bool:
+        """True when a surviving row still stores this slide file.
+
+        Checked after the deleting account's rows are gone. Another
+        teacher's page can name a file that lives in this class's
+        folder. That file stays. A same-named file in a different class
+        folder does not keep this copy.
+
+        Args:
+            relpath: Path relative to ``data_dir``.
+        """
+        raw = str(relpath or "").strip()
+        if not raw:
+            return False
+        parts = Path(raw).parts
+        with self._lock:
+            try:
+                page = self.conn.execute(
+                    "SELECT 1 FROM course_slide_pages WHERE image_relpath = ? LIMIT 1",
+                    (raw,),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                page = None
+            if page is not None:
+                return True
+            try:
+                source = self.conn.execute(
+                    """
+                    SELECT 1 FROM course_slide_decks
+                    WHERE source_relpath = ? LIMIT 1
+                    """,
+                    (raw,),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                source = None
+            if source is not None:
+                return True
+            if len(parts) < 3 or parts[0] != "live-question-images":
+                return False
+            filename = parts[-1]
+            class_id = parts[1]
+            needle = f"/api/classes/{class_id}/live-question-images/{filename}"
+            try:
+                rows = self.conn.execute(
+                    """
+                    SELECT google_slides_json
+                    FROM live_class_sessions
+                    WHERE google_slides_json LIKE ?
+                    """,
+                    (f"%{filename}%",),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                rows = []
+        for row in rows:
+            stored = str(row["google_slides_json"] or "")
+            if needle in stored or raw in stored:
+                return True
+        return False
+
+    def _delete_slide_import_jobs(
+        self, user_id: int, class_ids: list[int], present: set[str]
+    ) -> None:
+        """Remove slide-import rows that name this account.
+
+        The rows store the staff user id and the class id. Another
+        teacher's rows stay. Caller holds the delete transaction.
+
+        Args:
+            user_id: Staff ``users.id`` being deleted.
+            class_ids: Classes this account still owns.
+            present: Table names in this database.
+        """
+        if "slide_import_jobs" not in present:
+            return
+        self.conn.execute(
+            "DELETE FROM slide_import_jobs WHERE owner_user_id = ?",
+            (int(user_id),),
+        )
+        if not class_ids:
+            return
+        marks = ",".join("?" * len(class_ids))
+        self.conn.execute(
+            f"DELETE FROM slide_import_jobs WHERE class_id IN ({marks})",
+            tuple(int(class_id) for class_id in class_ids),
+        )
+
+    def insert_slide_import_job(
+        self,
+        job_id: str,
+        owner_user_id: int,
+        class_id: int | None,
+        session_id: int | None,
+    ) -> None:
+        """Record a slide import that will finish on a background thread.
+
+        The row stores status only. The PowerPoint and the rendered
+        pages stay files, never columns.
+
+        Args:
+            job_id: Opaque id returned to the teacher.
+            owner_user_id: Staff user who started the import.
+            class_id: Course the deck belongs to, when known.
+            session_id: Live run, when the import is for one session.
+        """
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO slide_import_jobs (
+                    id, owner_user_id, class_id, session_id, status, created_at
+                ) VALUES (?, ?, ?, ?, 'running', ?)
+                """,
+                (
+                    str(job_id),
+                    int(owner_user_id),
+                    None if class_id is None else int(class_id),
+                    None if session_id is None else int(session_id),
+                    now,
+                ),
+            )
+
+    def finish_slide_import_job(self, job_id: str, result: dict[str, Any]) -> None:
+        """Mark one import ready and store the staff JSON, not file bytes.
+
+        Args:
+            job_id: Row id.
+            result: Deck summary already returned by the save helpers.
+        """
+        payload = json.dumps(result)
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE slide_import_jobs
+                SET status = 'ready', result_json = ?, error = ''
+                WHERE id = ? AND status = 'running'
+                """,
+                (payload, str(job_id)),
+            )
+
+    def fail_slide_import_job(
+        self,
+        job_id: str,
+        error: str,
+        *,
+        needs_slides_read: bool = False,
+        http_status: int = 400,
+    ) -> None:
+        """Mark one import failed with a teacher-facing message.
+
+        Args:
+            job_id: Row id.
+            error: Message returned by the status poll.
+            needs_slides_read: True when consent is required.
+            http_status: Status the poll should use.
+        """
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE slide_import_jobs
+                SET status = 'error',
+                    error = ?,
+                    needs_slides_read = ?,
+                    http_status = ?,
+                    result_json = ''
+                WHERE id = ? AND status = 'running'
+                """,
+                (
+                    str(error or "Could not attach that deck.")[:500],
+                    1 if needs_slides_read else 0,
+                    int(http_status),
+                    str(job_id),
+                ),
+            )
+
+    def get_slide_import_job(self, job_id: str) -> dict[str, Any] | None:
+        """Return one slide import row, or None.
+
+        Args:
+            job_id: Row id from the start response.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM slide_import_jobs WHERE id = ?",
+                (str(job_id),),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def fail_orphaned_slide_import_jobs(self) -> int:
+        """Mark slide imports still running as failed.
+
+        A restart leaves those rows on ``running`` because the worker
+        that owned the thread is gone. The teacher sees a restart
+        message instead of a poll that never finishes.
+
+        Returns:
+            How many rows were closed.
+        """
+        with self._lock:
+            cur = self.conn.execute(
+                """
+                UPDATE slide_import_jobs
+                SET status = 'error',
+                    error = ?,
+                    http_status = 400,
+                    result_json = ''
+                WHERE status = 'running'
+                """,
+                ("The server restarted while that deck was attaching.",),
+            )
+            self.conn.commit()
+            return int(cur.rowcount or 0)
+
+    def fail_expired_slide_import_jobs(self, max_age_seconds: float) -> int:
+        """Mark running slide imports older than the job budget as failed.
+
+        A worker can die while the machine stays up. Those rows stay
+        ``running`` until something notices they are past the budget.
+        The clock is ``started_at``, set when the job takes a slot.
+        A job still waiting for a slot is left alone. Finish and fail
+        only update a row that is still running, so a late thread
+        cannot overwrite this error.
+
+        Args:
+            max_age_seconds: Age after the slot was taken.
+
+        Returns:
+            How many rows were closed.
+        """
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        limit = float(max_age_seconds)
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT id, started_at FROM slide_import_jobs
+                WHERE status = 'running'
+                  AND started_at IS NOT NULL
+                  AND started_at != ''
+                """
+            ).fetchall()
+            expired: list[str] = []
+            for row in rows:
+                try:
+                    started = datetime.fromisoformat(str(row["started_at"] or ""))
+                except ValueError:
+                    continue
+                if started.tzinfo is None:
+                    started = started.replace(tzinfo=timezone.utc)
+                if (now - started).total_seconds() > limit:
+                    expired.append(str(row["id"]))
+            if not expired:
+                return 0
+            for job_id in expired:
+                self.conn.execute(
+                    """
+                    UPDATE slide_import_jobs
+                    SET status = 'error',
+                        error = ?,
+                        http_status = 400,
+                        result_json = ''
+                    WHERE id = ? AND status = 'running'
+                    """,
+                    ("That deck took too long to attach.", job_id),
+                )
+            self.conn.commit()
+            return len(expired)
+
+    def note_slide_import_started(self, job_id: str) -> None:
+        """Start the budget clock once this job holds an import slot.
+
+        Queue time is not counted. A second call does not move the clock.
+
+        Args:
+            job_id: Row id of a job that is still running.
+        """
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE slide_import_jobs
+                SET started_at = ?
+                WHERE id = ?
+                  AND status = 'running'
+                  AND (started_at IS NULL OR started_at = '')
+                """,
+                (now, str(job_id)),
+            )
+
     def _delete_class_owned_rows(self, class_ids: list[int], present: set[str]) -> None:
         """Delete per-class rows that have no foreign key to ``classes``.
 
@@ -7091,6 +7572,7 @@ class LovesDB:
         )
         if not class_ids:
             return
+        self._delete_course_slide_rows(class_ids, present)
         tagged: list[int] = []
         tagged_run_keys: list[str] = []
         columns_by_table: dict[str, set[str]] = {}
@@ -9285,7 +9767,7 @@ class LovesDB:
             rev = int(parsed.get("rev") or 0)
         except (TypeError, ValueError):
             rev = 0
-        return {
+        public = {
             "kind": "google_slides",
             "presentation_id": str(parsed.get("presentation_id") or ""),
             "source": str(parsed.get("source") or "public_export"),
@@ -9294,6 +9776,22 @@ class LovesDB:
             "truncated": bool(parsed.get("truncated")),
             "pages": pages,
         }
+        title = " ".join(str(parsed.get("title") or "").split())[:120]
+        if title:
+            public["title"] = title
+        try:
+            course_deck_id = int(parsed.get("course_deck_id") or 0)
+        except (TypeError, ValueError):
+            course_deck_id = 0
+        if course_deck_id > 0:
+            public["course_deck_id"] = course_deck_id
+        module = str(parsed.get("module") or "").strip()[:16]
+        slot = str(parsed.get("slot") or "").strip()[:16]
+        if module:
+            public["module"] = module
+        if slot:
+            public["slot"] = slot
+        return public
 
     def _write_google_slides(self, session_id: int, deck: dict[str, Any]) -> None:
         """Replace the Google Slides blob on one live session.
@@ -9334,20 +9832,32 @@ class LovesDB:
         page_pngs: list[bytes],
         source: str = "public_export",
         truncated: bool = False,
+        default_published: bool = False,
+        title: str = "",
+        source_bytes: bytes | None = None,
+        source_suffix: str = "",
+        job_id: str | None = None,
     ) -> dict[str, Any]:
-        """Store one PNG per slide and an unpublished deck on the session.
+        """Store one PNG per slide on the course and point this run at it.
 
-        Images go through ``store_live_question_image``, the same class
-        file store as other live deck pictures. Page files from the deck
-        this import replaces are removed when nothing else still names
-        them. The lesson-slides ``slides_json`` snapshot is left alone.
+        Images go through ``store_live_question_image``. The course row
+        keeps the path. A later run binds that same path instead of
+        writing another copy. Page files this import replaces are removed
+        when nothing else still names them. The lesson-slides snapshot
+        is left alone.
 
         Args:
             session_id: ``live_class_sessions.id``.
-            presentation_id: Google file id.
+            presentation_id: Google file id, or empty for a PowerPoint.
             page_pngs: PNG bytes, one per slide, in order.
-            source: ``public_export`` or ``oauth_thumbnail``.
+            source: ``public_export``, ``oauth_thumbnail``, or ``pptx``.
             truncated: True when the deck was longer than the page cap.
+            default_published: Initial shared flag for every page.
+            title: Deck name shown beside Start. Blank becomes a fallback.
+            source_bytes: Original ppt or pptx, stored as a file.
+            source_suffix: ``.ppt`` or ``.pptx`` when ``source_bytes`` is set.
+            job_id: Slide import row. When set, the save is skipped
+                unless that row is still running.
 
         Returns:
             Teacher deck dict.
@@ -9361,57 +9871,27 @@ class LovesDB:
             raise KeyError(f"live session {session_id}")
         if session.get("status") != "active":
             raise ValueError("Session is not active")
-        pngs = list(page_pngs or [])
-        if not pngs:
-            raise ValueError("That deck has no slides.")
-        class_id = int(session["class_id"])
-        pages: list[dict[str, Any]] = []
-        for index, raw in enumerate(pngs):
-            blob = bytes(raw)
-            if not blob.startswith(b"\x89PNG"):
-                raise ValueError("slide image must be png")
-            stored = self.store_live_question_image(
-                class_id, blob, filename=f"slide-{index}.png"
-            )
-            pages.append(
-                {
-                    "index": index,
-                    "image_url": stored["image_url"],
-                    "published": False,
-                }
-            )
-        previous = session.get("google_slides")
-        try:
-            rev = int((previous or {}).get("rev") or 0) + 1
-        except (TypeError, ValueError):
-            rev = 1
-        deck = {
-            "kind": "google_slides",
-            "presentation_id": str(presentation_id or ""),
-            "source": str(source or "public_export"),
-            "rev": rev,
-            "current_index": 0,
-            "truncated": bool(truncated),
-            "pages": pages,
-        }
-        self._write_google_slides(int(session_id), deck)
-        kept = {
-            name
-            for name in (
-                self._google_slide_image_name(
-                    str(page.get("image_url") or "").rsplit("/", 1)[-1]
-                )
-                for page in pages
-            )
-            if name
-        }
-        self._delete_replaced_google_slide_images(
-            int(session_id), class_id, previous, kept
+        teacher = session.get("teacher_state")
+        placement = teacher if isinstance(teacher, dict) else {}
+        saved = self.save_course_slide_deck(
+            int(session["class_id"]),
+            placement.get("live_module"),
+            placement.get("live_slot"),
+            title=title or "Google Slides",
+            source=str(source or "public_export"),
+            presentation_id=str(presentation_id or ""),
+            page_pngs=list(page_pngs or []),
+            default_published=bool(default_published),
+            truncated=bool(truncated),
+            source_bytes=source_bytes,
+            source_suffix=source_suffix,
+            session_id=int(session_id),
+            job_id=job_id,
         )
-        saved = self.google_slides_deck(int(session_id))
-        if saved is None:
+        deck = saved.get("google_slides")
+        if not isinstance(deck, dict):
             raise ValueError("That deck has no slides.")
-        return saved
+        return deck
 
     def _update_google_slides(
         self,
@@ -9466,6 +9946,9 @@ class LovesDB:
                 "truncated": bool(deck.get("truncated")),
                 "pages": pages,
             }
+            for key in ("title", "course_deck_id", "module", "slot"):
+                if deck.get(key) not in (None, ""):
+                    saved[key] = deck[key]
             self.conn.execute(
                 """
                 UPDATE live_class_sessions
@@ -9579,32 +10062,620 @@ class LovesDB:
             "page_number": index + 1,
             "page_count": len(pages),
             "image_url": str(page.get("image_url") or "") if shared else "",
+            "rev": int(deck.get("rev") or 0),
         }
 
-    def _google_slides_stamp_token(self, session_id: int) -> str:
-        """Revision token so a slide push or unpublish refreshes student polls.
+    def student_google_slide_for_poll(self, session_id: int) -> dict[str, Any] | None:
+        """Slide card for an unchanged poll, or None when no deck is stored.
+
+        Reads ``google_slides_json`` only. A phone that joined before a
+        deck existed has no revision, and the next poll still needs the
+        card. An empty deck does not add the key, so a class with no
+        slides does not change the poll body.
 
         Args:
             session_id: ``live_class_sessions.id``.
         """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT status, google_slides_json
+                FROM live_class_sessions
+                WHERE id = ?
+                """,
+                (int(session_id),),
+            ).fetchone()
+        if row is None or str(row["status"] or "") != "active":
+            return None
+        text_value = str(row["google_slides_json"] or "").strip()
+        if not text_value or text_value in {"{}", "null"}:
+            return None
+        return self.student_google_slide(int(session_id))
+
+    def _google_slides_stamp_token(self, session_id: int) -> str:
+        """Slide changes do not move the student poll stamp.
+
+        Publish, unpublish, and page changes travel on the ``google_slide``
+        news postcard. Putting the deck revision in this stamp made every
+        phone rebuild ``/state`` at once (MCK-283). The field stays in the
+        stamp so the colon layout does not shift. ``session_id`` is unused.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        del session_id
+        return "0"
+
+    def course_slide_deck_summary(
+        self, class_id: int, module: Any, slot: Any
+    ) -> dict[str, Any] | None:
+        """Return the course deck name for one placement, or None.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Live module such as ``M1``.
+            slot: Live slot such as ``C1``.
+        """
+        row = self._course_slide_deck_row(int(class_id), module, slot)
+        if row is None:
+            return None
+        pages = self._course_slide_page_rows(int(row["id"]))
+        return {
+            "title": str(row["title"] or ""),
+            "module": str(row["module"] or ""),
+            "slot": str(row["slot"] or ""),
+            "source": str(row["source"] or ""),
+            "page_count": len(pages),
+            "default_published": bool(row["default_published"]),
+            "truncated": bool(row["truncated"]),
+        }
+
+    def save_course_slide_deck(
+        self,
+        class_id: int,
+        module: Any,
+        slot: Any,
+        *,
+        title: str,
+        source: str,
+        presentation_id: str = "",
+        page_pngs: list[bytes],
+        default_published: bool = False,
+        truncated: bool = False,
+        source_bytes: bytes | None = None,
+        source_suffix: str = "",
+        session_id: int | None = None,
+        job_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Save one course deck and point a matching live run at it.
+
+        PNG pages and an optional PowerPoint are written under
+        ``live-question-images/{class_id}/``. The tables store those
+        relative paths. A second save of the same bytes does not write
+        a second file. Replacing the deck drops page files nothing else
+        still names.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Live module.
+            slot: Live slot.
+            title: Deck name for the Set Class summary.
+            source: ``public_export``, ``oauth_thumbnail``, or ``pptx``.
+            presentation_id: Google file id, or empty.
+            page_pngs: PNG bytes, one per page, in order.
+            default_published: Shared flag copied onto a new run.
+            truncated: True when the page cap cut the deck.
+            source_bytes: Original upload, or None for a share link.
+            source_suffix: ``.ppt`` or ``.pptx`` with ``source_bytes``.
+            session_id: Active run to rebind. Omit to bind the active
+                run only when its placement matches.
+            job_id: Slide import row. When set, the deck is written only
+                while that row is still ``running``. A closed job stores
+                nothing and the new files are removed.
+
+        Returns:
+            ``deck`` summary and ``google_slides`` when a run was bound.
+
+        Raises:
+            ValueError: No pages, or a page is not a PNG.
+        """
+        from course_slide_files import slide_deck_title
+
+        pngs = [bytes(raw) for raw in (page_pngs or [])]
+        if not pngs:
+            raise ValueError("That deck has no slides.")
+        for raw in pngs:
+            if not raw.startswith(b"\x89PNG"):
+                raise ValueError("slide image must be png")
+        live_module = normalize_live_module(module)
+        live_slot = normalize_live_slot(slot)
+        label = slide_deck_title(
+            title,
+            fallback="PowerPoint" if source == "pptx" else "Google Slides",
+        )
+        names: list[str] = []
+        source_rel = ""
+        try:
+            for index, raw in enumerate(pngs):
+                stored = self.store_live_question_image(
+                    int(class_id), raw, filename=f"slide-{index}.png"
+                )
+                names.append(str(stored["filename"]))
+            if source_bytes:
+                source_rel = self._store_course_slide_source(
+                    int(class_id), bytes(source_bytes), source_suffix
+                )
+            previous_names, previous_source = self._replace_course_slide_rows(
+                int(class_id),
+                live_module,
+                live_slot,
+                title=label,
+                source=str(source or "public_export")[:40],
+                presentation_id=str(presentation_id or "")[:128],
+                source_relpath=source_rel,
+                default_published=bool(default_published),
+                truncated=bool(truncated),
+                image_names=names,
+                job_id=str(job_id or ""),
+            )
+        except Exception:
+            self._release_course_slide_names(int(class_id), names, session_id=0)
+            if source_rel:
+                self._release_course_slide_source(int(class_id), source_rel)
+            raise
+        bound_session = session_id
+        if bound_session is None:
+            active = self.get_active_live_session_for_class(int(class_id))
+            if active is not None:
+                teacher = active.get("teacher_state")
+                state = teacher if isinstance(teacher, dict) else {}
+                if (
+                    normalize_live_module(state.get("live_module")) == live_module
+                    and normalize_live_slot(state.get("live_slot")) == live_slot
+                ):
+                    bound_session = int(active["id"])
+        google = None
+        if bound_session is not None:
+            google = self.bind_session_course_slides(
+                int(bound_session),
+                module=live_module,
+                slot=live_slot,
+                force=True,
+            )
+        kept = set(names)
+        self._release_course_slide_names(
+            int(class_id),
+            [name for name in previous_names if name not in kept],
+            session_id=int(bound_session or 0),
+        )
+        if previous_source and previous_source != source_rel:
+            self._release_course_slide_source(int(class_id), previous_source)
+        summary = self.course_slide_deck_summary(
+            int(class_id), live_module, live_slot
+        )
+        return {"deck": summary, "google_slides": google}
+
+    def bind_session_course_slides(
+        self,
+        session_id: int,
+        *,
+        module: Any = None,
+        slot: Any = None,
+        force: bool = False,
+    ) -> dict[str, Any] | None:
+        """Point one live run at the course deck for its placement.
+
+        The same course deck id keeps the run's publish flags. A different
+        deck, or ``force``, copies the stored default onto every page and
+        reuses the page files. A placement with no course deck clears a
+        course-owned pointer and leaves the files in place.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            module: Override. Default is the run's teacher-state module.
+            slot: Override. Default is the run's teacher-state slot.
+            force: Rewrite pages even when the deck id already matches.
+
+        Returns:
+            Teacher deck, or None when this run has no course deck.
+        """
+        session = self.get_live_session(int(session_id))
+        if session is None or session.get("status") != "active":
+            return None
+        teacher = session.get("teacher_state")
+        state = teacher if isinstance(teacher, dict) else {}
+        live_module = normalize_live_module(
+            module if module is not None else state.get("live_module")
+        )
+        live_slot = normalize_live_slot(
+            slot if slot is not None else state.get("live_slot")
+        )
+        class_id = int(session["class_id"])
+        row = self._course_slide_deck_row(class_id, live_module, live_slot)
+        current = session.get("google_slides")
+        current_deck = current if isinstance(current, dict) else None
+        try:
+            current_id = int((current_deck or {}).get("course_deck_id") or 0)
+        except (TypeError, ValueError):
+            current_id = 0
+        if row is None:
+            if current_id:
+                self._clear_google_slides(int(session_id))
+            return None
+        deck_id = int(row["id"])
+        if not force and current_id == deck_id and current_deck is not None:
+            return current_deck
+        page_rows = self._course_slide_page_rows(deck_id)
+        if not page_rows:
+            return None
+        published = bool(row["default_published"])
+        try:
+            rev = int((current_deck or {}).get("rev") or 0) + 1
+        except (TypeError, ValueError):
+            rev = 1
+        pages: list[dict[str, Any]] = []
+        for index, page in enumerate(page_rows):
+            name = self._google_slide_image_name(
+                str(page["image_relpath"] or "").rsplit("/", 1)[-1]
+            )
+            if not name:
+                continue
+            pages.append(
+                {
+                    "index": len(pages),
+                    "image_url": (
+                        f"/api/classes/{class_id}/live-question-images/{name}"
+                    ),
+                    "published": published,
+                }
+            )
+        if not pages:
+            return None
+        deck = {
+            "kind": "google_slides",
+            "presentation_id": str(row["presentation_id"] or ""),
+            "source": str(row["source"] or ""),
+            "title": str(row["title"] or ""),
+            "course_deck_id": deck_id,
+            "module": live_module,
+            "slot": live_slot,
+            "rev": rev,
+            "current_index": 0,
+            "truncated": bool(row["truncated"]),
+            "pages": pages,
+        }
+        self._write_google_slides(int(session_id), deck)
+        return self._public_google_slides(deck)
+
+    def _course_slide_deck_row(
+        self, class_id: int, module: Any, slot: Any
+    ) -> sqlite3.Row | None:
+        """Return the course deck row for one placement, or None.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Live module.
+            slot: Live slot.
+        """
+        live_module = normalize_live_module(module)
+        live_slot = normalize_live_slot(slot)
+        try:
+            with self._lock:
+                return self.conn.execute(
+                    """
+                    SELECT id, class_id, module, slot, title, source,
+                           presentation_id, source_relpath, default_published,
+                           truncated
+                    FROM course_slide_decks
+                    WHERE class_id = ? AND module = ? AND slot = ?
+                    """,
+                    (int(class_id), live_module, live_slot),
+                ).fetchone()
+        except sqlite3.OperationalError:
+            return None
+
+    def _course_slide_page_rows(self, deck_id: int) -> list[sqlite3.Row]:
+        """Return page rows for one course deck, in order.
+
+        Args:
+            deck_id: ``course_slide_decks.id``.
+        """
+        try:
+            with self._lock:
+                return list(
+                    self.conn.execute(
+                        """
+                        SELECT page_index, image_relpath
+                        FROM course_slide_pages
+                        WHERE deck_id = ?
+                        ORDER BY page_index
+                        """,
+                        (int(deck_id),),
+                    ).fetchall()
+                )
+        except sqlite3.OperationalError:
+            return []
+
+    def _replace_course_slide_rows(
+        self,
+        class_id: int,
+        module: str,
+        slot: str,
+        *,
+        title: str,
+        source: str,
+        presentation_id: str,
+        source_relpath: str,
+        default_published: bool,
+        truncated: bool,
+        image_names: list[str],
+        job_id: str = "",
+    ) -> tuple[list[str], str]:
+        """Insert or replace the course deck and return the old file names.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Normalized module.
+            slot: Normalized slot.
+            title: Deck name.
+            source: Short source token.
+            presentation_id: Google file id, or empty.
+            source_relpath: Volume path of the upload, or empty.
+            default_published: Stored default shared flag.
+            truncated: Page cap was hit.
+            image_names: Content-addressed PNG filenames, in order.
+            job_id: Slide import row. Empty skips the running check.
+
+        Returns:
+            Previous page filenames and the previous source path.
+
+        Raises:
+            ValueError: ``job_id`` is set and that job is not running.
+                The deck rows are left as they were.
+        """
+        now = _now()
+        previous_names: list[str] = []
+        previous_source = ""
+        with self._lock:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self._require_running_slide_import(job_id)
+                existing = self.conn.execute(
+                    """
+                    SELECT id, source_relpath
+                    FROM course_slide_decks
+                    WHERE class_id = ? AND module = ? AND slot = ?
+                    """,
+                    (int(class_id), module, slot),
+                ).fetchone()
+                if existing is None:
+                    cur = self.conn.execute(
+                        """
+                        INSERT INTO course_slide_decks (
+                            class_id, module, slot, title, source, presentation_id,
+                            source_relpath, default_published, truncated,
+                            created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            int(class_id),
+                            module,
+                            slot,
+                            title,
+                            source,
+                            presentation_id,
+                            source_relpath,
+                            1 if default_published else 0,
+                            1 if truncated else 0,
+                            now,
+                            now,
+                        ),
+                    )
+                    deck_id = int(cur.lastrowid)
+                else:
+                    deck_id = int(existing["id"])
+                    previous_source = str(existing["source_relpath"] or "")
+                    old_pages = self.conn.execute(
+                        """
+                        SELECT image_relpath FROM course_slide_pages
+                        WHERE deck_id = ?
+                        """,
+                        (deck_id,),
+                    ).fetchall()
+                    for page in old_pages:
+                        name = self._google_slide_image_name(
+                            str(page["image_relpath"] or "").rsplit("/", 1)[-1]
+                        )
+                        if name and name not in previous_names:
+                            previous_names.append(name)
+                    kept_source = source_relpath or previous_source
+                    self.conn.execute(
+                        """
+                        UPDATE course_slide_decks
+                        SET title = ?, source = ?, presentation_id = ?,
+                            source_relpath = ?, default_published = ?,
+                            truncated = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            title,
+                            source,
+                            presentation_id,
+                            kept_source,
+                            1 if default_published else 0,
+                            1 if truncated else 0,
+                            now,
+                            deck_id,
+                        ),
+                    )
+                    if not source_relpath:
+                        source_relpath = kept_source
+                    self.conn.execute(
+                        "DELETE FROM course_slide_pages WHERE deck_id = ?",
+                        (deck_id,),
+                    )
+                for index, name in enumerate(image_names):
+                    rel = f"live-question-images/{int(class_id)}/{name}"
+                    self.conn.execute(
+                        """
+                        INSERT INTO course_slide_pages (
+                            deck_id, page_index, image_relpath
+                        ) VALUES (?, ?, ?)
+                        """,
+                        (deck_id, index, rel),
+                    )
+                # autocommit is on, so Connection.commit() does not end BEGIN.
+                self.conn.execute("COMMIT")
+            except Exception:
+                if self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                raise
+        return previous_names, previous_source
+
+    def _require_running_slide_import(self, job_id: str) -> None:
+        """Refuse the deck write when this import is no longer running.
+
+        Called inside the caller's ``BEGIN IMMEDIATE`` so the check and
+        the deck rows commit together. An empty id is a direct save.
+
+        Args:
+            job_id: Slide import row, or empty.
+
+        Raises:
+            ValueError: The job is missing or not ``running``.
+        """
+        if not str(job_id or "").strip():
+            return
+        row = self.conn.execute(
+            "SELECT status FROM slide_import_jobs WHERE id = ?",
+            (str(job_id),),
+        ).fetchone()
+        if row is None or str(row["status"] or "") != "running":
+            raise ValueError("That deck took too long to attach.")
+
+    def _store_course_slide_source(
+        self, class_id: int, raw: bytes, suffix: str
+    ) -> str:
+        """Write one PowerPoint under the class image folder.
+
+        Identical bytes keep the existing file. The return value is a
+        path relative to ``data_dir``, never the bytes.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            raw: ppt or pptx bytes.
+            suffix: ``.ppt`` or ``.pptx``.
+
+        Returns:
+            Relative path.
+
+        Raises:
+            ValueError: The suffix is not a PowerPoint extension.
+        """
+        ext = str(suffix or "").lower()
+        if ext not in {".ppt", ".pptx"}:
+            raise ValueError("Upload a .ppt or .pptx file.")
+        digest = hashlib.sha256(raw).hexdigest()
+        rel = f"live-question-images/{int(class_id)}/sources/{digest}{ext}"
+        target = Path(self.data_dir) / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.exists():
+            target.write_bytes(raw)
+        return rel
+
+    def _clear_google_slides(self, session_id: int) -> None:
+        """Drop the session deck pointer. Course files stay.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE live_class_sessions
+                SET google_slides_json = ''
+                WHERE id = ?
+                """,
+                (int(session_id),),
+            )
+            self.conn.commit()
+
+    def _release_course_slide_names(
+        self, class_id: int, names: list[str], *, session_id: int
+    ) -> None:
+        """Unlink page files that no session or course page still names.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            names: Content-addressed filenames to consider.
+            session_id: Session that just replaced its deck. ``0`` counts
+                every session as still using the file.
+        """
+        for name in names:
+            if not name:
+                continue
+            if self._google_slide_image_still_used(int(class_id), int(session_id), name):
+                continue
+            path = (
+                Path(self.data_dir)
+                / "live-question-images"
+                / str(int(class_id))
+                / name
+            )
+            if path.is_file():
+                path.unlink()
+
+    def _release_course_slide_source(self, class_id: int, relpath: str) -> None:
+        """Unlink a PowerPoint when no course deck still points at it.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            relpath: Path relative to ``data_dir``.
+        """
+        rel = str(relpath or "").strip()
+        if not rel:
+            return
         try:
             with self._lock:
                 row = self.conn.execute(
                     """
-                    SELECT google_slides_json
-                    FROM live_class_sessions
-                    WHERE id = ?
+                    SELECT 1 FROM course_slide_decks
+                    WHERE class_id = ? AND source_relpath = ?
+                    LIMIT 1
                     """,
-                    (int(session_id),),
+                    (int(class_id), rel),
                 ).fetchone()
         except sqlite3.OperationalError:
-            return "0"
-        if row is None:
-            return "0"
-        deck = self._public_google_slides(row["google_slides_json"])
-        if deck is None:
-            return "0"
-        return str(int(deck.get("rev") or 0))
+            return
+        if row is not None:
+            return
+        path = self._owned_slide_file(int(class_id), rel)
+        if path is not None and path.is_file():
+            path.unlink()
+
+    def _owned_slide_file(self, class_id: int, relpath: str) -> Path | None:
+        """Resolve a slide path that stays inside this class's image folder.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            relpath: Path relative to ``data_dir``.
+
+        Returns:
+            The resolved path, or None when it escapes the class folder.
+        """
+        raw = str(relpath or "").strip()
+        if not raw or raw.startswith(("/", "\\")):
+            return None
+        parts = Path(raw).parts
+        if ".." in parts:
+            return None
+        root = (
+            Path(self.data_dir) / "live-question-images" / str(int(class_id))
+        ).resolve()
+        path = (Path(self.data_dir) / raw).resolve()
+        if path != root and root not in path.parents:
+            return None
+        return path
 
     def _observation_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         """Attach subject ids and process keys to an observation.
@@ -16506,9 +17577,10 @@ class SchoolDB(LovesDB):
     def delete_google_slide_page_images(self, session_id: int) -> None:
         """Remove this session's slide page files when nothing else names them.
 
-        Quit saves nothing, so those PNGs go with the session. A file that
-        another session's deck or a playlist item still references is left
-        in place. Question images that are not slide pages are not touched.
+        Quit removes a session-only page file. A file named by a course
+        deck, another session, or a playlist item stays. Question images
+        that are not slide pages are not touched. Slides attached at
+        setup are course content and are not removed here.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -16577,7 +17649,22 @@ class SchoolDB(LovesDB):
                 """,
                 (int(class_id), f"%{filename}%"),
             ).fetchone()
-        if placed is not None:
+            course_named = False
+            try:
+                course = self.conn.execute(
+                    """
+                    SELECT 1
+                    FROM course_slide_pages AS pages
+                    JOIN course_slide_decks AS decks ON decks.id = pages.deck_id
+                    WHERE decks.class_id = ? AND pages.image_relpath LIKE ?
+                    LIMIT 1
+                    """,
+                    (int(class_id), f"%/{filename}"),
+                ).fetchone()
+                course_named = course is not None
+            except sqlite3.OperationalError:
+                course_named = False
+        if placed is not None or course_named:
             return True
         return any(filename in str(other["google_slides_json"] or "") for other in others)
 
@@ -36126,6 +37213,7 @@ class SchoolDB(LovesDB):
                 self.ensure_live_class_media(session_id)
             if not self._session_left_waiting_room(session_id) and not self.schema_v2_owns_live_stage_questions(session_id):
                 self.ensure_waiting_room_minds_on(session_id)
+            self.bind_session_course_slides(session_id)
         if payload.get("gamification_on") and not current.get("gamification_on"):
             self._seed_open_mvp_tallies(session_id)
         return written
@@ -45534,6 +46622,7 @@ class SchoolDB(LovesDB):
                 self.ensure_waiting_room_minds_on(session_id)
         if self._restore_live_team_lock(int(class_id), create=True):
             self._publish_restored_team_lock(session_id)
+        self.bind_session_course_slides(session_id)
         return session_row
 
 

@@ -1150,7 +1150,12 @@ class PermanentStaffDeleteTests(unittest.TestCase):
             self.assertEqual(count, 1, table)
 
     def test_cross_tagged_snapshot_keeps_the_other_session(self) -> None:
-        """A snapshot tagged with this class does not delete another class's session."""
+        """A snapshot tagged with this class does not delete another class's session.
+
+        A surviving page that still names a file in the deleted account's
+        folder keeps that file. Slide import rows for the deleted account
+        go, including one with no class id. The other teacher's job stays.
+        """
         target = self.school.register_staff("snapshot-target@example.com", "Target")
         other = self.school.register_staff("snapshot-other@example.com", "Other")
         target_offering = self.school.assign_course(
@@ -1171,6 +1176,88 @@ class PermanentStaffDeleteTests(unittest.TestCase):
         session_id = int(started["id"])
         run_key, prompt_id = self._seat_and_cross_tag(session_id, target_class, int(other["id"]))
         self.assertTrue(run_key)
+        import base64
+
+        png = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        )
+        self.school.save_course_slide_deck(
+            target_class,
+            "M1",
+            "C1",
+            title="Target deck",
+            source="pptx",
+            page_pngs=[png],
+            source_bytes=b"PK\x03\x04target-slide-source",
+            source_suffix=".pptx",
+        )
+        self.school.save_course_slide_deck(
+            other_class,
+            "M1",
+            "C1",
+            title="Other deck",
+            source="pptx",
+            page_pngs=[png],
+            source_bytes=b"PK\x03\x04other-slide-source",
+            source_suffix=".pptx",
+        )
+        target_rows = self.school.conn.execute(
+            """
+            SELECT source_relpath FROM course_slide_decks WHERE class_id = ?
+            """,
+            (target_class,),
+        ).fetchall()
+        other_rows = self.school.conn.execute(
+            """
+            SELECT source_relpath FROM course_slide_decks WHERE class_id = ?
+            """,
+            (other_class,),
+        ).fetchall()
+        target_pages = self.school.conn.execute(
+            """
+            SELECT pages.image_relpath
+            FROM course_slide_pages AS pages
+            JOIN course_slide_decks AS decks ON decks.id = pages.deck_id
+            WHERE decks.class_id = ?
+            """,
+            (target_class,),
+        ).fetchall()
+        other_pages = self.school.conn.execute(
+            """
+            SELECT pages.image_relpath
+            FROM course_slide_pages AS pages
+            JOIN course_slide_decks AS decks ON decks.id = pages.deck_id
+            WHERE decks.class_id = ?
+            """,
+            (other_class,),
+        ).fetchall()
+        data_dir = Path(self.school.data_dir)
+        target_files = [data_dir / str(row[0]) for row in (*target_rows, *target_pages)]
+        other_files = [data_dir / str(row[0]) for row in (*other_rows, *other_pages)]
+        self.assertTrue(target_files)
+        self.assertTrue(all(path.is_file() for path in target_files))
+        self.assertTrue(all(path.is_file() for path in other_files))
+        shared_rel = str(target_pages[0][0])
+        self.school.conn.execute(
+            """
+            UPDATE course_slide_pages
+            SET image_relpath = ?
+            WHERE image_relpath = ?
+            """,
+            (shared_rel, str(other_pages[0][0])),
+        )
+        target_job = "a" * 32
+        other_job = "b" * 32
+        null_class_job = "c" * 32
+        self.school.insert_slide_import_job(
+            target_job, int(target["id"]), target_class, None
+        )
+        self.school.insert_slide_import_job(
+            other_job, int(other["id"]), other_class, None
+        )
+        self.school.insert_slide_import_job(
+            null_class_job, int(target["id"]), None, None
+        )
         self.school.delete_staff_permanently(int(target["id"]), self.actor_id)
         row = self.school.conn.execute(
             "SELECT class_id, teacher_user_id FROM live_class_sessions WHERE id = ?",
@@ -1233,6 +1320,43 @@ class PermanentStaffDeleteTests(unittest.TestCase):
                 (other_class,),
             ).fetchone()
         )
+        self.assertIsNone(self.school.course_slide_deck_summary(target_class, "M1", "C1"))
+        other_deck = self.school.course_slide_deck_summary(other_class, "M1", "C1")
+        self.assertIsNotNone(other_deck)
+        assert other_deck is not None
+        self.assertEqual(other_deck["title"], "Other deck")
+        shared_path = data_dir / shared_rel
+        self.assertTrue(shared_path.is_file())
+        self.assertTrue(
+            all(not path.is_file() for path in target_files if path != shared_path)
+        )
+        self.assertTrue(all(path.is_file() for path in other_files))
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM course_slide_pages WHERE image_relpath = ?",
+                (shared_rel,),
+            ).fetchone()[0],
+            1,
+        )
+        self.assertEqual(
+            self.school.conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM course_slide_pages AS pages
+                JOIN course_slide_decks AS decks ON decks.id = pages.deck_id
+                WHERE decks.class_id = ?
+                """,
+                (other_class,),
+            ).fetchone()[0],
+            1,
+        )
+        self.assertIsNone(self.school.get_slide_import_job(target_job))
+        self.assertIsNone(self.school.get_slide_import_job(null_class_job))
+        kept_job = self.school.get_slide_import_job(other_job)
+        self.assertIsNotNone(kept_job)
+        assert kept_job is not None
+        self.assertEqual(int(kept_job["owner_user_id"]), int(other["id"]))
+        self.assertEqual(int(kept_job["class_id"]), other_class)
 
     def test_cross_tagged_snapshot_keeps_a_session_the_target_started(self) -> None:
         """A cross-tag does not delete a session this account started elsewhere."""

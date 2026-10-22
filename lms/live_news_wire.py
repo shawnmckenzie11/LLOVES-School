@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import queue
+import re
 import signal
 import socket
 import sqlite3
@@ -69,6 +70,7 @@ NEWS_TYPES = frozenset(
         "response_landed",
         "flag_work",
         "board_ink",
+        "google_slide",
         "busy",
         "ping",
     }
@@ -93,9 +95,17 @@ _FIELDS: dict[str, frozenset[str]] = {
     ),
     # Board key only. No points, no names. Members fetch since-seq deltas.
     "board_ink": frozenset({"type", "board_key"}),
+    # Current slide only. No roster. image_url is empty until the page is shared.
+    "google_slide": frozenset(
+        {"type", "index", "shared", "page_count", "image_url", "rev"}
+    ),
     "busy": frozenset({"type", "retry"}),
     "ping": frozenset({"type"}),
 }
+
+_SLIDE_IMAGE_URL = re.compile(
+    r"^/api/classes/\d+/live-question-images/[a-f0-9]{64}\.png$"
+)
 
 _FLAG_KEYS = ("minds_on", "action", "consolidation")
 
@@ -536,6 +546,15 @@ def _clean_event(raw: dict[str, Any]) -> dict[str, Any] | None:
         if not key:
             return None
         event["board_key"] = key
+    if kind == "google_slide":
+        event["index"] = max(0, min(40, _as_int(event.get("index"))))
+        event["page_count"] = max(0, min(40, _as_int(event.get("page_count"))))
+        event["rev"] = max(0, min(1_000_000, _as_int(event.get("rev"))))
+        event["shared"] = 1 if _as_int(event.get("shared")) else 0
+        url = str(event.get("image_url") or "")
+        event["image_url"] = url if _SLIDE_IMAGE_URL.fullmatch(url) else ""
+        if not event["shared"]:
+            event["image_url"] = ""
     return event
 
 

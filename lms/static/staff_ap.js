@@ -2473,10 +2473,26 @@ function paintStageRail() {
   }
   const prev = $("live-stage-prev");
   const next = $("live-stage-next");
-  if (prev instanceof HTMLButtonElement) prev.disabled = setupPhase || pageFlipInFlight;
-  if (next instanceof HTMLButtonElement) {
-    next.disabled =
-      pageFlipInFlight || (setupPhase ? false : index < 0 || index >= pages.length - 1);
+  const slideDeck = slidesRailActive() ? googleSlidesDeck() : null;
+  if (slideDeck) {
+    const slideIndex = Math.max(
+      0,
+      Math.min(slideDeck.pages.length - 1, Number(slideDeck.current_index) || 0)
+    );
+    if (counter) counter.textContent = `${slideIndex + 1} / ${slideDeck.pages.length}`;
+    if (name) name.textContent = String(slideDeck.title || "Slides");
+    if (prev instanceof HTMLButtonElement) {
+      prev.disabled = setupPhase || pageFlipInFlight || slideIndex <= 0;
+    }
+    if (next instanceof HTMLButtonElement) {
+      next.disabled = pageFlipInFlight || slideIndex >= slideDeck.pages.length - 1;
+    }
+  } else {
+    if (prev instanceof HTMLButtonElement) prev.disabled = setupPhase || pageFlipInFlight;
+    if (next instanceof HTMLButtonElement) {
+      next.disabled =
+        pageFlipInFlight || (setupPhase ? false : index < 0 || index >= pages.length - 1);
+    }
   }
   const addBtn = $("live-add-page");
   const deleteBtn = $("live-delete-page");
@@ -3305,18 +3321,24 @@ function googleSlidesDeck() {
  * Paint the current Google Slide, prev/next, and the share badge.
  * A metadata iframe deck is left to paintSlidesMetadata.
  */
+/**
+ * True when Back and Forward should move slide pages.
+ * @returns {boolean}
+ */
+function slidesRailActive() {
+  return teacherState.active_tab === "slides" && Boolean(googleSlidesDeck());
+}
+
 function paintGoogleSlidesChrome() {
   const deck = googleSlidesDeck();
-  const nav = $("live-google-slides-nav");
   const card = $("live-google-slides-card");
+  const stage = $("live-google-slides-stage");
   const count = $("live-google-slides-count");
-  const prev = $("live-google-slides-prev");
-  const next = $("live-google-slides-next");
   const close = document.querySelector('[data-surface-close="slides"]');
   if (!deck) {
-    if (nav) nav.hidden = true;
+    if (count) count.hidden = true;
+    if (stage instanceof HTMLElement) stage.hidden = true;
     if (card instanceof HTMLImageElement) {
-      card.hidden = true;
       card.removeAttribute("src");
     }
     if (close) close.textContent = "Close";
@@ -3332,18 +3354,18 @@ function paintGoogleSlidesChrome() {
       shared ? "Sharing" : "Not shared"
     }`;
   }
-  if (nav) nav.hidden = false;
-  if (count) count.textContent = `Slide ${index + 1} of ${deck.pages.length}`;
-  if (prev instanceof HTMLButtonElement) prev.disabled = index <= 0;
-  if (next instanceof HTMLButtonElement) next.disabled = index >= deck.pages.length - 1;
+  if (count) {
+    count.hidden = false;
+    count.textContent = `Slide ${index + 1} of ${deck.pages.length}`;
+  }
   if (card instanceof HTMLImageElement) {
     const url = String(page.image_url || "");
     if (url) {
       if (card.getAttribute("src") !== url) card.src = url;
       card.alt = `Slide ${index + 1}`;
-      card.hidden = false;
-    } else {
-      card.hidden = true;
+      if (stage instanceof HTMLElement) stage.hidden = false;
+    } else if (stage instanceof HTMLElement) {
+      stage.hidden = true;
       card.removeAttribute("src");
     }
   }
@@ -3442,20 +3464,184 @@ function paintSlidesAttachError(errorEl, err) {
   if (rest) errorEl.append(document.createTextNode(rest));
 }
 
+/**
+ * POST a PowerPoint without forcing a JSON content type.
+ * @param {string} path
+ * @param {File} file
+ * @param {Record<string, string>} fields
+ * @returns {Promise<any>}
+ */
+
+/**
+ * Wait for a slide import that returned 202.
+ * @param {object} data
+ * @returns {Promise<object>}
+ */
+async function finishSlideImport(data) {
+  if (!data || data.status !== "running" || typeof data.job_id !== "string") {
+    return data;
+  }
+  if (!/^[a-f0-9]{32}$/.test(data.job_id)) {
+    throw new Error("Could not attach that deck.");
+  }
+  const deadline = Date.now() + 100000;
+  let latest = data;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    latest = await api(`/api/slide-imports/${data.job_id}`);
+    if (latest.status !== "running") return latest;
+  }
+  throw new Error("That deck took too long to attach.");
+}
+
+async function postSlideUpload(path, file, fields) {
+  const body = new FormData();
+  body.append("file", file, file.name);
+  for (const [key, value] of Object.entries(fields || {})) {
+    if (value) body.append(key, value);
+  }
+  const response = await fetch(path, { method: "POST", body, credentials: "same-origin" });
+  const text = await response.text();
+  let data = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (_err) {
+      throw new Error("Could not attach that deck.");
+    }
+  }
+  if (!response.ok || data.ok === false) {
+    const error = new Error(data.error || "Could not attach that deck.");
+    if (data.needs_slides_read === true) error.needsSlidesRead = true;
+    if (
+      typeof data.connect_url === "string" &&
+      data.connect_url.startsWith("/auth/google/slides-read") &&
+      !data.connect_url.startsWith("/auth/google/slides-read/callback")
+    ) {
+      error.connectUrl = data.connect_url;
+    }
+    throw error;
+  }
+  return data;
+}
+
+let setClassSlidesTitle = "";
+let setClassSlidesKey = "";
+let setClassSlidesRequest = 0;
+
+/**
+ * Load the course deck name for the summary beside Start.
+ * @returns {Promise<void>}
+ */
+async function refreshSetClassSlides() {
+  const module = String($("live-module-select")?.value || teacherState.live_module || "M1").toUpperCase();
+  const slot = String($("live-class-select")?.value || teacherState.live_slot || "C1").toUpperCase();
+  if (setClassKind === "office" || !classId) {
+    paintSetClassSummary();
+    return;
+  }
+  const key = `${module}|${slot}`;
+  if (key === setClassSlidesKey) {
+    paintSetClassSummary();
+    return;
+  }
+  const request = ++setClassSlidesRequest;
+  try {
+    const data = await api(
+      `/api/classes/${classId}/slide-deck?module=${encodeURIComponent(module)}&slot=${encodeURIComponent(slot)}`
+    );
+    if (request !== setClassSlidesRequest) return;
+    setClassSlidesKey = key;
+    setClassSlidesTitle = String(data?.deck?.title || "");
+  } catch (_err) {
+    if (request !== setClassSlidesRequest) return;
+    setClassSlidesKey = key;
+    setClassSlidesTitle = "";
+  }
+  paintSetClassSummary();
+}
+
+/**
+ * Attach a share link or PowerPoint from Set Class step 3.
+ * @param {Event} event
+ * @returns {Promise<void>}
+ */
+async function addSetClassSlides(event) {
+  event.preventDefault();
+  const error = $("set-class-slides-error");
+  const button = $("set-class-slides-add");
+  const urlInput = $("set-class-slides-url");
+  const fileInput = $("set-class-slides-file");
+  const publish = $("set-class-slides-publish");
+  const url = urlInput instanceof HTMLInputElement ? urlInput.value.trim() : "";
+  const file = fileInput instanceof HTMLInputElement ? fileInput.files?.[0] : null;
+  const module = String($("live-module-select")?.value || teacherState.live_module || "M1").toUpperCase();
+  const slot = String($("live-class-select")?.value || teacherState.live_slot || "C1").toUpperCase();
+  if (error) {
+    error.hidden = true;
+    error.replaceChildren();
+  }
+  if (!url && !file) {
+    if (error) {
+      error.hidden = false;
+      error.textContent = "Paste a Google Slides share link or choose a PowerPoint.";
+    }
+    return;
+  }
+  if (button instanceof HTMLButtonElement) button.disabled = true;
+  try {
+    const fields = {
+      module,
+      slot,
+      default_published: publish instanceof HTMLInputElement && publish.checked ? "1" : "",
+    };
+    const started = file
+      ? await postSlideUpload(`/api/classes/${classId}/slide-deck`, file, fields)
+      : await api(`/api/classes/${classId}/slide-deck`, {
+          method: "POST",
+          body: JSON.stringify({
+            url,
+            module,
+            slot,
+            default_published: fields.default_published === "1",
+          }),
+        });
+    const data = await finishSlideImport(started);
+    setClassSlidesTitle = String(data?.deck?.title || "");
+    setClassSlidesKey = `${module}|${slot}`;
+    if (data?.google_slides) lastGoogleSlides = data.google_slides;
+    if (urlInput instanceof HTMLInputElement) urlInput.value = "";
+    if (fileInput instanceof HTMLInputElement) fileInput.value = "";
+    paintSetClassSummary();
+    paintSlidesMetadata();
+  } catch (err) {
+    if (error) {
+      error.hidden = false;
+      paintSlidesAttachError(error, err);
+    }
+  } finally {
+    if (button instanceof HTMLButtonElement) button.disabled = false;
+  }
+}
+
 async function attachGoogleSlides(event) {
   event.preventDefault();
   const input = $("live-google-slides-url");
   const button = $("live-google-slides-attach");
   const error = $("live-google-slides-error");
+  const fileInput = $("live-google-slides-file");
+  const file = fileInput instanceof HTMLInputElement ? fileInput.files?.[0] : null;
   const url = input instanceof HTMLInputElement ? input.value.trim() : "";
+  const publish = $("live-google-slides-publish");
+  const defaultPublished = publish instanceof HTMLInputElement && publish.checked;
   if (error) {
     error.hidden = true;
-    error.textContent = "";
+    error.replaceChildren();
   }
-  if (!url) {
+  if (!url && !file) {
     if (error) {
       error.hidden = false;
-      error.textContent = "Paste a Google Slides share link.";
+      error.textContent = "Paste a Google Slides share link or choose a PowerPoint.";
     }
     return;
   }
@@ -3469,10 +3655,15 @@ async function attachGoogleSlides(event) {
   }
   if (button instanceof HTMLButtonElement) button.disabled = true;
   try {
-    const data = await api(`/api/live-sessions/${sessionId}/google-slides`, {
-      method: "POST",
-      body: JSON.stringify({ url }),
-    });
+    const started = file
+      ? await postSlideUpload(`/api/live-sessions/${sessionId}/google-slides`, file, {
+          default_published: defaultPublished ? "1" : "",
+        })
+      : await api(`/api/live-sessions/${sessionId}/google-slides`, {
+          method: "POST",
+          body: JSON.stringify({ url, default_published: defaultPublished }),
+        });
+    const data = await finishSlideImport(started);
     if (data?.google_slides) lastGoogleSlides = data.google_slides;
     paintSlidesMetadata();
     paintSurfacePublishing();
@@ -3742,7 +3933,13 @@ function paintSetClassSummary() {
   const mode = setClassKind === "office" ? "office" : selectedRunKind() === "test" ? "test" : "live";
   const selected = document.querySelector('input[name="live-deck-seed"]:checked');
   const deck = String(selected?.value || deckSeedMode || "current");
-  line.textContent = setClassSummaryLine({ mode, module, slot, deck });
+  line.textContent = setClassSummaryLine({
+    mode,
+    module,
+    slot,
+    deck,
+    slides: mode === "office" ? "" : setClassSlidesTitle,
+  });
 }
 
 /**
@@ -7807,6 +8004,7 @@ function startStaffNewsWire(sessionId) {
   if (staffNewsWire) staffNewsWire.stop();
   staffNewsWire = connectLiveNewsWire(sid, {
     onNews(event) {
+      if (event && event.type === "google_slide") return;
       if (event && event.type === "board_ink") {
         if (teacherBoardPoll && typeof teacherBoardPoll.kick === "function") {
           teacherBoardPoll.kick();
@@ -8888,7 +9086,7 @@ function syncSetClassRunKindUi() {
     if (test) testDeckNote.removeAttribute("hidden");
     else testDeckNote.setAttribute("hidden", "");
   }
-  paintSetClassSummary();
+  void refreshSetClassSlides();
   if (test) {
     showValidateGrid(gridSelectedIso($("ap-day-grid")) || String($("ap-valid-date")?.value || ""));
   }
@@ -12364,11 +12562,23 @@ $("teams-spark-reveal")?.addEventListener("click", () => {
 });
 
 $("live-stage-prev")?.addEventListener("click", () => {
+  if (slidesRailActive()) {
+    const deck = googleSlidesDeck();
+    const index = Number(deck?.current_index) || 0;
+    showGoogleSlideIndex(index - 1).catch((err) => showError("#ap-overlay-error", err));
+    return;
+  }
   advanceLivePage(-1);
 });
 $("live-stage-next")?.addEventListener("click", () => {
   if (setupPhase) {
     applyValidateDateChoice().catch((err) => showError("#ap-overlay-error", err));
+    return;
+  }
+  if (slidesRailActive()) {
+    const deck = googleSlidesDeck();
+    const index = Number(deck?.current_index) || 0;
+    showGoogleSlideIndex(index + 1).catch((err) => showError("#ap-overlay-error", err));
     return;
   }
   advanceLivePage(1);
@@ -12619,6 +12829,7 @@ $("live-module-select")?.addEventListener("change", () => {
   if (setupPhase) refreshDeckSeedOptions();
   applyLivePackChoice(module, slot);
   paintSetClassSlides();
+  void refreshSetClassSlides();
 });
 
 $("live-class-select")?.addEventListener("change", () => {
@@ -12628,6 +12839,7 @@ $("live-class-select")?.addEventListener("change", () => {
     $("live-class-select")?.value || "C1"
   );
   paintSetClassSlides();
+  void refreshSetClassSlides();
 });
 
 $("set-class-kind-live")?.addEventListener("click", () => {
@@ -12921,17 +13133,8 @@ document.querySelectorAll("[data-surface-close]").forEach((button) => {
 $("live-google-slides-form")?.addEventListener("submit", (event) => {
   attachGoogleSlides(event).catch((err) => showError("#ap-overlay-error", err));
 });
-$("live-google-slides-prev")?.addEventListener("click", () => {
-  const deck = googleSlidesDeck();
-  if (!deck) return;
-  const index = Number(deck.current_index) || 0;
-  showGoogleSlideIndex(index - 1).catch((err) => showError("#ap-overlay-error", err));
-});
-$("live-google-slides-next")?.addEventListener("click", () => {
-  const deck = googleSlidesDeck();
-  if (!deck) return;
-  const index = Number(deck.current_index) || 0;
-  showGoogleSlideIndex(index + 1).catch((err) => showError("#ap-overlay-error", err));
+$("set-class-slides-form")?.addEventListener("submit", (event) => {
+  addSetClassSlides(event).catch((err) => showError("#ap-overlay-error", err));
 });
 // MCK-174: Reopen board opens a two-choice popover (Last board / Fresh board).
 document.querySelector('[data-surface-reopen="canvas"]')?.addEventListener("click", () => {

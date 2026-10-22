@@ -3661,3 +3661,55 @@ dialog.student-pin-dialog::backdrop {
     display: none !important;
   }
 }
+
+/* MCK-316: 16:9 slide, fit the card, no crop, neutral margin. */
+.slides-fit-stage {
+  display: none;
+}
+body.student-home .student-live-response:has(.slides-pane.is-google-slide:not([hidden])) {
+  display: flex;
+  flex-direction: column;
+}
+body.student-home .slides-pane.is-google-slide:not([hidden]) {
+  flex: 1 1 auto;
+  align-self: stretch;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  min-height: min(68dvh, 40rem);
+  height: auto;
+  background: #e4e1dc;
+}
+body.student-home .slides-pane.is-google-slide .slides-fit-stage {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  width: 100%;
+  background: #e4e1dc;
+  container-type: size;
+}
+body.student-home .slides-pane.is-google-slide .slides-fit-stage .slides-card-image {
+  display: block;
+  flex: 0 0 auto;
+  width: min(100cqw, calc(100cqh * 16 / 9));
+  height: min(100cqh, calc(100cqw * 9 / 16));
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  object-position: center;
+  background: transparent;
+  min-height: 0;
+  border: 0;
+}
+@media (min-width: 48rem) {
+  body.student-home .slides-pane.is-google-slide.student-floating-pane:not([hidden]) {
+    position: relative;
+    min-width: 0;
+    width: 100%;
+    max-height: none;
+    flex: 1 1 auto;
+  }
+}
