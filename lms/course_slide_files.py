@@ -7,10 +7,11 @@ Slides export.
 
 External relationships and media that point outside the package are
 removed before LibreOffice runs. The process is started in its own
-session, inside a network and mount namespace that can see only the job
-directory plus the system libraries LibreOffice needs. Conversion is
-refused when that sandbox cannot be started. A legacy ``.ppt`` is refused
-because its links cannot be stripped.
+session, inside a network and mount namespace. ``pivot_root`` drops the
+host filesystem, so the converter sees the job directory and read-only
+system libraries only. When the worker is root, the converter runs as
+nobody. Conversion is refused when that sandbox cannot be started. A
+legacy ``.ppt`` is refused because its links cannot be stripped.
 """
 
 from __future__ import annotations
@@ -53,6 +54,8 @@ _MEMBER_MAX_BYTES = 80 * 1024 * 1024
 _PACKAGE_MAX_BYTES = 256 * 1024 * 1024
 # Directories older than this belong to a worker that is already gone.
 STALE_SLIDE_DIR_SECONDS = 180
+# A failed sandbox probe is tried again after this, not held until restart.
+SANDBOX_PROBE_RETRY_SECONDS = 180
 _REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 _EXTERNAL_TARGET = re.compile(r"^(?:file|https?|ftp):", re.IGNORECASE)
 _HREF_ATTR = re.compile(
@@ -79,21 +82,46 @@ _TINY_PNG = (
 # The new root bind-mounts system libraries and that directory only.
 _SANDBOX_SCRIPT = r"""
 set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+if [ "${LLOVES_SANDBOX_WAIT:-}" = 1 ]; then
+  read -r _ <&3 || exit 97
+fi
 work=$1
 shift
 mount --make-rprivate / || exit 97
 newroot="/dev/shm/lloves-root-$(basename "$work")"
 rm -rf "$newroot"
 mkdir -p "$newroot"
-for p in /usr /bin /lib /lib64 /sbin /etc; do
+mount --bind "$newroot" "$newroot" || exit 97
+mount --make-rprivate "$newroot" || exit 97
+# System libraries only. Host /etc is not mounted; it can hold secrets.
+for p in /usr /bin /lib /lib64 /sbin; do
   if [ -e "$p" ]; then
     mkdir -p "$newroot$p"
     mount --bind "$p" "$newroot$p" || exit 97
     mount -o remount,bind,ro "$newroot$p" || true
   fi
 done
-mkdir -p "$newroot/tmp" "$newroot/dev" "$newroot/proc"
-mount -t tmpfs -o nosuid,nodev,mode=755,size=64m tmpfs "$newroot/tmp" || exit 97
+mkdir -p "$newroot/etc"
+mount -t tmpfs -o nosuid,nodev,mode=755,size=8m tmpfs "$newroot/etc" || exit 97
+printf 'root:x:0:0:root:/:/bin/false\nnobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\n' > "$newroot/etc/passwd"
+printf 'root:x:0:\nnogroup:x:65534:\n' > "$newroot/etc/group"
+printf 'passwd: files\ngroup: files\nhosts: files\n' > "$newroot/etc/nsswitch.conf"
+printf '127.0.0.1 localhost\n' > "$newroot/etc/hosts"
+if [ -d /etc/fonts ]; then
+  mkdir -p "$newroot/etc/fonts"
+  cp -R --no-preserve=ownership /etc/fonts/. "$newroot/etc/fonts/" || true
+fi
+if [ -d /etc/libreoffice ]; then
+  mkdir -p "$newroot/etc/libreoffice"
+  cp -R --no-preserve=ownership /etc/libreoffice/. "$newroot/etc/libreoffice/" || true
+fi
+if [ -f /etc/localtime ]; then
+  cp -R --no-preserve=ownership /etc/localtime "$newroot/etc/localtime" || true
+fi
+mkdir -p "$newroot/tmp" "$newroot/dev" "$newroot/proc" "$newroot/oldroot"
+# 1777: LibreOffice creates its bootstrap pipe in /tmp, as nobody.
+mount -t tmpfs -o nosuid,nodev,mode=1777,size=256m tmpfs "$newroot/tmp" || exit 97
 mount -t tmpfs -o nosuid,mode=755,size=4m tmpfs "$newroot/dev" || exit 97
 for n in null zero urandom random; do
   if [ -e "/dev/$n" ]; then
@@ -102,14 +130,60 @@ for n in null zero urandom random; do
   fi
 done
 mkdir -p "$newroot$work"
+chmod -R a+rwx "$work" || true
 mount --bind "$work" "$newroot$work" || exit 97
 mount -t proc proc "$newroot/proc" || exit 97
 cd "$newroot"
-exec chroot "$newroot" "$@"
+pivot_root . oldroot || exit 97
+umount -l /oldroot || exit 97
+rmdir /oldroot 2>/dev/null || true
+# nobody is mapped only when the worker is host root. Otherwise the
+# namespace root is already an unprivileged host uid, and setuid fails.
+# awk is often a symlink into /etc/alternatives, which this root does not have.
+mapped_nobody=0
+host=1
+while read -r inner outer _count; do
+  if [ "$inner" = 65534 ]; then
+    mapped_nobody=1
+  fi
+  if [ "$inner" = 0 ]; then
+    host=$outer
+  fi
+done < /proc/self/uid_map
+cd "$work" || exit 97
+if [ "$mapped_nobody" = 1 ]; then
+  exec setpriv --reuid=65534 --regid=65534 --clear-groups --inh-caps=-all -- "$@"
+fi
+if [ "$host" = 0 ]; then
+  echo "slide sandbox refused to drop root" >&2
+  exit 97
+fi
+exec "$@"
 """
 _sandbox_lock = threading.Lock()
-# None until the first probe. False means the probe failed.
-_sandbox_ready: tuple[str, str] | None | bool = None
+# None until a probe succeeds. A failure time means the next probe waits.
+_sandbox_ready: tuple[str, str] | None = None
+_sandbox_failed_at: float | None = None
+
+
+
+def _which_tool(name: str) -> str | None:
+    """Resolve a sandbox binary, including sbin when PATH omits it.
+
+    Args:
+        name: Executable name, such as ``pivot_root`` or ``unshare``.
+
+    Returns:
+        An absolute path, or None when the tool is not installed.
+    """
+    found = shutil.which(name)
+    if found:
+        return found
+    for directory in ("/usr/sbin", "/sbin", "/usr/bin", "/bin"):
+        candidate = Path(directory) / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
 
 
 def upload_content_length_allowed(content_length: int | None) -> bool:
@@ -553,8 +627,9 @@ def pages_from_office(
 def sandbox_tools() -> tuple[str, str]:
     """``unshare`` and ``timeout`` paths, after a successful probe.
 
-    The probe result is cached. A failed probe is logged once and then
-    every conversion is refused. Callers do not run LibreOffice unsandboxed.
+    A successful probe is cached. A failed probe is logged and blocks
+    conversion for a few minutes, then it is tried again. Callers do
+    not run LibreOffice unsandboxed.
 
     Returns:
         ``(unshare_path, timeout_path)``.
@@ -563,17 +638,21 @@ def sandbox_tools() -> tuple[str, str]:
         ValueError: The sandbox cannot be started. The message is safe
             to show to the teacher.
     """
-    global _sandbox_ready
+    global _sandbox_ready, _sandbox_failed_at
     with _sandbox_lock:
-        if _sandbox_ready is False:
-            raise ValueError(_SANDBOX_MESSAGE)
         if isinstance(_sandbox_ready, tuple):
             return _sandbox_ready
+        if _sandbox_failed_at is not None:
+            elapsed = time.monotonic() - _sandbox_failed_at
+            if elapsed < SANDBOX_PROBE_RETRY_SECONDS:
+                raise ValueError(_SANDBOX_MESSAGE)
         found = _probe_sandbox()
         if found is None:
-            _sandbox_ready = False
+            _sandbox_failed_at = time.monotonic()
+            _sandbox_ready = None
             logger.error("slide conversion refused: unshare sandbox probe failed")
             raise ValueError(_SANDBOX_MESSAGE)
+        _sandbox_failed_at = None
         _sandbox_ready = found
         return found
 
@@ -584,26 +663,28 @@ def _probe_sandbox() -> tuple[str, str] | None:
     Returns:
         ``(unshare, timeout)`` when the probe exits 0, else None.
     """
-    unshare = shutil.which("unshare")
-    timeout_bin = shutil.which("timeout")
-    if not unshare or not timeout_bin:
+    unshare = _which_tool("unshare")
+    timeout_bin = _which_tool("timeout")
+    if not unshare or not timeout_bin or not _which_tool("pivot_root"):
+        return None
+    if os.geteuid() == 0 and not _which_tool("setpriv"):
         return None
     work = Path(tempfile.mkdtemp(prefix="lloves-slides-"))
+    proc: subprocess.Popen[bytes] | None = None
     try:
-        probe = subprocess.run(
-            sandbox_argv(work, ["true"], unshare=unshare),
-            capture_output=True,
-            timeout=8,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
+        try:
+            proc = _launch_sandbox(["true"], work, office_env(work), str(work))
+            proc.communicate(timeout=8)
+        except (OSError, subprocess.TimeoutExpired):
+            if proc is not None:
+                _kill_process_group(proc)
+            return None
     finally:
         shutil.rmtree(work, ignore_errors=True)
         shutil.rmtree(
             Path("/dev/shm") / f"lloves-root-{work.name}", ignore_errors=True
         )
-    if probe.returncode != 0:
+    if proc.returncode != 0:
         return None
     return unshare, timeout_bin
 
@@ -613,6 +694,10 @@ def sandbox_argv(
 ) -> list[str]:
     """Argv that runs ``command`` with only ``work`` exposed.
 
+    Host root uses a bare user namespace so the parent can map nobody
+    before the script continues. Any other worker maps itself to
+    namespace root, which is already unprivileged on the host.
+
     Args:
         work: Job directory. It is bind-mounted at the same path.
         command: Converter argv. Not passed through a shell.
@@ -621,15 +706,15 @@ def sandbox_argv(
     Returns:
         Argv beginning with ``unshare``.
     """
-    binary = unshare or shutil.which("unshare") or "unshare"
+    binary = unshare or _which_tool("unshare") or "unshare"
+    flags = ["--mount", "--pid", "--net", "--fork", "--kill-child=SIGKILL"]
+    if os.geteuid() != 0:
+        flags.append("--map-root-user")
+    else:
+        flags.insert(0, "--user")
     return [
         binary,
-        "--net",
-        "--mount",
-        "--pid",
-        "--fork",
-        "--kill-child=SIGKILL",
-        "--map-root-user",
+        *flags,
         "sh",
         "-c",
         _SANDBOX_SCRIPT,
@@ -637,6 +722,139 @@ def sandbox_argv(
         str(work),
         *command,
     ]
+
+
+def _arm_root_mapping(proc: subprocess.Popen[bytes]) -> None:
+    """Map namespace root and nobody for a worker that is host root.
+
+    The unshare child waits until this map is installed. nobody on the
+    host is uid 65534, so a converter that escapes the mount namespace
+    is not host root.
+
+    Args:
+        proc: The unshare supervisor started with ``--fork``.
+
+    Raises:
+        OSError: The child never appeared, or the map could not be written.
+    """
+    deadline = time.monotonic() + 2
+    target: int | None = None
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            break
+        try:
+            kids = Path(f"/proc/{proc.pid}/task/{proc.pid}/children").read_text().split()
+        except OSError:
+            kids = []
+        if kids:
+            target = int(kids[0])
+            break
+        time.sleep(0.01)
+    if target is None:
+        raise OSError("slide sandbox did not fork")
+    Path(f"/proc/{target}/setgroups").write_text("allow\n")
+    Path(f"/proc/{target}/uid_map").write_text("0 0 1\n65534 65534 1\n")
+    Path(f"/proc/{target}/gid_map").write_text("0 0 1\n65534 65534 1\n")
+
+
+def _launch_sandbox(
+    command: list[str],
+    work: Path,
+    env: dict[str, str],
+    cwd: str,
+) -> subprocess.Popen[bytes]:
+    """Start ``command`` inside the slide sandbox.
+
+    Args:
+        command: Converter argv. Not passed through a shell.
+        work: Job directory bind-mounted into the new root.
+        env: Environment for the child. Pass :func:`office_env`.
+        cwd: Working directory. Use the job directory.
+
+    Returns:
+        The unshare supervisor. The caller waits and kills the group.
+
+    Raises:
+        OSError: The root uid map could not be installed.
+    """
+    child_env = dict(env)
+    read_fd: int | None = None
+    write_fd: int | None = None
+    if os.geteuid() == 0:
+        read_fd, write_fd = os.pipe()
+        os.set_inheritable(read_fd, True)
+        child_env["LLOVES_SANDBOX_WAIT"] = "1"
+
+    def preexec() -> None:
+        """Die with the worker, and keep the map-ready pipe on fd 3."""
+        _die_with_parent()
+        if read_fd is not None and read_fd != 3:
+            os.dup2(read_fd, 3)
+
+    try:
+        proc = subprocess.Popen(
+            sandbox_argv(work, command),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=child_env,
+            cwd=cwd,
+            start_new_session=True,
+            pass_fds=(read_fd,) if read_fd is not None else (),
+            preexec_fn=preexec,
+        )
+    except Exception:
+        if read_fd is not None:
+            os.close(read_fd)
+        if write_fd is not None:
+            os.close(write_fd)
+        raise
+    if write_fd is None or read_fd is None:
+        return proc
+    os.close(read_fd)
+    try:
+        _arm_root_mapping(proc)
+        os.write(write_fd, b"\n")
+    except Exception:
+        os.close(write_fd)
+        _kill_process_group(proc)
+        raise
+    os.close(write_fd)
+    return proc
+
+
+def run_sandboxed(
+    command: list[str],
+    *,
+    work: Path,
+    timeout: float,
+    env: dict[str, str],
+    cwd: str,
+) -> subprocess.CompletedProcess[bytes]:
+    """Run ``command`` in the sandbox and kill the group on timeout.
+
+    Args:
+        command: Converter argv. Not passed through a shell.
+        work: Job directory.
+        timeout: Seconds before the group is killed.
+        env: Environment for the child. Pass :func:`office_env`.
+        cwd: Working directory inside the job directory.
+
+    Returns:
+        The completed unshare process.
+
+    Raises:
+        subprocess.TimeoutExpired: The group was killed after ``timeout``.
+        OSError: The sandbox could not be started.
+    """
+    proc = _launch_sandbox(command, work, env, cwd)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_process_group(proc)
+        raise
+    if proc.returncode not in (0, None):
+        _kill_process_group(proc)
+    return subprocess.CompletedProcess(command, int(proc.returncode or 0), out, err)
 
 
 def sweep_stale_slide_dirs(*, max_age_seconds: float = STALE_SLIDE_DIR_SECONDS) -> int:
@@ -757,6 +975,23 @@ def _kill_process_group(proc: subprocess.Popen[bytes]) -> None:
         pass
 
 
+
+def _office_path() -> str:
+    """PATH for LibreOffice, including the directories that hold mount tools.
+
+    Returns:
+        A PATH string that contains ``/usr/sbin`` and ``/sbin``.
+    """
+    raw = os.environ.get(
+        "PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    )
+    parts = [part for part in raw.split(":") if part]
+    for extra in ("/usr/sbin", "/sbin"):
+        if extra not in parts:
+            parts.insert(0, extra)
+    return ":".join(parts)
+
+
 def office_env(root: Path) -> dict[str, str]:
     """Environment for LibreOffice with no application secrets.
 
@@ -771,9 +1006,7 @@ def office_env(root: Path) -> dict[str, str]:
         A new environment mapping.
     """
     env: dict[str, str] = {
-        "PATH": os.environ.get(
-            "PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-        ),
+        "PATH": _office_path(),
         "LANG": os.environ.get("LANG", "C.UTF-8"),
         "HOME": str(root),
         "TMPDIR": str(root),
@@ -840,7 +1073,7 @@ def _office_to_pdf(raw: bytes, suffix: str, binary: str, *, timeout: float) -> b
     """
     if suffix == ".ppt":
         raise ValueError(_PPT_MESSAGE)
-    unshare, timeout_bin = sandbox_tools()
+    _unshare, timeout_bin = sandbox_tools()
     root = Path(tempfile.mkdtemp(prefix="lloves-slides-"))
     try:
         source = root / f"deck{suffix}"
@@ -870,10 +1103,10 @@ def _office_to_pdf(raw: bytes, suffix: str, binary: str, *, timeout: float) -> b
         # A test double is a script, not LibreOffice. Skip the soffice flags.
         if run_bin.endswith("converter-bin"):
             inner = [timeout_bin, "-s", "KILL", str(limit), run_bin]
-        command = sandbox_argv(root, inner, unshare=unshare)
         try:
-            completed = run_grouped(
-                command,
+            completed = run_sandboxed(
+                inner,
+                work=root,
                 timeout=limit + 5,
                 env=office_env(root),
                 cwd=str(root),

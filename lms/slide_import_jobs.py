@@ -7,10 +7,13 @@ stores status and a small JSON result, never the PowerPoint or the PNGs.
 
 from __future__ import annotations
 
+import fcntl
 import logging
+import os
 import threading
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -18,9 +21,72 @@ logger = logging.getLogger(__name__)
 # Link download stays at the existing 45 second cap. Office conversion
 # plus rendering stays under this budget, inside the 120 second worker.
 JOB_BUDGET_SECONDS = 90
-# Two LibreOffice conversions at once. Further imports wait for a slot.
+# Two LibreOffice conversions at once, shared by every gunicorn worker.
 MAX_CONCURRENT_SLIDE_IMPORTS = 2
-_IMPORT_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_SLIDE_IMPORTS)
+_SLOT_DIR = Path("/tmp")
+_SLOT_PREFIX = "lloves-slide-import-slot-"
+
+
+class _HeldImportSlot:
+    """One machine-wide import slot held by an exclusive flock.
+
+    The lock lives on the open file, so it drops when this process
+    exits, including a gunicorn worker that dies mid-import.
+
+    Args:
+        fd: Descriptor that already holds ``LOCK_EX``.
+    """
+
+    def __init__(self, fd: int) -> None:
+        self._fd = fd
+
+    def release(self) -> None:
+        """Unlock the slot and close its descriptor."""
+        fd = self._fd
+        self._fd = -1
+        if fd < 0:
+            return
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
+def acquire_import_slot(timeout: float = 30) -> _HeldImportSlot | None:
+    """Take one of the two machine-wide slide import slots.
+
+    ``flock`` is per open-file description, so threads in one worker
+    and processes in the other workers share the same two slots.
+    A worker that dies releases its slot without a decrement.
+
+    Args:
+        timeout: Seconds to wait for a free slot.
+
+    Returns:
+        A slot whose ``release`` drops the lock, or None when the wait
+        expires.
+    """
+    deadline = time.monotonic() + timeout
+    fds: list[int] = []
+    try:
+        for index in range(MAX_CONCURRENT_SLIDE_IMPORTS):
+            path = _SLOT_DIR / f"{_SLOT_PREFIX}{index}"
+            fds.append(os.open(path, os.O_CREAT | os.O_RDWR | os.O_CLOEXEC, 0o644))
+        while True:
+            for index, fd in enumerate(fds):
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    continue
+                fds[index] = -1
+                return _HeldImportSlot(fd)
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(0.05)
+    finally:
+        for fd in fds:
+            if fd >= 0:
+                os.close(fd)
 
 
 class SlideImportFailed(Exception):
@@ -45,12 +111,16 @@ def start_slide_import(school: Any, job_id: str, work: Callable[[], dict]) -> No
         work: Returns the JSON object stored on success. It must not
             touch the Flask request. Raise ``SlideImportFailed`` or
             ``ValueError`` for a teacher-facing error. At most two
-            imports run at once; the rest wait for a free slot.
+            imports run at once on this machine; the rest wait for a free slot.
     """
 
     def runner() -> None:
         """Record success or a teacher-facing failure for one job."""
-        if not _IMPORT_SLOTS.acquire(timeout=30):
+        expire = getattr(school, "fail_expired_slide_import_jobs", None)
+        if expire is not None:
+            expire(JOB_BUDGET_SECONDS)
+        slot = acquire_import_slot(30)
+        if slot is None:
             school.fail_slide_import_job(
                 job_id,
                 "Another deck is still being attached. Try again in a minute.",
@@ -83,7 +153,7 @@ def start_slide_import(school: Any, job_id: str, work: Callable[[], dict]) -> No
                 http_status=502,
             )
         finally:
-            _IMPORT_SLOTS.release()
+            slot.release()
 
     threading.Thread(
         target=runner,

@@ -7413,6 +7413,58 @@ class LovesDB:
             self.conn.commit()
             return int(cur.rowcount or 0)
 
+    def fail_expired_slide_import_jobs(self, max_age_seconds: float) -> int:
+        """Mark running slide imports older than the job budget as failed.
+
+        A worker can die while the machine stays up. Those rows stay
+        ``running`` until something notices they are past the budget.
+        Finish and fail only update a row that is still running, so a
+        late thread cannot overwrite this error.
+
+        Args:
+            max_age_seconds: Age after which a running row is closed.
+
+        Returns:
+            How many rows were closed.
+        """
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        limit = float(max_age_seconds)
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT id, created_at FROM slide_import_jobs
+                WHERE status = 'running'
+                """
+            ).fetchall()
+            expired: list[str] = []
+            for row in rows:
+                try:
+                    started = datetime.fromisoformat(str(row["created_at"] or ""))
+                except ValueError:
+                    continue
+                if started.tzinfo is None:
+                    started = started.replace(tzinfo=timezone.utc)
+                if (now - started).total_seconds() > limit:
+                    expired.append(str(row["id"]))
+            if not expired:
+                return 0
+            for job_id in expired:
+                self.conn.execute(
+                    """
+                    UPDATE slide_import_jobs
+                    SET status = 'error',
+                        error = ?,
+                        http_status = 400,
+                        result_json = ''
+                    WHERE id = ? AND status = 'running'
+                    """,
+                    ("That deck took too long to attach.", job_id),
+                )
+            self.conn.commit()
+            return len(expired)
+
     def _delete_class_owned_rows(self, class_ids: list[int], present: set[str]) -> None:
         """Delete per-class rows that have no foreign key to ``classes``.
 

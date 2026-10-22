@@ -359,7 +359,7 @@ class CourseSlideFileTests(unittest.TestCase):
         """A .ppt is not handed to LibreOffice."""
         import course_slide_files as files
 
-        with mock.patch.object(files, "run_grouped") as run:
+        with mock.patch.object(files, "run_sandboxed") as run:
             with self.assertRaises(ValueError) as caught:
                 files.pages_from_office(b"\xd0\xcf\x11\xe0" + b"x" * 32, ".ppt")
         run.assert_not_called()
@@ -370,15 +370,17 @@ class CourseSlideFileTests(unittest.TestCase):
         import course_slide_files as files
 
         files._sandbox_ready = None
+        files._sandbox_failed_at = None
         try:
             with mock.patch.object(files, "_probe_sandbox", return_value=None):
-                with mock.patch.object(files, "run_grouped") as run:
+                with mock.patch.object(files, "run_sandboxed") as run:
                     with self.assertLogs("course_slide_files", level="ERROR") as logs:
                         with self.assertRaises(ValueError) as caught:
                             files.pages_from_office(_minimal_pptx(), ".pptx", timeout=5)
             run.assert_not_called()
         finally:
             files._sandbox_ready = None
+            files._sandbox_failed_at = None
         self.assertIn("not available", str(caught.exception))
         self.assertTrue(any("sandbox" in line for line in logs.output))
 
@@ -460,15 +462,17 @@ class CourseSlideFileTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("unshare"), "unshare is not installed")
     def test_sandbox_hides_files_outside_the_job_dir(self) -> None:
         """The converter can read its temp dir and nothing else on disk."""
+        import pwd
+
         import course_slide_files as files
 
         secret = Path("/tmp/lloves-slide-outside-secret.txt")
         secret.write_text("OUTSIDE-SECRET")
         work = Path(tempfile.mkdtemp(prefix="lloves-slides-"))
+        host_name = pwd.getpwuid(os.geteuid()).pw_name
         try:
             (work / "inside.txt").write_text("INSIDE-OK")
-            command = files.sandbox_argv(
-                work,
+            completed = files.run_sandboxed(
                 [
                     "sh",
                     "-c",
@@ -476,11 +480,13 @@ class CourseSlideFileTests(unittest.TestCase):
                     "if [ -f /tmp/lloves-slide-outside-secret.txt ]; then echo LEAK; "
                     "else echo HIDDEN; fi; "
                     "if [ -d /workspace ]; then echo WS; else echo NOWS; fi; "
-                    "if [ -d /data ]; then echo DATA; else echo NODATA; fi",
+                    "if [ -d /data ]; then echo DATA; else echo NODATA; fi; "
+                    "if [ -f /etc/shadow ]; then echo SHADOW; else echo NOSHADOW; fi; "
+                    "if [ -f /etc/hostname ]; then echo HOSTNAME; else echo NOHOSTNAME; fi; "
+                    "if [ -d /oldroot ]; then echo OLD; else echo NOOLD; fi; "
+                    "echo PASSWD:; cat /etc/passwd",
                 ],
-            )
-            completed = files.run_grouped(
-                command,
+                work=work,
                 timeout=15,
                 env=files.office_env(work),
                 cwd=str(work),
@@ -495,8 +501,156 @@ class CourseSlideFileTests(unittest.TestCase):
         self.assertIn("HIDDEN", output)
         self.assertIn("NOWS", output)
         self.assertIn("NODATA", output)
+        self.assertIn("NOSHADOW", output)
+        self.assertIn("NOHOSTNAME", output)
+        self.assertIn("NOOLD", output)
         self.assertNotIn("OUTSIDE-SECRET", output)
         self.assertNotIn("LEAK", output)
+        if host_name not in {"root", "nobody"}:
+            self.assertNotIn(host_name, output)
+
+    def test_failed_sandbox_probe_is_retried_after_the_cooldown(self) -> None:
+        """A failed probe blocks conversion briefly, then it is tried again."""
+        import course_slide_files as files
+
+        files._sandbox_ready = None
+        files._sandbox_failed_at = time.monotonic()
+        try:
+            with mock.patch.object(files, "_probe_sandbox") as probe:
+                with self.assertRaises(ValueError) as caught:
+                    files.sandbox_tools()
+            probe.assert_not_called()
+            self.assertIn("not available", str(caught.exception))
+            files._sandbox_failed_at = time.monotonic() - (
+                files.SANDBOX_PROBE_RETRY_SECONDS + 5
+            )
+            with mock.patch.object(
+                files,
+                "_probe_sandbox",
+                return_value=("/usr/bin/unshare", "/usr/bin/timeout"),
+            ) as probe:
+                found = files.sandbox_tools()
+            probe.assert_called_once()
+            self.assertEqual(found, ("/usr/bin/unshare", "/usr/bin/timeout"))
+            self.assertIsNone(files._sandbox_failed_at)
+        finally:
+            files._sandbox_ready = None
+            files._sandbox_failed_at = None
+
+    @unittest.skipUnless(
+        subprocess.run(["sudo", "-n", "true"], check=False).returncode == 0,
+        "passwordless sudo is required to prove the root drop",
+    )
+    def test_root_sandbox_is_nobody_and_cannot_see_host_root(self) -> None:
+        """Host root maps the converter to nobody and drops the host root."""
+        lms_dir = str(Path(__file__).resolve().parent)
+        driver = Path("/tmp/lloves-root-sandbox-driver.py")
+        driver.write_text(
+            "\n".join(
+                [
+                    "import shutil, sys, tempfile",
+                    "from pathlib import Path",
+                    f"sys.path.insert(0, {lms_dir!r})",
+                    "import course_slide_files as files",
+                    "marker = Path('/etc/lloves-slide-sandbox-secret')",
+                    "marker.write_text('HOST-ETC-SECRET')",
+                    "work = Path(tempfile.mkdtemp(prefix='lloves-slides-'))",
+                    "check = work / 'check.sh'",
+                    "try:",
+                    "    (work / 'inside.txt').write_text('INSIDE-OK')",
+                    "    check.write_text(",
+                    "        '#!/bin/sh\\n'",
+                    "        'id -u\\n'",
+                    "        'cat inside.txt\\n'",
+                    "        'if [ -d /data ]; then echo DATA; else echo NODATA; fi\\n'",
+                    "        'if [ -f /etc/shadow ]; then echo SHADOW; else echo NOSHADOW; fi\\n'",
+                    "        'if [ -f /etc/lloves-slide-sandbox-secret ]; then echo LEAK; else echo HIDDEN; fi\\n'",
+                    "        'if [ -d /oldroot ]; then echo OLD; else echo NOOLD; fi\\n'",
+                    "    )",
+                    "    check.chmod(0o755)",
+                    "    completed = files.run_sandboxed(",
+                    "        ['sh', str(check)],",
+                    "        work=work,",
+                    "        timeout=20,",
+                    "        env=files.office_env(work),",
+                    "        cwd=str(work),",
+                    "    )",
+                    "    sys.stdout.buffer.write(completed.stdout)",
+                    "    sys.stderr.buffer.write(completed.stderr)",
+                    "    raise SystemExit(completed.returncode)",
+                    "finally:",
+                    "    marker.unlink(missing_ok=True)",
+                    "    shutil.rmtree(work, ignore_errors=True)",
+                    "    shutil.rmtree(Path('/dev/shm') / f'lloves-root-{work.name}', ignore_errors=True)",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        try:
+            ran = subprocess.run(
+                ["sudo", "-n", "python3", str(driver)],
+                timeout=30,
+                check=False,
+                capture_output=True,
+            )
+        finally:
+            driver.unlink(missing_ok=True)
+        output = ran.stdout.decode()
+        self.assertEqual(ran.returncode, 0, ran.stderr.decode() + output)
+        self.assertTrue(output.splitlines())
+        self.assertEqual(output.splitlines()[0].strip(), "65534")
+        self.assertIn("INSIDE-OK", output)
+        self.assertIn("NODATA", output)
+        self.assertIn("NOSHADOW", output)
+        self.assertIn("HIDDEN", output)
+        self.assertIn("NOOLD", output)
+        self.assertNotIn("HOST-ETC-SECRET", output)
+        self.assertNotIn("LEAK", output)
+
+    @unittest.skipUnless(
+        subprocess.run(["sudo", "-n", "true"], check=False).returncode == 0
+        and bool(soffice_bin()),
+        "passwordless sudo and LibreOffice are required",
+    )
+    def test_root_sandbox_converts_pptx_as_nobody(self) -> None:
+        """A root worker still renders a pptx after the uid drop."""
+        lms_dir = str(Path(__file__).resolve().parent)
+        deck = Path("/tmp/lloves-root-deck.pptx")
+        driver = Path("/tmp/lloves-root-convert-driver.py")
+        deck.write_bytes(_minimal_pptx())
+        driver.write_text(
+            "\n".join(
+                [
+                    "import sys",
+                    f"sys.path[:0] = {list(sys.path)!r}",
+                    f"sys.path.insert(0, {lms_dir!r})",
+                    "from pathlib import Path",
+                    "import course_slide_files as files",
+                    "raw = Path('/tmp/lloves-root-deck.pptx').read_bytes()",
+                    "pages, _truncated = files.pages_from_office(raw, '.pptx', timeout=70)",
+                    "if pages and pages[0].startswith(b'\\x89PNG'):",
+                    "    print('PNG', len(pages))",
+                    "else:",
+                    "    print('BAD', len(pages))",
+                    "    raise SystemExit(2)",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        try:
+            ran = subprocess.run(
+                ["sudo", "-n", "python3", str(driver)],
+                timeout=80,
+                check=False,
+                capture_output=True,
+            )
+        finally:
+            deck.unlink(missing_ok=True)
+            driver.unlink(missing_ok=True)
+        self.assertEqual(ran.returncode, 0, ran.stderr.decode() + ran.stdout.decode())
+        self.assertIn("PNG", ran.stdout.decode())
 
     def test_libreoffice_env_omits_app_secrets(self) -> None:
         """The converter environment does not carry app secrets."""
@@ -504,7 +658,7 @@ class CourseSlideFileTests(unittest.TestCase):
 
         seen: dict[str, dict[str, str]] = {}
 
-        def capture(command, timeout, env, cwd):
+        def capture(command, *, work, timeout, env, cwd):
             """Record the child environment and pretend LibreOffice wrote a PDF."""
             seen["env"] = dict(env)
             out = Path(cwd) / "out"
@@ -518,7 +672,7 @@ class CourseSlideFileTests(unittest.TestCase):
             {"FLASK_SECRET_KEY": "super-secret", "GOOGLE_CLIENT_SECRET": "oauth-secret"},
             clear=False,
         ):
-            with mock.patch.object(files, "run_grouped", side_effect=capture):
+            with mock.patch.object(files, "run_sandboxed", side_effect=capture):
                 files._office_to_pdf(b"PK\x03\x04", ".pptx", binary, timeout=5)
         env = seen["env"]
         self.assertNotIn("FLASK_SECRET_KEY", env)
@@ -639,6 +793,53 @@ class CourseSlideFileTests(unittest.TestCase):
         self.assertEqual(len(jobs.ready), 4)
         self.assertLessEqual(jobs.max_seen, 2)
         self.assertGreaterEqual(jobs.max_seen, 2)
+
+    def test_import_slots_are_shared_across_processes(self) -> None:
+        """Two other processes fill the cap, and a dead holder frees a slot."""
+        from slide_import_jobs import acquire_import_slot
+
+        lms_dir = str(Path(__file__).resolve().parent)
+        holder = Path("/tmp/lloves-slot-holder.py")
+        holder.write_text(
+            "import sys, time\n"
+            f"sys.path.insert(0, {lms_dir!r})\n"
+            "from slide_import_jobs import acquire_import_slot\n"
+            "slot = acquire_import_slot(2)\n"
+            "if slot is None:\n"
+            "    raise SystemExit(3)\n"
+            "sys.stdout.write('held\\n')\n"
+            "sys.stdout.flush()\n"
+            "time.sleep(30)\n"
+            "slot.release()\n",
+            encoding="utf-8",
+        )
+        procs: list[subprocess.Popen[str]] = []
+        try:
+            for _index in range(2):
+                proc = subprocess.Popen(
+                    ["python3", str(holder)],
+                    stdout=subprocess.PIPE,
+                    text=True,
+                )
+                procs.append(proc)
+                assert proc.stdout is not None
+                line = proc.stdout.readline()
+                self.assertIn("held", line)
+            self.assertIsNone(acquire_import_slot(0.3))
+            procs[0].kill()
+            procs[0].wait(timeout=5)
+            freed = acquire_import_slot(2)
+            self.assertIsNotNone(freed)
+            assert freed is not None
+            freed.release()
+        finally:
+            for proc in procs:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait(timeout=5)
+                if proc.stdout is not None:
+                    proc.stdout.close()
+            holder.unlink(missing_ok=True)
 
 class CourseSlideSetupTests(unittest.TestCase):
     """Add Slides from Set Class, by link and by upload."""
@@ -920,6 +1121,44 @@ class CourseSlideSetupTests(unittest.TestCase):
         kept = self.school.get_slide_import_job(ready)
         assert kept is not None
         self.assertEqual(kept["status"], "ready")
+
+    def test_expired_running_import_is_failed_without_a_restart(self) -> None:
+        """A running job past the budget is failed while a fresh one stays."""
+        from datetime import datetime, timedelta, timezone
+
+        from slide_import_jobs import JOB_BUDGET_SECONDS
+
+        stale = "ef" * 16
+        fresh = "12" * 16
+        ready = "34" * 16
+        owner = int(self.teacher["id"])
+        self.school.insert_slide_import_job(stale, owner, self.class_id, None)
+        self.school.insert_slide_import_job(fresh, owner, self.class_id, None)
+        self.school.insert_slide_import_job(ready, owner, self.class_id, None)
+        self.school.finish_slide_import_job(ready, {"deck": {"title": "Kept"}})
+        old = (
+            datetime.now(timezone.utc) - timedelta(seconds=JOB_BUDGET_SECONDS + 30)
+        ).isoformat()
+        self.school.conn.execute(
+            "UPDATE slide_import_jobs SET created_at = ? WHERE id = ?",
+            (old, stale),
+        )
+        closed = self.school.fail_expired_slide_import_jobs(JOB_BUDGET_SECONDS)
+        self.assertEqual(closed, 1)
+        failed = self.school.get_slide_import_job(stale)
+        assert failed is not None
+        self.assertEqual(failed["status"], "error")
+        self.assertIn("too long", failed["error"])
+        still = self.school.get_slide_import_job(fresh)
+        assert still is not None
+        self.assertEqual(still["status"], "running")
+        kept = self.school.get_slide_import_job(ready)
+        assert kept is not None
+        self.assertEqual(kept["status"], "ready")
+        self.school.finish_slide_import_job(stale, {"deck": {"title": "Late"}})
+        late = self.school.get_slide_import_job(stale)
+        assert late is not None
+        self.assertEqual(late["status"], "error")
 
 if __name__ == "__main__":
     unittest.main()

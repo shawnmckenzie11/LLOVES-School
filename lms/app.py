@@ -8750,11 +8750,14 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         import re
         from datetime import datetime, timezone
 
+        from slide_import_jobs import JOB_BUDGET_SECONDS
+
         if not re.fullmatch(r"[0-9a-f]{32}", str(job_id or "")):
             return jsonify({"ok": False, "error": "That import was not found."}), 404
         user = current_user()
         if user is None:
             return jsonify({"ok": False, "error": "Authentication required."}), 401
+        school.fail_expired_slide_import_jobs(JOB_BUDGET_SECONDS)
         job = school.get_slide_import_job(str(job_id))
         if job is None or int(job.get("owner_user_id") or 0) != int(user["id"]):
             return jsonify({"ok": False, "error": "That import was not found."}), 404
