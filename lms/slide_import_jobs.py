@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 # Link download stays at the existing 45 second cap. Office conversion
 # plus rendering stays under this budget, inside the 120 second worker.
 JOB_BUDGET_SECONDS = 90
+# Two LibreOffice conversions at once. Further imports wait for a slot.
+MAX_CONCURRENT_SLIDE_IMPORTS = 2
+_IMPORT_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_SLIDE_IMPORTS)
 
 
 class SlideImportFailed(Exception):
@@ -41,11 +44,20 @@ def start_slide_import(school: Any, job_id: str, work: Callable[[], dict]) -> No
         job_id: Row created by the request before this call.
         work: Returns the JSON object stored on success. It must not
             touch the Flask request. Raise ``SlideImportFailed`` or
-            ``ValueError`` for a teacher-facing error.
+            ``ValueError`` for a teacher-facing error. At most two
+            imports run at once; the rest wait for a free slot.
     """
 
     def runner() -> None:
         """Record success or a teacher-facing failure for one job."""
+        if not _IMPORT_SLOTS.acquire(timeout=30):
+            school.fail_slide_import_job(
+                job_id,
+                "Another deck is still being attached. Try again in a minute.",
+                needs_slides_read=False,
+                http_status=400,
+            )
+            return
         try:
             result = work()
             if not isinstance(result, dict):
@@ -70,6 +82,8 @@ def start_slide_import(school: Any, job_id: str, work: Callable[[], dict]) -> No
                 needs_slides_read=False,
                 http_status=502,
             )
+        finally:
+            _IMPORT_SLOTS.release()
 
     threading.Thread(
         target=runner,

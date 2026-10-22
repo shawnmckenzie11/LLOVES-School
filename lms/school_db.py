@@ -6315,6 +6315,7 @@ class LovesDB:
         owned_classes = self._class_ids_named_by_account(
             int(user_id), class_ids, present
         )
+        self._delete_slide_import_jobs(int(user_id), owned_classes, present)
         self._null_account_offering_copies(offering_ids, present)
         if not owned_classes:
             return [], []
@@ -6337,6 +6338,9 @@ class LovesDB:
             # collects volume paths first, then removes pages by deck id.
             "course_slide_decks",
             "course_slide_pages",
+            # Rows name the staff user and the class. The dedicated
+            # delete below covers a null class id as well.
+            "slide_import_jobs",
         }
         marks = ",".join("?" * len(owned_classes))
         params = tuple(int(class_id) for class_id in owned_classes)
@@ -7254,6 +7258,33 @@ class LovesDB:
                 return True
         return False
 
+    def _delete_slide_import_jobs(
+        self, user_id: int, class_ids: list[int], present: set[str]
+    ) -> None:
+        """Remove slide-import rows that name this account.
+
+        The rows store the staff user id and the class id. Another
+        teacher's rows stay. Caller holds the delete transaction.
+
+        Args:
+            user_id: Staff ``users.id`` being deleted.
+            class_ids: Classes this account still owns.
+            present: Table names in this database.
+        """
+        if "slide_import_jobs" not in present:
+            return
+        self.conn.execute(
+            "DELETE FROM slide_import_jobs WHERE owner_user_id = ?",
+            (int(user_id),),
+        )
+        if not class_ids:
+            return
+        marks = ",".join("?" * len(class_ids))
+        self.conn.execute(
+            f"DELETE FROM slide_import_jobs WHERE class_id IN ({marks})",
+            tuple(int(class_id) for class_id in class_ids),
+        )
+
     def insert_slide_import_job(
         self,
         job_id: str,
@@ -7356,6 +7387,31 @@ class LovesDB:
                 (str(job_id),),
             ).fetchone()
         return dict(row) if row else None
+
+    def fail_orphaned_slide_import_jobs(self) -> int:
+        """Mark slide imports still running as failed.
+
+        A restart leaves those rows on ``running`` because the worker
+        that owned the thread is gone. The teacher sees a restart
+        message instead of a poll that never finishes.
+
+        Returns:
+            How many rows were closed.
+        """
+        with self._lock:
+            cur = self.conn.execute(
+                """
+                UPDATE slide_import_jobs
+                SET status = 'error',
+                    error = ?,
+                    http_status = 400,
+                    result_json = ''
+                WHERE status = 'running'
+                """,
+                ("The server restarted while that deck was attaching.",),
+            )
+            self.conn.commit()
+            return int(cur.rowcount or 0)
 
     def _delete_class_owned_rows(self, class_ids: list[int], present: set[str]) -> None:
         """Delete per-class rows that have no foreign key to ``classes``.
@@ -9952,28 +10008,34 @@ class LovesDB:
             fallback="PowerPoint" if source == "pptx" else "Google Slides",
         )
         names: list[str] = []
-        for index, raw in enumerate(pngs):
-            stored = self.store_live_question_image(
-                int(class_id), raw, filename=f"slide-{index}.png"
-            )
-            names.append(str(stored["filename"]))
         source_rel = ""
-        if source_bytes:
-            source_rel = self._store_course_slide_source(
-                int(class_id), bytes(source_bytes), source_suffix
+        try:
+            for index, raw in enumerate(pngs):
+                stored = self.store_live_question_image(
+                    int(class_id), raw, filename=f"slide-{index}.png"
+                )
+                names.append(str(stored["filename"]))
+            if source_bytes:
+                source_rel = self._store_course_slide_source(
+                    int(class_id), bytes(source_bytes), source_suffix
+                )
+            previous_names, previous_source = self._replace_course_slide_rows(
+                int(class_id),
+                live_module,
+                live_slot,
+                title=label,
+                source=str(source or "public_export")[:40],
+                presentation_id=str(presentation_id or "")[:128],
+                source_relpath=source_rel,
+                default_published=bool(default_published),
+                truncated=bool(truncated),
+                image_names=names,
             )
-        previous_names, previous_source = self._replace_course_slide_rows(
-            int(class_id),
-            live_module,
-            live_slot,
-            title=label,
-            source=str(source or "public_export")[:40],
-            presentation_id=str(presentation_id or "")[:128],
-            source_relpath=source_rel,
-            default_published=bool(default_published),
-            truncated=bool(truncated),
-            image_names=names,
-        )
+        except Exception:
+            self._release_course_slide_names(int(class_id), names, session_id=0)
+            if source_rel:
+                self._release_course_slide_source(int(class_id), source_rel)
+            raise
         bound_session = session_id
         if bound_session is None:
             active = self.get_active_live_session_for_class(int(class_id))

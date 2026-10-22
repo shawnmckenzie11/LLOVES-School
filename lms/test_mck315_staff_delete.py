@@ -1095,7 +1095,8 @@ class PermanentStaffDeleteTests(unittest.TestCase):
         """A snapshot tagged with this class does not delete another class's session.
 
         A surviving page that still names a file in the deleted account's
-        folder keeps that file.
+        folder keeps that file. Slide import rows for the deleted account
+        go, including one with no class id. The other teacher's job stays.
         """
         target = self.school.register_staff("snapshot-target@example.com", "Target")
         other = self.school.register_staff("snapshot-other@example.com", "Other")
@@ -1186,6 +1187,18 @@ class PermanentStaffDeleteTests(unittest.TestCase):
             WHERE image_relpath = ?
             """,
             (shared_rel, str(other_pages[0][0])),
+        )
+        target_job = "a" * 32
+        other_job = "b" * 32
+        null_class_job = "c" * 32
+        self.school.insert_slide_import_job(
+            target_job, int(target["id"]), target_class, None
+        )
+        self.school.insert_slide_import_job(
+            other_job, int(other["id"]), other_class, None
+        )
+        self.school.insert_slide_import_job(
+            null_class_job, int(target["id"]), None, None
         )
         self.school.delete_staff_permanently(int(target["id"]), self.actor_id)
         row = self.school.conn.execute(
@@ -1279,6 +1292,13 @@ class PermanentStaffDeleteTests(unittest.TestCase):
             ).fetchone()[0],
             1,
         )
+        self.assertIsNone(self.school.get_slide_import_job(target_job))
+        self.assertIsNone(self.school.get_slide_import_job(null_class_job))
+        kept_job = self.school.get_slide_import_job(other_job)
+        self.assertIsNotNone(kept_job)
+        assert kept_job is not None
+        self.assertEqual(int(kept_job["owner_user_id"]), int(other["id"]))
+        self.assertEqual(int(kept_job["class_id"]), other_class)
 
     def test_cross_tagged_snapshot_keeps_a_session_the_target_started(self) -> None:
         """A cross-tag does not delete a session this account started elsewhere."""

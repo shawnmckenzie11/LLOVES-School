@@ -1379,6 +1379,22 @@ def create_app(
     )
     app.config["SCHOOL_DB"] = school
     app.config["DATA_DIR"] = store
+    try:
+        from course_slide_files import sweep_stale_slide_dirs
+
+        def _close_slide_imports() -> None:
+            """Drop stale conversion dirs and close jobs a dead worker left running."""
+            sweep_stale_slide_dirs()
+            closed = school.fail_orphaned_slide_import_jobs()
+            if closed:
+                logger.info("closed %s slide import left running", int(closed))
+
+        if testing:
+            _close_slide_imports()
+        else:
+            run_once_per_boot("slide-import-sweep", _close_slide_imports)
+    except Exception:
+        logger.exception("slide import sweep failed")
     # MCK-118 LOW-A: Most Engaged fingerprints are keyed to the app secret.
     bind_celebration_secret(school, app.secret_key)
     # MCK-176: rank option aliases for students are keyed to the app secret.
@@ -8603,15 +8619,57 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
     def _slide_body_too_large():
-        """400 when Content-Length is past the slide cap, before the body is read."""
+        """400 when Content-Length is past the slide cap, before the body is read.
+
+        A missing length is capped on the WSGI stream so a chunked body
+        cannot grow to the IMSCC limit before this check runs.
+        """
         import course_slide_files as slide_files
 
-        if slide_files.upload_content_length_allowed(request.content_length):
-            return None
-        return (
-            jsonify({"ok": False, "error": "That file is too large to attach."}),
-            400,
-        )
+        if not slide_files.upload_content_length_allowed(request.content_length):
+            return (
+                jsonify({"ok": False, "error": "That file is too large to attach."}),
+                400,
+            )
+        if request.content_length is None:
+            slide_files.cap_wsgi_input(request.environ)
+        return None
+
+    def _slide_form_file():
+        """Return the uploaded deck, or a 400 when the capped stream overflows.
+
+        Returns:
+            ``(upload, error)``. ``error`` is a Flask response tuple when
+            the body passed the slide cap. ``upload`` may be None.
+        """
+        from werkzeug.exceptions import RequestEntityTooLarge
+
+        try:
+            files = request.files
+        except RequestEntityTooLarge:
+            return None, (
+                jsonify({"ok": False, "error": "That file is too large to attach."}),
+                400,
+            )
+        upload = files.get("file") if files else None
+        return upload, None
+
+    def _slide_json_body():
+        """Return JSON for a slide link, or a 400 when the body is too large.
+
+        Returns:
+            ``(body, error)``. ``error`` is a Flask response tuple when
+            the capped stream overflows.
+        """
+        from werkzeug.exceptions import RequestEntityTooLarge
+
+        try:
+            return request.get_json(silent=True) or {}, None
+        except RequestEntityTooLarge:
+            return {}, (
+                jsonify({"ok": False, "error": "That file is too large to attach."}),
+                400,
+            )
 
     def _queue_slide_import(owner_id: int, class_id: int | None, session_id: int | None, work):
         """Insert a running job and return 202.
@@ -8770,7 +8828,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": "Authentication required."}), 401
         owner_id = int(user["id"])
         class_id = int(_row["class_id"])
-        upload = request.files.get("file") if request.files else None
+        upload, upload_err = _slide_form_file()
+        if upload_err is not None:
+            return upload_err
         if upload is not None and str(upload.filename or "").strip():
             import course_slide_files as slide_files
 
@@ -8819,7 +8879,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             except Exception:
                 Path(str(spilled)).unlink(missing_ok=True)
                 raise
-        body = request.get_json(silent=True) or {}
+        body, body_err = _slide_json_body()
+        if body_err is not None:
+            return body_err
         if request.form:
             body = {
                 "url": request.form.get("url") or "",
@@ -8931,8 +8993,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         """Read or attach the course slide deck for one module and slot.
 
         GET returns the deck name for the Set Class summary. POST accepts
-        a Google Slides share link as JSON, or a ``.ppt`` / ``.pptx`` file
-        as multipart. The file is stored on the media volume. The row
+        a Google Slides share link as JSON, or a ``.pptx`` file as
+        multipart. A legacy ``.ppt`` is refused. The file is stored on
+        the media volume. The row
         stores the path. Conversion runs on a background job. A matching
         live run is pointed at that same copy when the job finishes.
         """
@@ -8953,7 +9016,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         if user is None:
             return jsonify({"ok": False, "error": "Authentication required."}), 401
         owner_id = int(user["id"])
-        upload = request.files.get("file") if request.files else None
+        upload, upload_err = _slide_form_file()
+        if upload_err is not None:
+            return upload_err
         module = request.form.get("module") or request.args.get("module")
         slot = request.form.get("slot") or request.args.get("slot")
         published_raw = request.form.get("default_published")
@@ -9006,7 +9071,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             except Exception:
                 Path(str(spilled)).unlink(missing_ok=True)
                 raise
-        body = request.get_json(silent=True) or {}
+        body, body_err = _slide_json_body()
+        if body_err is not None:
+            return body_err
         if body.get("module") not in (None, ""):
             module = body.get("module")
         if body.get("slot") not in (None, ""):

@@ -5,8 +5,12 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 import zipfile
 from pathlib import Path
@@ -220,8 +224,11 @@ class CourseSlideFileTests(unittest.TestCase):
             read_capped_upload(_Reader(b"PK" + b"x" * 64), 32)
 
     def test_suffix_and_package_magic(self) -> None:
-        """Only ppt and pptx names, and only matching packages, are accepted."""
+        """A pptx name is accepted. A legacy ppt asks for pptx."""
         self.assertEqual(office_suffix("deck.PPTX"), ".pptx")
+        with self.assertRaises(ValueError) as legacy:
+            office_suffix("old.ppt")
+        self.assertIn("pptx", str(legacy.exception))
         with self.assertRaises(ValueError):
             office_suffix("notes.pdf")
         office_bytes_ok(b"PK\x03\x04", ".pptx")
@@ -346,6 +353,291 @@ class CourseSlideFileTests(unittest.TestCase):
         self.assertEqual(hits, [])
         self.assertTrue(pages)
         self.assertNotIn(b"LLOVES-FILE-LINK-MARKER", pages[0])
+
+
+    def test_legacy_ppt_is_refused_before_conversion(self) -> None:
+        """A .ppt is not handed to LibreOffice."""
+        import course_slide_files as files
+
+        with mock.patch.object(files, "run_grouped") as run:
+            with self.assertRaises(ValueError) as caught:
+                files.pages_from_office(b"\xd0\xcf\x11\xe0" + b"x" * 32, ".ppt")
+        run.assert_not_called()
+        self.assertIn("pptx", str(caught.exception))
+
+    def test_conversion_is_refused_when_the_sandbox_is_missing(self) -> None:
+        """A failed unshare probe does not run LibreOffice."""
+        import course_slide_files as files
+
+        files._sandbox_ready = None
+        try:
+            with mock.patch.object(files, "_probe_sandbox", return_value=None):
+                with mock.patch.object(files, "run_grouped") as run:
+                    with self.assertLogs("course_slide_files", level="ERROR") as logs:
+                        with self.assertRaises(ValueError) as caught:
+                            files.pages_from_office(_minimal_pptx(), ".pptx", timeout=5)
+            run.assert_not_called()
+        finally:
+            files._sandbox_ready = None
+        self.assertIn("not available", str(caught.exception))
+        self.assertTrue(any("sandbox" in line for line in logs.output))
+
+    def test_svg_file_href_is_removed(self) -> None:
+        """An SVG file:// image is not left in the package."""
+        import course_slide_files as files
+
+        svg = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<svg xmlns="http://www.w3.org/2000/svg" '
+            'xmlns:xlink="http://www.w3.org/1999/xlink">'
+            '<image xlink:href="file:///tmp/lloves-svg-secret.png" width="10" height="10"/>'
+            '<image href="https://127.0.0.1/x.png"/>'
+            "</svg>"
+        )
+        note = '<a:t>see file:///tmp/lloves-svg-secret.png</a:t>'
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as package:
+            package.writestr("ppt/slides/slide1.xml", "<p:sld/>")
+            package.writestr("ppt/media/pic.svg", svg)
+            package.writestr("ppt/media/note.xml", note)
+            package.writestr(
+                "ppt/media/clip.emf",
+                b"EMF file:///tmp/lloves-svg-secret.png",
+            )
+        cleaned = files.strip_external_relationships(buffer.getvalue())
+        with zipfile.ZipFile(io.BytesIO(cleaned)) as package:
+            picture = package.read("ppt/media/pic.svg").decode()
+            written = package.read("ppt/media/note.xml")
+            clip = package.read("ppt/media/clip.emf")
+            slide = package.read("ppt/slides/slide1.xml")
+        self.assertNotIn("file:", picture.lower())
+        self.assertNotIn("127.0.0.1", picture)
+        self.assertNotIn(b"file://", written)
+        self.assertNotIn(b"lloves-svg-secret", written)
+        self.assertTrue(clip.startswith(b"\x89PNG"))
+        self.assertEqual(slide, b"<p:sld/>")
+
+    @unittest.skipUnless(soffice_bin(), "LibreOffice is not installed")
+    def test_svg_file_target_is_not_rendered(self) -> None:
+        """LibreOffice does not paint a file:// image stored in an SVG."""
+        import course_slide_files as files
+
+        secret = Path("/tmp/lloves-svg-secret.png")
+        secret.write_bytes(b"LLOVES-SVG-FILE-MARKER")
+        svg = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<svg xmlns="http://www.w3.org/2000/svg" '
+            'xmlns:xlink="http://www.w3.org/1999/xlink">'
+            '<image xlink:href="file:///tmp/lloves-svg-secret.png" width="200" height="200"/>'
+            "</svg>"
+        )
+        package = _minimal_pptx()
+        with zipfile.ZipFile(io.BytesIO(package)) as source:
+            rels = source.read("ppt/slides/_rels/slide1.xml.rels").decode()
+        rels = rels.replace(
+            "</Relationships>",
+            '<Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
+            'Target="../media/pic.svg"/></Relationships>',
+        )
+        out = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(package)) as source, zipfile.ZipFile(out, "w") as dest:
+            for info in source.infolist():
+                data = source.read(info)
+                if info.filename == "ppt/slides/_rels/slide1.xml.rels":
+                    data = rels.encode()
+                dest.writestr(info.filename, data)
+            dest.writestr("ppt/media/pic.svg", svg)
+        try:
+            pdf = files._office_to_pdf(
+                out.getvalue(), ".pptx", files.soffice_bin(), timeout=60
+            )
+        finally:
+            secret.unlink(missing_ok=True)
+        self.assertNotIn(b"lloves-svg-secret", pdf)
+        self.assertNotIn(b"LLOVES-SVG-FILE-MARKER", pdf)
+        self.assertNotIn(b"file://", pdf)
+
+    @unittest.skipUnless(shutil.which("unshare"), "unshare is not installed")
+    def test_sandbox_hides_files_outside_the_job_dir(self) -> None:
+        """The converter can read its temp dir and nothing else on disk."""
+        import course_slide_files as files
+
+        secret = Path("/tmp/lloves-slide-outside-secret.txt")
+        secret.write_text("OUTSIDE-SECRET")
+        work = Path(tempfile.mkdtemp(prefix="lloves-slides-"))
+        try:
+            (work / "inside.txt").write_text("INSIDE-OK")
+            command = files.sandbox_argv(
+                work,
+                [
+                    "sh",
+                    "-c",
+                    f'cat "{work}/inside.txt"; '
+                    "if [ -f /tmp/lloves-slide-outside-secret.txt ]; then echo LEAK; "
+                    "else echo HIDDEN; fi; "
+                    "if [ -d /workspace ]; then echo WS; else echo NOWS; fi; "
+                    "if [ -d /data ]; then echo DATA; else echo NODATA; fi",
+                ],
+            )
+            completed = files.run_grouped(
+                command,
+                timeout=15,
+                env=files.office_env(work),
+                cwd=str(work),
+            )
+        finally:
+            secret.unlink(missing_ok=True)
+            shutil.rmtree(work, ignore_errors=True)
+            shutil.rmtree(Path("/dev/shm") / f"lloves-root-{work.name}", ignore_errors=True)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        output = completed.stdout.decode()
+        self.assertIn("INSIDE-OK", output)
+        self.assertIn("HIDDEN", output)
+        self.assertIn("NOWS", output)
+        self.assertIn("NODATA", output)
+        self.assertNotIn("OUTSIDE-SECRET", output)
+        self.assertNotIn("LEAK", output)
+
+    def test_libreoffice_env_omits_app_secrets(self) -> None:
+        """The converter environment does not carry app secrets."""
+        import course_slide_files as files
+
+        seen: dict[str, dict[str, str]] = {}
+
+        def capture(command, timeout, env, cwd):
+            """Record the child environment and pretend LibreOffice wrote a PDF."""
+            seen["env"] = dict(env)
+            out = Path(cwd) / "out"
+            out.mkdir(exist_ok=True)
+            (out / "deck.pdf").write_bytes(b"%PDF-1.4\n")
+            return subprocess.CompletedProcess(command, 0, b"", b"")
+
+        binary = shutil.which("true") or "/usr/bin/true"
+        with mock.patch.dict(
+            os.environ,
+            {"FLASK_SECRET_KEY": "super-secret", "GOOGLE_CLIENT_SECRET": "oauth-secret"},
+            clear=False,
+        ):
+            with mock.patch.object(files, "run_grouped", side_effect=capture):
+                files._office_to_pdf(b"PK\x03\x04", ".pptx", binary, timeout=5)
+        env = seen["env"]
+        self.assertNotIn("FLASK_SECRET_KEY", env)
+        self.assertNotIn("GOOGLE_CLIENT_SECRET", env)
+        self.assertNotIn("super-secret", " ".join(env.values()))
+        self.assertTrue(env.get("HOME"))
+
+    def test_converter_dies_when_the_worker_dies(self) -> None:
+        """Killing the worker kills the converter and its grandchild."""
+        script = Path("/tmp/lloves-sleeper-323.sh")
+        script.write_text("#!/bin/sh\nsleep 323 &\nwait\n", encoding="utf-8")
+        script.chmod(0o755)
+        driver = Path("/tmp/lloves-pdeath-driver.py")
+        driver.write_text(
+            "import os, sys, subprocess, threading, time\n"
+            "sys.path.insert(0, '/workspace/lms')\n"
+            "import course_slide_files as files\n"
+            "def go():\n"
+            "    try:\n"
+            "        files._office_to_pdf(b'PK\\x03\\x04', '.pptx', '/tmp/lloves-sleeper-323.sh', timeout=30)\n"
+            "    except Exception:\n"
+            "        pass\n"
+            "threading.Thread(target=go, daemon=True).start()\n"
+            "for _ in range(80):\n"
+            "    listed = subprocess.run(['ps', '-eo', 'args'], capture_output=True, text=True)\n"
+            "    if 'sleep 323' in listed.stdout:\n"
+            "        os._exit(0)\n"
+            "    time.sleep(0.1)\n"
+            "os._exit(2)\n",
+            encoding="utf-8",
+        )
+        try:
+            ran = subprocess.run(["python3", str(driver)], timeout=20, check=False)
+            self.assertEqual(ran.returncode, 0)
+            time.sleep(0.4)
+            listed = subprocess.run(
+                ["ps", "-eo", "args"], capture_output=True, text=True, check=False
+            )
+            self.assertNotIn("sleep 323", listed.stdout)
+        finally:
+            script.unlink(missing_ok=True)
+            driver.unlink(missing_ok=True)
+            import course_slide_files as files
+
+            files.sweep_stale_slide_dirs(max_age_seconds=0)
+
+    def test_stale_conversion_dirs_are_swept(self) -> None:
+        """A boot sweep removes an old job dir and leaves a fresh one."""
+        import course_slide_files as files
+
+        old = Path(tempfile.mkdtemp(prefix="lloves-slides-"))
+        fresh = Path(tempfile.mkdtemp(prefix="lloves-slides-"))
+        os.utime(old, (1, 1))
+        try:
+            removed = files.sweep_stale_slide_dirs()
+            self.assertFalse(old.exists())
+            self.assertTrue(fresh.exists())
+            self.assertGreaterEqual(removed, 1)
+        finally:
+            shutil.rmtree(fresh, ignore_errors=True)
+            shutil.rmtree(old, ignore_errors=True)
+
+    def test_missing_content_length_stops_at_the_cap(self) -> None:
+        """A stream with no declared length cannot be read past the cap."""
+        import course_slide_files as files
+        from werkzeug.exceptions import RequestEntityTooLarge
+
+        small = {"wsgi.input": io.BytesIO(b"abcd")}
+        files.cap_wsgi_input(small, limit=8)
+        self.assertEqual(small["wsgi.input"].read(20), b"abcd")
+        huge = {"wsgi.input": io.BytesIO(b"x" * 40)}
+        files.cap_wsgi_input(huge, limit=8)
+        self.assertEqual(huge["wsgi.input"].read(100), b"x" * 8)
+        with self.assertRaises(RequestEntityTooLarge):
+            huge["wsgi.input"].read(1)
+
+    def test_at_most_two_imports_run_at_once(self) -> None:
+        """A third import waits until one of the two slots is free."""
+        from slide_import_jobs import start_slide_import
+
+        class Jobs:
+            """Records how many imports overlapped."""
+
+            def __init__(self) -> None:
+                self.lock = threading.Lock()
+                self.current = 0
+                self.max_seen = 0
+                self.ready: list[str] = []
+
+            def finish_slide_import_job(self, job_id: str, result: dict) -> None:
+                """Count one finished import."""
+                with self.lock:
+                    self.ready.append(job_id)
+
+            def fail_slide_import_job(self, job_id: str, error: str, **_kwargs) -> None:
+                """Record a failed import as finished so the test can wait."""
+                with self.lock:
+                    self.ready.append(job_id)
+
+        jobs = Jobs()
+
+        def work() -> dict:
+            """Hold a slot long enough for the others to overlap."""
+            with jobs.lock:
+                jobs.current += 1
+                jobs.max_seen = max(jobs.max_seen, jobs.current)
+            time.sleep(0.3)
+            with jobs.lock:
+                jobs.current -= 1
+            return {"ok": True}
+
+        for index in range(4):
+            start_slide_import(jobs, f"job-{index}", work)
+        deadline = time.time() + 5
+        while time.time() < deadline and len(jobs.ready) < 4:
+            time.sleep(0.02)
+        self.assertEqual(len(jobs.ready), 4)
+        self.assertLessEqual(jobs.max_seen, 2)
+        self.assertGreaterEqual(jobs.max_seen, 2)
 
 class CourseSlideSetupTests(unittest.TestCase):
     """Add Slides from Set Class, by link and by upload."""
@@ -565,6 +857,68 @@ class CourseSlideSetupTests(unittest.TestCase):
         self.assertEqual(image.status_code, 200)
         self.assertTrue(image.get_data().startswith(b"\x89PNG"))
 
+
+
+    def test_legacy_ppt_upload_asks_for_pptx(self) -> None:
+        """Uploading a .ppt returns the save-as-pptx message and no job."""
+        added = self.staff.post(
+            f"/api/classes/{self.class_id}/slide-deck",
+            data={
+                "module": "M1",
+                "slot": "C1",
+                "file": (io.BytesIO(b"\xd0\xcf\x11\xe0" + b"x" * 32), "Legacy.ppt"),
+            },
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(added.status_code, 400, added.get_data(as_text=True))
+        self.assertIn("pptx", (added.get_json() or {}).get("error", ""))
+        self.assertNotIn("job_id", added.get_json() or {})
+
+    def test_failed_db_write_removes_the_new_files(self) -> None:
+        """A failed deck row does not leave the page or the source on disk."""
+        import base64
+
+        png = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        )
+        with mock.patch.object(
+            self.school, "_replace_course_slide_rows", side_effect=RuntimeError("db")
+        ):
+            with self.assertRaises(RuntimeError):
+                self.school.save_course_slide_deck(
+                    self.class_id,
+                    "M1",
+                    "C2",
+                    title="Broken",
+                    source="pptx",
+                    page_pngs=[png],
+                    source_bytes=b"PK\x03\x04broken-source",
+                    source_suffix=".pptx",
+                )
+        root = Path(self.school.data_dir) / "live-question-images" / str(self.class_id)
+        files = [path for path in root.rglob("*")] if root.exists() else []
+        self.assertFalse([path for path in files if path.is_file()])
+
+    def test_restart_closes_a_running_import(self) -> None:
+        """A job left running is failed on boot, and a finished job stays."""
+        running = "ab" * 16
+        ready = "cd" * 16
+        self.school.insert_slide_import_job(
+            running, int(self.teacher["id"]), self.class_id, None
+        )
+        self.school.insert_slide_import_job(
+            ready, int(self.teacher["id"]), self.class_id, None
+        )
+        self.school.finish_slide_import_job(ready, {"deck": {"title": "Kept"}})
+        closed = self.school.fail_orphaned_slide_import_jobs()
+        self.assertEqual(closed, 1)
+        failed = self.school.get_slide_import_job(running)
+        assert failed is not None
+        self.assertEqual(failed["status"], "error")
+        self.assertIn("restarted", failed["error"])
+        kept = self.school.get_slide_import_job(ready)
+        assert kept is not None
+        self.assertEqual(kept["status"], "ready")
 
 if __name__ == "__main__":
     unittest.main()
