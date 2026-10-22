@@ -1006,6 +1006,19 @@ CREATE TABLE IF NOT EXISTS course_slide_pages (
 CREATE INDEX IF NOT EXISTS idx_course_slide_decks_class
     ON course_slide_decks(class_id);
 
+CREATE TABLE IF NOT EXISTS slide_import_jobs (
+    id TEXT PRIMARY KEY,
+    owner_user_id INTEGER NOT NULL,
+    class_id INTEGER,
+    session_id INTEGER,
+    status TEXT NOT NULL,
+    error TEXT NOT NULL DEFAULT '',
+    needs_slides_read INTEGER NOT NULL DEFAULT 0,
+    http_status INTEGER NOT NULL DEFAULT 400,
+    result_json TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
 -- MCK-229: latest real run per live class (one row per module/slot).
 CREATE TABLE IF NOT EXISTS lesson_slides_latest (
     class_id INTEGER NOT NULL,
@@ -7175,10 +7188,174 @@ class LovesDB:
             path = self._owned_slide_file(class_id, raw)
             if path is None or not path.is_file():
                 continue
+            if self._slide_relpath_still_referenced(raw):
+                continue
             try:
                 path.unlink()
             except OSError:
                 logger.warning("course slide file unlink failed")
+
+    def _slide_relpath_still_referenced(self, relpath: str) -> bool:
+        """True when a surviving row still stores this slide file.
+
+        Checked after the deleting account's rows are gone. Another
+        teacher's page can name a file that lives in this class's
+        folder. That file stays. A same-named file in a different class
+        folder does not keep this copy.
+
+        Args:
+            relpath: Path relative to ``data_dir``.
+        """
+        raw = str(relpath or "").strip()
+        if not raw:
+            return False
+        parts = Path(raw).parts
+        with self._lock:
+            try:
+                page = self.conn.execute(
+                    "SELECT 1 FROM course_slide_pages WHERE image_relpath = ? LIMIT 1",
+                    (raw,),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                page = None
+            if page is not None:
+                return True
+            try:
+                source = self.conn.execute(
+                    """
+                    SELECT 1 FROM course_slide_decks
+                    WHERE source_relpath = ? LIMIT 1
+                    """,
+                    (raw,),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                source = None
+            if source is not None:
+                return True
+            if len(parts) < 3 or parts[0] != "live-question-images":
+                return False
+            filename = parts[-1]
+            class_id = parts[1]
+            needle = f"/api/classes/{class_id}/live-question-images/{filename}"
+            try:
+                rows = self.conn.execute(
+                    """
+                    SELECT google_slides_json
+                    FROM live_class_sessions
+                    WHERE google_slides_json LIKE ?
+                    """,
+                    (f"%{filename}%",),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                rows = []
+        for row in rows:
+            stored = str(row["google_slides_json"] or "")
+            if needle in stored or raw in stored:
+                return True
+        return False
+
+    def insert_slide_import_job(
+        self,
+        job_id: str,
+        owner_user_id: int,
+        class_id: int | None,
+        session_id: int | None,
+    ) -> None:
+        """Record a slide import that will finish on a background thread.
+
+        The row stores status only. The PowerPoint and the rendered
+        pages stay files, never columns.
+
+        Args:
+            job_id: Opaque id returned to the teacher.
+            owner_user_id: Staff user who started the import.
+            class_id: Course the deck belongs to, when known.
+            session_id: Live run, when the import is for one session.
+        """
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            self.conn.execute(
+                """
+                INSERT INTO slide_import_jobs (
+                    id, owner_user_id, class_id, session_id, status, created_at
+                ) VALUES (?, ?, ?, ?, 'running', ?)
+                """,
+                (
+                    str(job_id),
+                    int(owner_user_id),
+                    None if class_id is None else int(class_id),
+                    None if session_id is None else int(session_id),
+                    now,
+                ),
+            )
+
+    def finish_slide_import_job(self, job_id: str, result: dict[str, Any]) -> None:
+        """Mark one import ready and store the staff JSON, not file bytes.
+
+        Args:
+            job_id: Row id.
+            result: Deck summary already returned by the save helpers.
+        """
+        payload = json.dumps(result)
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE slide_import_jobs
+                SET status = 'ready', result_json = ?, error = ''
+                WHERE id = ? AND status = 'running'
+                """,
+                (payload, str(job_id)),
+            )
+
+    def fail_slide_import_job(
+        self,
+        job_id: str,
+        error: str,
+        *,
+        needs_slides_read: bool = False,
+        http_status: int = 400,
+    ) -> None:
+        """Mark one import failed with a teacher-facing message.
+
+        Args:
+            job_id: Row id.
+            error: Message returned by the status poll.
+            needs_slides_read: True when consent is required.
+            http_status: Status the poll should use.
+        """
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE slide_import_jobs
+                SET status = 'error',
+                    error = ?,
+                    needs_slides_read = ?,
+                    http_status = ?,
+                    result_json = ''
+                WHERE id = ? AND status = 'running'
+                """,
+                (
+                    str(error or "Could not attach that deck.")[:500],
+                    1 if needs_slides_read else 0,
+                    int(http_status),
+                    str(job_id),
+                ),
+            )
+
+    def get_slide_import_job(self, job_id: str) -> dict[str, Any] | None:
+        """Return one slide import row, or None.
+
+        Args:
+            job_id: Row id from the start response.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM slide_import_jobs WHERE id = ?",
+                (str(job_id),),
+            ).fetchone()
+        return dict(row) if row else None
 
     def _delete_class_owned_rows(self, class_ids: list[int], present: set[str]) -> None:
         """Delete per-class rows that have no foreign key to ``classes``.
@@ -9649,6 +9826,33 @@ class LovesDB:
             "image_url": str(page.get("image_url") or "") if shared else "",
             "rev": int(deck.get("rev") or 0),
         }
+
+    def student_google_slide_for_poll(self, session_id: int) -> dict[str, Any] | None:
+        """Slide card for an unchanged poll, or None when no deck is stored.
+
+        Reads ``google_slides_json`` only. A phone that joined before a
+        deck existed has no revision, and the next poll still needs the
+        card. An empty deck does not add the key, so a class with no
+        slides does not change the poll body.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT status, google_slides_json
+                FROM live_class_sessions
+                WHERE id = ?
+                """,
+                (int(session_id),),
+            ).fetchone()
+        if row is None or str(row["status"] or "") != "active":
+            return None
+        text_value = str(row["google_slides_json"] or "").strip()
+        if not text_value or text_value in {"{}", "null"}:
+            return None
+        return self.student_google_slide(int(session_id))
 
     def _google_slides_stamp_token(self, session_id: int) -> str:
         """Slide changes do not move the student poll stamp.

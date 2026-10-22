@@ -3471,6 +3471,29 @@ function paintSlidesAttachError(errorEl, err) {
  * @param {Record<string, string>} fields
  * @returns {Promise<any>}
  */
+
+/**
+ * Wait for a slide import that returned 202.
+ * @param {object} data
+ * @returns {Promise<object>}
+ */
+async function finishSlideImport(data) {
+  if (!data || data.status !== "running" || typeof data.job_id !== "string") {
+    return data;
+  }
+  if (!/^[a-f0-9]{32}$/.test(data.job_id)) {
+    throw new Error("Could not attach that deck.");
+  }
+  const deadline = Date.now() + 100000;
+  let latest = data;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    latest = await api(`/api/slide-imports/${data.job_id}`);
+    if (latest.status !== "running") return latest;
+  }
+  throw new Error("That deck took too long to attach.");
+}
+
 async function postSlideUpload(path, file, fields) {
   const body = new FormData();
   body.append("file", file, file.name);
@@ -3572,7 +3595,7 @@ async function addSetClassSlides(event) {
       slot,
       default_published: publish instanceof HTMLInputElement && publish.checked ? "1" : "",
     };
-    const data = file
+    const started = file
       ? await postSlideUpload(`/api/classes/${classId}/slide-deck`, file, fields)
       : await api(`/api/classes/${classId}/slide-deck`, {
           method: "POST",
@@ -3583,6 +3606,7 @@ async function addSetClassSlides(event) {
             default_published: fields.default_published === "1",
           }),
         });
+    const data = await finishSlideImport(started);
     setClassSlidesTitle = String(data?.deck?.title || "");
     setClassSlidesKey = `${module}|${slot}`;
     if (data?.google_slides) lastGoogleSlides = data.google_slides;
@@ -3631,7 +3655,7 @@ async function attachGoogleSlides(event) {
   }
   if (button instanceof HTMLButtonElement) button.disabled = true;
   try {
-    const data = file
+    const started = file
       ? await postSlideUpload(`/api/live-sessions/${sessionId}/google-slides`, file, {
           default_published: defaultPublished ? "1" : "",
         })
@@ -3639,6 +3663,7 @@ async function attachGoogleSlides(event) {
           method: "POST",
           body: JSON.stringify({ url, default_published: defaultPublished }),
         });
+    const data = await finishSlideImport(started);
     if (data?.google_slides) lastGoogleSlides = data.google_slides;
     paintSlidesMetadata();
     paintSurfacePublishing();

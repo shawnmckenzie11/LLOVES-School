@@ -23,6 +23,7 @@ os.environ.pop("GOOGLE_CLIENT_ID", None)
 os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
+from slide_import_jobs import follow_slide_import  # noqa: E402
 from google_slides_import import (  # noqa: E402
     IMPORT_TIME_LIMIT_SECONDS,
     MAX_SLIDE_EDGE,
@@ -239,6 +240,7 @@ class GoogleSlidesLiveTests(unittest.TestCase):
                     )
                 },
             )
+            response = follow_slide_import(self.staff, response)
         self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
         body = response.get_json()
         self.assertTrue(body["ok"])
@@ -352,6 +354,58 @@ class GoogleSlidesLiveTests(unittest.TestCase):
         self.assertEqual(self._student_card()["image_url"], second)
         self.assertNotIn(first, self._student_blob())
 
+
+    def test_phone_joined_before_a_deck_still_receives_the_card(self) -> None:
+        """A poll with no slide revision still carries the card after attach.
+
+        The phone joined before any deck existed. The unchanged flag stays
+        true and the poll stamp does not move.
+        """
+        rows = self.school.game.conn.execute(
+            "SELECT id FROM students WHERE class_id = ? ORDER BY id",
+            (self.class_id,),
+        ).fetchall()
+        student_id = int(rows[0]["id"])
+        opened = self.student.get("/api/student/state").get_json()
+        self.assertIsNone(opened.get("google_slide"))
+        seq = opened["state_seq"]
+        stamp = opened["stamp"]
+        quiet = self.student.get(
+            "/api/student/state", query_string={"seq": seq, "stamp": stamp}
+        )
+        quiet_body = quiet.get_json()
+        self.assertTrue(quiet_body.get("unchanged"))
+        self.assertNotIn("google_slide", quiet_body)
+        direct = self.school.live_student_poll_stamp(
+            self.live_session_id, self.class_id, student_id
+        )
+        self._attach()
+        poll = self.student.get(
+            "/api/student/state", query_string={"seq": seq, "stamp": stamp}
+        )
+        body = poll.get_json()
+        self.assertTrue(body.get("unchanged"))
+        card = body.get("google_slide")
+        self.assertIsInstance(card, dict)
+        self.assertTrue(card.get("attached"))
+        self.assertEqual(
+            self.school.live_student_poll_stamp(
+                self.live_session_id, self.class_id, student_id
+            ),
+            direct,
+        )
+        same = self.student.get(
+            "/api/student/state",
+            query_string={
+                "seq": seq,
+                "stamp": stamp,
+                "slide_rev": str(card.get("rev")),
+            },
+        )
+        held = same.get_json()
+        self.assertTrue(held.get("unchanged"))
+        self.assertNotIn("google_slide", held)
+
     def test_bad_link_is_rejected(self) -> None:
         """A non-Google link does not attach a deck."""
         response = self.staff.post(
@@ -445,6 +499,7 @@ class GoogleSlidesLiveTests(unittest.TestCase):
                     )
                 },
             )
+            response = follow_slide_import(self.staff, response)
         self.assertEqual(response.status_code, 403)
         body = response.get_json()
         connect = str(body["connect_url"])
@@ -679,6 +734,7 @@ class GoogleSlidesLiveTests(unittest.TestCase):
                     )
                 },
             )
+            response = follow_slide_import(self.staff, response)
         self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
         second = response.get_json()["google_slides"]
         new_names = [page["image_url"].rsplit("/", 1)[-1] for page in second["pages"]]
@@ -700,6 +756,7 @@ class GoogleSlidesLiveTests(unittest.TestCase):
                     )
                 },
             )
+            again = follow_slide_import(self.staff, again)
         self.assertEqual(again.status_code, 200)
         for name in new_names:
             self.assertIsNotNone(

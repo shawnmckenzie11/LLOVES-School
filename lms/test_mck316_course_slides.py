@@ -29,6 +29,7 @@ from course_slide_files import (  # noqa: E402
     soffice_bin,
 )
 from live_news_wire import reset_logs  # noqa: E402
+from slide_import_jobs import follow_slide_import  # noqa: E402
 
 _FILE_ID = "DeckSlide01"
 _MARKER = b"MCK316-PPTX-NOT-IN-SQLITE"
@@ -228,6 +229,124 @@ class CourseSlideFileTests(unittest.TestCase):
             office_bytes_ok(b"not-a-zip", ".pptx")
 
 
+    def test_external_relationships_are_stripped(self) -> None:
+        """http and file relationships are removed before conversion."""
+        import course_slide_files as files
+
+        rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="http://127.0.0.1/secret.png" TargetMode="External"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="file:///tmp/lloves-secret.txt" TargetMode="External"/>
+  <Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="https://example.test/a.png"/>
+</Relationships>
+"""
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as package:
+            package.writestr("ppt/slides/slide1.xml", "<p:sld/>")
+            package.writestr("ppt/slides/_rels/slide1.xml.rels", rels)
+        cleaned = files.strip_external_relationships(buffer.getvalue())
+        with zipfile.ZipFile(io.BytesIO(cleaned)) as package:
+            text_rels = package.read("ppt/slides/_rels/slide1.xml.rels").decode()
+            slide = package.read("ppt/slides/slide1.xml")
+        self.assertIn("slideLayout1.xml", text_rels)
+        self.assertNotIn("127.0.0.1", text_rels)
+        self.assertNotIn("file:", text_rels.lower())
+        self.assertNotIn("https:", text_rels.lower())
+        self.assertNotIn("TargetMode", text_rels)
+        self.assertEqual(slide, b"<p:sld/>")
+        slipped = io.BytesIO()
+        with zipfile.ZipFile(slipped, "w") as package:
+            package.writestr("../secret.txt", "nope")
+        with self.assertRaises(ValueError):
+            files.strip_external_relationships(slipped.getvalue())
+        huge = io.BytesIO()
+        with zipfile.ZipFile(huge, "w") as package:
+            package.writestr("ppt/_rels/huge.rels", b"x" * (1_000_001))
+        with self.assertRaises(ValueError):
+            files.strip_external_relationships(huge.getvalue())
+
+    def test_timeout_kills_the_process_group_and_removes_the_temp_dir(self) -> None:
+        """A timed-out conversion does not leave a child or its temp dir."""
+        import subprocess
+
+        import course_slide_files as files
+
+        script = Path("/tmp/lloves-sleeper-317.sh")
+        script.write_text("#!/bin/sh\nsleep 317 &\nwait\n", encoding="utf-8")
+        script.chmod(0o755)
+        before = set(Path("/tmp").glob("lloves-slides-*"))
+        try:
+            with self.assertRaises(ValueError) as caught:
+                files._office_to_pdf(
+                    b"PK\x03\x04", ".pptx", str(script), timeout=0.6
+                )
+            self.assertIn("too long", str(caught.exception))
+        finally:
+            script.unlink(missing_ok=True)
+        after = set(Path("/tmp").glob("lloves-slides-*"))
+        self.assertEqual(before, after)
+        listed = subprocess.run(
+            ["ps", "-eo", "args"], capture_output=True, text=True, check=False
+        )
+        self.assertNotIn("sleep 317", listed.stdout)
+
+    @unittest.skipUnless(soffice_bin(), "LibreOffice is not installed")
+    def test_linked_http_and_file_targets_are_not_fetched(self) -> None:
+        """LibreOffice does not fetch an external picture or a file link."""
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        import course_slide_files as files
+
+        hits: list[str] = []
+
+        class Handler(BaseHTTPRequestHandler):
+            """Count GETs. The conversion must not make one."""
+
+            def do_GET(self) -> None:  # noqa: N802
+                """Record the path and answer with an empty body."""
+                hits.append(self.path)
+                self.send_response(200)
+                self.end_headers()
+
+            def log_message(self, fmt: str, *args) -> None:
+                """Drop the default access log."""
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        port = int(server.server_address[1])
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        marker = Path("/tmp/lloves-slide-file-marker.txt")
+        marker.write_bytes(b"LLOVES-FILE-LINK-MARKER")
+        try:
+            package = _minimal_pptx()
+            with zipfile.ZipFile(io.BytesIO(package)) as source:
+                rels = source.read("ppt/slides/_rels/slide1.xml.rels").decode()
+            extra = (
+                f'<Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
+                f'Target="http://127.0.0.1:{port}/hit.png" TargetMode="External"/>'
+                '<Relationship Id="rId10" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
+                'Target="file:///tmp/lloves-slide-file-marker.txt" TargetMode="External"/>'
+            )
+            rels = rels.replace("</Relationships>", extra + "</Relationships>")
+            out = io.BytesIO()
+            with zipfile.ZipFile(io.BytesIO(package)) as source, zipfile.ZipFile(out, "w") as dest:
+                for info in source.infolist():
+                    data = source.read(info)
+                    if info.filename == "ppt/slides/_rels/slide1.xml.rels":
+                        data = rels.encode()
+                    dest.writestr(info.filename, data)
+            pages, _truncated = files.pages_from_office(out.getvalue(), ".pptx", timeout=60)
+        finally:
+            server.shutdown()
+            server.server_close()
+            marker.unlink(missing_ok=True)
+        self.assertEqual(hits, [])
+        self.assertTrue(pages)
+        self.assertNotIn(b"LLOVES-FILE-LINK-MARKER", pages[0])
+
 class CourseSlideSetupTests(unittest.TestCase):
     """Add Slides from Set Class, by link and by upload."""
 
@@ -295,6 +414,7 @@ class CourseSlideSetupTests(unittest.TestCase):
                     "default_published": False,
                 },
             )
+            added = follow_slide_import(self.staff, added)
         self.assertEqual(added.status_code, 200, added.get_data(as_text=True))
         body = added.get_json()
         self.assertEqual(body["deck"]["title"], "Google Slides")
@@ -335,6 +455,7 @@ class CourseSlideSetupTests(unittest.TestCase):
                     "file": (io.BytesIO(payload), "Quadratics.pptx"),
                 },
             )
+            added = follow_slide_import(self.staff, added)
         self.assertEqual(added.status_code, 200, added.get_data(as_text=True))
         body = added.get_json()
         self.assertEqual(body["deck"]["title"], "Quadratics")
@@ -367,6 +488,7 @@ class CourseSlideSetupTests(unittest.TestCase):
                     "file": (io.BytesIO(payload), "Quadratics.pptx"),
                 },
             )
+            second = follow_slide_import(self.staff, second)
         self.assertEqual(second.status_code, 200, second.get_data(as_text=True))
         sources = list(
             (Path(self.school.data_dir) / "live-question-images" / str(self.class_id) / "sources").glob(
@@ -388,6 +510,20 @@ class CourseSlideSetupTests(unittest.TestCase):
             )
         self.assertEqual(refused.status_code, 400)
         self.assertIn("too large", refused.get_json()["error"])
+
+    def test_declared_body_over_the_cap_is_refused_before_read(self) -> None:
+        """A Content-Length past 64 MiB never reaches the upload reader."""
+        with mock.patch("course_slide_files.write_capped_upload") as writer:
+            refused = self.staff.post(
+                f"/api/classes/{self.class_id}/slide-deck",
+                data=b"",
+                content_type="multipart/form-data; boundary=----bound",
+                environ_overrides={"CONTENT_LENGTH": str(80 * 1024 * 1024)},
+            )
+        self.assertEqual(refused.status_code, 400)
+        self.assertIn("too large", refused.get_json()["error"])
+        writer.assert_not_called()
+
 
     def test_layout_keeps_16_by_9_and_drops_prev_next(self) -> None:
         """Slides fit the card. The old Prev and Next controls are gone."""
@@ -420,6 +556,7 @@ class CourseSlideSetupTests(unittest.TestCase):
                 "file": (io.BytesIO(_minimal_pptx()), "Hello.pptx"),
             },
         )
+        added = follow_slide_import(self.staff, added, timeout=90)
         self.assertEqual(added.status_code, 200, added.get_data(as_text=True))
         deck = added.get_json()["google_slides"]
         self.assertGreaterEqual(len(deck["pages"]), 1)

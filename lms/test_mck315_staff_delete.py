@@ -1092,7 +1092,11 @@ class PermanentStaffDeleteTests(unittest.TestCase):
             self.assertEqual(count, 1, table)
 
     def test_cross_tagged_snapshot_keeps_the_other_session(self) -> None:
-        """A snapshot tagged with this class does not delete another class's session."""
+        """A snapshot tagged with this class does not delete another class's session.
+
+        A surviving page that still names a file in the deleted account's
+        folder keeps that file.
+        """
         target = self.school.register_staff("snapshot-target@example.com", "Target")
         other = self.school.register_staff("snapshot-other@example.com", "Other")
         target_offering = self.school.assign_course(
@@ -1174,6 +1178,15 @@ class PermanentStaffDeleteTests(unittest.TestCase):
         self.assertTrue(target_files)
         self.assertTrue(all(path.is_file() for path in target_files))
         self.assertTrue(all(path.is_file() for path in other_files))
+        shared_rel = str(target_pages[0][0])
+        self.school.conn.execute(
+            """
+            UPDATE course_slide_pages
+            SET image_relpath = ?
+            WHERE image_relpath = ?
+            """,
+            (shared_rel, str(other_pages[0][0])),
+        )
         self.school.delete_staff_permanently(int(target["id"]), self.actor_id)
         row = self.school.conn.execute(
             "SELECT class_id, teacher_user_id FROM live_class_sessions WHERE id = ?",
@@ -1241,25 +1254,28 @@ class PermanentStaffDeleteTests(unittest.TestCase):
         self.assertIsNotNone(other_deck)
         assert other_deck is not None
         self.assertEqual(other_deck["title"], "Other deck")
-        self.assertTrue(all(not path.is_file() for path in target_files))
+        shared_path = data_dir / shared_rel
+        self.assertTrue(shared_path.is_file())
+        self.assertTrue(
+            all(not path.is_file() for path in target_files if path != shared_path)
+        )
         self.assertTrue(all(path.is_file() for path in other_files))
         self.assertEqual(
             self.school.conn.execute(
-                """
-                SELECT COUNT(*) FROM course_slide_pages
-                WHERE image_relpath LIKE ?
-                """,
-                (f"live-question-images/{target_class}/%",),
+                "SELECT COUNT(*) FROM course_slide_pages WHERE image_relpath = ?",
+                (shared_rel,),
             ).fetchone()[0],
-            0,
+            1,
         )
         self.assertEqual(
             self.school.conn.execute(
                 """
-                SELECT COUNT(*) FROM course_slide_pages
-                WHERE image_relpath LIKE ?
+                SELECT COUNT(*)
+                FROM course_slide_pages AS pages
+                JOIN course_slide_decks AS decks ON decks.id = pages.deck_id
+                WHERE decks.class_id = ?
                 """,
-                (f"live-question-images/{other_class}/%",),
+                (other_class,),
             ).fetchone()[0],
             1,
         )
