@@ -44,6 +44,18 @@ PROTECTED_TABLES = (
     "class_live_media_overlays",
     "grade_category_weights",
     "grade_module_rules",
+    "participation_items",
+    "participation_answers",
+    "participation_module_marks",
+    "participation_module_settings",
+    "participation_runs",
+    "live_participation_credits",
+    "live_session_attendees",
+    "live_session_attendees_identity",
+    "live_presence_attendees",
+    "subtotals",
+    "subtotal_scores",
+    "portfolio_mark_suggestions",
 )
 
 _COPY_BATCH = 200
@@ -416,13 +428,13 @@ def backfill_module_pack(
 ) -> dict[str, int]:
     """Merge an uploaded module pack into the library teachers already read.
 
-    When the course has a pack that no other course uses, missing rows are
-    added to that library and no extra shell library is created. A pack
-    another course already reads is left unchanged. When this course has no
+    When every course on a pack belongs to the same teacher, missing rows
+    are added to that library and no extra shell library is created. A pack
+    another teacher already reads is left unchanged. When this course has no
     pack, the rows land in the course shell. Existing import keys — including
     questions, pages, and decks added before the pack — are not updated. A
     second call with the same pack adds nothing. Roster, PIN, attendance,
-    and gradebook tables are not written.
+    participation, and gradebook tables are not written.
 
     Args:
         school: ``SchoolDB``.
@@ -433,8 +445,8 @@ def backfill_module_pack(
         Counts of pages and questions in the course library after the merge.
 
     Raises:
-        ValueError: The upload is missing or not a cartridge, or the pack
-            library is shared with another course.
+        ValueError: The upload is missing or not a cartridge, or another
+            teacher's course shares the pack library.
         RuntimeError: The merge would have changed a protected table.
     """
     offering = school.get_offering(int(offering_id))
@@ -455,7 +467,9 @@ def backfill_module_pack(
         if unpacked.is_dir():
             ingest_library(school, school.data_dir, staging_id, unpacked)
         _assert_protected(school, before)
-        _merge_library(school, staging_id, target_id, before)
+        _merge_library(
+            school, staging_id, target_id, before, offering_id=int(offering["id"])
+        )
         _assert_protected(school, before)
     finally:
         _drop_staging(school, staging_id, dest)
@@ -466,9 +480,10 @@ def backfill_module_pack(
 def _backfill_target_id(school: Any, offering: dict[str, Any]) -> int:
     """Choose the library a backfill may add rows to.
 
-    A pack library is merged in place only when this course is the only one
-    that points at it. A shared pack is refused so another course does not
-    gain rows. A course with no pack uses its shell library instead.
+    A pack library is merged in place when every course on it belongs to
+    this teacher, including a second section. A pack another teacher reads
+    is refused before any rows are copied. A course with no pack uses its
+    shell library instead.
 
     Args:
         school: ``SchoolDB``.
@@ -478,18 +493,16 @@ def _backfill_target_id(school: Any, offering: dict[str, Any]) -> int:
         Destination ``content_libraries.id``.
 
     Raises:
-        ValueError: Another course already uses this pack library.
+        ValueError: Another teacher's course already uses this pack library.
     """
     pack_id = offering.get("library_id")
     if pack_id:
         library = school.get_library(int(pack_id))
         origin = str((library or {}).get("origin") or "")
         if library is not None and origin not in {SHELL_ORIGIN, STAGING_ORIGIN}:
-            if _pack_library_is_shared(school, int(pack_id), int(offering["id"])):
-                raise ValueError(
-                    "This module pack is shared with another course. "
-                    "Backfill did not change it."
-                )
+            _refuse_shared_with_another_teacher(
+                school, int(pack_id), int(offering["id"])
+            )
             ensure_schema(school.conn)
             _ensure_slots(school, int(offering["id"]))
             return int(pack_id)
@@ -497,23 +510,59 @@ def _backfill_target_id(school: Any, offering: dict[str, Any]) -> int:
     return int(fresh["shell_library_id"])
 
 
-def _pack_library_is_shared(school: Any, library_id: int, offering_id: int) -> bool:
-    """Return True when another course already reads this pack library.
+def _refuse_shared_with_another_teacher(
+    school: Any, library_id: int, offering_id: int
+) -> None:
+    """Refuse a backfill when another teacher already reads this pack.
 
     Args:
         school: ``SchoolDB``.
         library_id: ``content_libraries.id`` on the course being backfilled.
         offering_id: ``course_offerings.id`` of that course.
+
+    Raises:
+        ValueError: Another teacher's course points at ``library_id``.
     """
     with school._lock:  # noqa: SLF001 - shared connection lock
-        row = school.conn.execute(
-            """
-            SELECT COUNT(*) AS n FROM course_offerings
-            WHERE library_id = ? AND id != ?
-            """,
-            (int(library_id), int(offering_id)),
-        ).fetchone()
-    return int(row["n"]) > 0
+        _refuse_shared_with_another_teacher_unlocked(
+            school.conn, int(library_id), int(offering_id)
+        )
+
+
+def _refuse_shared_with_another_teacher_unlocked(
+    conn: sqlite3.Connection, library_id: int, offering_id: int
+) -> None:
+    """Refuse when another teacher reads this pack.
+
+    The caller holds the school lock. The merge calls this inside the same
+    transaction that copies rows, so a course cannot be attached to the
+    library between the check and the write.
+
+    Args:
+        conn: School sqlite connection.
+        library_id: ``content_libraries.id``.
+        offering_id: ``course_offerings.id`` being backfilled.
+
+    Raises:
+        ValueError: Another teacher's course points at ``library_id``.
+    """
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM course_offerings other
+        JOIN course_offerings mine ON mine.id = ?
+        WHERE other.library_id = ?
+          AND other.id != mine.id
+          AND other.teacher_user_id != mine.teacher_user_id
+        LIMIT 1
+        """,
+        (int(offering_id), int(library_id)),
+    ).fetchone()
+    if row is not None:
+        raise ValueError(
+            "This module pack is shared with another teacher. "
+            "Backfill did not change it."
+        )
 
 
 def _protected_snapshot(school: Any) -> dict[str, str]:
@@ -594,22 +643,33 @@ def _merge_library(
     school: Any,
     staging_id: int,
     target_id: int,
-    before: dict[str, list[tuple]],
+    before: dict[str, str],
+    *,
+    offering_id: int,
 ) -> None:
     """Copy new staging rows into the course library.
 
     Existing import keys are kept, including their titles and payloads.
+    The same-teacher check and the copy share one lock and one transaction.
 
     Args:
         school: ``SchoolDB``.
         staging_id: Temporary library that holds the pack ingest.
-        target_id: Course-owned shell library.
+        target_id: Library teachers already read.
         before: Protected-table snapshot taken before the ingest.
+        offering_id: ``course_offerings.id`` being backfilled.
+
+    Raises:
+        ValueError: Another teacher's course shares ``target_id``.
+        RuntimeError: The merge would have changed a protected table.
     """
     conn = school.conn
     with school._lock:  # noqa: SLF001 - shared connection lock
         conn.execute("BEGIN")
         try:
+            _refuse_shared_with_another_teacher_unlocked(
+                conn, int(target_id), int(offering_id)
+            )
             page_map = _copy_keyed(conn, "pages", staging_id, target_id, _PAGE_COLUMNS)
             assignment_map = _copy_keyed(
                 conn, "assignments", staging_id, target_id, _ASSIGNMENT_COLUMNS

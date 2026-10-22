@@ -25,6 +25,7 @@ os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
 
 from app import create_app  # noqa: E402
 from course_shell import (  # noqa: E402
+    PROTECTED_TABLES,
     SHELL_MODULE_COUNT,
     SHELL_SLOT_COUNT,
     _protected_snapshot,
@@ -555,7 +556,7 @@ class CourseShellTests(unittest.TestCase):
         self.assertNotEqual(body.get("error"), "No module pack")
 
     def test_backfill_merges_into_existing_pack(self) -> None:
-        """A private pack gains rows. A pack shared with another course is refused."""
+        """A private pack gains rows. A pack shared with another teacher is refused."""
         offering = self._assign("MCF3M")
         offering_id = int(offering["id"])
         shell_id = int(offering["shell_library_id"])
@@ -686,7 +687,7 @@ class CourseShellTests(unittest.TestCase):
         refused = self._post_backfill(offering_id)
         self.assertEqual(refused.status_code, 400, refused.get_data(as_text=True))
         self.assertIn(
-            "This module pack is shared with another course.",
+            "This module pack is shared with another teacher.",
             refused.get_data(as_text=True),
         )
         self.assertEqual(
@@ -727,6 +728,217 @@ class CourseShellTests(unittest.TestCase):
         self.assertEqual(
             [item["title"] for item in after_pages["items"]], before_titles
         )
+
+    def test_backfill_merges_two_sections_for_one_teacher(self) -> None:
+        """Two sections owned by one teacher gain missing pack rows together."""
+        offering = self._assign("MCF3M")
+        offering_id = int(offering["id"])
+        shell_id = int(offering["shell_library_id"])
+        upload = self.school.create_library("MCF3M", origin="upload")
+        upload_id = int(upload["id"])
+        self.school.conn.execute(
+            """
+            UPDATE course_offerings
+            SET library_id = ?, shell_library_id = NULL, course_shell = NULL
+            WHERE id = ?
+            """,
+            (upload_id, offering_id),
+        )
+        self.school.conn.execute(
+            "DELETE FROM content_libraries WHERE id = ?",
+            (shell_id,),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO pages (
+                library_id, import_key, kind, title, html_text, created_at
+            ) VALUES (?, 'wiki_content/lesson-1.html', 'html', 'Kept', ?, 't')
+            """,
+            (upload_id, KEPT_PAGE),
+        )
+        self.school.conn.commit()
+        second = self.school.assign_course(
+            teacher_user_id=int(self.teacher["id"]),
+            ontario_code="MCF3M",
+            new_section=True,
+            library_id=upload_id,
+        )
+        second_id = int(second["id"])
+        self.assertNotEqual(second_id, offering_id)
+        self.assertEqual(int(second["library_id"]), upload_id)
+        semester = self.school.get_semester(int(second["semester_id"]))
+        second_class = self.school.game.create_class(
+            year=str(semester["year_display"]),
+            semester=str(semester["term"]),
+            course_code="MCF3M",
+            days_preset="M/W/F",
+            time_label="3:15pm",
+            codenames=["C2"],
+            offering_id=second_id,
+            teacher_user_id=int(self.teacher["id"]),
+        )
+        self._login_it()
+        posted = self._post_backfill(offering_id)
+        self.assertEqual(posted.status_code, 302, posted.get_data(as_text=True))
+        fresh = self.school.get_offering(offering_id)
+        second_fresh = self.school.get_offering(second_id)
+        self.assertEqual(int(fresh["library_id"]), upload_id)
+        self.assertEqual(int(second_fresh["library_id"]), upload_id)
+        kept = self.school.conn.execute(
+            """
+            SELECT html_text FROM pages
+            WHERE library_id = ? AND import_key = 'wiki_content/lesson-1.html'
+            """,
+            (upload_id,),
+        ).fetchone()
+        self.assertEqual(kept["html_text"], KEPT_PAGE)
+        assignments = self.school.conn.execute(
+            "SELECT COUNT(*) FROM assignments WHERE library_id = ?",
+            (upload_id,),
+        ).fetchone()[0]
+        self.assertGreater(assignments, 0)
+        self._login_staff()
+        pages = self.client.get(
+            f"/api/staff/class/{int(second_class['id'])}/components/pages"
+        ).get_json()
+        titles = [item["title"] for item in pages["items"]]
+        self.assertIn("Kept", titles)
+        self.assertIn("Reference deck", titles)
+
+    def test_backfill_refuses_a_library_shared_by_two_teachers(self) -> None:
+        """A pack another teacher already reads is left unchanged."""
+        offering = self._assign("MCF3M")
+        offering_id = int(offering["id"])
+        shell_id = int(offering["shell_library_id"])
+        upload = self.school.create_library("MCF3M", origin="upload")
+        upload_id = int(upload["id"])
+        self.school.conn.execute(
+            """
+            UPDATE course_offerings
+            SET library_id = ?, shell_library_id = NULL, course_shell = NULL
+            WHERE id = ?
+            """,
+            (upload_id, offering_id),
+        )
+        self.school.conn.execute(
+            "DELETE FROM content_libraries WHERE id = ?",
+            (shell_id,),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO pages (
+                library_id, import_key, kind, title, html_text, created_at
+            ) VALUES (?, 'wiki_content/lesson-1.html', 'html', 'Kept', ?, 't')
+            """,
+            (upload_id, KEPT_PAGE),
+        )
+        self.school.conn.commit()
+        other = self.school.register_staff("other.teacher@gmail.com")
+        other_offering = self.school.assign_course(
+            teacher_user_id=int(other["id"]), ontario_code="MCF3M"
+        )
+        other_id = int(other_offering["id"])
+        self.school.attach_library(other_id, upload_id)
+        self.assertEqual(int(self.school.get_offering(other_id)["library_id"]), upload_id)
+        semester = self.school.get_semester(int(other_offering["semester_id"]))
+        other_class = self.school.game.create_class(
+            year=str(semester["year_display"]),
+            semester=str(semester["term"]),
+            course_code="MCF3M",
+            days_preset="M/W/F",
+            time_label="10:40am",
+            codenames=["B1"],
+            offering_id=other_id,
+            teacher_user_id=int(other["id"]),
+        )
+        keys_before = {
+            str(row[0])
+            for row in self.school.conn.execute(
+                "SELECT import_key FROM pages WHERE library_id = ?",
+                (upload_id,),
+            )
+        }
+        self.client.get("/auth/google?portal=staff")
+        self.client.get(
+            "/auth/google/callback?email=other.teacher@gmail.com&name=Other"
+        )
+        other_user = self.school.get_user_by_email("other.teacher@gmail.com")
+        assert other_user is not None
+        self.client.post(
+            "/verify-email", data={"code": other_user["verification_code"]}
+        )
+        before_pages = self.client.get(
+            f"/api/staff/class/{int(other_class['id'])}/components/pages"
+        ).get_json()
+        before_titles = [item["title"] for item in before_pages["items"]]
+        self.assertIn("Kept", before_titles)
+        self._login_it()
+        refused = self._post_backfill(offering_id)
+        self.assertEqual(refused.status_code, 400, refused.get_data(as_text=True))
+        self.assertIn(
+            "This module pack is shared with another teacher. "
+            "Backfill did not change it.",
+            refused.get_data(as_text=True),
+        )
+        self.assertEqual(
+            {
+                str(row[0])
+                for row in self.school.conn.execute(
+                    "SELECT import_key FROM pages WHERE library_id = ?",
+                    (upload_id,),
+                )
+            },
+            keys_before,
+        )
+        self.assertEqual(
+            self.school.conn.execute(
+                """
+                SELECT html_text FROM pages
+                WHERE library_id = ? AND import_key = 'wiki_content/lesson-1.html'
+                """,
+                (upload_id,),
+            ).fetchone()["html_text"],
+            KEPT_PAGE,
+        )
+        self.assertEqual(int(self.school.get_offering(other_id)["library_id"]), upload_id)
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM content_libraries WHERE origin = 'backfill-staging'"
+            ).fetchone()[0],
+            0,
+        )
+        self.client.get("/auth/google?portal=staff")
+        self.client.get(
+            "/auth/google/callback?email=other.teacher@gmail.com&name=Other"
+        )
+        other_user = self.school.get_user_by_email("other.teacher@gmail.com")
+        assert other_user is not None
+        self.client.post(
+            "/verify-email", data={"code": other_user["verification_code"]}
+        )
+        after_pages = self.client.get(
+            f"/api/staff/class/{int(other_class['id'])}/components/pages"
+        ).get_json()
+        self.assertEqual(
+            [item["title"] for item in after_pages["items"]], before_titles
+        )
+
+    def test_protected_tables_cover_participation_and_portfolio(self) -> None:
+        """Participation, attendee, subtotal, and portfolio tables stay hashed."""
+        required = {
+            "participation_items",
+            "participation_answers",
+            "participation_module_marks",
+            "participation_module_settings",
+            "participation_runs",
+            "live_participation_credits",
+            "live_session_attendees",
+            "live_presence_attendees",
+            "subtotals",
+            "subtotal_scores",
+            "portfolio_mark_suggestions",
+        }
+        self.assertTrue(required <= set(PROTECTED_TABLES))
 
     def test_backfill_rejects_a_foreign_origin(self) -> None:
         """An admin POST from another site does not write rows."""
