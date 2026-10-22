@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 LMS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = LMS_DIR.parent
@@ -28,6 +29,38 @@ _TINY_PNG = (
     b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00"
     b"\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
 )
+_LOGIN_HTML = b"<!doctype html><html><body>login</body></html>"
+
+
+class _UrlOpenBody:
+    """One canned ``urlopen`` body, so image-mirror tests do not touch the network."""
+
+    def __init__(self, body: bytes, content_type: str) -> None:
+        """Store the bytes and content type a download would return.
+
+        Args:
+            body: Response body.
+            content_type: ``Content-Type`` header value.
+        """
+        self.headers = {"Content-Type": content_type}
+        self._body = body
+
+    def read(self) -> bytes:
+        """Return the canned body."""
+        return self._body
+
+    def __enter__(self) -> "_UrlOpenBody":
+        """Enter the ``with urlopen(...)`` block."""
+        return self
+
+    def __exit__(self, *_exc: object) -> bool:
+        """Leave the ``with urlopen(...)`` block without swallowing errors."""
+        return False
+
+
+def _login_page_urlopen(*_args: object, **_kwargs: object) -> _UrlOpenBody:
+    """Return the HTML login page a dead Canvas verifier downloads."""
+    return _UrlOpenBody(_LOGIN_HTML, "text/html; charset=utf-8")
 
 
 def _insert_bank(
@@ -231,6 +264,17 @@ class ModuleBankImportMergeTests(unittest.TestCase):
             "https://virtuallearning.instructure.com/assessment_questions/"
             "70463/files/188452/download?verifier=test"
         )
+        # The dead verifier downloads a login page. That must not occupy the
+        # cache before this fixture plants the real mirrored PNG.
+        with mock.patch("urllib.request.urlopen", side_effect=_login_page_urlopen):
+            self._remirror_leftover_canvas_image(remote)
+
+    def _remirror_leftover_canvas_image(self, remote: str) -> None:
+        """Import a leftover Canvas img and assert the student card uses the PNG.
+
+        Args:
+            remote: Canvas file URL left in the stored stem.
+        """
         question_id = _insert_mc_question(
             self.school,
             self.m1_bank,
@@ -312,6 +356,45 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         )
         self.assertNotIn("instructure.com", blob)
         self.assertNotIn(f"/staff/class/{self.class_id}/module-files/", blob)
+
+    def test_login_html_is_not_cached_as_a_bank_image(self) -> None:
+        """A Canvas login page does not take the image-cache key; a PNG does."""
+        try:
+            from bank_image_mirror import mirror_bank_image_url
+        except ImportError:
+            from lms.bank_image_mirror import mirror_bank_image_url
+
+        html_url = (
+            "https://virtuallearning.instructure.com/assessment_questions/"
+            "1/files/1/download?verifier=html"
+        )
+        png_url = (
+            "https://virtuallearning.instructure.com/assessment_questions/"
+            "1/files/2/download?verifier=png"
+        )
+        octet_url = (
+            "https://virtuallearning.instructure.com/assessment_questions/"
+            "1/files/3/download?verifier=octet"
+        )
+        responses = [
+            _UrlOpenBody(_LOGIN_HTML, "text/html; charset=utf-8"),
+            _UrlOpenBody(_TINY_PNG, "image/png"),
+            _UrlOpenBody(_TINY_PNG, "application/octet-stream"),
+        ]
+        with mock.patch("urllib.request.urlopen", side_effect=responses):
+            html_rel = mirror_bank_image_url(self.school, self.library_id, html_url)
+            png_rel = mirror_bank_image_url(self.school, self.library_id, png_url)
+            octet_rel = mirror_bank_image_url(self.school, self.library_id, octet_url)
+        self.assertIsNone(html_rel)
+        self.assertTrue(str(png_rel).endswith(".png"))
+        self.assertTrue(str(octet_rel or "").startswith("web_resources/bank-mirror/"))
+        rows = self.school.conn.execute(
+            "SELECT source_url FROM bank_image_cache"
+        ).fetchall()
+        self.assertEqual(
+            {str(row["source_url"]) for row in rows},
+            {png_url, octet_url},
+        )
 
     def test_import_creates_lifecycle_row_on_active_session(self) -> None:
         """Import during an active session seeds a new lifecycle placement."""

@@ -86,6 +86,40 @@ def latex_img_tag_to_math_span(tag: str) -> str:
     return f'<span class="math-latex" data-latex="{escaped}">{escaped}</span>'
 
 
+def _download_is_image(payload: bytes, content_type: str) -> bool:
+    """Return True when a download is an image, not an HTML login page.
+
+    Canvas answers a dead file verifier with HTTP 200 and ``text/html``.
+    Caching that body would store a login page under the image URL and
+    block a later mirror of the same URL. ``image/*`` is accepted. Any
+    other type is accepted only when the bytes are a PNG, JPEG, GIF,
+    WEBP, or SVG.
+
+    Args:
+        payload: Response body.
+        content_type: ``Content-Type`` header, possibly with a charset.
+    """
+    mime = str(content_type or "").split(";")[0].strip().lower()
+    if mime.startswith("image/"):
+        return True
+    if mime.startswith("text/") or mime in {
+        "application/json",
+        "application/javascript",
+        "application/xhtml+xml",
+        "application/xml",
+    }:
+        return False
+    head = payload[:16]
+    if head.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a")):
+        return True
+    if len(payload) >= 12 and payload[:4] == b"RIFF" and payload[8:12] == b"WEBP":
+        return True
+    sniff = payload[:200].lstrip().lower()
+    if sniff.startswith(b"<svg"):
+        return True
+    return sniff.startswith(b"<?xml") and b"<svg" in payload[:500].lower()
+
+
 def _extension_for(content_type: str, url: str) -> str:
     """Guess a file extension from response headers or URL."""
     mime = str(content_type or "").split(";")[0].strip().lower()
@@ -129,7 +163,8 @@ def mirror_bank_image_url(
         timeout: HTTP timeout in seconds.
 
     Returns:
-        Cartridge-relative ``web_resources/...`` path, or ``None`` on failure.
+        Cartridge-relative ``web_resources/...`` path, or ``None`` when the
+        download fails or the body is not an image.
     """
     url = str(source_url or "").strip()
     if not url or not is_remote_bank_image_url(url):
@@ -149,7 +184,7 @@ def mirror_bank_image_url(
         payload, content_type = _fetch_remote(url, timeout=timeout)
     except (urllib.error.URLError, TimeoutError, ValueError):
         return None
-    if not payload:
+    if not payload or not _download_is_image(payload, content_type):
         return None
     digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:20]
     ext = _extension_for(content_type, url)
