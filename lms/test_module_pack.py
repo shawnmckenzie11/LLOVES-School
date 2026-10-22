@@ -154,7 +154,8 @@ class ModulePackTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(rv.status_code, 403)
-        self.assertIn("Ask Admin to attach a module pack", rv.get_data(as_text=True))
+        self.assertIn("Only Admin can attach a module pack.", rv.get_data(as_text=True))
+        self.assertNotIn("Ask Admin to attach a module pack", rv.get_data(as_text=True))
         offering = self.school.get_offering(int(self.eng_offering["id"]))
         self.assertFalse(offering.get("imscc_path"))
 
@@ -165,7 +166,8 @@ class ModulePackTests(unittest.TestCase):
         )
         body = empty_nav.get_json()
         self.assertTrue(body.get("empty"))
-        self.assertIn("Ask Admin to attach a module pack", body.get("message") or "")
+        self.assertEqual(body.get("modules"), [])
+        self.assertNotIn("Ask Admin to attach a module pack", body.get("message") or "")
 
         self._login_it()
         payload = _minimal_imscc_bytes()

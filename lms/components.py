@@ -248,13 +248,20 @@ def get_quiz(db: Any, library_id: int, quiz_id: int) -> dict[str, Any] | None:
 def get_question_bank(
     db: Any, library_id: int, bank_id: int
 ) -> dict[str, Any] | None:
-    """Fetch one question bank within a library.
+    """Fetch one question bank stored in a course library.
+
+    ``library_id`` is the library the staff route resolved: the shared
+    pack when one is attached, otherwise the course-owned shell. A shell
+    has default banks and no cartridge. A bank that lives in a different
+    library is not returned.
 
     Args:
         db: School database.
-        library_id: Owning library.
+        library_id: Course library that owns the bank.
         bank_id: ``question_banks.id``.
     """
+    if not library_id or not bank_id:
+        return None
     row = db.conn.execute(
         "SELECT * FROM question_banks WHERE id = ? AND library_id = ?",
         (int(bank_id), int(library_id)),

@@ -728,9 +728,10 @@ def _live_defaults_from_body(body: dict) -> dict | None:
 def _ready_library(school, cls: dict) -> tuple[int | None, str | None]:
     """Resolve the pack library, or the course shell when no pack is attached.
 
-    Modules and the component tabs read only from the database. Offerings
-    created before the component store have no rows yet, so the first request
-    unpacks the shared cartridge and ingests it; later requests skip both.
+    A shared pack is unpacked and ingested once. A course with no pack
+    uses ``shell_library_id``, which already stores the default banks.
+    The shell is not a cartridge, so this does not ingest it and does not
+    create a library when that pointer is empty.
 
     Args:
         school: Open school database.
@@ -738,12 +739,12 @@ def _ready_library(school, cls: dict) -> tuple[int | None, str | None]:
 
     Returns:
         ``(library_id, error_message)``. ``library_id`` is None when the
-        course has no attached pack.
+        course has neither a shared pack nor a shell.
     """
     pack = _class_pack(school, cls)
     library_id = cls.get("library_id") or cls.get("shell_library_id")
     if not library_id:
-        return None, "Ask Admin to attach a module pack."
+        return None, "No course library yet."
     # A shell is already stored. Do not ingest a missing cartridge over it.
     if not cls.get("library_id"):
         return int(library_id), None
@@ -4411,7 +4412,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         assert user is not None
         if not school.teacher_owns_class(int(user["id"]), class_id):
             abort(403)
-        message = "Ask Admin to attach a module pack."
+        message = "Only Admin can attach a module pack."
         if _wants_json():
             return jsonify({"ok": False, "error": message}), 403
         return render_template("forbidden.html", message=message), 403
@@ -4450,14 +4451,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 {
                     "ok": True,
                     "empty": True,
-                    "message": error or "Ask Admin to attach a module pack.",
+                    "message": error or "No modules for this course yet.",
                     "modules": [],
                 }
             )
         nav = outline_nav(school, int(library_id))
         if not nav:
-            if not cls.get("library_id"):
-                error = "Ask Admin to attach a module pack."
             return jsonify(
                 {
                     "ok": True,
@@ -4497,7 +4496,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             empty_message = (
                 EMPTY_BANKS_MESSAGE
                 if kind == "question-banks"
-                else (error or "Ask Admin to attach a module pack.")
+                else (error or "No content in this course yet.")
             )
             return jsonify(
                 {
@@ -4758,7 +4757,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 {
                     "ok": True,
                     "empty": True,
-                    "message": error or "Ask Admin to attach a module pack.",
+                    "message": error or "No question banks for this module yet.",
                     "module": module,
                     "needs_confirmation": True,
                     "suggested": [],

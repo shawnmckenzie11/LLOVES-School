@@ -403,7 +403,7 @@ class CatalogTabTests(unittest.TestCase):
         self.assertNotIn(question["id"], [row["id"] for row in after["questions"]])
 
     def test_question_banks_empty_message(self) -> None:
-        """A class with no pack uses the Wonder empty-banks copy."""
+        """A pack-less course lists its shell banks and does not ask for a pack."""
         if self.school.get_ontario_course("SCH4U") is None:
             self.school.upsert_ontario_course(
                 "SCH4U",
@@ -437,9 +437,16 @@ class CatalogTabTests(unittest.TestCase):
         ).get_json()
         self.assertTrue(data.get("ok"))
         self.assertFalse(data.get("empty"))
-        titles = {item["title"] for item in data["items"]}
+        items = data.get("items") or []
+        titles = {item["title"] for item in items}
         self.assertIn("Course", titles)
         self.assertIn("Module 1", titles)
+        self.assertIn(
+            "shell-course",
+            {str(item.get("import_key") or "") for item in items},
+        )
+        self.assertTrue(all(int(item.get("question_count") or 0) == 0 for item in items))
+        self.assertNotIn("Ask Admin to attach a module pack", data.get("message") or "")
         self.school.conn.execute(
             """
             UPDATE course_offerings
