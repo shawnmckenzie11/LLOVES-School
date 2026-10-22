@@ -416,12 +416,13 @@ def backfill_module_pack(
 ) -> dict[str, int]:
     """Merge an uploaded module pack into the library teachers already read.
 
-    When the course has a pack, missing rows are added to that library and
-    no extra shell library is created. When it has no pack, the rows land in
-    the course shell. Existing import keys — including questions, pages, and
-    decks added before the pack — are not updated. A second call with the
-    same pack adds nothing. Roster, PIN, attendance, and gradebook tables
-    are not written.
+    When the course has a pack that no other course uses, missing rows are
+    added to that library and no extra shell library is created. A pack
+    another course already reads is left unchanged. When this course has no
+    pack, the rows land in the course shell. Existing import keys — including
+    questions, pages, and decks added before the pack — are not updated. A
+    second call with the same pack adds nothing. Roster, PIN, attendance,
+    and gradebook tables are not written.
 
     Args:
         school: ``SchoolDB``.
@@ -432,7 +433,8 @@ def backfill_module_pack(
         Counts of pages and questions in the course library after the merge.
 
     Raises:
-        ValueError: The upload is missing or not a cartridge.
+        ValueError: The upload is missing or not a cartridge, or the pack
+            library is shared with another course.
         RuntimeError: The merge would have changed a protected table.
     """
     offering = school.get_offering(int(offering_id))
@@ -464,8 +466,9 @@ def backfill_module_pack(
 def _backfill_target_id(school: Any, offering: dict[str, Any]) -> int:
     """Choose the library a backfill may add rows to.
 
-    A pack library is the one teachers already open. Missing pack rows merge
-    there. A course with no pack uses its shell library instead.
+    A pack library is merged in place only when this course is the only one
+    that points at it. A shared pack is refused so another course does not
+    gain rows. A course with no pack uses its shell library instead.
 
     Args:
         school: ``SchoolDB``.
@@ -473,17 +476,44 @@ def _backfill_target_id(school: Any, offering: dict[str, Any]) -> int:
 
     Returns:
         Destination ``content_libraries.id``.
+
+    Raises:
+        ValueError: Another course already uses this pack library.
     """
     pack_id = offering.get("library_id")
     if pack_id:
         library = school.get_library(int(pack_id))
         origin = str((library or {}).get("origin") or "")
         if library is not None and origin not in {SHELL_ORIGIN, STAGING_ORIGIN}:
+            if _pack_library_is_shared(school, int(pack_id), int(offering["id"])):
+                raise ValueError(
+                    "This module pack is shared with another course. "
+                    "Backfill did not change it."
+                )
             ensure_schema(school.conn)
             _ensure_slots(school, int(offering["id"]))
             return int(pack_id)
     fresh = ensure_default_course_shell(school, int(offering["id"]), mark=False)
     return int(fresh["shell_library_id"])
+
+
+def _pack_library_is_shared(school: Any, library_id: int, offering_id: int) -> bool:
+    """Return True when another course already reads this pack library.
+
+    Args:
+        school: ``SchoolDB``.
+        library_id: ``content_libraries.id`` on the course being backfilled.
+        offering_id: ``course_offerings.id`` of that course.
+    """
+    with school._lock:  # noqa: SLF001 - shared connection lock
+        row = school.conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM course_offerings
+            WHERE library_id = ? AND id != ?
+            """,
+            (int(library_id), int(offering_id)),
+        ).fetchone()
+    return int(row["n"]) > 0
 
 
 def _protected_snapshot(school: Any) -> dict[str, str]:

@@ -555,7 +555,7 @@ class CourseShellTests(unittest.TestCase):
         self.assertNotEqual(body.get("error"), "No module pack")
 
     def test_backfill_merges_into_existing_pack(self) -> None:
-        """A course that already has a pack gains rows in that library only."""
+        """A private pack gains rows. A pack shared with another course is refused."""
         offering = self._assign("MCF3M")
         offering_id = int(offering["id"])
         shell_id = int(offering["shell_library_id"])
@@ -641,6 +641,91 @@ class CourseShellTests(unittest.TestCase):
                 (upload_id,),
             ).fetchone()[0],
             page_count,
+        )
+        other = self.school.register_staff("other.teacher@gmail.com")
+        other_offering = self.school.assign_course(
+            teacher_user_id=int(other["id"]), ontario_code="MCF3M"
+        )
+        other_id = int(other_offering["id"])
+        self.school.attach_library(other_id, upload_id)
+        other_offering = self.school.get_offering(other_id)
+        self.assertEqual(int(other_offering["library_id"]), upload_id)
+        semester = self.school.get_semester(int(other_offering["semester_id"]))
+        other_class = self.school.game.create_class(
+            year=str(semester["year_display"]),
+            semester=str(semester["term"]),
+            course_code="MCF3M",
+            days_preset="M/W/F",
+            time_label="3:15pm",
+            codenames=["B1"],
+            offering_id=other_id,
+            teacher_user_id=int(other["id"]),
+        )
+        keys_before = {
+            str(row[0])
+            for row in self.school.conn.execute(
+                "SELECT import_key FROM pages WHERE library_id = ?",
+                (upload_id,),
+            )
+        }
+        self.client.get("/auth/google?portal=staff")
+        self.client.get(
+            "/auth/google/callback?email=other.teacher@gmail.com&name=Other"
+        )
+        other_user = self.school.get_user_by_email("other.teacher@gmail.com")
+        assert other_user is not None
+        self.client.post(
+            "/verify-email", data={"code": other_user["verification_code"]}
+        )
+        before_pages = self.client.get(
+            f"/api/staff/class/{int(other_class['id'])}/components/pages"
+        ).get_json()
+        before_titles = [item["title"] for item in before_pages["items"]]
+        self.assertIn("Kept", before_titles)
+        self._login_it()
+        refused = self._post_backfill(offering_id)
+        self.assertEqual(refused.status_code, 400, refused.get_data(as_text=True))
+        self.assertIn(
+            "This module pack is shared with another course.",
+            refused.get_data(as_text=True),
+        )
+        self.assertEqual(
+            {
+                str(row[0])
+                for row in self.school.conn.execute(
+                    "SELECT import_key FROM pages WHERE library_id = ?",
+                    (upload_id,),
+                )
+            },
+            keys_before,
+        )
+        self.assertEqual(
+            self.school.conn.execute(
+                """
+                SELECT html_text FROM pages
+                WHERE library_id = ? AND import_key = 'wiki_content/lesson-1.html'
+                """,
+                (upload_id,),
+            ).fetchone()["html_text"],
+            KEPT_PAGE,
+        )
+        self.assertEqual(
+            int(self.school.get_offering(other_id)["library_id"]), upload_id
+        )
+        self.client.get("/auth/google?portal=staff")
+        self.client.get(
+            "/auth/google/callback?email=other.teacher@gmail.com&name=Other"
+        )
+        other_user = self.school.get_user_by_email("other.teacher@gmail.com")
+        assert other_user is not None
+        self.client.post(
+            "/verify-email", data={"code": other_user["verification_code"]}
+        )
+        after_pages = self.client.get(
+            f"/api/staff/class/{int(other_class['id'])}/components/pages"
+        ).get_json()
+        self.assertEqual(
+            [item["title"] for item in after_pages["items"]], before_titles
         )
 
     def test_backfill_rejects_a_foreign_origin(self) -> None:
