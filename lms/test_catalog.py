@@ -435,8 +435,25 @@ class CatalogTabTests(unittest.TestCase):
         data = self.client.get(
             f"/api/staff/class/{bare['id']}/components/question-banks"
         ).get_json()
-        self.assertTrue(data.get("empty"))
-        self.assertEqual(data.get("message"), "No banks imported yet.")
+        self.assertTrue(data.get("ok"))
+        self.assertFalse(data.get("empty"))
+        titles = {item["title"] for item in data["items"]}
+        self.assertIn("Course", titles)
+        self.assertIn("Module 1", titles)
+        self.school.conn.execute(
+            """
+            UPDATE course_offerings
+            SET library_id = NULL, shell_library_id = NULL
+            WHERE id = ?
+            """,
+            (int(offering["id"]),),
+        )
+        self.school.conn.commit()
+        cleared = self.client.get(
+            f"/api/staff/class/{bare['id']}/components/question-banks"
+        ).get_json()
+        self.assertTrue(cleared.get("empty"))
+        self.assertEqual(cleared.get("message"), "No banks imported yet.")
         self._login_staff()
 
     def test_question_banks_tab_ui_copy(self) -> None:

@@ -524,9 +524,66 @@ class PermanentStaffDeleteTests(unittest.TestCase):
             "run_keys": run_keys,
         }
 
+
+    def _assert_cross_teacher_shell_removed(
+        self, owned_offering_id: int, owned_shell_id: int
+    ) -> None:
+        """Owned class slots and the course library are gone.
+
+        The other teacher's slots and shell library stay.
+
+        Args:
+            owned_offering_id: Offering that was permanently deleted.
+            owned_shell_id: Shell library that belonged to that offering.
+        """
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM course_class_slots WHERE offering_id = ?",
+                (int(owned_offering_id),),
+            ).fetchone()[0],
+            0,
+        )
+        self.assertIsNone(
+            self.school.conn.execute(
+                "SELECT id FROM content_libraries WHERE id = ?",
+                (int(owned_shell_id),),
+            ).fetchone()
+        )
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM course_class_slots WHERE offering_id = ?",
+                (self.kept_offering_id,),
+            ).fetchone()[0],
+            80,
+        )
+        kept_shell = self.school.conn.execute(
+            "SELECT shell_library_id FROM course_offerings WHERE id = ?",
+            (self.kept_offering_id,),
+        ).fetchone()
+        self.assertIsNotNone(kept_shell["shell_library_id"])
+        kept_library = self.school.conn.execute(
+            "SELECT origin FROM content_libraries WHERE id = ?",
+            (int(kept_shell["shell_library_id"]),),
+        ).fetchone()
+        self.assertEqual(kept_library["origin"], "shell")
+
     def test_finished_class_delete_leaves_no_owned_rows(self) -> None:
         """A roster and a finished class go away; the other teacher stays."""
         owned = self._seed_owned_graph()
+        owned_offering_id = int(owned["offering_ids"][0])
+        owned_shell_id = int(
+            self.school.conn.execute(
+                "SELECT shell_library_id FROM course_offerings WHERE id = ?",
+                (owned_offering_id,),
+            ).fetchone()["shell_library_id"]
+        )
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM course_class_slots WHERE offering_id = ?",
+                (owned_offering_id,),
+            ).fetchone()[0],
+            80,
+        )
         presence = _Presence()
         self.school.presence = presence
         self._login_admin()
@@ -541,6 +598,7 @@ class PermanentStaffDeleteTests(unittest.TestCase):
         self.assertIsNone(self.school.get_user(self.owned_user_id))
         self.assertIsNone(self.school.get_user_by_email("owned@example.com"))
         self.assertEqual(self._every_owned_hit(owned), [])
+        self._assert_cross_teacher_shell_removed(owned_offering_id, owned_shell_id)
         self.assertEqual(
             self.school.conn.execute(
                 "SELECT COUNT(*) FROM students WHERE class_id = ?",
@@ -1324,6 +1382,12 @@ class PermanentStaffDeleteTests(unittest.TestCase):
             ).fetchone()[0],
             0,
         )
+        owned_shell_id = int(
+            self.school.conn.execute(
+                "SELECT shell_library_id FROM course_offerings WHERE id = ?",
+                (offering_id,),
+            ).fetchone()["shell_library_id"]
+        )
         self.school.delete_staff_permanently(self.owned_user_id, self.actor_id)
         self.assertIsNone(self.school.get_user(self.owned_user_id))
         self.assertIsNone(
@@ -1332,6 +1396,7 @@ class PermanentStaffDeleteTests(unittest.TestCase):
                 (offering_id,),
             ).fetchone()
         )
+        self._assert_cross_teacher_shell_removed(int(offering_id), owned_shell_id)
         self.assertEqual(self._every_owned_hit(owned), [])
         self.assertEqual(
             self.school.conn.execute(

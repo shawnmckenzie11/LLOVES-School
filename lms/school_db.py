@@ -15241,11 +15241,11 @@ class SchoolDB(LovesDB):
 
 
     def _class_library_id(self, class_id: int) -> int | None:
-        """Return the content library attached to one class offering."""
+        """Return the pack library, or the course shell when no pack is attached."""
         with self._lock:
             row = self.conn.execute(
                 """
-                SELECT o.library_id
+                SELECT COALESCE(o.library_id, o.shell_library_id) AS library_id
                 FROM classes c
                 JOIN course_offerings o ON o.id = c.offering_id
                 WHERE c.id = ?

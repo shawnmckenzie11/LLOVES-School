@@ -7,8 +7,10 @@ import io
 import json
 import os
 import re
+import sqlite3
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -482,12 +484,14 @@ class CourseShellTests(unittest.TestCase):
             self.assertEqual(set(detail), {"pages", "questions"})
 
     def test_backfill_is_admin_only(self) -> None:
-        """Staff and anonymous callers get 403 and the shell is unchanged."""
+        """Anonymous callers are sent to Admin sign-in. Staff get 403."""
         offering = self._assign("SBI4U")
         before = self._counts(int(offering["id"]))
         anonymous = self._post_backfill(int(offering["id"]))
-        self.assertEqual(anonymous.status_code, 403)
-        self.assertIn("Ask Admin to grant access.", anonymous.get_data(as_text=True))
+        self.assertEqual(anonymous.status_code, 302)
+        location = anonymous.headers.get("Location") or ""
+        self.assertIn("/auth/google", location)
+        self.assertIn("portal=it", location)
         self._login_staff()
         staff = self._post_backfill(int(offering["id"]))
         self.assertEqual(staff.status_code, 403)
@@ -502,3 +506,254 @@ class CourseShellTests(unittest.TestCase):
         self.assertEqual(missing.status_code, 400)
         missing_offering = self._post_backfill(999999)
         self.assertEqual(missing_offering.status_code, 404)
+
+    def test_teacher_api_reads_backfilled_content(self) -> None:
+        """Question banks, pages, and live search read the shell after backfill."""
+        offering = self._assign("SBI4U")
+        cls = self._class_for(offering)
+        class_id = int(cls["id"])
+        self._login_staff()
+        banks = self.client.get(
+            f"/api/staff/class/{class_id}/components/question-banks"
+        ).get_json()
+        self.assertTrue(banks.get("ok"))
+        self.assertFalse(banks.get("empty"))
+        course_bank = next(item for item in banks["items"] if item["title"] == "Course")
+        detail = self.client.get(
+            f"/api/staff/class/{class_id}/question-bank/{int(course_bank['id'])}"
+        )
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.get_json()["bank"]["title"], "Course")
+        self._login_it()
+        posted = self._post_backfill(int(offering["id"]))
+        self.assertEqual(posted.status_code, 302)
+        self._login_staff()
+        pages = self.client.get(
+            f"/api/staff/class/{class_id}/components/pages"
+        ).get_json()
+        self.assertTrue(pages.get("ok"))
+        self.assertFalse(pages.get("empty"))
+        self.assertIn("Lesson 1", [item["title"] for item in pages["items"]])
+        banks = self.client.get(
+            f"/api/staff/class/{class_id}/components/question-banks"
+        ).get_json()
+        check_in = next(item for item in banks["items"] if item["title"] == "Check-in")
+        detail = self.client.get(
+            f"/api/staff/class/{class_id}/question-bank/{int(check_in['id'])}"
+        )
+        self.assertEqual(detail.status_code, 200)
+        titles = [row.get("title") for row in detail.get_json()["questions"]]
+        self.assertIn("Chloroplast", titles)
+        self.assertIn("Photosynthesis", titles)
+        live = self.client.get(
+            f"/api/staff/class/{class_id}/module-banks/all/mc-search"
+            "?q=Chloroplast&staff_types=1"
+        )
+        self.assertEqual(live.status_code, 200)
+        body = live.get_json()
+        self.assertTrue(body.get("ok"))
+        self.assertNotEqual(body.get("error"), "No module pack")
+
+    def test_backfill_merges_into_existing_pack(self) -> None:
+        """A course that already has a pack gains rows in that library only."""
+        offering = self._assign("MCF3M")
+        offering_id = int(offering["id"])
+        shell_id = int(offering["shell_library_id"])
+        upload = self.school.create_library("MCF3M", origin="upload")
+        upload_id = int(upload["id"])
+        self.school.conn.execute(
+            """
+            UPDATE course_offerings
+            SET library_id = ?, shell_library_id = NULL, course_shell = NULL
+            WHERE id = ?
+            """,
+            (upload_id, offering_id),
+        )
+        self.school.conn.execute(
+            "DELETE FROM content_libraries WHERE id = ?",
+            (shell_id,),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO pages (
+                library_id, import_key, kind, title, html_text, created_at
+            ) VALUES (?, 'wiki_content/lesson-1.html', 'html', 'Kept', ?, 't')
+            """,
+            (upload_id, KEPT_PAGE),
+        )
+        self.school.conn.commit()
+        cls = self._class_for(self.school.get_offering(offering_id))
+        self._login_it()
+        posted = self._post_backfill(offering_id)
+        self.assertEqual(posted.status_code, 302, posted.get_data(as_text=True))
+        fresh = self.school.get_offering(offering_id)
+        self.assertEqual(int(fresh["library_id"]), upload_id)
+        self.assertFalse(fresh.get("shell_library_id"))
+        shells = self.school.conn.execute(
+            """
+            SELECT COUNT(*) FROM content_libraries
+            WHERE origin = 'shell' AND ontario_code = 'MCF3M'
+            """
+        ).fetchone()[0]
+        self.assertEqual(shells, 0)
+        staging = self.school.conn.execute(
+            "SELECT COUNT(*) FROM content_libraries WHERE origin = 'backfill-staging'"
+        ).fetchone()[0]
+        self.assertEqual(staging, 0)
+        kept = self.school.conn.execute(
+            """
+            SELECT html_text FROM pages
+            WHERE library_id = ? AND import_key = 'wiki_content/lesson-1.html'
+            """,
+            (upload_id,),
+        ).fetchone()
+        self.assertEqual(kept["html_text"], KEPT_PAGE)
+        assignments = self.school.conn.execute(
+            "SELECT COUNT(*) FROM assignments WHERE library_id = ?",
+            (upload_id,),
+        ).fetchone()[0]
+        self.assertGreater(assignments, 0)
+        self._login_staff()
+        pages = self.client.get(
+            f"/api/staff/class/{int(cls['id'])}/components/pages"
+        ).get_json()
+        self.assertIn("Kept", [item["title"] for item in pages["items"]])
+        self._login_it()
+        again = self._post_backfill(offering_id)
+        self.assertEqual(again.status_code, 302)
+        kept = self.school.conn.execute(
+            """
+            SELECT html_text FROM pages
+            WHERE library_id = ? AND import_key = 'wiki_content/lesson-1.html'
+            """,
+            (upload_id,),
+        ).fetchone()
+        self.assertEqual(kept["html_text"], KEPT_PAGE)
+        page_count = self.school.conn.execute(
+            "SELECT COUNT(*) FROM pages WHERE library_id = ?",
+            (upload_id,),
+        ).fetchone()[0]
+        third = self._post_backfill(offering_id)
+        self.assertEqual(third.status_code, 302)
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM pages WHERE library_id = ?",
+                (upload_id,),
+            ).fetchone()[0],
+            page_count,
+        )
+
+    def test_backfill_rejects_a_foreign_origin(self) -> None:
+        """An admin POST from another site does not write rows."""
+        offering = self._assign("SBI4U")
+        offering_id = int(offering["id"])
+        library_id = int(offering["shell_library_id"])
+        before_pages = self.school.conn.execute(
+            "SELECT COUNT(*) FROM pages WHERE library_id = ?",
+            (library_id,),
+        ).fetchone()[0]
+        before_libraries = self.school.conn.execute(
+            "SELECT COUNT(*) FROM content_libraries"
+        ).fetchone()[0]
+        self._login_it()
+        response = self.client.post(
+            f"/it/offerings/{offering_id}/module-pack/backfill",
+            data={"module_pack": (io.BytesIO(_imscc_bytes()), "course.imscc")},
+            headers={
+                "Origin": "https://evil.example",
+                "Sec-Fetch-Site": "cross-site",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("Forbidden", response.get_data(as_text=True))
+        origin_only = self.client.post(
+            f"/it/offerings/{offering_id}/module-pack/backfill",
+            data={"module_pack": (io.BytesIO(_imscc_bytes()), "course.imscc")},
+            headers={"Origin": "https://evil.example"},
+            follow_redirects=False,
+        )
+        self.assertEqual(origin_only.status_code, 403)
+        self.assertEqual(
+            self.school.conn.execute(
+                "SELECT COUNT(*) FROM pages WHERE library_id = ?",
+                (library_id,),
+            ).fetchone()[0],
+            before_pages,
+        )
+        self.assertEqual(
+            self.school.conn.execute("SELECT COUNT(*) FROM content_libraries").fetchone()[0],
+            before_libraries,
+        )
+
+    def test_one_shell_library_per_course(self) -> None:
+        """A course cannot store two shell libraries, even under contention."""
+        offering = self._assign("SBI4U")
+        offering_id = int(offering["id"])
+        shell_id = int(offering["shell_library_id"])
+        self.school.conn.execute(
+            "UPDATE course_offerings SET shell_library_id = NULL WHERE id = ?",
+            (offering_id,),
+        )
+        self.school.conn.execute(
+            "DELETE FROM content_libraries WHERE id = ?",
+            (shell_id,),
+        )
+        self.school.conn.commit()
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.school.conn.execute(
+                """
+                INSERT INTO content_libraries (
+                    ontario_code, origin, created_at, shell_offering_id
+                ) VALUES ('SBI4U', 'shell', 't', ?)
+                """,
+                (offering_id,),
+            )
+            self.school.conn.execute(
+                """
+                INSERT INTO content_libraries (
+                    ontario_code, origin, created_at, shell_offering_id
+                ) VALUES ('SBI4U', 'shell', 't2', ?)
+                """,
+                (offering_id,),
+            )
+        self.school.conn.rollback()
+        self.school.conn.execute(
+            "DELETE FROM content_libraries WHERE shell_offering_id = ?",
+            (offering_id,),
+        )
+        self.school.conn.commit()
+        barrier = threading.Barrier(8)
+        errors: list[BaseException] = []
+
+        def worker() -> None:
+            """Create the shell once the other callers are waiting."""
+            try:
+                barrier.wait(timeout=5)
+                ensure_default_course_shell(self.school, offering_id)
+            except BaseException as exc:  # noqa: BLE001 - the test records it
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+        self.assertEqual(errors, [])
+        fresh = self.school.get_offering(offering_id)
+        library_id = int(fresh["shell_library_id"])
+        rows = self.school.conn.execute(
+            """
+            SELECT id FROM content_libraries
+            WHERE origin = 'shell'
+              AND (id = ? OR shell_offering_id = ?)
+            """,
+            (library_id, offering_id),
+        ).fetchall()
+        self.assertEqual({int(row[0]) for row in rows}, {library_id})
+        slots = self.school.conn.execute(
+            "SELECT COUNT(*) FROM course_class_slots WHERE offering_id = ?",
+            (offering_id,),
+        ).fetchone()[0]
+        self.assertEqual(slots, SHELL_MODULE_COUNT * SHELL_SLOT_COUNT)
+

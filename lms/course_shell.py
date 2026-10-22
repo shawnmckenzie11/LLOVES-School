@@ -10,6 +10,7 @@ not written.
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 import sqlite3
 from datetime import datetime, timezone
@@ -41,7 +42,11 @@ PROTECTED_TABLES = (
     "class_live_playlist_item_overrides",
     "class_live_playlist_pages",
     "class_live_media_overlays",
+    "grade_category_weights",
+    "grade_module_rules",
 )
+
+_COPY_BATCH = 200
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
@@ -65,6 +70,41 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_course_class_slots_offering
             ON course_class_slots(offering_id, module_number, slot_number);
+        """
+    )
+    _ensure_one_shell_library(conn)
+
+
+def _ensure_one_shell_library(conn: sqlite3.Connection) -> None:
+    """Allow only one shell library row for each course.
+
+    Args:
+        conn: Open school sqlite connection.
+    """
+    tables = {
+        str(row[0])
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
+    if "content_libraries" not in tables:
+        return
+    columns = {
+        str(row[1])
+        for row in conn.execute("PRAGMA table_info(content_libraries)")
+        if len(row) > 1
+    }
+    if "shell_offering_id" not in columns:
+        try:
+            conn.execute(
+                "ALTER TABLE content_libraries ADD COLUMN shell_offering_id INTEGER"
+            )
+        except sqlite3.OperationalError:
+            # Another caller added the column between the check and the alter.
+            pass
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_content_libraries_one_shell
+        ON content_libraries(shell_offering_id)
+        WHERE shell_offering_id IS NOT NULL
         """
     )
 
@@ -123,6 +163,9 @@ def ensure_default_course_shell(
     courses use the four-tab bar. Backfill passes ``mark=False`` so a course
     that already has a classic pack keeps its tabs.
 
+    The library insert and the offering pointer share the school lock, and
+    ``shell_offering_id`` is unique, so two callers cannot each create a library.
+
     Args:
         school: ``SchoolDB``.
         offering_id: ``course_offerings.id``.
@@ -131,57 +174,158 @@ def ensure_default_course_shell(
     Returns:
         The offering row after the shell is in place.
     """
-    ensure_schema(school.conn)
-    offering = school.get_offering(int(offering_id))
-    library_id = offering.get("shell_library_id")
-    library = school.get_library(int(library_id)) if library_id else None
-    if library is None or str(library.get("origin") or "") != SHELL_ORIGIN:
-        library = school.create_library(
-            str(offering["ontario_code"]), origin=SHELL_ORIGIN
-        )
-        library_id = int(library["id"])
-    else:
-        library_id = int(library["id"])
-    _store_shell_pointer(school, int(offering_id), library_id, mark=mark)
+    with school._lock:  # noqa: SLF001 - schema changes share the school connection
+        ensure_schema(school.conn)
+    library_id = _claim_shell_library(school, int(offering_id), mark=mark)
     _ensure_slots(school, int(offering_id))
     _ensure_default_banks(school, library_id)
     return school.get_offering(int(offering_id))
 
 
-def _store_shell_pointer(
-    school: Any, offering_id: int, library_id: int, *, mark: bool
-) -> None:
-    """Point the offering at its course-owned library.
+def _claim_shell_library(school: Any, offering_id: int, *, mark: bool) -> int:
+    """Return the one shell library for this offering, creating it if needed.
 
     Args:
         school: ``SchoolDB``.
         offering_id: ``course_offerings.id``.
+        mark: Set ``course_shell`` when it is still blank.
+
+    Returns:
+        ``content_libraries.id`` of the shell.
+
+    Raises:
+        KeyError: No offering with this id.
+    """
+    with school._lock:  # noqa: SLF001 - shared connection lock
+        conn = school.conn
+        row = conn.execute(
+            """
+            SELECT id, ontario_code, shell_library_id
+            FROM course_offerings
+            WHERE id = ?
+            """,
+            (int(offering_id),),
+        ).fetchone()
+        if row is None:
+            raise KeyError(offering_id)
+        library_id = _existing_shell_id(conn, row["shell_library_id"])
+        if library_id is None:
+            library_id = _shell_id_for_offering(conn, int(offering_id))
+        if library_id is None:
+            code = str(row["ontario_code"] or "").strip().upper()
+            try:
+                cur = conn.execute(
+                    """
+                    INSERT INTO content_libraries (
+                        ontario_code, origin, source_path, source_sha256,
+                        created_at, shell_offering_id
+                    ) VALUES (?, ?, NULL, NULL, ?, ?)
+                    """,
+                    (code, SHELL_ORIGIN, _now(), int(offering_id)),
+                )
+                library_id = int(cur.lastrowid)
+            except sqlite3.IntegrityError:
+                library_id = _shell_id_for_offering(conn, int(offering_id))
+                if library_id is None:
+                    raise
+        _stamp_shell_offering(conn, int(library_id), int(offering_id))
+        _store_shell_pointer_unlocked(conn, int(offering_id), int(library_id), mark=mark)
+        conn.commit()
+    return int(library_id)
+
+
+def _existing_shell_id(conn: sqlite3.Connection, library_id: Any) -> int | None:
+    """Return ``library_id`` when that row is still a shell library.
+
+    Args:
+        conn: School sqlite connection. Caller holds the school lock.
+        library_id: Stored ``course_offerings.shell_library_id``.
+    """
+    if not library_id:
+        return None
+    row = conn.execute(
+        "SELECT id, origin FROM content_libraries WHERE id = ?",
+        (int(library_id),),
+    ).fetchone()
+    if row is None or str(row["origin"] or "") != SHELL_ORIGIN:
+        return None
+    return int(row["id"])
+
+
+def _shell_id_for_offering(conn: sqlite3.Connection, offering_id: int) -> int | None:
+    """Return the shell library already reserved for this offering.
+
+    Args:
+        conn: School sqlite connection. Caller holds the school lock.
+        offering_id: ``course_offerings.id``.
+    """
+    row = conn.execute(
+        """
+        SELECT id FROM content_libraries
+        WHERE shell_offering_id = ? AND origin = ?
+        """,
+        (int(offering_id), SHELL_ORIGIN),
+    ).fetchone()
+    if row is None:
+        return None
+    return int(row["id"])
+
+
+def _stamp_shell_offering(
+    conn: sqlite3.Connection, library_id: int, offering_id: int
+) -> None:
+    """Record which course owns this shell library.
+
+    Args:
+        conn: School sqlite connection. Caller holds the school lock.
+        library_id: Shell ``content_libraries.id``.
+        offering_id: ``course_offerings.id``.
+    """
+    try:
+        conn.execute(
+            """
+            UPDATE content_libraries
+            SET shell_offering_id = ?
+            WHERE id = ? AND shell_offering_id IS NULL
+            """,
+            (int(offering_id), int(library_id)),
+        )
+    except sqlite3.IntegrityError:
+        return
+
+
+def _store_shell_pointer_unlocked(
+    conn: sqlite3.Connection, offering_id: int, library_id: int, *, mark: bool
+) -> None:
+    """Point the offering at its course-owned library.
+
+    Args:
+        conn: School sqlite connection. Caller holds the school lock.
+        offering_id: ``course_offerings.id``.
         library_id: Shell ``content_libraries.id``.
         mark: Set ``course_shell`` when it is still blank.
     """
-    with school._lock:  # noqa: SLF001 - shared connection lock
-        if mark:
-            school.conn.execute(
-                """
-                UPDATE course_offerings
-                SET shell_library_id = ?,
-                    course_shell = CASE
-                        WHEN course_shell IS NULL OR TRIM(course_shell) = ''
-                        THEN ? ELSE course_shell END
-                WHERE id = ?
-                """,
-                (int(library_id), SHELL_MODE, int(offering_id)),
-            )
-        else:
-            school.conn.execute(
-                """
-                UPDATE course_offerings
-                SET shell_library_id = ?
-                WHERE id = ?
-                """,
-                (int(library_id), int(offering_id)),
-            )
-        school.conn.commit()
+    if mark:
+        conn.execute(
+            """
+            UPDATE course_offerings
+            SET shell_library_id = ?,
+                course_shell = CASE
+                    WHEN course_shell IS NULL OR TRIM(course_shell) = ''
+                    THEN ? ELSE course_shell END
+            WHERE id = ?
+            """,
+            (int(library_id), SHELL_MODE, int(offering_id)),
+        )
+    else:
+        conn.execute(
+            """
+            UPDATE course_offerings
+            SET shell_library_id = ?
+            WHERE id = ?
+            """,
+            (int(library_id), int(offering_id)),
+        )
 
 
 def _ensure_slots(school: Any, offering_id: int) -> None:
@@ -270,12 +414,14 @@ def backfill_module_pack(
     offering_id: int,
     file_storage: Any,
 ) -> dict[str, int]:
-    """Merge an uploaded module pack into the course-owned library.
+    """Merge an uploaded module pack into the library teachers already read.
 
-    Pack rows are added when their import key is new. Rows already in the
-    library — including questions, pages, and decks added before the pack —
-    are not updated. A second call with the same pack adds nothing. Roster,
-    PIN, and attendance tables are not written.
+    When the course has a pack, missing rows are added to that library and
+    no extra shell library is created. When it has no pack, the rows land in
+    the course shell. Existing import keys — including questions, pages, and
+    decks added before the pack — are not updated. A second call with the
+    same pack adds nothing. Roster, PIN, attendance, and gradebook tables
+    are not written.
 
     Args:
         school: ``SchoolDB``.
@@ -289,8 +435,8 @@ def backfill_module_pack(
         ValueError: The upload is missing or not a cartridge.
         RuntimeError: The merge would have changed a protected table.
     """
-    offering = ensure_default_course_shell(school, int(offering_id), mark=False)
-    target_id = int(offering["shell_library_id"])
+    offering = school.get_offering(int(offering_id))
+    target_id = _backfill_target_id(school, offering)
     before = _protected_snapshot(school)
     library_root, ingest_library, install_pack, store_pack = _import_course_shell()
     staging = school.create_library(
@@ -315,34 +461,48 @@ def backfill_module_pack(
     return _library_counts(school, target_id)
 
 
-def _protected_snapshot(school: Any) -> dict[str, list[tuple]]:
-    """Copy protected tables so a merge can prove it did not write them.
+def _backfill_target_id(school: Any, offering: dict[str, Any]) -> int:
+    """Choose the library a backfill may add rows to.
+
+    A pack library is the one teachers already open. Missing pack rows merge
+    there. A course with no pack uses its shell library instead.
+
+    Args:
+        school: ``SchoolDB``.
+        offering: Offering row.
+
+    Returns:
+        Destination ``content_libraries.id``.
+    """
+    pack_id = offering.get("library_id")
+    if pack_id:
+        library = school.get_library(int(pack_id))
+        origin = str((library or {}).get("origin") or "")
+        if library is not None and origin not in {SHELL_ORIGIN, STAGING_ORIGIN}:
+            ensure_schema(school.conn)
+            _ensure_slots(school, int(offering["id"]))
+            return int(pack_id)
+    fresh = ensure_default_course_shell(school, int(offering["id"]), mark=False)
+    return int(fresh["shell_library_id"])
+
+
+def _protected_snapshot(school: Any) -> dict[str, str]:
+    """Hash protected tables so a merge can prove it did not write them.
+
+    Rows are read in batches. The digest names a change without holding
+    the table in memory.
 
     Args:
         school: ``SchoolDB``.
 
     Returns:
-        Table name to ordered row tuples. Missing tables are omitted.
+        Table name to SHA-256 hex digest. Missing tables are omitted.
     """
     with school._lock:  # noqa: SLF001 - shared connection lock
-        present = {
-            str(row[0])
-            for row in school.conn.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            )
-        }
-        out: dict[str, list[tuple]] = {}
-        for table in PROTECTED_TABLES:
-            if table not in present:
-                continue
-            rows = school.conn.execute(
-                f'SELECT * FROM "{table}" ORDER BY rowid'
-            ).fetchall()
-            out[table] = [tuple(row) for row in rows]
-    return out
+        return _protected_digests(school.conn)
 
 
-def _assert_protected(school: Any, before: dict[str, list[tuple]]) -> None:
+def _assert_protected(school: Any, before: dict[str, str]) -> None:
     """Raise when a protected table differs from ``before``.
 
     The message names the table only.
@@ -355,11 +515,8 @@ def _assert_protected(school: Any, before: dict[str, list[tuple]]) -> None:
         RuntimeError: A protected table changed.
     """
     after = _protected_snapshot(school)
-    for table, rows in before.items():
-        if after.get(table) != rows:
-            raise RuntimeError(f"Backfill changed a protected table: {table}")
-    for table in after:
-        if table not in before:
+    for table, digest in before.items():
+        if after.get(table) != digest:
             raise RuntimeError(f"Backfill changed a protected table: {table}")
 
 
@@ -454,23 +611,44 @@ def _merge_library(
             raise
 
 
-def _protected_snapshot_unlocked(conn: sqlite3.Connection) -> dict[str, list[tuple]]:
+def _protected_snapshot_unlocked(conn: sqlite3.Connection) -> dict[str, str]:
     """Protected snapshot while the caller already holds the school lock.
 
     Args:
         conn: School sqlite connection.
     """
+    return _protected_digests(conn)
+
+
+def _protected_digests(conn: sqlite3.Connection) -> dict[str, str]:
+    """Hash each protected table without keeping its rows.
+
+    Args:
+        conn: School sqlite connection.
+
+    Returns:
+        Table name to SHA-256 hex digest. Missing tables are omitted.
+    """
     present = {
         str(row[0])
         for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
     }
-    out: dict[str, list[tuple]] = {}
+    out: dict[str, str] = {}
     for table in PROTECTED_TABLES:
         if table not in present:
             continue
-        rows = conn.execute(f'SELECT * FROM "{table}" ORDER BY rowid').fetchall()
-        out[table] = [tuple(row) for row in rows]
+        digest = hashlib.sha256()
+        cursor = conn.execute(f'SELECT * FROM "{table}" ORDER BY rowid')
+        while True:
+            chunk = cursor.fetchmany(_COPY_BATCH)
+            if not chunk:
+                break
+            for row in chunk:
+                digest.update(repr(tuple(row)).encode())
+                digest.update(b"\0")
+        out[table] = digest.hexdigest()
     return out
+
 
 
 _PAGE_COLUMNS = (
@@ -526,6 +704,8 @@ def _copy_keyed(
 ) -> dict[int, int]:
     """Insert staging rows whose import key is not already in the target.
 
+    Rows are read in batches so a production library is not held in memory.
+
     Args:
         conn: School sqlite connection inside a transaction.
         table: ``pages``, ``assignments``, ``quizzes``, ``question_banks``,
@@ -538,30 +718,34 @@ def _copy_keyed(
         Staging row id to the target row id (existing or newly inserted).
     """
     mapping: dict[int, int] = {}
-    rows = conn.execute(
+    cursor = conn.execute(
         f"SELECT * FROM {table} WHERE library_id = ?",
         (int(staging_id),),
-    ).fetchall()
-    for row in rows:
-        data = dict(row)
-        found = conn.execute(
-            f"SELECT id FROM {table} WHERE library_id = ? AND import_key = ?",
-            (int(target_id), data["import_key"]),
-        ).fetchone()
-        if found is not None:
-            mapping[int(data["id"])] = int(found["id"])
-            continue
-        values = [
-            int(target_id) if column == "library_id" else data.get(column)
-            for column in columns
-        ]
-        placeholders = ", ".join("?" for _ in columns)
-        names = ", ".join(columns)
-        cur = conn.execute(
-            f"INSERT INTO {table} ({names}) VALUES ({placeholders})",
-            values,
-        )
-        mapping[int(data["id"])] = int(cur.lastrowid)
+    )
+    while True:
+        batch = cursor.fetchmany(_COPY_BATCH)
+        if not batch:
+            break
+        for row in batch:
+            data = dict(row)
+            found = conn.execute(
+                f"SELECT id FROM {table} WHERE library_id = ? AND import_key = ?",
+                (int(target_id), data["import_key"]),
+            ).fetchone()
+            if found is not None:
+                mapping[int(data["id"])] = int(found["id"])
+                continue
+            values = [
+                int(target_id) if column == "library_id" else data.get(column)
+                for column in columns
+            ]
+            placeholders = ", ".join("?" for _ in columns)
+            names = ", ".join(columns)
+            cur = conn.execute(
+                f"INSERT INTO {table} ({names}) VALUES ({placeholders})",
+                values,
+            )
+            mapping[int(data["id"])] = int(cur.lastrowid)
     return mapping
 
 
@@ -570,7 +754,8 @@ def _copy_questions(
 ) -> dict[int, int]:
     """Insert pack questions that are not already in the target bank.
 
-    A question with the same import key is left untouched.
+    A question with the same import key is left untouched. Questions are
+    read in batches.
 
     Args:
         conn: School sqlite connection inside a transaction.
@@ -581,44 +766,48 @@ def _copy_questions(
     """
     mapping: dict[int, int] = {}
     for staging_bank, target_bank in bank_map.items():
-        rows = conn.execute(
+        cursor = conn.execute(
             "SELECT * FROM questions WHERE bank_id = ?",
             (int(staging_bank),),
-        ).fetchall()
-        for row in rows:
-            data = dict(row)
-            found = conn.execute(
-                """
-                SELECT id FROM questions
-                WHERE bank_id = ? AND import_key = ?
-                """,
-                (int(target_bank), data["import_key"]),
-            ).fetchone()
-            if found is not None:
-                mapping[int(data["id"])] = int(found["id"])
-                continue
-            cur = conn.execute(
-                """
-                INSERT INTO questions (
-                    bank_id, import_key, item_type, title, payload_json,
-                    created_at, live_response_mode, live_show_results,
-                    live_points, bank_scope
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    int(target_bank),
-                    data.get("import_key"),
-                    data.get("item_type") or "",
-                    data.get("title") or "",
-                    data.get("payload_json") or "{}",
-                    data.get("created_at"),
-                    data.get("live_response_mode"),
-                    data.get("live_show_results"),
-                    data.get("live_points"),
-                    data.get("bank_scope"),
-                ),
-            )
-            mapping[int(data["id"])] = int(cur.lastrowid)
+        )
+        while True:
+            batch = cursor.fetchmany(_COPY_BATCH)
+            if not batch:
+                break
+            for row in batch:
+                data = dict(row)
+                found = conn.execute(
+                    """
+                    SELECT id FROM questions
+                    WHERE bank_id = ? AND import_key = ?
+                    """,
+                    (int(target_bank), data["import_key"]),
+                ).fetchone()
+                if found is not None:
+                    mapping[int(data["id"])] = int(found["id"])
+                    continue
+                cur = conn.execute(
+                    """
+                    INSERT INTO questions (
+                        bank_id, import_key, item_type, title, payload_json,
+                        created_at, live_response_mode, live_show_results,
+                        live_points, bank_scope
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        int(target_bank),
+                        data.get("import_key"),
+                        data.get("item_type") or "",
+                        data.get("title") or "",
+                        data.get("payload_json") or "{}",
+                        data.get("created_at"),
+                        data.get("live_response_mode"),
+                        data.get("live_show_results"),
+                        data.get("live_points"),
+                        data.get("bank_scope"),
+                    ),
+                )
+                mapping[int(data["id"])] = int(cur.lastrowid)
     return mapping
 
 
@@ -638,32 +827,36 @@ def _copy_overlays(
         target_id: Destination library id.
         question_map: Staging question id to target question id.
     """
-    rows = conn.execute(
+    cursor = conn.execute(
         "SELECT * FROM library_question_overlays WHERE library_id = ?",
         (int(staging_id),),
-    ).fetchall()
-    for row in rows:
-        data = dict(row)
-        target_question = question_map.get(int(data["question_id"]))
-        if not target_question:
-            continue
-        conn.execute(
-            """
-            INSERT INTO library_question_overlays (
-                library_id, question_id, stem_text, options_json,
-                correct_answer, points
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(library_id, question_id) DO NOTHING
-            """,
-            (
-                int(target_id),
-                int(target_question),
-                data.get("stem_text") or "",
-                data.get("options_json") or "[]",
-                data.get("correct_answer") or "",
-                data.get("points"),
-            ),
-        )
+    )
+    while True:
+        batch = cursor.fetchmany(_COPY_BATCH)
+        if not batch:
+            break
+        for row in batch:
+            data = dict(row)
+            target_question = question_map.get(int(data["question_id"]))
+            if not target_question:
+                continue
+            conn.execute(
+                """
+                INSERT INTO library_question_overlays (
+                    library_id, question_id, stem_text, options_json,
+                    correct_answer, points
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(library_id, question_id) DO NOTHING
+                """,
+                (
+                    int(target_id),
+                    int(target_question),
+                    data.get("stem_text") or "",
+                    data.get("options_json") or "[]",
+                    data.get("correct_answer") or "",
+                    data.get("points"),
+                ),
+            )
 
 
 def _copy_items(
@@ -679,45 +872,49 @@ def _copy_items(
         component_maps: Component type to staging-id → target-id.
     """
     for staging_outline, target_outline in outline_map.items():
-        rows = conn.execute(
+        cursor = conn.execute(
             "SELECT * FROM module_items WHERE outline_id = ?",
             (int(staging_outline),),
-        ).fetchall()
-        for row in rows:
-            data = dict(row)
-            found = conn.execute(
-                """
-                SELECT id FROM module_items
-                WHERE outline_id = ? AND import_key = ?
-                """,
-                (int(target_outline), data["import_key"]),
-            ).fetchone()
-            if found is not None:
-                continue
-            component_id = data.get("component_id")
-            component_type = str(data.get("component_type") or "")
-            mapped = component_maps.get(component_type) or {}
-            if component_id is not None:
-                component_id = mapped.get(int(component_id))
-            conn.execute(
-                """
-                INSERT INTO module_items (
-                    outline_id, import_key, title, position, component_type,
-                    component_id, source_type, source_href, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    int(target_outline),
-                    data.get("import_key"),
-                    data.get("title") or "",
-                    int(data.get("position") or 0),
-                    component_type,
-                    component_id,
-                    data.get("source_type") or "",
-                    data.get("source_href"),
-                    data.get("created_at"),
-                ),
-            )
+        )
+        while True:
+            batch = cursor.fetchmany(_COPY_BATCH)
+            if not batch:
+                break
+            for row in batch:
+                data = dict(row)
+                found = conn.execute(
+                    """
+                    SELECT id FROM module_items
+                    WHERE outline_id = ? AND import_key = ?
+                    """,
+                    (int(target_outline), data["import_key"]),
+                ).fetchone()
+                if found is not None:
+                    continue
+                component_id = data.get("component_id")
+                component_type = str(data.get("component_type") or "")
+                mapped = component_maps.get(component_type) or {}
+                if component_id is not None:
+                    component_id = mapped.get(int(component_id))
+                conn.execute(
+                    """
+                    INSERT INTO module_items (
+                        outline_id, import_key, title, position, component_type,
+                        component_id, source_type, source_href, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        int(target_outline),
+                        data.get("import_key"),
+                        data.get("title") or "",
+                        int(data.get("position") or 0),
+                        component_type,
+                        component_id,
+                        data.get("source_type") or "",
+                        data.get("source_href"),
+                        data.get("created_at"),
+                    ),
+                )
 
 
 def _copy_files(conn: sqlite3.Connection, staging_id: int, target_id: int) -> None:
@@ -728,22 +925,26 @@ def _copy_files(conn: sqlite3.Connection, staging_id: int, target_id: int) -> No
         staging_id: Source library id.
         target_id: Destination library id.
     """
-    rows = conn.execute(
+    cursor = conn.execute(
         "SELECT * FROM library_files WHERE library_id = ?",
         (int(staging_id),),
-    ).fetchall()
-    for row in rows:
-        data = dict(row)
-        conn.execute(
-            """
-            INSERT INTO library_files (library_id, relpath, blob_sha, created_at)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(library_id, relpath) DO NOTHING
-            """,
-            (
-                int(target_id),
-                data.get("relpath"),
-                data.get("blob_sha"),
-                data.get("created_at"),
-            ),
-        )
+    )
+    while True:
+        batch = cursor.fetchmany(_COPY_BATCH)
+        if not batch:
+            break
+        for row in batch:
+            data = dict(row)
+            conn.execute(
+                """
+                INSERT INTO library_files (library_id, relpath, blob_sha, created_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(library_id, relpath) DO NOTHING
+                """,
+                (
+                    int(target_id),
+                    data.get("relpath"),
+                    data.get("blob_sha"),
+                    data.get("created_at"),
+                ),
+            )

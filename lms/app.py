@@ -661,6 +661,7 @@ def _class_pack(school: SchoolDB, cls: dict[str, Any]):
         cls["imscc_path"] = offering.get("imscc_path")
         cls["instance_relpath"] = offering.get("instance_relpath")
         cls["library_id"] = offering.get("library_id")
+        cls["shell_library_id"] = offering.get("shell_library_id")
     return resolve_module_pack(
         code,
         cls.get("imscc_path"),
@@ -725,7 +726,7 @@ def _live_defaults_from_body(body: dict) -> dict | None:
 
 
 def _ready_library(school, cls: dict) -> tuple[int | None, str | None]:
-    """Resolve a class's shared library id, backfilling components once.
+    """Resolve the pack library, or the course shell when no pack is attached.
 
     Modules and the component tabs read only from the database. Offerings
     created before the component store have no rows yet, so the first request
@@ -740,9 +741,12 @@ def _ready_library(school, cls: dict) -> tuple[int | None, str | None]:
         course has no attached pack.
     """
     pack = _class_pack(school, cls)
-    library_id = cls.get("library_id")
+    library_id = cls.get("library_id") or cls.get("shell_library_id")
     if not library_id:
         return None, "Ask Admin to attach a module pack."
+    # A shell is already stored. Do not ingest a missing cartridge over it.
+    if not cls.get("library_id"):
+        return int(library_id), None
     try:
         if not library_is_ingested(school, int(library_id)):
             if pack.imscc:
@@ -2804,23 +2808,20 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         "/it/offerings/<int:offering_id>/module-pack/backfill",
         methods=["POST"],
     )
+    @it_required
     def it_backfill_module_pack(offering_id: int):
-        """Merge a module pack into one course. Admin only.
+        """Merge a module pack into the library this course already uses.
 
-        Missing rows from the cartridge are added to the course-owned
-        library. Decks, slides, and questions already stored are left as
-        they are. Roster, PIN, and attendance tables are not written.
+        Missing rows from the cartridge are added to the pack library when
+        the course has one, otherwise to the course shell. Decks, slides,
+        and questions already stored are left as they are. Roster, PIN, and
+        attendance tables are not written.
 
         Args:
             offering_id: ``course_offerings.id``.
         """
-        user = current_user()
-        email = str((user or {}).get("email") or "").lower()
-        if user is None or (user.get("role") != "it" and email not in it_emails()):
-            return render_template(
-                "forbidden.html",
-                message="Ask Admin to grant access.",
-            ), 403
+        if not _same_origin_post():
+            return "Forbidden", 403
         try:
             offering = school.get_offering(int(offering_id))
         except KeyError:
@@ -4455,6 +4456,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         nav = outline_nav(school, int(library_id))
         if not nav:
+            if not cls.get("library_id"):
+                error = "Ask Admin to attach a module pack."
             return jsonify(
                 {
                     "ok": True,
