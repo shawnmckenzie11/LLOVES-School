@@ -18,13 +18,14 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Link download stays at the existing 45 second cap. Office conversion
-# plus rendering stays under this budget, inside the 120 second worker.
-JOB_BUDGET_SECONDS = 90
+# Slot wait is separate. Conversion and rendering stop at 80 seconds.
+# This clock starts when the job takes a slot, and it stays above that
+# 80 seconds so a deck that finishes on time is still running at save.
+JOB_BUDGET_SECONDS = 100
+SLOT_WAIT_SECONDS = 30
 # Two LibreOffice conversions at once, shared by every gunicorn worker.
 MAX_CONCURRENT_SLIDE_IMPORTS = 2
-_SLOT_DIR = Path("/tmp")
-_SLOT_PREFIX = "lloves-slide-import-slot-"
+_SLOT_DIR = Path("/tmp/lloves-slide-import-slots")
 
 
 class _HeldImportSlot:
@@ -68,9 +69,10 @@ def acquire_import_slot(timeout: float = 30) -> _HeldImportSlot | None:
     """
     deadline = time.monotonic() + timeout
     fds: list[int] = []
+    _SLOT_DIR.mkdir(mode=0o755, exist_ok=True)
     try:
         for index in range(MAX_CONCURRENT_SLIDE_IMPORTS):
-            path = _SLOT_DIR / f"{_SLOT_PREFIX}{index}"
+            path = _SLOT_DIR / f"slot-{index}"
             fds.append(os.open(path, os.O_CREAT | os.O_RDWR | os.O_CLOEXEC, 0o644))
         while True:
             for index, fd in enumerate(fds):
@@ -112,23 +114,28 @@ def start_slide_import(school: Any, job_id: str, work: Callable[[], dict]) -> No
             touch the Flask request. Raise ``SlideImportFailed`` or
             ``ValueError`` for a teacher-facing error. At most two
             imports run at once on this machine; the rest wait for a free slot.
+            The budget starts when a slot is taken, not while the job waits.
     """
 
     def runner() -> None:
         """Record success or a teacher-facing failure for one job."""
-        expire = getattr(school, "fail_expired_slide_import_jobs", None)
-        if expire is not None:
-            expire(JOB_BUDGET_SECONDS)
-        slot = acquire_import_slot(30)
-        if slot is None:
-            school.fail_slide_import_job(
-                job_id,
-                "Another deck is still being attached. Try again in a minute.",
-                needs_slides_read=False,
-                http_status=400,
-            )
-            return
+        slot = None
         try:
+            expire = getattr(school, "fail_expired_slide_import_jobs", None)
+            if expire is not None:
+                expire(JOB_BUDGET_SECONDS)
+            slot = acquire_import_slot(SLOT_WAIT_SECONDS)
+            if slot is None:
+                school.fail_slide_import_job(
+                    job_id,
+                    "Another deck is still being attached. Try again in a minute.",
+                    needs_slides_read=False,
+                    http_status=400,
+                )
+                return
+            note = getattr(school, "note_slide_import_started", None)
+            if note is not None:
+                note(job_id)
             result = work()
             if not isinstance(result, dict):
                 raise SlideImportFailed("Could not attach that deck.")
@@ -153,7 +160,8 @@ def start_slide_import(school: Any, job_id: str, work: Callable[[], dict]) -> No
                 http_status=502,
             )
         finally:
-            slot.release()
+            if slot is not None:
+                slot.release()
 
     threading.Thread(
         target=runner,

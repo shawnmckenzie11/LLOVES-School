@@ -910,51 +910,6 @@ def _die_with_parent() -> None:
         os._exit(127)
 
 
-def run_grouped(
-    command: list[str],
-    *,
-    timeout: float,
-    env: dict[str, str],
-    cwd: str,
-) -> subprocess.CompletedProcess[bytes]:
-    """Run a command in its own process group.
-
-    ``subprocess.run`` kills only the direct child on timeout. LibreOffice
-    then leaves ``soffice.bin`` behind, and that process keeps the temp
-    directory open. A timeout or a failed exit kills the whole group.
-    The child also dies when this worker dies.
-
-    Args:
-        command: Argv. Not passed through a shell.
-        timeout: Seconds before the group is killed.
-        env: Environment for the child. Pass :func:`office_env`.
-        cwd: Working directory inside the temp dir.
-
-    Returns:
-        The completed process. A non-zero exit already killed the group.
-
-    Raises:
-        subprocess.TimeoutExpired: The group was killed after ``timeout``.
-    """
-    proc = subprocess.Popen(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=env,
-        cwd=cwd,
-        start_new_session=True,
-        preexec_fn=_die_with_parent,
-    )
-    try:
-        out, err = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        _kill_process_group(proc)
-        raise
-    if proc.returncode not in (0, None):
-        _kill_process_group(proc)
-    return subprocess.CompletedProcess(command, int(proc.returncode or 0), out, err)
-
-
 def _kill_process_group(proc: subprocess.Popen[bytes]) -> None:
     """SIGKILL the child's process group, then wait for the direct child.
 

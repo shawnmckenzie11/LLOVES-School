@@ -851,6 +851,35 @@ class CourseSlideFileTests(unittest.TestCase):
                     proc.stdout.close()
             holder.unlink(missing_ok=True)
 
+    def test_slot_acquire_error_fails_the_job(self) -> None:
+        """An error taking a slot fails the job instead of leaving it running."""
+        from slide_import_jobs import start_slide_import
+
+        class Jobs:
+            """Records the failed job id."""
+
+            def __init__(self) -> None:
+                self.failed: list[str] = []
+
+            def finish_slide_import_job(self, job_id: str, result: dict) -> None:
+                """A successful finish would be a test failure."""
+                raise AssertionError(job_id)
+
+            def fail_slide_import_job(self, job_id: str, error: str, **_kwargs) -> None:
+                """Record the teacher-facing failure."""
+                self.failed.append(job_id)
+
+        jobs = Jobs()
+        with mock.patch(
+            "slide_import_jobs.acquire_import_slot",
+            side_effect=OSError("slot directory denied"),
+        ):
+            start_slide_import(jobs, "slot-err", lambda: {"ok": True})
+        deadline = time.time() + 2
+        while time.time() < deadline and not jobs.failed:
+            time.sleep(0.02)
+        self.assertEqual(jobs.failed, ["slot-err"])
+
 class CourseSlideSetupTests(unittest.TestCase):
     """Add Slides from Set Class, by link and by upload."""
 
@@ -1149,9 +1178,16 @@ class CourseSlideSetupTests(unittest.TestCase):
         old = (
             datetime.now(timezone.utc) - timedelta(seconds=JOB_BUDGET_SECONDS + 30)
         ).isoformat()
+        queued = "56" * 16
+        self.school.insert_slide_import_job(queued, owner, self.class_id, None)
+        self.school.note_slide_import_started(fresh)
+        self.school.conn.execute(
+            "UPDATE slide_import_jobs SET started_at = ?, created_at = ? WHERE id = ?",
+            (old, old, stale),
+        )
         self.school.conn.execute(
             "UPDATE slide_import_jobs SET created_at = ? WHERE id = ?",
-            (old, stale),
+            (old, queued),
         )
         closed = self.school.fail_expired_slide_import_jobs(JOB_BUDGET_SECONDS)
         self.assertEqual(closed, 1)
@@ -1162,6 +1198,10 @@ class CourseSlideSetupTests(unittest.TestCase):
         still = self.school.get_slide_import_job(fresh)
         assert still is not None
         self.assertEqual(still["status"], "running")
+        waiting = self.school.get_slide_import_job(queued)
+        assert waiting is not None
+        self.assertEqual(waiting["status"], "running")
+        self.assertFalse(waiting["started_at"])
         kept = self.school.get_slide_import_job(ready)
         assert kept is not None
         self.assertEqual(kept["status"], "ready")
@@ -1169,6 +1209,85 @@ class CourseSlideSetupTests(unittest.TestCase):
         late = self.school.get_slide_import_job(stale)
         assert late is not None
         self.assertEqual(late["status"], "error")
+
+    def test_expired_job_saves_nothing(self) -> None:
+        """A job already past the budget does not attach a deck or move the run."""
+        before_run = self.school.google_slides_deck(self.live_session_id)
+        before_decks = self._slide_row_count("course_slide_decks")
+        before_pages = self._slide_row_count("course_slide_pages")
+        image_dir = Path(self.tmp.name) / "live-question-images" / str(self.class_id)
+        before_files = self._slide_files(image_dir)
+        job = "a1" * 16
+        self.school.insert_slide_import_job(
+            job, int(self.teacher["id"]), self.class_id, None
+        )
+        self.school.fail_slide_import_job(job, "That deck took too long to attach.")
+        with self.assertRaises(ValueError) as caught:
+            self.school.save_course_slide_deck(
+                self.class_id,
+                "M1",
+                "C1",
+                title="Late",
+                source="pptx",
+                page_pngs=_png_pages()[:1],
+                source_bytes=b"PK\x03\x04late-deck",
+                source_suffix=".pptx",
+                session_id=self.live_session_id,
+                job_id=job,
+            )
+        self.assertIn("too long", str(caught.exception))
+        self.assertEqual(
+            self.school.google_slides_deck(self.live_session_id), before_run
+        )
+        self.assertEqual(self._slide_row_count("course_slide_decks"), before_decks)
+        self.assertEqual(self._slide_row_count("course_slide_pages"), before_pages)
+        self.assertEqual(self._slide_files(image_dir), before_files)
+        kept = self.school.get_slide_import_job(job)
+        assert kept is not None
+        self.assertEqual(kept["status"], "error")
+        self.assertIn("too long", kept["error"])
+
+    def _slide_row_count(self, table: str) -> int:
+        """Count slide rows for this class.
+
+        Args:
+            table: ``course_slide_decks`` or ``course_slide_pages``.
+
+        Returns:
+            How many rows belong to this class.
+        """
+        if table == "course_slide_pages":
+            row = self.school.conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM course_slide_pages AS pages
+                JOIN course_slide_decks AS decks ON decks.id = pages.deck_id
+                WHERE decks.class_id = ?
+                """,
+                (self.class_id,),
+            ).fetchone()
+        else:
+            row = self.school.conn.execute(
+                "SELECT COUNT(*) AS n FROM course_slide_decks WHERE class_id = ?",
+                (self.class_id,),
+            ).fetchone()
+        return int(row["n"])
+
+    def _slide_files(self, image_dir: Path) -> list[str]:
+        """Relative names of slide files currently on disk.
+
+        Args:
+            image_dir: Class image folder.
+
+        Returns:
+            Sorted paths under that folder.
+        """
+        if not image_dir.exists():
+            return []
+        return sorted(
+            str(path.relative_to(image_dir))
+            for path in image_dir.rglob("*")
+            if path.is_file()
+        )
 
 if __name__ == "__main__":
     unittest.main()

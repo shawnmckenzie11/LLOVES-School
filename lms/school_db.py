@@ -1016,7 +1016,8 @@ CREATE TABLE IF NOT EXISTS slide_import_jobs (
     needs_slides_read INTEGER NOT NULL DEFAULT 0,
     http_status INTEGER NOT NULL DEFAULT 400,
     result_json TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    started_at TEXT
 );
 
 -- MCK-229: latest real run per live class (one row per module/slot).
@@ -2274,6 +2275,7 @@ class LovesDB:
             self._ensure_question_editor_columns()
             self._ensure_module_bank_schema()
             self._ensure_archived_column()
+            self._ensure_slide_import_started_at()
             self._ensure_gradebook_schema()
             self._ensure_live_session_schema()
             self._ensure_live_session_identity_schema()
@@ -3873,6 +3875,21 @@ class LovesDB:
         except ImportError:
             from lms.staff_invites import ensure_schema
         ensure_schema(self.conn)
+
+    def _ensure_slide_import_started_at(self) -> None:
+        """Add the slot-start clock on slide import jobs.
+
+        Existing databases were created before the column. The budget
+        is measured from ``started_at``, which stays empty until the
+        job takes an import slot.
+        """
+        cols = {
+            r[1] for r in self.conn.execute("PRAGMA table_info(slide_import_jobs)")
+        }
+        if "started_at" not in cols:
+            self.conn.execute(
+                "ALTER TABLE slide_import_jobs ADD COLUMN started_at TEXT"
+            )
 
     def _ensure_archived_column(self) -> None:
         """Add users.archived_at if the column does not yet exist (live migration).
@@ -7418,11 +7435,13 @@ class LovesDB:
 
         A worker can die while the machine stays up. Those rows stay
         ``running`` until something notices they are past the budget.
-        Finish and fail only update a row that is still running, so a
-        late thread cannot overwrite this error.
+        The clock is ``started_at``, set when the job takes a slot.
+        A job still waiting for a slot is left alone. Finish and fail
+        only update a row that is still running, so a late thread
+        cannot overwrite this error.
 
         Args:
-            max_age_seconds: Age after which a running row is closed.
+            max_age_seconds: Age after the slot was taken.
 
         Returns:
             How many rows were closed.
@@ -7434,14 +7453,16 @@ class LovesDB:
         with self._lock:
             rows = self.conn.execute(
                 """
-                SELECT id, created_at FROM slide_import_jobs
+                SELECT id, started_at FROM slide_import_jobs
                 WHERE status = 'running'
+                  AND started_at IS NOT NULL
+                  AND started_at != ''
                 """
             ).fetchall()
             expired: list[str] = []
             for row in rows:
                 try:
-                    started = datetime.fromisoformat(str(row["created_at"] or ""))
+                    started = datetime.fromisoformat(str(row["started_at"] or ""))
                 except ValueError:
                     continue
                 if started.tzinfo is None:
@@ -7464,6 +7485,29 @@ class LovesDB:
                 )
             self.conn.commit()
             return len(expired)
+
+    def note_slide_import_started(self, job_id: str) -> None:
+        """Start the budget clock once this job holds an import slot.
+
+        Queue time is not counted. A second call does not move the clock.
+
+        Args:
+            job_id: Row id of a job that is still running.
+        """
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            self.conn.execute(
+                """
+                UPDATE slide_import_jobs
+                SET started_at = ?
+                WHERE id = ?
+                  AND status = 'running'
+                  AND (started_at IS NULL OR started_at = '')
+                """,
+                (now, str(job_id)),
+            )
 
     def _delete_class_owned_rows(self, class_ids: list[int], present: set[str]) -> None:
         """Delete per-class rows that have no foreign key to ``classes``.
@@ -9710,6 +9754,7 @@ class LovesDB:
         title: str = "",
         source_bytes: bytes | None = None,
         source_suffix: str = "",
+        job_id: str | None = None,
     ) -> dict[str, Any]:
         """Store one PNG per slide on the course and point this run at it.
 
@@ -9729,6 +9774,8 @@ class LovesDB:
             title: Deck name shown beside Start. Blank becomes a fallback.
             source_bytes: Original ppt or pptx, stored as a file.
             source_suffix: ``.ppt`` or ``.pptx`` when ``source_bytes`` is set.
+            job_id: Slide import row. When set, the save is skipped
+                unless that row is still running.
 
         Returns:
             Teacher deck dict.
@@ -9757,6 +9804,7 @@ class LovesDB:
             source_bytes=source_bytes,
             source_suffix=source_suffix,
             session_id=int(session_id),
+            job_id=job_id,
         )
         deck = saved.get("google_slides")
         if not isinstance(deck, dict):
@@ -10015,6 +10063,7 @@ class LovesDB:
         source_bytes: bytes | None = None,
         source_suffix: str = "",
         session_id: int | None = None,
+        job_id: str | None = None,
     ) -> dict[str, Any]:
         """Save one course deck and point a matching live run at it.
 
@@ -10038,6 +10087,9 @@ class LovesDB:
             source_suffix: ``.ppt`` or ``.pptx`` with ``source_bytes``.
             session_id: Active run to rebind. Omit to bind the active
                 run only when its placement matches.
+            job_id: Slide import row. When set, the deck is written only
+                while that row is still ``running``. A closed job stores
+                nothing and the new files are removed.
 
         Returns:
             ``deck`` summary and ``google_slides`` when a run was bound.
@@ -10082,6 +10134,7 @@ class LovesDB:
                 default_published=bool(default_published),
                 truncated=bool(truncated),
                 image_names=names,
+                job_id=str(job_id or ""),
             )
         except Exception:
             self._release_course_slide_names(int(class_id), names, session_id=0)
@@ -10274,6 +10327,7 @@ class LovesDB:
         default_published: bool,
         truncated: bool,
         image_names: list[str],
+        job_id: str = "",
     ) -> tuple[list[str], str]:
         """Insert or replace the course deck and return the old file names.
 
@@ -10288,99 +10342,134 @@ class LovesDB:
             default_published: Stored default shared flag.
             truncated: Page cap was hit.
             image_names: Content-addressed PNG filenames, in order.
+            job_id: Slide import row. Empty skips the running check.
 
         Returns:
             Previous page filenames and the previous source path.
+
+        Raises:
+            ValueError: ``job_id`` is set and that job is not running.
+                The deck rows are left as they were.
         """
         now = _now()
         previous_names: list[str] = []
         previous_source = ""
         with self._lock:
-            existing = self.conn.execute(
-                """
-                SELECT id, source_relpath
-                FROM course_slide_decks
-                WHERE class_id = ? AND module = ? AND slot = ?
-                """,
-                (int(class_id), module, slot),
-            ).fetchone()
-            if existing is None:
-                cur = self.conn.execute(
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self._require_running_slide_import(job_id)
+                existing = self.conn.execute(
                     """
-                    INSERT INTO course_slide_decks (
-                        class_id, module, slot, title, source, presentation_id,
-                        source_relpath, default_published, truncated,
-                        created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    SELECT id, source_relpath
+                    FROM course_slide_decks
+                    WHERE class_id = ? AND module = ? AND slot = ?
                     """,
-                    (
-                        int(class_id),
-                        module,
-                        slot,
-                        title,
-                        source,
-                        presentation_id,
-                        source_relpath,
-                        1 if default_published else 0,
-                        1 if truncated else 0,
-                        now,
-                        now,
-                    ),
-                )
-                deck_id = int(cur.lastrowid)
-            else:
-                deck_id = int(existing["id"])
-                previous_source = str(existing["source_relpath"] or "")
-                old_pages = self.conn.execute(
-                    """
-                    SELECT image_relpath FROM course_slide_pages
-                    WHERE deck_id = ?
-                    """,
-                    (deck_id,),
-                ).fetchall()
-                for page in old_pages:
-                    name = self._google_slide_image_name(
-                        str(page["image_relpath"] or "").rsplit("/", 1)[-1]
+                    (int(class_id), module, slot),
+                ).fetchone()
+                if existing is None:
+                    cur = self.conn.execute(
+                        """
+                        INSERT INTO course_slide_decks (
+                            class_id, module, slot, title, source, presentation_id,
+                            source_relpath, default_published, truncated,
+                            created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            int(class_id),
+                            module,
+                            slot,
+                            title,
+                            source,
+                            presentation_id,
+                            source_relpath,
+                            1 if default_published else 0,
+                            1 if truncated else 0,
+                            now,
+                            now,
+                        ),
                     )
-                    if name and name not in previous_names:
-                        previous_names.append(name)
-                kept_source = source_relpath or previous_source
-                self.conn.execute(
-                    """
-                    UPDATE course_slide_decks
-                    SET title = ?, source = ?, presentation_id = ?,
-                        source_relpath = ?, default_published = ?,
-                        truncated = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        title,
-                        source,
-                        presentation_id,
-                        kept_source,
-                        1 if default_published else 0,
-                        1 if truncated else 0,
-                        now,
-                        deck_id,
-                    ),
-                )
-                if not source_relpath:
-                    source_relpath = kept_source
-                self.conn.execute(
-                    "DELETE FROM course_slide_pages WHERE deck_id = ?",
-                    (deck_id,),
-                )
-            for index, name in enumerate(image_names):
-                rel = f"live-question-images/{int(class_id)}/{name}"
-                self.conn.execute(
-                    """
-                    INSERT INTO course_slide_pages (deck_id, page_index, image_relpath)
-                    VALUES (?, ?, ?)
-                    """,
-                    (deck_id, index, rel),
-                )
-            self.conn.commit()
+                    deck_id = int(cur.lastrowid)
+                else:
+                    deck_id = int(existing["id"])
+                    previous_source = str(existing["source_relpath"] or "")
+                    old_pages = self.conn.execute(
+                        """
+                        SELECT image_relpath FROM course_slide_pages
+                        WHERE deck_id = ?
+                        """,
+                        (deck_id,),
+                    ).fetchall()
+                    for page in old_pages:
+                        name = self._google_slide_image_name(
+                            str(page["image_relpath"] or "").rsplit("/", 1)[-1]
+                        )
+                        if name and name not in previous_names:
+                            previous_names.append(name)
+                    kept_source = source_relpath or previous_source
+                    self.conn.execute(
+                        """
+                        UPDATE course_slide_decks
+                        SET title = ?, source = ?, presentation_id = ?,
+                            source_relpath = ?, default_published = ?,
+                            truncated = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            title,
+                            source,
+                            presentation_id,
+                            kept_source,
+                            1 if default_published else 0,
+                            1 if truncated else 0,
+                            now,
+                            deck_id,
+                        ),
+                    )
+                    if not source_relpath:
+                        source_relpath = kept_source
+                    self.conn.execute(
+                        "DELETE FROM course_slide_pages WHERE deck_id = ?",
+                        (deck_id,),
+                    )
+                for index, name in enumerate(image_names):
+                    rel = f"live-question-images/{int(class_id)}/{name}"
+                    self.conn.execute(
+                        """
+                        INSERT INTO course_slide_pages (
+                            deck_id, page_index, image_relpath
+                        ) VALUES (?, ?, ?)
+                        """,
+                        (deck_id, index, rel),
+                    )
+                # autocommit is on, so Connection.commit() does not end BEGIN.
+                self.conn.execute("COMMIT")
+            except Exception:
+                if self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                raise
         return previous_names, previous_source
+
+    def _require_running_slide_import(self, job_id: str) -> None:
+        """Refuse the deck write when this import is no longer running.
+
+        Called inside the caller's ``BEGIN IMMEDIATE`` so the check and
+        the deck rows commit together. An empty id is a direct save.
+
+        Args:
+            job_id: Slide import row, or empty.
+
+        Raises:
+            ValueError: The job is missing or not ``running``.
+        """
+        if not str(job_id or "").strip():
+            return
+        row = self.conn.execute(
+            "SELECT status FROM slide_import_jobs WHERE id = ?",
+            (str(job_id),),
+        ).fetchone()
+        if row is None or str(row["status"] or "") != "running":
+            raise ValueError("That deck took too long to attach.")
 
     def _store_course_slide_source(
         self, class_id: int, raw: bytes, suffix: str

@@ -8680,7 +8680,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             owner_id: Signed-in staff user.
             class_id: Course, when the deck is course content.
             session_id: Live run, when the attach is for one session.
-            work: Zero-arg callable returning the staff JSON.
+            work: Called with the job id. It must not touch ``request``.
         """
         import uuid
 
@@ -8688,7 +8688,12 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
         job_id = uuid.uuid4().hex
         school.insert_slide_import_job(job_id, int(owner_id), class_id, session_id)
-        start_slide_import(school, job_id, work)
+
+        def run() -> dict:
+            """Run the import with the id of the row just inserted."""
+            return work(job_id)
+
+        start_slide_import(school, job_id, run)
         return jsonify({"ok": True, "status": "running", "job_id": job_id}), 202
 
     def _spill_slide_upload(upload, suffix: str):
@@ -8764,13 +8769,17 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         status = str(job.get("status") or "")
         if status == "running":
             try:
-                started = datetime.fromisoformat(str(job.get("created_at") or ""))
-                if started.tzinfo is None:
-                    started = started.replace(tzinfo=timezone.utc)
-                age = (datetime.now(timezone.utc) - started).total_seconds()
+                started_raw = str(job.get("started_at") or "")
+                if not started_raw:
+                    age = 0
+                else:
+                    started = datetime.fromisoformat(started_raw)
+                    if started.tzinfo is None:
+                        started = started.replace(tzinfo=timezone.utc)
+                    age = (datetime.now(timezone.utc) - started).total_seconds()
             except ValueError:
                 age = 0
-            if age > 120:
+            if age > JOB_BUDGET_SECONDS:
                 return (
                     jsonify(
                         {
@@ -8850,7 +8859,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 Path(filename).stem, fallback="PowerPoint"
             )
 
-            def work() -> dict[str, Any]:
+            def work(job_id: str) -> dict[str, Any]:
                 """Convert the spilled upload and point this run at it."""
                 import course_slide_files as files
 
@@ -8868,6 +8877,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                         title=title,
                         source_bytes=raw,
                         source_suffix=suffix,
+                        job_id=job_id,
                     )
                 finally:
                     path.unlink(missing_ok=True)
@@ -8899,7 +8909,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
 
-        def work() -> dict[str, Any]:
+        def work(job_id: str) -> dict[str, Any]:
             """Download the share link under the existing 45 second cap."""
             from google_slides_import import (
                 IMPORT_TIME_LIMIT_SECONDS,
@@ -8916,6 +8926,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                     user=user,
                     default_published=published,
                     time_limit=IMPORT_TIME_LIMIT_SECONDS,
+                    job_id=job_id,
                 )
             except SlidesShareNotPublic as exc:
                 raise SlideImportFailed(str(exc), needs_slides_read=True) from exc
@@ -9041,7 +9052,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 Path(filename).stem, fallback="PowerPoint"
             )
 
-            def work() -> dict[str, Any]:
+            def work(job_id: str) -> dict[str, Any]:
                 """Convert the spilled upload into the course deck."""
                 import course_slide_files as files
 
@@ -9060,6 +9071,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                         truncated=truncated,
                         source_bytes=raw,
                         source_suffix=suffix,
+                        job_id=job_id,
                     )
                 finally:
                     path.unlink(missing_ok=True)
@@ -9093,7 +9105,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
 
-        def work() -> dict[str, Any]:
+        def work(job_id: str) -> dict[str, Any]:
             """Import a share link with the same 45 second deadline as a live run."""
             import time as time_mod
 
@@ -9133,6 +9145,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 page_pngs=pngs,
                 default_published=published_flag,
                 truncated=truncated,
+                job_id=job_id,
             )
             _emit_slide_news_for_class(int(class_id))
             return {
