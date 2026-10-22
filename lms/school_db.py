@@ -16698,7 +16698,8 @@ class SchoolDB(LovesDB):
             bank_scope: ``course``, ``module``, ``M2`` / ``2``, or similar.
             bank_kind: Staff Kind. Empty is Core Math (untagged). ``custom``
                 stores as ``standard``. Does not overwrite question ``type``.
-            library_id: Attached pack library, required when saving to bank.
+            library_id: Course library that stores the bank. Required when
+                saving to the bank. A course with no pack uses its shell.
             extra_item: MCK-79. Extra item fields. Only the keys in
                 ``EXTRA_ITEM_KEYS`` (``live_problem_id``, ``question_title``,
                 ``contest_batch``) are kept; anything else is ignored.
@@ -16844,7 +16845,7 @@ class SchoolDB(LovesDB):
         source_question_id = None
         if save_to_bank:
             if library_id in (None, ""):
-                raise ValueError("a module pack is required to save to the bank")
+                raise ValueError("No course library yet.")
             bank_id = self._ensure_staff_authored_bank(int(library_id))
             source_question_id = self._insert_staff_bank_question(
                 library_id=int(library_id),

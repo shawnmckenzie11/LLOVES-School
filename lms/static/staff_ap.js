@@ -13888,6 +13888,7 @@ $("ap-media-caption")?.addEventListener("blur", () => {
 /**
  * Open Add New through the shared question editor.
  * Live defaults stay off the POST until the teacher changes them.
+ * Save to bank writes the course library, including when no pack is attached.
  */
 configureQuestionEditor({
   classId: () => classId,
