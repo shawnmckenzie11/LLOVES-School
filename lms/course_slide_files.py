@@ -96,6 +96,8 @@ die() {
   printf 'lloves-sandbox-step %s %s\n' "$1" "$2" >&2
   exit 97
 }
+# /bin/sh can redirect only fds 0-9. The launcher parks the wait pipe on
+# fd 3 and lists that number in pass_fds, so Python does not close it.
 if [ "${LLOVES_SANDBOX_WAIT:-}" = 1 ]; then
   read -r _ <&3 || die unshare $?
 fi
@@ -965,6 +967,36 @@ def _arm_root_mapping(proc: subprocess.Popen[bytes]) -> None:
     Path(f"/proc/{target}/gid_map").write_text("0 0 1\n65534 65534 1\n")
 
 
+
+def _borrow_fd3() -> bool:
+    """Open fd 3 when it is closed, without replacing an open descriptor.
+
+    ``/bin/sh`` can redirect only fds 0 through 9, so the child reads the
+    wait pipe on fd 3. ``Popen`` requires that number to be open before
+    ``pass_fds`` will keep it. A descriptor the process already holds is
+    left in place.
+
+    Returns:
+        True when fd 3 was opened here. The caller closes it after the
+        child has started.
+    """
+    probe = os.open(os.devnull, os.O_RDONLY)
+    try:
+        if probe == 3:
+            return True
+        if probe > 3:
+            return False
+        try:
+            os.fstat(3)
+        except OSError:
+            os.dup2(probe, 3)
+            return True
+        return False
+    finally:
+        if probe != 3:
+            os.close(probe)
+
+
 def _launch_sandbox(
     command: list[str],
     work: Path,
@@ -985,18 +1017,28 @@ def _launch_sandbox(
     Raises:
         OSError: The root uid map could not be installed. The message
             includes the child's stderr with paths removed.
+
+    ``/bin/sh`` reads the map-ready pipe on fd 3. ``Popen`` closes every
+    descriptor that is not in ``pass_fds`` after ``preexec_fn``, so fd 3
+    is listed there. A worker that already has fd 3 open keeps it.
     """
     child_env = dict(env)
     read_fd: int | None = None
     write_fd: int | None = None
+    borrowed_fd3 = False
+    saved_inherit: bool | None = None
     use_user_ns = os.geteuid() == 0 and _root_user_namespace_works()
     if use_user_ns:
         read_fd, write_fd = os.pipe()
         os.set_inheritable(read_fd, True)
+        if read_fd != 3:
+            borrowed_fd3 = _borrow_fd3()
+            if not borrowed_fd3:
+                saved_inherit = os.get_inheritable(3)
         child_env["LLOVES_SANDBOX_WAIT"] = "1"
 
     def preexec() -> None:
-        """Die with the worker, and keep the map-ready pipe on fd 3."""
+        """SIGKILL this process when the worker dies, and park the pipe on fd 3."""
         _die_with_parent()
         if read_fd is not None and read_fd != 3:
             os.dup2(read_fd, 3)
@@ -1009,7 +1051,7 @@ def _launch_sandbox(
             env=child_env,
             cwd=cwd,
             start_new_session=True,
-            pass_fds=(read_fd,) if read_fd is not None else (),
+            pass_fds=(3,) if read_fd is not None else (),
             preexec_fn=preexec,
         )
     except Exception:
@@ -1017,7 +1059,15 @@ def _launch_sandbox(
             os.close(read_fd)
         if write_fd is not None:
             os.close(write_fd)
+        if borrowed_fd3:
+            os.close(3)
+        elif saved_inherit is not None:
+            os.set_inheritable(3, saved_inherit)
         raise
+    if saved_inherit is not None:
+        os.set_inheritable(3, saved_inherit)
+    if borrowed_fd3:
+        os.close(3)
     if write_fd is None or read_fd is None:
         return proc
     os.close(read_fd)

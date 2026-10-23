@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import inspect
 import io
 import os
 import shutil
@@ -115,12 +116,15 @@ def _assert_escape_contained(test: unittest.TestCase, output: str) -> None:
     test.assertEqual(int(cap, 16), 0, output)
 
 
-def _root_isolation_driver(lms_dir: str, *, user_namespace: bool) -> str:
+def _root_isolation_driver(
+    lms_dir: str, *, user_namespace: bool, hold_fds: int = 0
+) -> str:
     """Build a root driver for one sandbox path.
 
     Args:
         lms_dir: Directory that contains ``course_slide_files.py``.
         user_namespace: When false, force the no-userns fallback.
+        hold_fds: Extra descriptors to keep open so the wait pipe is not fd 3.
 
     Returns:
         A Python script that prints escape status and the setuid uid.
@@ -128,6 +132,19 @@ def _root_isolation_driver(lms_dir: str, *, user_namespace: bool) -> str:
     force = ""
     if not user_namespace:
         force = "files._root_user_ns = False\n"
+    hold_open = ""
+    hold_close = ""
+    if hold_fds:
+        hold_open = (
+            f"held = [os.open('/dev/null', os.O_RDONLY) for _ in range({int(hold_fds)})]\n"
+            "print('HELD', held[0], held[-1])\n"
+            "if held[0] < 3 or held[-1] - held[0] < 19:\n"
+            "    raise SystemExit('low fds were not occupied')\n"
+        )
+        hold_close = (
+            "    for fd in held:\n"
+            "        os.close(fd)\n"
+        )
     return (
         "import os, shutil, subprocess, sys, tempfile\n"
         "from pathlib import Path\n"
@@ -144,6 +161,7 @@ def _root_isolation_driver(lms_dir: str, *, user_namespace: bool) -> str:
         + force
         + "argv = files.sandbox_argv(Path('/tmp'), ['true'])\n"
         + "print('ARGV_USER', int('--user' in argv))\n"
+        + hold_open
         + "work = Path(tempfile.mkdtemp(prefix='lloves-slides-'))\n"
         "try:\n"
         "    escape = work / 'escape.py'\n"
@@ -169,7 +187,8 @@ def _root_isolation_driver(lms_dir: str, *, user_namespace: bool) -> str:
         "        sys.stderr.buffer.write(uid.stderr)\n"
         "        raise SystemExit(uid.returncode)\n"
         "finally:\n"
-        "    shutil.rmtree(work, ignore_errors=True)\n"
+        + hold_close
+        + "    shutil.rmtree(work, ignore_errors=True)\n"
         "    shutil.rmtree(Path('/dev/shm') / f'lloves-root-{work.name}', ignore_errors=True)\n"
     )
 
@@ -871,7 +890,36 @@ class CourseSlideFileTests(unittest.TestCase):
         self.assertTrue(outer, mapped.stdout)
         self.assertNotEqual(outer, "0", mapped.stdout)
 
+    @unittest.skipUnless(shutil.which("unshare"), "unshare is not installed")
+    @unittest.skipUnless(os.geteuid() != 0, "this path is the unprivileged worker")
+    def test_sandbox_survives_a_busy_fd_table(self) -> None:
+        """A crowded descriptor table still hides the host from the converter."""
+        import course_slide_files as files
+
+        held = [os.open("/dev/null", os.O_RDONLY) for _ in range(20)]
+        work = Path(tempfile.mkdtemp(prefix="lloves-slides-"))
+        try:
+            self.assertGreaterEqual(held[-1] - held[0], 19)
+            escape = work / "escape.py"
+            escape.write_text(_SANDBOX_ESCAPE, encoding="utf-8")
+            completed = files.run_sandboxed(
+                ["python3", str(escape)],
+                work=work,
+                timeout=20,
+                env=files.office_env(work),
+                cwd=str(work),
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertNotIn(b"Bad file descriptor", completed.stderr)
+            _assert_escape_contained(self, completed.stdout.decode())
+        finally:
+            for fd in held:
+                os.close(fd)
+            shutil.rmtree(work, ignore_errors=True)
+            shutil.rmtree(Path("/dev/shm") / f"lloves-root-{work.name}", ignore_errors=True)
+
     def test_sandbox_script_uses_pivot_root_only(self) -> None:
+
         """The worker script switches root with pivot_root and clears privileges."""
         import course_slide_files as files
 
@@ -879,6 +927,8 @@ class CourseSlideFileTests(unittest.TestCase):
         self.assertIs(script, files._SANDBOX_INNER)
         self.assertNotIn("chroot", script)
         self.assertNotIn("lloves-anchor", script)
+        self.assertIn("read -r _ <&3", script)
+        self.assertIn("pass_fds=(3,)", inspect.getsource(files._launch_sandbox))
         self.assertIn("pivot_root . oldroot", script)
         self.assertIn("--bounding-set=-all", script)
         self.assertIn("--no-new-privs", script)
@@ -891,11 +941,12 @@ class CourseSlideFileTests(unittest.TestCase):
             script,
         )
 
-    def _run_root_isolation(self, *, user_namespace: bool) -> str:
+    def _run_root_isolation(self, *, user_namespace: bool, hold_fds: int = 0) -> str:
         """Run the escape and setuid checks as root.
 
         Args:
             user_namespace: When false, force the Fly no-userns fallback.
+            hold_fds: Extra descriptors to occupy before the sandbox starts.
 
         Returns:
             Combined stdout from the root driver.
@@ -903,7 +954,9 @@ class CourseSlideFileTests(unittest.TestCase):
         lms_dir = str(Path(__file__).resolve().parent)
         driver = Path("/tmp/lloves-sandbox-isolation-driver.py")
         driver.write_text(
-            _root_isolation_driver(lms_dir, user_namespace=user_namespace),
+            _root_isolation_driver(
+                lms_dir, user_namespace=user_namespace, hold_fds=hold_fds
+            ),
             encoding="utf-8",
         )
         try:
@@ -928,6 +981,28 @@ class CourseSlideFileTests(unittest.TestCase):
         output = self._run_root_isolation(user_namespace=True)
         self.assertIn("USERNS 0", output)
         self.assertIn("ARGV_USER 1", output)
+        _assert_escape_contained(self, output)
+        self.assertIn("SETUID 65534", output)
+        self.assertNotIn("SETUID 0", output)
+
+    @unittest.skipUnless(
+        subprocess.run(["sudo", "-n", "true"], check=False).returncode == 0,
+        "passwordless sudo is required to prove a busy descriptor table",
+    )
+    def test_root_sandbox_survives_a_busy_fd_table(self) -> None:
+        """A worker with many open fds still sandboxes and hides the host.
+
+        The map-ready pipe must not depend on being fd 3. That number is
+        free in a fresh process and taken inside gunicorn.
+        """
+        output = self._run_root_isolation(user_namespace=True, hold_fds=20)
+        self.assertIn("USERNS 0", output)
+        self.assertIn("ARGV_USER 1", output)
+        self.assertIn("HELD ", output)
+        held = output.split("HELD ", 1)[1].splitlines()[0].split()
+        self.assertGreaterEqual(int(held[0]), 3, output)
+        self.assertGreaterEqual(int(held[1]) - int(held[0]), 19, output)
+        self.assertNotIn("Bad file descriptor", output)
         _assert_escape_contained(self, output)
         self.assertIn("SETUID 65534", output)
         self.assertNotIn("SETUID 0", output)
