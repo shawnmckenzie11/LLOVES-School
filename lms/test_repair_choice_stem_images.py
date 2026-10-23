@@ -7,6 +7,7 @@ import io
 import json
 import sqlite3
 import sys
+import tempfile
 import threading
 import unittest
 from contextlib import redirect_stderr
@@ -133,24 +134,20 @@ class ChoiceStemImageRepairTests(unittest.TestCase):
             [(1, 101, 4, None), (2, 102, 4, None), (3, 101, None, 9)],
         )
 
-    def test_dry_run_lists_library_and_shared_flag(self) -> None:
-        """Dry-run names each question's library and whether the pack is shared."""
+    def test_dry_run_lists_playlist_heroes_not_authored_stems(self) -> None:
+        """Authored stem images stay. A promoted playlist hero is listed."""
         school = _school()
         self._seed_libraries(school)
+        authored = json.dumps(_leaked_payload())
         school.conn.execute(
             "INSERT INTO questions (id, bank_id, title, payload_json, created_at) "
-            "VALUES (7, 40, 'Simplify', ?, 't0')",
-            (json.dumps(_leaked_payload()),),
+            "VALUES (7, 40, 'Triangle', ?, 't0')",
+            (authored,),
         )
         school.conn.execute(
             "INSERT INTO questions (id, bank_id, title, payload_json, created_at) "
             "VALUES (8, 40, 'Vertex', ?, 't0')",
             (json.dumps(_healthy_payload()),),
-        )
-        school.conn.execute(
-            "INSERT INTO questions (id, bank_id, title, payload_json, created_at) "
-            "VALUES (11, 90, 'Simplify', ?, 't0')",
-            (json.dumps(_leaked_payload()),),
         )
         card = json.dumps(
             {
@@ -171,79 +168,77 @@ class ChoiceStemImageRepairTests(unittest.TestCase):
         self.assertIn("DRY RUN", report)
         self.assertNotIn(ANSWER, report)
         self.assertNotIn("Simplify", report)
+        self.assertIn("count questions=0", report)
+        self.assertIn("count class_live_playlist_placements=1", report)
         self.assertIn(
-            "question_id=7 library_id=4 shared=yes",
+            "class_live_playlist_placements row=3 question_id=7 "
+            "library_id=4 shared=yes fields=image_url",
             report,
         )
-        self.assertIn(
-            "question_id=11 library_id=9 shared=no",
-            report,
-        )
-        self.assertNotIn("question_id=8", report)
-        self.assertNotIn("class_live_playlist_placements", report)
         self.assertEqual(
             school.conn.execute(
-                "SELECT item_json FROM class_live_playlist_placements WHERE id = 3"
+                "SELECT payload_json FROM questions WHERE id = 7"
             ).fetchone()[0],
-            card,
+            authored,
         )
 
     def test_second_run_changes_zero_rows(self) -> None:
-        """Apply rewrites only the leaked question payloads, then a second run writes nothing."""
+        """Apply clears one playlist hero, then a second run writes nothing."""
         school = _school()
         self._seed_libraries(school)
-        leaked = json.dumps(_leaked_payload())
+        authored = json.dumps(_leaked_payload())
         healthy = json.dumps(_healthy_payload())
         school.conn.execute(
             "INSERT INTO questions (id, bank_id, title, payload_json, created_at) "
-            "VALUES (7, 40, 'Simplify', ?, 't0')",
-            (leaked,),
+            "VALUES (7, 40, 'Triangle', ?, 't0')",
+            (authored,),
         )
         school.conn.execute(
             "INSERT INTO questions (id, bank_id, title, payload_json, created_at) "
             "VALUES (8, 40, 'Vertex', ?, 't0')",
             (healthy,),
         )
-        card = '{"image_url": "https://cdn.example/answer-5-3.png"}'
+        card = json.dumps(
+            {
+                "text_html": "<p>Simplify (5<sup>-4</sup>)(5<sup>7</sup>).</p>",
+                "image_url": ANSWER,
+                "image_src": ANSWER,
+                "options_html": [f'<img src="{ANSWER}">', "11"],
+            }
+        )
         school.conn.execute(
             "INSERT INTO class_live_playlist_placements (id, item_json, source_question_id) "
             "VALUES (3, ?, 7)",
             (card,),
         )
         school.conn.commit()
-        before_other = school.conn.execute(
-            "SELECT id, bank_id, title, payload_json, created_at FROM questions WHERE id = 8"
-        ).fetchone()
 
         planned = plan_choice_stem_image_repairs(school)
-        self.assertEqual([item.question_id for item in planned], [7])
-        self.assertTrue(planned[0].shared)
-        self.assertEqual(planned[0].library_id, 4)
+        self.assertEqual([item.table for item in planned], ["class_live_playlist_placements"])
+        self.assertEqual(planned[0].question_id, 7)
+        self.assertEqual(planned[0].fields, ("image_url", "image_src"))
         self.assertEqual(apply_choice_stem_image_repairs(school, planned), 1)
 
         stored = json.loads(
             school.conn.execute(
-                "SELECT payload_json FROM questions WHERE id = 7"
+                "SELECT item_json FROM class_live_playlist_placements WHERE id = 3"
             ).fetchone()[0]
         )
-        self.assertNotIn(ANSWER, stored["stem_html"])
-        self.assertIn("Simplify", stored["stem_html"])
-        self.assertIn(ANSWER, stored["choices"][0]["html"])
-        row = school.conn.execute(
-            "SELECT title, created_at, bank_id FROM questions WHERE id = 7"
-        ).fetchone()
-        self.assertEqual(tuple(row), ("Simplify", "t0", 40))
+        self.assertNotIn("image_url", stored)
+        self.assertNotIn("image_src", stored)
+        self.assertIn("Simplify", stored["text_html"])
+        self.assertIn(ANSWER, stored["options_html"][0])
         self.assertEqual(
             school.conn.execute(
-                "SELECT id, bank_id, title, payload_json, created_at FROM questions WHERE id = 8"
-            ).fetchone(),
-            before_other,
+                "SELECT id, bank_id, title, payload_json, created_at FROM questions WHERE id = 7"
+            ).fetchone()[1:],
+            (40, "Triangle", authored, "t0"),
         )
         self.assertEqual(
             school.conn.execute(
-                "SELECT item_json FROM class_live_playlist_placements WHERE id = 3"
+                "SELECT payload_json FROM questions WHERE id = 8"
             ).fetchone()[0],
-            card,
+            healthy,
         )
         self.assertEqual(
             school.conn.execute("SELECT origin FROM content_libraries WHERE id = 4").fetchone()[0],
@@ -256,7 +251,7 @@ class ChoiceStemImageRepairTests(unittest.TestCase):
         self.assertEqual(apply_choice_stem_image_repairs(school, planned), 0)
         self.assertEqual(
             school.conn.execute(
-                "SELECT payload_json FROM questions WHERE id = 7"
+                "SELECT item_json FROM class_live_playlist_placements WHERE id = 3"
             ).fetchone()[0],
             planned[0].new_json,
         )
@@ -274,22 +269,25 @@ class ChoiceStemImageRepairTests(unittest.TestCase):
             "INSERT INTO bank_image_cache (source_url, relpath) VALUES (?, ?)",
             (ANSWER, MIRROR),
         )
-        payload = {
-            "stem_html": "<p>Simplify (5<sup>-4</sup>)(5<sup>7</sup>).</p>",
-            "image_url": MIRROR,
-            "choices": [
-                {"id": "a", "html": f'<img src="{ANSWER}">', "correct": True},
-                {"id": "b", "html": "11", "correct": False},
-            ],
-        }
         school.conn.execute(
             "INSERT INTO questions (id, bank_id, title, payload_json, created_at) "
             "VALUES (15, 40, 'Simplify', ?, 't0')",
-            (json.dumps(payload),),
+            (json.dumps(_healthy_payload()),),
+        )
+        card = {
+            "text_html": "<p>Simplify (5<sup>-4</sup>)(5<sup>7</sup>).</p>",
+            "image_url": MIRROR,
+            "options_html": [f'<img src="{ANSWER}">', "11"],
+        }
+        school.conn.execute(
+            "INSERT INTO class_live_playlist_placements (id, item_json, source_question_id) "
+            "VALUES (6, ?, 15)",
+            (json.dumps(card),),
         )
         school.conn.commit()
         planned = plan_choice_stem_image_repairs(school)
         self.assertEqual(len(planned), 1)
+        self.assertEqual(planned[0].table, "class_live_playlist_placements")
         self.assertEqual(planned[0].question_id, 15)
         self.assertEqual(planned[0].library_id, 4)
         self.assertTrue(planned[0].shared)
@@ -311,3 +309,136 @@ class ChoiceStemImageRepairTests(unittest.TestCase):
             code = cli.main(["--production", "--confirm", "nope", "--db", "/tmp/local.sqlite"])
         self.assertEqual(code, 2)
         self.assertIn("MCK-320", err.getvalue())
+
+    def test_dry_run_does_not_migrate_or_write(self) -> None:
+        """Dry-run opens sqlite read-only and leaves the schema untouched."""
+        cli = _load_cli()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "lloves.sqlite"
+            conn = sqlite3.connect(path)
+            conn.execute("CREATE TABLE questions (id INTEGER PRIMARY KEY, payload_json TEXT)")
+            conn.execute(
+                "INSERT INTO questions (id, payload_json) VALUES (1, ?)",
+                (json.dumps({"stem_html": "<p>Hi</p>"}),),
+            )
+            conn.commit()
+            before = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
+            payload = conn.execute("SELECT payload_json FROM questions").fetchone()[0]
+            conn.close()
+            code = cli.main(["--db", str(path)])
+            self.assertEqual(code, 0)
+            conn = sqlite3.connect(path)
+            after = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
+            self.assertEqual(after, before)
+            self.assertEqual(
+                conn.execute("SELECT payload_json FROM questions").fetchone()[0],
+                payload,
+            )
+            conn.close()
+
+
+class PlaylistReturnScrubTests(unittest.TestCase):
+    """Early rehydrate and the playlist list scrub a promoted hero."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        """Open one throwaway school database."""
+        import os
+
+        os.environ.setdefault("ALLOW_DEV_VERIFICATION_CODE", "1")
+        from school_db import SchoolDB
+
+        cls._tmp = tempfile.TemporaryDirectory()
+        root = Path(cls._tmp.name)
+        cls.school = SchoolDB(root / "lloves.sqlite", root, live_database_url="")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        """Close the database and remove the temp directory."""
+        cls.school.close()
+        cls._tmp.cleanup()
+
+    def test_rehydrate_early_return_drops_a_promoted_hero(self) -> None:
+        """A card that does not need rehydrate still loses a choice hero."""
+        answer = "https://cdn.example/answer-5-3.png"
+        item = {
+            "import_source": "module_bank",
+            "source_question_id": 23144,
+            "type": "multiple_choice",
+            "text": "Simplify.",
+            "text_html": "<p>Simplify.</p>",
+            "image_url": answer,
+            "image_src": answer,
+            "options_html": [f'<img src="{answer}">', "<p>other</p>"],
+        }
+        self.assertFalse(self.school._bank_item_needs_rehydrate(item))
+        out = self.school.rehydrate_module_bank_item(8, 1, dict(item))
+        self.assertNotIn("image_url", out)
+        self.assertNotIn("image_src", out)
+        self.assertEqual(out["text_html"], "<p>Simplify.</p>")
+        self.assertIn(answer, out["options_html"][0])
+
+    def test_playlist_list_scrubs_a_promoted_hero_and_keeps_an_authored_stem(self) -> None:
+        """The placement list scrubs heroes and leaves stored JSON unchanged."""
+        answer = "https://cdn.example/answer-5-3.png"
+        triangle = "https://cdn.example/files/10/preview"
+        promoted = {
+            "import_source": "module_bank",
+            "source_question_id": 23144,
+            "type": "multiple_choice",
+            "text_html": "<p>Simplify.</p>",
+            "image_url": answer,
+            "options_html": [f'<img src="{answer}">'],
+        }
+        authored = {
+            "import_source": "module_bank",
+            "source_question_id": 1270,
+            "type": "multiple_choice",
+            "text_html": f'<img src="{triangle}"><p>Given the triangle above.</p>',
+            "image_url": triangle,
+            "options_html": [f'<img src="{triangle}">'],
+        }
+        now = "2026-10-23T00:00:00Z"
+        self.school.conn.execute(
+            """
+            INSERT INTO class_live_playlist_placements (
+                class_id, module, slot, page_number, stage, sort_order,
+                placement_key, item_id, item_json, source_question_id, created_at
+            ) VALUES (8, 'M1', 'C1', 1, 'round', 0, 'promoted', 'p1', ?, 23144, ?)
+            """,
+            (json.dumps(promoted), now),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO class_live_playlist_placements (
+                class_id, module, slot, page_number, stage, sort_order,
+                placement_key, item_id, item_json, source_question_id, created_at
+            ) VALUES (8, 'M1', 'C1', 1, 'round', 1, 'authored', 'p2', ?, 1270, ?)
+            """,
+            (json.dumps(authored), now),
+        )
+        self.school.conn.commit()
+        rows = self.school.list_class_playlist_placements(8, "M1", "C1", real_deck_only=True)
+        by_key = {row["placement_key"]: row["item"] for row in rows}
+        self.assertNotIn("image_url", by_key["promoted"])
+        self.assertIn(answer, by_key["promoted"]["options_html"][0])
+        self.assertEqual(by_key["authored"]["image_url"], triangle)
+        self.assertIn(triangle, by_key["authored"]["text_html"])
+        stored = {
+            row[0]: row[1]
+            for row in self.school.conn.execute(
+                "SELECT placement_key, item_json FROM class_live_playlist_placements"
+            )
+        }
+        self.assertIn(answer, stored["promoted"])
+        self.assertIn(triangle, stored["authored"])

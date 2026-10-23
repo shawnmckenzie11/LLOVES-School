@@ -318,8 +318,9 @@ def serialize_staff_question(
         "edited_in_lms": edited,
         "authored_in_lms": authored,
     }
-    # Choice images stay on the choices. A copy glued into the stem is not
-    # the question graph. Scrub the view only; ``payload`` is the stored row.
+    # A hero copied from a choice is not the question graph. An image the
+    # author put in the stem stays, even when Canvas repeated it on a choice.
+    # Scrub the view only; ``payload`` is the stored row.
     scrub_choice_images_from_stem(view)
     return view
 

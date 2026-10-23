@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import html
 import re
 import urllib.parse
@@ -518,10 +519,20 @@ def extract_all_image_srcs(raw_html: str) -> list[str]:
 def bank_image_identity(src: str) -> str:
     """Return a stable key for one bank image URL.
 
-    The key is the last path segment, plus the query when there is one, so
-    two Canvas equation images or two Wiris ``mmlgz`` URLs stay distinct.
+    The key is the full normalised path, not the file name. Canvas
+    ``/files/10/preview`` and ``/files/11/preview`` stay distinct, and so do
+    ``U1/image.png`` and ``U2/image.png``. A ``data:`` URL is the hash of
+    the whole value, so two payloads that share a tail do not collide.
     A ``web_resources/`` prefix is dropped so a staff module-file URL and
     the cartridge-relative path of the same file compare equal.
+
+    The query string stays in the key. Wiris and equation URLs that differ
+    only by query are different images. A hero and a choice that differ
+    only by a cache-buster query are therefore not treated as the same
+    image. A mirrored file and the remote URL it was copied from compare
+    equal only when the caller passes an alias map built from
+    ``bank_image_cache``. Display scrub does not read that cache. The
+    repair script does, once, while planning.
 
     Args:
         src: An ``<img src>``, ``image_url``, or filebase token.
@@ -529,25 +540,36 @@ def bank_image_identity(src: str) -> str:
     raw = html.unescape(str(src or "")).strip()
     if not raw:
         return ""
+    if raw.lower().startswith("data:"):
+        digest = hashlib.sha256(raw.encode("utf-8", errors="replace")).hexdigest()
+        return f"data:{digest}"
     raw = urllib.parse.unquote(raw)
     parsed = urllib.parse.urlsplit(raw)
     if parsed.scheme in {"http", "https"}:
-        path = parsed.path
+        path = parsed.path or ""
         query = parsed.query
+        host = parsed.netloc.lower()
     else:
         path, _, query = raw.partition("?")
+        host = ""
     path = path.replace("\\", "/")
     marker = "web_resources/"
     lowered = path.lower()
     index = lowered.rfind(marker)
     if index >= 0:
         path = path[index + len(marker) :]
-    name = path.rstrip("/").rsplit("/", 1)[-1].strip().lower()
-    if not name:
+        host = ""
+    path = re.sub(r"/+", "/", path).rstrip("/").lower()
+    if host:
+        tail = path if path.startswith("/") else f"/{path}"
+        ident = f"{host}{tail}"
+    else:
+        ident = path
+    if not ident and not query:
         return ""
     if query:
-        return f"{name}?{query}"
-    return name
+        return f"{ident}?{query}"
+    return ident
 
 
 def _canonical_image_identity(src: str, aliases: dict[str, str] | None) -> str:
@@ -615,64 +637,44 @@ def _choice_html_chunks(question: dict[str, Any]) -> list[str]:
     return chunks
 
 
-def _stem_still_has_content(fragment: str) -> bool:
-    """True when stem HTML still shows text, a table, or a non-choice image.
-
-    Args:
-        fragment: Stem HTML after choice images were removed.
-    """
-    if html_to_plain(fragment).strip():
-        return True
-    lowered = str(fragment or "").lower()
-    return any(
-        token in lowered
-        for token in ("<img", "<table", "<math", "math-latex")
-    )
-
-
 def scrub_choice_images_from_stem(
     question: dict[str, Any],
     *,
     aliases: dict[str, str] | None = None,
 ) -> list[str]:
-    """Remove MC choice images from stem HTML and the hero image.
+    """Drop a hero that was copied from an MC choice.
 
-    A graph that lives only on the stem stays. A choice image is dropped
-    from ``stem_html`` / ``text_html`` when other stem content remains, and
-    ``image_url`` / ``image_src`` are cleared when they point at a choice.
-    The function is idempotent. Choice HTML is not modified.
+    The display bug promoted the first choice image onto ``image_url`` /
+    ``image_src`` when the stem had no image of its own. That hero is
+    removed. An ``<img>`` already inside ``stem_html`` or ``text_html`` was
+    authored there. Canvas sometimes repeats that same URL on every choice.
+    Those tags stay, and a hero that is that same authored image stays too.
+    Choice HTML is not modified. The function is idempotent.
+
+    A mirrored hero matches a remote choice only when ``aliases`` maps them
+    to one identity. Display callers omit the map. The repair script passes
+    the mirror cache.
 
     Args:
-        question: Bank, live, or prompt payload. Mutated in place.
-        aliases: Optional mirror-cache map so a stored mirror path matches
-            the remote URL still sitting on a choice.
+        question: Bank, live, playlist, or prompt payload. Mutated in place.
+        aliases: Optional mirror-cache map from :func:`bank_image_identity`
+            of a remote URL to the same key for its mirrored file.
 
     Returns:
-        Stem field names that changed, in a stable order.
+        Hero field names that changed (``image_url``, ``image_src``).
     """
     if not isinstance(question, dict):
         return []
     banned = choice_image_identities(_choice_html_chunks(question), aliases=aliases)
     if not banned:
         return []
-    changed: list[str] = []
-    for field in ("stem_html", "text_html"):
-        current = question.get(field)
-        if not isinstance(current, str) or "<img" not in current.lower():
-            continue
-        updated = _drop_banned_imgs(current, banned, aliases)
-        if updated == current:
-            continue
-        if not _stem_still_has_content(updated):
-            continue
-        question[field] = updated
-        changed.append(field)
     stem_idents: set[str] = set()
     for field in ("stem_html", "text_html"):
         stem_idents |= choice_image_identities(
             [str(question.get(field) or "")],
             aliases=aliases,
         )
+    changed: list[str] = []
     for field in ("image_url", "image_src"):
         src = str(question.get(field) or "").strip()
         if not src:
@@ -682,28 +684,6 @@ def scrub_choice_images_from_stem(
             question.pop(field, None)
             changed.append(field)
     return changed
-
-
-def _drop_banned_imgs(
-    fragment: str,
-    banned: set[str],
-    aliases: dict[str, str] | None,
-) -> str:
-    """Delete ``<img>`` tags whose identity is in ``banned``.
-
-    Args:
-        fragment: Stem HTML.
-        banned: Canonical choice-image identities.
-        aliases: Optional mirror-cache identity map.
-    """
-
-    def replace(match: re.Match[str]) -> str:
-        ident = _canonical_image_identity(extract_image_src(match.group(0)), aliases)
-        if ident and ident in banned:
-            return ""
-        return match.group(0)
-
-    return _SNAPSHOT_IMG_RE.sub(replace, str(fragment or ""))
 
 
 def resolve_bank_image_url(image_src: str, *, class_id: int | None = None) -> str:

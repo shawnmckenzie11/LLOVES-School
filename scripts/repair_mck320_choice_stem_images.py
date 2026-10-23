@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Remove MC choice images that were stored on the question stem (MCK-320).
+"""Clear MC heroes that were copied from a choice (MCK-320).
 
-Dry-run is the default, including on production. It lists each affected
-question id with its library id and whether that library is shared. A pack
-library is shared across teachers, so applying the repair changes that
-question for every teacher using the pack.
+Dry-run is the default, including on production. It opens the database
+read-only and does not run LMS startup migrations. It lists promoted
+``image_url`` / ``image_src`` values on question rows and on class playlist
+cards, with each question's library id and whether that library is shared.
+Authored stem images are not targets, even when Canvas repeated the URL on
+every choice.
 
-Only ``questions.payload_json`` on those rows is written, and only with
-``--apply``. A second run writes zero rows. ``--dry-run`` wins over
+``--apply`` opens the file read-write and updates only those JSON texts,
+and only when the stored text still matches what was read. It does not run
+boot migrations. A second run writes zero rows. ``--dry-run`` wins over
 ``--apply``.
 
 Production (Fly, ``FLASK_ENV=production``, a data dir on ``/data``, or a
@@ -25,7 +28,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import sqlite3
 import sys
+import threading
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -137,6 +142,38 @@ def production_gate(args: argparse.Namespace, reason: str | None) -> str | None:
     return None
 
 
+class _Database:
+    """Sqlite connection the repair can read, and write only in apply mode."""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self.conn = conn
+        self._lock = threading.Lock()
+
+    def close(self) -> None:
+        """Close the sqlite connection."""
+        self.conn.close()
+
+
+def _open_database(db_path: Path, *, write: bool) -> _Database:
+    """Open sqlite without running LMS boot migrations.
+
+    Dry-run uses ``mode=ro`` plus ``query_only``, so a backup is not migrated
+    and not written. Apply opens the file read-write and still does not run
+    boot migrations; it only updates the JSON columns the plan names.
+
+    Args:
+        db_path: Sqlite file.
+        write: When false, the connection cannot write.
+    """
+    if write:
+        conn = sqlite3.connect(db_path)
+    else:
+        uri = f"{db_path.resolve().as_uri()}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True)
+        conn.execute("PRAGMA query_only = ON")
+    return _Database(conn)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Plan or apply the stem-image repair.
 
@@ -157,20 +194,15 @@ def main(argv: list[str] | None = None) -> int:
         format_choice_stem_image_report,
         plan_choice_stem_image_repairs,
     )
-    from school_db import SchoolDB
 
     if args.db is not None:
         db_path = args.db
-        data_dir = args.db.parent
     else:
         from paths import DEFAULT_DB_PATH
 
         db_path = Path(os.getenv("LLOVES_DB") or DEFAULT_DB_PATH)
-        data_dir = Path(
-            os.getenv("LLOVES_DATA_DIR") or os.getenv("DATA_DIR") or db_path.parent
-        )
-    school = SchoolDB(db_path, data_dir, live_database_url="")
     write = bool(args.apply) and not bool(args.dry_run)
+    school = _open_database(db_path, write=write)
     try:
         repairs = plan_choice_stem_image_repairs(school)
         print(f"target: {'PRODUCTION (' + reason + ')' if reason else 'local'}")

@@ -16359,8 +16359,24 @@ class SchoolDB(LovesDB):
         payload: dict[str, Any],
     ) -> dict[str, Any]:
         """Re-normalize one stored bank import with fresh image mirroring."""
+
+        def scrubbed(item: dict[str, Any]) -> dict[str, Any]:
+            """Drop a promoted choice hero before the card is returned.
+
+            An early return used to hand back the pre-fix ``image_url``.
+            Authored stem images are left in place by the scrub.
+            """
+            try:
+                from question_math import scrub_choice_images_from_stem
+            except ImportError:
+                from lms.question_math import scrub_choice_images_from_stem
+
+            if isinstance(item, dict):
+                scrub_choice_images_from_stem(item)
+            return item
+
         if not self._bank_item_needs_rehydrate(payload):
-            return payload
+            return scrubbed(payload)
         try:
             from bank_mc_normalize import normalize_bank_mc
         except ImportError:
@@ -16368,7 +16384,7 @@ class SchoolDB(LovesDB):
 
         question_id = int(payload.get("source_question_id") or 0)
         if not question_id:
-            return payload
+            return scrubbed(payload)
         with self._lock:
             row = self.conn.execute(
                 """
@@ -16383,11 +16399,11 @@ class SchoolDB(LovesDB):
                 (question_id, int(library_id)),
             ).fetchone()
         if row is None:
-            return payload
+            return scrubbed(payload)
         try:
             raw_payload = json.loads(row["payload_json"] or "{}")
         except json.JSONDecodeError:
-            return payload
+            return scrubbed(payload)
         overlay = None
         if row["stem_text"] is not None:
             overlay = {
@@ -16407,19 +16423,13 @@ class SchoolDB(LovesDB):
             library_id=int(library_id),
         )
         if not normalized:
-            return payload
+            return scrubbed(payload)
         merged = {**payload, **normalized}
         merged["id"] = str(payload.get("id") or merged.get("id") or "")
         merged["import_source"] = "module_bank"
         # The stored card may already have a choice image on image_url.
         # Normalize omits that key; merging would keep the leak.
-        try:
-            from question_math import scrub_choice_images_from_stem
-        except ImportError:
-            from lms.question_math import scrub_choice_images_from_stem
-
-        scrub_choice_images_from_stem(merged)
-        return merged
+        return scrubbed(merged)
 
 
     def list_class_playlist_placements(
@@ -16471,13 +16481,23 @@ class SchoolDB(LovesDB):
             item.pop("item_json", None)
             out.append(item)
         library_id = self._class_library_id(int(class_id))
-        if library_id is not None:
-            for item in out:
-                payload = item.get("item")
-                if isinstance(payload, dict):
-                    item["item"] = self.rehydrate_module_bank_item(
-                        int(class_id), int(library_id), payload
-                    )
+        try:
+            from question_math import scrub_choice_images_from_stem
+        except ImportError:
+            from lms.question_math import scrub_choice_images_from_stem
+
+        for item in out:
+            payload = item.get("item")
+            if not isinstance(payload, dict):
+                continue
+            if library_id is not None:
+                payload = self.rehydrate_module_bank_item(
+                    int(class_id), int(library_id), payload
+                )
+            # Rehydrate scrubs on every return. A class with no library
+            # never gets that far, so scrub the stored card here too.
+            scrub_choice_images_from_stem(payload)
+            item["item"] = payload
         return out
 
     @staticmethod

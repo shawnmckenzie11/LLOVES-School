@@ -1,15 +1,14 @@
-"""Repair MC question rows whose stem shows a choice image.
+"""Clear MC heroes that were copied from a choice.
 
-Canvas import stores the stem and the choices separately. A later display
-pass used to copy the first choice image onto the question hero, and some
-rows also have that image glued into ``stem_html``. This module finds those
-``questions`` rows and removes the choice image from the stem fields only.
+The display bug promoted the first choice image onto ``image_url`` when the
+stem had none. That value was stored on class playlist cards. It was not
+written into question stem HTML. An image the author put in the stem stays,
+even when Canvas repeated the same URL on every choice.
 
-Pack libraries are shared across teachers, so rewriting one question row
-changes that question for every teacher using the pack. The repair updates
-``questions.payload_json`` on affected rows and no other table or column.
-A second run finds nothing and writes zero rows. Choice HTML is left alone,
-and a graph that is not a choice is left on the stem.
+The repair rewrites only a promoted ``image_url`` / ``image_src`` inside
+``questions.payload_json`` or ``class_live_playlist_placements.item_json``,
+and only when the stored text still matches what was read. A second run
+writes zero rows. Choice HTML and authored stem images are left alone.
 """
 
 from __future__ import annotations
@@ -28,8 +27,19 @@ except ImportError:
 # the pack every teacher of that course uses.
 _PRIVATE_LIBRARY_ORIGINS = frozenset({"shell", "backfill-staging"})
 _SCHEMA_TABLES = frozenset(
-    {"questions", "question_banks", "content_libraries", "course_offerings", "bank_image_cache"}
+    {
+        "questions",
+        "question_banks",
+        "content_libraries",
+        "course_offerings",
+        "bank_image_cache",
+        "class_live_playlist_placements",
+    }
 )
+_WRITE_COLUMNS = {
+    "questions": "payload_json",
+    "class_live_playlist_placements": "item_json",
+}
 _NESTED_KEYS = ("payload", "item", "content")
 
 
@@ -203,7 +213,7 @@ def scrub_stored_document(
 
 
 def _question_rows(school: Any) -> list[tuple[Any, ...]]:
-    """Return ``(id, payload_json, library_id, origin)`` for every question.
+    """Return ``(id, payload_json, question_id, library_id)`` for every question.
 
     Args:
         school: Open school database.
@@ -215,11 +225,11 @@ def _question_rows(school: Any) -> list[tuple[Any, ...]]:
     if (
         "bank_id" in _columns(school, "questions")
         and "library_id" in bank_columns
-        and "origin" in library_columns
+        and "id" in library_columns
     ):
         return school.conn.execute(
             """
-            SELECT q.id, q.payload_json, b.library_id, l.origin
+            SELECT q.id, q.payload_json, q.id, b.library_id
             FROM questions q
             LEFT JOIN question_banks b ON b.id = q.bank_id
             LEFT JOIN content_libraries l ON l.id = b.library_id
@@ -227,27 +237,60 @@ def _question_rows(school: Any) -> list[tuple[Any, ...]]:
             """
         ).fetchall()
     return school.conn.execute(
-        "SELECT id, payload_json, NULL, NULL FROM questions ORDER BY id"
+        "SELECT id, payload_json, id, NULL FROM questions ORDER BY id"
     ).fetchall()
 
 
-def plan_choice_stem_image_repairs(school: Any) -> list[StemImageRepair]:
-    """List question rows that still show a choice image on the stem.
-
-    Playlist, prompt, and participation copies are not included. Those cards
-    are class-local, and the display path already drops a choice image before
-    it is shown. This plan is the shared question row only.
+def _placement_rows(school: Any) -> list[tuple[Any, ...]]:
+    """Return ``(id, item_json, question_id, library_id)`` for playlist cards.
 
     Args:
-        school: Open school database. Nothing is written.
-
-    Returns:
-        Repairs in question id order.
+        school: Open school database.
     """
-    aliases = mirror_identity_aliases(school)
-    shared = library_share_flags(school)
+    if "item_json" not in _columns(school, "class_live_playlist_placements"):
+        return []
+    placement_columns = _columns(school, "class_live_playlist_placements")
+    bank_columns = _columns(school, "question_banks")
+    if "source_question_id" in placement_columns and "library_id" in bank_columns:
+        return school.conn.execute(
+            """
+            SELECT p.id, p.item_json, p.source_question_id, b.library_id
+            FROM class_live_playlist_placements p
+            LEFT JOIN questions q ON q.id = p.source_question_id
+            LEFT JOIN question_banks b ON b.id = q.bank_id
+            ORDER BY p.id
+            """
+        ).fetchall()
+    question_sql = (
+        "source_question_id" if "source_question_id" in placement_columns else "NULL"
+    )
+    return school.conn.execute(
+        f"SELECT id, item_json, {question_sql}, NULL "
+        "FROM class_live_playlist_placements ORDER BY id"
+    ).fetchall()
+
+
+def _plan_json_rows(
+    rows: list[tuple[Any, ...]],
+    *,
+    table: str,
+    column: str,
+    aliases: dict[str, str],
+    shared: dict[int, bool],
+    question_id_from_row: bool,
+) -> list[StemImageRepair]:
+    """Plan hero-only repairs for one JSON column.
+
+    Args:
+        rows: ``(row id, json text, question id or None, library id or None)``.
+        table: ``questions`` or ``class_live_playlist_placements``.
+        column: JSON column name.
+        aliases: Mirror-cache identity map.
+        shared: Library id → shared flag.
+        question_id_from_row: When true, the question id is the row id.
+    """
     planned: list[StemImageRepair] = []
-    for row in _question_rows(school):
+    for row in rows:
         raw = row[1]
         if not raw or not isinstance(raw, str):
             continue
@@ -260,13 +303,17 @@ def plan_choice_stem_image_repairs(school: Any) -> list[StemImageRepair]:
         fields = scrub_stored_document(blob, aliases=aliases)
         if not fields:
             continue
-        library_id = _positive_int(row[2])
+        if question_id_from_row:
+            question_id = int(row[0])
+        else:
+            question_id = _positive_int(row[2])
+        library_id = _positive_int(row[3] if len(row) > 3 else None)
         planned.append(
             StemImageRepair(
-                table="questions",
-                column="payload_json",
+                table=table,
+                column=column,
                 row_id=int(row[0]),
-                question_id=int(row[0]),
+                question_id=question_id,
                 library_id=library_id,
                 shared=bool(library_id and shared.get(library_id, False)),
                 fields=tuple(fields),
@@ -277,22 +324,59 @@ def plan_choice_stem_image_repairs(school: Any) -> list[StemImageRepair]:
     return planned
 
 
+def plan_choice_stem_image_repairs(school: Any) -> list[StemImageRepair]:
+    """List stored heroes that were copied from a choice.
+
+    Question stem HTML is not a target. A question row appears only when its
+    own ``image_url`` or ``image_src`` is a choice image the stem does not
+    contain. Playlist cards are the stored leak.
+
+    Args:
+        school: Open school database. Nothing is written.
+
+    Returns:
+        Question repairs first, then playlist repairs, each by primary key.
+    """
+    aliases = mirror_identity_aliases(school)
+    shared = library_share_flags(school)
+    planned = _plan_json_rows(
+        _question_rows(school),
+        table="questions",
+        column="payload_json",
+        aliases=aliases,
+        shared=shared,
+        question_id_from_row=False,
+    )
+    planned.extend(
+        _plan_json_rows(
+            _placement_rows(school),
+            table="class_live_playlist_placements",
+            column="item_json",
+            aliases=aliases,
+            shared=shared,
+            question_id_from_row=False,
+        )
+    )
+    return planned
+
+
 def apply_choice_stem_image_repairs(
     school: Any,
     repairs: list[StemImageRepair],
 ) -> int:
-    """Write planned question repairs. A row that changed since the plan is skipped.
+    """Write planned hero repairs. A row that changed since the plan is skipped.
 
-    Only ``questions.payload_json`` is updated, and only when that stored text
-    still matches the plan. Banks, libraries, offerings, and every other
-    question row are left as they are. An empty plan writes nothing.
+    Only ``questions.payload_json`` and playlist ``item_json`` are updated,
+    and only when that stored text still matches the plan. Stem HTML, banks,
+    libraries, and offerings are left as they are. An empty plan writes nothing.
 
     Args:
         school: Open school database.
         repairs: Result of :func:`plan_choice_stem_image_repairs`.
 
     Returns:
-        Number of question rows updated. Zero on a second run.
+        Number of rows updated. Zero when the plan is empty, the stored
+        text no longer matches, or this is a second run.
     """
     written = 0
     lock = getattr(school, "_lock", None)
@@ -300,11 +384,12 @@ def apply_choice_stem_image_repairs(
         lock.acquire()
     try:
         for repair in repairs:
-            if repair.table != "questions" or repair.column != "payload_json":
+            column = _WRITE_COLUMNS.get(repair.table)
+            if column is None or repair.column != column:
                 continue
             cursor = school.conn.execute(
-                "UPDATE questions SET payload_json = ? "
-                "WHERE id = ? AND payload_json = ?",
+                f"UPDATE {repair.table} SET {repair.column} = ? "
+                f"WHERE id = ? AND {repair.column} = ?",
                 (repair.new_json, int(repair.row_id), repair.old_json),
             )
             written += int(cursor.rowcount or 0)
@@ -333,29 +418,27 @@ def format_choice_stem_image_report(
     """
     lines = [
         "DRY RUN (no writes; pass --apply to write)" if dry_run else "APPLIED",
-        "writes: questions.payload_json only",
+        "writes: promoted image_url/image_src only; authored stem images stay",
     ]
-    seen: dict[int, tuple[int | None, bool]] = {}
+    counts = {table: 0 for table in _WRITE_COLUMNS}
+    question_ids: list[int] = []
     for repair in repairs:
-        qid = int(repair.question_id if repair.question_id is not None else repair.row_id)
-        seen[qid] = (repair.library_id, repair.shared)
+        counts[repair.table] = counts.get(repair.table, 0) + 1
+        qid = repair.question_id if repair.question_id is not None else "-"
+        if repair.question_id:
+            question_ids.append(int(repair.question_id))
         library = repair.library_id if repair.library_id is not None else "-"
         shared = "yes" if repair.shared else "no"
         fields = ",".join(repair.fields)
         lines.append(
-            f"questions row={repair.row_id} question_id={qid} "
+            f"{repair.table} row={repair.row_id} question_id={qid} "
             f"library_id={library} shared={shared} fields={fields}"
         )
-    lines.append("affected_questions:")
-    if not seen:
-        lines.append("none")
-    for question_id in sorted(seen):
-        library_id, shared_flag = seen[question_id]
-        library = library_id if library_id is not None else "-"
-        shared = "yes" if shared_flag else "no"
-        lines.append(
-            f"question_id={question_id} library_id={library} shared={shared}"
-        )
-    lines.append(f"affected_question_id_count: {len(seen)}")
+    for table in _WRITE_COLUMNS:
+        lines.append(f"count {table}={counts.get(table, 0)}")
+    unique = sorted(set(question_ids))
+    shown = ",".join(str(item) for item in unique) if unique else "none"
+    lines.append(f"affected_question_ids: {shown}")
+    lines.append(f"affected_question_id_count: {len(unique)}")
     lines.append(f"affected_row_count: {len(repairs)}")
     return lines
