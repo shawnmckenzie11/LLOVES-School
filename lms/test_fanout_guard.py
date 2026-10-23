@@ -144,6 +144,8 @@ class FanoutGuardTests(unittest.TestCase):
     def tearDown(self) -> None:
         logging.disable(logging.NOTSET)
         reset_logs()
+        from bank_image_mirror import clear_bank_image_refusals
+        clear_bank_image_refusals()
         self.school.close()
         self.tmp.cleanup()
 
@@ -677,6 +679,85 @@ class FanoutGuardTests(unittest.TestCase):
         )
         self._ok_status(rv, 302)
 
+
+    def test_dead_bank_image_student_refresh_fetches_once(self) -> None:
+        """One refused bank image is fetched on the first student view only."""
+        from unittest.mock import patch
+
+        from bank_image_mirror import clear_bank_image_refusals
+        from test_module_bank_import import (
+            _LOGIN_HTML,
+            _UrlOpenBody,
+            _insert_bank,
+            _insert_mc_question,
+        )
+
+        offering = self.school.conn.execute(
+            "SELECT offering_id FROM classes WHERE id = ?",
+            (self.class_id,),
+        ).fetchone()
+        course = self.school.conn.execute(
+            "SELECT code FROM ontario_courses ORDER BY code LIMIT 1"
+        ).fetchone()
+        library = self.school.create_library(str(course["code"]), origin="upload")
+        library_id = int(library["id"])
+        self.school.attach_library(int(offering["offering_id"]), library_id)
+        remote = (
+            "https://virtuallearning.instructure.com/assessment_questions/"
+            "1/files/9/download?verifier=fanout"
+        )
+        bank_id = _insert_bank(
+            self.school,
+            library_id,
+            title="Live bank",
+            import_key="bank:fanout",
+        )
+        question_id = _insert_mc_question(
+            self.school,
+            bank_id,
+            import_key="q-fanout",
+            title="Graph",
+            stem=f'<p>Graph</p><img src="{remote}">',
+        )
+        self.school.confirm_module_bank_links(library_id, 1, [bank_id])
+        calls = {"n": 0}
+
+        def opener(*_args: object, **_kwargs: object) -> _UrlOpenBody:
+            """Count outbound image downloads and return a login page."""
+            calls["n"] += 1
+            return _UrlOpenBody(_LOGIN_HTML, "text/html")
+
+        with patch("bank_image_mirror._open_remote", side_effect=opener):
+            page_number = int(
+                self.school._current_student_page_number(self.session_id) or 1
+            )
+            self.school.import_mc_to_class_playlist(
+                self.class_id,
+                "M1",
+                "C2",
+                question_id,
+                library_id=library_id,
+                page_number=page_number,
+                stage="round",
+            )
+            items = self.school.ensure_live_session_items(self.session_id)
+            imported = next(
+                row
+                for row in items
+                if str(row.get("item_id") or "") == f"bank-import-{question_id}"
+            )
+            self.school.publish_live_session_item(
+                self.session_id, int(imported["id"])
+            )
+            clear_bank_image_refusals()
+            calls["n"] = 0
+            self.school.student_live_items_payload(self.session_id, self.ids[0])
+            first = calls["n"]
+            calls["n"] = 0
+            for student_id in self.ids:
+                self.school.student_live_items_payload(self.session_id, student_id)
+            self.assertGreaterEqual(first, 1)
+            self.assertEqual(calls["n"], 0)
 
 class FanoutGuardTableTests(unittest.TestCase):
     """The action table and the required CI job names."""
