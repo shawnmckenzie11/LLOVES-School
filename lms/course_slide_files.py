@@ -32,6 +32,11 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+try:
+    from xml_serialize import tostring_with_default_namespace
+except ImportError:
+    from lms.xml_serialize import tostring_with_default_namespace
+
 logger = logging.getLogger(__name__)
 
 # Loaded once so the child after fork can call prctl without allocating.
@@ -496,8 +501,7 @@ def _strip_rels_xml(data: bytes) -> bytes:
             removed = True
     if not removed:
         return data
-    ET.register_namespace("", _REL_NS)
-    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    return tostring_with_default_namespace(root, _REL_NS)
 
 
 def _part_may_reference_outside(name: str) -> bool:
