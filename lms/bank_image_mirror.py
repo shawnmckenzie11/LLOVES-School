@@ -43,15 +43,6 @@ _SVG_MAX_DEPTH = 64
 _SVG_MAX_NODES = 100_000
 SVG_SANDBOX_CSP = "sandbox; default-src 'none'; style-src 'unsafe-inline'"
 _FRAGMENT_RE = re.compile(r"^#[A-Za-z0-9_.:\-]*$")
-_CSS_URL_RE = re.compile(r"url\s*\((.*?)\)", re.IGNORECASE | re.DOTALL)
-_DANGEROUS_CSS = (
-    "javascript:",
-    "vbscript:",
-    "expression(",
-    "@import",
-    "-moz-binding",
-    "behavior:",
-)
 _SCRIPT_TYPE_RE = re.compile(r"script|ecmascript|vbscript", re.IGNORECASE)
 _SNIFF_EXT = {
     "png": ".png",
@@ -176,24 +167,57 @@ def _host_allowed(hostname: str) -> bool:
     return False
 
 
-def _url_has_userinfo_or_backslash(url: str) -> bool:
-    """Return True when a URL carries userinfo or a backslash.
+def _raw_authority(url: str) -> str:
+    """Return the authority text before the path, query, or fragment.
 
-    ``urlparse`` can report an allowlisted hostname while the raw URL
-    still has userinfo or a backslash that another parser treats as part
-    of the host. Those URLs are refused before any connection. A
-    percent-encoded backslash counts too.
+    Equatio SVG URLs put LaTeX in the path, including a percent-encoded
+    backslash. That path is not part of the host. Only the text between
+    ``://`` and the first ``/``, ``?``, or ``#`` is the authority.
+
+    Args:
+        url: Candidate image URL.
+
+    Returns:
+        The raw authority, or an empty string when the URL has none.
+    """
+    raw = str(url or "").strip()
+    marker = "://"
+    start = raw.find(marker)
+    if start < 0:
+        return ""
+    rest = raw[start + len(marker) :]
+    cut = len(rest)
+    for token in ("/", "?", "#"):
+        index = rest.find(token)
+        if 0 <= index < cut:
+            cut = index
+    return rest[:cut]
+
+
+def _url_has_userinfo_or_backslash(url: str) -> bool:
+    """Return True when the authority carries userinfo or a backslash.
+
+    ``urlparse`` can report an allowlisted hostname while the raw
+    authority still has userinfo or a backslash that another parser
+    treats as part of the host. Those URLs are refused before any
+    connection. The check looks at the authority both raw and
+    percent-decoded. A backslash in the path or the query is LaTeX, not
+    a host trick, and is left alone.
 
     Args:
         url: Candidate image URL, including a redirect target.
     """
-    raw = str(url or "")
-    if "\\" in raw or "\\" in urllib.parse.unquote(raw):
+    authority = _raw_authority(url)
+    if not authority:
+        return False
+    try:
+        decoded = urllib.parse.unquote(authority)
+    except ValueError:
         return True
-    parsed = urllib.parse.urlparse(raw)
-    if parsed.username is not None or parsed.password is not None:
-        return True
-    return "@" in (parsed.netloc or "")
+    for text in (authority, decoded):
+        if "\\" in text or "@" in text:
+            return True
+    return False
 
 
 def is_remote_bank_image_url(url: str) -> bool:
@@ -201,18 +225,23 @@ def is_remote_bank_image_url(url: str) -> bool:
 
     Only https URLs are accepted. The hostname is parsed, so a fragment
     or query cannot borrow an allowlisted name. Userinfo and a backslash
-    are refused even when the parsed host is allowlisted.
+    in the authority are refused even when the parsed host is allowlisted.
+    A broken bracket in the authority raises ``ValueError`` from the
+    parser; that URL is refused rather than escaping the caller.
 
     Args:
         url: Image ``src`` from bank HTML.
     """
     raw = str(url or "").strip()
-    if _url_has_userinfo_or_backslash(raw):
+    try:
+        if _url_has_userinfo_or_backslash(raw):
+            return False
+        parsed = urllib.parse.urlparse(raw)
+        if parsed.scheme.lower() != "https":
+            return False
+        return _host_allowed(parsed.hostname or "")
+    except ValueError:
         return False
-    parsed = urllib.parse.urlparse(raw)
-    if parsed.scheme.lower() != "https":
-        return False
-    return _host_allowed(parsed.hostname or "")
 
 
 def clear_bank_image_refusals() -> None:
@@ -419,29 +448,243 @@ def _same_document_fragment(value: str) -> bool:
     return _FRAGMENT_RE.fullmatch(text) is not None
 
 
-def _presentation_value_ok(value: str) -> bool:
-    """Return True when an attribute value has no active content.
+_CSS_ESCAPE_RE = re.compile(
+    r"\\(?:(\r\n|[\n\r\f])|([0-9a-fA-F]{1,6})[ \t\r\n\f]?|(.))",
+)
+_CSS_ACTIVE_TOKENS = (
+    "javascript:",
+    "vbscript:",
+    "expression(",
+    "@import",
+    "-moz-binding",
+    "behavior:",
+)
 
-    ``url()`` is kept only when every target is a same-document fragment.
-    ``javascript:`` and CSS expressions are dropped.
+
+def _unescape_css(value: str) -> str:
+    """Decode CSS escapes so a hidden ``url(`` cannot skip the checks.
+
+    A hex escape is a backslash plus one to six hex digits, and it consumes
+    one trailing whitespace character. A backslash before a newline is a
+    line continuation. Any other escaped character is that character.
 
     Args:
-        value: Decoded attribute or style text.
+        value: Raw CSS or presentation-attribute text.
     """
-    text = str(value or "")
-    lower = text.lower()
-    if any(token in lower for token in _DANGEROUS_CSS):
-        return False
-    if "url(" not in lower:
+
+    def replace(match: re.Match[str]) -> str:
+        """Replace one CSS escape match.
+
+        Args:
+            match: One escape from ``_CSS_ESCAPE_RE``.
+        """
+        if match.group(1) is not None:
+            return ""
+        hex_digits = match.group(2)
+        if hex_digits is not None:
+            code = int(hex_digits, 16)
+            if code == 0 or code > 0x10FFFF:
+                return "\ufffd"
+            return chr(code)
+        return str(match.group(3) or "")
+
+    return _CSS_ESCAPE_RE.sub(replace, str(value or ""))
+
+
+def _css_name_boundary(text: str, found: int) -> bool:
+    """Return True when ``found`` is not in the middle of an identifier.
+
+    Args:
+        text: CSS text.
+        found: Index of a function or keyword name.
+    """
+    if found <= 0:
         return True
-    parts = _CSS_URL_RE.findall(text)
-    if lower.count("url(") != len(parts):
-        return False
-    for part in parts:
-        target = part.strip().strip("'\"").strip()
-        if not _same_document_fragment(target):
-            return False
-    return True
+    prev = text[found - 1]
+    return not (prev.isalnum() or prev in "-_")
+
+
+def _strip_balanced_call(text: str, name: str) -> str:
+    """Remove every ``name(...)`` call, including nested parentheses.
+
+    An unclosed call is removed through the end of the text. A match
+    inside a longer identifier is left alone.
+
+    Args:
+        text: CSS text.
+        name: Function name, matched case-insensitively.
+    """
+    lower = text.lower()
+    needle = name.lower()
+    out: list[str] = []
+    index = 0
+    while index < len(text):
+        found = lower.find(needle, index)
+        if found < 0:
+            out.append(text[index:])
+            break
+        if not _css_name_boundary(text, found):
+            out.append(text[index : found + 1])
+            index = found + 1
+            continue
+        cursor = found + len(needle)
+        while cursor < len(text) and text[cursor] in " \t\r\n\f":
+            cursor += 1
+        if cursor >= len(text) or text[cursor] != "(":
+            out.append(text[index : found + 1])
+            index = found + 1
+            continue
+        out.append(text[index:found])
+        depth = 0
+        while cursor < len(text):
+            char = text[cursor]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    cursor += 1
+                    break
+            cursor += 1
+        index = cursor
+    return "".join(out)
+
+
+def _strip_unsafe_css_urls(text: str) -> str:
+    """Remove ``url()`` calls that are not a same-document fragment.
+
+    Args:
+        text: CSS text that has already been unescaped.
+    """
+    lower = text.lower()
+    out: list[str] = []
+    index = 0
+    while index < len(text):
+        found = lower.find("url", index)
+        if found < 0:
+            out.append(text[index:])
+            break
+        if not _css_name_boundary(text, found):
+            out.append(text[index : found + 1])
+            index = found + 1
+            continue
+        cursor = found + 3
+        while cursor < len(text) and text[cursor] in " \t\r\n\f":
+            cursor += 1
+        if cursor >= len(text) or text[cursor] != "(":
+            out.append(text[index : found + 1])
+            index = found + 1
+            continue
+        start_inner = cursor + 1
+        depth = 1
+        cursor += 1
+        while cursor < len(text) and depth:
+            char = text[cursor]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+            cursor += 1
+        end_inner = cursor - 1 if depth == 0 else cursor
+        target = text[start_inner:end_inner].strip().strip("'\"").strip()
+        if depth == 0 and _same_document_fragment(target):
+            out.append(text[index:cursor])
+        else:
+            out.append(text[index:found])
+        index = cursor
+    return "".join(out)
+
+
+def _strip_data_font_faces(text: str) -> str:
+    """Remove ``@font-face`` blocks whose body uses a ``data:`` URL.
+
+    Other rules in the same style sheet stay. A font face that does not
+    mention ``data:`` stays too.
+
+    Args:
+        text: CSS text that has already been unescaped.
+    """
+    lower = text.lower()
+    out: list[str] = []
+    index = 0
+    while index < len(text):
+        found = lower.find("@font-face", index)
+        if found < 0:
+            out.append(text[index:])
+            break
+        brace = text.find("{", found)
+        if brace < 0:
+            out.append(text[index:found])
+            break
+        depth = 0
+        cursor = brace
+        while cursor < len(text):
+            char = text[cursor]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    cursor += 1
+                    break
+            cursor += 1
+        block = text[found:cursor]
+        if "data:" in block.lower():
+            out.append(text[index:found])
+        else:
+            out.append(text[index:cursor])
+        index = cursor
+    return "".join(out)
+
+
+def _strip_css_imports(text: str) -> str:
+    """Remove ``@import`` rules through the terminating semicolon.
+
+    Args:
+        text: CSS text that has already been unescaped.
+    """
+    lower = text.lower()
+    out: list[str] = []
+    index = 0
+    while index < len(text):
+        found = lower.find("@import", index)
+        if found < 0:
+            out.append(text[index:])
+            break
+        semi = text.find(";", found)
+        out.append(text[index:found])
+        if semi < 0:
+            break
+        index = semi + 1
+    return "".join(out)
+
+
+def _clean_presentation_css(value: str) -> str | None:
+    """Return CSS with remote loads removed, or None when active content remains.
+
+    Escapes are decoded before the check. ``image-set()`` is removed.
+    ``url()`` stays only for a same-document fragment. An ``@font-face``
+    that points at ``data:`` is removed on its own so the rest of the
+    style sheet can stay. ``javascript:``, expressions, and binding
+    tokens still refuse the whole value.
+
+    Args:
+        value: Decoded attribute or style-element text.
+
+    Returns:
+        Cleaned CSS, an empty string when every rule was stripped, or
+        None when a token such as ``javascript:`` is still present.
+    """
+    text = _unescape_css(value)
+    text = _strip_data_font_faces(text)
+    text = _strip_css_imports(text)
+    text = _strip_balanced_call(text, "image-set")
+    text = _strip_unsafe_css_urls(text)
+    lower = text.lower()
+    if any(token in lower for token in _CSS_ACTIVE_TOKENS):
+        return None
+    return text
+
 
 
 def _accepted_attribute(name: str, value: str) -> str | None:
@@ -459,9 +702,10 @@ def _accepted_attribute(name: str, value: str) -> str | None:
         return None
     if name == "space" and value.strip() not in {"preserve", "default"}:
         return None
-    if not _presentation_value_ok(value):
+    cleaned = _clean_presentation_css(value)
+    if cleaned is None or not str(cleaned).strip():
         return None
-    return value
+    return cleaned
 
 
 def _append_text(node: ET.Element, extra: str) -> None:
@@ -538,8 +782,8 @@ def _clean_svg_element(
         else:
             node.set(attr_name, kept)
     if canonical == "style":
-        style_text = str(elem.text or "")
-        if style_text and _presentation_value_ok(style_text):
+        style_text = _clean_presentation_css(str(elem.text or ""))
+        if style_text and style_text.strip():
             node.text = style_text
     elif elem.text:
         node.text = elem.text
@@ -553,23 +797,141 @@ def _clean_svg_element(
     return node
 
 
+class _SvgSanitizeTransient(Exception):
+    """The SVG looked real, but parsing or writing it failed this time.
+
+    A locked or racing writer used to turn a good SVG into a refusal.
+    Callers remember that for minutes, not as a confirmed non-image.
+    """
+
+
+def _xml_text(value: str) -> str:
+    """Escape text for an XML attribute or character data.
+
+    Args:
+        value: Decoded text.
+    """
+    return (
+        str(value)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def _tree_uses_xlink(elem: ET.Element) -> bool:
+    """Return True when the element or a descendant has an xlink attribute.
+
+    Args:
+        elem: Sanitised element.
+    """
+    for key in elem.attrib:
+        if isinstance(key, str) and _namespace(key) == _XLINK_NS:
+            return True
+    return any(_tree_uses_xlink(child) for child in list(elem))
+
+
+def _serialize_element(elem: ET.Element, *, root: bool, declare_xlink: bool) -> str:
+    """Write one element without reading ``ElementTree``'s namespace map.
+
+    Args:
+        elem: Sanitised element in the SVG namespace.
+        root: When True, declare the SVG namespace on this element.
+        declare_xlink: When True, declare the xlink namespace on the root.
+    """
+    local = _local_name(elem.tag)
+    parts = [f"<{local}"]
+    if root:
+        parts.append(f' xmlns="{_SVG_NS}"')
+        if declare_xlink:
+            parts.append(f' xmlns:xlink="{_XLINK_NS}"')
+    for key, value in elem.attrib.items():
+        if not isinstance(key, str):
+            continue
+        ns = _namespace(key)
+        name = _local_name(key)
+        if ns == _XLINK_NS:
+            qname = f"xlink:{name}"
+        elif ns == _XML_NS:
+            qname = f"xml:{name}"
+        else:
+            qname = name
+        parts.append(f' {qname}="{_xml_text(value)}"')
+    children = list(elem)
+    text = elem.text or ""
+    if not children and not text:
+        parts.append("/>")
+        return "".join(parts)
+    parts.append(">")
+    if text:
+        parts.append(_xml_text(text))
+    for child in children:
+        parts.append(_serialize_element(child, root=False, declare_xlink=False))
+        if child.tail:
+            parts.append(_xml_text(child.tail))
+    parts.append(f"</{local}>")
+    return "".join(parts)
+
+
 def _serialize_svg(elem: ET.Element) -> bytes:
-    """Serialise a cleaned SVG element without changing process-wide prefixes.
+    """Serialise a cleaned SVG element without a process-wide namespace map.
+
+    ``ElementTree.tostring`` reads a process-wide prefix table.
+    ``register_namespace`` writes that table. This writer never touches
+    it, so a manifest or slide serializer running on another thread
+    cannot change this document or be changed by it.
 
     Args:
         elem: Sanitised SVG root in the SVG namespace.
 
     Returns:
-        UTF-8 XML bytes.
+        UTF-8 XML bytes whose root is an unprefixed ``svg`` element.
     """
-    saved = dict(ET._namespace_map)
-    try:
-        ET.register_namespace("", _SVG_NS)
-        ET.register_namespace("xlink", _XLINK_NS)
-        return ET.tostring(elem, encoding="utf-8", xml_declaration=True)
-    finally:
-        ET._namespace_map.clear()
-        ET._namespace_map.update(saved)
+    body = _serialize_element(
+        elem, root=True, declare_xlink=_tree_uses_xlink(elem)
+    )
+    return f'<?xml version="1.0" encoding="utf-8"?>\n{body}'.encode("utf-8")
+
+
+_SVG11_PUBLIC_ID = b"-//w3c//dtd svg 1.1//en"
+_SVG11_SYSTEM_ID = b"http://www.w3.org/graphics/svg/1.1/dtd/svg11.dtd"
+
+
+def _strip_standard_svg_doctype(payload: bytes) -> bytes | None:
+    """Drop a standard SVG 1.1 doctype without resolving it.
+
+    The doctype is cut out of the bytes and is never fetched. An internal
+    subset, or any doctype that is not the SVG 1.1 public and system
+    identifiers, refuses the document.
+
+    Args:
+        payload: Candidate SVG bytes.
+
+    Returns:
+        Bytes safe to parse, or None when a doctype must be refused.
+    """
+    lower = payload.lower()
+    start = lower.find(b"<!doctype")
+    if start < 0:
+        return payload
+    end = payload.find(b">", start)
+    if end < 0:
+        return None
+    declaration = payload[start : end + 1]
+    if b"[" in declaration:
+        return None
+    folded = declaration.lower()
+    if not folded.startswith(b"<!doctype"):
+        return None
+    name = folded[len(b"<!doctype") :].lstrip()
+    if not name.startswith(b"svg"):
+        return None
+    if len(name) > 3 and name[3:4] not in b" \t\r\n>":
+        return None
+    if _SVG11_PUBLIC_ID not in folded or _SVG11_SYSTEM_ID not in folded:
+        return None
+    return payload[:start] + payload[end + 1 :]
 
 
 def sanitize_svg(payload: bytes) -> bytes | None:
@@ -577,10 +939,15 @@ def sanitize_svg(payload: bytes) -> bytes | None:
 
     The mirror stores this return value and does not keep the original
     bytes. Parsing uses defusedxml, so a DTD or an external entity refuses
-    the file. Elements whose local name is not allowlisted are removed in
+    the file. A standard SVG 1.1 doctype is removed first and is not
+    resolved. Elements whose local name is not allowlisted are removed in
     every namespace. ``on*`` attributes are removed. ``href`` and
     ``xlink:href`` stay only when they are a same-document ``#fragment``.
     ``foreignObject`` is not allowlisted, so it is removed.
+
+    A parser or writer failure that is not a definite rejection raises
+    ``_SvgSanitizeTransient`` so the caller can use the short refusal
+    window.
 
     Args:
         payload: Candidate SVG bytes.
@@ -588,13 +955,22 @@ def sanitize_svg(payload: bytes) -> bytes | None:
     Returns:
         UTF-8 XML for the cleaned document, or None when the body is not
         an SVG document or the parser rejects it.
+
+    Raises:
+        _SvgSanitizeTransient: The body looked like SVG, but parsing or
+            serialising failed in a way that may succeed later.
     """
-    if not _svg_document(payload):
+    prepared = _strip_standard_svg_doctype(payload)
+    if prepared is None:
+        return None
+    if not _svg_document(prepared):
         return None
     try:
-        root = _safe_xml_fromstring(payload)
-    except (DefusedXmlException, ET.ParseError, ValueError, TypeError, OSError):
+        root = _safe_xml_fromstring(prepared)
+    except (DefusedXmlException, ET.ParseError):
         return None
+    except (ValueError, TypeError, OSError) as exc:
+        raise _SvgSanitizeTransient("svg parse failed") from exc
     if not isinstance(getattr(root, "tag", None), str):
         return None
     if _local_name(root.tag).lower() != "svg":
@@ -607,11 +983,12 @@ def sanitize_svg(payload: bytes) -> bytes | None:
         return None
     try:
         rendered = _serialize_svg(cleaned)
-    except (ValueError, TypeError, LookupError):
-        return None
+    except (ValueError, TypeError, LookupError) as exc:
+        raise _SvgSanitizeTransient("svg serialize failed") from exc
     if not rendered or b"<svg" not in rendered.lower():
-        return None
+        raise _SvgSanitizeTransient("svg serialize produced no root")
     return rendered
+
 
 
 def _image_bytes_for_store(payload: bytes) -> tuple[str, bytes] | None:
@@ -849,7 +1226,8 @@ def mirror_bank_image_url(
     module-file routes sandbox them when they are served. A newly
     downloaded SVG is replaced with the sanitiser output before it is
     stored. A confirmed non-image is remembered for about one hour. A
-    network error is remembered for about five minutes. The refusal cache
+    network error, and a sanitiser failure that may be transient, are
+    remembered for about five minutes. The refusal cache
     is capped. One in-flight download is shared so a class poll does not
     stampede the same URL.
 
@@ -894,7 +1272,11 @@ def mirror_bank_image_url(
         except ValueError:
             _remember_refusal(library, url, ttl=_REFUSAL_TTL_S)
             return None
-        prepared = _image_bytes_for_store(payload)
+        try:
+            prepared = _image_bytes_for_store(payload)
+        except _SvgSanitizeTransient:
+            _remember_refusal(library, url, ttl=_REFUSAL_NETWORK_TTL_S)
+            return None
         if prepared is None:
             _remember_refusal(library, url, ttl=_REFUSAL_TTL_S)
             return None
@@ -1045,18 +1427,28 @@ def apply_mirrored_svg_headers(response: Any, rel: str) -> Any:
         response: File response for the library blob.
         rel: Cartridge-relative path used as the download name.
 
+    Markup stored as ``.svg``, ``.svgz``, ``.xml``, ``.xhtml``, ``.html``,
+    or ``.htm`` gets the same sandbox policy and ``nosniff``. Those
+    extensions can carry an SVG a cartridge imported under another name.
+    ``.html`` and ``.xml`` keep their own content type. Only ``.svg`` and
+    ``.svgz`` are labelled ``image/svg+xml``.
+
     Returns:
-        The same response. SVG paths also carry the sandbox policy and
-        ``X-Content-Type-Options: nosniff``.
+        The same response. Active markup also carries the sandbox policy
+        and ``X-Content-Type-Options: nosniff``.
     """
     name = str(rel or "").split("?", 1)[0].rstrip("/").lower()
     content_type = ""
     headers = getattr(response, "headers", None)
     if headers is not None:
         content_type = str(headers.get("Content-Type") or "").lower()
-    if not name.endswith(".svg") and not content_type.startswith("image/svg+xml"):
+    svg_name = name.endswith((".svg", ".svgz"))
+    active_name = svg_name or name.endswith((".xml", ".xhtml", ".html", ".htm"))
+    svg_type = content_type.startswith("image/svg+xml")
+    if not active_name and not svg_type:
         return response
-    response.headers["Content-Type"] = "image/svg+xml"
+    if svg_name or svg_type:
+        response.headers["Content-Type"] = "image/svg+xml"
     response.headers["Content-Security-Policy"] = SVG_SANDBOX_CSP
     response.headers["X-Content-Type-Options"] = "nosniff"
     return response

@@ -23,6 +23,11 @@ from pathlib import Path
 from urllib.parse import unquote
 from xml.etree import ElementTree as ET
 
+try:
+    from xml_serialize import tostring_with_default_namespace
+except ImportError:
+    from lms.xml_serialize import tostring_with_default_namespace
+
 # Extensions the importer treats as pictures embedded in stems and pages.
 IMAGE_SUFFIXES = frozenset(
     {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".ico"}
@@ -420,8 +425,9 @@ def _rewrite_manifest(manifest_xml: str, kept: set[str]) -> bytes:
             prune(child)
 
     prune(root)
-    ET.register_namespace("", "http://www.imsglobal.org/xsd/imsccv1p1/imscp_v1p1")
-    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    return tostring_with_default_namespace(
+        root, "http://www.imsglobal.org/xsd/imsccv1p1/imscp_v1p1"
+    )
 
 
 @dataclass

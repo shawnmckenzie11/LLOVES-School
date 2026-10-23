@@ -1321,12 +1321,30 @@ def _student_dashboard_redirect_if_live(school: SchoolDB, class_id: int, student
     return None
 
 
+def _svgz_is_gzip(target: Path) -> bool:
+    """Return True when a ``.svgz`` blob actually starts with gzip magic.
+
+    Werkzeug labels a download ``Content-Encoding: gzip`` from the
+    ``.svgz`` suffix alone. A raw SVG stored under that name must not
+    get that label.
+
+    Args:
+        target: Blob path on disk.
+    """
+    try:
+        with target.open("rb") as handle:
+            return handle.read(2) == b"\x1f\x8b"
+    except OSError:
+        return False
+
+
 def _send_module_file(target: Path, rel: str) -> Response:
-    """Serve one library blob and sandbox every SVG on this route.
+    """Serve one library blob and sandbox active markup on this route.
 
     Staff and student module-file routes both serve mirrored bank images.
     The sandbox policy is applied when the response is built, so an SVG
-    already stored on the volume is covered without rewriting it.
+    already stored on the volume is covered without rewriting it. A
+    ``.svgz`` name is labelled gzip only when the blob itself is gzip.
 
     Args:
         target: Blob path on disk.
@@ -1337,9 +1355,16 @@ def _send_module_file(target: Path, rel: str) -> Response:
     """
     from bank_image_mirror import apply_mirrored_svg_headers
 
+    kwargs: dict[str, str] = {}
+    gzip_svgz = False
+    if Path(rel).name.lower().endswith(".svgz"):
+        gzip_svgz = _svgz_is_gzip(target)
+        kwargs["mimetype"] = "image/svg+xml"
     response = send_from_directory(
-        target.parent, target.name, download_name=Path(rel).name
+        target.parent, target.name, download_name=Path(rel).name, **kwargs
     )
+    if gzip_svgz:
+        response.headers["Content-Encoding"] = "gzip"
     return apply_mirrored_svg_headers(response, rel)
 
 

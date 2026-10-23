@@ -172,14 +172,31 @@ class BankImageHostTests(unittest.TestCase):
                 "https://169.254.169.254\\@virtuallearning.instructure.com/a.png"
             )
         )
-        self.assertFalse(
+        self.assertTrue(
             is_remote_bank_image_url("https://x.instructure.com/a%5Cb.png")
         )
-        self.assertFalse(
+        self.assertTrue(
             is_remote_bank_image_url(
                 "https://virtuallearning.instructure.com/a\\b.png"
             )
         )
+        self.assertTrue(
+            is_remote_bank_image_url(
+                "https://equatio-api.texthelp.com/svg/latex/%5Cfrac%7B1%7D%7B2%7D"
+            )
+        )
+        self.assertTrue(
+            is_remote_bank_image_url(
+                "https://virtuallearning.instructure.com/a.png?q=%5C"
+            )
+        )
+        self.assertFalse(
+            is_remote_bank_image_url(
+                "https://virtuallearning.instructure.com%5C.evil.com/a.png"
+            )
+        )
+        self.assertFalse(is_remote_bank_image_url("https://[::1/a"))
+        self.assertFalse(is_remote_bank_image_url("https://[::1]@host/"))
         self.assertTrue(
             is_remote_bank_image_url("https://virtuallearning.instructure.com/a.png")
         )
@@ -263,6 +280,119 @@ class BankImageHostTests(unittest.TestCase):
         self.assertIsNone(
             sanitize_svg(b"<!doctype html><html><body><svg></svg></body></html>")
         )
+        styled = sanitize_svg(
+            b'<svg xmlns="http://www.w3.org/2000/svg">'
+            b"<style>.ok{fill:red}"
+            b"@font-face{font-family:w;src:url(data:font/woff;base64,QQ)}"
+            b".keep{fill:url(#grad)}</style>"
+            b'<path style="fill:\\75 rl(https://evil.example/a);stroke:url(#g)"/>'
+            b'<path style="fill:image-set(&quot;https://evil.example/b&quot;)"/>'
+            b'<path style="fill:u\\rl(https://evil.example/c)"/>'
+            b'<path style="@\\69mport url(https://evil.example/d);fill:blue"/>'
+            b'<path d="M9 9"/>'
+            b"</svg>"
+        )
+        self.assertIsNotNone(styled)
+        assert styled is not None
+        folded = styled.lower()
+        self.assertNotIn(b"data:", folded)
+        self.assertNotIn(b"evil", folded)
+        self.assertNotIn(b"image-set", folded)
+        self.assertNotIn(b"@import", folded)
+        self.assertIn(b"#grad", styled)
+        self.assertIn(b"#g", styled)
+        self.assertIn(b"M9 9", styled)
+        self.assertIn(b"fill:red", folded)
+        doctype = sanitize_svg(
+            b'<?xml version="1.0"?>'
+            b'<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" '
+            b'"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">'
+            b'<svg xmlns="http://www.w3.org/2000/svg"><path d="M2 2"/></svg>'
+        )
+        self.assertIsNotNone(doctype)
+        assert doctype is not None
+        self.assertIn(b"M2 2", doctype)
+
+    def test_svg_writer_does_not_touch_the_process_namespace_map(self) -> None:
+        """Concurrent SVG, manifest, and rels writers leave the global map alone."""
+        import sys
+        import threading
+        import xml.etree.ElementTree as ET
+
+        try:
+            from bank_image_mirror import sanitize_svg
+            from course_slide_files import _strip_rels_xml
+            from slim_pack import _rewrite_manifest
+        except ImportError:
+            from lms.bank_image_mirror import sanitize_svg
+            from lms.course_slide_files import _strip_rels_xml
+            from lms.slim_pack import _rewrite_manifest
+
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg"><path d="M1 1"/></svg>'
+        manifest = (
+            '<manifest xmlns="http://www.imsglobal.org/xsd/imsccv1p1/imscp_v1p1">'
+            '<resources><resource identifier="r" href="a.png">'
+            '<file href="a.png"/></resource></resources></manifest>'
+        )
+        rels = (
+            b'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            b'<Relationship Id="rId1" '
+            b'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
+            b'Target="https://evil.example/a.png" TargetMode="External"/>'
+            b"</Relationships>"
+        )
+        saved = dict(ET._namespace_map)
+        errors: list[str] = []
+
+        def sanitise() -> None:
+            """Sanitise one SVG many times and record a bad result."""
+            try:
+                for _ in range(40):
+                    out = sanitize_svg(svg)
+                    if out is None or b"ns0:" in out or b"<svg" not in out:
+                        errors.append(repr(out))
+            except Exception as exc:  # noqa: BLE001 - the test must see worker failures
+                errors.append(f"sanitise: {exc!r}")
+
+        def rewrite() -> None:
+            """Rewrite a tiny manifest while SVG sanitising is in flight."""
+            try:
+                for _ in range(20):
+                    out = _rewrite_manifest(manifest, {"a.png"})
+                    if b"ns0:" in out or b"a.png" not in out:
+                        errors.append(out.decode("utf-8", "replace"))
+            except Exception as exc:  # noqa: BLE001 - the test must see worker failures
+                errors.append(f"rewrite: {exc!r}")
+
+        def strip() -> None:
+            """Strip an external relationship while SVG sanitising is in flight."""
+            try:
+                for _ in range(20):
+                    out = _strip_rels_xml(rels)
+                    if b"ns0:" in out or b"https://evil" in out:
+                        errors.append(out.decode("utf-8", "replace"))
+            except Exception as exc:  # noqa: BLE001 - the test must see worker failures
+                errors.append(f"strip: {exc!r}")
+
+        previous = sys.getswitchinterval()
+        sys.setswitchinterval(1e-6)
+        try:
+            threads = [
+                threading.Thread(target=sanitise),
+                threading.Thread(target=sanitise),
+                threading.Thread(target=sanitise),
+                threading.Thread(target=sanitise),
+                threading.Thread(target=rewrite),
+                threading.Thread(target=strip),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        finally:
+            sys.setswitchinterval(previous)
+        self.assertEqual(errors, [])
+        self.assertEqual(dict(ET._namespace_map), saved)
 
     def test_refusal_cache_stays_within_cap(self) -> None:
         """Distinct refusals do not grow past the cap, and a hit stays warm."""
@@ -949,6 +1079,82 @@ class ModuleBankImportMergeTests(unittest.TestCase):
                     mirror_bank_image_url(self.school, self.library_id, html_url)
                 )
                 self.assertEqual(calls["html"], 2)
+
+    def test_transient_svg_failure_uses_the_short_refusal(self) -> None:
+        """A writer failure is remembered for five minutes, not one hour.
+
+        A confirmed non-image, including an SVG the parser rejects, still
+        uses the hour-long refusal.
+        """
+        try:
+            from bank_image_mirror import _serialize_svg, mirror_bank_image_url
+        except ImportError:
+            from lms.bank_image_mirror import _serialize_svg, mirror_bank_image_url
+
+        real_serialize = _serialize_svg
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg"><path d="M1 1"/></svg>'
+        broken = b'<svg xmlns="http://www.w3.org/2000/svg"><path'
+        transient_url = (
+            "https://virtuallearning.instructure.com/files/90/download?verifier=transient"
+        )
+        broken_url = (
+            "https://virtuallearning.instructure.com/files/91/download?verifier=broken"
+        )
+        clock = {"now": 2_000_000.0}
+        calls = {"transient": 0, "broken": 0}
+        state = {"fail": True}
+
+        def serialize(elem):
+            """Fail the first write, then use the real writer.
+
+            Args:
+                elem: Sanitised SVG element.
+            """
+            if state["fail"]:
+                state["fail"] = False
+                raise ValueError("transient writer failure")
+            return real_serialize(elem)
+
+        def opener(request: object, timeout: float) -> _UrlOpenBody:
+            """Return one SVG body, or a truncated SVG, for this URL.
+
+            Args:
+                request: Outbound request.
+                timeout: Unused socket timeout.
+            """
+            target = str(getattr(request, "full_url", "") or "")
+            if "verifier=transient" in target:
+                calls["transient"] += 1
+                return _UrlOpenBody(svg, "image/svg+xml")
+            calls["broken"] += 1
+            return _UrlOpenBody(broken, "image/svg+xml")
+
+        with mock.patch("bank_image_mirror.time.monotonic", lambda: clock["now"]):
+            with mock.patch("bank_image_mirror._serialize_svg", side_effect=serialize):
+                with mock.patch("bank_image_mirror._open_remote", side_effect=opener):
+                    self.assertIsNone(
+                        mirror_bank_image_url(
+                            self.school, self.library_id, transient_url
+                        )
+                    )
+                    self.assertIsNone(
+                        mirror_bank_image_url(self.school, self.library_id, broken_url)
+                    )
+                    self.assertEqual(calls, {"transient": 1, "broken": 1})
+                    clock["now"] += (5 * 60) + 1
+                    stored = mirror_bank_image_url(
+                        self.school, self.library_id, transient_url
+                    )
+                    self.assertIsNotNone(stored)
+                    self.assertIsNone(
+                        mirror_bank_image_url(self.school, self.library_id, broken_url)
+                    )
+                    self.assertEqual(calls, {"transient": 2, "broken": 1})
+                    clock["now"] += 3600
+                    self.assertIsNone(
+                        mirror_bank_image_url(self.school, self.library_id, broken_url)
+                    )
+                    self.assertEqual(calls["broken"], 2)
 
     def test_userinfo_and_backslash_redirects_are_not_opened(self) -> None:
         """A redirect that adds userinfo or a backslash is refused before the hop."""
@@ -2603,6 +2809,86 @@ class ModuleBankImportApiTests(unittest.TestCase):
             "sandbox; default-src 'none'; style-src 'unsafe-inline'",
         )
         self.assertEqual(staff.headers.get("X-Content-Type-Options"), "nosniff")
+
+    def test_active_markup_extensions_get_the_sandbox_policy(self) -> None:
+        """SVG bytes stored as xml, xhtml, html, or htm are sandboxed on both routes."""
+        hostile = (
+            b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+        )
+        student = self._join_maple_student()
+        store = ContentBlobStore(self.school.data_dir, self.school)
+        for suffix in (".xml", ".XML", ".xhtml", ".html", ".htm"):
+            rel = f"web_resources/bank-mirror/active{suffix}"
+            stored = store.put_bytes(hostile, filename=rel, mime="text/plain")
+            self.school.conn.execute(
+                """
+                INSERT INTO library_files (library_id, relpath, blob_sha, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (self.library_id, rel, stored.sha256, _now()),
+            )
+            self.school.conn.commit()
+            for root in (
+                f"/api/classes/{self.class_id}/module-files/{rel}",
+                f"/staff/class/{self.class_id}/module-files/{rel}",
+            ):
+                client = student if root.startswith("/api/") else self.client
+                served = client.get(root)
+                self.assertEqual(served.status_code, 200, root)
+                self.assertEqual(served.get_data(), hostile, root)
+                self.assertEqual(
+                    served.headers.get("Content-Security-Policy"),
+                    "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+                    root,
+                )
+                self.assertEqual(
+                    served.headers.get("X-Content-Type-Options"), "nosniff", root
+                )
+                self.assertNotEqual(served.mimetype, "image/svg+xml", root)
+            self.assertEqual(stored.path.read_bytes(), hostile)
+
+    def test_raw_svgz_is_not_labelled_gzip(self) -> None:
+        """A raw SVG named .svgz is sandboxed and is not sent as gzip."""
+        import gzip
+
+        raw = b'<svg xmlns="http://www.w3.org/2000/svg"><path d="M1 1"/></svg>'
+        student = self._join_maple_student()
+        store = ContentBlobStore(self.school.data_dir, self.school)
+        rel = "web_resources/bank-mirror/plain.svgz"
+        stored = store.put_bytes(raw, filename=rel, mime="image/svg+xml")
+        self.school.conn.execute(
+            """
+            INSERT INTO library_files (library_id, relpath, blob_sha, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (self.library_id, rel, stored.sha256, _now()),
+        )
+        packed = gzip.compress(raw)
+        gzip_rel = "web_resources/bank-mirror/packed.svgz"
+        gzip_stored = store.put_bytes(packed, filename=gzip_rel, mime="image/svg+xml")
+        self.school.conn.execute(
+            """
+            INSERT INTO library_files (library_id, relpath, blob_sha, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (self.library_id, gzip_rel, gzip_stored.sha256, _now()),
+        )
+        self.school.conn.commit()
+        plain = student.get(f"/api/classes/{self.class_id}/module-files/{rel}")
+        self.assertEqual(plain.status_code, 200)
+        self.assertEqual(plain.get_data(), raw)
+        self.assertEqual(plain.mimetype, "image/svg+xml")
+        self.assertNotEqual(plain.headers.get("Content-Encoding"), "gzip")
+        self.assertEqual(
+            plain.headers.get("Content-Security-Policy"),
+            "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+        )
+        packed_response = student.get(
+            f"/api/classes/{self.class_id}/module-files/{gzip_rel}"
+        )
+        self.assertEqual(packed_response.status_code, 200)
+        self.assertEqual(packed_response.headers.get("Content-Encoding"), "gzip")
+        self.assertEqual(packed_response.mimetype, "image/svg+xml")
 
     def test_student_can_get_live_question_image(self) -> None:
         """Staff-authored live-question-images are GET-able by the student."""
