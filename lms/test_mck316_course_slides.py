@@ -62,6 +62,119 @@ def _png_pages() -> list[bytes]:
     return pages
 
 
+
+_SANDBOX_ESCAPE = r"""
+import os
+print("DIRECT_WS", int(os.path.isdir("/workspace")))
+print("DIRECT_DATA", int(os.path.isdir("/data")))
+try:
+    os.chdir("/")
+    os.makedirs("/a", exist_ok=True)
+    os.chroot("/a")
+    for _ in range(40):
+        os.chdir("..")
+    os.chroot(".")
+    names = set(os.listdir("/"))
+    print("ESCAPED", 1)
+    print("ESC_WS", int("workspace" in names or os.path.isdir("/workspace")))
+    print("ESC_DATA", int(os.path.isdir("/data")))
+except OSError:
+    print("ESCAPED", 0)
+    print("ESC_WS", 0)
+    print("ESC_DATA", 0)
+status = open("/proc/self/status", encoding="utf-8", errors="replace").read()
+for line in status.splitlines():
+    if line.startswith("NoNewPrivs:") or line.startswith("CapBnd:"):
+        print(line)
+"""
+
+
+def _assert_escape_contained(test: unittest.TestCase, output: str) -> None:
+    """Fail when a chroot walk can see the host or capabilities remain.
+
+    Args:
+        test: The running test case.
+        output: Sandbox stdout, including ``/proc/self/status`` lines.
+    """
+    rows: dict[str, str] = {}
+    for line in output.splitlines():
+        if line.startswith("NoNewPrivs:") or line.startswith("CapBnd:"):
+            key, value = line.split(":", 1)
+            rows[key] = value.strip()
+            continue
+        parts = line.split()
+        if len(parts) == 2:
+            rows[parts[0]] = parts[1]
+    test.assertEqual(rows.get("DIRECT_WS"), "0", output)
+    test.assertEqual(rows.get("DIRECT_DATA"), "0", output)
+    test.assertEqual(rows.get("ESC_WS"), "0", output)
+    test.assertEqual(rows.get("ESC_DATA"), "0", output)
+    test.assertEqual(rows.get("NoNewPrivs"), "1", output)
+    cap = rows.get("CapBnd", "")
+    test.assertTrue(cap, output)
+    test.assertEqual(int(cap, 16), 0, output)
+
+
+def _root_isolation_driver(lms_dir: str, *, user_namespace: bool) -> str:
+    """Build a root driver for one sandbox path.
+
+    Args:
+        lms_dir: Directory that contains ``course_slide_files.py``.
+        user_namespace: When false, force the no-userns fallback.
+
+    Returns:
+        A Python script that prints escape status and the setuid uid.
+    """
+    force = ""
+    if not user_namespace:
+        force = "files._root_user_ns = False\n"
+    return (
+        "import os, shutil, subprocess, sys, tempfile\n"
+        "from pathlib import Path\n"
+        f"sys.path.insert(0, {lms_dir!r})\n"
+        "import course_slide_files as files\n"
+        "user = subprocess.run(['unshare', '--user', 'true'], capture_output=True)\n"
+        "print('USERNS', user.returncode)\n"
+        + (
+            "if user.returncode != 0:\n"
+            "    raise SystemExit('user namespace refused')\n"
+            if user_namespace
+            else ""
+        )
+        + force
+        + "argv = files.sandbox_argv(Path('/tmp'), ['true'])\n"
+        + "print('ARGV_USER', int('--user' in argv))\n"
+        + "work = Path(tempfile.mkdtemp(prefix='lloves-slides-'))\n"
+        "try:\n"
+        "    escape = work / 'escape.py'\n"
+        f"    escape.write_text({_SANDBOX_ESCAPE!r})\n"
+        "    planted = work / 'id-suid'\n"
+        "    shutil.copy('/usr/bin/id', planted)\n"
+        "    os.chown(planted, 0, 0)\n"
+        "    os.chmod(planted, 0o4755)\n"
+        "    esc = files.run_sandboxed(\n"
+        "        ['python3', str(escape)], work=work, timeout=20,\n"
+        "        env=files.office_env(work), cwd=str(work),\n"
+        "    )\n"
+        "    uid = files.run_sandboxed(\n"
+        "        [str(planted), '-u'], work=work, timeout=20,\n"
+        "        env=files.office_env(work), cwd=str(work),\n"
+        "    )\n"
+        "    sys.stdout.buffer.write(esc.stdout)\n"
+        "    sys.stdout.write('\\nSETUID ' + uid.stdout.decode().strip() + '\\n')\n"
+        "    if esc.returncode != 0:\n"
+        "        sys.stderr.buffer.write(esc.stderr)\n"
+        "        raise SystemExit(esc.returncode)\n"
+        "    if uid.returncode != 0:\n"
+        "        sys.stderr.buffer.write(uid.stderr)\n"
+        "        raise SystemExit(uid.returncode)\n"
+        "finally:\n"
+        "    shutil.rmtree(work, ignore_errors=True)\n"
+        "    shutil.rmtree(Path('/dev/shm') / f'lloves-root-{work.name}', ignore_errors=True)\n"
+    )
+
+
+
 class _Reader:
     """File-like body for the upload cap."""
 
@@ -374,7 +487,7 @@ class CourseSlideFileTests(unittest.TestCase):
         try:
             with mock.patch.object(files, "_probe_sandbox", return_value=None):
                 with mock.patch.object(files, "run_sandboxed") as run:
-                    with self.assertLogs("course_slide_files", level="ERROR") as logs:
+                    with self.assertLogs("course_slide_files", level="WARNING") as logs:
                         with self.assertRaises(ValueError) as caught:
                             files.pages_from_office(_minimal_pptx(), ".pptx", timeout=5)
             run.assert_not_called()
@@ -383,6 +496,110 @@ class CourseSlideFileTests(unittest.TestCase):
             files._sandbox_failed_at = None
         self.assertIn("not available", str(caught.exception))
         self.assertTrue(any("sandbox" in line for line in logs.output))
+        self.assertTrue(any("step=" in line for line in logs.output))
+
+    def test_probe_failure_names_the_missing_command(self) -> None:
+        """A missing sandbox binary is the step in the warning."""
+        import course_slide_files as files
+
+        files._sandbox_ready = None
+        files._sandbox_failed_at = None
+        real = files._which_tool
+
+        def hide_pivot(name: str) -> str | None:
+            if name == "pivot_root":
+                return None
+            return real(name)
+
+        try:
+            with mock.patch.object(files, "_which_tool", side_effect=hide_pivot):
+                with self.assertLogs("course_slide_files", level="WARNING") as logs:
+                    with self.assertRaises(ValueError):
+                        files.sandbox_tools()
+        finally:
+            files._sandbox_ready = None
+            files._sandbox_failed_at = None
+        self.assertTrue(any("step=pivot_root" in line and "exit=127" in line for line in logs.output))
+
+    def test_probe_stderr_names_the_step_and_hides_paths(self) -> None:
+        """The public line keeps the command and drops absolute paths."""
+        import course_slide_files as files
+
+        detail = files._failure_from_output(
+            b"mount: /tmp/secret-job/x: permission denied\n"
+            b"lloves-sandbox-step mount 32\n",
+            97,
+        )
+        self.assertIn("step=mount", detail)
+        self.assertIn("exit=32", detail)
+        self.assertNotIn("/tmp", detail)
+        self.assertNotIn("secret-job", detail)
+        self.assertLessEqual(len(detail.split("stderr=", 1)[1]), 200)
+
+    def test_long_probe_stderr_is_capped(self) -> None:
+        """Only the first 200 characters of stderr are kept."""
+        import course_slide_files as files
+
+        detail = files._format_probe_failure("mount", 1, "x" * 500)
+        stderr = detail.split("stderr=", 1)[1].removesuffix(")")
+        self.assertEqual(len(stderr), 200)
+        self.assertNotIn("/tmp", detail)
+
+    def test_refusal_is_a_sentry_warning(self) -> None:
+        """Sentry gets the same warning line the log writes."""
+        import course_slide_files as files
+
+        client = mock.Mock()
+        client.is_active.return_value = True
+        sdk = mock.Mock()
+        sdk.get_client.return_value = client
+        message = "slide conversion refused: unshare sandbox probe failed (step=mount exit=32 stderr=denied)"
+        with mock.patch.dict(sys.modules, {"sentry_sdk": sdk}):
+            with self.assertLogs("course_slide_files", level="WARNING") as logs:
+                files._report_sandbox_refusal(message)
+        sdk.capture_message.assert_called_once_with(message, level="warning")
+        self.assertIn("step=mount", logs.output[0])
+
+    def test_root_without_a_user_namespace_omits_user_flag(self) -> None:
+        """Root skips ``--user`` when that namespace is refused."""
+        import course_slide_files as files
+
+        with mock.patch.object(files.os, "geteuid", return_value=0):
+            argv = files.sandbox_argv(
+                Path("/tmp/lloves-job"), ["true"], user_namespace=False
+            )
+            with_ns = files.sandbox_argv(
+                Path("/tmp/lloves-job"), ["true"], user_namespace=True
+            )
+        self.assertNotIn("--user", argv)
+        self.assertNotIn("--map-root-user", argv)
+        self.assertIn("--mount", argv)
+        self.assertIn("--user", with_ns)
+
+    @unittest.skipUnless(shutil.which("unshare"), "unshare is not installed")
+    def test_diagnostic_names_each_probe_step(self) -> None:
+        """The Fly diagnostic lists every probe step."""
+        import course_slide_files as files
+
+        found = {name: (ok, detail) for name, ok, detail in files.sandbox_diagnostic_steps()}
+        for name in (
+            "unshare",
+            "unshare-user",
+            "timeout",
+            "pivot_root",
+            "mount",
+            "umount",
+            "setpriv",
+            "bind-mount",
+            "soffice",
+            "full-probe",
+            "host-data",
+        ):
+            self.assertIn(name, found)
+        self.assertTrue(found["unshare"][0], found["unshare"][1])
+        self.assertTrue(found["full-probe"][0], found["full-probe"][1])
+        self.assertTrue(found["host-data"][0], found["host-data"][1])
+        self.assertNotIn("LEAK", found["host-data"][1])
 
     def test_svg_file_href_is_removed(self) -> None:
         """An SVG file:// image is not left in the package."""
@@ -607,6 +824,125 @@ class CourseSlideFileTests(unittest.TestCase):
         self.assertIn("NOOLD", output)
         self.assertNotIn("HOST-ETC-SECRET", output)
         self.assertNotIn("LEAK", output)
+
+    @unittest.skipUnless(shutil.which("unshare"), "unshare is not installed")
+    @unittest.skipUnless(os.geteuid() != 0, "this path is the unprivileged worker")
+    def test_user_namespace_blocks_chroot_escape_and_drops_caps(self) -> None:
+        """A mapped-root worker cannot walk out to the host, and caps are empty."""
+        import course_slide_files as files
+
+        work = Path(tempfile.mkdtemp(prefix="lloves-slides-"))
+        planted = work / "cat-suid"
+        try:
+            escape = work / "escape.py"
+            escape.write_text(_SANDBOX_ESCAPE, encoding="utf-8")
+            completed = files.run_sandboxed(
+                ["python3", str(escape)],
+                work=work,
+                timeout=20,
+                env=files.office_env(work),
+                cwd=str(work),
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            _assert_escape_contained(self, completed.stdout.decode())
+            if subprocess.run(["sudo", "-n", "true"], check=False).returncode != 0:
+                return
+            shutil.copy("/usr/bin/cat", planted)
+            subprocess.run(["sudo", "-n", "chown", "0:0", str(planted)], check=True)
+            subprocess.run(["sudo", "-n", "chmod", "4755", str(planted)], check=True)
+            mapped = files.run_sandboxed(
+                [str(planted), "/proc/self/uid_map"],
+                work=work,
+                timeout=20,
+                env=files.office_env(work),
+                cwd=str(work),
+            )
+        finally:
+            if planted.exists():
+                subprocess.run(["sudo", "-n", "rm", "-f", str(planted)], check=False)
+            shutil.rmtree(work, ignore_errors=True)
+            shutil.rmtree(Path("/dev/shm") / f"lloves-root-{work.name}", ignore_errors=True)
+        self.assertEqual(mapped.returncode, 0, mapped.stderr)
+        outer = ""
+        for line in mapped.stdout.decode().splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[0] == "0":
+                outer = parts[1]
+        self.assertTrue(outer, mapped.stdout)
+        self.assertNotEqual(outer, "0", mapped.stdout)
+
+    def test_sandbox_script_uses_pivot_root_only(self) -> None:
+        """The worker script switches root with pivot_root and clears privileges."""
+        import course_slide_files as files
+
+        script = files._SANDBOX_SCRIPT
+        self.assertIs(script, files._SANDBOX_INNER)
+        self.assertNotIn("chroot", script)
+        self.assertNotIn("lloves-anchor", script)
+        self.assertIn("pivot_root . oldroot", script)
+        self.assertIn("--bounding-set=-all", script)
+        self.assertIn("--no-new-privs", script)
+        self.assertIn(
+            'mount -o remount,bind,ro "$newroot$p" || die mount $?',
+            script,
+        )
+        self.assertIn(
+            'mount -o remount,bind,nosuid,nodev "$newroot$work" || die mount $?',
+            script,
+        )
+
+    def _run_root_isolation(self, *, user_namespace: bool) -> str:
+        """Run the escape and setuid checks as root.
+
+        Args:
+            user_namespace: When false, force the Fly no-userns fallback.
+
+        Returns:
+            Combined stdout from the root driver.
+        """
+        lms_dir = str(Path(__file__).resolve().parent)
+        driver = Path("/tmp/lloves-sandbox-isolation-driver.py")
+        driver.write_text(
+            _root_isolation_driver(lms_dir, user_namespace=user_namespace),
+            encoding="utf-8",
+        )
+        try:
+            ran = subprocess.run(
+                ["sudo", "-n", "python3", str(driver)],
+                timeout=40,
+                check=False,
+                capture_output=True,
+            )
+        finally:
+            driver.unlink(missing_ok=True)
+        output = ran.stdout.decode()
+        self.assertEqual(ran.returncode, 0, ran.stderr.decode() + output)
+        return output
+
+    @unittest.skipUnless(
+        subprocess.run(["sudo", "-n", "true"], check=False).returncode == 0,
+        "passwordless sudo is required to prove the root user namespace",
+    )
+    def test_root_user_namespace_blocks_escape_and_setuid(self) -> None:
+        """Root with a user namespace stays nobody, and a setuid id stays nobody."""
+        output = self._run_root_isolation(user_namespace=True)
+        self.assertIn("USERNS 0", output)
+        self.assertIn("ARGV_USER 1", output)
+        _assert_escape_contained(self, output)
+        self.assertIn("SETUID 65534", output)
+        self.assertNotIn("SETUID 0", output)
+
+    @unittest.skipUnless(
+        subprocess.run(["sudo", "-n", "true"], check=False).returncode == 0,
+        "passwordless sudo is required to prove the no-userns fallback",
+    )
+    def test_root_without_user_namespace_blocks_escape_and_setuid(self) -> None:
+        """The Fly no-userns fallback stays nobody, and a setuid id stays nobody."""
+        output = self._run_root_isolation(user_namespace=False)
+        self.assertIn("ARGV_USER 0", output)
+        _assert_escape_contained(self, output)
+        self.assertIn("SETUID 65534", output)
+        self.assertNotIn("SETUID 0", output)
 
     @unittest.skipUnless(
         subprocess.run(["sudo", "-n", "true"], check=False).returncode == 0
