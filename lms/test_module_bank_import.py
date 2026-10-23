@@ -157,9 +157,27 @@ class BankImageHostTests(unittest.TestCase):
             )
         )
         self.assertFalse(is_remote_bank_image_url("https://evilinstructure.com/a.png"))
-        self.assertTrue(
+        self.assertFalse(
             is_remote_bank_image_url(
                 "https://169.254.169.254@virtuallearning.instructure.com/a.png"
+            )
+        )
+        self.assertFalse(
+            is_remote_bank_image_url(
+                "https://user:pass@virtuallearning.instructure.com/a.png"
+            )
+        )
+        self.assertFalse(
+            is_remote_bank_image_url(
+                "https://169.254.169.254\\@virtuallearning.instructure.com/a.png"
+            )
+        )
+        self.assertFalse(
+            is_remote_bank_image_url("https://x.instructure.com/a%5Cb.png")
+        )
+        self.assertFalse(
+            is_remote_bank_image_url(
+                "https://virtuallearning.instructure.com/a\\b.png"
             )
         )
         self.assertTrue(
@@ -185,6 +203,122 @@ class BankImageHostTests(unittest.TestCase):
         self.assertEqual(
             caught.exception.location, "https://169.254.169.254/latest/"
         )
+
+    def test_svg_sanitiser_neutralises_qa_bypasses(self) -> None:
+        """Namespace scripts, encoded javascript URLs, and external use are stripped.
+
+        The cleaned document is what the mirror stores. A DTD and malformed
+        markup are refused instead of stored.
+        """
+        try:
+            from bank_image_mirror import sanitize_svg
+        except ImportError:
+            from lms.bank_image_mirror import sanitize_svg
+
+        kept = (
+            b'<svg xmlns="http://www.w3.org/2000/svg">'
+            b'<s:script xmlns:s="http://www.w3.org/2000/svg">alert(1)</s:script>'
+            b'<h:script xmlns:h="http://www.w3.org/1999/xhtml">alert(2)</h:script>'
+            b'<a href="javascript&#58;alert(1)">t</a>'
+            b'<a href="&#106;avascript:alert(1)">t</a>'
+            b'<a href="java&#x09;script:alert(1)">t</a>'
+            b'<a xmlns:xlink="http://www.w3.org/1999/xlink" '
+            b'xlink:href="java&#x09;script:alert(9)">t</a>'
+            b'<use href="https://external/evil.svg"/>'
+            b'<use href="#glyph"/>'
+            b'<use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="#mark"/>'
+            b'<foreignObject><script>alert(3)</script></foreignObject>'
+            b'<path d="M9 9"/>'
+            b"</svg>"
+        )
+        cleaned = sanitize_svg(kept)
+        self.assertIsNotNone(cleaned)
+        assert cleaned is not None
+        lower = cleaned.lower()
+        self.assertNotIn(b"<script", lower)
+        self.assertNotIn(b"javascript", lower)
+        self.assertNotIn(b"foreignobject", lower)
+        self.assertNotIn(b"onload", lower)
+        self.assertNotIn(b"external", lower)
+        self.assertNotIn(b"alert", lower)
+        self.assertIn(b"#glyph", cleaned)
+        self.assertIn(b"#mark", cleaned)
+        self.assertIn(b"M9 9", cleaned)
+        onload = sanitize_svg(
+            b'<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"></svg>'
+        )
+        self.assertIsNotNone(onload)
+        assert onload is not None
+        self.assertNotIn(b"onload", onload.lower())
+        self.assertIsNone(
+            sanitize_svg(b'<svg x="1"onload="alert(1)"></svg>')
+        )
+        self.assertIsNone(
+            sanitize_svg(
+                b'<?xml version="1.0"?>'
+                b'<!DOCTYPE svg [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>'
+                b'<svg xmlns="http://www.w3.org/2000/svg">&xxe;</svg>'
+            )
+        )
+        self.assertIsNone(
+            sanitize_svg(b"<!doctype html><html><body><svg></svg></body></html>")
+        )
+
+    def test_refusal_cache_stays_within_cap(self) -> None:
+        """Distinct refusals do not grow past the cap, and a hit stays warm."""
+        try:
+            from bank_image_mirror import (
+                _REFUSAL_MAX,
+                _refusal_active,
+                _refusal_lock,
+                _refusals,
+                _remember_refusal,
+                clear_bank_image_refusals,
+            )
+        except ImportError:
+            from lms.bank_image_mirror import (
+                _REFUSAL_MAX,
+                _refusal_active,
+                _refusal_lock,
+                _refusals,
+                _remember_refusal,
+                clear_bank_image_refusals,
+            )
+
+        clear_bank_image_refusals()
+        try:
+            total = _REFUSAL_MAX + 25
+            for index in range(total):
+                _remember_refusal(
+                    1, f"https://virtuallearning.instructure.com/{index}.png"
+                )
+            newest = (
+                "https://virtuallearning.instructure.com/"
+                f"{total - 1}.png"
+            )
+            oldest = "https://virtuallearning.instructure.com/0.png"
+            with _refusal_lock:
+                self.assertEqual(len(_refusals), _REFUSAL_MAX)
+                self.assertNotIn((1, oldest), _refusals)
+                self.assertIn((1, newest), _refusals)
+            with mock.patch("bank_image_mirror._REFUSAL_MAX", 2):
+                clear_bank_image_refusals()
+                _remember_refusal(1, "https://virtuallearning.instructure.com/a.png")
+                _remember_refusal(1, "https://virtuallearning.instructure.com/b.png")
+                self.assertTrue(
+                    _refusal_active(1, "https://virtuallearning.instructure.com/a.png")
+                )
+                _remember_refusal(1, "https://virtuallearning.instructure.com/c.png")
+                with _refusal_lock:
+                    self.assertEqual(
+                        set(_refusals),
+                        {
+                            (1, "https://virtuallearning.instructure.com/a.png"),
+                            (1, "https://virtuallearning.instructure.com/c.png"),
+                        },
+                    )
+        finally:
+            clear_bank_image_refusals()
 
 
 class ModuleBankImportMergeTests(unittest.TestCase):
@@ -495,10 +629,10 @@ class ModuleBankImportMergeTests(unittest.TestCase):
             (_LOGIN_HTML, "image/svg+xml", None),
             (svg, "application/octet-stream", ".svg"),
             (svg_prolog, "text/plain", ".svg"),
-            (b'<svg xmlns="http://www.w3.org/2000/svg"><script>bad</script></svg>', "image/svg+xml", None),
-            (b'<svg onload="alert(1)"></svg>', "image/svg+xml", None),
+            (b'<svg xmlns="http://www.w3.org/2000/svg"><script>bad</script></svg>', "image/svg+xml", ".svg"),
+            (b'<svg onload="alert(1)"></svg>', "image/svg+xml", ".svg"),
             (b'<svg><a href="javascript:alert(1)"></svg>', "image/svg+xml", None),
-            (b'<svg><foreignObject></foreignObject></svg>', "image/svg+xml", None),
+            (b'<svg><foreignObject></foreignObject></svg>', "image/svg+xml", ".svg"),
             (b'<!doctype html><html><body><svg></svg></body></html>', "image/svg+xml", None),
         ]
         for index, (body, content_type, expected) in enumerate(cases):
@@ -675,6 +809,181 @@ class ModuleBankImportMergeTests(unittest.TestCase):
                 _refusals[(self.library_id, url)] = time.monotonic() - 5
             self.assertIsNone(mirror_bank_image_url(self.school, self.library_id, url))
         self.assertEqual(calls["n"], 2)
+
+    def test_mirrored_svg_stores_sanitised_bytes(self) -> None:
+        """A bypass SVG is stored as the cleaned document, not the download."""
+        try:
+            from bank_image_mirror import mirror_bank_image_url
+        except ImportError:
+            from lms.bank_image_mirror import mirror_bank_image_url
+
+        raw = (
+            b'<svg xmlns="http://www.w3.org/2000/svg">'
+            b'<h:script xmlns:h="http://www.w3.org/1999/xhtml">alert(1)</h:script>'
+            b'<a href="javascript&#58;alert(1)">t</a>'
+            b'<use href="https://external/evil.svg"/>'
+            b'<path d="M4 4"/>'
+            b"</svg>"
+        )
+        url = (
+            "https://virtuallearning.instructure.com/files/70/download?verifier=svg"
+        )
+        with mock.patch(
+            "bank_image_mirror._open_remote",
+            return_value=_UrlOpenBody(raw, "image/svg+xml"),
+        ):
+            relpath = mirror_bank_image_url(self.school, self.library_id, url)
+        self.assertTrue(str(relpath).endswith(".svg"))
+        row = self.school.conn.execute(
+            "SELECT blob_sha FROM bank_image_cache WHERE source_url = ?",
+            (url,),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        blob = (self.school.data_dir / "blobs" / row["blob_sha"][:2] / row["blob_sha"]).read_bytes()
+        self.assertNotEqual(blob, raw)
+        lower = blob.lower()
+        self.assertNotIn(b"<script", lower)
+        self.assertNotIn(b"javascript", lower)
+        self.assertNotIn(b"&#58;", lower)
+        self.assertNotIn(b"external", lower)
+        self.assertIn(b"M4 4", blob)
+
+    def test_cached_svg_is_not_rewritten(self) -> None:
+        """A cache hit leaves an already stored SVG blob untouched."""
+        try:
+            from bank_image_mirror import (
+                ensure_bank_image_cache_schema,
+                mirror_bank_image_url,
+            )
+        except ImportError:
+            from lms.bank_image_mirror import (
+                ensure_bank_image_cache_schema,
+                mirror_bank_image_url,
+            )
+
+        hostile = (
+            b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+        )
+        url = (
+            "https://virtuallearning.instructure.com/files/71/download?verifier=oldsvg"
+        )
+        relpath = "web_resources/bank-mirror/already-stored.svg"
+        store = ContentBlobStore(self.school.data_dir, self.school)
+        stored = store.put_bytes(hostile, filename=relpath, mime="image/svg+xml")
+        ensure_bank_image_cache_schema(self.school)
+        self.school.conn.execute(
+            """
+            INSERT INTO library_files (library_id, relpath, blob_sha, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (self.library_id, relpath, stored.sha256, _now()),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO bank_image_cache (
+                library_id, source_url, relpath, blob_sha, created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (self.library_id, url, relpath, stored.sha256, _now()),
+        )
+        self.school.conn.commit()
+
+        def opener(*_args: object, **_kwargs: object) -> _UrlOpenBody:
+            raise AssertionError("cached svg must not be fetched")
+
+        with mock.patch("bank_image_mirror._open_remote", side_effect=opener):
+            found = mirror_bank_image_url(self.school, self.library_id, url)
+        self.assertEqual(found, relpath)
+        row = self.school.conn.execute(
+            "SELECT blob_sha FROM bank_image_cache WHERE source_url = ?",
+            (url,),
+        ).fetchone()
+        self.assertEqual(str(row["blob_sha"]), stored.sha256)
+        self.assertEqual(stored.path.read_bytes(), hostile)
+
+    def test_network_refusal_expires_before_a_non_image(self) -> None:
+        """A transport failure is remembered for about five minutes, not one hour."""
+        import urllib.error
+
+        try:
+            from bank_image_mirror import mirror_bank_image_url
+        except ImportError:
+            from lms.bank_image_mirror import mirror_bank_image_url
+
+        net_url = (
+            "https://virtuallearning.instructure.com/files/72/download?verifier=net"
+        )
+        html_url = (
+            "https://virtuallearning.instructure.com/files/73/download?verifier=html"
+        )
+        clock = {"now": 1_000_000.0}
+        calls = {"net": 0, "html": 0}
+
+        def opener(request: object, timeout: float) -> _UrlOpenBody:
+            target = str(getattr(request, "full_url", "") or "")
+            if "verifier=net" in target:
+                calls["net"] += 1
+                raise urllib.error.URLError("timed out")
+            calls["html"] += 1
+            return _UrlOpenBody(_LOGIN_HTML, "text/html")
+
+        with mock.patch("bank_image_mirror.time.monotonic", lambda: clock["now"]):
+            with mock.patch("bank_image_mirror._open_remote", side_effect=opener):
+                self.assertIsNone(
+                    mirror_bank_image_url(self.school, self.library_id, net_url)
+                )
+                self.assertIsNone(
+                    mirror_bank_image_url(self.school, self.library_id, html_url)
+                )
+                self.assertEqual(calls, {"net": 1, "html": 1})
+                clock["now"] += (5 * 60) + 1
+                self.assertIsNone(
+                    mirror_bank_image_url(self.school, self.library_id, net_url)
+                )
+                self.assertIsNone(
+                    mirror_bank_image_url(self.school, self.library_id, html_url)
+                )
+                self.assertEqual(calls, {"net": 2, "html": 1})
+                clock["now"] += 3600
+                self.assertIsNone(
+                    mirror_bank_image_url(self.school, self.library_id, html_url)
+                )
+                self.assertEqual(calls["html"], 2)
+
+    def test_userinfo_and_backslash_redirects_are_not_opened(self) -> None:
+        """A redirect that adds userinfo or a backslash is refused before the hop."""
+        try:
+            from bank_image_mirror import _Redirect, mirror_bank_image_url
+        except ImportError:
+            from lms.bank_image_mirror import _Redirect, mirror_bank_image_url
+
+        opened: list[str] = []
+
+        def opener(request: object, timeout: float) -> _UrlOpenBody:
+            target = str(getattr(request, "full_url", "") or "")
+            opened.append(target)
+            if "verifier=user" in target:
+                raise _Redirect(
+                    "https://169.254.169.254@virtuallearning.instructure.com/a.png"
+                )
+            raise _Redirect(
+                "https://169.254.169.254\\@virtuallearning.instructure.com/a.png"
+            )
+
+        user_url = (
+            "https://virtuallearning.instructure.com/files/74/download?verifier=user"
+        )
+        slash_url = (
+            "https://virtuallearning.instructure.com/files/75/download?verifier=slash"
+        )
+        with mock.patch("bank_image_mirror._open_remote", side_effect=opener):
+            self.assertIsNone(
+                mirror_bank_image_url(self.school, self.library_id, user_url)
+            )
+            self.assertIsNone(
+                mirror_bank_image_url(self.school, self.library_id, slash_url)
+            )
+        self.assertEqual(opened, [user_url, slash_url])
 
     def test_string_choices_are_mirrored(self) -> None:
         """Answer choices stored as strings do not crash the library prefetch."""
@@ -2246,6 +2555,54 @@ class ModuleBankImportApiTests(unittest.TestCase):
         self.assertIn(blocked.status_code, {302, 403})
         anon = self.app.test_client()
         self.assertEqual(anon.get(public_url).status_code, 403)
+
+    def test_served_svg_keeps_stored_bytes_and_sends_sandbox_csp(self) -> None:
+        """An SVG already on disk is served unchanged, with a sandbox policy."""
+        hostile = (
+            b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+        )
+        rel = "web_resources/bank-mirror/already-stored.svg"
+        store = ContentBlobStore(self.school.data_dir, self.school)
+        stored = store.put_bytes(hostile, filename=rel, mime="image/svg+xml")
+        self.school.conn.execute(
+            """
+            INSERT INTO library_files (library_id, relpath, blob_sha, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (self.library_id, rel, stored.sha256, _now()),
+        )
+        self.school.conn.commit()
+        self._put_library_png()
+        student = self._join_maple_student()
+        public_url = f"/api/classes/{self.class_id}/module-files/{rel}"
+        served = student.get(public_url)
+        self.assertEqual(served.status_code, 200)
+        self.assertEqual(served.get_data(), hostile)
+        self.assertEqual(stored.path.read_bytes(), hostile)
+        self.assertEqual(
+            served.headers.get("Content-Security-Policy"),
+            "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+        )
+        self.assertEqual(served.headers.get("X-Content-Type-Options"), "nosniff")
+        self.assertEqual(served.mimetype, "image/svg+xml")
+        png_url = (
+            f"/api/classes/{self.class_id}/module-files/web_resources/diagram.png"
+        )
+        png = student.get(png_url)
+        self.assertEqual(png.status_code, 200)
+        png_policy = png.headers.get("Content-Security-Policy") or ""
+        self.assertIn("default-src 'self'", png_policy)
+        self.assertNotIn("sandbox", png_policy)
+        staff = self.client.get(
+            f"/staff/class/{self.class_id}/module-files/{rel}"
+        )
+        self.assertEqual(staff.status_code, 200)
+        self.assertEqual(staff.get_data(), hostile)
+        self.assertEqual(
+            staff.headers.get("Content-Security-Policy"),
+            "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+        )
+        self.assertEqual(staff.headers.get("X-Content-Type-Options"), "nosniff")
 
     def test_student_can_get_live_question_image(self) -> None:
         """Staff-authored live-question-images are GET-able by the student."""

@@ -1321,6 +1321,28 @@ def _student_dashboard_redirect_if_live(school: SchoolDB, class_id: int, student
     return None
 
 
+def _send_module_file(target: Path, rel: str) -> Response:
+    """Serve one library blob and sandbox every SVG on this route.
+
+    Staff and student module-file routes both serve mirrored bank images.
+    The sandbox policy is applied when the response is built, so an SVG
+    already stored on the volume is covered without rewriting it.
+
+    Args:
+        target: Blob path on disk.
+        rel: Cartridge-relative path used as the download name.
+
+    Returns:
+        The file response.
+    """
+    from bank_image_mirror import apply_mirrored_svg_headers
+
+    response = send_from_directory(
+        target.parent, target.name, download_name=Path(rel).name
+    )
+    return apply_mirrored_svg_headers(response, rel)
+
+
 def create_app(
     *,
     db_path: Path | None = None,
@@ -5720,9 +5742,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         target = library_file_path(school, school.data_dir, int(library_id), rel)
         if target is None:
             abort(404)
-        return send_from_directory(
-            target.parent, target.name, download_name=Path(rel).name
-        )
+        return _send_module_file(target, rel)
 
     @app.route("/staff/class/<int:class_id>/syllabus")
     @staff_required
@@ -6065,9 +6085,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         target = library_file_path(school, school.data_dir, int(library_id), rel)
         if target is None:
             abort(404)
-        return send_from_directory(
-            target.parent, target.name, download_name=Path(rel).name
-        )
+        return _send_module_file(target, rel)
 
     def _ended_student_response(*, as_json: bool = False):
         """Clear live keys; PIN portal students return to the dashboard."""
