@@ -62,6 +62,119 @@ def _png_pages() -> list[bytes]:
     return pages
 
 
+
+_SANDBOX_ESCAPE = r"""
+import os
+print("DIRECT_WS", int(os.path.isdir("/workspace")))
+print("DIRECT_DATA", int(os.path.isdir("/data")))
+try:
+    os.chdir("/")
+    os.makedirs("/a", exist_ok=True)
+    os.chroot("/a")
+    for _ in range(40):
+        os.chdir("..")
+    os.chroot(".")
+    names = set(os.listdir("/"))
+    print("ESCAPED", 1)
+    print("ESC_WS", int("workspace" in names or os.path.isdir("/workspace")))
+    print("ESC_DATA", int(os.path.isdir("/data")))
+except OSError:
+    print("ESCAPED", 0)
+    print("ESC_WS", 0)
+    print("ESC_DATA", 0)
+status = open("/proc/self/status", encoding="utf-8", errors="replace").read()
+for line in status.splitlines():
+    if line.startswith("NoNewPrivs:") or line.startswith("CapBnd:"):
+        print(line)
+"""
+
+
+def _assert_escape_contained(test: unittest.TestCase, output: str) -> None:
+    """Fail when a chroot walk can see the host or capabilities remain.
+
+    Args:
+        test: The running test case.
+        output: Sandbox stdout, including ``/proc/self/status`` lines.
+    """
+    rows: dict[str, str] = {}
+    for line in output.splitlines():
+        if line.startswith("NoNewPrivs:") or line.startswith("CapBnd:"):
+            key, value = line.split(":", 1)
+            rows[key] = value.strip()
+            continue
+        parts = line.split()
+        if len(parts) == 2:
+            rows[parts[0]] = parts[1]
+    test.assertEqual(rows.get("DIRECT_WS"), "0", output)
+    test.assertEqual(rows.get("DIRECT_DATA"), "0", output)
+    test.assertEqual(rows.get("ESC_WS"), "0", output)
+    test.assertEqual(rows.get("ESC_DATA"), "0", output)
+    test.assertEqual(rows.get("NoNewPrivs"), "1", output)
+    cap = rows.get("CapBnd", "")
+    test.assertTrue(cap, output)
+    test.assertEqual(int(cap, 16), 0, output)
+
+
+def _root_isolation_driver(lms_dir: str, *, user_namespace: bool) -> str:
+    """Build a root driver for one sandbox path.
+
+    Args:
+        lms_dir: Directory that contains ``course_slide_files.py``.
+        user_namespace: When false, force the no-userns fallback.
+
+    Returns:
+        A Python script that prints escape status and the setuid uid.
+    """
+    force = ""
+    if not user_namespace:
+        force = "files._root_user_ns = False\n"
+    return (
+        "import os, shutil, subprocess, sys, tempfile\n"
+        "from pathlib import Path\n"
+        f"sys.path.insert(0, {lms_dir!r})\n"
+        "import course_slide_files as files\n"
+        "user = subprocess.run(['unshare', '--user', 'true'], capture_output=True)\n"
+        "print('USERNS', user.returncode)\n"
+        + (
+            "if user.returncode != 0:\n"
+            "    raise SystemExit('user namespace refused')\n"
+            if user_namespace
+            else ""
+        )
+        + force
+        + "argv = files.sandbox_argv(Path('/tmp'), ['true'])\n"
+        + "print('ARGV_USER', int('--user' in argv))\n"
+        + "work = Path(tempfile.mkdtemp(prefix='lloves-slides-'))\n"
+        "try:\n"
+        "    escape = work / 'escape.py'\n"
+        f"    escape.write_text({_SANDBOX_ESCAPE!r})\n"
+        "    planted = work / 'id-suid'\n"
+        "    shutil.copy('/usr/bin/id', planted)\n"
+        "    os.chown(planted, 0, 0)\n"
+        "    os.chmod(planted, 0o4755)\n"
+        "    esc = files.run_sandboxed(\n"
+        "        ['python3', str(escape)], work=work, timeout=20,\n"
+        "        env=files.office_env(work), cwd=str(work),\n"
+        "    )\n"
+        "    uid = files.run_sandboxed(\n"
+        "        [str(planted), '-u'], work=work, timeout=20,\n"
+        "        env=files.office_env(work), cwd=str(work),\n"
+        "    )\n"
+        "    sys.stdout.buffer.write(esc.stdout)\n"
+        "    sys.stdout.write('\\nSETUID ' + uid.stdout.decode().strip() + '\\n')\n"
+        "    if esc.returncode != 0:\n"
+        "        sys.stderr.buffer.write(esc.stderr)\n"
+        "        raise SystemExit(esc.returncode)\n"
+        "    if uid.returncode != 0:\n"
+        "        sys.stderr.buffer.write(uid.stderr)\n"
+        "        raise SystemExit(uid.returncode)\n"
+        "finally:\n"
+        "    shutil.rmtree(work, ignore_errors=True)\n"
+        "    shutil.rmtree(Path('/dev/shm') / f'lloves-root-{work.name}', ignore_errors=True)\n"
+    )
+
+
+
 class _Reader:
     """File-like body for the upload cap."""
 
@@ -480,10 +593,13 @@ class CourseSlideFileTests(unittest.TestCase):
             "bind-mount",
             "soffice",
             "full-probe",
+            "host-data",
         ):
             self.assertIn(name, found)
         self.assertTrue(found["unshare"][0], found["unshare"][1])
         self.assertTrue(found["full-probe"][0], found["full-probe"][1])
+        self.assertTrue(found["host-data"][0], found["host-data"][1])
+        self.assertNotIn("LEAK", found["host-data"][1])
 
     def test_svg_file_href_is_removed(self) -> None:
         """An SVG file:// image is not left in the package."""
@@ -709,78 +825,85 @@ class CourseSlideFileTests(unittest.TestCase):
         self.assertNotIn("HOST-ETC-SECRET", output)
         self.assertNotIn("LEAK", output)
 
-    @unittest.skipUnless(
-        subprocess.run(["sudo", "-n", "true"], check=False).returncode == 0,
-        "passwordless sudo is required to prove the chroot fallback",
-    )
-    def test_chroot_root_still_drops_to_nobody(self) -> None:
-        """A chrooted root worker sandboxes when ``/`` has a shared parent."""
-        lms_dir = str(Path(__file__).resolve().parent)
-        inner = Path("/tmp/lloves-chroot-sandbox-inner.py")
-        driver = Path("/tmp/lloves-chroot-sandbox-driver.py")
-        inner.write_text(
-            "\n".join(
-                [
-                    "import shutil, subprocess, sys, tempfile",
-                    "from pathlib import Path",
-                    f"sys.path.insert(0, {lms_dir!r})",
-                    "import course_slide_files as files",
-                    "user = subprocess.run(['unshare', '--user', 'true'], capture_output=True)",
-                    "print('USERNS', user.returncode)",
-                    "if user.returncode == 0:",
-                    "    raise SystemExit('unshare --user worked inside the chroot')",
-                    "work = Path(tempfile.mkdtemp(prefix='lloves-slides-'))",
-                    "marker = Path('/etc/lloves-chroot-sandbox-secret')",
-                    "marker.write_text('SECRET')",
-                    "try:",
-                    "    (work / 'inside.txt').write_text('INSIDE-OK')",
-                    "    completed = files.run_sandboxed(",
-                    "        ['sh', '-c',",
-                    "         'id -u; cat inside.txt; '",
-                    "         'if [ -f /etc/lloves-chroot-sandbox-secret ]; then echo LEAK; else echo HIDDEN; fi; '",
-                    "         'if [ -d /oldroot ]; then echo OLD; else echo NOOLD; fi'],",
-                    "        work=work,",
-                    "        timeout=15,",
-                    "        env=files.office_env(work),",
-                    "        cwd=str(work),",
-                    "    )",
-                    "    sys.stdout.buffer.write(completed.stdout)",
-                    "    sys.stderr.buffer.write(completed.stderr)",
-                    "    raise SystemExit(completed.returncode)",
-                    "finally:",
-                    "    marker.unlink(missing_ok=True)",
-                    "    shutil.rmtree(work, ignore_errors=True)",
-                    "    shutil.rmtree(Path('/dev/shm') / f'lloves-root-{work.name}', ignore_errors=True)",
-                ]
+    @unittest.skipUnless(shutil.which("unshare"), "unshare is not installed")
+    @unittest.skipUnless(os.geteuid() != 0, "this path is the unprivileged worker")
+    def test_user_namespace_blocks_chroot_escape_and_drops_caps(self) -> None:
+        """A mapped-root worker cannot walk out to the host, and caps are empty."""
+        import course_slide_files as files
+
+        work = Path(tempfile.mkdtemp(prefix="lloves-slides-"))
+        planted = work / "cat-suid"
+        try:
+            escape = work / "escape.py"
+            escape.write_text(_SANDBOX_ESCAPE, encoding="utf-8")
+            completed = files.run_sandboxed(
+                ["python3", str(escape)],
+                work=work,
+                timeout=20,
+                env=files.office_env(work),
+                cwd=str(work),
             )
-            + "\n",
-            encoding="utf-8",
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            _assert_escape_contained(self, completed.stdout.decode())
+            if subprocess.run(["sudo", "-n", "true"], check=False).returncode != 0:
+                return
+            shutil.copy("/usr/bin/cat", planted)
+            subprocess.run(["sudo", "-n", "chown", "0:0", str(planted)], check=True)
+            subprocess.run(["sudo", "-n", "chmod", "4755", str(planted)], check=True)
+            mapped = files.run_sandboxed(
+                [str(planted), "/proc/self/uid_map"],
+                work=work,
+                timeout=20,
+                env=files.office_env(work),
+                cwd=str(work),
+            )
+        finally:
+            if planted.exists():
+                subprocess.run(["sudo", "-n", "rm", "-f", str(planted)], check=False)
+            shutil.rmtree(work, ignore_errors=True)
+            shutil.rmtree(Path("/dev/shm") / f"lloves-root-{work.name}", ignore_errors=True)
+        self.assertEqual(mapped.returncode, 0, mapped.stderr)
+        outer = ""
+        for line in mapped.stdout.decode().splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[0] == "0":
+                outer = parts[1]
+        self.assertTrue(outer, mapped.stdout)
+        self.assertNotEqual(outer, "0", mapped.stdout)
+
+    def test_sandbox_script_uses_pivot_root_only(self) -> None:
+        """The worker script switches root with pivot_root and clears privileges."""
+        import course_slide_files as files
+
+        script = files._SANDBOX_SCRIPT
+        self.assertIs(script, files._SANDBOX_INNER)
+        self.assertNotIn("chroot", script)
+        self.assertNotIn("lloves-anchor", script)
+        self.assertIn("pivot_root . oldroot", script)
+        self.assertIn("--bounding-set=-all", script)
+        self.assertIn("--no-new-privs", script)
+        self.assertIn(
+            'mount -o remount,bind,ro "$newroot$p" || die mount $?',
+            script,
         )
+        self.assertIn(
+            'mount -o remount,bind,nosuid,nodev "$newroot$work" || die mount $?',
+            script,
+        )
+
+    def _run_root_isolation(self, *, user_namespace: bool) -> str:
+        """Run the escape and setuid checks as root.
+
+        Args:
+            user_namespace: When false, force the Fly no-userns fallback.
+
+        Returns:
+            Combined stdout from the root driver.
+        """
+        lms_dir = str(Path(__file__).resolve().parent)
+        driver = Path("/tmp/lloves-sandbox-isolation-driver.py")
         driver.write_text(
-            "\n".join(
-                [
-                    "import os, subprocess, sys, tempfile, shutil",
-                    "from pathlib import Path",
-                    "if os.environ.get('LLOVES_TEST_NS') != '1':",
-                    "    os.environ['LLOVES_TEST_NS'] = '1'",
-                    "    os.execvp('unshare', ['unshare', '--mount', '--propagation', 'unchanged', '--', 'python3', __file__])",
-                    "subprocess.check_call(['mount', '--make-rshared', '/'])",
-                    "host = Path(tempfile.mkdtemp(prefix='lloves-chroot-'))",
-                    "subprocess.check_call(['mount', '--bind', '/', str(host)])",
-                    "try:",
-                    "    proc = subprocess.run(",
-                    "        ['chroot', str(host), 'python3', '/tmp/lloves-chroot-sandbox-inner.py'],",
-                    "        capture_output=True, timeout=25, check=False,",
-                    "    )",
-                    "    sys.stdout.buffer.write(proc.stdout)",
-                    "    sys.stderr.buffer.write(proc.stderr)",
-                    "    raise SystemExit(proc.returncode)",
-                    "finally:",
-                    "    subprocess.call(['umount', str(host)])",
-                    "    shutil.rmtree(host, ignore_errors=True)",
-                ]
-            )
-            + "\n",
+            _root_isolation_driver(lms_dir, user_namespace=user_namespace),
             encoding="utf-8",
         )
         try:
@@ -792,16 +915,34 @@ class CourseSlideFileTests(unittest.TestCase):
             )
         finally:
             driver.unlink(missing_ok=True)
-            inner.unlink(missing_ok=True)
         output = ran.stdout.decode()
         self.assertEqual(ran.returncode, 0, ran.stderr.decode() + output)
-        self.assertIn("USERNS 1", output)
-        self.assertIn("65534", output)
-        self.assertIn("INSIDE-OK", output)
-        self.assertIn("HIDDEN", output)
-        self.assertIn("NOOLD", output)
-        self.assertNotIn("SECRET", output)
-        self.assertNotIn("LEAK", output)
+        return output
+
+    @unittest.skipUnless(
+        subprocess.run(["sudo", "-n", "true"], check=False).returncode == 0,
+        "passwordless sudo is required to prove the root user namespace",
+    )
+    def test_root_user_namespace_blocks_escape_and_setuid(self) -> None:
+        """Root with a user namespace stays nobody, and a setuid id stays nobody."""
+        output = self._run_root_isolation(user_namespace=True)
+        self.assertIn("USERNS 0", output)
+        self.assertIn("ARGV_USER 1", output)
+        _assert_escape_contained(self, output)
+        self.assertIn("SETUID 65534", output)
+        self.assertNotIn("SETUID 0", output)
+
+    @unittest.skipUnless(
+        subprocess.run(["sudo", "-n", "true"], check=False).returncode == 0,
+        "passwordless sudo is required to prove the no-userns fallback",
+    )
+    def test_root_without_user_namespace_blocks_escape_and_setuid(self) -> None:
+        """The Fly no-userns fallback stays nobody, and a setuid id stays nobody."""
+        output = self._run_root_isolation(user_namespace=False)
+        self.assertIn("ARGV_USER 0", output)
+        _assert_escape_contained(self, output)
+        self.assertIn("SETUID 65534", output)
+        self.assertNotIn("SETUID 0", output)
 
     @unittest.skipUnless(
         subprocess.run(["sudo", "-n", "true"], check=False).returncode == 0

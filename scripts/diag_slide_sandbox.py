@@ -8,7 +8,10 @@ Run this on the Fly machine before and after a deploy:
 Each step runs on its own. The process does not change the app database.
 A temporary directory from the full probe is deleted before the script
 exits. Exit status is 1 when any step fails. A failing full probe is the
-same refusal the app uses for a PowerPoint import.
+same refusal the app uses for a PowerPoint import. The host-data step
+runs ``ls /data`` inside the sandbox and prints that result. It passes
+when the list fails. On a root worker the list runs as nobody. A visible
+host data directory fails the step.
 """
 
 from __future__ import annotations

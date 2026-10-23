@@ -7,16 +7,15 @@ Slides export.
 
 External relationships and media that point outside the package are
 removed before LibreOffice runs. The process is started in its own
-session, inside a network and mount namespace. ``pivot_root`` drops the
-host filesystem, so the converter sees the job directory and read-only
-system libraries only. When the worker is root, the converter runs as
-nobody. A root worker prefers a user namespace. A chroot cannot create
-one, so that worker still drops to nobody with setpriv inside the
-mount namespace. A shared parent mount makes ``pivot_root`` return
-EINVAL, so the worker first enters a private recursive bind of ``/``.
-The old root is still unmounted. Conversion is refused when that
-sandbox cannot be started. A legacy ``.ppt`` is refused because its
-links cannot be stripped.
+session, inside a network and mount namespace. ``pivot_root`` is the
+only root switch. It drops the host filesystem, so the converter sees
+the job directory and read-only system libraries only. When the worker
+is root, the converter runs as nobody. A root worker prefers a user
+namespace. A chroot cannot create one, so that worker still drops to
+nobody with setpriv inside the mount namespace. A shared parent mount
+makes ``pivot_root`` return EINVAL, and the import is refused.
+Conversion is refused when that sandbox cannot be started. A legacy
+``.ppt`` is refused because its links cannot be stripped.
 """
 
 from __future__ import annotations
@@ -27,7 +26,6 @@ import logging
 import math
 import os
 import re
-import shlex
 import shutil
 import signal
 import subprocess
@@ -114,7 +112,7 @@ for p in /usr /bin /lib /lib64 /sbin; do
   if [ -e "$p" ]; then
     mkdir -p "$newroot$p" || die mkdir $?
     mount --bind "$p" "$newroot$p" || die mount $?
-    mount -o remount,bind,ro "$newroot$p" || true
+    mount -o remount,bind,ro "$newroot$p" || die mount $?
   fi
 done
 mkdir -p "$newroot/etc" || die mkdir $?
@@ -147,6 +145,7 @@ done
 mkdir -p "$newroot$work" || die mkdir $?
 chmod -R a+rwx "$work" || true
 mount --bind "$work" "$newroot$work" || die mount $?
+mount -o remount,bind,nosuid,nodev "$newroot$work" || die mount $?
 mount -t proc proc "$newroot/proc" || die mount $?
 cd "$newroot"
 pivot_root . oldroot || die pivot_root $?
@@ -178,38 +177,19 @@ cd "$work" || die cd $?
 if [ "$mapped_nobody" = 1 ]; then
   command -v setpriv >/dev/null 2>&1 || die setpriv 127
   # Keep the converter's status. die would hide a LibreOffice failure.
-  setpriv --reuid=65534 --regid=65534 --clear-groups --inh-caps=-all -- "$@" || exit $?
+  setpriv --reuid=65534 --regid=65534 --clear-groups --inh-caps=-all --bounding-set=-all --no-new-privs -- "$@" || exit $?
   exit 0
 fi
 if [ "$host" = 0 ]; then
   echo "slide sandbox refused to drop root" >&2
   die setpriv 97
 fi
-exec "$@" || die converter $?
+command -v setpriv >/dev/null 2>&1 || die setpriv 127
+# An unprivileged namespace root is a host user. Still clear the bounding set.
+setpriv --inh-caps=-all --bounding-set=-all --no-new-privs -- "$@" || exit $?
+exit 0
 """
-# pivot_root returns EINVAL when the parent of / is shared. unshare from
-# a chroot leaves that parent on Ubuntu. Enter a private recursive bind
-# so / has a private parent, then run the same script. The inner script
-# still pivot_roots and unmounts the old root.
-_SANDBOX_WRAPPER = r"""
-set -eu
-PATH=/usr/sbin:/usr/bin:/sbin:/bin
-die() {
-  printf 'lloves-sandbox-step %s %s\n' "$1" "$2" >&2
-  exit 97
-}
-if [ "${LLOVES_SANDBOX_WAIT:-}" = 1 ]; then
-  read -r _ <&3 || die unshare $?
-fi
-mount --make-rprivate / || die mount $?
-anchor="/tmp/lloves-anchor-$(basename "$1")"
-mkdir -p "$anchor" || die mkdir $?
-mount --rbind / "$anchor" || die mount $?
-mount --make-rprivate "$anchor" || die mount $?
-unset LLOVES_SANDBOX_WAIT
-exec chroot "$anchor" /bin/sh -c __LLOVES_BODY__ sh "$@"
-"""
-_SANDBOX_SCRIPT = _SANDBOX_WRAPPER.replace("__LLOVES_BODY__", shlex.quote(_SANDBOX_INNER))
+_SANDBOX_SCRIPT = _SANDBOX_INNER
 _sandbox_lock = threading.Lock()
 # None until a probe succeeds. A failure time means the next probe waits.
 _sandbox_ready: tuple[str, str] | None = None
@@ -332,11 +312,9 @@ def _missing_sandbox_tool() -> str | None:
     Returns:
         An executable name, or None when the probe can try to start.
     """
-    for name in ("unshare", "timeout", "pivot_root", "mount", "umount"):
+    for name in ("unshare", "timeout", "pivot_root", "mount", "umount", "setpriv"):
         if not _which_tool(name):
             return name
-    if os.geteuid() == 0 and not _which_tool("setpriv"):
-        return "setpriv"
     return None
 
 
@@ -901,7 +879,6 @@ def _probe_sandbox() -> tuple[str, str] | None:
         shutil.rmtree(
             Path("/dev/shm") / f"lloves-root-{work.name}", ignore_errors=True
         )
-        _remove_sandbox_anchor(work)
     if proc.returncode != 0:
         _sandbox_probe_detail = _failure_from_output(err, int(proc.returncode or 1))
         return None
@@ -1097,6 +1074,65 @@ def _diagnostic_present(name: str) -> tuple[bool, str]:
         return True, "exit=0 stderr="
     return False, "exit=127 stderr=not found"
 
+def _diagnostic_host_data() -> tuple[bool, str]:
+    """Pass when the sandbox cannot list the host data directory.
+
+    Runs ``ls /data`` through the same ``pivot_root`` sandbox as a
+    conversion and returns that listing in the detail. A root worker
+    drops to nobody before the command. A listing is a leak. A sandbox
+    that does not start is a failure. This does not cache a probe
+    failure and does not read the application database.
+
+    Returns:
+        ``(passed, detail)``. A leak starts with ``LEAK``.
+    """
+    work = Path(tempfile.mkdtemp(prefix="lloves-slides-"))
+    proc: subprocess.Popen[bytes] | None = None
+    try:
+        try:
+            proc = _launch_sandbox(
+                ["sh", "-c", "id -u; ls /data; echo ls:$?"],
+                work,
+                office_env(work),
+                str(work),
+            )
+            out, err = proc.communicate(timeout=15)
+        except subprocess.TimeoutExpired:
+            if proc is not None:
+                _kill_process_group(proc)
+            return False, "exit=124 stderr=timed out"
+        except OSError as exc:
+            if proc is not None:
+                _kill_process_group(proc)
+            return False, f"exit=1 stderr={_sanitize_probe_text(str(exc))}"
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+        shutil.rmtree(Path("/dev/shm") / f"lloves-root-{work.name}", ignore_errors=True)
+    text_out = (out or b"").decode("utf-8", "replace").replace("\x00", "")
+    err_text = _sanitize_probe_text((err or b"").decode("utf-8", "replace"))
+    lines = [line.strip() for line in text_out.splitlines() if line.strip()]
+    uid = lines[0] if lines else ""
+    ls_code: int | None = None
+    listing: list[str] = []
+    for line in lines[1:]:
+        if line.startswith("ls:"):
+            try:
+                ls_code = int(line.split(":", 1)[1])
+            except ValueError:
+                ls_code = None
+        else:
+            listing.append(line)
+    shown = " ".join(listing)[:_PROBE_STDERR_LIMIT]
+    code = proc.returncode if proc is not None else "none"
+    detail = f"uid={uid} ls={ls_code} out={shown} stderr={err_text}"
+    if ls_code == 0:
+        return False, f"LEAK host /data is visible {detail}"[:400]
+    if ls_code is None:
+        return False, f"exit={code} {detail}"[:400]
+    if os.geteuid() == 0 and uid != "65534":
+        return False, f"exit={code} not nobody {detail}"[:400]
+    return True, f"exit={ls_code} hidden {detail}"[:400]
+
 
 def sandbox_diagnostic_steps() -> list[tuple[str, bool, str]]:
     """Run each slide-sandbox check on its own.
@@ -1104,7 +1140,9 @@ def sandbox_diagnostic_steps() -> list[tuple[str, bool, str]]:
     Read-only aside from a temporary directory the full probe deletes.
     This does not cache a failure, so a refused check does not block a
     later import in the same process. A failing full probe still means
-    the app refuses the import.
+    the app refuses the import. The host-data step lists ``/data``
+    inside the sandbox and passes only when that list fails. A root
+    worker runs that list as nobody.
 
     Returns:
         ``(name, passed, detail)`` in probe order.
@@ -1138,6 +1176,8 @@ def sandbox_diagnostic_steps() -> list[tuple[str, bool, str]]:
                         "--regid=65534",
                         "--clear-groups",
                         "--inh-caps=-all",
+                        "--bounding-set=-all",
+                        "--no-new-privs",
                         "--",
                         "true",
                     ]
@@ -1175,24 +1215,8 @@ def sandbox_diagnostic_steps() -> list[tuple[str, bool, str]]:
         detail = _sandbox_probe_detail or _format_probe_failure("unshare", None, "probe failed")
         steps.append(("full-probe", False, detail))
     _sandbox_probe_detail = previous
+    steps.append(("host-data", *_diagnostic_host_data()))
     return steps
-
-
-def _remove_sandbox_anchor(work: Path) -> None:
-    """Remove the empty directory that anchored ``pivot_root``.
-
-    The recursive bind lives in the worker's mount namespace. This
-    process sees an empty directory. ``rmdir`` does not walk a mount,
-    so a leftover bind cannot delete host files.
-
-    Args:
-        work: Job directory. Its name is the anchor suffix.
-    """
-    anchor = Path("/tmp") / f"lloves-anchor-{work.name}"
-    try:
-        anchor.rmdir()
-    except OSError:
-        return
 
 
 def run_sandboxed(
@@ -1221,16 +1245,13 @@ def run_sandboxed(
     """
     proc = _launch_sandbox(command, work, env, cwd)
     try:
-        try:
-            out, err = proc.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            _kill_process_group(proc)
-            raise
-        if proc.returncode not in (0, None):
-            _kill_process_group(proc)
-        return subprocess.CompletedProcess(command, int(proc.returncode or 0), out, err)
-    finally:
-        _remove_sandbox_anchor(work)
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_process_group(proc)
+        raise
+    if proc.returncode not in (0, None):
+        _kill_process_group(proc)
+    return subprocess.CompletedProcess(command, int(proc.returncode or 0), out, err)
 
 
 def sweep_stale_slide_dirs(*, max_age_seconds: float = STALE_SLIDE_DIR_SECONDS) -> int:
@@ -1257,7 +1278,6 @@ def sweep_stale_slide_dirs(*, max_age_seconds: float = STALE_SLIDE_DIR_SECONDS) 
             "lloves-slides-",
             "lloves-slide-upload-",
             "lloves-root-",
-            "lloves-anchor-",
         ):
             for path in root.glob(prefix + "*"):
                 if path in seen:
@@ -1268,15 +1288,6 @@ def sweep_stale_slide_dirs(*, max_age_seconds: float = STALE_SLIDE_DIR_SECONDS) 
                 except OSError:
                     continue
                 if age < float(max_age_seconds):
-                    continue
-                # An anchor is only an empty mountpoint. rmdir never follows
-                # a bind, so a leaked mount cannot delete the host tree.
-                if path.name.startswith("lloves-anchor-"):
-                    try:
-                        path.rmdir()
-                    except OSError:
-                        continue
-                    removed += 1
                     continue
                 if path.is_dir():
                     shutil.rmtree(path, ignore_errors=True)
@@ -1469,7 +1480,6 @@ def _office_to_pdf(raw: bytes, suffix: str, binary: str, *, timeout: float) -> b
     finally:
         shutil.rmtree(root, ignore_errors=True)
         shutil.rmtree(Path("/dev/shm") / f"lloves-root-{root.name}", ignore_errors=True)
-        _remove_sandbox_anchor(root)
     if not data.startswith(b"%PDF"):
         raise ValueError("That PowerPoint could not be read.")
     return data
