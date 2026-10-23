@@ -374,7 +374,7 @@ class CourseSlideFileTests(unittest.TestCase):
         try:
             with mock.patch.object(files, "_probe_sandbox", return_value=None):
                 with mock.patch.object(files, "run_sandboxed") as run:
-                    with self.assertLogs("course_slide_files", level="ERROR") as logs:
+                    with self.assertLogs("course_slide_files", level="WARNING") as logs:
                         with self.assertRaises(ValueError) as caught:
                             files.pages_from_office(_minimal_pptx(), ".pptx", timeout=5)
             run.assert_not_called()
@@ -383,6 +383,107 @@ class CourseSlideFileTests(unittest.TestCase):
             files._sandbox_failed_at = None
         self.assertIn("not available", str(caught.exception))
         self.assertTrue(any("sandbox" in line for line in logs.output))
+        self.assertTrue(any("step=" in line for line in logs.output))
+
+    def test_probe_failure_names_the_missing_command(self) -> None:
+        """A missing sandbox binary is the step in the warning."""
+        import course_slide_files as files
+
+        files._sandbox_ready = None
+        files._sandbox_failed_at = None
+        real = files._which_tool
+
+        def hide_pivot(name: str) -> str | None:
+            if name == "pivot_root":
+                return None
+            return real(name)
+
+        try:
+            with mock.patch.object(files, "_which_tool", side_effect=hide_pivot):
+                with self.assertLogs("course_slide_files", level="WARNING") as logs:
+                    with self.assertRaises(ValueError):
+                        files.sandbox_tools()
+        finally:
+            files._sandbox_ready = None
+            files._sandbox_failed_at = None
+        self.assertTrue(any("step=pivot_root" in line and "exit=127" in line for line in logs.output))
+
+    def test_probe_stderr_names_the_step_and_hides_paths(self) -> None:
+        """The public line keeps the command and drops absolute paths."""
+        import course_slide_files as files
+
+        detail = files._failure_from_output(
+            b"mount: /tmp/secret-job/x: permission denied\n"
+            b"lloves-sandbox-step mount 32\n",
+            97,
+        )
+        self.assertIn("step=mount", detail)
+        self.assertIn("exit=32", detail)
+        self.assertNotIn("/tmp", detail)
+        self.assertNotIn("secret-job", detail)
+        self.assertLessEqual(len(detail.split("stderr=", 1)[1]), 200)
+
+    def test_long_probe_stderr_is_capped(self) -> None:
+        """Only the first 200 characters of stderr are kept."""
+        import course_slide_files as files
+
+        detail = files._format_probe_failure("mount", 1, "x" * 500)
+        stderr = detail.split("stderr=", 1)[1].removesuffix(")")
+        self.assertEqual(len(stderr), 200)
+        self.assertNotIn("/tmp", detail)
+
+    def test_refusal_is_a_sentry_warning(self) -> None:
+        """Sentry gets the same warning line the log writes."""
+        import course_slide_files as files
+
+        client = mock.Mock()
+        client.is_active.return_value = True
+        sdk = mock.Mock()
+        sdk.get_client.return_value = client
+        message = "slide conversion refused: unshare sandbox probe failed (step=mount exit=32 stderr=denied)"
+        with mock.patch.dict(sys.modules, {"sentry_sdk": sdk}):
+            with self.assertLogs("course_slide_files", level="WARNING") as logs:
+                files._report_sandbox_refusal(message)
+        sdk.capture_message.assert_called_once_with(message, level="warning")
+        self.assertIn("step=mount", logs.output[0])
+
+    def test_root_without_a_user_namespace_omits_user_flag(self) -> None:
+        """Root skips ``--user`` when that namespace is refused."""
+        import course_slide_files as files
+
+        with mock.patch.object(files.os, "geteuid", return_value=0):
+            argv = files.sandbox_argv(
+                Path("/tmp/lloves-job"), ["true"], user_namespace=False
+            )
+            with_ns = files.sandbox_argv(
+                Path("/tmp/lloves-job"), ["true"], user_namespace=True
+            )
+        self.assertNotIn("--user", argv)
+        self.assertNotIn("--map-root-user", argv)
+        self.assertIn("--mount", argv)
+        self.assertIn("--user", with_ns)
+
+    @unittest.skipUnless(shutil.which("unshare"), "unshare is not installed")
+    def test_diagnostic_names_each_probe_step(self) -> None:
+        """The Fly diagnostic lists every probe step."""
+        import course_slide_files as files
+
+        found = {name: (ok, detail) for name, ok, detail in files.sandbox_diagnostic_steps()}
+        for name in (
+            "unshare",
+            "unshare-user",
+            "timeout",
+            "pivot_root",
+            "mount",
+            "umount",
+            "setpriv",
+            "bind-mount",
+            "soffice",
+            "full-probe",
+        ):
+            self.assertIn(name, found)
+        self.assertTrue(found["unshare"][0], found["unshare"][1])
+        self.assertTrue(found["full-probe"][0], found["full-probe"][1])
 
     def test_svg_file_href_is_removed(self) -> None:
         """An SVG file:// image is not left in the package."""
@@ -606,6 +707,96 @@ class CourseSlideFileTests(unittest.TestCase):
         self.assertIn("HIDDEN", output)
         self.assertIn("NOOLD", output)
         self.assertNotIn("HOST-ETC-SECRET", output)
+        self.assertNotIn("LEAK", output)
+
+    @unittest.skipUnless(
+        subprocess.run(["sudo", "-n", "true"], check=False).returncode == 0,
+        "passwordless sudo is required to prove the chroot fallback",
+    )
+    def test_chroot_root_still_drops_to_nobody(self) -> None:
+        """A chrooted root worker sandboxes after ``unshare --user`` is refused."""
+        lms_dir = str(Path(__file__).resolve().parent)
+        inner = Path("/tmp/lloves-chroot-sandbox-inner.py")
+        driver = Path("/tmp/lloves-chroot-sandbox-driver.py")
+        inner.write_text(
+            "\n".join(
+                [
+                    "import shutil, subprocess, sys, tempfile",
+                    "from pathlib import Path",
+                    f"sys.path.insert(0, {lms_dir!r})",
+                    "import course_slide_files as files",
+                    "user = subprocess.run(['unshare', '--user', 'true'], capture_output=True)",
+                    "print('USERNS', user.returncode)",
+                    "if user.returncode == 0:",
+                    "    raise SystemExit('unshare --user worked inside the chroot')",
+                    "work = Path(tempfile.mkdtemp(prefix='lloves-slides-'))",
+                    "marker = Path('/etc/lloves-chroot-sandbox-secret')",
+                    "marker.write_text('SECRET')",
+                    "try:",
+                    "    (work / 'inside.txt').write_text('INSIDE-OK')",
+                    "    completed = files.run_sandboxed(",
+                    "        ['sh', '-c',",
+                    "         'id -u; cat inside.txt; '",
+                    "         'if [ -f /etc/lloves-chroot-sandbox-secret ]; then echo LEAK; else echo HIDDEN; fi; '",
+                    "         'if [ -d /oldroot ]; then echo OLD; else echo NOOLD; fi'],",
+                    "        work=work,",
+                    "        timeout=15,",
+                    "        env=files.office_env(work),",
+                    "        cwd=str(work),",
+                    "    )",
+                    "    sys.stdout.buffer.write(completed.stdout)",
+                    "    sys.stderr.buffer.write(completed.stderr)",
+                    "    raise SystemExit(completed.returncode)",
+                    "finally:",
+                    "    marker.unlink(missing_ok=True)",
+                    "    shutil.rmtree(work, ignore_errors=True)",
+                    "    shutil.rmtree(Path('/dev/shm') / f'lloves-root-{work.name}', ignore_errors=True)",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        driver.write_text(
+            "\n".join(
+                [
+                    "import subprocess, sys, tempfile, shutil",
+                    "from pathlib import Path",
+                    "host = Path(tempfile.mkdtemp(prefix='lloves-chroot-'))",
+                    "subprocess.check_call(['mount', '--bind', '/', str(host)])",
+                    "try:",
+                    "    proc = subprocess.run(",
+                    "        ['chroot', str(host), 'python3', '/tmp/lloves-chroot-sandbox-inner.py'],",
+                    "        capture_output=True, timeout=25, check=False,",
+                    "    )",
+                    "    sys.stdout.buffer.write(proc.stdout)",
+                    "    sys.stderr.buffer.write(proc.stderr)",
+                    "    raise SystemExit(proc.returncode)",
+                    "finally:",
+                    "    subprocess.call(['umount', str(host)])",
+                    "    shutil.rmtree(host, ignore_errors=True)",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        try:
+            ran = subprocess.run(
+                ["sudo", "-n", "python3", str(driver)],
+                timeout=40,
+                check=False,
+                capture_output=True,
+            )
+        finally:
+            driver.unlink(missing_ok=True)
+            inner.unlink(missing_ok=True)
+        output = ran.stdout.decode()
+        self.assertEqual(ran.returncode, 0, ran.stderr.decode() + output)
+        self.assertIn("USERNS 1", output)
+        self.assertIn("65534", output)
+        self.assertIn("INSIDE-OK", output)
+        self.assertIn("HIDDEN", output)
+        self.assertIn("NOOLD", output)
+        self.assertNotIn("SECRET", output)
         self.assertNotIn("LEAK", output)
 
     @unittest.skipUnless(

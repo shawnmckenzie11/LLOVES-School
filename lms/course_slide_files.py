@@ -10,8 +10,10 @@ removed before LibreOffice runs. The process is started in its own
 session, inside a network and mount namespace. ``pivot_root`` drops the
 host filesystem, so the converter sees the job directory and read-only
 system libraries only. When the worker is root, the converter runs as
-nobody. Conversion is refused when that sandbox cannot be started. A
-legacy ``.ppt`` is refused because its links cannot be stripped.
+nobody. A root worker prefers a user namespace. A chroot cannot create
+one, so that worker still drops to nobody with setpriv inside the
+mount namespace. Conversion is refused when that sandbox cannot be
+started. A legacy ``.ppt`` is refused because its links cannot be stripped.
 """
 
 from __future__ import annotations
@@ -88,27 +90,31 @@ _TINY_PNG = (
 _SANDBOX_SCRIPT = r"""
 set -eu
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
+die() {
+  printf 'lloves-sandbox-step %s %s\n' "$1" "$2" >&2
+  exit 97
+}
 if [ "${LLOVES_SANDBOX_WAIT:-}" = 1 ]; then
-  read -r _ <&3 || exit 97
+  read -r _ <&3 || die unshare $?
 fi
 work=$1
 shift
-mount --make-rprivate / || exit 97
+mount --make-rprivate / || die mount $?
 newroot="/dev/shm/lloves-root-$(basename "$work")"
 rm -rf "$newroot"
-mkdir -p "$newroot"
-mount --bind "$newroot" "$newroot" || exit 97
-mount --make-rprivate "$newroot" || exit 97
+mkdir -p "$newroot" || die mkdir $?
+mount --bind "$newroot" "$newroot" || die mount $?
+mount --make-rprivate "$newroot" || die mount $?
 # System libraries only. Host /etc is not mounted; it can hold secrets.
 for p in /usr /bin /lib /lib64 /sbin; do
   if [ -e "$p" ]; then
-    mkdir -p "$newroot$p"
-    mount --bind "$p" "$newroot$p" || exit 97
+    mkdir -p "$newroot$p" || die mkdir $?
+    mount --bind "$p" "$newroot$p" || die mount $?
     mount -o remount,bind,ro "$newroot$p" || true
   fi
 done
-mkdir -p "$newroot/etc"
-mount -t tmpfs -o nosuid,nodev,mode=755,size=8m tmpfs "$newroot/etc" || exit 97
+mkdir -p "$newroot/etc" || die mkdir $?
+mount -t tmpfs -o nosuid,nodev,mode=755,size=8m tmpfs "$newroot/etc" || die mount $?
 printf 'root:x:0:0:root:/:/bin/false\nnobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\n' > "$newroot/etc/passwd"
 printf 'root:x:0:\nnogroup:x:65534:\n' > "$newroot/etc/group"
 printf 'passwd: files\ngroup: files\nhosts: files\n' > "$newroot/etc/nsswitch.conf"
@@ -124,51 +130,70 @@ fi
 if [ -f /etc/localtime ]; then
   cp -R --no-preserve=ownership /etc/localtime "$newroot/etc/localtime" || true
 fi
-mkdir -p "$newroot/tmp" "$newroot/dev" "$newroot/proc" "$newroot/oldroot"
+mkdir -p "$newroot/tmp" "$newroot/dev" "$newroot/proc" "$newroot/oldroot" || die mkdir $?
 # 1777: LibreOffice creates its bootstrap pipe in /tmp, as nobody.
-mount -t tmpfs -o nosuid,nodev,mode=1777,size=256m tmpfs "$newroot/tmp" || exit 97
-mount -t tmpfs -o nosuid,mode=755,size=4m tmpfs "$newroot/dev" || exit 97
+mount -t tmpfs -o nosuid,nodev,mode=1777,size=256m tmpfs "$newroot/tmp" || die mount $?
+mount -t tmpfs -o nosuid,mode=755,size=4m tmpfs "$newroot/dev" || die mount $?
 for n in null zero urandom random; do
   if [ -e "/dev/$n" ]; then
     touch "$newroot/dev/$n"
-    mount --bind "/dev/$n" "$newroot/dev/$n" || exit 97
+    mount --bind "/dev/$n" "$newroot/dev/$n" || die mount $?
   fi
 done
-mkdir -p "$newroot$work"
+mkdir -p "$newroot$work" || die mkdir $?
 chmod -R a+rwx "$work" || true
-mount --bind "$work" "$newroot$work" || exit 97
-mount -t proc proc "$newroot/proc" || exit 97
+mount --bind "$work" "$newroot$work" || die mount $?
+mount -t proc proc "$newroot/proc" || die mount $?
 cd "$newroot"
-pivot_root . oldroot || exit 97
-umount -l /oldroot || exit 97
+pivot_root . oldroot || die pivot_root $?
+umount -l /oldroot || die umount $?
 rmdir /oldroot 2>/dev/null || true
-# nobody is mapped only when the worker is host root. Otherwise the
-# namespace root is already an unprivileged host uid, and setuid fails.
+# nobody is mapped when the worker is host root. A user namespace lists
+# 65534 on its own line. The initial namespace lists one wide range, and
+# 65534 inside that range is host nobody. An unprivileged namespace root
+# is already a host uid, and setuid would fail.
 # awk is often a symlink into /etc/alternatives, which this root does not have.
 mapped_nobody=0
 host=1
-while read -r inner outer _count; do
-  if [ "$inner" = 65534 ]; then
+while read -r inner outer count; do
+  count=${count:-0}
+  if [ "$inner" = 65534 ] && [ "$outer" = 65534 ]; then
     mapped_nobody=1
+  fi
+  if [ "$inner" -le 65534 ] 2>/dev/null && [ $((inner + count)) -gt 65534 ] 2>/dev/null; then
+    off=$((65534 - inner))
+    if [ $((outer + off)) -eq 65534 ]; then
+      mapped_nobody=1
+    fi
   fi
   if [ "$inner" = 0 ]; then
     host=$outer
   fi
 done < /proc/self/uid_map
-cd "$work" || exit 97
+cd "$work" || die cd $?
 if [ "$mapped_nobody" = 1 ]; then
-  exec setpriv --reuid=65534 --regid=65534 --clear-groups --inh-caps=-all -- "$@"
+  command -v setpriv >/dev/null 2>&1 || die setpriv 127
+  # Keep the converter's status. die would hide a LibreOffice failure.
+  setpriv --reuid=65534 --regid=65534 --clear-groups --inh-caps=-all -- "$@" || exit $?
+  exit 0
 fi
 if [ "$host" = 0 ]; then
   echo "slide sandbox refused to drop root" >&2
-  exit 97
+  die setpriv 97
 fi
-exec "$@"
+exec "$@" || die converter $?
 """
 _sandbox_lock = threading.Lock()
 # None until a probe succeeds. A failure time means the next probe waits.
 _sandbox_ready: tuple[str, str] | None = None
 _sandbox_failed_at: float | None = None
+# Last refusal line. Paths are already removed. Cleared on the next probe.
+_sandbox_probe_detail: str | None = None
+# None until a root worker has tried ``unshare --user``.
+_root_user_ns: bool | None = None
+_PROBE_STDERR_LIMIT = 200
+_PROBE_STEP_RE = re.compile(r"lloves-sandbox-step\s+([A-Za-z0-9_.+-]+)\s+(-?\d+)")
+_PROBE_PATH_RE = re.compile(r"/[^\s\"']+")
 
 
 
@@ -189,6 +214,149 @@ def _which_tool(name: str) -> str | None:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return str(candidate)
     return None
+
+
+def _sanitize_probe_text(text: str) -> str:
+    """Drop absolute paths and keep a short single line of probe stderr.
+
+    Args:
+        text: Stderr or an exception string. A job path may be in it.
+
+    Returns:
+        At most 200 characters, with paths replaced by ``[path]``.
+    """
+    cleaned = _PROBE_PATH_RE.sub("[path]", str(text).replace("\x00", ""))
+    return " ".join(cleaned.split())[:_PROBE_STDERR_LIMIT]
+
+
+def _format_probe_failure(command: str, exit_code: int | None, stderr: str) -> str:
+    """One public line naming the sandbox step that failed.
+
+    Args:
+        command: Executable name, such as ``pivot_root`` or ``unshare``.
+        exit_code: Wait status, or None when the process did not exit.
+        stderr: Raw stderr. Paths are removed.
+
+    Returns:
+        The warning and Sentry message, with no absolute paths.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9_.+-]+", command or ""):
+        command = "unshare"
+    code = "none" if exit_code is None else str(int(exit_code))
+    detail = _sanitize_probe_text(stderr)
+    return (
+        "slide conversion refused: unshare sandbox probe failed "
+        f"(step={command} exit={code} stderr={detail})"
+    )
+
+
+def _failure_from_output(err: bytes, returncode: int) -> str:
+    """Build the public probe line from a sandbox child's stderr.
+
+    Args:
+        err: Stderr bytes from the unshare supervisor.
+        returncode: The supervisor's wait status.
+
+    Returns:
+        The warning line. A ``lloves-sandbox-step`` marker names the command.
+    """
+    text = err.decode("utf-8", "replace")
+    match = _PROBE_STEP_RE.search(text)
+    if match:
+        command = match.group(1)
+        code: int | None = int(match.group(2))
+        text = _PROBE_STEP_RE.sub(" ", text)
+    else:
+        command = "unshare"
+        for name in ("pivot_root", "umount", "mount", "setpriv", "mkdir", "unshare"):
+            if f"{name}:" in text:
+                command = name
+                break
+        code = int(returncode)
+    return _format_probe_failure(command, code, text)
+
+
+def _report_sandbox_refusal(detail: str) -> None:
+    """Log a refused probe and send that same line to Sentry.
+
+    Warning is below the SDK's default event level, so the log line is a
+    breadcrumb only. ``capture_message`` is the event whose message is
+    ``detail``. Paths are already gone. Import and send failures are ignored.
+
+    Args:
+        detail: The public failure line from :func:`_format_probe_failure`.
+    """
+    logger.warning("%s", detail)
+    try:
+        import sentry_sdk
+    except ImportError:
+        return
+    try:
+        if not sentry_sdk.get_client().is_active():
+            return
+        sentry_sdk.capture_message(detail, level="warning")
+    except Exception:  # noqa: BLE001
+        logger.debug("slide sandbox Sentry report failed", exc_info=True)
+
+
+def _missing_sandbox_tool() -> str | None:
+    """The first sandbox binary that is not installed, if any.
+
+    Returns:
+        An executable name, or None when the probe can try to start.
+    """
+    for name in ("unshare", "timeout", "pivot_root", "mount", "umount"):
+        if not _which_tool(name):
+            return name
+    if os.geteuid() == 0 and not _which_tool("setpriv"):
+        return "setpriv"
+    return None
+
+
+def _root_user_namespace_works() -> bool:
+    """True when this root process can create a user namespace.
+
+    ``unshare --user`` returns EPERM inside a chroot even for root. The
+    slide sandbox then keeps the mount, pid, and net namespaces and drops
+    to nobody with setpriv. Non-root workers are not cached here. The
+    root answer is cached for the life of the process.
+
+    Returns:
+        True when ``unshare --user true`` exits 0.
+    """
+    global _root_user_ns
+    if os.geteuid() != 0:
+        return False
+    if _root_user_ns is not None:
+        return _root_user_ns
+    binary = _which_tool("unshare")
+    if not binary:
+        _root_user_ns = False
+        return False
+    try:
+        completed = subprocess.run(
+            [binary, "--user", "true"],
+            capture_output=True,
+            timeout=3,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        _root_user_ns = False
+        logger.warning(
+            "slide sandbox user namespace unavailable (step=unshare exit=1 stderr=%s); continuing with setpriv",
+            _sanitize_probe_text(str(exc)),
+        )
+        return False
+    if completed.returncode == 0:
+        _root_user_ns = True
+        return True
+    _root_user_ns = False
+    logger.warning(
+        "slide sandbox user namespace unavailable (step=unshare exit=%s stderr=%s); continuing with setpriv",
+        completed.returncode,
+        _sanitize_probe_text(completed.stderr.decode("utf-8", "replace")),
+    )
+    return False
 
 
 def upload_content_length_allowed(content_length: int | None) -> bool:
@@ -642,7 +810,7 @@ def sandbox_tools() -> tuple[str, str]:
         ValueError: The sandbox cannot be started. The message is safe
             to show to the teacher.
     """
-    global _sandbox_ready, _sandbox_failed_at
+    global _sandbox_ready, _sandbox_failed_at, _sandbox_probe_detail
     with _sandbox_lock:
         if isinstance(_sandbox_ready, tuple):
             return _sandbox_ready
@@ -650,13 +818,18 @@ def sandbox_tools() -> tuple[str, str]:
             elapsed = time.monotonic() - _sandbox_failed_at
             if elapsed < SANDBOX_PROBE_RETRY_SECONDS:
                 raise ValueError(_SANDBOX_MESSAGE)
+        _sandbox_probe_detail = None
         found = _probe_sandbox()
         if found is None:
             _sandbox_failed_at = time.monotonic()
             _sandbox_ready = None
-            logger.error("slide conversion refused: unshare sandbox probe failed")
+            detail = _sandbox_probe_detail or _format_probe_failure(
+                "unshare", None, "probe failed"
+            )
+            _report_sandbox_refusal(detail)
             raise ValueError(_SANDBOX_MESSAGE)
         _sandbox_failed_at = None
+        _sandbox_probe_detail = None
         _sandbox_ready = found
         return found
 
@@ -664,24 +837,37 @@ def sandbox_tools() -> tuple[str, str]:
 def _probe_sandbox() -> tuple[str, str] | None:
     """Try one isolated ``true`` inside the slide sandbox.
 
+    A missing binary or a non-zero sandbox sets :data:`_sandbox_probe_detail`
+    to the public failure line. The caller logs that line.
+
     Returns:
         ``(unshare, timeout)`` when the probe exits 0, else None.
     """
+    global _sandbox_probe_detail
     unshare = _which_tool("unshare")
     timeout_bin = _which_tool("timeout")
-    if not unshare or not timeout_bin or not _which_tool("pivot_root"):
-        return None
-    if os.geteuid() == 0 and not _which_tool("setpriv"):
+    missing = _missing_sandbox_tool()
+    if missing or not unshare or not timeout_bin:
+        _sandbox_probe_detail = _format_probe_failure(
+            missing or "unshare", 127, "not found"
+        )
         return None
     work = Path(tempfile.mkdtemp(prefix="lloves-slides-"))
     proc: subprocess.Popen[bytes] | None = None
+    err = b""
     try:
         try:
             proc = _launch_sandbox(["true"], work, office_env(work), str(work))
-            proc.communicate(timeout=8)
-        except (OSError, subprocess.TimeoutExpired):
+            _out, err = proc.communicate(timeout=8)
+        except subprocess.TimeoutExpired:
             if proc is not None:
                 _kill_process_group(proc)
+            _sandbox_probe_detail = _format_probe_failure("true", 124, "timed out")
+            return None
+        except OSError as exc:
+            if proc is not None:
+                _kill_process_group(proc)
+            _sandbox_probe_detail = _format_probe_failure("unshare", 1, str(exc))
             return None
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -689,23 +875,32 @@ def _probe_sandbox() -> tuple[str, str] | None:
             Path("/dev/shm") / f"lloves-root-{work.name}", ignore_errors=True
         )
     if proc.returncode != 0:
+        _sandbox_probe_detail = _failure_from_output(err, int(proc.returncode or 1))
         return None
     return unshare, timeout_bin
 
 
 def sandbox_argv(
-    work: Path, command: list[str], *, unshare: str | None = None
+    work: Path,
+    command: list[str],
+    *,
+    unshare: str | None = None,
+    user_namespace: bool | None = None,
 ) -> list[str]:
     """Argv that runs ``command`` with only ``work`` exposed.
 
-    Host root uses a bare user namespace so the parent can map nobody
-    before the script continues. Any other worker maps itself to
+    Host root uses a user namespace so the parent can map nobody before
+    the script continues, when the kernel allows it. A chroot refuses
+    that namespace, and root then stays in the host user namespace and
+    drops to nobody with setpriv. Any other worker maps itself to
     namespace root, which is already unprivileged on the host.
 
     Args:
         work: Job directory. It is bind-mounted at the same path.
         command: Converter argv. Not passed through a shell.
         unshare: Absolute ``unshare`` path. Looked up when omitted.
+        user_namespace: Force ``--user`` for root on or off. ``None``
+            asks the kernel with a one-shot ``unshare --user true``.
 
     Returns:
         Argv beginning with ``unshare``.
@@ -715,7 +910,11 @@ def sandbox_argv(
     if os.geteuid() != 0:
         flags.append("--map-root-user")
     else:
-        flags.insert(0, "--user")
+        use_ns = (
+            _root_user_namespace_works() if user_namespace is None else user_namespace
+        )
+        if use_ns:
+            flags.insert(0, "--user")
     return [
         binary,
         *flags,
@@ -779,12 +978,14 @@ def _launch_sandbox(
         The unshare supervisor. The caller waits and kills the group.
 
     Raises:
-        OSError: The root uid map could not be installed.
+        OSError: The root uid map could not be installed. The message
+            includes the child's stderr with paths removed.
     """
     child_env = dict(env)
     read_fd: int | None = None
     write_fd: int | None = None
-    if os.geteuid() == 0:
+    use_user_ns = os.geteuid() == 0 and _root_user_namespace_works()
+    if use_user_ns:
         read_fd, write_fd = os.pipe()
         os.set_inheritable(read_fd, True)
         child_env["LLOVES_SANDBOX_WAIT"] = "1"
@@ -797,7 +998,7 @@ def _launch_sandbox(
 
     try:
         proc = subprocess.Popen(
-            sandbox_argv(work, command),
+            sandbox_argv(work, command, user_namespace=use_user_ns),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=child_env,
@@ -818,12 +1019,135 @@ def _launch_sandbox(
     try:
         _arm_root_mapping(proc)
         os.write(write_fd, b"\n")
-    except Exception:
+    except Exception as exc:
         os.close(write_fd)
         _kill_process_group(proc)
-        raise
+        err = b""
+        try:
+            _out, err = proc.communicate(timeout=2)
+        except Exception:  # noqa: BLE001
+            err = b""
+        public = _sanitize_probe_text((err or b"").decode("utf-8", "replace"))
+        raise OSError(f"{exc}; stderr={public}") from exc
     os.close(write_fd)
     return proc
+
+
+def _diagnostic_command(argv: list[str], *, timeout: float = 5) -> tuple[bool, str]:
+    """Run one diagnostic command and return pass or fail.
+
+    Args:
+        argv: Command to run. Not a shell string.
+        timeout: Seconds before the command is failed.
+
+    Returns:
+        ``(passed, detail)``. ``detail`` has the exit code and sanitized stderr.
+    """
+    try:
+        completed = subprocess.run(
+            argv,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, f"exit=none stderr={_sanitize_probe_text(str(exc))}"
+    err = _sanitize_probe_text(completed.stderr.decode("utf-8", "replace"))
+    return completed.returncode == 0, f"exit={completed.returncode} stderr={err}"
+
+
+def _diagnostic_present(name: str) -> tuple[bool, str]:
+    """Pass when ``name`` is an executable sandbox binary.
+
+    Args:
+        name: Executable name, such as ``pivot_root``.
+
+    Returns:
+        ``(passed, detail)`` with exit 0 or 127.
+    """
+    if _which_tool(name):
+        return True, "exit=0 stderr="
+    return False, "exit=127 stderr=not found"
+
+
+def sandbox_diagnostic_steps() -> list[tuple[str, bool, str]]:
+    """Run each slide-sandbox check on its own.
+
+    Read-only aside from a temporary directory the full probe deletes.
+    This does not cache a failure, so a refused check does not block a
+    later import in the same process. A failing full probe still means
+    the app refuses the import.
+
+    Returns:
+        ``(name, passed, detail)`` in probe order.
+    """
+    global _sandbox_probe_detail
+    steps: list[tuple[str, bool, str]] = []
+    unshare = _which_tool("unshare")
+    if unshare:
+        steps.append(("unshare", *_diagnostic_command([unshare, "true"])))
+        steps.append(("unshare-user", *_diagnostic_command([unshare, "--user", "true"])))
+    else:
+        steps.append(("unshare", False, "exit=127 stderr=not found"))
+        steps.append(("unshare-user", False, "exit=127 stderr=not found"))
+    timeout_bin = _which_tool("timeout")
+    if timeout_bin:
+        steps.append(("timeout", *_diagnostic_command([timeout_bin, "1", "true"])))
+    else:
+        steps.append(("timeout", False, "exit=127 stderr=not found"))
+    steps.append(("pivot_root", *_diagnostic_present("pivot_root")))
+    steps.append(("mount", *_diagnostic_present("mount")))
+    steps.append(("umount", *_diagnostic_present("umount")))
+    setpriv = _which_tool("setpriv")
+    if os.geteuid() == 0 and setpriv:
+        steps.append(
+            (
+                "setpriv",
+                *_diagnostic_command(
+                    [
+                        setpriv,
+                        "--reuid=65534",
+                        "--regid=65534",
+                        "--clear-groups",
+                        "--inh-caps=-all",
+                        "--",
+                        "true",
+                    ]
+                ),
+            )
+        )
+    else:
+        steps.append(("setpriv", *_diagnostic_present("setpriv")))
+    if unshare:
+        flags = [unshare, "--mount"]
+        if os.geteuid() != 0:
+            flags.append("--map-root-user")
+        flags.extend(
+            [
+                "sh",
+                "-c",
+                "d=$(mktemp -d /tmp/lloves-sandbox-diag-XXXXXX) || exit 1; "
+                "mount --bind /usr \"$d\"; status=$?; umount \"$d\" || true; "
+                "rmdir \"$d\" || true; exit $status",
+            ]
+        )
+        steps.append(("bind-mount", *_diagnostic_command(flags)))
+    else:
+        steps.append(("bind-mount", False, "exit=127 stderr=not found"))
+    office = soffice_bin()
+    if office:
+        steps.append(("soffice", True, "exit=0 stderr="))
+    else:
+        steps.append(("soffice", False, "exit=127 stderr=not found"))
+    previous = _sandbox_probe_detail
+    found = _probe_sandbox()
+    if found:
+        steps.append(("full-probe", True, "exit=0 stderr="))
+    else:
+        detail = _sandbox_probe_detail or _format_probe_failure("unshare", None, "probe failed")
+        steps.append(("full-probe", False, detail))
+    _sandbox_probe_detail = previous
+    return steps
 
 
 def run_sandboxed(

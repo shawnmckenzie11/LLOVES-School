@@ -8,9 +8,12 @@ ENV LLOVES_DB=/data/lloves.sqlite
 ENV HOST=0.0.0.0
 ENV PORT=8080
 
+# ``mount`` and ``umount`` are the mount package on Debian 13. They are
+# not part of util-linux. The slide sandbox calls both by name.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libreoffice-impress \
+    mount \
     util-linux \
     && rm -rf /var/lib/apt/lists/*
 
