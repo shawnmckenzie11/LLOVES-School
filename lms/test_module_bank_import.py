@@ -45,9 +45,19 @@ class _UrlOpenBody:
         self.headers = {"Content-Type": content_type}
         self._body = body
 
-    def read(self) -> bytes:
-        """Return the canned body."""
-        return self._body
+    def read(self, size: int = -1) -> bytes:
+        """Return the canned body, honouring a streamed size cap.
+
+        Args:
+            size: Maximum bytes to return. Negative reads the rest.
+        """
+        if size is None or size < 0 or size >= len(self._body):
+            data = self._body
+            self._body = b""
+            return data
+        data = self._body[:size]
+        self._body = self._body[size:]
+        return data
 
     def __enter__(self) -> "_UrlOpenBody":
         """Enter the ``with urlopen(...)`` block."""
@@ -119,6 +129,64 @@ def _insert_mc_question(
     return int(cur.lastrowid)
 
 
+
+class BankImageHostTests(unittest.TestCase):
+    """Allowlist checks that do not need a school database."""
+
+    def test_fragment_userinfo_and_http_do_not_match(self) -> None:
+        """Hostname matching ignores fragments, queries, and userinfo tricks."""
+        try:
+            from bank_image_mirror import is_remote_bank_image_url
+        except ImportError:
+            from lms.bank_image_mirror import is_remote_bank_image_url
+
+        self.assertFalse(
+            is_remote_bank_image_url("https://169.254.169.254#.instructure.com/")
+        )
+        self.assertFalse(
+            is_remote_bank_image_url(
+                "http://127.0.0.1:8789/?u=https://x.instructure.com/"
+            )
+        )
+        self.assertFalse(
+            is_remote_bank_image_url("https://evil.example?.instructure.com/")
+        )
+        self.assertFalse(
+            is_remote_bank_image_url(
+                "https://virtuallearning.instructure.com@169.254.169.254/latest/"
+            )
+        )
+        self.assertFalse(is_remote_bank_image_url("https://evilinstructure.com/a.png"))
+        self.assertTrue(
+            is_remote_bank_image_url(
+                "https://169.254.169.254@virtuallearning.instructure.com/a.png"
+            )
+        )
+        self.assertTrue(
+            is_remote_bank_image_url("https://virtuallearning.instructure.com/a.png")
+        )
+        self.assertTrue(is_remote_bank_image_url("https://www.wiris.net/demo/x"))
+
+    def test_redirect_handler_reports_the_next_url(self) -> None:
+        """The redirect handler does not open the Location target itself."""
+        import urllib.request
+
+        try:
+            from bank_image_mirror import _CaptureRedirect, _Redirect
+        except ImportError:
+            from lms.bank_image_mirror import _CaptureRedirect, _Redirect
+
+        handler = _CaptureRedirect()
+        req = urllib.request.Request("https://virtuallearning.instructure.com/a")
+        with self.assertRaises(_Redirect) as caught:
+            handler.redirect_request(
+                req, None, 302, "Found", {}, "https://169.254.169.254/latest/"
+            )
+        self.assertEqual(
+            caught.exception.location, "https://169.254.169.254/latest/"
+        )
+
+
 class ModuleBankImportMergeTests(unittest.TestCase):
     """Metadata merge and import persistence without HTTP."""
 
@@ -132,6 +200,11 @@ class ModuleBankImportMergeTests(unittest.TestCase):
             testing=True,
         )
         self.school = self.app.config["SCHOOL_DB"]
+        try:
+            from bank_image_mirror import clear_bank_image_refusals
+        except ImportError:
+            from lms.bank_image_mirror import clear_bank_image_refusals
+        clear_bank_image_refusals()
         self.school.activate_from_semester_json()
         self.teacher = self.school.register_staff("teacher@gmail.com")
         self.offering = self.school.assign_course(
@@ -180,6 +253,11 @@ class ModuleBankImportMergeTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         """Close sqlite and remove temp dir."""
+        try:
+            from bank_image_mirror import clear_bank_image_refusals
+        except ImportError:
+            from lms.bank_image_mirror import clear_bank_image_refusals
+        clear_bank_image_refusals()
         self.school.close()
         self.tmp.cleanup()
 
@@ -266,7 +344,7 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         )
         # The dead verifier downloads a login page. That must not occupy the
         # cache before this fixture plants the real mirrored PNG.
-        with mock.patch("urllib.request.urlopen", side_effect=_login_page_urlopen):
+        with mock.patch("bank_image_mirror._open_remote", side_effect=_login_page_urlopen):
             self._remirror_leftover_canvas_image(remote)
 
     def _remirror_leftover_canvas_image(self, remote: str) -> None:
@@ -317,6 +395,9 @@ class ModuleBankImportMergeTests(unittest.TestCase):
             INSERT INTO bank_image_cache (
                 library_id, source_url, relpath, blob_sha, created_at
             ) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(library_id, source_url) DO UPDATE SET
+                relpath = excluded.relpath,
+                blob_sha = excluded.blob_sha
             """,
             (
                 self.library_id,
@@ -381,13 +462,13 @@ class ModuleBankImportMergeTests(unittest.TestCase):
             _UrlOpenBody(_TINY_PNG, "image/png"),
             _UrlOpenBody(_TINY_PNG, "application/octet-stream"),
         ]
-        with mock.patch("urllib.request.urlopen", side_effect=responses):
+        with mock.patch("bank_image_mirror._open_remote", side_effect=responses):
             html_rel = mirror_bank_image_url(self.school, self.library_id, html_url)
             png_rel = mirror_bank_image_url(self.school, self.library_id, png_url)
             octet_rel = mirror_bank_image_url(self.school, self.library_id, octet_url)
         self.assertIsNone(html_rel)
         self.assertTrue(str(png_rel).endswith(".png"))
-        self.assertTrue(str(octet_rel or "").startswith("web_resources/bank-mirror/"))
+        self.assertTrue(str(octet_rel or "").endswith(".png"))
         rows = self.school.conn.execute(
             "SELECT source_url FROM bank_image_cache"
         ).fetchall()
@@ -395,6 +476,231 @@ class ModuleBankImportMergeTests(unittest.TestCase):
             {str(row["source_url"]) for row in rows},
             {png_url, octet_url},
         )
+
+    def test_sniff_uses_magic_bytes_not_content_type(self) -> None:
+        """A PNG labeled text/plain is kept; HTML labeled as an image is not."""
+        try:
+            from bank_image_mirror import mirror_bank_image_url
+        except ImportError:
+            from lms.bank_image_mirror import mirror_bank_image_url
+
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg"></svg>'
+        svg_prolog = b'<?xml version="1.0"?>\n  <svg xmlns="http://www.w3.org/2000/svg"></svg>'
+        cases = [
+            (_TINY_PNG, "text/plain", ".png"),
+            (b"\xff\xd8\xff\xe0", "text/plain", ".jpg"),
+            (b"GIF89a", "text/html", ".gif"),
+            (b"RIFF\x00\x00\x00\x00WEBP", "application/octet-stream", ".webp"),
+            (_LOGIN_HTML, "image/png", None),
+            (_LOGIN_HTML, "image/svg+xml", None),
+            (svg, "application/octet-stream", ".svg"),
+            (svg_prolog, "text/plain", ".svg"),
+            (b'<svg xmlns="http://www.w3.org/2000/svg"><script>bad</script></svg>', "image/svg+xml", None),
+            (b'<svg onload="alert(1)"></svg>', "image/svg+xml", None),
+            (b'<svg><a href="javascript:alert(1)"></svg>', "image/svg+xml", None),
+            (b'<svg><foreignObject></foreignObject></svg>', "image/svg+xml", None),
+            (b'<!doctype html><html><body><svg></svg></body></html>', "image/svg+xml", None),
+        ]
+        for index, (body, content_type, expected) in enumerate(cases):
+            url = (
+                "https://virtuallearning.instructure.com/assessment_questions/"
+                f"1/files/{20 + index}/download?verifier=sniff"
+            )
+            with mock.patch(
+                "bank_image_mirror._open_remote",
+                return_value=_UrlOpenBody(body, content_type),
+            ):
+                relpath = mirror_bank_image_url(self.school, self.library_id, url)
+            if expected is None:
+                self.assertIsNone(relpath, content_type)
+            else:
+                self.assertTrue(str(relpath).endswith(expected), relpath)
+
+    def test_second_student_refresh_does_not_fetch(self) -> None:
+        """A refused image is downloaded once, then student refreshes stay local."""
+        try:
+            from bank_image_mirror import clear_bank_image_refusals
+        except ImportError:
+            from lms.bank_image_mirror import clear_bank_image_refusals
+
+        remote = (
+            "https://virtuallearning.instructure.com/assessment_questions/"
+            "1/files/40/download?verifier=refresh"
+        )
+        calls = {"n": 0}
+
+        def opener(*_args: object, **_kwargs: object) -> _UrlOpenBody:
+            calls["n"] += 1
+            return _UrlOpenBody(_LOGIN_HTML, "text/html")
+
+        question_id = _insert_mc_question(
+            self.school,
+            self.m1_bank,
+            import_key="q-refresh",
+            title="Dead graph",
+            stem=f'<p>Refer to the graph.</p><img src="{remote}">',
+        )
+        with mock.patch("bank_image_mirror._open_remote", side_effect=opener):
+            self.school.import_mc_to_class_playlist(
+                self.class_id,
+                "M1",
+                "C2",
+                question_id,
+                library_id=self.library_id,
+                page_number=1,
+                stage="round",
+            )
+            items = self.school.ensure_live_session_items(self.session_id)
+            imported = next(
+                row
+                for row in items
+                if str(row.get("item_id") or "") == f"bank-import-{question_id}"
+            )
+            self.school.publish_live_session_item(
+                self.session_id, int(imported["id"])
+            )
+            with self.school.game._lock:
+                student = self.school.game.conn.execute(
+                    "SELECT id, codename FROM students WHERE class_id = ? ORDER BY id ASC",
+                    (self.class_id,),
+                ).fetchone()
+            student_id = int(student["id"])
+            self.school.join_live_class_session(
+                self.session_id, student_id, codename=str(student["codename"])
+            )
+            clear_bank_image_refusals()
+            calls["n"] = 0
+            self.school.student_live_items_payload(self.session_id, student_id)
+            first = calls["n"]
+            calls["n"] = 0
+            self.school.student_live_items_payload(self.session_id, student_id)
+            second = calls["n"]
+        self.assertGreaterEqual(first, 1)
+        self.assertEqual(second, 0)
+
+    def test_redirect_to_metadata_is_not_opened(self) -> None:
+        """A redirect off the allowlist is refused before that hop is opened."""
+        try:
+            from bank_image_mirror import _Redirect, mirror_bank_image_url
+        except ImportError:
+            from lms.bank_image_mirror import _Redirect, mirror_bank_image_url
+
+        opened: list[str] = []
+
+        def opener(request: object, timeout: float) -> _UrlOpenBody:
+            target = str(getattr(request, "full_url", "") or "")
+            opened.append(target)
+            if "169.254.169.254" in target:
+                return _UrlOpenBody(b"secret", "text/plain")
+            raise _Redirect("https://169.254.169.254/latest/meta-data")
+
+        url = (
+            "https://virtuallearning.instructure.com/files/41/download?verifier=meta"
+        )
+        with mock.patch("bank_image_mirror._open_remote", side_effect=opener):
+            relpath = mirror_bank_image_url(self.school, self.library_id, url)
+        self.assertIsNone(relpath)
+        self.assertEqual(opened, [url])
+
+    def test_redirect_cap_stops_before_a_fourth_hop(self) -> None:
+        """Three redirects may be followed; the next one is not opened."""
+        try:
+            from bank_image_mirror import _Redirect, mirror_bank_image_url
+        except ImportError:
+            from lms.bank_image_mirror import _Redirect, mirror_bank_image_url
+
+        opened: list[str] = []
+
+        def opener(request: object, timeout: float) -> _UrlOpenBody:
+            opened.append(str(getattr(request, "full_url", "") or ""))
+            raise _Redirect("https://virtuallearning.instructure.com/next")
+
+        url = (
+            "https://virtuallearning.instructure.com/files/42/download?verifier=hops"
+        )
+        with mock.patch("bank_image_mirror._open_remote", side_effect=opener):
+            relpath = mirror_bank_image_url(self.school, self.library_id, url)
+        self.assertIsNone(relpath)
+        self.assertEqual(len(opened), 4)
+
+    def test_oversized_body_is_refused_once(self) -> None:
+        """A body over the size cap is not stored and is not fetched again."""
+        try:
+            from bank_image_mirror import _MAX_IMAGE_BYTES, mirror_bank_image_url
+        except ImportError:
+            from lms.bank_image_mirror import _MAX_IMAGE_BYTES, mirror_bank_image_url
+
+        huge = b"\x89PNG\r\n\x1a\n" + (b"x" * _MAX_IMAGE_BYTES)
+        calls = {"n": 0}
+
+        def opener(*_args: object, **_kwargs: object) -> _UrlOpenBody:
+            calls["n"] += 1
+            return _UrlOpenBody(huge, "image/png")
+
+        url = (
+            "https://virtuallearning.instructure.com/files/43/download?verifier=huge"
+        )
+        with mock.patch("bank_image_mirror._open_remote", side_effect=opener):
+            self.assertIsNone(mirror_bank_image_url(self.school, self.library_id, url))
+            self.assertEqual(calls["n"], 1)
+            self.assertIsNone(mirror_bank_image_url(self.school, self.library_id, url))
+            self.assertEqual(calls["n"], 1)
+        rows = self.school.conn.execute(
+            "SELECT source_url FROM bank_image_cache WHERE source_url = ?",
+            (url,),
+        ).fetchall()
+        self.assertEqual(rows, [])
+
+    def test_expired_refusal_fetches_again(self) -> None:
+        """A refusal older than the TTL does not keep blocking the download."""
+        import time
+
+        try:
+            from bank_image_mirror import _refusal_lock, _refusals, mirror_bank_image_url
+        except ImportError:
+            from lms.bank_image_mirror import _refusal_lock, _refusals, mirror_bank_image_url
+
+        url = (
+            "https://virtuallearning.instructure.com/files/44/download?verifier=ttl"
+        )
+        calls = {"n": 0}
+
+        def opener(*_args: object, **_kwargs: object) -> _UrlOpenBody:
+            calls["n"] += 1
+            return _UrlOpenBody(_LOGIN_HTML, "text/html")
+
+        with mock.patch("bank_image_mirror._open_remote", side_effect=opener):
+            self.assertIsNone(mirror_bank_image_url(self.school, self.library_id, url))
+            with _refusal_lock:
+                _refusals[(self.library_id, url)] = time.monotonic() - 5
+            self.assertIsNone(mirror_bank_image_url(self.school, self.library_id, url))
+        self.assertEqual(calls["n"], 2)
+
+    def test_string_choices_are_mirrored(self) -> None:
+        """Answer choices stored as strings do not crash the library prefetch."""
+        try:
+            from bank_image_mirror import mirror_library_bank_images
+        except ImportError:
+            from lms.bank_image_mirror import mirror_library_bank_images
+
+        url = (
+            "https://virtuallearning.instructure.com/files/45/download?verifier=choice"
+        )
+        _insert_mc_question(
+            self.school,
+            self.m1_bank,
+            import_key="q-string-choice",
+            title="Choice image",
+            stem="Plain stem",
+            extra_payload={"choices": [f'<img src="{url}">', "plain"]},
+        )
+        with mock.patch(
+            "bank_image_mirror._open_remote",
+            side_effect=lambda *_args, **_kwargs: _UrlOpenBody(_TINY_PNG, "text/plain"),
+        ):
+            summary = mirror_library_bank_images(self.school, self.library_id)
+        self.assertGreaterEqual(int(summary["mirrored"]), 1)
+        self.assertEqual(int(summary["failed"]), 0)
 
     def test_import_creates_lifecycle_row_on_active_session(self) -> None:
         """Import during an active session seeds a new lifecycle placement."""
@@ -1657,6 +1963,11 @@ class ModuleBankImportApiTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         """Close sqlite and remove temp dir."""
+        try:
+            from bank_image_mirror import clear_bank_image_refusals
+        except ImportError:
+            from lms.bank_image_mirror import clear_bank_image_refusals
+        clear_bank_image_refusals()
         self.school.close()
         self.tmp.cleanup()
 
