@@ -47,30 +47,37 @@ def _load_cli():
 
 
 def _school() -> _Db:
-    """Empty sqlite with the JSON columns the repair scans."""
+    """Empty sqlite with question rows, libraries, and one untouched side table."""
     conn = sqlite3.connect(":memory:")
     conn.executescript(
         """
+        CREATE TABLE content_libraries (
+            id INTEGER PRIMARY KEY,
+            ontario_code TEXT NOT NULL,
+            origin TEXT NOT NULL
+        );
+        CREATE TABLE question_banks (
+            id INTEGER PRIMARY KEY,
+            library_id INTEGER NOT NULL,
+            title TEXT NOT NULL
+        );
         CREATE TABLE questions (
             id INTEGER PRIMARY KEY,
-            payload_json TEXT NOT NULL
+            bank_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE course_offerings (
+            id INTEGER PRIMARY KEY,
+            teacher_user_id INTEGER,
+            library_id INTEGER,
+            shell_library_id INTEGER
         );
         CREATE TABLE class_live_playlist_placements (
             id INTEGER PRIMARY KEY,
             item_json TEXT NOT NULL,
             source_question_id INTEGER
-        );
-        CREATE TABLE live_session_items (
-            id INTEGER PRIMARY KEY,
-            item_json TEXT NOT NULL
-        );
-        CREATE TABLE live_session_prompts (
-            id INTEGER PRIMARY KEY,
-            payload TEXT NOT NULL
-        );
-        CREATE TABLE participation_items (
-            id INTEGER PRIMARY KEY,
-            item_json TEXT NOT NULL
         );
         CREATE TABLE bank_image_cache (
             source_url TEXT NOT NULL,
@@ -81,76 +88,139 @@ def _school() -> _Db:
     return _Db(conn)
 
 
+def _leaked_payload() -> dict:
+    """One stem that still shows the correct-choice image."""
+    return {
+        "stem_html": (
+            f'<img src="{ANSWER}" alt="five cubed">'
+            "<p>Simplify (5<sup>-4</sup>)(5<sup>7</sup>).</p>"
+        ),
+        "choices": [
+            {"id": "a", "html": f'<img src="{ANSWER}" alt="five cubed">', "correct": True},
+            {"id": "b", "html": "11", "correct": False},
+        ],
+    }
+
+
+def _healthy_payload() -> dict:
+    """A graph that is not a choice image."""
+    return {
+        "stem_html": "<p>What is the vertex?</p>",
+        "image_url": GRAPH,
+        "choices": [
+            {"id": "a", "html": "(0, c)", "correct": True},
+            {"id": "b", "html": "(h, k)", "correct": False},
+        ],
+    }
+
+
 class ChoiceStemImageRepairTests(unittest.TestCase):
     """Dry-run lists the leak; apply is idempotent; production stays gated."""
 
-    def test_dry_run_lists_question_ids_and_apply_is_idempotent(self) -> None:
-        """A glued choice image is reported, then removed once."""
+    def _seed_libraries(self, school: _Db) -> None:
+        """One shared pack and one single-teacher shell."""
+        school.conn.executemany(
+            "INSERT INTO content_libraries (id, ontario_code, origin) VALUES (?, ?, ?)",
+            [(4, "MCF3M", "upload"), (9, "MCF3M", "shell")],
+        )
+        school.conn.executemany(
+            "INSERT INTO question_banks (id, library_id, title) VALUES (?, ?, ?)",
+            [(40, 4, "M4"), (90, 9, "Shell")],
+        )
+        school.conn.executemany(
+            "INSERT INTO course_offerings (id, teacher_user_id, library_id, shell_library_id) "
+            "VALUES (?, ?, ?, ?)",
+            [(1, 101, 4, None), (2, 102, 4, None), (3, 101, None, 9)],
+        )
+
+    def test_dry_run_lists_library_and_shared_flag(self) -> None:
+        """Dry-run names each question's library and whether the pack is shared."""
         school = _school()
-        leaked = {
-            "stem_html": (
-                f'<img src="{ANSWER}" alt="five cubed">'
-                "<p>Simplify (5<sup>-4</sup>)(5<sup>7</sup>).</p>"
-            ),
-            "choices": [
-                {"id": "a", "html": f'<img src="{ANSWER}" alt="five cubed">', "correct": True},
-                {"id": "b", "html": "11", "correct": False},
-            ],
-        }
-        healthy = {
-            "stem_html": "<p>What is the vertex?</p>",
-            "image_url": GRAPH,
-            "choices": [
-                {"id": "a", "html": "(0, c)", "correct": True},
-                {"id": "b", "html": "(h, k)", "correct": False},
-            ],
-        }
-        card = {
-            "id": "bank-import-42",
-            "text_html": "<p>Simplify (5<sup>-4</sup>)(5<sup>7</sup>).</p>",
-            "image_url": ANSWER,
-            "options_html": [f'<img src="{ANSWER}" alt="five cubed">', "11"],
-            "options": ["A", "B"],
-        }
+        self._seed_libraries(school)
         school.conn.execute(
-            "INSERT INTO questions (id, payload_json) VALUES (7, ?)",
-            (json.dumps(leaked),),
+            "INSERT INTO questions (id, bank_id, title, payload_json, created_at) "
+            "VALUES (7, 40, 'Simplify', ?, 't0')",
+            (json.dumps(_leaked_payload()),),
         )
         school.conn.execute(
-            "INSERT INTO questions (id, payload_json) VALUES (8, ?)",
-            (json.dumps(healthy),),
+            "INSERT INTO questions (id, bank_id, title, payload_json, created_at) "
+            "VALUES (8, 40, 'Vertex', ?, 't0')",
+            (json.dumps(_healthy_payload()),),
+        )
+        school.conn.execute(
+            "INSERT INTO questions (id, bank_id, title, payload_json, created_at) "
+            "VALUES (11, 90, 'Simplify', ?, 't0')",
+            (json.dumps(_leaked_payload()),),
+        )
+        card = json.dumps(
+            {
+                "text_html": "<p>Simplify (5<sup>-4</sup>)(5<sup>7</sup>).</p>",
+                "image_url": ANSWER,
+                "options_html": [f'<img src="{ANSWER}">', "11"],
+            }
         )
         school.conn.execute(
             "INSERT INTO class_live_playlist_placements (id, item_json, source_question_id) "
-            "VALUES (3, ?, 42)",
-            (json.dumps(card),),
+            "VALUES (3, ?, 7)",
+            (card,),
         )
         school.conn.commit()
-        before = school.conn.execute(
-            "SELECT payload_json FROM questions WHERE id = 7"
-        ).fetchone()[0]
 
         planned = plan_choice_stem_image_repairs(school)
-        report = format_choice_stem_image_report(planned, dry_run=True)
-        self.assertIn("DRY RUN", report[0])
-        joined = "\n".join(report)
-        self.assertNotIn(ANSWER, joined)
-        self.assertNotIn("Simplify", joined)
-        self.assertIn("questions row=7 question_id=7 fields=stem_html", joined)
+        report = "\n".join(format_choice_stem_image_report(planned, dry_run=True))
+        self.assertIn("DRY RUN", report)
+        self.assertNotIn(ANSWER, report)
+        self.assertNotIn("Simplify", report)
         self.assertIn(
-            "class_live_playlist_placements row=3 question_id=42 fields=image_url",
-            joined,
+            "question_id=7 library_id=4 shared=yes",
+            report,
         )
-        self.assertIn("affected_question_ids: 7,42", joined)
-        self.assertIn("affected_row_count: 2", joined)
-        self.assertNotIn("row=8", joined)
-        unchanged = school.conn.execute(
-            "SELECT payload_json FROM questions WHERE id = 7"
-        ).fetchone()[0]
-        self.assertEqual(unchanged, before)
+        self.assertIn(
+            "question_id=11 library_id=9 shared=no",
+            report,
+        )
+        self.assertNotIn("question_id=8", report)
+        self.assertNotIn("class_live_playlist_placements", report)
+        self.assertEqual(
+            school.conn.execute(
+                "SELECT item_json FROM class_live_playlist_placements WHERE id = 3"
+            ).fetchone()[0],
+            card,
+        )
 
-        written = apply_choice_stem_image_repairs(school, planned)
-        self.assertEqual(written, 2)
+    def test_second_run_changes_zero_rows(self) -> None:
+        """Apply rewrites only the leaked question payloads, then a second run writes nothing."""
+        school = _school()
+        self._seed_libraries(school)
+        leaked = json.dumps(_leaked_payload())
+        healthy = json.dumps(_healthy_payload())
+        school.conn.execute(
+            "INSERT INTO questions (id, bank_id, title, payload_json, created_at) "
+            "VALUES (7, 40, 'Simplify', ?, 't0')",
+            (leaked,),
+        )
+        school.conn.execute(
+            "INSERT INTO questions (id, bank_id, title, payload_json, created_at) "
+            "VALUES (8, 40, 'Vertex', ?, 't0')",
+            (healthy,),
+        )
+        card = '{"image_url": "https://cdn.example/answer-5-3.png"}'
+        school.conn.execute(
+            "INSERT INTO class_live_playlist_placements (id, item_json, source_question_id) "
+            "VALUES (3, ?, 7)",
+            (card,),
+        )
+        school.conn.commit()
+        before_other = school.conn.execute(
+            "SELECT id, bank_id, title, payload_json, created_at FROM questions WHERE id = 8"
+        ).fetchone()
+
+        planned = plan_choice_stem_image_repairs(school)
+        self.assertEqual([item.question_id for item in planned], [7])
+        self.assertTrue(planned[0].shared)
+        self.assertEqual(planned[0].library_id, 4)
+        self.assertEqual(apply_choice_stem_image_repairs(school, planned), 1)
+
         stored = json.loads(
             school.conn.execute(
                 "SELECT payload_json FROM questions WHERE id = 7"
@@ -159,45 +229,74 @@ class ChoiceStemImageRepairTests(unittest.TestCase):
         self.assertNotIn(ANSWER, stored["stem_html"])
         self.assertIn("Simplify", stored["stem_html"])
         self.assertIn(ANSWER, stored["choices"][0]["html"])
-        graph = json.loads(
+        row = school.conn.execute(
+            "SELECT title, created_at, bank_id FROM questions WHERE id = 7"
+        ).fetchone()
+        self.assertEqual(tuple(row), ("Simplify", "t0", 40))
+        self.assertEqual(
             school.conn.execute(
-                "SELECT payload_json FROM questions WHERE id = 8"
-            ).fetchone()[0]
+                "SELECT id, bank_id, title, payload_json, created_at FROM questions WHERE id = 8"
+            ).fetchone(),
+            before_other,
         )
-        self.assertEqual(graph["image_url"], GRAPH)
-        placed = json.loads(
+        self.assertEqual(
             school.conn.execute(
                 "SELECT item_json FROM class_live_playlist_placements WHERE id = 3"
-            ).fetchone()[0]
+            ).fetchone()[0],
+            card,
         )
-        self.assertNotIn("image_url", placed)
-        self.assertIn(ANSWER, placed["options_html"][0])
-        self.assertEqual(plan_choice_stem_image_repairs(school), [])
+        self.assertEqual(
+            school.conn.execute("SELECT origin FROM content_libraries WHERE id = 4").fetchone()[0],
+            "upload",
+        )
+
+        again = plan_choice_stem_image_repairs(school)
+        self.assertEqual(again, [])
+        self.assertEqual(apply_choice_stem_image_repairs(school, again), 0)
+        self.assertEqual(apply_choice_stem_image_repairs(school, planned), 0)
+        self.assertEqual(
+            school.conn.execute(
+                "SELECT payload_json FROM questions WHERE id = 7"
+            ).fetchone()[0],
+            planned[0].new_json,
+        )
 
     def test_mirrored_choice_image_matches_the_remote_choice(self) -> None:
         """A mirror-cache path on image_url is the same image as the choice URL."""
         school = _school()
         school.conn.execute(
+            "INSERT INTO content_libraries (id, ontario_code, origin) VALUES (4, 'MCF3M', 'upload')"
+        )
+        school.conn.execute(
+            "INSERT INTO question_banks (id, library_id, title) VALUES (40, 4, 'M4')"
+        )
+        school.conn.execute(
             "INSERT INTO bank_image_cache (source_url, relpath) VALUES (?, ?)",
             (ANSWER, MIRROR),
         )
-        card = {
-            "question_id": 15,
-            "text_html": "<p>Simplify (5<sup>-4</sup>)(5<sup>7</sup>).</p>",
+        payload = {
+            "stem_html": "<p>Simplify (5<sup>-4</sup>)(5<sup>7</sup>).</p>",
             "image_url": MIRROR,
-            "options_html": [f'<img src="{ANSWER}">', "11"],
+            "choices": [
+                {"id": "a", "html": f'<img src="{ANSWER}">', "correct": True},
+                {"id": "b", "html": "11", "correct": False},
+            ],
         }
         school.conn.execute(
-            "INSERT INTO participation_items (id, item_json) VALUES (4, ?)",
-            (json.dumps(card),),
+            "INSERT INTO questions (id, bank_id, title, payload_json, created_at) "
+            "VALUES (15, 40, 'Simplify', ?, 't0')",
+            (json.dumps(payload),),
         )
         school.conn.commit()
         planned = plan_choice_stem_image_repairs(school)
         self.assertEqual(len(planned), 1)
         self.assertEqual(planned[0].question_id, 15)
+        self.assertEqual(planned[0].library_id, 4)
+        self.assertTrue(planned[0].shared)
         self.assertEqual(planned[0].fields, ("image_url",))
-        apply_choice_stem_image_repairs(school, planned)
+        self.assertEqual(apply_choice_stem_image_repairs(school, planned), 1)
         self.assertEqual(plan_choice_stem_image_repairs(school), [])
+        self.assertEqual(apply_choice_stem_image_repairs(school, []), 0)
 
     def test_production_is_refused_without_the_confirm_token(self) -> None:
         """A /data database and a Fly app name are not opened."""

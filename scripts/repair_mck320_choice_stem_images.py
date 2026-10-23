@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """Remove MC choice images that were stored on the question stem (MCK-320).
 
-Dry-run is the default, including on production: the affected question ids
-and fields are printed, and nothing is written. Only ``--apply`` writes.
-``--dry-run`` wins over ``--apply``.
+Dry-run is the default, including on production. It lists each affected
+question id with its library id and whether that library is shared. A pack
+library is shared across teachers, so applying the repair changes that
+question for every teacher using the pack.
+
+Only ``questions.payload_json`` on those rows is written, and only with
+``--apply``. A second run writes zero rows. ``--dry-run`` wins over
+``--apply``.
 
 Production (Fly, ``FLASK_ENV=production``, a data dir on ``/data``, or a
 database on the ``/data`` volume) is refused before the database is opened
@@ -170,8 +175,10 @@ def main(argv: list[str] | None = None) -> int:
         repairs = plan_choice_stem_image_repairs(school)
         print(f"target: {'PRODUCTION (' + reason + ')' if reason else 'local'}")
         print(f"database: {db_path}")
+        written = 0
         if write:
-            apply_choice_stem_image_repairs(school, repairs)
+            written = apply_choice_stem_image_repairs(school, repairs)
+            print(f"rows_written: {written}")
         for line in format_choice_stem_image_report(repairs, dry_run=not write):
             print(line)
     finally:
