@@ -206,6 +206,12 @@ class BankMcDisplayTests(unittest.TestCase):
         self.assertEqual(live["correct_answer"], "B")
         self.assertIn("<img", live["options_html"][1])
         self.assertEqual(live["options_image_urls"][1], "https://example.com/b.png")
+        rendered_stem = " ".join(
+            str(live.get(key) or "")
+            for key in ("text_html", "image_url", "image_src", "stem_html")
+        )
+        for src in ("a.png", "b.png", "c.png", "d.png"):
+            self.assertNotIn(src, rendered_stem)
 
     def test_normalize_table_stem_renders_html(self) -> None:
         """Table stems keep HTML structure in text_html."""
@@ -273,6 +279,243 @@ class BankMcDisplayTests(unittest.TestCase):
         clean_question_stem_fields(question)
         self.assertEqual(question["text"], r"Find $\frac{1}{2}$")
         self.assertIn(r"\frac{1}{2}", question["text_html"])
+
+    def test_choice_image_is_not_the_stem_hero(self) -> None:
+        """An MC choice image stays on the choice, including when it is correct.
+
+        Shawn's M4 shape: the stem is an exponent product and the correct
+        choice is an equation image of the simplified power. That image must
+        not be copied onto ``image_url`` / ``image_src`` or into ``text_html``.
+        """
+        answer = "https://cdn.example/answer-5-3.png"
+        distractor = "https://cdn.example/5-11.png"
+        payload = {
+            "stem_html": "<p>Simplify (5<sup>-4</sup>)(5<sup>7</sup>).</p>",
+            "points_possible": 1.0,
+            "choices": [
+                {
+                    "id": "a",
+                    "html": f'<img class="equation_image" src="{answer}" alt="five cubed">',
+                    "correct": True,
+                },
+                {
+                    "id": "b",
+                    "html": f'<img class="equation_image" src="{distractor}" alt="five to the eleven">',
+                    "correct": False,
+                },
+            ],
+            "correct_ids": ["a"],
+        }
+        live, err = normalize_bank_mc(
+            question_id=320,
+            bank_id=4,
+            item_type="multiple_choice_question",
+            payload=payload,
+        )
+        assert live is not None and err is None
+        stem_fields = " ".join(
+            str(live.get(key) or "")
+            for key in ("text_html", "image_url", "image_src", "stem_html")
+        )
+        self.assertNotIn(answer, stem_fields)
+        self.assertNotIn(distractor, stem_fields)
+        self.assertNotIn("image_url", live)
+        self.assertIn("Simplify", live["text_html"])
+        self.assertIn(answer, live["options_html"][0])
+        self.assertEqual(live["options_image_urls"][0], answer)
+        self.assertEqual(live["correct_answer"], "A")
+
+    def test_authored_stem_image_repeated_on_choices_stays(self) -> None:
+        """A stem image Canvas also put on every choice stays in the stem."""
+        from question_math import clean_question_stem_fields
+
+        triangle = "https://cdn.example/files/10/preview"
+        question = {
+            "text": "Given the triangle above, if a = 9.",
+            "text_html": (
+                f'<img src="{triangle}" alt="triangle">'
+                "<p>Given the triangle above, if a = 9.</p>"
+            ),
+            "stem_html": (
+                f'<img src="{triangle}" alt="triangle">'
+                "<p>Given the triangle above, if a = 9.</p>"
+            ),
+            "image_url": triangle,
+            "options_html": [
+                f'<img src="{triangle}" alt="triangle">',
+                f'<img src="{triangle}" alt="triangle">',
+            ],
+            "options": ["A", "B"],
+            "correct_answer": "A",
+        }
+        clean_question_stem_fields(question)
+        self.assertIn(triangle, question["text_html"])
+        self.assertIn(triangle, question["stem_html"])
+        self.assertEqual(question["image_url"], triangle)
+        self.assertIn("triangle above", question["text_html"])
+
+    def test_promoted_choice_hero_is_removed(self) -> None:
+        """A hero copied from a choice, with no image in the stem, is dropped."""
+        from question_math import clean_question_stem_fields
+
+        answer = "https://cdn.example/answer-5-3.png"
+        question = {
+            "text": "Simplify (5^-4)(5^7).",
+            "text_html": "<p>Simplify (5<sup>-4</sup>)(5<sup>7</sup>).</p>",
+            "image_url": answer,
+            "image_src": answer,
+            "options_html": [
+                f'<img src="{answer}" alt="five cubed">',
+                '<img src="https://cdn.example/5-11.png" alt="five to the eleven">',
+            ],
+            "options": ["A", "B"],
+            "correct_answer": "A",
+        }
+        clean_question_stem_fields(question)
+        self.assertNotIn("image_url", question)
+        self.assertNotIn("image_src", question)
+        self.assertIn("Simplify", question["text_html"])
+        self.assertNotIn(answer, question["text_html"])
+        self.assertIn(answer, question["options_html"][0])
+
+    def test_image_identity_uses_the_full_path(self) -> None:
+        """Folder, file id, and data URLs are not compared by file name alone."""
+        from question_math import bank_image_identity
+
+        self.assertNotEqual(
+            bank_image_identity("https://canvas.example/files/10/preview"),
+            bank_image_identity("https://canvas.example/files/11/preview"),
+        )
+        self.assertNotEqual(
+            bank_image_identity("web_resources/U1/image.png"),
+            bank_image_identity("web_resources/U2/image.png"),
+        )
+        self.assertNotEqual(
+            bank_image_identity("data:image/png;base64,AAAA"),
+            bank_image_identity("data:image/png;base64,BBBB"),
+        )
+        self.assertNotEqual(
+            bank_image_identity("https://canvas.example/equation?mmlgz=one"),
+            bank_image_identity("https://canvas.example/equation?mmlgz=two"),
+        )
+        self.assertEqual(
+            bank_image_identity(
+                "/staff/class/3/module-files/web_resources/U1/graph.png"
+            ),
+            bank_image_identity("web_resources/U1/graph.png"),
+        )
+
+    def test_stem_graph_that_is_not_a_choice_stays(self) -> None:
+        """A question graph that no choice uses remains on the stem."""
+        payload = {
+            "stem_html": (
+                "<p>From the graph, what is the vertex?</p>"
+                '<img src="/static/bank-graphs/parabola-grid.svg" alt="parabola">'
+            ),
+            "points_possible": 1.0,
+            "choices": [
+                {"id": "a", "html": "(0, c)", "correct": True},
+                {"id": "b", "html": "(h, k)", "correct": False},
+            ],
+            "correct_ids": ["a"],
+        }
+        live, err = normalize_bank_mc(
+            question_id=321,
+            bank_id=4,
+            item_type="multiple_choice_question",
+            payload=payload,
+        )
+        assert live is not None and err is None
+        self.assertIn("parabola-grid.svg", live["text_html"])
+        self.assertIn("vertex", live["text_html"])
+
+    def test_qti_import_keeps_choice_images_off_the_stem(self) -> None:
+        """Canvas QTI stores a choice image on the choice, not the stem."""
+        import xml.etree.ElementTree as ET
+
+        from ingest import parse_qti_item
+
+        answer = "https://cdn.example/answer-5-3.png"
+        xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+        <questestinterop xmlns="http://www.imsglobal.org/xsd/ims_qtiasiv1p2">
+          <item ident="m4-simplify" title="Simplify">
+            <itemmetadata><qtimetadata><qtimetadatafield>
+              <fieldlabel>question_type</fieldlabel>
+              <fieldentry>multiple_choice_question</fieldentry>
+            </qtimetadatafield></qtimetadata></itemmetadata>
+            <presentation>
+              <material><mattext texttype="text/html">&lt;p&gt;Simplify (5&lt;sup&gt;-4&lt;/sup&gt;)(5&lt;sup&gt;7&lt;/sup&gt;).&lt;/p&gt;</mattext></material>
+              <response_lid ident="response1" rcardinality="Single">
+                <render_choice>
+                  <response_label ident="a1">
+                    <material><mattext texttype="text/html">&lt;img src="{answer}" alt="five cubed"&gt;</mattext></material>
+                  </response_label>
+                  <response_label ident="a2">
+                    <material><mattext texttype="text/html">&lt;img src="https://cdn.example/5-11.png" alt="five to the eleven"&gt;</mattext></material>
+                  </response_label>
+                </render_choice>
+              </response_lid>
+            </presentation>
+            <resprocessing>
+              <outcomes><decvar maxvalue="100" minvalue="0" varname="SCORE" vartype="Decimal"/></outcomes>
+              <respcondition continue="No">
+                <conditionvar><varequal respident="response1">a1</varequal></conditionvar>
+                <setvar action="Set" varname="SCORE">100</setvar>
+              </respcondition>
+            </resprocessing>
+          </item>
+        </questestinterop>
+        """
+        root = ET.fromstring(xml)
+        item = next(node for node in root.iter() if node.tag == "item" or node.tag.endswith("}item"))
+        parsed = parse_qti_item(item)
+        payload = parsed["payload"]
+        self.assertNotIn(answer, payload["stem_html"])
+        self.assertIn("Simplify", payload["stem_html"])
+        self.assertIn(answer, payload["choices"][0]["html"])
+        self.assertTrue(payload["choices"][0]["correct"])
+        live, err = normalize_bank_mc(
+            question_id=322,
+            bank_id=4,
+            item_type=parsed["item_type"],
+            payload=payload,
+        )
+        assert live is not None and err is None
+        stem_fields = " ".join(
+            str(live.get(key) or "")
+            for key in ("text_html", "image_url", "image_src")
+        )
+        self.assertNotIn(answer, stem_fields)
+        self.assertIn(answer, live["options_html"][0])
+
+    def test_staff_bank_view_keeps_an_authored_stem_image(self) -> None:
+        """The teacher bank card keeps a stem image that choices also use."""
+        from bank_edit import serialize_staff_question
+
+        triangle = "https://cdn.example/files/10/preview"
+        stored_stem = (
+            f'<img src="{triangle}" alt="triangle">'
+            "<p>Given the triangle above, if a = 9.</p>"
+        )
+        question = {
+            "id": 1270,
+            "bank_id": 4,
+            "import_key": "triangle",
+            "item_type": "multiple_choice_question",
+            "title": "Triangle",
+            "payload": {
+                "stem_html": stored_stem,
+                "choices": [
+                    {"id": "a", "html": f'<img src="{triangle}" alt="triangle">', "correct": True},
+                    {"id": "b", "html": f'<img src="{triangle}" alt="triangle">', "correct": False},
+                ],
+            },
+        }
+        view = serialize_staff_question(question, None)
+        self.assertIn(triangle, view["stem_html"])
+        self.assertIn("triangle above", view["stem_html"])
+        self.assertIn(triangle, view["choices"][0]["html"])
+        self.assertEqual(question["payload"]["stem_html"], stored_stem)
 
     def test_student_visible_bank_image_url_rewrites_staff_path(self) -> None:
         """Staff module-file URLs become the student-accessible twin."""

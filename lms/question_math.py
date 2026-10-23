@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import html
 import re
 import urllib.parse
@@ -380,6 +381,7 @@ def clean_question_stem_fields(question: dict[str, Any]) -> dict[str, Any]:
         _html, updated = strip_glued_stem_relics("", current, correct_text=correct)
         if updated.strip():
             question[key] = updated
+    scrub_choice_images_from_stem(question)
     return question
 
 
@@ -512,6 +514,176 @@ def extract_all_image_srcs(raw_html: str) -> list[str]:
         for match in _IMG_SRC_RE.finditer(str(raw_html or ""))
         if str(match.group(1)).strip()
     ]
+
+
+def bank_image_identity(src: str) -> str:
+    """Return a stable key for one bank image URL.
+
+    The key is the full normalised path, not the file name. Canvas
+    ``/files/10/preview`` and ``/files/11/preview`` stay distinct, and so do
+    ``U1/image.png`` and ``U2/image.png``. A ``data:`` URL is the hash of
+    the whole value, so two payloads that share a tail do not collide.
+    A ``web_resources/`` prefix is dropped so a staff module-file URL and
+    the cartridge-relative path of the same file compare equal.
+
+    The query string stays in the key. Wiris and equation URLs that differ
+    only by query are different images. A hero and a choice that differ
+    only by a cache-buster query are therefore not treated as the same
+    image. A mirrored file and the remote URL it was copied from compare
+    equal only when the caller passes an alias map built from
+    ``bank_image_cache``. Display scrub does not read that cache. The
+    repair script does, once, while planning.
+
+    Args:
+        src: An ``<img src>``, ``image_url``, or filebase token.
+    """
+    raw = html.unescape(str(src or "")).strip()
+    if not raw:
+        return ""
+    if raw.lower().startswith("data:"):
+        digest = hashlib.sha256(raw.encode("utf-8", errors="replace")).hexdigest()
+        return f"data:{digest}"
+    raw = urllib.parse.unquote(raw)
+    parsed = urllib.parse.urlsplit(raw)
+    if parsed.scheme in {"http", "https"}:
+        path = parsed.path or ""
+        query = parsed.query
+        host = parsed.netloc.lower()
+    else:
+        path, _, query = raw.partition("?")
+        host = ""
+    path = path.replace("\\", "/")
+    marker = "web_resources/"
+    lowered = path.lower()
+    index = lowered.rfind(marker)
+    if index >= 0:
+        path = path[index + len(marker) :]
+        host = ""
+    path = re.sub(r"/+", "/", path).rstrip("/").lower()
+    if host:
+        tail = path if path.startswith("/") else f"/{path}"
+        ident = f"{host}{tail}"
+    else:
+        ident = path
+    if not ident and not query:
+        return ""
+    if query:
+        return f"{ident}?{query}"
+    return ident
+
+
+def _canonical_image_identity(src: str, aliases: dict[str, str] | None) -> str:
+    """Map one image URL to its alias group, or its own identity.
+
+    Args:
+        src: Image URL or path.
+        aliases: Optional identity → canonical identity map from the mirror cache.
+    """
+    ident = bank_image_identity(src)
+    if not ident:
+        return ""
+    if not aliases:
+        return ident
+    return aliases.get(ident, ident)
+
+
+def choice_image_identities(
+    chunks: list[str],
+    *,
+    aliases: dict[str, str] | None = None,
+) -> set[str]:
+    """Return canonical identities of every image in choice HTML.
+
+    Args:
+        chunks: Choice HTML fragments or ``options_image_urls`` values wrapped
+            as tags by the caller.
+        aliases: Optional mirror-cache identity map.
+    """
+    found: set[str] = set()
+    for chunk in chunks:
+        for src in extract_all_image_srcs(chunk):
+            ident = _canonical_image_identity(src, aliases)
+            if ident:
+                found.add(ident)
+    return found
+
+
+def _choice_html_chunks(question: dict[str, Any]) -> list[str]:
+    """Return HTML fragments that hold multiple-choice option images.
+
+    Args:
+        question: Bank payload, normalized live MC, or prompt card.
+    """
+    chunks: list[str] = []
+    for key in ("_rich_option_htmls", "options_html"):
+        value = question.get(key)
+        if isinstance(value, list):
+            chunks.extend(str(item or "") for item in value)
+    urls = question.get("options_image_urls")
+    if isinstance(urls, list):
+        for url in urls:
+            token = str(url or "").strip()
+            if token:
+                chunks.append(f'<img src="{html.escape(token, quote=True)}">')
+    for key in ("choices", "options"):
+        value = question.get(key)
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            if isinstance(item, dict):
+                chunks.append(str(item.get("html") or item.get("text") or ""))
+            else:
+                chunks.append(str(item or ""))
+    return chunks
+
+
+def scrub_choice_images_from_stem(
+    question: dict[str, Any],
+    *,
+    aliases: dict[str, str] | None = None,
+) -> list[str]:
+    """Drop a hero that was copied from an MC choice.
+
+    The display bug promoted the first choice image onto ``image_url`` /
+    ``image_src`` when the stem had no image of its own. That hero is
+    removed. An ``<img>`` already inside ``stem_html`` or ``text_html`` was
+    authored there. Canvas sometimes repeats that same URL on every choice.
+    Those tags stay, and a hero that is that same authored image stays too.
+    Choice HTML is not modified. The function is idempotent.
+
+    A mirrored hero matches a remote choice only when ``aliases`` maps them
+    to one identity. Display callers omit the map. The repair script passes
+    the mirror cache.
+
+    Args:
+        question: Bank, live, playlist, or prompt payload. Mutated in place.
+        aliases: Optional mirror-cache map from :func:`bank_image_identity`
+            of a remote URL to the same key for its mirrored file.
+
+    Returns:
+        Hero field names that changed (``image_url``, ``image_src``).
+    """
+    if not isinstance(question, dict):
+        return []
+    banned = choice_image_identities(_choice_html_chunks(question), aliases=aliases)
+    if not banned:
+        return []
+    stem_idents: set[str] = set()
+    for field in ("stem_html", "text_html"):
+        stem_idents |= choice_image_identities(
+            [str(question.get(field) or "")],
+            aliases=aliases,
+        )
+    changed: list[str] = []
+    for field in ("image_url", "image_src"):
+        src = str(question.get(field) or "").strip()
+        if not src:
+            continue
+        ident = _canonical_image_identity(src, aliases)
+        if ident and ident in banned and ident not in stem_idents:
+            question.pop(field, None)
+            changed.append(field)
+    return changed
 
 
 def resolve_bank_image_url(image_src: str, *, class_id: int | None = None) -> str:

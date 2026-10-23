@@ -8,6 +8,8 @@ import re
 from typing import Any
 
 from question_math import (
+    bank_image_identity,
+    choice_image_identities,
     enrich_live_mc_display,
     extract_image_src,
     normalize_house_tex,
@@ -240,6 +242,14 @@ def normalize_bank_mc(
     image_src = extract_image_src(raw_stem_html) or str(
         blob.get("image_url") or blob.get("image_src") or ""
     ).strip()
+    # A choice image is not the question graph. Promoting the first one
+    # paints the answer (or a distractor) above the stem.
+    choice_idents = choice_image_identities(raw_option_htmls)
+    stem_idents = choice_image_identities([raw_stem_html])
+    if image_src:
+        ident = bank_image_identity(image_src)
+        if ident and ident in choice_idents and ident not in stem_idents:
+            image_src = ""
     options = _parse_options(overlay_row.get("options_json"))
     if not options:
         options = []
@@ -247,12 +257,6 @@ def normalize_bank_mc(
             plain = _plain_option_from_html(raw_choice, index)
             if plain:
                 options.append(plain)
-            if not image_src:
-                image_src = extract_image_src(raw_choice)
-    else:
-        for raw_choice in raw_option_htmls:
-            if not image_src:
-                image_src = extract_image_src(raw_choice)
     stem = str(overlay_row.get("stem_text") or "").strip()
     if not stem:
         stem = _plain_stem_from_html(raw_stem_html)
