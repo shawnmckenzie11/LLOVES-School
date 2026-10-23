@@ -12,8 +12,11 @@ host filesystem, so the converter sees the job directory and read-only
 system libraries only. When the worker is root, the converter runs as
 nobody. A root worker prefers a user namespace. A chroot cannot create
 one, so that worker still drops to nobody with setpriv inside the
-mount namespace. Conversion is refused when that sandbox cannot be
-started. A legacy ``.ppt`` is refused because its links cannot be stripped.
+mount namespace. A shared parent mount makes ``pivot_root`` return
+EINVAL, so the worker first enters a private recursive bind of ``/``.
+The old root is still unmounted. Conversion is refused when that
+sandbox cannot be started. A legacy ``.ppt`` is refused because its
+links cannot be stripped.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ import logging
 import math
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -87,7 +91,7 @@ _TINY_PNG = (
 )
 # $1 is the job directory. The rest of the argv is the converter.
 # The new root bind-mounts system libraries and that directory only.
-_SANDBOX_SCRIPT = r"""
+_SANDBOX_INNER = r"""
 set -eu
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 die() {
@@ -183,6 +187,29 @@ if [ "$host" = 0 ]; then
 fi
 exec "$@" || die converter $?
 """
+# pivot_root returns EINVAL when the parent of / is shared. unshare from
+# a chroot leaves that parent on Ubuntu. Enter a private recursive bind
+# so / has a private parent, then run the same script. The inner script
+# still pivot_roots and unmounts the old root.
+_SANDBOX_WRAPPER = r"""
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+die() {
+  printf 'lloves-sandbox-step %s %s\n' "$1" "$2" >&2
+  exit 97
+}
+if [ "${LLOVES_SANDBOX_WAIT:-}" = 1 ]; then
+  read -r _ <&3 || die unshare $?
+fi
+mount --make-rprivate / || die mount $?
+anchor="/tmp/lloves-anchor-$(basename "$1")"
+mkdir -p "$anchor" || die mkdir $?
+mount --rbind / "$anchor" || die mount $?
+mount --make-rprivate "$anchor" || die mount $?
+unset LLOVES_SANDBOX_WAIT
+exec chroot "$anchor" /bin/sh -c __LLOVES_BODY__ sh "$@"
+"""
+_SANDBOX_SCRIPT = _SANDBOX_WRAPPER.replace("__LLOVES_BODY__", shlex.quote(_SANDBOX_INNER))
 _sandbox_lock = threading.Lock()
 # None until a probe succeeds. A failure time means the next probe waits.
 _sandbox_ready: tuple[str, str] | None = None
@@ -874,6 +901,7 @@ def _probe_sandbox() -> tuple[str, str] | None:
         shutil.rmtree(
             Path("/dev/shm") / f"lloves-root-{work.name}", ignore_errors=True
         )
+        _remove_sandbox_anchor(work)
     if proc.returncode != 0:
         _sandbox_probe_detail = _failure_from_output(err, int(proc.returncode or 1))
         return None
@@ -1150,6 +1178,23 @@ def sandbox_diagnostic_steps() -> list[tuple[str, bool, str]]:
     return steps
 
 
+def _remove_sandbox_anchor(work: Path) -> None:
+    """Remove the empty directory that anchored ``pivot_root``.
+
+    The recursive bind lives in the worker's mount namespace. This
+    process sees an empty directory. ``rmdir`` does not walk a mount,
+    so a leftover bind cannot delete host files.
+
+    Args:
+        work: Job directory. Its name is the anchor suffix.
+    """
+    anchor = Path("/tmp") / f"lloves-anchor-{work.name}"
+    try:
+        anchor.rmdir()
+    except OSError:
+        return
+
+
 def run_sandboxed(
     command: list[str],
     *,
@@ -1176,13 +1221,16 @@ def run_sandboxed(
     """
     proc = _launch_sandbox(command, work, env, cwd)
     try:
-        out, err = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        _kill_process_group(proc)
-        raise
-    if proc.returncode not in (0, None):
-        _kill_process_group(proc)
-    return subprocess.CompletedProcess(command, int(proc.returncode or 0), out, err)
+        try:
+            out, err = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill_process_group(proc)
+            raise
+        if proc.returncode not in (0, None):
+            _kill_process_group(proc)
+        return subprocess.CompletedProcess(command, int(proc.returncode or 0), out, err)
+    finally:
+        _remove_sandbox_anchor(work)
 
 
 def sweep_stale_slide_dirs(*, max_age_seconds: float = STALE_SLIDE_DIR_SECONDS) -> int:
@@ -1205,7 +1253,12 @@ def sweep_stale_slide_dirs(*, max_age_seconds: float = STALE_SLIDE_DIR_SECONDS) 
     for root in roots:
         if not root.is_dir():
             continue
-        for prefix in ("lloves-slides-", "lloves-slide-upload-", "lloves-root-"):
+        for prefix in (
+            "lloves-slides-",
+            "lloves-slide-upload-",
+            "lloves-root-",
+            "lloves-anchor-",
+        ):
             for path in root.glob(prefix + "*"):
                 if path in seen:
                     continue
@@ -1215,6 +1268,15 @@ def sweep_stale_slide_dirs(*, max_age_seconds: float = STALE_SLIDE_DIR_SECONDS) 
                 except OSError:
                     continue
                 if age < float(max_age_seconds):
+                    continue
+                # An anchor is only an empty mountpoint. rmdir never follows
+                # a bind, so a leaked mount cannot delete the host tree.
+                if path.name.startswith("lloves-anchor-"):
+                    try:
+                        path.rmdir()
+                    except OSError:
+                        continue
+                    removed += 1
                     continue
                 if path.is_dir():
                     shutil.rmtree(path, ignore_errors=True)
@@ -1407,6 +1469,7 @@ def _office_to_pdf(raw: bytes, suffix: str, binary: str, *, timeout: float) -> b
     finally:
         shutil.rmtree(root, ignore_errors=True)
         shutil.rmtree(Path("/dev/shm") / f"lloves-root-{root.name}", ignore_errors=True)
+        _remove_sandbox_anchor(root)
     if not data.startswith(b"%PDF"):
         raise ValueError("That PowerPoint could not be read.")
     return data

@@ -714,7 +714,7 @@ class CourseSlideFileTests(unittest.TestCase):
         "passwordless sudo is required to prove the chroot fallback",
     )
     def test_chroot_root_still_drops_to_nobody(self) -> None:
-        """A chrooted root worker sandboxes after ``unshare --user`` is refused."""
+        """A chrooted root worker sandboxes when ``/`` has a shared parent."""
         lms_dir = str(Path(__file__).resolve().parent)
         inner = Path("/tmp/lloves-chroot-sandbox-inner.py")
         driver = Path("/tmp/lloves-chroot-sandbox-driver.py")
@@ -759,8 +759,12 @@ class CourseSlideFileTests(unittest.TestCase):
         driver.write_text(
             "\n".join(
                 [
-                    "import subprocess, sys, tempfile, shutil",
+                    "import os, subprocess, sys, tempfile, shutil",
                     "from pathlib import Path",
+                    "if os.environ.get('LLOVES_TEST_NS') != '1':",
+                    "    os.environ['LLOVES_TEST_NS'] = '1'",
+                    "    os.execvp('unshare', ['unshare', '--mount', '--propagation', 'unchanged', '--', 'python3', __file__])",
+                    "subprocess.check_call(['mount', '--make-rshared', '/'])",
                     "host = Path(tempfile.mkdtemp(prefix='lloves-chroot-'))",
                     "subprocess.check_call(['mount', '--bind', '/', str(host)])",
                     "try:",
