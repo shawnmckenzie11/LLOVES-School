@@ -19,6 +19,7 @@ try:
         format_mc_html_fragment,
         html_to_plain,
         normalize_house_tex,
+        scrub_choice_images_from_stem,
     )
 except ImportError:
     from lms.question_math import (
@@ -26,6 +27,7 @@ except ImportError:
         format_mc_html_fragment,
         html_to_plain,
         normalize_house_tex,
+        scrub_choice_images_from_stem,
     )
 
 # Wonder IA §9 locked microcopy — do not paraphrase.
@@ -299,7 +301,7 @@ def serialize_staff_question(
     ]
     if overlay and overlay.get("correct_answer"):
         correct_answers = [overlay["correct_answer"]]
-    return {
+    view = {
         "id": int(question["id"]),
         "bank_id": int(question.get("bank_id") or 0) or None,
         "import_key": import_key,
@@ -316,6 +318,10 @@ def serialize_staff_question(
         "edited_in_lms": edited,
         "authored_in_lms": authored,
     }
+    # Choice images stay on the choices. A copy glued into the stem is not
+    # the question graph. Scrub the view only; ``payload`` is the stored row.
+    scrub_choice_images_from_stem(view)
+    return view
 
 
 def list_staff_bank_questions(

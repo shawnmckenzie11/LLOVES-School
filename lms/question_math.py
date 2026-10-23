@@ -380,6 +380,7 @@ def clean_question_stem_fields(question: dict[str, Any]) -> dict[str, Any]:
         _html, updated = strip_glued_stem_relics("", current, correct_text=correct)
         if updated.strip():
             question[key] = updated
+    scrub_choice_images_from_stem(question)
     return question
 
 
@@ -512,6 +513,197 @@ def extract_all_image_srcs(raw_html: str) -> list[str]:
         for match in _IMG_SRC_RE.finditer(str(raw_html or ""))
         if str(match.group(1)).strip()
     ]
+
+
+def bank_image_identity(src: str) -> str:
+    """Return a stable key for one bank image URL.
+
+    The key is the last path segment, plus the query when there is one, so
+    two Canvas equation images or two Wiris ``mmlgz`` URLs stay distinct.
+    A ``web_resources/`` prefix is dropped so a staff module-file URL and
+    the cartridge-relative path of the same file compare equal.
+
+    Args:
+        src: An ``<img src>``, ``image_url``, or filebase token.
+    """
+    raw = html.unescape(str(src or "")).strip()
+    if not raw:
+        return ""
+    raw = urllib.parse.unquote(raw)
+    parsed = urllib.parse.urlsplit(raw)
+    if parsed.scheme in {"http", "https"}:
+        path = parsed.path
+        query = parsed.query
+    else:
+        path, _, query = raw.partition("?")
+    path = path.replace("\\", "/")
+    marker = "web_resources/"
+    lowered = path.lower()
+    index = lowered.rfind(marker)
+    if index >= 0:
+        path = path[index + len(marker) :]
+    name = path.rstrip("/").rsplit("/", 1)[-1].strip().lower()
+    if not name:
+        return ""
+    if query:
+        return f"{name}?{query}"
+    return name
+
+
+def _canonical_image_identity(src: str, aliases: dict[str, str] | None) -> str:
+    """Map one image URL to its alias group, or its own identity.
+
+    Args:
+        src: Image URL or path.
+        aliases: Optional identity → canonical identity map from the mirror cache.
+    """
+    ident = bank_image_identity(src)
+    if not ident:
+        return ""
+    if not aliases:
+        return ident
+    return aliases.get(ident, ident)
+
+
+def choice_image_identities(
+    chunks: list[str],
+    *,
+    aliases: dict[str, str] | None = None,
+) -> set[str]:
+    """Return canonical identities of every image in choice HTML.
+
+    Args:
+        chunks: Choice HTML fragments or ``options_image_urls`` values wrapped
+            as tags by the caller.
+        aliases: Optional mirror-cache identity map.
+    """
+    found: set[str] = set()
+    for chunk in chunks:
+        for src in extract_all_image_srcs(chunk):
+            ident = _canonical_image_identity(src, aliases)
+            if ident:
+                found.add(ident)
+    return found
+
+
+def _choice_html_chunks(question: dict[str, Any]) -> list[str]:
+    """Return HTML fragments that hold multiple-choice option images.
+
+    Args:
+        question: Bank payload, normalized live MC, or prompt card.
+    """
+    chunks: list[str] = []
+    for key in ("_rich_option_htmls", "options_html"):
+        value = question.get(key)
+        if isinstance(value, list):
+            chunks.extend(str(item or "") for item in value)
+    urls = question.get("options_image_urls")
+    if isinstance(urls, list):
+        for url in urls:
+            token = str(url or "").strip()
+            if token:
+                chunks.append(f'<img src="{html.escape(token, quote=True)}">')
+    for key in ("choices", "options"):
+        value = question.get(key)
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            if isinstance(item, dict):
+                chunks.append(str(item.get("html") or item.get("text") or ""))
+            else:
+                chunks.append(str(item or ""))
+    return chunks
+
+
+def _stem_still_has_content(fragment: str) -> bool:
+    """True when stem HTML still shows text, a table, or a non-choice image.
+
+    Args:
+        fragment: Stem HTML after choice images were removed.
+    """
+    if html_to_plain(fragment).strip():
+        return True
+    lowered = str(fragment or "").lower()
+    return any(
+        token in lowered
+        for token in ("<img", "<table", "<math", "math-latex")
+    )
+
+
+def scrub_choice_images_from_stem(
+    question: dict[str, Any],
+    *,
+    aliases: dict[str, str] | None = None,
+) -> list[str]:
+    """Remove MC choice images from stem HTML and the hero image.
+
+    A graph that lives only on the stem stays. A choice image is dropped
+    from ``stem_html`` / ``text_html`` when other stem content remains, and
+    ``image_url`` / ``image_src`` are cleared when they point at a choice.
+    The function is idempotent. Choice HTML is not modified.
+
+    Args:
+        question: Bank, live, or prompt payload. Mutated in place.
+        aliases: Optional mirror-cache map so a stored mirror path matches
+            the remote URL still sitting on a choice.
+
+    Returns:
+        Stem field names that changed, in a stable order.
+    """
+    if not isinstance(question, dict):
+        return []
+    banned = choice_image_identities(_choice_html_chunks(question), aliases=aliases)
+    if not banned:
+        return []
+    changed: list[str] = []
+    for field in ("stem_html", "text_html"):
+        current = question.get(field)
+        if not isinstance(current, str) or "<img" not in current.lower():
+            continue
+        updated = _drop_banned_imgs(current, banned, aliases)
+        if updated == current:
+            continue
+        if not _stem_still_has_content(updated):
+            continue
+        question[field] = updated
+        changed.append(field)
+    stem_idents: set[str] = set()
+    for field in ("stem_html", "text_html"):
+        stem_idents |= choice_image_identities(
+            [str(question.get(field) or "")],
+            aliases=aliases,
+        )
+    for field in ("image_url", "image_src"):
+        src = str(question.get(field) or "").strip()
+        if not src:
+            continue
+        ident = _canonical_image_identity(src, aliases)
+        if ident and ident in banned and ident not in stem_idents:
+            question.pop(field, None)
+            changed.append(field)
+    return changed
+
+
+def _drop_banned_imgs(
+    fragment: str,
+    banned: set[str],
+    aliases: dict[str, str] | None,
+) -> str:
+    """Delete ``<img>`` tags whose identity is in ``banned``.
+
+    Args:
+        fragment: Stem HTML.
+        banned: Canonical choice-image identities.
+        aliases: Optional mirror-cache identity map.
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        ident = _canonical_image_identity(extract_image_src(match.group(0)), aliases)
+        if ident and ident in banned:
+            return ""
+        return match.group(0)
+
+    return _SNAPSHOT_IMG_RE.sub(replace, str(fragment or ""))
 
 
 def resolve_bank_image_url(image_src: str, *, class_id: int | None = None) -> str:

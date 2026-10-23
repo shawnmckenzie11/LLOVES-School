@@ -12296,6 +12296,14 @@ class SchoolDB(LovesDB):
                 normalized["equation_latex"] = equation
             if payload.get("image_url") and not normalized.get("image_url"):
                 normalized["image_url"] = payload.get("image_url")
+            # Normalize drops a choice image from the hero. Copying the stored
+            # URL back would put that answer above the stem again.
+            try:
+                from question_math import scrub_choice_images_from_stem
+            except ImportError:
+                from lms.question_math import scrub_choice_images_from_stem
+
+            scrub_choice_images_from_stem(normalized)
             if payload.get("tolerance") is not None and "tolerance" not in normalized:
                 normalized["tolerance"] = payload.get("tolerance")
                 normalized["tolerance_kind"] = payload.get("tolerance_kind") or "absolute"
@@ -16403,6 +16411,14 @@ class SchoolDB(LovesDB):
         merged = {**payload, **normalized}
         merged["id"] = str(payload.get("id") or merged.get("id") or "")
         merged["import_source"] = "module_bank"
+        # The stored card may already have a choice image on image_url.
+        # Normalize omits that key; merging would keep the leak.
+        try:
+            from question_math import scrub_choice_images_from_stem
+        except ImportError:
+            from lms.question_math import scrub_choice_images_from_stem
+
+        scrub_choice_images_from_stem(merged)
         return merged
 
 
