@@ -96,10 +96,13 @@ die() {
   printf 'lloves-sandbox-step %s %s\n' "$1" "$2" >&2
   exit 97
 }
-# /bin/sh can redirect only fds 0-9. The launcher parks the wait pipe on
-# fd 3 and lists that number in pass_fds, so Python does not close it.
+# The wait pipe and pass_fds=(3,) are only for host root plus a user
+# namespace. An unprivileged worker uses --map-root-user and has no pipe.
+# /bin/sh can redirect only fds 0-9, so the launcher parks that pipe on
+# fd 3 and lists 3 in pass_fds. Close it before the converter starts.
 if [ "${LLOVES_SANDBOX_WAIT:-}" = 1 ]; then
   read -r _ <&3 || die unshare $?
+  exec 3<&-
 fi
 work=$1
 shift
@@ -1018,9 +1021,12 @@ def _launch_sandbox(
         OSError: The root uid map could not be installed. The message
             includes the child's stderr with paths removed.
 
-    ``/bin/sh`` reads the map-ready pipe on fd 3. ``Popen`` closes every
-    descriptor that is not in ``pass_fds`` after ``preexec_fn``, so fd 3
-    is listed there. A worker that already has fd 3 open keeps it.
+    The wait pipe and ``pass_fds=(3,)`` apply only when this process is
+    host root and the user namespace is in use. ``/bin/sh`` reads that
+    pipe on fd 3, then closes it. ``Popen`` closes every descriptor that
+    is not in ``pass_fds`` after ``preexec_fn``, so fd 3 is listed there.
+    A worker that already has fd 3 open keeps it. An unprivileged worker
+    uses ``--map-root-user`` and does not pass fd 3.
     """
     child_env = dict(env)
     read_fd: int | None = None
