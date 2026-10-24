@@ -847,11 +847,18 @@ class CourseSlideFileTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("unshare"), "unshare is not installed")
     @unittest.skipUnless(os.geteuid() != 0, "this path is the unprivileged worker")
     def test_user_namespace_blocks_chroot_escape_and_drops_caps(self) -> None:
-        """A mapped-root worker cannot walk out to the host, and caps are empty."""
+        """A mapped-root worker cannot walk out to the host, and caps are empty.
+
+        The planted binary is named ``cat``. uutils coreutils is one
+        multicall program that selects the applet by the longest suffix of
+        the filename, and ``cat-suid`` ends in ``id``, so that name runs
+        ``id`` and treats ``/proc/self/uid_map`` as a user name.
+        """
         import course_slide_files as files
 
         work = Path(tempfile.mkdtemp(prefix="lloves-slides-"))
-        planted = work / "cat-suid"
+        # Basename must be the cat applet. ``cat-suid`` selects ``id``.
+        planted = work / "cat"
         try:
             escape = work / "escape.py"
             escape.write_text(_SANDBOX_ESCAPE, encoding="utf-8")
@@ -865,7 +872,7 @@ class CourseSlideFileTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             _assert_escape_contained(self, completed.stdout.decode())
             if subprocess.run(["sudo", "-n", "true"], check=False).returncode != 0:
-                return
+                self.skipTest("passwordless sudo is required to plant a root setuid binary")
             shutil.copy("/usr/bin/cat", planted)
             subprocess.run(["sudo", "-n", "chown", "0:0", str(planted)], check=True)
             subprocess.run(["sudo", "-n", "chmod", "4755", str(planted)], check=True)
@@ -928,7 +935,9 @@ class CourseSlideFileTests(unittest.TestCase):
         self.assertNotIn("chroot", script)
         self.assertNotIn("lloves-anchor", script)
         self.assertIn("read -r _ <&3", script)
+        self.assertIn("exec 3<&-", script)
         self.assertIn("pass_fds=(3,)", inspect.getsource(files._launch_sandbox))
+        self.assertIn("host root", inspect.getsource(files._launch_sandbox))
         self.assertIn("pivot_root . oldroot", script)
         self.assertIn("--bounding-set=-all", script)
         self.assertIn("--no-new-privs", script)
