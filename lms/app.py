@@ -8697,6 +8697,36 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             ],
         )
 
+
+    def _require_slide_placement(module: Any, slot: Any) -> tuple[str, str]:
+        """Return a module and slot, or refuse one that would fall back.
+
+        A missing module or slot stays M1 / C1. A posted token that
+        ``normalize_live_module`` or ``normalize_live_slot`` would rewrite
+        is rejected so a bad save cannot overwrite that default deck.
+
+        Args:
+            module: Posted module, or empty.
+            slot: Posted slot, or empty.
+
+        Returns:
+            Normalized ``(module, slot)``.
+
+        Raises:
+            ValueError: The posted module or slot is not a known placement.
+        """
+        from live_teacher_state import normalize_live_module, normalize_live_slot
+
+        raw_module = str(module or "").strip()
+        raw_slot = str(slot or "").strip()
+        live_module = normalize_live_module(raw_module)
+        live_slot = normalize_live_slot(raw_slot)
+        if raw_module and live_module != raw_module.upper():
+            raise ValueError("Unknown module.")
+        if raw_slot and live_slot != raw_slot.upper():
+            raise ValueError("Unknown slot.")
+        return live_module, live_slot
+
     def _slide_default_published(value: Any) -> bool:
         """True when a form or JSON flag asks for pages to start shared.
 
@@ -9007,10 +9037,17 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         if denied is not None:
             return denied
         if request.method == "GET":
+            try:
+                module, slot = _require_slide_placement(
+                    request.args.get("module"),
+                    request.args.get("slot"),
+                )
+            except ValueError as exc:
+                return jsonify({"ok": False, "error": str(exc)}), 400
             summary = school.course_slide_deck_summary(
                 int(class_id),
-                request.args.get("module"),
-                request.args.get("slot"),
+                module,
+                slot,
             )
             return jsonify({"ok": True, "deck": summary})
         too_big = _slide_body_too_large()
@@ -9033,6 +9070,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             published = _slide_default_published(published_raw)
             try:
                 suffix = slide_files.office_suffix(filename)
+            except ValueError as exc:
+                return jsonify({"ok": False, "error": str(exc)}), 400
+            try:
+                module, slot = _require_slide_placement(module, slot)
             except ValueError as exc:
                 return jsonify({"ok": False, "error": str(exc)}), 400
             spilled = _spill_slide_upload(upload, suffix)
@@ -9080,6 +9121,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             module = body.get("module")
         if body.get("slot") not in (None, ""):
             slot = body.get("slot")
+        try:
+            module, slot = _require_slide_placement(module, slot)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
         url = str(body.get("url") or request.form.get("url") or "").strip()
         published = body.get("default_published")
         if published is None:
