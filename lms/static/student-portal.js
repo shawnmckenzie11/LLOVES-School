@@ -38,6 +38,7 @@ import {
   CATCHING_UP_COPY,
   FALLBACK_POLL_MS,
   connectLiveNewsWire,
+  newsStateDelayMs,
   studentFallbackPollMs,
   studentSessionOver,
 } from "/static/live_news_wire.js";
@@ -497,6 +498,10 @@ let studentPollTimer = 0;
 let studentBackoffMs = 0;
 /** News-driven /state. Pending copy says Catching up… and does not reload. */
 let studentNewsFetch = false;
+/** Quiet retries after a pushed-question ``/state`` was shed. Not the 20s net. */
+let studentNewsTries = 0;
+/** One jittered full snapshot after a push card. A second postcard waits. */
+let studentNewsTimer = 0;
 /** @type {{stop: () => void, noteSeq: (seq: number) => void, sessionId: number}|null} */
 let studentNewsWire = null;
 /** Epoch ms when the current outage started. ``0`` when the frame is calm. */
@@ -5893,6 +5898,74 @@ function clearStudentOutage() {
 }
 
 /**
+ * Paint a pushed question from the postcard, before ``/state`` returns.
+ * The card is the shared stem and choices. Names and answer keys are not
+ * on it. The jittered snapshot replaces this frame with team state.
+ * @param {any} card
+ */
+function applyPushedQuestionCard(card) {
+  if (!card || typeof card !== "object") return;
+  const itemId = Number(card.item_id) || 0;
+  if (!itemId) return;
+  const kind = String(card.kind || "mc");
+  const text = String(card.text || "");
+  const options = Array.isArray(card.options) ? card.options : [];
+  if (!text.trim() && !options.length) return;
+  const promptId = Number(card.prompt_id) || 0;
+  const content = { type: kind, text, options };
+  if (kind === "rank") content.rank_options = options;
+  const mode = String(card.mode || "individual");
+  /** @type {any} */
+  const item = {
+    id: itemId,
+    status: "active",
+    kind: "question",
+    response_mode: mode,
+    prompt: { id: promptId, kind, payload: content },
+    content,
+    can_submit: mode === "individual",
+  };
+  if (mode === "group_submit") {
+    item.group_submit = { choice: "", why: "", my_pick: "" };
+    if (String(card.flow || "") === "pick_then_agree") {
+      item.group_submit.flow = "pick_then_agree";
+      item.group_submit.pick_step = true;
+    }
+    if (kind === "rank" && card.rank_mode) {
+      item.group_submit.rank_mode = String(card.rank_mode);
+    }
+  }
+  const prior =
+    lastStudentPayload && typeof lastStudentPayload === "object"
+      ? lastStudentPayload
+      : {};
+  const active = Array.isArray(prior.active_questions)
+    ? prior.active_questions.filter((row) => Number(row?.id) !== itemId)
+    : [];
+  const payload = {
+    ...prior,
+    active_questions: [item, ...active],
+    prompt: item.prompt,
+  };
+  lastStudentPayload = payload;
+  paintLifecycleQuestionStack(payload);
+  paintPrompt(payload);
+}
+
+/**
+ * Full ``/state`` after a push, in this tab's bucket.
+ * Thirty phones do not share one instant. A timer already waiting is kept.
+ */
+function scheduleNewsState() {
+  if (studentNewsTimer) return;
+  studentNewsTimer = window.setTimeout(() => {
+    studentNewsTimer = 0;
+    studentNewsFetch = true;
+    void tick();
+  }, newsStateDelayMs());
+}
+
+/**
  * Open the student SSE tap once the hydrate names the session.
  * Busy paints the soft strip. The wire never reloads the page.
  * @param {number} sessionId
@@ -5918,6 +5991,13 @@ function ensureStudentNewsWire(sessionId) {
       }
       if (event && event.type === "board_ink") {
         kickStudentBoardDelta();
+        return;
+      }
+      // The postcard already has the stem. Full /state is spread so one
+      // push does not rebuild every phone in the same instant (MCK-283).
+      if (event && event.type === "prompt" && event.card) {
+        applyPushedQuestionCard(event.card);
+        scheduleNewsState();
         return;
       }
       studentNewsFetch = true;
@@ -6044,6 +6124,16 @@ async function tick() {
     const data = await res.json();
     statePainting = true;
     if (data && (data.error === "state unavailable" || isLiveStateBusy(data))) {
+      // A pushed question is already painted. Retry the snapshot in this
+      // tab's bucket instead of the 20s safety net, a few times, then
+      // fall back. That retry is not a class-wide instant reload.
+      if (studentNewsFetch && studentNewsTries < 4) {
+        studentNewsTries += 1;
+        if (studentNewsTimer) window.clearTimeout(studentNewsTimer);
+        studentNewsTimer = 0;
+        scheduleNewsState();
+        return;
+      }
       setStudentReconnectBanner(true);
       noteStudentPollBusy();
       return;
@@ -6053,6 +6143,7 @@ async function tick() {
       return;
     }
     if (data.unchanged) {
+      studentNewsTries = 0;
       if (data.stamp) lastPollStamp = String(data.stamp);
       if (data.state_seq != null) lastStateSeq = Number(data.state_seq);
       if (data.google_slide) applyStudentGoogleSlide(data.google_slide);
@@ -6064,6 +6155,7 @@ async function tick() {
       return;
     }
     if (data.stamp) lastPollStamp = String(data.stamp);
+    studentNewsTries = 0;
     studentSessionIsOver = studentSessionOver(data);
     if (data.live_session_id && data.status !== "ended") {
       ensureStudentNewsWire(data.live_session_id);

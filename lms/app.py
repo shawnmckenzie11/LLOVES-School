@@ -17,6 +17,7 @@ import shutil
 import sqlite3
 import sys
 import threading
+import time
 from datetime import date, timedelta
 
 
@@ -160,6 +161,7 @@ from live_news_wire import (  # noqa: E402
     live_news_response,
     prompt_event,
     prompt_response_count,
+    record_push_stages,
     response_landed_events,
     teacher_state_seq,
 )
@@ -9625,6 +9627,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         if error is not None:
             return error
         body = request.get_json(silent=True) or {}
+        write_started = time.perf_counter()
         try:
             item = school.publish_live_session_item(
                 session_id,
@@ -9633,16 +9636,36 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             )
         except (KeyError, ValueError) as exc:
             return _json_error(exc)
+        write_ms = (time.perf_counter() - write_started) * 1000
+        card_started = time.perf_counter()
         seq = teacher_state_seq(school, session_id)
+        card = None
+        if isinstance(item, dict):
+            try:
+                card = school.public_push_card(item)
+            except Exception:
+                logger.warning(
+                    "push card skipped session=%s item=%s",
+                    session_id,
+                    live_item_id,
+                )
+                card = None
+        card_ms = (time.perf_counter() - card_started) * 1000
         prompt_id = item.get("prompt_id") if isinstance(item, dict) else None
+        emit_started = time.perf_counter()
         emit_session_news(
             school,
             session_id,
             [
                 {"type": "state_seq", "state_seq": seq},
-                prompt_event(prompt_id, seq),
+                prompt_event(prompt_id, seq, card),
                 flag_work_event("publish", seq),
             ],
+        )
+        record_push_stages(
+            state_write_ms=write_ms,
+            seq_and_card_ms=card_ms,
+            emit_ms=(time.perf_counter() - emit_started) * 1000,
         )
         return jsonify(
             {

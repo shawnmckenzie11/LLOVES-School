@@ -50,8 +50,10 @@ FALLBACK_POLL_MS = 20000
 # next poll so a deploy drain is not 25 s of open streams (v219 drained 21 s).
 STREAM_HOLD_S = 25.0
 STREAM_HOLD_TESTING_S = 0.2
-# Sqlite tail while this process waits for another worker's insert.
-STREAM_POLL_S = 0.35
+# Other gunicorn workers do not share this process's wake. They notice a
+# postcard on the next tail read. Same-process listeners are woken from
+# ``append`` and do not wait this long.
+STREAM_POLL_S = 0.05
 # Browser reconnect after a healthy stream ends or drops.
 SSE_RETRY_MS = 1000
 # Browser reconnect after a shed. Matches the slow fallback, not a stampede.
@@ -86,7 +88,7 @@ _FIELDS: dict[str, frozenset[str]] = {
         {"type", "media_version", "artifact_id", "state_seq"}
     ),
     "flags": frozenset({"type", "flag_mask", "state_seq"}),
-    "prompt": frozenset({"type", "prompt_id", "state_seq"}),
+    "prompt": frozenset({"type", "prompt_id", "state_seq", "card"}),
     "response_landed": frozenset(
         {"type", "scope", "count", "state_seq", "student_id", "team_id"}
     ),
@@ -449,11 +451,14 @@ def _fan_loop() -> None:
                 if stream_shutting_down():
                     break
                 _fan_catch_up(group)
-        # A subscribe during this pass already set the wake. Clear it
-        # before the poll so the next wait can block for a new seat,
-        # while a postcard still arrives on the next poll.
-        _fan_wake.clear()
+        # A postcard appended during this pass set the wake. Loop again
+        # instead of sleeping it away. A wake that arrives after this
+        # check and before ``wait`` still returns at once.
+        if _fan_wake.is_set():
+            _fan_wake.clear()
+            continue
         _fan_wake.wait(STREAM_POLL_S)
+        _fan_wake.clear()
 
 
 #: ``busy_timeout`` (ms) on the tape connection once it is open.
@@ -519,6 +524,148 @@ def _connect(path: Path) -> sqlite3.Connection:
     return conn
 
 
+# Ordinary postcards stay under 500 bytes. A publish card may carry the
+# stem and choices the phone paints before it reloads ``/state``.
+PROMPT_CARD_MAX_BYTES = 4096
+_CARD_TEXT_MAX = 600
+_CARD_LABEL_MAX = 160
+_CARD_OPTIONS_MAX = 8
+_CARD_ID_MAX = 64
+_CARD_KINDS = frozenset({"mc", "numeric", "poll", "rank", "text"})
+_CARD_MODES = frozenset(
+    {"individual", "group_submit", "group_consensus", "team_draw"}
+)
+_CARD_FLOWS = frozenset({"", "pick_then_agree"})
+_CARD_RANK_MODES = frozenset({"", "turns", "together"})
+_CARD_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_SCRIPT_TAG = re.compile(r"(?is)<script\b[^>]*>.*?</script>")
+
+_push_stages: dict[str, float] = {}
+
+
+def record_push_stages(**stages: float) -> None:
+    """Remember the last publish's server stages, in milliseconds.
+
+    The load check reads this after the teacher POST. Values are durations
+    only. No roster, names, or session codes.
+
+    Args:
+        **stages: Named millisecond timings, such as ``state_write_ms``.
+    """
+    for key, value in stages.items():
+        try:
+            _push_stages[str(key)] = round(float(value), 1)
+        except (TypeError, ValueError):
+            continue
+
+
+def last_push_stages() -> dict[str, float]:
+    """Return a copy of the timings from the last :func:`record_push_stages`."""
+    return dict(_push_stages)
+
+
+def reset_push_stages() -> None:
+    """Drop remembered publish timings. Tests call this between cases."""
+    _push_stages.clear()
+
+
+def _postcard_limit(event: dict[str, Any]) -> int:
+    """Byte cap for one stored postcard.
+
+    Args:
+        event: Cleaned catalogue event.
+
+    Returns:
+        ``PROMPT_CARD_MAX_BYTES`` for a prompt that still has a card,
+        otherwise 500.
+    """
+    if event.get("type") == "prompt" and isinstance(event.get("card"), dict):
+        return PROMPT_CARD_MAX_BYTES
+    return 500
+
+
+def _clip_text(value: Any, limit: int) -> str:
+    """Return a short string with script tags removed.
+
+    Args:
+        value: Raw postcard text.
+        limit: Maximum characters kept.
+    """
+    text = _SCRIPT_TAG.sub("", str(value or ""))
+    text = text.replace("\x00", "").strip()
+    return text[: int(limit)]
+
+
+def _public_option(raw: Any) -> str | dict[str, str] | None:
+    """One choice label, or an aliased rank id plus its label.
+
+    Args:
+        raw: A string label or ``{"id", "label"}``. Anything else is dropped.
+    """
+    if isinstance(raw, str):
+        label = _clip_text(raw, _CARD_LABEL_MAX)
+        return label or None
+    if not isinstance(raw, dict):
+        return None
+    label = _clip_text(raw.get("label") or raw.get("text"), _CARD_LABEL_MAX)
+    if not label:
+        return None
+    token = str(raw.get("id") or "").strip()
+    if token and _CARD_ID.fullmatch(token) and len(token) <= _CARD_ID_MAX:
+        return {"id": token, "label": label}
+    return label
+
+
+def _public_card(raw: Any) -> dict[str, Any] | None:
+    """Keep a publish card's stem and choices. Drop keys, names, and roster.
+
+    Args:
+        raw: Caller ``card`` object. Unknown keys are ignored.
+
+    Returns:
+        A card with text or choices, or ``None`` when there is nothing to paint.
+    """
+    if not isinstance(raw, dict):
+        return None
+    kind = str(raw.get("kind") or "").strip().lower()
+    if kind not in _CARD_KINDS:
+        return None
+    mode = str(raw.get("mode") or "individual").strip().lower()
+    if mode not in _CARD_MODES:
+        mode = "individual"
+    flow = str(raw.get("flow") or "").strip().lower()
+    if flow not in _CARD_FLOWS:
+        flow = ""
+    rank_mode = str(raw.get("rank_mode") or "").strip().lower()
+    if rank_mode not in _CARD_RANK_MODES:
+        rank_mode = ""
+    text = _clip_text(raw.get("text"), _CARD_TEXT_MAX)
+    options: list[str | dict[str, str]] = []
+    raw_options = raw.get("options")
+    if isinstance(raw_options, list):
+        for item in raw_options[:_CARD_OPTIONS_MAX]:
+            option = _public_option(item)
+            if option is not None:
+                options.append(option)
+    if not text and not options:
+        return None
+    card: dict[str, Any] = {
+        "item_id": max(0, _as_int(raw.get("item_id"))),
+        "prompt_id": max(0, _as_int(raw.get("prompt_id"))),
+        "kind": kind,
+        "text": text,
+        "options": options,
+        "mode": mode,
+        "flow": flow,
+        "rank_mode": rank_mode,
+    }
+    if card["item_id"] <= 0:
+        return None
+    if card["prompt_id"] <= 0:
+        card["prompt_id"] = None
+    return card
+
+
 def _clean_event(raw: dict[str, Any]) -> dict[str, Any] | None:
     """Keep one postcard. Drop unknown types and fat keys.
 
@@ -555,6 +702,12 @@ def _clean_event(raw: dict[str, Any]) -> dict[str, Any] | None:
         event["image_url"] = url if _SLIDE_IMAGE_URL.fullmatch(url) else ""
         if not event["shared"]:
             event["image_url"] = ""
+    if kind == "prompt":
+        card = _public_card(event.get("card"))
+        if card is None:
+            event.pop("card", None)
+        else:
+            event["card"] = card
     return event
 
 
@@ -613,9 +766,19 @@ class LiveNewsLog:
         with self._lock:
             for event in cleaned:
                 payload = json.dumps(event, separators=(",", ":"), default=str)
-                if len(payload) > 500:
-                    logger.warning("live news postcard dropped; too large")
-                    continue
+                if len(payload) > _postcard_limit(event):
+                    if event.get("type") == "prompt" and "card" in event:
+                        event = {
+                            key: value
+                            for key, value in event.items()
+                            if key != "card"
+                        }
+                        payload = json.dumps(
+                            event, separators=(",", ":"), default=str
+                        )
+                    if len(payload) > _postcard_limit(event):
+                        logger.warning("live news postcard dropped; too large")
+                        continue
                 cursor = self._conn.execute(
                     """
                     INSERT INTO live_news_events (session_id, event_type, payload_json)
@@ -639,6 +802,10 @@ class LiveNewsLog:
                 (sid, sid, RING_PER_SESSION - 1),
             )
             self._conn.commit()
+        if stored:
+            # Same-process tails are waiting on this event. Other workers
+            # still notice the row on their next poll.
+            _fan_wake.set()
         return stored
 
     def purge_session(self, session_id: int) -> int:
@@ -1235,18 +1402,111 @@ def emit_board_ink(school: Any, session_id: int, board_key: str) -> None:
     emit_session_news(school, sid, [{"type": "board_ink", "board_key": key}])
 
 
-def prompt_event(prompt_id: Any, state_seq: int) -> dict[str, Any]:
-    """Postcard naming the active prompt id and nothing of its stem.
+def prompt_event(
+    prompt_id: Any,
+    state_seq: int,
+    card: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Postcard naming the active prompt, plus a stem card when one is ready.
+
+    The card is the question text and choices every phone can paint before
+    it reloads ``/state``. Answer keys and roster fields are removed when
+    the tape stores the event.
 
     Args:
         prompt_id: Prompt id or teacher ``prompt_ref``. Empty becomes null.
         state_seq: Teacher sequence after the write.
+        card: Optional public question card from ``SchoolDB.public_push_card``.
     """
     token = str(prompt_id or "").strip()
-    return {
+    event: dict[str, Any] = {
         "type": "prompt",
         "prompt_id": token or None,
         "state_seq": int(state_seq),
+    }
+    if isinstance(card, dict):
+        event["card"] = card
+    return event
+
+
+def open_push_watch(log: LiveNewsLog, session_id: int, seats: int) -> list[_NewsSeat]:
+    """Listen for the next publish card on ``seats`` same-process tails.
+
+    Each seat starts at the current end of the tape, so older postcards
+    are not counted. Call this before the teacher POST.
+
+    Args:
+        log: Shared tape for this data directory.
+        session_id: ``live_class_sessions.id``.
+        seats: How many student tails to open. At least 1.
+
+    Returns:
+        Seats to pass to :func:`collect_push_cards`.
+    """
+    count = max(1, int(seats))
+    existing = log.since(int(session_id), 0)
+    cursor = 0
+    for event in existing:
+        cursor = max(cursor, _as_int(event.get("id"), cursor))
+    watched: list[_NewsSeat] = []
+    for index in range(count):
+        watched.append(
+            _fan_subscribe(
+                log,
+                int(session_id),
+                NewsAudience("student", student_id=index + 1),
+                cursor,
+                None,
+            )
+        )
+    return watched
+
+
+def collect_push_cards(
+    seats: list[_NewsSeat],
+    timeout_s: float,
+) -> dict[str, Any]:
+    """Wait until each seat has a prompt card, or the timeout lands.
+
+    Does not fetch ``/state``. The card on the wire is the visible question.
+
+    Args:
+        seats: Seats from :func:`open_push_watch`.
+        timeout_s: How long to wait for the slowest seat.
+
+    Returns:
+        ``cards`` (how many seats saw a card), ``first_ms`` and ``all_ms``
+        from the moment this function starts. ``all_ms`` is ``None`` when
+        a seat is still waiting.
+    """
+    pending = set(range(len(seats)))
+    started = time.perf_counter()
+    deadline = started + max(0.0, float(timeout_s))
+    first_ms: float | None = None
+    while pending and time.perf_counter() < deadline:
+        for index in list(pending):
+            try:
+                frame = seats[index].queue.get_nowait()
+            except queue.Empty:
+                continue
+            if not isinstance(frame, str):
+                continue
+            if '"type":"prompt"' not in frame or '"card":' not in frame:
+                continue
+            pending.discard(index)
+            now_ms = (time.perf_counter() - started) * 1000
+            if first_ms is None:
+                first_ms = now_ms
+        if pending:
+            time.sleep(0.002)
+    all_ms = None if pending else (time.perf_counter() - started) * 1000
+    for seat in seats:
+        _fan_unsubscribe(seat)
+    return {
+        "seats": len(seats),
+        "cards": len(seats) - len(pending),
+        "first_ms": None if first_ms is None else round(first_ms, 1),
+        "all_ms": None if all_ms is None else round(all_ms, 1),
     }
 
 

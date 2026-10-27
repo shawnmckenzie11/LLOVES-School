@@ -75,6 +75,27 @@ export function studentFallbackPollMs(wire, over, rand = Math.random()) {
   return base + Math.round(unit * base * STUDENT_POLL_JITTER);
 }
 
+/**
+ * How far a class-wide ``/state`` after a pushed question is spread.
+ * Thirty phones land in different 50 ms buckets instead of one instant.
+ * The question itself is already on the postcard; this delay is only the
+ * full snapshot (team turn, drafts).
+ */
+export const NEWS_STATE_SPREAD_MS = 1450;
+
+/**
+ * Delay before one tab's full ``/state`` after a push postcard.
+ * ``rand`` 0 waits 0 ms. ``rand`` just under 1 waits ``NEWS_STATE_SPREAD_MS``.
+ * Equal inputs stay equal so a test can prove the buckets do not collapse.
+ * @param {number} [rand] Unit interval. Defaults to ``Math.random``.
+ * @returns {number}
+ */
+export function newsStateDelayMs(rand = Math.random()) {
+  const unit = Math.min(1, Math.max(0, Number(rand) || 0));
+  const bucket = Math.min(29, Math.floor(unit * 30));
+  return bucket * 50;
+}
+
 /** Soft line when a news-driven fetch is still out after ~800ms. */
 export const CATCHING_UP_COPY = "Catching up…";
 
