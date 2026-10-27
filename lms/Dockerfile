@@ -10,8 +10,14 @@ ENV PORT=8080
 
 # ``mount`` and ``umount`` are the mount package on Debian 13. They are
 # not part of util-linux. The slide sandbox calls both by name.
+# Metric clones only: Liberation (Arial/Times/Courier), Carlito (Calibri),
+# Caladea (Cambria). No embedded-font converter. fontconfig already
+# comes in with LibreOffice.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    fonts-crosextra-caladea \
+    fonts-crosextra-carlito \
+    fonts-liberation \
     libreoffice-impress \
     mount \
     util-linux \
@@ -21,6 +27,10 @@ COPY lms/requirements.txt lms/requirements.txt
 RUN pip install --no-cache-dir -r lms/requirements.txt
 
 COPY . .
+
+# Office metric map. The slide sandbox copies /etc/fonts into its root.
+RUN cp lms/fonts/59-lloves-office-metrics.conf /etc/fonts/conf.d/59-lloves-office-metrics.conf \
+    && fc-cache -fs
 
 # Science 11–12 + HPE 9–12 PDFs (not always in git). Skip if already copied.
 RUN python lms/fetch_ontario_curriculum_pdfs.py

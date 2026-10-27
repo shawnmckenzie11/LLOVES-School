@@ -53,6 +53,30 @@ COURSE_SLIDE_UPLOAD_MAX_BYTES = 64 * 1024 * 1024
 # Multipart framing around a 64 MiB file. The header check uses this
 # slack so a real deck is not refused before its bytes are read.
 UPLOAD_FRAMING_SLACK = 1024 * 1024
+# Metric clones installed in the image. A deck that names one of these
+# Office families gets the clone. Anything else falls through to the
+# generic sans, serif, or mono alias, which is Liberation.
+METRIC_FONT_FAMILIES: tuple[str, ...] = (
+    "Liberation Sans",
+    "Liberation Serif",
+    "Liberation Mono",
+    "Carlito",
+    "Caladea",
+)
+_OFFICE_METRICS_CONF = "59-lloves-office-metrics.conf"
+# Applied before /etc/fonts/fonts.conf. That file's metric map binds
+# Arial to Arimo (and Times to Tinos, Courier to Cousine) with
+# binding="same", and a later alias cannot outrank it.
+_OFFICE_FACE_EDITS: tuple[tuple[str, str], ...] = (
+    ("Arial", "Liberation Sans"),
+    ("Helvetica", "Liberation Sans"),
+    ("Times New Roman", "Liberation Serif"),
+    ("Times", "Liberation Serif"),
+    ("Courier New", "Liberation Mono"),
+    ("Courier", "Liberation Mono"),
+    ("Calibri", "Carlito"),
+    ("Cambria", "Caladea"),
+)
 # Soffice plus PNG render. The import job keeps the whole attempt
 # under about 90 seconds, inside the worker timeout.
 _CONVERT_TIMEOUT_S = 80
@@ -1190,13 +1214,88 @@ def _diagnostic_host_data() -> tuple[bool, str]:
     return True, f"exit={ls_code} hidden {detail}"[:400]
 
 
+def _metric_font_detail(families: set[str]) -> tuple[bool, str]:
+    """Name the metric families. Do not paste the whole font list.
+
+    ``fc-list`` on a machine with a full desktop font set is long. A
+    detail string that dumps every family and then cuts at 500
+    characters drops Liberation and Carlito even when they are
+    installed. This detail names only the five substitutes.
+
+    Args:
+        families: Family names fontconfig reported.
+
+    Returns:
+        ``(passed, detail)``. ``present`` lists the substitutes that
+        were found. ``missing`` lists the rest.
+    """
+    missing = [name for name in METRIC_FONT_FAMILIES if name not in families]
+    present = [name for name in METRIC_FONT_FAMILIES if name in families]
+    present_text = ", ".join(present) if present else "none"
+    if missing:
+        return False, f"exit=0 missing={', '.join(missing)} present={present_text}"
+    return True, f"exit=0 present={present_text}"
+
+
+def _diagnostic_fonts() -> tuple[bool, str]:
+    """Check the metric font families inside the slide sandbox.
+
+    The sandbox is unchanged: ``fc-list`` runs through the same
+    ``pivot_root`` launch as a conversion. The step passes when every
+    metric Office substitute is present. The detail names those
+    families only.
+
+    Returns:
+        ``(passed, detail)``.
+    """
+    fc_list = _which_tool("fc-list")
+    if not fc_list:
+        return False, "exit=127 stderr=fc-list not found"
+    work = Path(tempfile.mkdtemp(prefix="lloves-slides-"))
+    proc: subprocess.Popen[bytes] | None = None
+    out = b""
+    err = b""
+    try:
+        try:
+            proc = _launch_sandbox(
+                [fc_list, ":", "family"],
+                work,
+                office_env(work),
+                str(work),
+            )
+            out, err = proc.communicate(timeout=20)
+        except subprocess.TimeoutExpired:
+            if proc is not None:
+                _kill_process_group(proc)
+            return False, "exit=124 stderr=timed out"
+        except OSError as exc:
+            if proc is not None:
+                _kill_process_group(proc)
+            return False, f"exit=1 stderr={_sanitize_probe_text(str(exc))}"
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+        shutil.rmtree(Path("/dev/shm") / f"lloves-root-{work.name}", ignore_errors=True)
+    code = proc.returncode if proc is not None else "none"
+    if code != 0:
+        err_text = _sanitize_probe_text((err or b"").decode("utf-8", "replace"))
+        return False, f"exit={code} stderr={err_text}"
+    families: set[str] = set()
+    for line in (out or b"").decode("utf-8", "replace").splitlines():
+        for part in line.split(","):
+            name = " ".join(part.split())
+            if name and not name.startswith("/"):
+                families.add(name)
+    return _metric_font_detail(families)
+
+
 def sandbox_diagnostic_steps() -> list[tuple[str, bool, str]]:
     """Run each slide-sandbox check on its own.
 
     Read-only aside from a temporary directory the full probe deletes.
     This does not cache a failure, so a refused check does not block a
     later import in the same process. A failing full probe still means
-    the app refuses the import. The host-data step lists ``/data``
+    the app refuses the import. The fonts step names the metric
+    substitutes visible inside the sandbox. The host-data step lists ``/data``
     inside the sandbox and passes only when that list fails. A root
     worker runs that list as nobody.
 
@@ -1263,6 +1362,7 @@ def sandbox_diagnostic_steps() -> list[tuple[str, bool, str]]:
         steps.append(("soffice", True, "exit=0 stderr="))
     else:
         steps.append(("soffice", False, "exit=127 stderr=not found"))
+    steps.append(("fonts", *_diagnostic_fonts()))
     previous = _sandbox_probe_detail
     found = _probe_sandbox()
     if found:
@@ -1404,7 +1504,80 @@ def _office_path() -> str:
     return ":".join(parts)
 
 
-def office_env(root: Path) -> dict[str, str]:
+def _xml_attr(value: str) -> str:
+    """Escape a path for a fontconfig attribute.
+
+    Args:
+        value: Text placed in an attribute.
+    """
+    return (
+        value.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def _fontconfig_face_edits() -> list[str]:
+    """Fontconfig edits that replace an Office family with its metric clone.
+
+    These have to run before ``/etc/fonts/fonts.conf`` is included. The
+    system map treats Arimo as the same family as Arial, so a prefer
+    rule that appears later still loses.
+
+    Returns:
+        XML lines, one match element per Office family.
+    """
+    lines: list[str] = []
+    for requested, clone in _OFFICE_FACE_EDITS:
+        lines.append(
+            "  <match target=\"pattern\">\n"
+            "    <test name=\"family\" qual=\"first\">"
+            f"<string>{_xml_attr(requested)}</string></test>\n"
+            "    <edit name=\"family\" mode=\"assign\" binding=\"same\">"
+            f"<string>{_xml_attr(clone)}</string></edit>\n"
+            "  </match>"
+        )
+    return lines
+
+
+def _job_fontconfig(root: Path) -> Path:
+    """Write a fontconfig file the sandbox can read.
+
+    Office families are rewritten to their metric clones first. The
+    system config comes next, then the generic sans/serif/mono map.
+    The map file is copied into ``root`` because the sandbox does not
+    expose the application tree. No font converter runs outside the
+    sandbox.
+
+    Args:
+        root: Job directory. It is bind-mounted inside the sandbox.
+
+    Returns:
+        Path of the fontconfig file.
+    """
+    bundled = Path(__file__).resolve().parent / "fonts" / _OFFICE_METRICS_CONF
+    local_map = root / "office-metrics.conf"
+    if bundled.is_file():
+        local_map.write_bytes(bundled.read_bytes())
+    lines = [
+        '<?xml version="1.0"?>',
+        '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">',
+        "<fontconfig>",
+        *_fontconfig_face_edits(),
+        '  <include ignore_missing="yes">/etc/fonts/fonts.conf</include>',
+    ]
+    if local_map.is_file():
+        lines.append(
+            f'  <include ignore_missing="yes">{_xml_attr(str(local_map))}</include>'
+        )
+    lines.append("</fontconfig>")
+    path = root / "fonts.conf"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def office_env(root: Path, *, fontconfig_file: str | None = None) -> dict[str, str]:
     """Environment for LibreOffice with no application secrets.
 
     The child gets ``PATH`` and locale, plus a ``HOME`` inside the job
@@ -1413,6 +1586,8 @@ def office_env(root: Path) -> dict[str, str]:
 
     Args:
         root: Job directory. It becomes ``HOME`` and the temp dir.
+        fontconfig_file: Fontconfig file inside the job directory. When
+            set, LibreOffice resolves faces from that file.
 
     Returns:
         A new environment mapping.
@@ -1427,6 +1602,8 @@ def office_env(root: Path) -> dict[str, str]:
         "XDG_CONFIG_HOME": str(root),
         "XDG_CACHE_HOME": str(root),
     }
+    if fontconfig_file:
+        env["FONTCONFIG_FILE"] = fontconfig_file
     for key in ("LC_ALL", "LC_CTYPE", "TZ", "FONTCONFIG_PATH", "LD_LIBRARY_PATH"):
         value = os.environ.get(key)
         if value:
@@ -1493,6 +1670,7 @@ def _office_to_pdf(raw: bytes, suffix: str, binary: str, *, timeout: float) -> b
         profile = root / "profile"
         outdir.mkdir()
         source.write_bytes(raw)
+        fontconfig = _job_fontconfig(root)
         run_bin = _converter_binary(root, binary)
         limit = max(1, int(math.ceil(timeout)))
         inner = [
@@ -1520,7 +1698,7 @@ def _office_to_pdf(raw: bytes, suffix: str, binary: str, *, timeout: float) -> b
                 inner,
                 work=root,
                 timeout=limit + 5,
-                env=office_env(root),
+                env=office_env(root, fontconfig_file=str(fontconfig)),
                 cwd=str(root),
             )
         except subprocess.TimeoutExpired as exc:

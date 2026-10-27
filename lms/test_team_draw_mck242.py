@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import unittest
 import zlib
+from datetime import datetime, timedelta
 from pathlib import Path
 
 LMS_DIR = Path(__file__).resolve().parent
@@ -782,9 +783,12 @@ if (!boardHasStroke(1, 0) || !boardHasStroke(0, 2)) process.exit(6);
             image_b64=image,
         )
         self.assertTrue(card.get("submitted"))
+        # The catch-up window is a few days after this timestamp. A fixed
+        # date in October 2026 is already closed, so the submit raises.
+        ended = (datetime.now() - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S")
         self.school.conn.execute(
             "UPDATE live_class_sessions SET ended_at = ?, status = 'ended' WHERE id = ?",
-            ("2026-10-20T12:00:00", self.session_id),
+            (ended, self.session_id),
         )
         self.school.conn.commit()
         self.school.cleanup_live_session_response_data(

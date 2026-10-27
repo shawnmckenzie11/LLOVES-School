@@ -11,7 +11,9 @@ exits. Exit status is 1 when any step fails. A failing full probe is the
 same refusal the app uses for a PowerPoint import. The host-data step
 runs ``ls /data`` inside the sandbox and prints that result. It passes
 when the list fails. On a root worker the list runs as nobody. A visible
-host data directory fails the step. The script keeps extra descriptors
+host data directory fails the step. The fonts step names the metric
+Office substitutes inside the sandbox and fails when one is missing.
+The script keeps extra descriptors
 open so the sandbox wait pipe is not fd 3. A fresh process would hide
 that failure.
 """

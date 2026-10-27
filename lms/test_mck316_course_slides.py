@@ -611,6 +611,7 @@ class CourseSlideFileTests(unittest.TestCase):
             "setpriv",
             "bind-mount",
             "soffice",
+            "fonts",
             "full-probe",
             "host-data",
         ):
@@ -619,6 +620,92 @@ class CourseSlideFileTests(unittest.TestCase):
         self.assertTrue(found["full-probe"][0], found["full-probe"][1])
         self.assertTrue(found["host-data"][0], found["host-data"][1])
         self.assertNotIn("LEAK", found["host-data"][1])
+        self.assertTrue(found["fonts"][0], found["fonts"][1])
+        for family in (
+            "Liberation Sans",
+            "Liberation Serif",
+            "Liberation Mono",
+            "Carlito",
+            "Caladea",
+        ):
+            self.assertIn(family, found["fonts"][1])
+
+    def test_metric_map_names_the_office_clones(self) -> None:
+        """The fontconfig map sends Office names to the metric clones."""
+        conf = (
+            Path(__file__).resolve().parent / "fonts" / "59-lloves-office-metrics.conf"
+        ).read_text(encoding="utf-8")
+        docker = (Path(__file__).resolve().parent / "Dockerfile").read_text(encoding="utf-8")
+        for family, clone in (
+            ("Arial", "Liberation Sans"),
+            ("Helvetica", "Liberation Sans"),
+            ("Times New Roman", "Liberation Serif"),
+            ("Courier New", "Liberation Mono"),
+            ("Calibri", "Carlito"),
+            ("Cambria", "Caladea"),
+            ("sans-serif", "Liberation Sans"),
+            ("serif", "Liberation Serif"),
+            ("monospace", "Liberation Mono"),
+        ):
+            self.assertIn(f"<family>{family}</family>", conf)
+            self.assertIn(f"<family>{clone}</family>", conf)
+        for package in (
+            "fonts-liberation",
+            "fonts-crosextra-carlito",
+            "fonts-crosextra-caladea",
+        ):
+            self.assertIn(package, docker)
+        self.assertIn("59-lloves-office-metrics.conf", docker)
+        self.assertNotIn("eot2ttf", docker)
+        self.assertNotIn("fonts-ibm-plex", docker)
+        self.assertNotIn("ttf-mscorefonts", docker)
+
+    def test_font_probe_names_metric_families_when_the_list_is_long(self) -> None:
+        """A long fc-list does not drop the metric families from the detail."""
+        import course_slide_files as files
+
+        families = {f"Family {index:04d}" for index in range(400)}
+        families.update(files.METRIC_FONT_FAMILIES)
+        ok, detail = files._metric_font_detail(families)
+        self.assertTrue(ok, detail)
+        for name in files.METRIC_FONT_FAMILIES:
+            self.assertIn(name, detail)
+        self.assertNotIn("Family 0000", detail)
+        self.assertLess(len(detail), 400)
+        failed, missing = files._metric_font_detail(families - {"Carlito"})
+        self.assertFalse(failed)
+        self.assertIn("missing=Carlito", missing)
+        self.assertIn("Liberation Sans", missing)
+
+    @unittest.skipUnless(shutil.which("fc-match"), "fontconfig is not installed")
+    def test_named_office_faces_use_metric_clones(self) -> None:
+        """Office names resolve to Carlito, Caladea, and Liberation, not Arimo.
+
+        The check uses the same fontconfig file the converter writes.
+        A later alias loses to the system map that treats Arimo as Arial,
+        so this is the file that has to win.
+        """
+        import course_slide_files as files
+
+        expected = (
+            ("Arial", "Liberation Sans"),
+            ("Helvetica", "Liberation Sans"),
+            ("Calibri", "Carlito"),
+            ("Cambria", "Caladea"),
+            ("Times New Roman", "Liberation Serif"),
+            ("Courier New", "Liberation Mono"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            conf = files._job_fontconfig(Path(tmp))
+            env = os.environ.copy()
+            env["FONTCONFIG_FILE"] = str(conf)
+            for family, clone in expected:
+                matched = subprocess.check_output(
+                    ["fc-match", "-f", "%{family}\n", family],
+                    env=env,
+                    text=True,
+                ).strip()
+                self.assertEqual(matched, clone, family)
 
     def test_svg_file_href_is_removed(self) -> None:
         """An SVG file:// image is not left in the package."""
@@ -1091,6 +1178,7 @@ class CourseSlideFileTests(unittest.TestCase):
         def capture(command, *, work, timeout, env, cwd):
             """Record the child environment and pretend LibreOffice wrote a PDF."""
             seen["env"] = dict(env)
+            seen["fontconfig"] = Path(env["FONTCONFIG_FILE"]).read_text(encoding="utf-8")
             out = Path(cwd) / "out"
             out.mkdir(exist_ok=True)
             (out / "deck.pdf").write_bytes(b"%PDF-1.4\n")
@@ -1109,6 +1197,17 @@ class CourseSlideFileTests(unittest.TestCase):
         self.assertNotIn("GOOGLE_CLIENT_SECRET", env)
         self.assertNotIn("super-secret", " ".join(env.values()))
         self.assertTrue(env.get("HOME"))
+        fontconfig = env.get("FONTCONFIG_FILE") or ""
+        self.assertTrue(fontconfig.startswith(env["HOME"]), fontconfig)
+        text = seen["fontconfig"]
+        self.assertIn("/etc/fonts/fonts.conf", text)
+        self.assertIn("office-metrics.conf", text)
+        self.assertLess(
+            text.find('mode="assign"'),
+            text.find("/etc/fonts/fonts.conf"),
+        )
+        self.assertIn("<string>Liberation Sans</string>", text)
+        self.assertNotIn("super-secret", text)
 
     def test_converter_dies_when_the_worker_dies(self) -> None:
         """Killing the worker kills the converter and its grandchild."""
