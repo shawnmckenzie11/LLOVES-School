@@ -14781,7 +14781,10 @@ class SchoolDB(LovesDB):
         seven-page empty template. ``current`` keeps the deck already set
         and writes nothing. Copied questions are new placement rows on the
         destination, so later edits do not rewrite the source challenge or
-        the course seed JSON.
+        the course seed JSON. Module-file image URLs are rewritten onto the
+        destination class, and the destination library gains a pointer to
+        each blob the source library already stored for those paths. The
+        source class's module-file route stays closed to the other class.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -14878,6 +14881,11 @@ class SchoolDB(LovesDB):
             ]
             media = source_meta.get("media")
             challenge = source_meta.get("team_challenge")
+            questions, pages, media, challenge, module_file_refs = (
+                self._rebase_deck_images_for_copy(
+                    int(class_id), questions, pages, media, challenge
+                )
+            )
             ready = self._serializable_deck_questions(questions)
             self._replace_class_deck_working_copy(
                 int(class_id),
@@ -14890,6 +14898,7 @@ class SchoolDB(LovesDB):
                 pages=pages,
                 media=media if isinstance(media, dict) else None,
                 team_challenge=challenge if isinstance(challenge, dict) else None,
+                module_file_refs=module_file_refs,
             )
             self._sync_playlist_change(int(class_id), module, slot)
             metadata = self.live_class_metadata_for_class_lesson(
@@ -15034,6 +15043,13 @@ class SchoolDB(LovesDB):
             raw_challenge = source_meta.get("team_challenge")
             if isinstance(raw_challenge, dict):
                 challenge = deepcopy(raw_challenge)
+        questions, pages, media, challenge, module_file_refs = (
+            self._rebase_deck_images_for_copy(
+                int(class_id), questions, pages, media, challenge
+            )
+        )
+        if choice == "blank":
+            module_file_refs = []
         ready = self._serializable_deck_questions(questions)
         if choice != "blank" and questions and not ready:
             raise ValueError(
@@ -15050,6 +15066,7 @@ class SchoolDB(LovesDB):
             pages=default_math_pages() if choice == "blank" else pages,
             media=None if choice == "blank" else media,
             team_challenge=None if choice == "blank" else challenge,
+            module_file_refs=module_file_refs,
             # MCK-150: the 409 re-check shares the write transaction.
             require_replace_confirm=bool(
                 require_replace_confirm and choice == "course"
@@ -15073,6 +15090,92 @@ class SchoolDB(LovesDB):
                 int(class_id), module_key, slot_key
             ),
         }
+
+    def _rebase_deck_images_for_copy(
+        self,
+        dest_class_id: int,
+        questions: list[Any],
+        pages: list[Any],
+        media: Any,
+        challenge: Any,
+    ) -> tuple[
+        list[Any],
+        list[Any],
+        dict[str, Any] | None,
+        dict[str, Any] | None,
+        list[tuple[int, str]],
+    ]:
+        """Point copied module-file URLs at the destination class.
+
+        Args:
+            dest_class_id: Class receiving the deck.
+            questions: Source question dicts.
+            pages: Source page dicts.
+            media: Source media dict, or None.
+            challenge: Source team-challenge dict, or None.
+
+        Returns:
+            Rewritten questions, pages, media, challenge, and the source
+            ``(class_id, relpath)`` pairs to re-point.
+        """
+        try:
+            from question_math import rebase_copied_deck_images
+        except ImportError:
+            from lms.question_math import rebase_copied_deck_images
+
+        media_dict = media if isinstance(media, dict) else None
+        challenge_dict = challenge if isinstance(challenge, dict) else None
+        return rebase_copied_deck_images(
+            questions,
+            pages,
+            media_dict,
+            challenge_dict,
+            dest_class_id=int(dest_class_id),
+        )
+
+    def _repoint_module_file_rows_locked(
+        self,
+        dest_class_id: int,
+        refs: list[tuple[int, str]],
+    ) -> None:
+        """Copy library pointers for module files a deck copy retargeted.
+
+        Caller holds the school lock and an open transaction. The blob
+        bytes stay where they are. A row is added on the destination
+        library only when the source class's library has that path and
+        the destination library does not. The same library is skipped.
+        A student of another class still cannot GET the source class URL.
+
+        Args:
+            dest_class_id: Class that will serve the rewritten URLs.
+            refs: ``(source_class_id, relpath)`` pairs from the deck.
+        """
+        if not refs:
+            return
+        try:
+            from deck_copy_image_repair import copy_library_file_pointer
+        except ImportError:
+            from lms.deck_copy_image_repair import copy_library_file_pointer
+
+        dest_library = self._class_library_id(int(dest_class_id))
+        if dest_library is None:
+            return
+        seen: set[tuple[int, str]] = set()
+        for source_class_id, relpath in refs:
+            key = (int(source_class_id), str(relpath))
+            if key in seen or key[0] == int(dest_class_id):
+                continue
+            seen.add(key)
+            source_library = self._class_library_id(key[0])
+            if source_library is None:
+                continue
+            copy_library_file_pointer(
+                self.conn,
+                int(source_library),
+                int(dest_library),
+                key[1],
+                stamp=_now(),
+            )
 
     @staticmethod
     def _serializable_deck_questions(
@@ -15118,6 +15221,7 @@ class SchoolDB(LovesDB):
         team_challenge: dict[str, Any] | None,
         require_replace_confirm: bool = False,
         replace: bool = False,
+        module_file_refs: list[tuple[int, str]] | None = None,
     ) -> None:
         """Replace one challenge's working copy with a seed snapshot.
 
@@ -15140,6 +15244,9 @@ class SchoolDB(LovesDB):
             require_replace_confirm: Re-check for an existing deck inside
                 the write transaction and refuse unless ``replace``.
             replace: The teacher confirmed replacing the existing deck.
+            module_file_refs: ``(source_class_id, relpath)`` pairs whose
+                module-file URL was rebased onto this class. The matching
+                library pointer is copied in the same transaction.
 
         Raises:
             DeckCopyLiveConflict: The slot is live on this challenge when
@@ -15178,6 +15285,7 @@ class SchoolDB(LovesDB):
                     stamp=stamp,
                     require_replace_confirm=require_replace_confirm,
                     replace=replace,
+                    module_file_refs=module_file_refs or [],
                 )
                 self.conn.execute("COMMIT")
             except BaseException:
@@ -15205,6 +15313,7 @@ class SchoolDB(LovesDB):
         stamp: str,
         require_replace_confirm: bool,
         replace: bool,
+        module_file_refs: list[tuple[int, str]] | None = None,
     ) -> None:
         """Write one deck snapshot. Caller holds the lock and a transaction.
 
@@ -15223,6 +15332,7 @@ class SchoolDB(LovesDB):
             stamp: ``created_at`` / ``updated_at`` value.
             require_replace_confirm: Refuse when the slot already has a deck.
             replace: The teacher confirmed replacing that deck.
+            module_file_refs: Source library paths to point at from this class.
 
         Raises:
             DeckCopyLiveConflict: This slot went live after the earlier check.
@@ -15267,6 +15377,9 @@ class SchoolDB(LovesDB):
                 "Replace the deck or keep current first."
             )
         params = (int(class_id), store_module, store_slot)
+        self._repoint_module_file_rows_locked(
+            int(class_id), module_file_refs or []
+        )
         self.conn.execute(
             """
             DELETE FROM class_live_playlist_placements
@@ -27998,7 +28111,9 @@ class SchoolDB(LovesDB):
         ``/staff/class/{id}/module-files/...``. The student portal CSP is
         ``img-src 'self'``, so remote Canvas URLs never paint. This applies
         the same remirror, then rewrites staff paths to the student twin
-        ``/api/classes/{id}/module-files/...``.
+        ``/api/classes/{id}/module-files/...``. A deck copy that still names
+        the source class is rebased onto ``class_id`` here, so the student
+        reads this class's library and not the source class's route.
 
         Args:
             raw_payload: Stored prompt or playlist item JSON.
@@ -28044,7 +28159,12 @@ class SchoolDB(LovesDB):
             cleaned.pop("added_live_run_key", None)
             cleaned.pop(RANK_DISPLAY_ORDER_FIELD, None)
             cleaned.pop(RANK_DISPLAY_PENDING_FIELD, None)
-        return rewrite_student_prompt_images(cleaned)
+        viewing: int | None
+        try:
+            viewing = int(class_id) if class_id not in (None, "") else None
+        except (TypeError, ValueError):
+            viewing = None
+        return rewrite_student_prompt_images(cleaned, class_id=viewing)
 
     def _orphan_saved_answer(
         self,
