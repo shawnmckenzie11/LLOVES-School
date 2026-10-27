@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import json
 import re
 import urllib.parse
 from html.parser import HTMLParser
@@ -709,64 +710,364 @@ def resolve_bank_image_url(image_src: str, *, class_id: int | None = None) -> st
     return src
 
 
-_STAFF_MODULE_FILES_RE = re.compile(r"/staff/class/(\d+)/module-files/")
-_STUDENT_IMAGE_STRING_KEYS = (
-    "image_url",
-    "image_src",
-    "stimulus",
-    "text_html",
-    "stem_html",
+_MODULE_FILE_URL_RE = re.compile(
+    r"/(?:staff/class|api/classes)/(\d+)/module-files/([^\"'\s<>?#)]*)"
 )
-_STUDENT_IMAGE_LIST_KEYS = (
-    "options_html",
-    "options_image_urls",
+_MODULE_FILE_REF_RE = re.compile(
+    r"/(staff/class|api/classes)/(\d+)/module-files/([^\"'\s<>?#)]+)"
 )
 
 
-def student_visible_bank_image_url(url: str) -> str:
-    """Rewrite staff-only module-file URLs to the student-accessible twin.
+def safe_module_file_relpath(relpath: str) -> str | None:
+    """Return a cartridge-relative module-file path, or None when it is unsafe.
+
+    Args:
+        relpath: Text after ``module-files/`` in a stored URL.
+    """
+    raw = urllib.parse.unquote(str(relpath or ""))
+    raw = raw.split("?", 1)[0].split("#", 1)[0]
+    raw = raw.replace("\\", "/").lstrip("/")
+    if not raw or "\x00" in raw:
+        return None
+    parts = [part for part in raw.split("/") if part not in {"", "."}]
+    if not parts or any(part == ".." for part in parts):
+        return None
+    return "/".join(parts)
+
+
+def module_file_lookup_relpaths(relpath: str) -> list[str]:
+    """Return library-file keys to try for one module-file URL path.
+
+    Args:
+        relpath: Decoded path after ``module-files/``.
+    """
+    safe = safe_module_file_relpath(relpath)
+    if safe is None:
+        return []
+    found = [safe]
+    if not safe.startswith("web_resources/"):
+        found.append(f"web_resources/{safe}")
+    return found
+
+
+def student_visible_bank_image_url(
+    url: str,
+    *,
+    class_id: int | None = None,
+    library_has: Any | None = None,
+) -> str:
+    """Rewrite module-file URLs to the student route for one class.
 
     Bank imports resolve graphs to ``/staff/class/{id}/module-files/...``.
     Students cannot GET that staff route. The twin
     ``/api/classes/{id}/module-files/...`` serves the same library blobs
-    to live-session students (same auth pattern as live-question-images).
+    to live-session students. A URL that names another class stays on
+    that class, so the request is still refused, unless ``library_has``
+    says this class already has that file. The other class's route is
+    not opened.
+
+    Args:
+        url: Image URL or HTML that may contain one.
+        class_id: Class the student is actually in. Omit to keep the id
+            already in the URL.
+        library_has: Optional ``relpath -> bool``. When it returns True,
+            a foreign class id is rebased onto ``class_id``.
     """
-    return _STAFF_MODULE_FILES_RE.sub(
-        r"/api/classes/\1/module-files/",
-        str(url or ""),
+
+    def repl(match: re.Match[str]) -> str:
+        """Point one module-file URL at the student route."""
+        current = match.group(1)
+        rel = match.group(2)
+        target = current
+        if class_id is not None:
+            viewing = int(class_id)
+            try:
+                source_id = int(current)
+            except ValueError:
+                source_id = viewing
+            if source_id == viewing:
+                target = str(viewing)
+            else:
+                safe = safe_module_file_relpath(rel)
+                granted = (
+                    safe is not None
+                    and callable(library_has)
+                    and bool(library_has(safe))
+                )
+                target = str(viewing) if granted else current
+        return f"/api/classes/{target}/module-files/{rel}"
+
+    return _MODULE_FILE_URL_RE.sub(repl, str(url or ""))
+
+
+def module_file_refs_in_text(text: str) -> list[tuple[int, str]]:
+    """Return safe module-file ``(class_id, relpath)`` pairs in ``text``.
+
+    JSON text is scanned as text. A path with ``..`` is omitted. The text
+    is not rewritten.
+
+    Args:
+        text: Stored HTML, a bare URL, or a JSON column.
+    """
+    found: list[tuple[int, str]] = []
+    seen: set[tuple[int, str]] = set()
+    for match in _MODULE_FILE_REF_RE.finditer(str(text or "")):
+        try:
+            source_id = int(match.group(2))
+        except ValueError:
+            continue
+        safe = safe_module_file_relpath(match.group(3))
+        if safe is None:
+            continue
+        key = (source_id, safe)
+        if key in seen:
+            continue
+        seen.add(key)
+        found.append(key)
+    return found
+
+
+def rebase_module_file_text(
+    text: str,
+    dest_class_id: int,
+    *,
+    allowed_source_ids: set[int] | None = None,
+) -> tuple[str, list[tuple[int, str]]]:
+    """Rewrite allowed module-file URLs onto ``dest_class_id``.
+
+    Staff and student spellings both change class id. The path after
+    ``module-files/`` is kept. Only class ids in ``allowed_source_ids``
+    are rewritten. Every other class URL stays as-is, so it still names
+    the class that can refuse it. A path with ``..`` on an allowed class
+    is retargeted so the old class is not requested, and it is left out
+    of the copy list.
+
+    Args:
+        text: Stored HTML or a bare URL.
+        dest_class_id: Class that will own the copied deck.
+        allowed_source_ids: Class ids whose library may be re-pointed.
+            Omit to leave every foreign class URL unchanged.
+
+    Returns:
+        The rewritten text, and ``(source_class_id, relpath)`` pairs that
+        were retargeted from an allowed class.
+    """
+    refs: list[tuple[int, str]] = []
+    dest = int(dest_class_id)
+    allowed = {int(item) for item in (allowed_source_ids or set())}
+
+    def repl(match: re.Match[str]) -> str:
+        """Retarget one allowed module-file URL and remember a safe path."""
+        kind, raw_id, rel = match.group(1), match.group(2), match.group(3)
+        try:
+            source_id = int(raw_id)
+        except ValueError:
+            return match.group(0)
+        if source_id == dest or source_id not in allowed:
+            return match.group(0)
+        safe = safe_module_file_relpath(rel)
+        if safe is not None:
+            refs.append((source_id, safe))
+        return f"/{kind}/{dest}/module-files/{rel}"
+
+    return _MODULE_FILE_REF_RE.sub(repl, str(text or "")), refs
+
+
+def rebase_module_file_tree(
+    value: Any,
+    dest_class_id: int,
+    *,
+    allowed_source_ids: set[int] | None = None,
+) -> tuple[Any, list[tuple[int, str]]]:
+    """Rebase allowed module-file URLs anywhere in a JSON-like value.
+
+    Args:
+        value: String, list, dict, or a scalar left unchanged.
+        dest_class_id: Class that will own the copied deck.
+        allowed_source_ids: Class ids whose URLs may move. Other class
+            URLs stay as they are.
+
+    Returns:
+        A copy of ``value`` with allowed URLs retargeted, and the source refs.
+    """
+    refs: list[tuple[int, str]] = []
+
+    def walk(node: Any) -> Any:
+        """Copy one node, collecting refs from its strings."""
+        if isinstance(node, str):
+            rewritten, found = rebase_module_file_text(
+                node,
+                dest_class_id,
+                allowed_source_ids=allowed_source_ids,
+            )
+            refs.extend(found)
+            return rewritten
+        if isinstance(node, list):
+            return [walk(item) for item in node]
+        if isinstance(node, dict):
+            return {key: walk(item) for key, item in node.items()}
+        return node
+
+    return walk(value), refs
+
+
+def rebase_stored_module_file_text(
+    text: str,
+    dest_class_id: int,
+    *,
+    allowed_source_ids: set[int] | None = None,
+) -> tuple[str, list[tuple[int, str]]]:
+    """Rebase a stored column, parsing JSON when the text is an object or array.
+
+    A column that is not JSON, or whose allowed URLs already name
+    ``dest_class_id``, is returned unchanged aside from any plain-text
+    URL rewrite. JSON is dumped only when a class id actually changes,
+    so a second pass writes nothing. Class ids outside
+    ``allowed_source_ids`` stay in the text.
+
+    Args:
+        text: Column text from a playlist, seed, or live item.
+        dest_class_id: Class that owns the row.
+        allowed_source_ids: Class ids whose URLs may move.
+
+    Returns:
+        Replacement text and the source refs that need a library pointer.
+    """
+    raw = str(text or "")
+    stripped = raw.strip()
+    if stripped[:1] in "{[":
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = None
+        if parsed is not None:
+            rewritten, refs = rebase_module_file_tree(
+                parsed,
+                dest_class_id,
+                allowed_source_ids=allowed_source_ids,
+            )
+            if not refs:
+                return raw, []
+            return json.dumps(rewritten), refs
+    return rebase_module_file_text(
+        raw, dest_class_id, allowed_source_ids=allowed_source_ids
     )
 
 
-def rewrite_student_prompt_images(payload: Any) -> dict[str, Any]:
-    """Copy a prompt payload with staff module-file image URLs rewritten.
+def rebase_copied_deck_images(
+    questions: list[Any],
+    pages: list[Any],
+    media: dict[str, Any] | None,
+    challenge: dict[str, Any] | None,
+    *,
+    dest_class_id: int,
+    source_class_id: int,
+) -> tuple[
+    list[Any],
+    list[Any],
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+    list[tuple[int, str]],
+]:
+    """Rebase the source class's module-file URLs onto the destination class.
 
-    Rewrites ``image_url``, stem/option HTML, and nested ``items`` so
-    published bank questions keep the same graph the staff card shows.
+    The source metadata object is not mutated. Only URLs that already name
+    ``source_class_id`` move. A URL for any other class stays in the deck
+    and is not returned as a file to copy.
+
+    Args:
+        questions: Question dicts from the source deck.
+        pages: Page dicts from the source deck.
+        media: Media copy, or None.
+        challenge: Team-challenge copy, or None.
+        dest_class_id: Class receiving the copy.
+        source_class_id: Class the deck is being copied from.
+
+    Returns:
+        Rewritten questions, pages, media, challenge, and source refs.
+    """
+    allowed = {int(source_class_id)}
+    refs: list[tuple[int, str]] = []
+    next_questions, found = rebase_module_file_tree(
+        questions, dest_class_id, allowed_source_ids=allowed
+    )
+    refs.extend(found)
+    next_pages, found = rebase_module_file_tree(
+        pages, dest_class_id, allowed_source_ids=allowed
+    )
+    refs.extend(found)
+    next_media: dict[str, Any] | None = None
+    if isinstance(media, dict):
+        rewritten, found = rebase_module_file_tree(
+            media, dest_class_id, allowed_source_ids=allowed
+        )
+        next_media = rewritten if isinstance(rewritten, dict) else None
+        refs.extend(found)
+    next_challenge: dict[str, Any] | None = None
+    if isinstance(challenge, dict):
+        rewritten, found = rebase_module_file_tree(
+            challenge, dest_class_id, allowed_source_ids=allowed
+        )
+        next_challenge = rewritten if isinstance(rewritten, dict) else None
+        refs.extend(found)
+    return next_questions, next_pages, next_media, next_challenge, refs
+
+
+def _rewrite_student_image_node(
+    node: Any, *, class_id: int | None, library_has: Any | None
+) -> Any:
+    """Return a copy of one prompt node with module-file URLs made public.
+
+    Args:
+        node: String, list, dict, or scalar from a student payload.
+        class_id: Class the student is viewing, when known.
+        library_has: Optional check that this class already has a relpath.
+    """
+    if isinstance(node, str):
+        return student_visible_bank_image_url(
+            node, class_id=class_id, library_has=library_has
+        )
+    if isinstance(node, list):
+        return [
+            _rewrite_student_image_node(
+                item, class_id=class_id, library_has=library_has
+            )
+            for item in node
+        ]
+    if isinstance(node, dict):
+        return {
+            key: _rewrite_student_image_node(
+                value, class_id=class_id, library_has=library_has
+            )
+            for key, value in node.items()
+        }
+    return node
+
+
+def rewrite_student_prompt_images(
+    payload: Any,
+    *,
+    class_id: int | None = None,
+    library_has: Any | None = None,
+) -> dict[str, Any]:
+    """Copy a prompt payload with module-file image URLs made public.
+
+    Every string is checked, including stem HTML, option HTML, and nested
+    items. A URL for another class stays on that class unless
+    ``library_has`` says this class already has the file.
 
     Args:
         payload: Student-facing prompt JSON (already stripped of keys).
+        class_id: Class the student is viewing.
+        library_has: Optional ``relpath -> bool`` for files already in
+            this class's library.
     """
     if not isinstance(payload, dict):
         return {}
-    out = dict(payload)
-    for key in _STUDENT_IMAGE_STRING_KEYS:
-        value = out.get(key)
-        if isinstance(value, str) and value:
-            out[key] = student_visible_bank_image_url(value)
-    for key in _STUDENT_IMAGE_LIST_KEYS:
-        value = out.get(key)
-        if isinstance(value, list):
-            out[key] = [
-                student_visible_bank_image_url(item) if isinstance(item, str) else item
-                for item in value
-            ]
-    items = out.get("items")
-    if isinstance(items, list):
-        out["items"] = [
-            rewrite_student_prompt_images(item) if isinstance(item, dict) else item
-            for item in items
-        ]
-    return out
+    rewritten = _rewrite_student_image_node(
+        payload, class_id=class_id, library_has=library_has
+    )
+    return rewritten if isinstance(rewritten, dict) else {}
 
 
 def _resolve_ingest_html(raw_html: str, *, class_id: int | None) -> str:
