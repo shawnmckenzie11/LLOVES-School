@@ -1324,11 +1324,11 @@ def _student_dashboard_redirect_if_live(school: SchoolDB, class_id: int, student
 
 
 def _svgz_is_gzip(target: Path) -> bool:
-    """Return True when a ``.svgz`` blob actually starts with gzip magic.
+    """Return True when a blob starts with gzip magic.
 
-    Werkzeug labels a download ``Content-Encoding: gzip`` from the
-    ``.svgz`` suffix alone. A raw SVG stored under that name must not
-    get that label.
+    Werkzeug labels a ``.gz`` download ``Content-Encoding: gzip`` from
+    the suffix alone, and the same guess applies to ``.svgz``. A raw
+    SVG stored under either name must not get that label.
 
     Args:
         target: Blob path on disk.
@@ -1341,12 +1341,13 @@ def _svgz_is_gzip(target: Path) -> bool:
 
 
 def _send_module_file(target: Path, rel: str) -> Response:
-    """Serve one library blob and sandbox active markup on this route.
+    """Serve one library blob under the module-file allowlist.
 
-    Staff and student module-file routes both serve mirrored bank images.
-    The sandbox policy is applied when the response is built, so an SVG
-    already stored on the volume is covered without rewriting it. A
-    ``.svgz`` name is labelled gzip only when the blob itself is gzip.
+    Staff and student module-file routes both use this. Raster images
+    stay inline. SVG names stay inline as ``image/svg+xml`` with the
+    sandbox policy. Every other type is an attachment with that policy.
+    The stored bytes are not rewritten. A ``.svgz`` or ``.svg.gz`` name
+    is labelled gzip only when the blob itself is gzip.
 
     Args:
         target: Blob path on disk.
@@ -1355,19 +1356,23 @@ def _send_module_file(target: Path, rel: str) -> Response:
     Returns:
         The file response.
     """
-    from bank_image_mirror import apply_mirrored_svg_headers
+    from bank_image_mirror import apply_module_file_headers
 
+    name = Path(rel).name.lower()
+    svg_name = name.endswith(".svg") or name.endswith(".svgz") or name.endswith(".svg.gz")
+    gzip_name = name.endswith(".svgz") or name.endswith(".svg.gz")
     kwargs: dict[str, str] = {}
-    gzip_svgz = False
-    if Path(rel).name.lower().endswith(".svgz"):
-        gzip_svgz = _svgz_is_gzip(target)
+    if svg_name:
         kwargs["mimetype"] = "image/svg+xml"
     response = send_from_directory(
         target.parent, target.name, download_name=Path(rel).name, **kwargs
     )
-    if gzip_svgz:
-        response.headers["Content-Encoding"] = "gzip"
-    return apply_mirrored_svg_headers(response, rel)
+    if gzip_name:
+        if _svgz_is_gzip(target):
+            response.headers["Content-Encoding"] = "gzip"
+        else:
+            response.headers.pop("Content-Encoding", None)
+    return apply_module_file_headers(response, rel)
 
 
 def create_app(
@@ -9021,10 +9026,13 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         body["google_slide"] = school.student_google_slide(int(active["id"]))
         return body
 
-    @app.route("/api/classes/<int:class_id>/slide-deck", methods=["GET", "POST"])
+    @app.route(
+        "/api/classes/<int:class_id>/slide-deck",
+        methods=["GET", "POST", "DELETE"],
+    )
     @login_required
     def api_class_slide_deck(class_id: int):
-        """Read or attach the course slide deck for one module and slot.
+        """Read, attach, or remove the course slide deck for one placement.
 
         GET returns the deck name for the Set Class summary. POST accepts
         a Google Slides share link as JSON, or a ``.pptx`` file as
@@ -9032,10 +9040,27 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         the media volume. The row
         stores the path. Conversion runs on a background job. A matching
         live run is pointed at that same copy when the job finishes.
+        DELETE removes that placement's deck. Page files another deck or
+        session still names stay on disk.
         """
         denied = _require_class_staff(int(class_id))
         if denied is not None:
             return denied
+        if request.method == "DELETE":
+            payload = request.get_json(silent=True) or {}
+            if not isinstance(payload, dict):
+                payload = {}
+            try:
+                module, slot = _require_slide_placement(
+                    request.args.get("module") or payload.get("module"),
+                    request.args.get("slot") or payload.get("slot"),
+                )
+            except ValueError as exc:
+                return jsonify({"ok": False, "error": str(exc)}), 400
+            removed = school.delete_course_slide_deck(int(class_id), module, slot)
+            if removed.get("deleted"):
+                _emit_slide_news_for_class(int(class_id))
+            return jsonify({"ok": True, "deck": None, **removed})
         if request.method == "GET":
             try:
                 module, slot = _require_slide_placement(

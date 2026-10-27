@@ -201,6 +201,31 @@ class BankImageHostTests(unittest.TestCase):
             is_remote_bank_image_url("https://virtuallearning.instructure.com/a.png")
         )
         self.assertTrue(is_remote_bank_image_url("https://www.wiris.net/demo/x"))
+        self.assertFalse(
+            is_remote_bank_image_url(
+                "https:\t//user@virtuallearning.instructure.com/a.png"
+            )
+        )
+        self.assertFalse(
+            is_remote_bank_image_url(
+                "https:\n//user@virtuallearning.instructure.com/a.png"
+            )
+        )
+        self.assertFalse(
+            is_remote_bank_image_url(
+                "https:/\t/user@virtuallearning.instructure.com/a.png"
+            )
+        )
+        self.assertFalse(
+            is_remote_bank_image_url(
+                "https://virtuallearning.instructure.com:abc/a.png"
+            )
+        )
+        self.assertTrue(
+            is_remote_bank_image_url(
+                "https://virtuallearning.instructure.com:443/a.png"
+            )
+        )
 
     def test_redirect_handler_reports_the_next_url(self) -> None:
         """The redirect handler does not open the Location target itself."""
@@ -289,6 +314,9 @@ class BankImageHostTests(unittest.TestCase):
             b'<path style="fill:image-set(&quot;https://evil.example/b&quot;)"/>'
             b'<path style="fill:u\\rl(https://evil.example/c)"/>'
             b'<path style="@\\69mport url(https://evil.example/d);fill:blue"/>'
+            b'<path style="fill:-webkit-image-set(url(https://evil.example/e) 1x)"/>'
+            b'<path style="fill:\\5c 75rl(https://evil.example/f)"/>'
+            b'<path style="@\\5c 69mport url(https://evil.example/g);fill:green"/>'
             b'<path d="M9 9"/>'
             b"</svg>"
         )
@@ -299,6 +327,9 @@ class BankImageHostTests(unittest.TestCase):
         self.assertNotIn(b"evil", folded)
         self.assertNotIn(b"image-set", folded)
         self.assertNotIn(b"@import", folded)
+        self.assertNotIn(b"webkit-image-set", folded)
+        self.assertNotIn(b"75rl", folded)
+        self.assertIn(b"fill:green", folded)
         self.assertIn(b"#grad", styled)
         self.assertIn(b"#g", styled)
         self.assertIn(b"M9 9", styled)
@@ -312,6 +343,15 @@ class BankImageHostTests(unittest.TestCase):
         self.assertIsNotNone(doctype)
         assert doctype is not None
         self.assertIn(b"M2 2", doctype)
+        commented = sanitize_svg(
+            b'<?xml version="1.0" encoding="UTF-8"?>\n'
+            b"<!-- Created with Inkscape (http://www.inkscape.org/) -->\n"
+            b'<svg xmlns="http://www.w3.org/2000/svg"><path d="M3 3"/></svg>'
+        )
+        self.assertIsNotNone(commented)
+        assert commented is not None
+        self.assertIn(b"M3 3", commented)
+        self.assertIsNone(sanitize_svg(b"<!-- note --><html><body><svg></svg></body></html>"))
 
     def test_svg_writer_does_not_touch_the_process_namespace_map(self) -> None:
         """Concurrent SVG, manifest, and rels writers leave the global map alone."""
@@ -524,6 +564,34 @@ class ModuleBankImportMergeTests(unittest.TestCase):
         clear_bank_image_refusals()
         self.school.close()
         self.tmp.cleanup()
+
+    def test_invalid_url_from_the_fetch_is_cached(self) -> None:
+        """A fetch that raises InvalidURL is remembered and not fetched again."""
+        import http.client
+
+        try:
+            from bank_image_mirror import _refusal_active, mirror_bank_image_url
+        except ImportError:
+            from lms.bank_image_mirror import _refusal_active, mirror_bank_image_url
+
+        url = "https://virtuallearning.instructure.com/files/12/download?verifier=badport"
+        calls = {"n": 0}
+
+        def fetch(_url: str, timeout: float = 10) -> bytes:
+            """Count one attempt, then fail the way a bad port does.
+
+            Args:
+                _url: Source URL the mirror asked to download.
+                timeout: Socket timeout, unused.
+            """
+            calls["n"] += 1
+            raise http.client.InvalidURL("nonnumeric port")
+
+        with mock.patch("bank_image_mirror._fetch_remote", side_effect=fetch):
+            self.assertIsNone(mirror_bank_image_url(self.school, self.library_id, url))
+            self.assertIsNone(mirror_bank_image_url(self.school, self.library_id, url))
+        self.assertEqual(calls["n"], 1)
+        self.assertTrue(_refusal_active(self.library_id, url))
 
     def test_import_merges_into_live_metadata(self) -> None:
         """Imported MC appears in session metadata questions for the class."""
@@ -2809,16 +2877,84 @@ class ModuleBankImportApiTests(unittest.TestCase):
             "sandbox; default-src 'none'; style-src 'unsafe-inline'",
         )
         self.assertEqual(staff.headers.get("X-Content-Type-Options"), "nosniff")
+        self.assertNotIn(
+            "attachment",
+            (served.headers.get("Content-Disposition") or "").lower(),
+        )
+
+    def test_raster_module_files_stay_inline(self) -> None:
+        """png, jpg, jpeg, gif, and webp are served inline without a sandbox."""
+        student = self._join_maple_student()
+        store = ContentBlobStore(self.school.data_dir, self.school)
+        self.school.conn.execute(
+            """
+            INSERT INTO module_outlines (
+                library_id, import_key, title, position, created_at
+            ) VALUES (?, 'mod-raster', 'Module 1', 1, ?)
+            """,
+            (self.library_id, _now()),
+        )
+        samples = (
+            ("photo.png", b"\x89PNG\r\n\x1a\nraster", "image/png"),
+            ("photo.jpg", b"\xff\xd8\xffraster-jpg", "image/jpeg"),
+            ("photo.jpeg", b"\xff\xd8\xffraster-jpeg", "image/jpeg"),
+            ("photo.GIF", b"GIF89araster", "image/gif"),
+            ("photo.webp", b"RIFFrasterwebp", "image/webp"),
+        )
+        for filename, payload, mimetype in samples:
+            rel = f"web_resources/bank-mirror/{filename}"
+            stored = store.put_bytes(payload, filename=rel, mime=mimetype)
+            self.school.conn.execute(
+                """
+                INSERT INTO library_files (library_id, relpath, blob_sha, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (self.library_id, rel, stored.sha256, _now()),
+            )
+            self.school.conn.commit()
+            for root in (
+                f"/api/classes/{self.class_id}/module-files/{rel}",
+                f"/staff/class/{self.class_id}/module-files/{rel}",
+            ):
+                client = student if root.startswith("/api/") else self.client
+                served = client.get(root)
+                self.assertEqual(served.status_code, 200, root)
+                self.assertEqual(served.get_data(), payload, root)
+                policy = served.headers.get("Content-Security-Policy") or ""
+                self.assertNotIn("sandbox", policy, root)
+                self.assertIn("default-src 'self'", policy, root)
+                self.assertNotIn(
+                    "attachment",
+                    (served.headers.get("Content-Disposition") or "").lower(),
+                    root,
+                )
+                self.assertEqual(served.mimetype, mimetype, root)
+            self.assertEqual(stored.path.read_bytes(), payload)
 
     def test_active_markup_extensions_get_the_sandbox_policy(self) -> None:
-        """SVG bytes stored as xml, xhtml, html, or htm are sandboxed on both routes."""
+        """Non-raster module files are sandboxed attachments on both routes."""
         hostile = (
             b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
         )
         student = self._join_maple_student()
         store = ContentBlobStore(self.school.data_dir, self.school)
-        for suffix in (".xml", ".XML", ".xhtml", ".html", ".htm"):
-            rel = f"web_resources/bank-mirror/active{suffix}"
+        names = (
+            "active.xml",
+            "active.XML",
+            "active.xhtml",
+            "active.html",
+            "active.htm",
+            "active.xht",
+            "active.XHT",
+            "active.shtml",
+            "active.SHTML",
+            "active.pdf",
+            "active.PDF",
+            "notes.bin",
+            "notes",
+        )
+        for filename in names:
+            rel = f"web_resources/bank-mirror/{filename}"
             stored = store.put_bytes(hostile, filename=rel, mime="text/plain")
             self.school.conn.execute(
                 """
@@ -2845,6 +2981,10 @@ class ModuleBankImportApiTests(unittest.TestCase):
                     served.headers.get("X-Content-Type-Options"), "nosniff", root
                 )
                 self.assertNotEqual(served.mimetype, "image/svg+xml", root)
+                disposition = served.headers.get("Content-Disposition") or ""
+                self.assertIn("attachment", disposition.lower(), root)
+                self.assertNotIn("web_resources", disposition, root)
+                self.assertIn(filename, disposition, root)
             self.assertEqual(stored.path.read_bytes(), hostile)
 
     def test_raw_svgz_is_not_labelled_gzip(self) -> None:
@@ -2889,6 +3029,48 @@ class ModuleBankImportApiTests(unittest.TestCase):
         self.assertEqual(packed_response.status_code, 200)
         self.assertEqual(packed_response.headers.get("Content-Encoding"), "gzip")
         self.assertEqual(packed_response.mimetype, "image/svg+xml")
+        self.assertNotIn(
+            "attachment",
+            (plain.headers.get("Content-Disposition") or "").lower(),
+        )
+        raw_gz = "web_resources/bank-mirror/plain.svg.gz"
+        raw_gz_stored = store.put_bytes(raw, filename=raw_gz, mime="image/svg+xml")
+        packed_gz = "web_resources/bank-mirror/packed.svg.gz"
+        packed_gz_stored = store.put_bytes(
+            packed, filename=packed_gz, mime="image/svg+xml"
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO library_files (library_id, relpath, blob_sha, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (self.library_id, raw_gz, raw_gz_stored.sha256, _now()),
+        )
+        self.school.conn.execute(
+            """
+            INSERT INTO library_files (library_id, relpath, blob_sha, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (self.library_id, packed_gz, packed_gz_stored.sha256, _now()),
+        )
+        self.school.conn.commit()
+        raw_gz_response = student.get(
+            f"/api/classes/{self.class_id}/module-files/{raw_gz}"
+        )
+        self.assertEqual(raw_gz_response.status_code, 200)
+        self.assertEqual(raw_gz_response.get_data(), raw)
+        self.assertEqual(raw_gz_response.mimetype, "image/svg+xml")
+        self.assertNotEqual(raw_gz_response.headers.get("Content-Encoding"), "gzip")
+        self.assertEqual(
+            raw_gz_response.headers.get("Content-Security-Policy"),
+            "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+        )
+        packed_gz_response = student.get(
+            f"/api/classes/{self.class_id}/module-files/{packed_gz}"
+        )
+        self.assertEqual(packed_gz_response.status_code, 200)
+        self.assertEqual(packed_gz_response.headers.get("Content-Encoding"), "gzip")
+        self.assertEqual(packed_gz_response.mimetype, "image/svg+xml")
 
     def test_student_can_get_live_question_image(self) -> None:
         """Staff-authored live-question-images are GET-able by the student."""

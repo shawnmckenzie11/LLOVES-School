@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import re
 import threading
 import time
@@ -167,12 +168,17 @@ def _host_allowed(hostname: str) -> bool:
     return False
 
 
+_SCHEME_MARK_RE = re.compile(r":[ \t\r\n\f]*/[ \t\r\n\f]*/")
+
+
 def _raw_authority(url: str) -> str:
     """Return the authority text before the path, query, or fragment.
 
     Equatio SVG URLs put LaTeX in the path, including a percent-encoded
     backslash. That path is not part of the host. Only the text between
-    ``://`` and the first ``/``, ``?``, or ``#`` is the authority.
+    the scheme separator and the first ``/``, ``?``, or ``#`` is the
+    authority. A tab or newline inside ``://`` still counts as the
+    separator, so userinfo cannot skip this check.
 
     Args:
         url: Candidate image URL.
@@ -181,11 +187,10 @@ def _raw_authority(url: str) -> str:
         The raw authority, or an empty string when the URL has none.
     """
     raw = str(url or "").strip()
-    marker = "://"
-    start = raw.find(marker)
-    if start < 0:
+    match = _SCHEME_MARK_RE.search(raw)
+    if match is None:
         return ""
-    rest = raw[start + len(marker) :]
+    rest = raw[match.end() :]
     cut = len(rest)
     for token in ("/", "?", "#"):
         index = rest.find(token)
@@ -226,8 +231,9 @@ def is_remote_bank_image_url(url: str) -> bool:
     Only https URLs are accepted. The hostname is parsed, so a fragment
     or query cannot borrow an allowlisted name. Userinfo and a backslash
     in the authority are refused even when the parsed host is allowlisted.
-    A broken bracket in the authority raises ``ValueError`` from the
-    parser; that URL is refused rather than escaping the caller.
+    A non-numeric port raises ``ValueError`` from the parser and is
+    refused here, before any fetch. A broken bracket in the authority
+    raises the same error and is refused rather than escaping the caller.
 
     Args:
         url: Image ``src`` from bank HTML.
@@ -239,6 +245,10 @@ def is_remote_bank_image_url(url: str) -> bool:
         parsed = urllib.parse.urlparse(raw)
         if parsed.scheme.lower() != "https":
             return False
+        if parsed.username is not None or parsed.password is not None:
+            return False
+        # A non-numeric port raises ValueError. Refuse it before the fetch.
+        _ = parsed.port
         return _host_allowed(parsed.hostname or "")
     except ValueError:
         return False
@@ -393,20 +403,29 @@ def latex_img_tag_to_math_span(tag: str) -> str:
 def _svg_document(payload: bytes) -> bool:
     """Return True when the body is an SVG document.
 
-    The root element must be ``svg`` after an optional XML prolog and
-    leading whitespace. HTML that mentions ``svg`` later is not an SVG.
+    The root element must be ``svg`` after an optional XML prolog,
+    leading comments, and whitespace. Inkscape and Illustrator exports
+    start with a comment. HTML that mentions ``svg`` later is not an SVG.
 
     Args:
         payload: Response body.
     """
     text = payload.lstrip(b"\xef\xbb\xbf \t\r\n")
-    lower = text.lower()
-    if lower.startswith(b"<?xml"):
-        end = lower.find(b"?>")
-        if end < 0:
-            return False
-        text = text[end + 2 :].lstrip(b" \t\r\n")
+    while True:
         lower = text.lower()
+        if lower.startswith(b"<?xml"):
+            end = lower.find(b"?>")
+            if end < 0:
+                return False
+            text = text[end + 2 :].lstrip(b" \t\r\n")
+            continue
+        if lower.startswith(b"<!--"):
+            end = lower.find(b"-->")
+            if end < 0:
+                return False
+            text = text[end + 3 :].lstrip(b" \t\r\n")
+            continue
+        break
     if not lower.startswith(b"<svg"):
         return False
     if len(text) <= 4:
@@ -489,6 +508,26 @@ def _unescape_css(value: str) -> str:
         return str(match.group(3) or "")
 
     return _CSS_ESCAPE_RE.sub(replace, str(value or ""))
+
+
+def _unescape_css_fully(value: str) -> str:
+    """Decode CSS escapes until the text stops changing.
+
+    One pass turns a hex escape for a backslash plus ``75rl(`` into a
+    backslash and ``75rl(``. A browser decodes again, so a hidden
+    ``url(`` or ``@import`` would survive a single pass. Decoding stops
+    at eight passes.
+
+    Args:
+        value: Raw CSS or presentation-attribute text.
+    """
+    text = str(value or "")
+    for _ in range(8):
+        decoded = _unescape_css(text)
+        if decoded == text:
+            return text
+        text = decoded
+    return text
 
 
 def _css_name_boundary(text: str, found: int) -> bool:
@@ -662,11 +701,14 @@ def _strip_css_imports(text: str) -> str:
 def _clean_presentation_css(value: str) -> str | None:
     """Return CSS with remote loads removed, or None when active content remains.
 
-    Escapes are decoded before the check. ``image-set()`` is removed.
-    ``url()`` stays only for a same-document fragment. An ``@font-face``
-    that points at ``data:`` is removed on its own so the rest of the
-    style sheet can stay. ``javascript:``, expressions, and binding
-    tokens still refuse the whole value.
+    Escapes are decoded until stable, so a doubled hex escape for a
+    backslash cannot hide ``url(`` or ``@import``. ``-webkit-image-set()``
+    is removed before
+    ``image-set()``, because a leading hyphen would otherwise look like
+    part of the function name. ``url()`` stays only for a same-document
+    fragment. An ``@font-face`` that points at ``data:`` is removed on
+    its own so the rest of the style sheet can stay. ``javascript:``,
+    expressions, and binding tokens still refuse the whole value.
 
     Args:
         value: Decoded attribute or style-element text.
@@ -675,9 +717,10 @@ def _clean_presentation_css(value: str) -> str | None:
         Cleaned CSS, an empty string when every rule was stripped, or
         None when a token such as ``javascript:`` is still present.
     """
-    text = _unescape_css(value)
+    text = _unescape_css_fully(value)
     text = _strip_data_font_faces(text)
     text = _strip_css_imports(text)
+    text = _strip_balanced_call(text, "-webkit-image-set")
     text = _strip_balanced_call(text, "image-set")
     text = _strip_unsafe_css_urls(text)
     lower = text.lower()
@@ -1266,6 +1309,9 @@ def mirror_bank_image_url(
     try:
         try:
             payload = _fetch_remote(url, timeout=timeout)
+        except http.client.InvalidURL:
+            _remember_refusal(library, url, ttl=_REFUSAL_TTL_S)
+            return None
         except (urllib.error.URLError, TimeoutError, OSError):
             _remember_refusal(library, url, ttl=_REFUSAL_NETWORK_TTL_S)
             return None
@@ -1415,40 +1461,86 @@ def mirror_library_bank_images(
     }
 
 
-def apply_mirrored_svg_headers(response: Any, rel: str) -> Any:
-    """Sandbox an SVG served from a module-file route.
+_RASTER_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
-    Mirrored bank images are served inline on the LMS origin. The global
-    policy allows inline scripts, so an SVG that was stored before
-    sanitising would run if it were opened directly. These headers apply
-    at serve time and do not rewrite the blob.
+
+def module_file_kind(rel: str) -> str:
+    """Return ``raster``, ``svg``, or ``other`` for a module-file name.
+
+    The match is the download name, case-insensitive. ``.svg.gz`` is an
+    SVG. Only png, jpg, jpeg, gif, and webp are raster. Every other
+    name, including no extension, is ``other``.
+
+    Args:
+        rel: Cartridge-relative path used as the download name.
+    """
+    name = str(rel or "").split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1].lower()
+    if name.endswith(".svg.gz") or name.endswith(".svg") or name.endswith(".svgz"):
+        return "svg"
+    suffix = ""
+    if "." in name:
+        suffix = "." + name.rsplit(".", 1)[-1]
+    if suffix in _RASTER_SUFFIXES:
+        return "raster"
+    return "other"
+
+
+def _attachment_filename(rel: str) -> str:
+    """Return one path segment safe to put in Content-Disposition.
+
+    Args:
+        rel: Cartridge-relative path used as the download name.
+    """
+    name = str(rel or "").split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+    name = (
+        name.replace("\\", "")
+        .replace('"', "")
+        .replace("\r", "")
+        .replace("\n", "")
+        .replace("\t", "")
+    )
+    if not name or name in {".", ".."}:
+        return "download"
+    return name[:180]
+
+
+def apply_module_file_headers(response: Any, rel: str) -> Any:
+    """Apply the module-file allowlist without rewriting the blob.
+
+    Raster images stay inline under the site policy. SVG, svgz, and
+    ``.svg.gz`` stay inline as ``image/svg+xml`` with the sandbox policy
+    so a graph can still load in an image tag. Every other type is an
+    attachment with the same sandbox policy and ``nosniff``. Headers are
+    set on the response only. The stored bytes are not changed.
 
     Args:
         response: File response for the library blob.
         rel: Cartridge-relative path used as the download name.
 
-    Markup stored as ``.svg``, ``.svgz``, ``.xml``, ``.xhtml``, ``.html``,
-    or ``.htm`` gets the same sandbox policy and ``nosniff``. Those
-    extensions can carry an SVG a cartridge imported under another name.
-    ``.html`` and ``.xml`` keep their own content type. Only ``.svg`` and
-    ``.svgz`` are labelled ``image/svg+xml``.
-
     Returns:
-        The same response. Active markup also carries the sandbox policy
-        and ``X-Content-Type-Options: nosniff``.
+        The same response.
     """
-    name = str(rel or "").split("?", 1)[0].rstrip("/").lower()
-    content_type = ""
-    headers = getattr(response, "headers", None)
-    if headers is not None:
-        content_type = str(headers.get("Content-Type") or "").lower()
-    svg_name = name.endswith((".svg", ".svgz"))
-    active_name = svg_name or name.endswith((".xml", ".xhtml", ".html", ".htm"))
-    svg_type = content_type.startswith("image/svg+xml")
-    if not active_name and not svg_type:
+    kind = module_file_kind(rel)
+    if kind == "raster":
         return response
-    if svg_name or svg_type:
-        response.headers["Content-Type"] = "image/svg+xml"
     response.headers["Content-Security-Policy"] = SVG_SANDBOX_CSP
     response.headers["X-Content-Type-Options"] = "nosniff"
+    if kind == "svg":
+        response.headers["Content-Type"] = "image/svg+xml"
+        return response
+    filename = _attachment_filename(rel)
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
+
+
+def apply_mirrored_svg_headers(response: Any, rel: str) -> Any:
+    """Apply the module-file allowlist. Kept for existing callers.
+
+    Args:
+        response: File response for the library blob.
+        rel: Cartridge-relative path used as the download name.
+
+    Returns:
+        The same response, after :func:`apply_module_file_headers`.
+    """
+    return apply_module_file_headers(response, rel)
