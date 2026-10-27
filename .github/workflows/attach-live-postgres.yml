@@ -8,8 +8,9 @@ name: Attach live Postgres
 # The job waits for Shawn's approval on the `production` environment and only runs from `main`.
 # Expect https://alc.mckenzian.com/health → "live_presence": "postgres".
 #
-# Uses the existing repository secret FLY_API_TOKEN. Does not mint a token,
-# does not flyctl deploy, and does not rewrite Google OAuth secrets.
+# FLY_API_TOKEN comes from the production environment when that secret
+# is set there, and from the repository secret until then. Does not mint
+# a token, does not flyctl deploy, and does not rewrite Google OAuth secrets.
 
 on:
   workflow_dispatch:

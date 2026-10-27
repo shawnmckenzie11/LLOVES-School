@@ -325,7 +325,10 @@ class WiringTests(unittest.TestCase):
         self.assertIn("continue-on-error: true", step)
         self.assertIn("whats_new.py build", step)
         self.assertNotIn("contents: write", text)
-        self.assertEqual(text.count("environment:\n      name: production"), 1)
+        # Approve already waited on production. Deploy names the same
+        # environment so FLY_API_TOKEN can come from that environment.
+        self.assertEqual(text.count("environment:\n      name: production"), 2)
+        self.assertIn("environment:\n      name: production", deploy[:deploy.index("steps:")])
         test_job = text[text.index("  test:\n"):text.index("  approve:\n")]
         self.assertIn("Preview What's new", test_job)
         self.assertIn('--out "${RUNNER_TEMP}/releases.preview.json"', test_job)
