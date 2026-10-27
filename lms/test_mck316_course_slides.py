@@ -679,86 +679,35 @@ class CourseSlideFileTests(unittest.TestCase):
             self.assertTrue(staged[0].read_bytes().startswith(b"\x00\x01\x00\x00"))
             self.assertEqual(files.extract_embedded_deck_fonts(b"PK\x03\x04", dest), 0)
 
-    @unittest.skipUnless(soffice_bin(), "LibreOffice is not installed")
+    @unittest.skipUnless(shutil.which("fc-match"), "fontconfig is not installed")
     def test_named_office_faces_use_metric_clones(self) -> None:
-        """Office faces render as Carlito, Caladea, and Liberation, not Arimo."""
+        """Office names resolve to Carlito, Caladea, and Liberation, not Arimo.
+
+        The check uses the same fontconfig file the converter writes.
+        A later alias loses to the system map that treats Arimo as Arial,
+        so this is the file that has to win.
+        """
         import course_slide_files as files
 
-        if not Path("/usr/share/fonts/truetype/crosextra/Carlito-Regular.ttf").is_file():
-            self.skipTest("Carlito is not installed")
-        slide = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
-  <p:cSld><p:spTree>
-    <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
-    <p:grpSpPr/>
-    <p:sp>
-      <p:nvSpPr><p:cNvPr id="2" name="Body"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
-      <p:spPr/>
-      <p:txBody><a:bodyPr/><a:lstStyle/>
-        <a:p><a:r><a:rPr sz="2800"><a:latin typeface="Arial"/></a:rPr><a:t>Arial line</a:t></a:r></a:p>
-        <a:p><a:r><a:rPr sz="2800"><a:latin typeface="Calibri"/></a:rPr><a:t>Calibri line</a:t></a:r></a:p>
-        <a:p><a:r><a:rPr sz="2800"><a:latin typeface="Cambria"/></a:rPr><a:t>Cambria line</a:t></a:r></a:p>
-        <a:p><a:r><a:rPr sz="2800"><a:latin typeface="Times New Roman"/></a:rPr><a:t>Times line</a:t></a:r></a:p>
-        <a:p><a:r><a:rPr sz="2800"><a:latin typeface="Courier New"/></a:rPr><a:t>Courier line</a:t></a:r></a:p>
-      </p:txBody>
-    </p:sp>
-  </p:spTree></p:cSld>
-  <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
-</p:sld>
-"""
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(io.BytesIO(_minimal_pptx())) as src, zipfile.ZipFile(buffer, "w") as dst:
-            for info in src.infolist():
-                data = slide.encode() if info.filename == "ppt/slides/slide1.xml" else src.read(info)
-                dst.writestr(info.filename, data)
-        files._sandbox_ready = None
-        files._sandbox_failed_at = None
-        pdf = files._office_to_pdf(buffer.getvalue(), ".pptx", soffice_bin(), timeout=60)
-        import fitz
-
-        document = fitz.open(stream=pdf, filetype="pdf")
-        try:
-            page = document[0]
-            embedded = " ".join(
-                str(item[3]) for item in page.get_fonts()
-            ).lower().replace(" ", "")
-            runs: list[tuple[str, str]] = []
-            for span in page.get_texttrace() or []:
-                chars = span.get("chars") or []
-                if not chars:
-                    continue
-                text = "".join(
-                    chr(char[0]) if isinstance(char[0], int) else str(char[0])
-                    for char in chars
-                )
-                font = str(span.get("font") or "").lower().replace(" ", "")
-                if runs and runs[-1][1] == font:
-                    runs[-1] = (runs[-1][0] + text, font)
-                else:
-                    runs.append((text, font))
-        finally:
-            document.close()
-        expected = {
-            "Arial": "liberationsans",
-            "Calibri": "carlito",
-            "Cambria": "caladea",
-            "Times": "liberationserif",
-            "Courier": "liberationmono",
-        }
-        for clone in expected.values():
-            self.assertIn(clone, embedded, embedded)
-        for stolen in ("arimo", "tinos", "cousine"):
-            self.assertNotIn(stolen, embedded, embedded)
-        # Some PyMuPDF builds return no text trace. The embedded names
-        # above are the check that still runs. When the trace exists,
-        # each line has to use its own clone.
-        if runs:
-            for label, clone in expected.items():
-                fonts = [font for text, font in runs if label in text]
-                self.assertTrue(
-                    fonts and all(clone in font for font in fonts),
-                    runs,
-                )
+        expected = (
+            ("Arial", "Liberation Sans"),
+            ("Helvetica", "Liberation Sans"),
+            ("Calibri", "Carlito"),
+            ("Cambria", "Caladea"),
+            ("Times New Roman", "Liberation Serif"),
+            ("Courier New", "Liberation Mono"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            conf = files._job_fontconfig(Path(tmp), None)
+            env = os.environ.copy()
+            env["FONTCONFIG_FILE"] = str(conf)
+            for family, clone in expected:
+                matched = subprocess.check_output(
+                    ["fc-match", "-f", "%{family}\n", family],
+                    env=env,
+                    text=True,
+                ).strip()
+                self.assertEqual(matched, clone, family)
 
     def test_svg_file_href_is_removed(self) -> None:
         """An SVG file:// image is not left in the package."""
