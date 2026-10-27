@@ -10227,7 +10227,12 @@ class LovesDB:
         if bound_session is None:
             active = self.get_active_live_session_for_class(int(class_id))
             if active is not None:
-                teacher = active.get("teacher_state")
+                # The active-row helper returns the raw sqlite row.
+                # ``teacher_state`` exists only after ``get_live_session``
+                # parses it. A raw row would look like M1 C1, so a deck
+                # for any other class never reached the Slides tab.
+                parsed = self.get_live_session(int(active["id"])) or {}
+                teacher = parsed.get("teacher_state")
                 state = teacher if isinstance(teacher, dict) else {}
                 if (
                     normalize_live_module(state.get("live_module")) == live_module

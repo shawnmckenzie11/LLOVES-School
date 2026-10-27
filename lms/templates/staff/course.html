@@ -847,22 +847,7 @@
                   <button type="button" data-surface-publish="slides">Publish</button>
                   <button type="button" class="secondary" data-surface-close="slides" disabled>Close</button>
                 </div>
-                <p class="hint compact" id="live-slides-status">No slide deck is connected to this live-class metadata yet.</p>
-                <form id="live-google-slides-form" class="live-google-slides-form">
-                  <label class="live-google-slides-label" for="live-google-slides-url">Share link
-                    <input id="live-google-slides-url" type="url" inputmode="url" autocomplete="off" placeholder="https://docs.google.com/presentation/d/…" spellcheck="false">
-                  </label>
-                  <label class="live-google-slides-label" for="live-google-slides-file">PowerPoint
-                    <input id="live-google-slides-file" type="file" accept=".ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation">
-                  </label>
-                  <label class="live-google-slides-publish" for="live-google-slides-publish">
-                    <input id="live-google-slides-publish" type="checkbox">
-                    Publish pages by default
-                  </label>
-                  <button type="submit" class="secondary" id="live-google-slides-attach">Attach</button>
-                </form>
-                <p class="hint compact">Share the deck so anyone with the link can view.</p>
-                <p class="hint compact" id="live-google-slides-error" hidden></p>
+                <p class="hint compact" id="live-slides-empty">{# copy: Wonder #}No slides yet. Add a deck when you start a live class, at step 3 (Which deck?).</p>
                 <p class="hint compact" id="live-google-slides-count" hidden></p>
                 <div class="live-google-slides-stage" id="live-google-slides-stage" hidden>
                   <img id="live-google-slides-card" class="live-google-slides-card" alt="">

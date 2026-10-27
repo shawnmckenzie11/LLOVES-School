@@ -232,7 +232,7 @@ class GoogleSlidesLiveTests(unittest.TestCase):
             "google_slides_import.fetch_public_pdf", return_value=self.pdf
         ):
             response = self.staff.post(
-                f"/api/live-sessions/{self.live_session_id}/google-slides",
+                f"/api/classes/{self.class_id}/slide-deck",
                 json={
                     "url": (
                         "https://docs.google.com/presentation/d/"
@@ -278,7 +278,16 @@ class GoogleSlidesLiveTests(unittest.TestCase):
         page = self.staff.get(f"/staff/class/{self.class_id}?tab=live")
         html = page.get_data(as_text=True)
         self.assertIn('data-tab="slides"', html)
-        self.assertIn('id="live-google-slides-attach"', html)
+        empty = "No slides yet. Add a deck when you start a live class, at step 3 (Which deck?)."
+        self.assertEqual(html.count(empty), 1)
+        self.assertNotIn('id="live-google-slides-attach"', html)
+        self.assertNotIn('id="live-google-slides-file"', html)
+        self.assertNotIn('id="live-google-slides-form"', html)
+        gone = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/google-slides",
+            json={"url": "https://docs.google.com/presentation/d/abc/edit"},
+        )
+        self.assertEqual(gone.status_code, 404)
         self.assertNotIn('id="live-google-slides-prev"', html)
         self.assertNotIn('id="live-google-slides-next"', html)
         self.assertIn('id="set-class-slides-add"', html)
@@ -406,10 +415,43 @@ class GoogleSlidesLiveTests(unittest.TestCase):
         self.assertTrue(held.get("unchanged"))
         self.assertNotIn("google_slide", held)
 
+    def test_c2_deck_binds_the_running_class(self) -> None:
+        """A deck for the running module and slot shows up on that run.
+
+        The active-session lookup used to hand back a raw row, so any
+        class other than M1 C1 saved the files and left the Slides tab empty.
+        """
+        self.school.set_live_session_teacher_state(
+            self.live_session_id, live_module="M1", live_slot="C2"
+        )
+        with mock.patch(
+            "google_slides_import.fetch_public_pdf", return_value=self.pdf
+        ):
+            response = self.staff.post(
+                f"/api/classes/{self.class_id}/slide-deck",
+                json={
+                    "url": (
+                        "https://docs.google.com/presentation/d/"
+                        f"{_FILE_ID}/edit?usp=sharing"
+                    ),
+                    "module": "M1",
+                    "slot": "C2",
+                },
+            )
+            response = follow_slide_import(self.staff, response)
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        deck = response.get_json()["google_slides"]
+        self.assertGreaterEqual(len(deck["pages"]), 1)
+        self.assertTrue(deck["pages"][0]["image_url"])
+        stored = self.school.google_slides_deck(self.live_session_id)
+        self.assertIsNotNone(stored)
+        assert stored is not None
+        self.assertGreaterEqual(len(stored["pages"]), 1)
+
     def test_bad_link_is_rejected(self) -> None:
         """A non-Google link does not attach a deck."""
         response = self.staff.post(
-            f"/api/live-sessions/{self.live_session_id}/google-slides",
+            f"/api/classes/{self.class_id}/slide-deck",
             json={"url": "https://evil.example/slides"},
         )
         self.assertEqual(response.status_code, 400)
@@ -491,7 +533,7 @@ class GoogleSlidesLiveTests(unittest.TestCase):
             side_effect=SlidesShareNotPublic(),
         ):
             response = self.staff.post(
-                f"/api/live-sessions/{self.live_session_id}/google-slides",
+                f"/api/classes/{self.class_id}/slide-deck",
                 json={
                     "url": (
                         "https://docs.google.com/presentation/d/"
@@ -726,7 +768,7 @@ class GoogleSlidesLiveTests(unittest.TestCase):
             drawing.close()
         with mock.patch("google_slides_import.fetch_public_pdf", return_value=other):
             response = self.staff.post(
-                f"/api/live-sessions/{self.live_session_id}/google-slides",
+                f"/api/classes/{self.class_id}/slide-deck",
                 json={
                     "url": (
                         "https://docs.google.com/presentation/d/"
@@ -748,7 +790,7 @@ class GoogleSlidesLiveTests(unittest.TestCase):
             )
         with mock.patch("google_slides_import.fetch_public_pdf", return_value=other):
             again = self.staff.post(
-                f"/api/live-sessions/{self.live_session_id}/google-slides",
+                f"/api/classes/{self.class_id}/slide-deck",
                 json={
                     "url": (
                         "https://docs.google.com/presentation/d/"

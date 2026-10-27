@@ -9864,6 +9864,9 @@ body.staff-shell .live-google-slides-stage {
 body.staff-shell .live-google-slides-stage[hidden] {
   display: none !important;
 }
+body.staff-shell #live-slides-empty[hidden] {
+  display: none !important;
+}
 body.staff-shell .live-google-slides-stage .live-google-slides-card {
   display: block;
   width: min(100cqw, calc(100cqh * 16 / 9));
