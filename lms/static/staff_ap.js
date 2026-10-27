@@ -3280,29 +3280,41 @@ async function reopenWhiteboard(start) {
 function paintSlidesMetadata() {
   paintGoogleSlidesChrome();
   const deck = googleSlidesDeck();
-  const status = $("live-slides-status");
   const frame = $("live-slides-preview");
   if (deck) {
     if (frame instanceof HTMLIFrameElement) {
       frame.hidden = true;
       frame.removeAttribute("src");
     }
+    paintSlidesEmpty();
     return;
   }
   const deckRef = String(lastLiveMetadata?.slides?.deck_ref || "").trim();
-  if (status) {
-    status.textContent = deckRef
-      ? "Connected slide deck"
-      : "No slide deck is connected to this live-class metadata yet.";
+  if (!(frame instanceof HTMLIFrameElement)) {
+    paintSlidesEmpty();
+    return;
   }
-  if (!(frame instanceof HTMLIFrameElement)) return;
   if (!deckRef || !/^https?:\/\//i.test(deckRef)) {
     frame.hidden = true;
     frame.removeAttribute("src");
+    paintSlidesEmpty();
     return;
   }
   frame.src = deckRef;
   frame.hidden = false;
+  paintSlidesEmpty();
+}
+
+/**
+ * Show the Wonder empty line only when no deck is on this pane.
+ * The sentence stays in the template so it can be edited in one place.
+ */
+function paintSlidesEmpty() {
+  const empty = $("live-slides-empty");
+  if (!(empty instanceof HTMLElement)) return;
+  const frame = $("live-slides-preview");
+  const iframeOn = frame instanceof HTMLIFrameElement && !frame.hidden;
+  empty.hidden = Boolean(googleSlidesDeck()) || iframeOn;
 }
 
 /**
@@ -3342,21 +3354,16 @@ function paintGoogleSlidesChrome() {
       card.removeAttribute("src");
     }
     if (close) close.textContent = "Close";
+    paintSlidesEmpty();
     return;
   }
   const index = Math.max(0, Math.min(deck.pages.length - 1, Number(deck.current_index) || 0));
   const page = deck.pages[index] || {};
   const shared = Boolean(page.published);
-  const status = $("live-slides-status");
-  if (status) {
-    const cap = deck.truncated ? " · first 40" : "";
-    status.textContent = `Slide ${index + 1} of ${deck.pages.length}${cap} · ${
-      shared ? "Sharing" : "Not shared"
-    }`;
-  }
   if (count) {
+    const cap = deck.truncated ? " · first 40" : "";
     count.hidden = false;
-    count.textContent = `Slide ${index + 1} of ${deck.pages.length}`;
+    count.textContent = `Slide ${index + 1} of ${deck.pages.length}${cap}`;
   }
   if (card instanceof HTMLImageElement) {
     const url = String(page.image_url || "");
@@ -3380,6 +3387,7 @@ function paintGoogleSlidesChrome() {
     close.textContent = "Unpublish";
     close.disabled = !shared;
   }
+  paintSlidesEmpty();
 }
 
 /**
@@ -3614,59 +3622,6 @@ async function addSetClassSlides(event) {
     if (fileInput instanceof HTMLInputElement) fileInput.value = "";
     paintSetClassSummary();
     paintSlidesMetadata();
-  } catch (err) {
-    if (error) {
-      error.hidden = false;
-      paintSlidesAttachError(error, err);
-    }
-  } finally {
-    if (button instanceof HTMLButtonElement) button.disabled = false;
-  }
-}
-
-async function attachGoogleSlides(event) {
-  event.preventDefault();
-  const input = $("live-google-slides-url");
-  const button = $("live-google-slides-attach");
-  const error = $("live-google-slides-error");
-  const fileInput = $("live-google-slides-file");
-  const file = fileInput instanceof HTMLInputElement ? fileInput.files?.[0] : null;
-  const url = input instanceof HTMLInputElement ? input.value.trim() : "";
-  const publish = $("live-google-slides-publish");
-  const defaultPublished = publish instanceof HTMLInputElement && publish.checked;
-  if (error) {
-    error.hidden = true;
-    error.replaceChildren();
-  }
-  if (!url && !file) {
-    if (error) {
-      error.hidden = false;
-      error.textContent = "Paste a Google Slides share link or choose a PowerPoint.";
-    }
-    return;
-  }
-  const sessionId = liveSessionId || readLiveSessionId();
-  if (!sessionId) {
-    if (error) {
-      error.hidden = false;
-      error.textContent = "Start the live class first.";
-    }
-    return;
-  }
-  if (button instanceof HTMLButtonElement) button.disabled = true;
-  try {
-    const started = file
-      ? await postSlideUpload(`/api/live-sessions/${sessionId}/google-slides`, file, {
-          default_published: defaultPublished ? "1" : "",
-        })
-      : await api(`/api/live-sessions/${sessionId}/google-slides`, {
-          method: "POST",
-          body: JSON.stringify({ url, default_published: defaultPublished }),
-        });
-    const data = await finishSlideImport(started);
-    if (data?.google_slides) lastGoogleSlides = data.google_slides;
-    paintSlidesMetadata();
-    paintSurfacePublishing();
   } catch (err) {
     if (error) {
       error.hidden = false;
@@ -13129,9 +13084,6 @@ document.querySelectorAll("[data-surface-close]").forEach((button) => {
     closeSurface(button.getAttribute("data-surface-close"))
       .catch((err) => showError("#ap-overlay-error", err));
   });
-});
-$("live-google-slides-form")?.addEventListener("submit", (event) => {
-  attachGoogleSlides(event).catch((err) => showError("#ap-overlay-error", err));
 });
 $("set-class-slides-form")?.addEventListener("submit", (event) => {
   addSetClassSlides(event).catch((err) => showError("#ap-overlay-error", err));

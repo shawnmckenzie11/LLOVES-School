@@ -8697,6 +8697,36 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             ],
         )
 
+
+    def _require_slide_placement(module: Any, slot: Any) -> tuple[str, str]:
+        """Return a module and slot, or refuse one that would fall back.
+
+        A missing module or slot stays M1 / C1. A posted token that
+        ``normalize_live_module`` or ``normalize_live_slot`` would rewrite
+        is rejected so a bad save cannot overwrite that default deck.
+
+        Args:
+            module: Posted module, or empty.
+            slot: Posted slot, or empty.
+
+        Returns:
+            Normalized ``(module, slot)``.
+
+        Raises:
+            ValueError: The posted module or slot is not a known placement.
+        """
+        from live_teacher_state import normalize_live_module, normalize_live_slot
+
+        raw_module = str(module or "").strip()
+        raw_slot = str(slot or "").strip()
+        live_module = normalize_live_module(raw_module)
+        live_slot = normalize_live_slot(raw_slot)
+        if raw_module and live_module != raw_module.upper():
+            raise ValueError("Unknown module.")
+        if raw_slot and live_slot != raw_slot.upper():
+            raise ValueError("Unknown slot.")
+        return live_module, live_slot
+
     def _slide_default_published(value: Any) -> bool:
         """True when a form or JSON flag asks for pages to start shared.
 
@@ -8905,130 +8935,6 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         return jsonify(body), code
 
     @app.route(
-        "/api/live-sessions/<int:session_id>/google-slides",
-        methods=["POST"],
-    )
-    @login_required
-    def api_live_session_google_slides(session_id: int):
-        """Attach a Google Slides share link or a PowerPoint.
-
-        Public PDF export is tried first (no teacher OAuth). A private deck
-        falls back to Connect Google Slides. Conversion runs on a background
-        job so it stays inside the worker timeout. This response is 202
-        with ``job_id``. A link that is not a Google Slides URL is still
-        rejected here, before a job starts.
-        """
-        _row, err = _active_owned_live_session(session_id)
-        if err is not None:
-            return err
-        too_big = _slide_body_too_large()
-        if too_big is not None:
-            return too_big
-        user = current_user()
-        if user is None:
-            return jsonify({"ok": False, "error": "Authentication required."}), 401
-        owner_id = int(user["id"])
-        class_id = int(_row["class_id"])
-        upload, upload_err = _slide_form_file()
-        if upload_err is not None:
-            return upload_err
-        if upload is not None and str(upload.filename or "").strip():
-            import course_slide_files as slide_files
-
-            published = _slide_default_published(request.form.get("default_published"))
-            filename = str(upload.filename or "")
-            try:
-                suffix = slide_files.office_suffix(filename)
-            except ValueError as exc:
-                return jsonify({"ok": False, "error": str(exc)}), 400
-            spilled = _spill_slide_upload(upload, suffix)
-            if isinstance(spilled, tuple):
-                return spilled
-            title = slide_files.slide_deck_title(
-                Path(filename).stem, fallback="PowerPoint"
-            )
-
-            def work(job_id: str) -> dict[str, Any]:
-                """Convert the spilled upload and point this run at it."""
-                import course_slide_files as files
-
-                path = Path(str(spilled))
-                try:
-                    raw = path.read_bytes()
-                    pngs, truncated = files.pages_from_office(raw, suffix, timeout=80)
-                    deck = school.import_google_slides_pages(
-                        int(session_id),
-                        presentation_id="",
-                        page_pngs=pngs,
-                        source="pptx",
-                        truncated=truncated,
-                        default_published=published,
-                        title=title,
-                        source_bytes=raw,
-                        source_suffix=suffix,
-                        job_id=job_id,
-                    )
-                finally:
-                    path.unlink(missing_ok=True)
-                _emit_google_slide_news(int(session_id))
-                return {
-                    "google_slides": deck,
-                    "google_slide": school.student_google_slide(int(session_id)),
-                }
-
-            try:
-                return _queue_slide_import(owner_id, class_id, int(session_id), work)
-            except Exception:
-                Path(str(spilled)).unlink(missing_ok=True)
-                raise
-        body, body_err = _slide_json_body()
-        if body_err is not None:
-            return body_err
-        if request.form:
-            body = {
-                "url": request.form.get("url") or "",
-                "default_published": request.form.get("default_published"),
-            }
-        url = str(body.get("url") or "").strip()
-        published = _slide_default_published(body.get("default_published"))
-        try:
-            from google_slides_import import parse_presentation_id
-
-            parse_presentation_id(url)
-        except ValueError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
-
-        def work(job_id: str) -> dict[str, Any]:
-            """Download the share link under the existing 45 second cap."""
-            from google_slides_import import (
-                IMPORT_TIME_LIMIT_SECONDS,
-                SlidesShareNotPublic,
-                import_shared_deck,
-            )
-            from slide_import_jobs import SlideImportFailed
-
-            try:
-                deck = import_shared_deck(
-                    school,
-                    int(session_id),
-                    url,
-                    user=user,
-                    default_published=published,
-                    time_limit=IMPORT_TIME_LIMIT_SECONDS,
-                    job_id=job_id,
-                )
-            except SlidesShareNotPublic as exc:
-                raise SlideImportFailed(str(exc), needs_slides_read=True) from exc
-            _emit_google_slide_news(int(session_id))
-            return {
-                "google_slides": deck,
-                "google_slide": school.student_google_slide(int(session_id)),
-            }
-
-        return _queue_slide_import(owner_id, class_id, int(session_id), work)
-
-
-    @app.route(
         "/api/live-sessions/<int:session_id>/google-slides/current",
         methods=["POST"],
     )
@@ -9090,6 +8996,31 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": str(exc)}), 400
         return _google_slides_response(session_id, deck)
 
+
+    def _course_deck_job_body(class_id: int, saved: dict[str, Any]) -> dict[str, Any]:
+        """Finished course-deck import, plus the student card when a run is bound.
+
+        Args:
+            class_id: Game-show class id.
+            saved: Return value of ``save_course_slide_deck``.
+
+        Returns:
+            ``deck`` and ``google_slides``. ``google_slide`` is included
+            when the active run was pointed at this deck.
+        """
+        deck = saved.get("google_slides") if isinstance(saved, dict) else None
+        body: dict[str, Any] = {
+            "deck": saved.get("deck") if isinstance(saved, dict) else None,
+            "google_slides": deck,
+        }
+        if not isinstance(deck, dict):
+            return body
+        active = school.get_active_live_session_for_class(int(class_id))
+        if active is None:
+            return body
+        body["google_slide"] = school.student_google_slide(int(active["id"]))
+        return body
+
     @app.route("/api/classes/<int:class_id>/slide-deck", methods=["GET", "POST"])
     @login_required
     def api_class_slide_deck(class_id: int):
@@ -9106,10 +9037,17 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         if denied is not None:
             return denied
         if request.method == "GET":
+            try:
+                module, slot = _require_slide_placement(
+                    request.args.get("module"),
+                    request.args.get("slot"),
+                )
+            except ValueError as exc:
+                return jsonify({"ok": False, "error": str(exc)}), 400
             summary = school.course_slide_deck_summary(
                 int(class_id),
-                request.args.get("module"),
-                request.args.get("slot"),
+                module,
+                slot,
             )
             return jsonify({"ok": True, "deck": summary})
         too_big = _slide_body_too_large()
@@ -9132,6 +9070,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             published = _slide_default_published(published_raw)
             try:
                 suffix = slide_files.office_suffix(filename)
+            except ValueError as exc:
+                return jsonify({"ok": False, "error": str(exc)}), 400
+            try:
+                module, slot = _require_slide_placement(module, slot)
             except ValueError as exc:
                 return jsonify({"ok": False, "error": str(exc)}), 400
             spilled = _spill_slide_upload(upload, suffix)
@@ -9165,10 +9107,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 finally:
                     path.unlink(missing_ok=True)
                 _emit_slide_news_for_class(int(class_id))
-                return {
-                    "deck": saved.get("deck"),
-                    "google_slides": saved.get("google_slides"),
-                }
+                return _course_deck_job_body(int(class_id), saved)
 
             try:
                 return _queue_slide_import(owner_id, int(class_id), None, work)
@@ -9182,6 +9121,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             module = body.get("module")
         if body.get("slot") not in (None, ""):
             slot = body.get("slot")
+        try:
+            module, slot = _require_slide_placement(module, slot)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
         url = str(body.get("url") or request.form.get("url") or "").strip()
         published = body.get("default_published")
         if published is None:
@@ -9237,10 +9180,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 job_id=job_id,
             )
             _emit_slide_news_for_class(int(class_id))
-            return {
-                "deck": saved.get("deck"),
-                "google_slides": saved.get("google_slides"),
-            }
+            return _course_deck_job_body(int(class_id), saved)
 
         return _queue_slide_import(owner_id, int(class_id), None, work)
 

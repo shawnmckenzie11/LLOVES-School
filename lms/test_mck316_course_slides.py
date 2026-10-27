@@ -1488,6 +1488,10 @@ class CourseSlideSetupTests(unittest.TestCase):
         self.assertNotIn('id="live-google-slides-prev"', html)
         self.assertNotIn('id="live-google-slides-next"', html)
         self.assertIn('id="live-google-slides-stage"', html)
+        empty = "No slides yet. Add a deck when you start a live class, at step 3 (Which deck?)."
+        self.assertEqual(html.count(empty), 1)
+        self.assertNotIn('id="live-google-slides-file"', html)
+        self.assertIn('id="set-class-slides-file"', html)
         home = (LMS_DIR / "templates" / "student" / "home.html").read_text(encoding="utf-8")
         self.assertIn('id="slides-fit-stage"', home)
         for name in ("student-portal.css", "staff-shell.css"):

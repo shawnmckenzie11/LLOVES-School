@@ -10227,7 +10227,12 @@ class LovesDB:
         if bound_session is None:
             active = self.get_active_live_session_for_class(int(class_id))
             if active is not None:
-                teacher = active.get("teacher_state")
+                # The active-row helper returns the raw sqlite row.
+                # ``teacher_state`` exists only after ``get_live_session``
+                # parses it. A raw row would look like M1 C1, so a deck
+                # for any other class never reached the Slides tab.
+                parsed = self.get_live_session(int(active["id"])) or {}
+                teacher = parsed.get("teacher_state")
                 state = teacher if isinstance(teacher, dict) else {}
                 if (
                     normalize_live_module(state.get("live_module")) == live_module
@@ -10265,16 +10270,18 @@ class LovesDB:
     ) -> dict[str, Any] | None:
         """Point one live run at the course deck for its placement.
 
-        The same course deck id keeps the run's publish flags. A different
-        deck, or ``force``, copies the stored default onto every page and
-        reuses the page files. A placement with no course deck clears a
-        course-owned pointer and leaves the files in place.
+        The same course deck id keeps the run's publish flags. ``force``
+        rewrites the page list and reuses the page files. A page whose
+        file is unchanged keeps the shared flag already on this run. A
+        new file takes the stored default. A placement with no course
+        deck clears a course-owned pointer and leaves the files in place.
 
         Args:
             session_id: ``live_class_sessions.id``.
             module: Override. Default is the run's teacher-state module.
             slot: Override. Default is the run's teacher-state slot.
             force: Rewrite pages even when the deck id already matches.
+                Unchanged page files keep their shared flags.
 
         Returns:
             Teacher deck, or None when this run has no course deck.
@@ -10309,6 +10316,16 @@ class LovesDB:
         if not page_rows:
             return None
         published = bool(row["default_published"])
+        kept_shared: dict[str, bool] = {}
+        if isinstance(current_deck, dict):
+            for old in current_deck.get("pages") or []:
+                if not isinstance(old, dict):
+                    continue
+                old_name = self._google_slide_image_name(
+                    str(old.get("image_url") or "").rsplit("/", 1)[-1]
+                )
+                if old_name:
+                    kept_shared[old_name] = bool(old.get("published"))
         try:
             rev = int((current_deck or {}).get("rev") or 0) + 1
         except (TypeError, ValueError):
@@ -10326,7 +10343,7 @@ class LovesDB:
                     "image_url": (
                         f"/api/classes/{class_id}/live-question-images/{name}"
                     ),
-                    "published": published,
+                    "published": kept_shared.get(name, published),
                 }
             )
         if not pages:
@@ -17521,8 +17538,9 @@ class SchoolDB(LovesDB):
 
         ``absent`` means the file is not a slide page, so question images
         keep the existing class-access rule. ``published`` means an active
-        session is sharing that page. ``closed`` means a deck names the
-        file, but the page is unpublished or the session is not active.
+        session is sharing that page. ``closed`` means a course deck or a
+        session deck names the file, but that page is not published on
+        the active session.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -17531,6 +17549,7 @@ class SchoolDB(LovesDB):
         name = self._google_slide_image_name(filename)
         if not name:
             return "absent"
+        course_named = False
         with self._lock:
             rows = self.conn.execute(
                 """
@@ -17540,6 +17559,22 @@ class SchoolDB(LovesDB):
                 """,
                 (int(class_id),),
             ).fetchall()
+            try:
+                course = self.conn.execute(
+                    """
+                    SELECT 1
+                    FROM course_slide_pages AS pages
+                    JOIN course_slide_decks AS decks
+                      ON decks.id = pages.deck_id
+                    WHERE decks.class_id = ?
+                      AND pages.image_relpath LIKE ?
+                    LIMIT 1
+                    """,
+                    (int(class_id), f"%/{name}"),
+                ).fetchone()
+                course_named = course is not None
+            except sqlite3.OperationalError:
+                course_named = False
         seen = False
         published = False
         for row in rows:
@@ -17564,7 +17599,7 @@ class SchoolDB(LovesDB):
                     published = True
         if published:
             return "published"
-        if seen:
+        if seen or course_named:
             return "closed"
         return "absent"
 
