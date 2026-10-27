@@ -3596,6 +3596,10 @@ body.staff-shell .live-google-slides-nav {
   gap: 0.5rem;
   margin: 0.35rem 0 0.5rem;
 }
+/* button { display: inline-block } beats the hidden attribute. */
+body.staff-shell #set-class-slides-remove[hidden] {
+  display: none !important;
+}
 body.staff-shell .live-google-slides-label {
   display: flex;
   flex: 1 1 16rem;
