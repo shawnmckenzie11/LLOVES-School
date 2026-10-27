@@ -718,10 +718,20 @@ class CourseSlideFileTests(unittest.TestCase):
 
         document = fitz.open(stream=pdf, filetype="pdf")
         try:
+            page = document[0]
+            embedded = " ".join(
+                str(item[3]) for item in page.get_fonts()
+            ).lower().replace(" ", "")
             runs: list[tuple[str, str]] = []
-            for span in document[0].get_texttrace():
-                text = "".join(chr(char[0]) for char in span["chars"])
-                font = str(span["font"]).lower().replace(" ", "")
+            for span in page.get_texttrace() or []:
+                chars = span.get("chars") or []
+                if not chars:
+                    continue
+                text = "".join(
+                    chr(char[0]) if isinstance(char[0], int) else str(char[0])
+                    for char in chars
+                )
+                font = str(span.get("font") or "").lower().replace(" ", "")
                 if runs and runs[-1][1] == font:
                     runs[-1] = (runs[-1][0] + text, font)
                 else:
@@ -735,12 +745,20 @@ class CourseSlideFileTests(unittest.TestCase):
             "Times": "liberationserif",
             "Courier": "liberationmono",
         }
-        for label, clone in expected.items():
-            fonts = [font for text, font in runs if label in text]
-            self.assertTrue(fonts and all(clone in font for font in fonts), runs)
-        used = " ".join(font for _, font in runs)
+        for clone in expected.values():
+            self.assertIn(clone, embedded, embedded)
         for stolen in ("arimo", "tinos", "cousine"):
-            self.assertNotIn(stolen, used)
+            self.assertNotIn(stolen, embedded, embedded)
+        # Some PyMuPDF builds return no text trace. The embedded names
+        # above are the check that still runs. When the trace exists,
+        # each line has to use its own clone.
+        if runs:
+            for label, clone in expected.items():
+                fonts = [font for text, font in runs if label in text]
+                self.assertTrue(
+                    fonts and all(clone in font for font in fonts),
+                    runs,
+                )
 
     def test_svg_file_href_is_removed(self) -> None:
         """An SVG file:// image is not left in the package."""
