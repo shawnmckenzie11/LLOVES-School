@@ -13,6 +13,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 LMS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = LMS_DIR.parent
@@ -29,6 +30,7 @@ from live_news_wire import (  # noqa: E402
     LiveNewsLog,
     NewsAudience,
     _acquire_stream,
+    _fan_unsubscribe,
     _sync_board_read_keys,
     chain_sigterm,
     clear_stream_shutdown,
@@ -40,6 +42,8 @@ from live_news_wire import (  # noqa: E402
     iter_sse,
     log_for,
     news_db_path,
+    open_push_watch,
+    prompt_event,
     reset_logs,
     reset_stream_budget,
     reset_stream_shutdown_hook,
@@ -89,6 +93,106 @@ class LiveNewsLogTests(unittest.TestCase):
         self.assertEqual([row["type"] for row in replay], ["stage"])
         self.assertEqual(replay[0]["id"], second[0]["id"])
         self.assertLess(len(json.dumps(replay[0])), 400)
+
+    def test_prompt_card_keeps_the_stem_and_drops_secrets(self) -> None:
+        """A publish card may carry the stem. Answer keys and people do not."""
+        stored = self.log.append(
+            7,
+            [
+                prompt_event(
+                    3,
+                    1,
+                    {
+                        "item_id": 9,
+                        "prompt_id": 3,
+                        "kind": "mc",
+                        "text": "Which graph? <script>alert(1)</script>",
+                        "options": ["Graph", {"id": "r1a2b3c4d5", "label": "Table"}],
+                        "mode": "group_submit",
+                        "flow": "pick_then_agree",
+                        "correct_index": 0,
+                        "correct_answer": "Graph",
+                        "rank_key": "secret",
+                        "name": "kept-off-the-wire",
+                        "email": "kept-off-the-wire",
+                    },
+                )
+            ],
+        )
+        self.assertEqual(len(stored), 1)
+        card = stored[0]["card"]
+        blob = json.dumps(card)
+        self.assertEqual(card["text"], "Which graph?")
+        self.assertEqual(card["kind"], "mc")
+        self.assertEqual(card["flow"], "pick_then_agree")
+        self.assertIn("Graph", card["options"])
+        self.assertNotIn("correct_index", blob)
+        self.assertNotIn("correct_answer", blob)
+        self.assertNotIn("rank_key", blob)
+        self.assertNotIn("name", blob)
+        self.assertNotIn("email", blob)
+        self.assertNotIn("script", blob.lower())
+        self.assertLess(len(json.dumps(stored[0])), 4096)
+
+    def test_oversized_prompt_drops_the_card_and_keeps_the_prompt(self) -> None:
+        """A card past the cap is removed. The prompt id still lands."""
+        event = prompt_event(
+            3,
+            1,
+            {
+                "item_id": 9,
+                "prompt_id": 3,
+                "kind": "mc",
+                "text": "Which graph?",
+                "options": ["Graph", "Table"],
+                "mode": "individual",
+            },
+        )
+        with patch("live_news_wire._postcard_limit", return_value=80):
+            stored = self.log.append(7, [event])
+        self.assertEqual(len(stored), 1)
+        self.assertEqual(stored[0]["type"], "prompt")
+        self.assertNotIn("card", stored[0])
+        self.assertEqual(stored[0]["state_seq"], 1)
+
+    def test_append_wakes_the_tail_without_waiting_out_the_poll(self) -> None:
+        """Same-process seats hear a postcard even when the poll wait is long."""
+        import live_news_wire as wire
+
+        seat = None
+        try:
+            with patch.object(wire, "STREAM_POLL_S", 5.0):
+                seats = open_push_watch(self.log, 11, 1)
+                seat = seats[0]
+                time.sleep(0.05)
+                started = time.perf_counter()
+                stored = self.log.append(
+                    11,
+                    [
+                        prompt_event(
+                            4,
+                            2,
+                            {
+                                "item_id": 8,
+                                "prompt_id": 4,
+                                "kind": "mc",
+                                "text": "Which graph?",
+                                "options": ["Graph", "Table"],
+                                "mode": "individual",
+                            },
+                        )
+                    ],
+                )
+                self.assertTrue(stored and isinstance(stored[0].get("card"), dict))
+                frame = seat.queue.get(timeout=0.25)
+                elapsed = time.perf_counter() - started
+            self.assertLess(elapsed, 0.25)
+            self.assertIn('"type":"prompt"', frame)
+            self.assertIn('"card":', frame)
+            self.assertNotIn("correct_answer", frame)
+        finally:
+            if seat is not None:
+                _fan_unsubscribe(seat)
 
     def test_student_scope_hides_teacher_board_and_other_self_taps(self) -> None:
         """Staff sees flag_work. A student sees only their own self tap."""
@@ -701,6 +805,69 @@ console.log(JSON.stringify(out));
         helper = wire.split("export function studentFallbackPollMs(")[1]
         self.assertIn("fallbackPollMs(wire)", helper.split("\n}")[0])
         self.assertNotIn(": STUDENT_POLL_BASE_MS;", schedule)
+
+    def test_push_state_reload_spreads_across_thirty_buckets(self) -> None:
+        """A pushed question's full /state does not land on one instant."""
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node is not installed")
+        wire = (LMS_DIR / "static" / "live_news_wire.js").resolve().as_uri()
+        script = f"""
+import {{ newsStateDelayMs, NEWS_STATE_SPREAD_MS }} from {json.dumps(wire)};
+const buckets = [];
+for (let i = 0; i < 30; i += 1) buckets.push(newsStateDelayMs((i + 0.5) / 30));
+const out = {{
+  zero: newsStateDelayMs(0),
+  full: newsStateDelayMs(1),
+  almost: newsStateDelayMs(0.999),
+  spread: NEWS_STATE_SPREAD_MS,
+  buckets,
+  distinct: new Set(buckets).size,
+  min: Math.min(...buckets),
+  max: Math.max(...buckets),
+}};
+console.log(JSON.stringify(out));
+"""
+        done = subprocess.run(
+            [node, "--input-type=module", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        got = json.loads(done.stdout.strip().splitlines()[-1])
+        self.assertEqual(got["zero"], 0)
+        self.assertEqual(got["full"], 1450)
+        self.assertEqual(got["almost"], 1450)
+        self.assertEqual(got["spread"], 1450)
+        self.assertEqual(got["distinct"], 30)
+        self.assertEqual(got["min"], 0)
+        self.assertEqual(got["max"], 1450)
+        self.assertEqual(got["buckets"], [i * 50 for i in range(30)])
+
+    def test_prompt_card_paints_before_the_jittered_state_fetch(self) -> None:
+        """The stem is painted from the postcard. /state waits in a bucket."""
+        student = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        on_news = student.split("onNews(event)")[1].split("onBusy")[0]
+        block = on_news.split('event.type === "prompt" && event.card')[1].split(
+            "studentNewsFetch = true"
+        )[0]
+        self.assertIn("applyPushedQuestionCard(event.card)", block)
+        self.assertIn("scheduleNewsState()", block)
+        self.assertIn("return;", block)
+        self.assertNotIn("void tick()", block)
+        schedule = student.split("function scheduleNewsState()")[1].split("function ")[0]
+        self.assertIn("newsStateDelayMs()", schedule)
+        self.assertIn("setTimeout", schedule)
+        tick = student.split("async function tick()")[1].split(
+            'document.getElementById("live-response")'
+        )[0]
+        shed = tick.split('data.error === "state unavailable"')[1].split(
+            "noteStudentPollBusy"
+        )[0]
+        self.assertIn("studentNewsTries < 4", shed)
+        self.assertIn("scheduleNewsState()", shed)
 
 
 def _run_class_list_overlay(

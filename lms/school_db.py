@@ -22121,6 +22121,61 @@ class SchoolDB(LovesDB):
             )
         return published
 
+    def public_push_card(self, item: dict[str, Any]) -> dict[str, Any] | None:
+        """Stem and choices a phone can paint the moment a question is pushed.
+
+        The card is the same for every student at publish. It has no answer
+        key, roster, names, or emails. Keyed rank ids are the student
+        aliases, in the stored display order.
+
+        Args:
+            item: Published lifecycle row from ``publish_live_session_item``.
+
+        Returns:
+            A postcard ``card``, or ``None`` for media and drawings.
+        """
+        if not isinstance(item, dict) or item.get("id") in (None, ""):
+            return None
+        kind = self._question_answer_kind(item)
+        if kind not in {"mc", "numeric", "poll", "rank"}:
+            return None
+        question = item.get("item") if isinstance(item.get("item"), dict) else {}
+        text = str(
+            question.get("text") or question.get("stem") or question.get("prompt") or ""
+        ).strip()
+        mode = str(item.get("response_mode") or "individual").strip().lower()
+        options: list[Any] = []
+        rank_mode = ""
+        if kind == "rank":
+            options = [
+                {"id": str(row["id"]), "label": str(row["label"])}
+                for row in self._rank_race_options_payload(item, student=True)[:8]
+                if str(row.get("label") or "").strip()
+            ]
+            rank_mode = str(question.get("group_rank_mode") or "").strip().lower()
+            if rank_mode not in {"turns", "together"}:
+                rank_mode = ""
+        elif kind in {"mc", "poll"}:
+            options = self._mc_option_labels(item)[:8]
+        flow = ""
+        if (
+            mode == "group_submit"
+            and kind == "mc"
+            and str(question.get(GROUP_MC_FLOW_KEY) or "") == GROUP_MC_PICK_THEN_AGREE
+        ):
+            flow = GROUP_MC_PICK_THEN_AGREE
+        prompt_id = item.get("prompt_id")
+        return {
+            "item_id": int(item["id"]),
+            "prompt_id": int(prompt_id) if prompt_id not in (None, "") else None,
+            "kind": kind,
+            "text": text,
+            "options": options,
+            "mode": mode,
+            "flow": flow,
+            "rank_mode": rank_mode,
+        }
+
     def close_live_session_item(
         self, session_id: int, placement_or_item: str | int, *, by_timer: bool = False
     ) -> dict[str, Any]:

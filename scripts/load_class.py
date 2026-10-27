@@ -1320,6 +1320,147 @@ def _budget_show_prepared_page(school: Any, fx: dict[str, Any]) -> None:
     )
 
 
+# Push-to-visible budget. The postcard card is the question on screen.
+# Full ``/state`` is not on this path. 300 ms covers the write, the wake,
+# and the 40 ms client debounce with room for a slow CI runner.
+PUSH_TO_VISIBLE_MS = 300
+CLIENT_DEBOUNCE_MS = 40
+_CARD_SECRET_KEYS = frozenset(
+    {
+        "correct_answer",
+        "correct_index",
+        "rank_key",
+        "key",
+        "name",
+        "email",
+        "codename",
+    }
+)
+
+
+def _card_secret_key(node: Any) -> str | None:
+    """Return a forbidden key if a push card carries an answer or a person.
+
+    Args:
+        node: Postcard ``card`` object.
+    """
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if str(key).lower() in _CARD_SECRET_KEYS:
+                return str(key)
+            found = _card_secret_key(value)
+            if found:
+                return found
+    elif isinstance(node, list):
+        for item in node:
+            found = _card_secret_key(item)
+            if found:
+                return found
+    return None
+
+
+def _latest_prompt_card(school: Any, session_id: int) -> dict[str, Any] | None:
+    """Return the newest prompt card on the tape, or ``None``.
+
+    Args:
+        school: Open school database. Only ``data_dir`` is read.
+        session_id: ``live_class_sessions.id``.
+    """
+    from live_news_wire import log_for  # noqa: PLC0415
+
+    rows = log_for(school.data_dir).since(int(session_id), 0)
+    card = None
+    for event in rows:
+        if event.get("type") == "prompt" and isinstance(event.get("card"), dict):
+            card = event["card"]
+    return card
+
+
+def _budget_publish_timed(
+    school: Any, fx: dict[str, Any], item: dict[str, Any]
+) -> dict[str, Any]:
+    """Publish one item and time the postcard to every seat.
+
+    Listeners are armed before the POST. This does not fetch ``/state``.
+    The visible question is the card on the wire plus the client debounce.
+
+    Args:
+        school: Open school database.
+        fx: One retained class fixture.
+        item: Prepared item from ``seed``.
+
+    Returns:
+        Stage timings and how many seats received a card.
+    """
+    from live_news_wire import (  # noqa: PLC0415
+        collect_push_cards,
+        last_push_stages,
+        log_for,
+        open_push_watch,
+        reset_push_stages,
+    )
+
+    reset_push_stages()
+    seats = open_push_watch(
+        log_for(school.data_dir), int(fx["session_id"]), len(fx["students"])
+    )
+    started = time.perf_counter()
+    status = _budget_publish(fx, item)
+    handler_ms = (time.perf_counter() - started) * 1000
+    heard = collect_push_cards(seats, 2.0)
+    tail_ms = heard.get("all_ms")
+    push_to_card = None if tail_ms is None else round(handler_ms + float(tail_ms), 1)
+    visible = None if push_to_card is None else round(push_to_card + CLIENT_DEBOUNCE_MS, 1)
+    card = _latest_prompt_card(school, int(fx["session_id"]))
+    # One phone's full snapshot, after the card is already queued. This is
+    # the background refresh, not the moment the question becomes visible.
+    state_started = time.perf_counter()
+    state_rv = fx["students"][0]["client"].get("/api/student/state")
+    stages = {
+        "status": status,
+        "handler_ms": round(handler_ms, 1),
+        "sse_first_ms": heard.get("first_ms"),
+        "sse_all_ms": heard.get("all_ms"),
+        "push_to_card_ms": push_to_card,
+        "client_debounce_ms": CLIENT_DEBOUNCE_MS,
+        "push_to_visible_ms": visible,
+        "cards": heard.get("cards"),
+        "seats": heard.get("seats"),
+        "card_secret": _card_secret_key(card) if isinstance(card, dict) else "missing",
+        "visible_without_state": bool(card),
+        "background_state_ms": round((time.perf_counter() - state_started) * 1000, 1),
+        "background_state_status": int(state_rv.status_code),
+    }
+    stages.update(last_push_stages())
+    return stages
+
+
+def _push_latency_errors(label: str, stages: dict[str, Any], students: int) -> list[str]:
+    """Failures for one timed publish. Empty means the push was fast enough.
+
+    Args:
+        label: ``mc`` or ``rank``.
+        stages: ``_budget_publish_timed`` output.
+        students: How many seats had to see the card.
+    """
+    errors: list[str] = []
+    if int(stages.get("status") or 0) != 200:
+        errors.append(f"{label} question did not publish")
+        return errors
+    cards = int(stages.get("cards") or 0)
+    if cards != int(students):
+        errors.append(f"{label} push card reached {cards} of {students} seats")
+    secret = stages.get("card_secret")
+    if secret:
+        errors.append(f"{label} push card is not public ({secret})")
+    visible = stages.get("push_to_visible_ms")
+    if visible is None or float(visible) >= PUSH_TO_VISIBLE_MS:
+        errors.append(
+            f"{label} push_to_visible_ms={visible}, want < {PUSH_TO_VISIBLE_MS}"
+        )
+    return errors
+
+
 def _budget_publish(fx: dict[str, Any], item: dict[str, Any]) -> int:
     """Publish one prepared item to the group. Returns the HTTP status.
 
@@ -1351,6 +1492,9 @@ def run_sqlite_budget(students: int, out: Path) -> int:
 
     No Postgres and no gunicorn. After a warmup, each tap may rebuild at
     most that team plus the teacher. A tap that does not land also fails.
+    Each publish must put a public card on every seat, and the card must
+    be queued within ``PUSH_TO_VISIBLE_MS`` of the teacher POST, including
+    the client debounce. That path does not fetch ``/state``.
 
     Args:
         students: Roster size.
@@ -1374,12 +1518,14 @@ def run_sqlite_budget(students: int, out: Path) -> int:
     summary: dict[str, Any] = {"students": int(students)}
     try:
         fx = fixtures[0]
-        _budget_show_prepared_page(app.config["SCHOOL_DB"], fx)
+        school = app.config["SCHOOL_DB"]
+        roster = len(fx["students"])
+        _budget_show_prepared_page(school, fx)
         mc = next(item for item in fx["items"] if item.get("kind") == "mc")
         rank = next(item for item in fx["items"] if item.get("kind") == "rank")
-        if _budget_publish(fx, mc) != 200:
-            errors.append("group question did not publish")
-        else:
+        mc_stages = _budget_publish_timed(school, fx, mc)
+        errors.extend(_push_latency_errors("mc", mc_stages, roster))
+        if int(mc_stages.get("status") or 0) == 200:
             _budget_warmup(fx)
             team = int(fx["students"][0]["team"])
             members = [row for row in fx["students"] if int(row["team"]) == team]
@@ -1398,9 +1544,10 @@ def run_sqlite_budget(students: int, out: Path) -> int:
                         f"group pick rebuilt {builds}, budget {summary['group_pick_budget']}"
                     )
         _budget_close(fx, mc)
-        if _budget_publish(fx, rank) != 200:
-            errors.append("rank question did not publish")
-        else:
+        rank_stages = _budget_publish_timed(school, fx, rank)
+        summary["push_latency"] = {"mc": mc_stages, "rank": rank_stages}
+        errors.extend(_push_latency_errors("rank", rank_stages, roster))
+        if int(rank_stages.get("status") or 0) == 200:
             _budget_warmup(fx)
             actor = None
             for row in fx["students"]:
@@ -1432,10 +1579,13 @@ def run_sqlite_budget(students: int, out: Path) -> int:
         if errors:
             print("\n".join(errors), file=sys.stderr)
             return 1
+        latency = summary.get("push_latency") or {}
         print(
             f"sqlite budget ok pick={summary.get('group_pick_builds')}"
             f"/{summary.get('group_pick_budget')}"
             f" rank={summary.get('rank_builds')}/{summary.get('rank_budget')}"
+            f" push_to_visible_ms mc={latency.get('mc', {}).get('push_to_visible_ms')}"
+            f" rank={latency.get('rank', {}).get('push_to_visible_ms')}"
         )
         return 0
     finally:
