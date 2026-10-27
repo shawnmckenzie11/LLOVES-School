@@ -3566,7 +3566,17 @@ async function refreshSetClassSlides() {
     setClassSlidesKey = key;
     setClassSlidesTitle = "";
   }
+  syncSetClassSlidesRemove();
   paintSetClassSummary();
+}
+
+/**
+ * Show Remove slides only when this placement already has a deck.
+ */
+function syncSetClassSlidesRemove() {
+  const button = $("set-class-slides-remove");
+  if (!(button instanceof HTMLButtonElement)) return;
+  button.hidden = !setClassSlidesTitle;
 }
 
 /**
@@ -3617,6 +3627,7 @@ async function addSetClassSlides(event) {
     const data = await finishSlideImport(started);
     setClassSlidesTitle = String(data?.deck?.title || "");
     setClassSlidesKey = `${module}|${slot}`;
+    syncSetClassSlidesRemove();
     if (data?.google_slides) lastGoogleSlides = data.google_slides;
     if (urlInput instanceof HTMLInputElement) urlInput.value = "";
     if (fileInput instanceof HTMLInputElement) fileInput.value = "";
@@ -3629,6 +3640,41 @@ async function addSetClassSlides(event) {
     }
   } finally {
     if (button instanceof HTMLButtonElement) button.disabled = false;
+  }
+}
+
+/**
+ * Remove the course slide deck for the placement Set Class is showing.
+ * @returns {Promise<void>}
+ */
+async function removeSetClassSlides() {
+  const error = $("set-class-slides-error");
+  const button = $("set-class-slides-remove");
+  const module = String($("live-module-select")?.value || teacherState.live_module || "M1").toUpperCase();
+  const slot = String($("live-class-select")?.value || teacherState.live_slot || "C1").toUpperCase();
+  if (error) {
+    error.hidden = true;
+    error.replaceChildren();
+  }
+  if (button instanceof HTMLButtonElement) button.disabled = true;
+  try {
+    await api(
+      `/api/classes/${classId}/slide-deck?module=${encodeURIComponent(module)}&slot=${encodeURIComponent(slot)}`,
+      { method: "DELETE" }
+    );
+    setClassSlidesTitle = "";
+    setClassSlidesKey = `${module}|${slot}`;
+    lastGoogleSlides = null;
+    paintSetClassSummary();
+    paintSlidesMetadata();
+  } catch (err) {
+    if (error) {
+      error.hidden = false;
+      paintSlidesAttachError(error, err);
+    }
+  } finally {
+    if (button instanceof HTMLButtonElement) button.disabled = false;
+    syncSetClassSlidesRemove();
   }
 }
 
@@ -13087,6 +13133,9 @@ document.querySelectorAll("[data-surface-close]").forEach((button) => {
 });
 $("set-class-slides-form")?.addEventListener("submit", (event) => {
   addSetClassSlides(event).catch((err) => showError("#ap-overlay-error", err));
+});
+$("set-class-slides-remove")?.addEventListener("click", () => {
+  removeSetClassSlides().catch((err) => showError("#ap-overlay-error", err));
 });
 // MCK-174: Reopen board opens a two-choice popover (Last board / Fresh board).
 document.querySelector('[data-surface-reopen="canvas"]')?.addEventListener("click", () => {

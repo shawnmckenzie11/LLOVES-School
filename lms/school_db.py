@@ -10260,6 +10260,110 @@ class LovesDB:
         )
         return {"deck": summary, "google_slides": google}
 
+    def delete_course_slide_deck(
+        self, class_id: int, module: Any, slot: Any
+    ) -> dict[str, Any]:
+        """Remove one course slide deck and files nothing else still names.
+
+        Page rows and the deck row go together. A live session in this
+        class whose deck pointer names this deck loses that pointer.
+        Page files and the PowerPoint stay when another deck or session
+        in this class still names them. Another class is not touched.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Live module.
+            slot: Live slot.
+
+        Returns:
+            ``deleted`` is false when this placement has no deck.
+            ``page_count`` is how many page rows were removed.
+        """
+        live_module = normalize_live_module(module)
+        live_slot = normalize_live_slot(slot)
+        names: list[str] = []
+        source_rel = ""
+        with self._lock:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                existing = self.conn.execute(
+                    """
+                    SELECT id, source_relpath
+                    FROM course_slide_decks
+                    WHERE class_id = ? AND module = ? AND slot = ?
+                    """,
+                    (int(class_id), live_module, live_slot),
+                ).fetchone()
+                if existing is None:
+                    self.conn.execute("COMMIT")
+                    return {"deleted": False, "page_count": 0}
+                deck_id = int(existing["id"])
+                source_rel = str(existing["source_relpath"] or "")
+                pages = self.conn.execute(
+                    """
+                    SELECT image_relpath FROM course_slide_pages
+                    WHERE deck_id = ?
+                    """,
+                    (deck_id,),
+                ).fetchall()
+                for page in pages:
+                    name = self._google_slide_image_name(
+                        str(page["image_relpath"] or "").rsplit("/", 1)[-1]
+                    )
+                    if name and name not in names:
+                        names.append(name)
+                sessions = self.conn.execute(
+                    """
+                    SELECT id, google_slides_json
+                    FROM live_class_sessions
+                    WHERE class_id = ?
+                    """,
+                    (int(class_id),),
+                ).fetchall()
+                clear_ids: list[int] = []
+                for session in sessions:
+                    raw = str(session["google_slides_json"] or "")
+                    if not raw:
+                        continue
+                    try:
+                        deck = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(deck, dict):
+                        continue
+                    try:
+                        pointed = int(deck.get("course_deck_id") or 0)
+                    except (TypeError, ValueError):
+                        continue
+                    if pointed == deck_id:
+                        clear_ids.append(int(session["id"]))
+                self.conn.execute(
+                    "DELETE FROM course_slide_pages WHERE deck_id = ?",
+                    (deck_id,),
+                )
+                self.conn.execute(
+                    "DELETE FROM course_slide_decks WHERE id = ?",
+                    (deck_id,),
+                )
+                for session_id in clear_ids:
+                    self.conn.execute(
+                        """
+                        UPDATE live_class_sessions
+                        SET google_slides_json = ''
+                        WHERE id = ?
+                        """,
+                        (session_id,),
+                    )
+                self.conn.execute("COMMIT")
+            except Exception:
+                if self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                raise
+        self._release_course_slide_names(int(class_id), names, session_id=0)
+        if source_rel:
+            self._release_course_slide_source(int(class_id), source_rel)
+        return {"deleted": True, "page_count": len(names)}
+
     def bind_session_course_slides(
         self,
         session_id: int,
