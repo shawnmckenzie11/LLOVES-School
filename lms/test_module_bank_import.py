@@ -2987,6 +2987,40 @@ class ModuleBankImportApiTests(unittest.TestCase):
                 self.assertIn(filename, disposition, root)
             self.assertEqual(stored.path.read_bytes(), hostile)
 
+    def test_non_latin1_download_name_returns_200(self) -> None:
+        """A name outside latin-1 is an attachment, not a 500."""
+        from urllib.parse import quote
+
+        name = "笔记.pdf"
+        rel = f"web_resources/bank-mirror/{name}"
+        payload = b"%PDF-1.1\n"
+        student = self._join_maple_student()
+        store = ContentBlobStore(self.school.data_dir, self.school)
+        stored = store.put_bytes(payload, filename=rel, mime="application/pdf")
+        self.school.conn.execute(
+            """
+            INSERT INTO library_files (library_id, relpath, blob_sha, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (self.library_id, rel, stored.sha256, _now()),
+        )
+        self.school.conn.commit()
+        encoded = quote(rel, safe="/")
+        for root in (
+            f"/api/classes/{self.class_id}/module-files/{encoded}",
+            f"/staff/class/{self.class_id}/module-files/{encoded}",
+        ):
+            client = student if root.startswith("/api/") else self.client
+            served = client.get(root)
+            self.assertEqual(served.status_code, 200, root)
+            self.assertEqual(served.get_data(), payload, root)
+            disposition = served.headers.get("Content-Disposition") or ""
+            disposition.encode("latin-1")
+            self.assertIn("attachment", disposition.lower(), root)
+            self.assertIn("filename*=UTF-8''", disposition, root)
+            self.assertIn(quote(name, safe=""), disposition, root)
+            self.assertNotIn(name, disposition, root)
+
     def test_raw_svgz_is_not_labelled_gzip(self) -> None:
         """A raw SVG named .svgz is sandboxed and is not sent as gzip."""
         import gzip

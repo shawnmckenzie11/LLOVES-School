@@ -3645,6 +3645,7 @@ async function addSetClassSlides(event) {
 
 /**
  * Remove the course slide deck for the placement Set Class is showing.
+ * A live class asks first. Cancel leaves the deck in place.
  * @returns {Promise<void>}
  */
 async function removeSetClassSlides() {
@@ -3652,6 +3653,11 @@ async function removeSetClassSlides() {
   const button = $("set-class-slides-remove");
   const module = String($("live-module-select")?.value || teacherState.live_module || "M1").toUpperCase();
   const slot = String($("live-class-select")?.value || teacherState.live_slot || "C1").toUpperCase();
+  const liveId = liveSessionId || readLiveSessionId();
+  const classIsLive = liveId > 0 && String(root?.dataset.liveCode || "").trim().length > 0;
+  if (classIsLive && !window.confirm("This class is live. Remove the slide deck for this placement?")) {
+    return;
+  }
   if (error) {
     error.hidden = true;
     error.replaceChildren();
