@@ -64,6 +64,7 @@ from flask import (  # noqa: E402
     Response,
     abort,
     current_app,
+    g,
     has_request_context,
     jsonify,
     make_response,
@@ -2207,6 +2208,16 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             }
         )
 
+    @app.before_request
+    def _mark_live_state_started():
+        """Start the clock for a live ``/state`` poll.
+
+        The duration is logged after the response. No session id, query,
+        or body is stored.
+        """
+        if is_live_state_poll(request.path):
+            g.live_state_started = time.perf_counter()
+
     @app.after_request
     def _close_live_poll_connection(response):
         """Drop keepalive on live ``/state`` so idle tabs cannot pile up sockets.
@@ -2214,6 +2225,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         gunicorn's default ``worker_connections`` is 1000. Poll responses
         that stay open become ESTABLISHED fds. ``Connection: close`` keeps
         those polls out of the keepalive set. ``/health`` is not a poll.
+        A live poll also logs its duration and payload size, with no
+        session id, code, name, or address.
 
         Args:
             response: The view's response.
@@ -2223,6 +2236,18 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         """
         if is_live_state_poll(request.path):
             response.headers["Connection"] = "close"
+            started = getattr(g, "live_state_started", None)
+            if started is not None:
+                duration_ms = int((time.perf_counter() - float(started)) * 1000)
+                try:
+                    payload_bytes = response.calculate_content_length()
+                except Exception:  # noqa: BLE001 - the poll must still be returned
+                    payload_bytes = 0
+                logger.info(
+                    "live /state duration_ms=%d payload_bytes=%d",
+                    duration_ms,
+                    int(payload_bytes or 0),
+                )
         return response
 
     @app.route("/it")
@@ -4203,6 +4228,15 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             )
         )
 
+    def _wants_quit_json() -> bool:
+        """True when Quit was submitted by fetch, not a plain form POST.
+
+        The browser form sends ``*/*``. The dialog sends
+        ``application/json`` so a 409 can stay inside the dialog.
+        """
+        accept = request.headers.get("Accept") or ""
+        return "application/json" in accept.lower()
+
     @app.route("/staff/class/<int:class_id>/quit-live", methods=["POST"])
     @staff_required
     def staff_quit_live_class(class_id: int):
@@ -4211,13 +4245,41 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         Same ownership rules as End Class. Attendance, participation,
         and a catch-up link are not written. Responses, attendees, board
         assignments, engagement events, and teacher notes for this
-        active session are deleted here, not on the next Start. Quit
-        after End changes nothing and says the class already ended.
+        active session are deleted here, not on the next Start. Slides
+        attached during the live class stay on the course. Quit after
+        the wipe is a no-op. A fetch retry after a busy 409 calls finish
+        again and completes the wipe. A plain form POST still gets HTML.
         """
         user = current_user()
         assert user is not None
         if not school.teacher_owns_class(int(user["id"]), class_id):
             abort(403)
+        home = url_for("staff_home")
+        wants_json = _wants_quit_json()
+
+        def _ended():
+            """Report a wipe that already finished.
+
+            JSON navigates home. HTML stays a 409 for a normal form POST.
+            """
+            if wants_json:
+                return jsonify(
+                    {"ok": True, "already_ended": True, "redirect": home}
+                )
+            return _already_ended_page()
+
+        def _busy():
+            """Ask the dialog to retry. The session is still open."""
+            if wants_json:
+                return jsonify(
+                    {
+                        "ok": False,
+                        "finish_busy": True,
+                        "error": "Still finishing — Retry",
+                    }
+                ), 409
+            return _finish_busy_page()
+
         active = school.get_active_live_session_for_teacher(int(user["id"]))
         # Read seqs before the wipe deletes the rows.
         quit_seqs = {
@@ -4225,14 +4287,14 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             for row in school.list_live_sessions_for_class(int(class_id))
         }
         if active is None or int(active["class_id"]) != int(class_id):
-            return _already_ended_page()
+            return _ended()
         ended = school.finish_live_class(
             int(class_id), persist=False, celebrate=False
         )
         if isinstance(ended, dict) and ended.get("already_ended"):
-            return _already_ended_page()
+            return _ended()
         if isinstance(ended, dict) and ended.get("finish_busy"):
-            return _finish_busy_page()
+            return _busy()
         # Open tabs (often on the End celebration) fetch now and leave,
         # instead of waiting for the safety poll.
         for quit_sid, quit_seq in quit_seqs.items():
@@ -4241,7 +4303,9 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 quit_sid,
                 [{"type": "state_seq", "state_seq": int(quit_seq) + 1}],
             )
-        return redirect(url_for("staff_home"))
+        if wants_json:
+            return jsonify({"ok": True, "redirect": home})
+        return redirect(home)
 
     @app.route("/staff/class/<int:class_id>")
     @staff_required
@@ -9113,28 +9177,35 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             )
 
             def work(job_id: str) -> dict[str, Any]:
-                """Convert the spilled upload into the course deck."""
+                """Convert the spilled upload into the course deck.
+
+                Conversion and rendering run in capped subprocesses. Pages
+                are files. The upload is read again only when it is stored.
+                """
                 import course_slide_files as files
 
                 path = Path(str(spilled))
+                page_dir = path.parent / f"pages-{job_id}"
                 try:
-                    raw = path.read_bytes()
-                    pngs, truncated = files.pages_from_office(raw, suffix, timeout=80)
+                    page_paths, truncated = files.pages_from_office_to_dir(
+                        path, suffix, page_dir, timeout=80
+                    )
                     saved = school.save_course_slide_deck(
                         int(class_id),
                         module,
                         slot,
                         title=title,
                         source="pptx",
-                        page_pngs=pngs,
+                        page_paths=page_paths,
                         default_published=published,
                         truncated=truncated,
-                        source_bytes=raw,
+                        source_path=path,
                         source_suffix=suffix,
                         job_id=job_id,
                     )
                 finally:
                     path.unlink(missing_ok=True)
+                    shutil.rmtree(page_dir, ignore_errors=True)
                 _emit_slide_news_for_class(int(class_id))
                 return _course_deck_job_body(int(class_id), saved)
 
@@ -9167,47 +9238,49 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return jsonify({"ok": False, "error": str(exc)}), 400
 
         def work(job_id: str) -> dict[str, Any]:
-            """Import a share link with the same 45 second deadline as a live run."""
+            """Import a share link with the same 45 second deadline as a live run.
+
+            Pages are written one at a time in a capped subprocess. The
+            worker does not keep the PNG list.
+            """
+            import tempfile
             import time as time_mod
 
             from google_slides_import import (
                 IMPORT_TIME_LIMIT_SECONDS,
                 SlidesShareNotPublic,
-                _download_with_oauth,
-                fetch_public_pdf,
-                render_pdf_pages,
+                write_shared_deck_pages,
             )
             from slide_import_jobs import SlideImportFailed
 
             deadline = time_mod.monotonic() + IMPORT_TIME_LIMIT_SECONDS
-            source = "public_export"
+            work_dir = Path(tempfile.mkdtemp(prefix="lloves-gslides-"))
             try:
                 try:
-                    pdf = fetch_public_pdf(presentation_id, deadline=deadline)
-                    pngs, truncated = render_pdf_pages(pdf, deadline=deadline)
-                except SlidesShareNotPublic:
-                    pngs, truncated = _download_with_oauth(
+                    page_paths, truncated, source = write_shared_deck_pages(
                         school,
                         presentation_id,
                         user=user,
                         http=None,
                         deadline=deadline,
+                        work_dir=work_dir,
                     )
-                    source = "oauth_thumbnail"
-            except SlidesShareNotPublic as exc:
-                raise SlideImportFailed(str(exc), needs_slides_read=True) from exc
-            saved = school.save_course_slide_deck(
-                int(class_id),
-                module,
-                slot,
-                title="Google Slides",
-                source=source,
-                presentation_id=presentation_id,
-                page_pngs=pngs,
-                default_published=published_flag,
-                truncated=truncated,
-                job_id=job_id,
-            )
+                except SlidesShareNotPublic as exc:
+                    raise SlideImportFailed(str(exc), needs_slides_read=True) from exc
+                saved = school.save_course_slide_deck(
+                    int(class_id),
+                    module,
+                    slot,
+                    title="Google Slides",
+                    source=source,
+                    presentation_id=presentation_id,
+                    page_paths=page_paths,
+                    default_published=published_flag,
+                    truncated=truncated,
+                    job_id=job_id,
+                )
+            finally:
+                shutil.rmtree(work_dir, ignore_errors=True)
             _emit_slide_news_for_class(int(class_id))
             return _course_deck_job_body(int(class_id), saved)
 

@@ -1026,6 +1026,8 @@ class CourseSlideFileTests(unittest.TestCase):
         self.assertIn("pass_fds=(3,)", inspect.getsource(files._launch_sandbox))
         self.assertIn("host root", inspect.getsource(files._launch_sandbox))
         self.assertIn("pivot_root . oldroot", script)
+        self.assertIn('ulimit -v "$as_kb"', script)
+        self.assertIn("LLOVES_SLIDE_AS_KB", script)
         self.assertIn("--bounding-set=-all", script)
         self.assertIn("--no-new-privs", script)
         self.assertIn(
@@ -1280,7 +1282,7 @@ class CourseSlideFileTests(unittest.TestCase):
             huge["wsgi.input"].read(1)
 
     def test_at_most_two_imports_run_at_once(self) -> None:
-        """A third import waits until one of the two slots is free."""
+        """A second import waits until the one machine-wide slot is free."""
         from slide_import_jobs import start_slide_import
 
         class Jobs:
@@ -1320,11 +1322,10 @@ class CourseSlideFileTests(unittest.TestCase):
         while time.time() < deadline and len(jobs.ready) < 4:
             time.sleep(0.02)
         self.assertEqual(len(jobs.ready), 4)
-        self.assertLessEqual(jobs.max_seen, 2)
-        self.assertGreaterEqual(jobs.max_seen, 2)
+        self.assertEqual(jobs.max_seen, 1)
 
     def test_import_slots_are_shared_across_processes(self) -> None:
-        """Two other processes fill the cap, and a dead holder frees a slot."""
+        """One other process fills the cap, and a dead holder frees the slot."""
         from slide_import_jobs import acquire_import_slot
 
         lms_dir = str(Path(__file__).resolve().parent)
@@ -1344,16 +1345,15 @@ class CourseSlideFileTests(unittest.TestCase):
         )
         procs: list[subprocess.Popen[str]] = []
         try:
-            for _index in range(2):
-                proc = subprocess.Popen(
-                    ["python3", str(holder)],
-                    stdout=subprocess.PIPE,
-                    text=True,
-                )
-                procs.append(proc)
-                assert proc.stdout is not None
-                line = proc.stdout.readline()
-                self.assertIn("held", line)
+            proc = subprocess.Popen(
+                ["python3", str(holder)],
+                stdout=subprocess.PIPE,
+                text=True,
+            )
+            procs.append(proc)
+            assert proc.stdout is not None
+            line = proc.stdout.readline()
+            self.assertIn("held", line)
             self.assertIsNone(acquire_import_slot(0.3))
             procs[0].kill()
             procs[0].wait(timeout=5)
@@ -1495,8 +1495,20 @@ class CourseSlideSetupTests(unittest.TestCase):
         """A pptx is a volume file. The default-publish checkbox is what students see."""
         pngs = _png_pages()
         payload = b"PK\x03\x04" + _MARKER
+
+        def _fake_pages(source_path, suffix, page_dir, timeout=None, already_stripped=False):
+            """Write the fixture PNG into the page directory."""
+            destination = Path(page_dir)
+            destination.mkdir(parents=True, exist_ok=True)
+            written = []
+            for index, raw in enumerate(pngs):
+                path = destination / f"page-{index:03d}.png"
+                path.write_bytes(raw)
+                written.append(path)
+            return written, False
+
         with mock.patch(
-            "course_slide_files.pages_from_office", return_value=(pngs, False)
+            "course_slide_files.pages_from_office_to_dir", side_effect=_fake_pages
         ):
             added = self.staff.post(
                 f"/api/classes/{self.class_id}/slide-deck",
@@ -1530,7 +1542,7 @@ class CourseSlideSetupTests(unittest.TestCase):
         self.assertNotIn(_MARKER, blob)
         self.assertNotIn(pngs[0], blob)
         with mock.patch(
-            "course_slide_files.pages_from_office", return_value=(pngs, False)
+            "course_slide_files.pages_from_office_to_dir", side_effect=_fake_pages
         ):
             second = self.staff.post(
                 f"/api/classes/{self.class_id}/slide-deck",

@@ -23,8 +23,9 @@ logger = logging.getLogger(__name__)
 # 80 seconds so a deck that finishes on time is still running at save.
 JOB_BUDGET_SECONDS = 100
 SLOT_WAIT_SECONDS = 30
-# Two LibreOffice conversions at once, shared by every gunicorn worker.
-MAX_CONCURRENT_SLIDE_IMPORTS = 2
+# One LibreOffice conversion at a time, shared by every gunicorn worker.
+# A second capped child can still exhaust a 1 GB machine.
+MAX_CONCURRENT_SLIDE_IMPORTS = 1
 _SLOT_DIR = Path("/tmp/lloves-slide-import-slots")
 
 
@@ -54,10 +55,10 @@ class _HeldImportSlot:
 
 
 def acquire_import_slot(timeout: float = 30) -> _HeldImportSlot | None:
-    """Take one of the two machine-wide slide import slots.
+    """Take the one machine-wide slide import slot.
 
     ``flock`` is per open-file description, so threads in one worker
-    and processes in the other workers share the same two slots.
+    and processes in the other workers share that slot.
     A worker that dies releases its slot without a decrement.
 
     Args:
@@ -112,8 +113,8 @@ def start_slide_import(school: Any, job_id: str, work: Callable[[], dict]) -> No
         job_id: Row created by the request before this call.
         work: Returns the JSON object stored on success. It must not
             touch the Flask request. Raise ``SlideImportFailed`` or
-            ``ValueError`` for a teacher-facing error. At most two
-            imports run at once on this machine; the rest wait for a free slot.
+            ``ValueError`` for a teacher-facing error. One import runs
+            at a time on this machine; the rest wait for the free slot.
             The budget starts when a slot is taken, not while the job waits.
     """
 
