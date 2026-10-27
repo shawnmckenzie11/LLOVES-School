@@ -11,11 +11,10 @@ ENV PORT=8080
 # ``mount`` and ``umount`` are the mount package on Debian 13. They are
 # not part of util-linux. The slide sandbox calls both by name.
 # Metric clones only: Liberation (Arial/Times/Courier), Carlito (Calibri),
-# Caladea (Cambria). eot2ttf is the tiny converter for faces a deck embeds.
-# libeot0 and fontconfig already come in with LibreOffice.
+# Caladea (Cambria). No embedded-font converter. fontconfig already
+# comes in with LibreOffice.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    eot2ttf \
     fonts-crosextra-caladea \
     fonts-crosextra-carlito \
     fonts-liberation \

@@ -653,31 +653,29 @@ class CourseSlideFileTests(unittest.TestCase):
             "fonts-liberation",
             "fonts-crosextra-carlito",
             "fonts-crosextra-caladea",
-            "eot2ttf",
         ):
             self.assertIn(package, docker)
         self.assertIn("59-lloves-office-metrics.conf", docker)
+        self.assertNotIn("eot2ttf", docker)
         self.assertNotIn("fonts-ibm-plex", docker)
         self.assertNotIn("ttf-mscorefonts", docker)
 
-    def test_embedded_truetype_is_staged_for_the_job(self) -> None:
-        """A face already stored as TrueType is copied. A path escape is not."""
+    def test_font_probe_names_metric_families_when_the_list_is_long(self) -> None:
+        """A long fc-list does not drop the metric families from the detail."""
         import course_slide_files as files
 
-        face = b"\x00\x01\x00\x00" + b"\x00" * 32
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w") as package:
-            package.writestr("ppt/fonts/custom.fntdata", face)
-            package.writestr("ppt/fonts/../secret.fntdata", face)
-            package.writestr("ppt/media/note.txt", b"not-a-font")
-        with tempfile.TemporaryDirectory() as tmp:
-            dest = Path(tmp) / "fonts"
-            written = files.extract_embedded_deck_fonts(buffer.getvalue(), dest)
-            staged = list(dest.glob("*.ttf"))
-            self.assertEqual(written, 1)
-            self.assertEqual(len(staged), 1)
-            self.assertTrue(staged[0].read_bytes().startswith(b"\x00\x01\x00\x00"))
-            self.assertEqual(files.extract_embedded_deck_fonts(b"PK\x03\x04", dest), 0)
+        families = {f"Family {index:04d}" for index in range(400)}
+        families.update(files.METRIC_FONT_FAMILIES)
+        ok, detail = files._metric_font_detail(families)
+        self.assertTrue(ok, detail)
+        for name in files.METRIC_FONT_FAMILIES:
+            self.assertIn(name, detail)
+        self.assertNotIn("Family 0000", detail)
+        self.assertLess(len(detail), 400)
+        failed, missing = files._metric_font_detail(families - {"Carlito"})
+        self.assertFalse(failed)
+        self.assertIn("missing=Carlito", missing)
+        self.assertIn("Liberation Sans", missing)
 
     @unittest.skipUnless(shutil.which("fc-match"), "fontconfig is not installed")
     def test_named_office_faces_use_metric_clones(self) -> None:
@@ -698,7 +696,7 @@ class CourseSlideFileTests(unittest.TestCase):
             ("Courier New", "Liberation Mono"),
         )
         with tempfile.TemporaryDirectory() as tmp:
-            conf = files._job_fontconfig(Path(tmp), None)
+            conf = files._job_fontconfig(Path(tmp))
             env = os.environ.copy()
             env["FONTCONFIG_FILE"] = str(conf)
             for family, clone in expected:
