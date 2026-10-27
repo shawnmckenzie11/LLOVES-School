@@ -10306,6 +10306,7 @@ class LovesDB:
                     """,
                     (deck_id,),
                 ).fetchall()
+                page_count = len(pages)
                 for page in pages:
                     name = self._google_slide_image_name(
                         str(page["image_relpath"] or "").rsplit("/", 1)[-1]
@@ -10362,7 +10363,7 @@ class LovesDB:
         self._release_course_slide_names(int(class_id), names, session_id=0)
         if source_rel:
             self._release_course_slide_source(int(class_id), source_rel)
-        return {"deleted": True, "page_count": len(names)}
+        return {"deleted": True, "page_count": page_count}
 
     def bind_session_course_slides(
         self,

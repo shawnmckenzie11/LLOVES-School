@@ -1504,6 +1504,26 @@ def _attachment_filename(rel: str) -> str:
     return name[:180]
 
 
+def content_disposition_attachment(rel: str) -> str:
+    """Return an attachment header that stays latin-1.
+
+    ``filename`` is an ASCII fallback. ``filename*`` is the real name as
+    percent-encoded UTF-8 (RFC 5987), so a non-latin-1 name does not
+    raise when the header is encoded.
+
+    Args:
+        rel: Cartridge-relative path used as the download name.
+    """
+    cleaned = _attachment_filename(rel)
+    ascii_name = "".join(ch for ch in cleaned if ord(ch) < 128).strip(" .")
+    if not ascii_name:
+        ascii_name = "download"
+    encoded = urllib.parse.quote(cleaned, safe="")
+    return (
+        f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{encoded}'
+    )
+
+
 def apply_module_file_headers(response: Any, rel: str) -> Any:
     """Apply the module-file allowlist without rewriting the blob.
 
@@ -1528,8 +1548,7 @@ def apply_module_file_headers(response: Any, rel: str) -> Any:
     if kind == "svg":
         response.headers["Content-Type"] = "image/svg+xml"
         return response
-    filename = _attachment_filename(rel)
-    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    response.headers["Content-Disposition"] = content_disposition_attachment(rel)
     return response
 
 

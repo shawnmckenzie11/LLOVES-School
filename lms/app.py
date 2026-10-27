@@ -1607,6 +1607,32 @@ def create_app(
     return app
 
 
+def _same_origin_post() -> bool:
+    """True when this request came from one of our own pages.
+
+    Used for state-changing POSTs and for DELETE of a course slide deck.
+    When the browser sends ``Sec-Fetch-Site`` it decides: only
+    ``same-origin`` passes (``cross-site``, ``same-site`` and ``none``
+    are refused), whatever ``Origin`` says. Without it, ``Origin`` must
+    match this host when sent; with no ``Origin``, a ``Referer`` from
+    another host is refused too. Old browsers that send neither pass.
+    """
+    site = str(request.headers.get("Sec-Fetch-Site") or "").strip().lower()
+    if site:
+        # #272 gate MED-1: invite.html sends no Referer, so Chrome posts
+        # ``Origin: null`` with ``Sec-Fetch-Site: same-origin``. Fetch
+        # metadata is the browser's own verdict: trust it when present.
+        return site == "same-origin"
+    own = request.host_url.rstrip("/").lower()
+    origin = str(request.headers.get("Origin") or "").strip().lower()
+    if origin:
+        return origin == own
+    referer = str(request.headers.get("Referer") or "").strip().lower()
+    if referer:
+        return referer == own or referer.startswith(own + "/")
+    return True
+
+
 def _register_pages(app: Flask, school: SchoolDB) -> None:
     """Landing, IT, staff, student, static, and module/syllabus routes."""
 
@@ -3369,30 +3395,6 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         )
         classes = school.list_staff_classes(int(user["id"]), int(active["id"]))
         return offerings, classes
-
-    def _same_origin_post() -> bool:
-        """True when this POST came from one of our own pages.
-
-        When the browser sends ``Sec-Fetch-Site`` it decides: only
-        ``same-origin`` passes (``cross-site``, ``same-site`` and ``none``
-        are refused), whatever ``Origin`` says. Without it, ``Origin`` must
-        match this host when sent; with no ``Origin``, a ``Referer`` from
-        another host is refused too. Old browsers that send neither pass.
-        """
-        site = str(request.headers.get("Sec-Fetch-Site") or "").strip().lower()
-        if site:
-            # #272 gate MED-1: invite.html sends no Referer, so Chrome posts
-            # ``Origin: null`` with ``Sec-Fetch-Site: same-origin``. Fetch
-            # metadata is the browser's own verdict: trust it when present.
-            return site == "same-origin"
-        own = request.host_url.rstrip("/").lower()
-        origin = str(request.headers.get("Origin") or "").strip().lower()
-        if origin:
-            return origin == own
-        referer = str(request.headers.get("Referer") or "").strip().lower()
-        if referer:
-            return referer == own or referer.startswith(own + "/")
-        return True
 
     @app.route("/invite/<token>")
     def invite_landing(token: str):
@@ -9047,6 +9049,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         if denied is not None:
             return denied
         if request.method == "DELETE":
+            if not _same_origin_post():
+                return jsonify({"ok": False, "error": "Forbidden."}), 403
             payload = request.get_json(silent=True) or {}
             if not isinstance(payload, dict):
                 payload = {}

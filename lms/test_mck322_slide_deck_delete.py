@@ -225,6 +225,78 @@ class CourseSlideDeleteTests(unittest.TestCase):
         )
         self.assertEqual(refused.status_code, 400)
 
+    def test_cross_origin_delete_is_refused(self) -> None:
+        """A DELETE from another site does not remove the deck."""
+        self.school.save_course_slide_deck(
+            self.class_id,
+            "M1",
+            "C1",
+            title="Graphs",
+            source="public_export",
+            page_pngs=[_PNG],
+        )
+        blocked = self.staff.delete(
+            f"/api/classes/{self.class_id}/slide-deck?module=M1&slot=C1",
+            headers={"Origin": "https://evil.example"},
+        )
+        self.assertEqual(blocked.status_code, 403)
+        self.assertIsNotNone(
+            self.school.course_slide_deck_summary(self.class_id, "M1", "C1")
+        )
+        allowed = self.staff.delete(
+            f"/api/classes/{self.class_id}/slide-deck?module=M1&slot=C1",
+            headers={"Origin": "http://localhost"},
+        )
+        self.assertEqual(allowed.status_code, 200, allowed.get_json())
+        self.assertTrue((allowed.get_json() or {}).get("deleted"))
+
+    def test_page_count_counts_deleted_rows(self) -> None:
+        """Two page rows that share one file count as two."""
+        self.school.save_course_slide_deck(
+            self.class_id,
+            "M1",
+            "C1",
+            title="Graphs",
+            source="public_export",
+            page_pngs=[_PNG],
+        )
+        deck = self.school.conn.execute(
+            """
+            SELECT id FROM course_slide_decks
+            WHERE class_id = ? AND module = 'M1' AND slot = 'C1'
+            """,
+            (self.class_id,),
+        ).fetchone()
+        page = self.school.conn.execute(
+            "SELECT image_relpath FROM course_slide_pages WHERE deck_id = ?",
+            (int(deck["id"]),),
+        ).fetchone()
+        self.school.conn.execute(
+            """
+            INSERT INTO course_slide_pages (deck_id, page_index, image_relpath)
+            VALUES (?, 1, ?)
+            """,
+            (int(deck["id"]), str(page["image_relpath"])),
+        )
+        self.school.conn.commit()
+        removed = self.staff.delete(
+            f"/api/classes/{self.class_id}/slide-deck?module=M1&slot=C1"
+        )
+        self.assertEqual(removed.status_code, 200, removed.get_json())
+        self.assertEqual((removed.get_json() or {}).get("page_count"), 2)
+
+    def test_remove_slides_asks_before_a_live_class(self) -> None:
+        """The Set Class button confirms only while this class is live."""
+        text = (LMS_DIR / "static" / "staff_ap.js").read_text(encoding="utf-8")
+        start = text.index("async function removeSetClassSlides")
+        chunk = text[start:start + 1200]
+        self.assertIn("dataset.liveCode", chunk)
+        self.assertIn("window.confirm", chunk)
+        self.assertIn(
+            "This class is live. Remove the slide deck for this placement?",
+            chunk,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
