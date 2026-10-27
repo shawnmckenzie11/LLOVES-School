@@ -9,7 +9,8 @@ name: Deploy LLOVES LMS
 # Only refs/heads/production gets past test: the load smoke and approve
 # hold that ref. approve holds the production environment and runs the SHA
 # guard; deploy needs approve from the same run attempt and re-runs the SHA
-# guard before flyctl. Deploy itself has no environment.
+# guard before flyctl. Deploy also names the production environment so
+# FLY_API_TOKEN is read from that environment when the secret lives there.
 # The load smoke runs on the CI runner against 127.0.0.1. It never calls
 # flyctl and never receives FLY_API_TOKEN. A red smoke skips approval, so
 # flyctl does not run.
@@ -27,8 +28,10 @@ name: Deploy LLOVES LMS
 #           waiting for review occupies its concurrency group, so a newer
 #           run's approve job cancels an older one still waiting.
 #   deploy  group deploy-lloves-lms-fly, cancel-in-progress false.
-#           No environment (approval already happened in approve). Runs
-#           flyctl. Never cancelled by a newer run; a newer approved
+#           Names the production environment so the Fly token is an
+#           environment secret. The approve job already waited on that
+#           same environment, so a required reviewer waits again here.
+#           Runs flyctl. Never cancelled by a newer run; a newer approved
 #           deploy waits as pending (one pending slot, newest wins).
 # The test and gate groups are separate so an older run's approve job
 # can never cancel a newer run's tests.
@@ -43,7 +46,9 @@ name: Deploy LLOVES LMS
 # It does not flyctl deploy. It can restart lloves-lms and waits on the
 # same production environment.
 #
-# Repository secret FLY_API_TOKEN (Fly deploy token for app lloves-lms).
+# FLY_API_TOKEN is the Fly deploy token for app lloves-lms. Jobs that
+# name the production environment read it from that environment when
+# the secret is set there, and from the repository secret until then.
 on:
   push:
     branches: [production]
@@ -259,6 +264,12 @@ jobs:
     # One flyctl deploy at a time, and never cancelled by a newer run:
     # mid-deploy cancellation is unsafe. A newer approved run waits here
     # as pending; a still-newer one replaces it (queue single).
+    # Same production environment as approve. GitHub waits for that
+    # environment's required reviewer on this job too. FLY_API_TOKEN is
+    # the environment secret once it is added there.
+    environment:
+      name: production
+      url: https://alc.mckenzian.com
     concurrency:
       group: deploy-lloves-lms-fly
       cancel-in-progress: false
