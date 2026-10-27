@@ -225,6 +225,27 @@ class TeamDrawTests(unittest.TestCase):
         self.assertEqual(published["response_mode"], expected)
         return published
 
+    def _keep_catchup_window_open(self) -> None:
+        """Move this class's catch-up deadline a week past the test clock.
+
+        Cleanup stores the deadline as the fixed class end plus seven
+        days. That instant is now in the past, so a submit is refused
+        as closed. The drawing score does not depend on that calendar day.
+        """
+        from datetime import datetime, timedelta
+
+        try:
+            from catchup_landing import TORONTO
+        except ImportError:
+            from lms.catchup_landing import TORONTO
+
+        later = (datetime.now(tz=TORONTO) + timedelta(days=7)).replace(microsecond=0)
+        self.school.conn.execute(
+            "UPDATE catchup_links SET open_until = ? WHERE class_id = ?",
+            (later.isoformat(timespec="seconds"), self.class_id),
+        )
+        self.school.conn.commit()
+
     def _seed_draw_catchup(self) -> tuple[str, int]:
         """Insert one open individual-draw catch-up question.
 
@@ -769,6 +790,7 @@ if (!boardHasStroke(1, 0) || !boardHasStroke(0, 2)) process.exit(6);
         self.school.cleanup_live_session_response_data(
             self.session_id, live_run=True
         )
+        self._keep_catchup_window_open()
         stored_item = self.school.conn.execute(
             """
             SELECT prompt_kind, item_json FROM participation_items
