@@ -611,6 +611,7 @@ class CourseSlideFileTests(unittest.TestCase):
             "setpriv",
             "bind-mount",
             "soffice",
+            "fonts",
             "full-probe",
             "host-data",
         ):
@@ -619,6 +620,127 @@ class CourseSlideFileTests(unittest.TestCase):
         self.assertTrue(found["full-probe"][0], found["full-probe"][1])
         self.assertTrue(found["host-data"][0], found["host-data"][1])
         self.assertNotIn("LEAK", found["host-data"][1])
+        self.assertTrue(found["fonts"][0], found["fonts"][1])
+        for family in (
+            "Liberation Sans",
+            "Liberation Serif",
+            "Liberation Mono",
+            "Carlito",
+            "Caladea",
+        ):
+            self.assertIn(family, found["fonts"][1])
+
+    def test_metric_map_names_the_office_clones(self) -> None:
+        """The fontconfig map sends Office names to the metric clones."""
+        conf = (
+            Path(__file__).resolve().parent / "fonts" / "59-lloves-office-metrics.conf"
+        ).read_text(encoding="utf-8")
+        docker = (Path(__file__).resolve().parent / "Dockerfile").read_text(encoding="utf-8")
+        for family, clone in (
+            ("Arial", "Liberation Sans"),
+            ("Helvetica", "Liberation Sans"),
+            ("Times New Roman", "Liberation Serif"),
+            ("Courier New", "Liberation Mono"),
+            ("Calibri", "Carlito"),
+            ("Cambria", "Caladea"),
+            ("sans-serif", "Liberation Sans"),
+            ("serif", "Liberation Serif"),
+            ("monospace", "Liberation Mono"),
+        ):
+            self.assertIn(f"<family>{family}</family>", conf)
+            self.assertIn(f"<family>{clone}</family>", conf)
+        for package in (
+            "fonts-liberation",
+            "fonts-crosextra-carlito",
+            "fonts-crosextra-caladea",
+            "eot2ttf",
+        ):
+            self.assertIn(package, docker)
+        self.assertIn("59-lloves-office-metrics.conf", docker)
+        self.assertNotIn("fonts-ibm-plex", docker)
+        self.assertNotIn("ttf-mscorefonts", docker)
+
+    def test_embedded_truetype_is_staged_for_the_job(self) -> None:
+        """A face already stored as TrueType is copied. A path escape is not."""
+        import course_slide_files as files
+
+        face = b"\x00\x01\x00\x00" + b"\x00" * 32
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as package:
+            package.writestr("ppt/fonts/custom.fntdata", face)
+            package.writestr("ppt/fonts/../secret.fntdata", face)
+            package.writestr("ppt/media/note.txt", b"not-a-font")
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "fonts"
+            written = files.extract_embedded_deck_fonts(buffer.getvalue(), dest)
+            staged = list(dest.glob("*.ttf"))
+            self.assertEqual(written, 1)
+            self.assertEqual(len(staged), 1)
+            self.assertTrue(staged[0].read_bytes().startswith(b"\x00\x01\x00\x00"))
+            self.assertEqual(files.extract_embedded_deck_fonts(b"PK\x03\x04", dest), 0)
+
+    @unittest.skipUnless(soffice_bin(), "LibreOffice is not installed")
+    def test_named_office_faces_use_metric_clones(self) -> None:
+        """Office faces render as Carlito, Caladea, and Liberation, not Arimo."""
+        import course_slide_files as files
+
+        if not Path("/usr/share/fonts/truetype/crosextra/Carlito-Regular.ttf").is_file():
+            self.skipTest("Carlito is not installed")
+        slide = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+  <p:cSld><p:spTree>
+    <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+    <p:grpSpPr/>
+    <p:sp>
+      <p:nvSpPr><p:cNvPr id="2" name="Body"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+      <p:spPr/>
+      <p:txBody><a:bodyPr/><a:lstStyle/>
+        <a:p><a:r><a:rPr sz="2800"><a:latin typeface="Arial"/></a:rPr><a:t>Arial line</a:t></a:r></a:p>
+        <a:p><a:r><a:rPr sz="2800"><a:latin typeface="Calibri"/></a:rPr><a:t>Calibri line</a:t></a:r></a:p>
+        <a:p><a:r><a:rPr sz="2800"><a:latin typeface="Cambria"/></a:rPr><a:t>Cambria line</a:t></a:r></a:p>
+        <a:p><a:r><a:rPr sz="2800"><a:latin typeface="Times New Roman"/></a:rPr><a:t>Times line</a:t></a:r></a:p>
+        <a:p><a:r><a:rPr sz="2800"><a:latin typeface="Courier New"/></a:rPr><a:t>Courier line</a:t></a:r></a:p>
+      </p:txBody>
+    </p:sp>
+  </p:spTree></p:cSld>
+  <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
+</p:sld>
+"""
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(_minimal_pptx())) as src, zipfile.ZipFile(buffer, "w") as dst:
+            for info in src.infolist():
+                data = slide.encode() if info.filename == "ppt/slides/slide1.xml" else src.read(info)
+                dst.writestr(info.filename, data)
+        files._sandbox_ready = None
+        files._sandbox_failed_at = None
+        pdf = files._office_to_pdf(buffer.getvalue(), ".pptx", soffice_bin(), timeout=60)
+        import fitz
+
+        document = fitz.open(stream=pdf, filetype="pdf")
+        try:
+            runs: list[tuple[str, str]] = []
+            for span in document[0].get_texttrace():
+                text = "".join(chr(char[0]) for char in span["chars"])
+                font = str(span["font"]).lower().replace(" ", "")
+                if runs and runs[-1][1] == font:
+                    runs[-1] = (runs[-1][0] + text, font)
+                else:
+                    runs.append((text, font))
+        finally:
+            document.close()
+        expected = {
+            "Arial": "liberationsans",
+            "Calibri": "carlito",
+            "Cambria": "caladea",
+            "Times": "liberationserif",
+            "Courier": "liberationmono",
+        }
+        for label, clone in expected.items():
+            fonts = [font for text, font in runs if label in text]
+            self.assertTrue(fonts and all(clone in font for font in fonts), runs)
+        used = " ".join(font for _, font in runs)
+        for stolen in ("arimo", "tinos", "cousine"):
+            self.assertNotIn(stolen, used)
 
     def test_svg_file_href_is_removed(self) -> None:
         """An SVG file:// image is not left in the package."""
@@ -1091,6 +1213,7 @@ class CourseSlideFileTests(unittest.TestCase):
         def capture(command, *, work, timeout, env, cwd):
             """Record the child environment and pretend LibreOffice wrote a PDF."""
             seen["env"] = dict(env)
+            seen["fontconfig"] = Path(env["FONTCONFIG_FILE"]).read_text(encoding="utf-8")
             out = Path(cwd) / "out"
             out.mkdir(exist_ok=True)
             (out / "deck.pdf").write_bytes(b"%PDF-1.4\n")
@@ -1109,6 +1232,17 @@ class CourseSlideFileTests(unittest.TestCase):
         self.assertNotIn("GOOGLE_CLIENT_SECRET", env)
         self.assertNotIn("super-secret", " ".join(env.values()))
         self.assertTrue(env.get("HOME"))
+        fontconfig = env.get("FONTCONFIG_FILE") or ""
+        self.assertTrue(fontconfig.startswith(env["HOME"]), fontconfig)
+        text = seen["fontconfig"]
+        self.assertIn("/etc/fonts/fonts.conf", text)
+        self.assertIn("office-metrics.conf", text)
+        self.assertLess(
+            text.find('mode="assign"'),
+            text.find("/etc/fonts/fonts.conf"),
+        )
+        self.assertIn("<string>Liberation Sans</string>", text)
+        self.assertNotIn("super-secret", text)
 
     def test_converter_dies_when_the_worker_dies(self) -> None:
         """Killing the worker kills the converter and its grandchild."""

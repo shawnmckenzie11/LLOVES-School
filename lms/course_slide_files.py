@@ -53,6 +53,34 @@ COURSE_SLIDE_UPLOAD_MAX_BYTES = 64 * 1024 * 1024
 # Multipart framing around a 64 MiB file. The header check uses this
 # slack so a real deck is not refused before its bytes are read.
 UPLOAD_FRAMING_SLACK = 1024 * 1024
+# Metric clones installed in the image. A deck that names one of these
+# Office families gets the clone. Any other family is used when the
+# deck embeds it; otherwise the generic sans/serif/mono alias applies.
+METRIC_FONT_FAMILIES: tuple[str, ...] = (
+    "Liberation Sans",
+    "Liberation Serif",
+    "Liberation Mono",
+    "Carlito",
+    "Caladea",
+)
+_OFFICE_METRICS_CONF = "59-lloves-office-metrics.conf"
+# Applied before /etc/fonts/fonts.conf. That file's metric map binds
+# Arial to Arimo (and Times to Tinos, Courier to Cousine) with
+# binding="same", and a later alias cannot outrank it.
+_OFFICE_FACE_EDITS: tuple[tuple[str, str], ...] = (
+    ("Arial", "Liberation Sans"),
+    ("Helvetica", "Liberation Sans"),
+    ("Times New Roman", "Liberation Serif"),
+    ("Times", "Liberation Serif"),
+    ("Courier New", "Liberation Mono"),
+    ("Courier", "Liberation Mono"),
+    ("Calibri", "Carlito"),
+    ("Cambria", "Caladea"),
+)
+_EMBEDDED_FONT_MAX_BYTES = 8 * 1024 * 1024
+_EMBEDDED_FONT_MAX_FACES = 32
+_EOT2TTF_TIMEOUT_S = 10
+_SFNT_MAGICS = (b"\x00\x01\x00\x00", b"OTTO", b"true", b"typ1")
 # Soffice plus PNG render. The import job keeps the whole attempt
 # under about 90 seconds, inside the worker timeout.
 _CONVERT_TIMEOUT_S = 80
@@ -1190,13 +1218,71 @@ def _diagnostic_host_data() -> tuple[bool, str]:
     return True, f"exit={ls_code} hidden {detail}"[:400]
 
 
+def _diagnostic_fonts() -> tuple[bool, str]:
+    """List font families fontconfig can see inside the slide sandbox.
+
+    The sandbox is unchanged: ``fc-list`` runs through the same
+    ``pivot_root`` launch as a conversion. The step passes when every
+    metric Office substitute is present. The detail lists the families
+    it found, with paths removed.
+
+    Returns:
+        ``(passed, detail)``.
+    """
+    fc_list = _which_tool("fc-list")
+    if not fc_list:
+        return False, "exit=127 stderr=fc-list not found"
+    work = Path(tempfile.mkdtemp(prefix="lloves-slides-"))
+    proc: subprocess.Popen[bytes] | None = None
+    out = b""
+    err = b""
+    try:
+        try:
+            proc = _launch_sandbox(
+                [fc_list, ":", "family"],
+                work,
+                office_env(work),
+                str(work),
+            )
+            out, err = proc.communicate(timeout=20)
+        except subprocess.TimeoutExpired:
+            if proc is not None:
+                _kill_process_group(proc)
+            return False, "exit=124 stderr=timed out"
+        except OSError as exc:
+            if proc is not None:
+                _kill_process_group(proc)
+            return False, f"exit=1 stderr={_sanitize_probe_text(str(exc))}"
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+        shutil.rmtree(Path("/dev/shm") / f"lloves-root-{work.name}", ignore_errors=True)
+    code = proc.returncode if proc is not None else "none"
+    if code != 0:
+        err_text = _sanitize_probe_text((err or b"").decode("utf-8", "replace"))
+        return False, f"exit={code} stderr={err_text}"
+    families: set[str] = set()
+    for line in (out or b"").decode("utf-8", "replace").splitlines():
+        for part in line.split(","):
+            name = " ".join(part.split())
+            if name and not name.startswith("/"):
+                families.add(name)
+    missing = [name for name in METRIC_FONT_FAMILIES if name not in families]
+    listing = ", ".join(sorted(families))
+    if len(listing) > 500:
+        listing = listing[:500] + f" … ({len(families)} families)"
+    if missing:
+        return False, f"exit=0 missing={', '.join(missing)} families={listing}"
+    return True, f"exit=0 families={listing}"
+
+
 def sandbox_diagnostic_steps() -> list[tuple[str, bool, str]]:
     """Run each slide-sandbox check on its own.
 
     Read-only aside from a temporary directory the full probe deletes.
     This does not cache a failure, so a refused check does not block a
     later import in the same process. A failing full probe still means
-    the app refuses the import. The host-data step lists ``/data``
+    the app refuses the import. The fonts step lists the families
+    visible inside the sandbox. The host-data step lists ``/data``
     inside the sandbox and passes only when that list fails. A root
     worker runs that list as nobody.
 
@@ -1263,6 +1349,7 @@ def sandbox_diagnostic_steps() -> list[tuple[str, bool, str]]:
         steps.append(("soffice", True, "exit=0 stderr="))
     else:
         steps.append(("soffice", False, "exit=127 stderr=not found"))
+    steps.append(("fonts", *_diagnostic_fonts()))
     previous = _sandbox_probe_detail
     found = _probe_sandbox()
     if found:
@@ -1404,7 +1491,178 @@ def _office_path() -> str:
     return ":".join(parts)
 
 
-def office_env(root: Path) -> dict[str, str]:
+def _sfnt_font(data: bytes) -> bool:
+    """True when ``data`` starts with a TrueType or OpenType signature.
+
+    Args:
+        data: Font file bytes, or at least the first four.
+    """
+    return data.startswith(_SFNT_MAGICS)
+
+
+def _xml_attr(value: str) -> str:
+    """Escape a path for a fontconfig attribute.
+
+    Args:
+        value: Text placed in an attribute.
+    """
+    return (
+        value.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def _convert_embedded_eot(src: Path, dest: Path) -> bool:
+    """Turn one Embedded OpenType face into TrueType.
+
+    Args:
+        src: EOT bytes on disk.
+        dest: Where the TrueType file should be written.
+
+    Returns:
+        True when ``dest`` is a TrueType or OpenType font.
+    """
+    tool = _which_tool("eot2ttf")
+    if not tool:
+        return False
+    try:
+        completed = subprocess.run(
+            [tool, str(src), str(dest)],
+            capture_output=True,
+            timeout=_EOT2TTF_TIMEOUT_S,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        dest.unlink(missing_ok=True)
+        return False
+    if completed.returncode != 0 or not dest.is_file():
+        dest.unlink(missing_ok=True)
+        return False
+    with dest.open("rb") as handle:
+        head = handle.read(12)
+    if not _sfnt_font(head):
+        dest.unlink(missing_ok=True)
+        return False
+    return True
+
+
+def extract_embedded_deck_fonts(raw: bytes, dest: Path) -> int:
+    """Stage TrueType faces embedded in a PowerPoint package.
+
+    PowerPoint stores each face as Embedded OpenType. ``eot2ttf`` converts
+    those when it is installed. A face that is already TrueType is copied.
+    A face that does not convert is skipped, and the metric substitutes
+    still apply. The deck bytes and the face names are not logged.
+
+    Args:
+        raw: pptx bytes. A non-zip is ignored.
+        dest: Directory to write ``face-N.ttf`` files into.
+
+    Returns:
+        How many TrueType files were written.
+    """
+    if not raw.startswith(b"PK"):
+        return 0
+    try:
+        package = zipfile.ZipFile(io.BytesIO(raw))
+    except zipfile.BadZipFile:
+        return 0
+    written = 0
+    dest.mkdir(parents=True, exist_ok=True)
+    with package:
+        faces = [
+            info
+            for info in package.infolist()
+            if info.filename.lower().endswith(".fntdata")
+            and ".." not in info.filename.replace("\\", "/").split("/")
+            and 0 < info.file_size <= _EMBEDDED_FONT_MAX_BYTES
+        ]
+        for info in faces[:_EMBEDDED_FONT_MAX_FACES]:
+            try:
+                data = package.read(info)
+            except (KeyError, zipfile.BadZipFile, OSError):
+                continue
+            if len(data) > _EMBEDDED_FONT_MAX_BYTES:
+                continue
+            target = dest / f"face-{written}.ttf"
+            if _sfnt_font(data):
+                target.write_bytes(data)
+                written += 1
+                continue
+            eot = dest / f"face-{written}.eot"
+            try:
+                eot.write_bytes(data)
+                if _convert_embedded_eot(eot, target):
+                    written += 1
+            finally:
+                eot.unlink(missing_ok=True)
+    return written
+
+
+def _fontconfig_face_edits() -> list[str]:
+    """Fontconfig edits that replace an Office family with its metric clone.
+
+    These have to run before ``/etc/fonts/fonts.conf`` is included. The
+    system map treats Arimo as the same family as Arial, so a prefer
+    rule that appears later still loses.
+
+    Returns:
+        XML lines, one match element per Office family.
+    """
+    lines: list[str] = []
+    for requested, clone in _OFFICE_FACE_EDITS:
+        lines.append(
+            "  <match target=\"pattern\">\n"
+            "    <test name=\"family\" qual=\"first\">"
+            f"<string>{_xml_attr(requested)}</string></test>\n"
+            "    <edit name=\"family\" mode=\"assign\" binding=\"same\">"
+            f"<string>{_xml_attr(clone)}</string></edit>\n"
+            "  </match>"
+        )
+    return lines
+
+
+def _job_fontconfig(root: Path, font_dir: Path | None) -> Path:
+    """Write a fontconfig file the sandbox can read.
+
+    Office families are rewritten to their metric clones first. The
+    system config comes next, then the generic sans/serif/mono map, then
+    any faces staged from the deck. The map file is copied into ``root``
+    because the sandbox does not expose the application tree.
+
+    Args:
+        root: Job directory. It is bind-mounted inside the sandbox.
+        font_dir: Directory of staged faces, or None.
+
+    Returns:
+        Path of the fontconfig file.
+    """
+    bundled = Path(__file__).resolve().parent / "fonts" / _OFFICE_METRICS_CONF
+    local_map = root / "office-metrics.conf"
+    if bundled.is_file():
+        local_map.write_bytes(bundled.read_bytes())
+    lines = [
+        '<?xml version="1.0"?>',
+        '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">',
+        "<fontconfig>",
+        *_fontconfig_face_edits(),
+        '  <include ignore_missing="yes">/etc/fonts/fonts.conf</include>',
+    ]
+    if local_map.is_file():
+        lines.append(
+            f'  <include ignore_missing="yes">{_xml_attr(str(local_map))}</include>'
+        )
+    if font_dir is not None and font_dir.is_dir():
+        lines.append(f"  <dir>{_xml_attr(str(font_dir))}</dir>")
+    lines.append("</fontconfig>")
+    path = root / "fonts.conf"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def office_env(root: Path, *, fontconfig_file: str | None = None) -> dict[str, str]:
     """Environment for LibreOffice with no application secrets.
 
     The child gets ``PATH`` and locale, plus a ``HOME`` inside the job
@@ -1413,6 +1671,8 @@ def office_env(root: Path) -> dict[str, str]:
 
     Args:
         root: Job directory. It becomes ``HOME`` and the temp dir.
+        fontconfig_file: Fontconfig file inside the job directory. When
+            set, LibreOffice resolves faces from that file.
 
     Returns:
         A new environment mapping.
@@ -1427,6 +1687,8 @@ def office_env(root: Path) -> dict[str, str]:
         "XDG_CONFIG_HOME": str(root),
         "XDG_CACHE_HOME": str(root),
     }
+    if fontconfig_file:
+        env["FONTCONFIG_FILE"] = fontconfig_file
     for key in ("LC_ALL", "LC_CTYPE", "TZ", "FONTCONFIG_PATH", "LD_LIBRARY_PATH"):
         value = os.environ.get(key)
         if value:
@@ -1493,6 +1755,9 @@ def _office_to_pdf(raw: bytes, suffix: str, binary: str, *, timeout: float) -> b
         profile = root / "profile"
         outdir.mkdir()
         source.write_bytes(raw)
+        embed_dir = root / "embed-fonts"
+        staged = extract_embedded_deck_fonts(raw, embed_dir)
+        fontconfig = _job_fontconfig(root, embed_dir if staged else None)
         run_bin = _converter_binary(root, binary)
         limit = max(1, int(math.ceil(timeout)))
         inner = [
@@ -1520,7 +1785,7 @@ def _office_to_pdf(raw: bytes, suffix: str, binary: str, *, timeout: float) -> b
                 inner,
                 work=root,
                 timeout=limit + 5,
-                env=office_env(root),
+                env=office_env(root, fontconfig_file=str(fontconfig)),
                 cwd=str(root),
             )
         except subprocess.TimeoutExpired as exc:
