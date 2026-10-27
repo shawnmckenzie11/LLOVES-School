@@ -14,8 +14,11 @@ print people, join codes, or session secrets.
 ``--apply`` opens the file read-write, updates a column only when its
 text still matches what was read, and inserts ``library_files`` pointers
 for paths the source library has and the destination library does not.
-Blob bytes are not copied. A second run writes zero rows. ``--dry-run``
-wins over ``--apply``.
+A pointer is added only when the URL's class is a different class of the
+same course and the same teacher. A URL for another course is listed
+under ``cross-course`` and is never rewritten or copied. Blob bytes are
+not copied. A second run writes zero rows. ``--dry-run`` wins over
+``--apply``.
 
 Production (Fly, ``FLASK_ENV=production``, a data dir on ``/data``, or a
 database on the ``/data`` volume) is refused before the database is opened
@@ -197,13 +200,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"database: {db_path}")
         if write:
             stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            written = apply_deck_copy_image_repairs(conn, planned, stamp=stamp)
+            written = apply_deck_copy_image_repairs(
+                conn, planned.repairs, stamp=stamp
+            )
             conn.commit()
             print(
                 f"rows_written: {written['rows']} "
                 f"file_pointers_written: {written['file_pointers']}"
             )
-        print(format_deck_copy_image_report(planned, mode="apply" if write else "dry-run"))
+        print(
+            format_deck_copy_image_report(
+                planned, mode="apply" if write else "dry-run"
+            )
+        )
     finally:
         conn.close()
     return 0

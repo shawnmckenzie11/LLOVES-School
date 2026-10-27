@@ -526,6 +526,12 @@ class BankMcDisplayTests(unittest.TestCase):
         )
         self.assertEqual(
             student_visible_bank_image_url(staff, class_id=8),
+            "/api/classes/9/module-files/web_resources/diagram.png",
+        )
+        self.assertEqual(
+            student_visible_bank_image_url(
+                staff, class_id=8, library_has=lambda _rel: True
+            ),
             "/api/classes/8/module-files/web_resources/diagram.png",
         )
         self.assertEqual(

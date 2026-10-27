@@ -14883,7 +14883,12 @@ class SchoolDB(LovesDB):
             challenge = source_meta.get("team_challenge")
             questions, pages, media, challenge, module_file_refs = (
                 self._rebase_deck_images_for_copy(
-                    int(class_id), questions, pages, media, challenge
+                    int(class_id),
+                    questions,
+                    pages,
+                    media,
+                    challenge,
+                    source_class_id=int(class_id),
                 )
             )
             ready = self._serializable_deck_questions(questions)
@@ -14899,6 +14904,7 @@ class SchoolDB(LovesDB):
                 media=media if isinstance(media, dict) else None,
                 team_challenge=challenge if isinstance(challenge, dict) else None,
                 module_file_refs=module_file_refs,
+                image_source_class_id=int(class_id),
             )
             self._sync_playlist_change(int(class_id), module, slot)
             metadata = self.live_class_metadata_for_class_lesson(
@@ -15043,9 +15049,17 @@ class SchoolDB(LovesDB):
             raw_challenge = source_meta.get("team_challenge")
             if isinstance(raw_challenge, dict):
                 challenge = deepcopy(raw_challenge)
+        image_source_class_id = (
+            int(source_class) if source_class is not None else int(class_id)
+        )
         questions, pages, media, challenge, module_file_refs = (
             self._rebase_deck_images_for_copy(
-                int(class_id), questions, pages, media, challenge
+                int(class_id),
+                questions,
+                pages,
+                media,
+                challenge,
+                source_class_id=image_source_class_id,
             )
         )
         if choice == "blank":
@@ -15067,6 +15081,7 @@ class SchoolDB(LovesDB):
             media=None if choice == "blank" else media,
             team_challenge=None if choice == "blank" else challenge,
             module_file_refs=module_file_refs,
+            image_source_class_id=image_source_class_id,
             # MCK-150: the 409 re-check shares the write transaction.
             require_replace_confirm=bool(
                 require_replace_confirm and choice == "course"
@@ -15098,6 +15113,8 @@ class SchoolDB(LovesDB):
         pages: list[Any],
         media: Any,
         challenge: Any,
+        *,
+        source_class_id: int,
     ) -> tuple[
         list[Any],
         list[Any],
@@ -15105,7 +15122,10 @@ class SchoolDB(LovesDB):
         dict[str, Any] | None,
         list[tuple[int, str]],
     ]:
-        """Point copied module-file URLs at the destination class.
+        """Point the source class's module-file URLs at the destination class.
+
+        URLs that name any other class are left unchanged and are not
+        returned as files to copy.
 
         Args:
             dest_class_id: Class receiving the deck.
@@ -15113,6 +15133,7 @@ class SchoolDB(LovesDB):
             pages: Source page dicts.
             media: Source media dict, or None.
             challenge: Source team-challenge dict, or None.
+            source_class_id: Class the deck is being copied from.
 
         Returns:
             Rewritten questions, pages, media, challenge, and the source
@@ -15131,49 +15152,58 @@ class SchoolDB(LovesDB):
             media_dict,
             challenge_dict,
             dest_class_id=int(dest_class_id),
+            source_class_id=int(source_class_id),
         )
 
     def _repoint_module_file_rows_locked(
         self,
         dest_class_id: int,
         refs: list[tuple[int, str]],
+        *,
+        source_class_id: int,
     ) -> None:
-        """Copy library pointers for module files a deck copy retargeted.
+        """Copy library pointers for module files the source class already has.
 
         Caller holds the school lock and an open transaction. The blob
         bytes stay where they are. A row is added on the destination
-        library only when the source class's library has that path and
-        the destination library does not. The same library is skipped.
-        A student of another class still cannot GET the source class URL.
+        library only for ``source_class_id``, and only when that class's
+        library has the path. A URL for any other class is ignored, so
+        pasting another course's file does not grant it. The same library
+        is skipped. A student of another class still cannot GET the source
+        class URL.
 
         Args:
             dest_class_id: Class that will serve the rewritten URLs.
             refs: ``(source_class_id, relpath)`` pairs from the deck.
+            source_class_id: Class the deck is being copied from.
         """
-        if not refs:
+        if not refs or int(source_class_id) <= 0:
             return
         try:
             from deck_copy_image_repair import copy_library_file_pointer
         except ImportError:
             from lms.deck_copy_image_repair import copy_library_file_pointer
 
-        dest_library = self._class_library_id(int(dest_class_id))
-        if dest_library is None:
+        allowed = int(source_class_id)
+        if allowed == int(dest_class_id):
             return
-        seen: set[tuple[int, str]] = set()
-        for source_class_id, relpath in refs:
-            key = (int(source_class_id), str(relpath))
-            if key in seen or key[0] == int(dest_class_id):
+        dest_library = self._class_library_id(int(dest_class_id))
+        source_library = self._class_library_id(allowed)
+        if dest_library is None or source_library is None:
+            return
+        seen: set[str] = set()
+        for ref_class_id, relpath in refs:
+            if int(ref_class_id) != allowed:
+                continue
+            key = str(relpath)
+            if key in seen:
                 continue
             seen.add(key)
-            source_library = self._class_library_id(key[0])
-            if source_library is None:
-                continue
             copy_library_file_pointer(
                 self.conn,
                 int(source_library),
                 int(dest_library),
-                key[1],
+                key,
                 stamp=_now(),
             )
 
@@ -15222,6 +15252,7 @@ class SchoolDB(LovesDB):
         require_replace_confirm: bool = False,
         replace: bool = False,
         module_file_refs: list[tuple[int, str]] | None = None,
+        image_source_class_id: int | None = None,
     ) -> None:
         """Replace one challenge's working copy with a seed snapshot.
 
@@ -15247,6 +15278,8 @@ class SchoolDB(LovesDB):
             module_file_refs: ``(source_class_id, relpath)`` pairs whose
                 module-file URL was rebased onto this class. The matching
                 library pointer is copied in the same transaction.
+            image_source_class_id: Class the deck was copied from. Pointers
+                are created only for that class's library.
 
         Raises:
             DeckCopyLiveConflict: The slot is live on this challenge when
@@ -15286,6 +15319,7 @@ class SchoolDB(LovesDB):
                     require_replace_confirm=require_replace_confirm,
                     replace=replace,
                     module_file_refs=module_file_refs or [],
+                    image_source_class_id=image_source_class_id,
                 )
                 self.conn.execute("COMMIT")
             except BaseException:
@@ -15314,6 +15348,7 @@ class SchoolDB(LovesDB):
         require_replace_confirm: bool,
         replace: bool,
         module_file_refs: list[tuple[int, str]] | None = None,
+        image_source_class_id: int | None = None,
     ) -> None:
         """Write one deck snapshot. Caller holds the lock and a transaction.
 
@@ -15333,6 +15368,8 @@ class SchoolDB(LovesDB):
             require_replace_confirm: Refuse when the slot already has a deck.
             replace: The teacher confirmed replacing that deck.
             module_file_refs: Source library paths to point at from this class.
+            image_source_class_id: Class the deck was copied from. Pointers
+                are created only for that class's library.
 
         Raises:
             DeckCopyLiveConflict: This slot went live after the earlier check.
@@ -15378,7 +15415,9 @@ class SchoolDB(LovesDB):
             )
         params = (int(class_id), store_module, store_slot)
         self._repoint_module_file_rows_locked(
-            int(class_id), module_file_refs or []
+            int(class_id),
+            module_file_refs or [],
+            source_class_id=int(image_source_class_id or 0),
         )
         self.conn.execute(
             """
@@ -28111,9 +28150,10 @@ class SchoolDB(LovesDB):
         ``/staff/class/{id}/module-files/...``. The student portal CSP is
         ``img-src 'self'``, so remote Canvas URLs never paint. This applies
         the same remirror, then rewrites staff paths to the student twin
-        ``/api/classes/{id}/module-files/...``. A deck copy that still names
-        the source class is rebased onto ``class_id`` here, so the student
-        reads this class's library and not the source class's route.
+        ``/api/classes/{id}/module-files/...``. A URL for another class is
+        rebased onto ``class_id`` only when this class's library already
+        has that file. Otherwise the other class id stays, and that route
+        still refuses the student.
 
         Args:
             raw_payload: Stored prompt or playlist item JSON.
@@ -28164,7 +28204,24 @@ class SchoolDB(LovesDB):
             viewing = int(class_id) if class_id not in (None, "") else None
         except (TypeError, ValueError):
             viewing = None
-        return rewrite_student_prompt_images(cleaned, class_id=viewing)
+
+        def library_has(relpath: str) -> bool:
+            """True when this class's library already stores ``relpath``."""
+            if viewing is None:
+                return False
+            library_id = self._class_library_id(viewing)
+            if library_id is None:
+                return False
+            try:
+                from deck_copy_image_repair import find_library_blob
+            except ImportError:
+                from lms.deck_copy_image_repair import find_library_blob
+
+            return find_library_blob(self.conn, int(library_id), relpath) is not None
+
+        return rewrite_student_prompt_images(
+            cleaned, class_id=viewing, library_has=library_has
+        )
 
     def _orphan_saved_answer(
         self,

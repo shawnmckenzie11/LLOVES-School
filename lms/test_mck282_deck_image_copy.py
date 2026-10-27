@@ -23,6 +23,7 @@ from content_store import ContentBlobStore  # noqa: E402
 from question_math import rebase_module_file_text  # noqa: E402
 from deck_copy_image_repair import (  # noqa: E402
     apply_deck_copy_image_repairs,
+    format_deck_copy_image_report,
     plan_deck_copy_image_repairs,
 )
 from school_db import SchoolDB, _now  # noqa: E402
@@ -33,6 +34,7 @@ _TINY_PNG = (
     b"\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
 )
 _RELPATH = "web_resources/diagram.png"
+_FOREIGN_RELPATH = "web_resources/other-course.png"
 
 
 class DeckCopyImageTests(unittest.TestCase):
@@ -100,16 +102,16 @@ class DeckCopyImageTests(unittest.TestCase):
         )
         return int(created["id"])
 
-    def _put_png(self, library_id: int) -> None:
-        """Store the graph in one library and mark that library ingested."""
+    def _put_png(self, library_id: int, relpath: str = _RELPATH) -> None:
+        """Store one graph in a library and mark that library ingested."""
         store = ContentBlobStore(self.school.data_dir, self.school)
-        stored = store.put_bytes(_TINY_PNG, filename=_RELPATH, mime="image/png")
+        stored = store.put_bytes(_TINY_PNG, filename=relpath, mime="image/png")
         self.school.conn.execute(
             """
             INSERT INTO library_files (library_id, relpath, blob_sha, created_at)
             VALUES (?, ?, ?, ?)
             """,
-            (int(library_id), _RELPATH, stored.sha256, _now()),
+            (int(library_id), relpath, stored.sha256, _now()),
         )
         self._mark_ingested(int(library_id))
         self.school.conn.commit()
@@ -118,7 +120,7 @@ class DeckCopyImageTests(unittest.TestCase):
         """Insert one outline so module-file serving does not re-ingest."""
         self.school.conn.execute(
             """
-            INSERT INTO module_outlines (
+            INSERT OR IGNORE INTO module_outlines (
                 library_id, import_key, title, position, created_at
             ) VALUES (?, ?, 'Module 1', 1, ?)
             """,
@@ -230,20 +232,148 @@ class DeckCopyImageTests(unittest.TestCase):
         anon = self.app.test_client()
         self.assertEqual(anon.get(public).status_code, 403)
 
+    def test_pasted_other_course_url_is_not_copied(self) -> None:
+        """Another teacher's file stays on that class and is not pointed here."""
+        self._put_png(self.other_library, _FOREIGN_RELPATH)
+        foreign = (
+            f"/staff/class/{self.other_class}/module-files/{_FOREIGN_RELPATH}"
+        )
+        row = self.school.conn.execute(
+            """
+            SELECT item_json FROM class_live_playlist_placements
+            WHERE class_id = ? AND item_id = 'q-graph-copy'
+            """,
+            (self.source_class,),
+        ).fetchone()
+        payload = json.loads(row["item_json"])
+        payload["text_html"] = (
+            str(payload["text_html"]) + f'<img src="{foreign}">'
+        )
+        self.school.conn.execute(
+            """
+            UPDATE class_live_playlist_placements
+            SET item_json = ?
+            WHERE class_id = ? AND item_id = 'q-graph-copy'
+            """,
+            (json.dumps(payload), self.source_class),
+        )
+        self.school.conn.commit()
+        self.school.apply_class_deck_seed(
+            self.dest_class,
+            "M1",
+            "C1",
+            mode="course",
+            source_module="M1",
+            source_slot="C1",
+            source_class_id=self.source_class,
+            teacher_user_id=self.tid,
+        )
+        stored_row = self.school.conn.execute(
+            """
+            SELECT item_json FROM class_live_playlist_placements
+            WHERE class_id = ? AND item_id = 'q-graph-copy'
+            """,
+            (self.dest_class,),
+        ).fetchone()
+        stored = str(stored_row["item_json"])
+        self.assertIn(f"/staff/class/{self.other_class}/", stored)
+        self.assertNotIn(
+            f"/staff/class/{self.dest_class}/module-files/{_FOREIGN_RELPATH}",
+            stored,
+        )
+        leaked = self.school.conn.execute(
+            """
+            SELECT 1 FROM library_files
+            WHERE library_id = ? AND relpath = ?
+            """,
+            (self.dest_library, _FOREIGN_RELPATH),
+        ).fetchone()
+        self.assertIsNone(leaked)
+        kept = self.school.conn.execute(
+            """
+            SELECT 1 FROM library_files
+            WHERE library_id = ? AND relpath = ?
+            """,
+            (self.dest_library, _RELPATH),
+        ).fetchone()
+        self.assertIsNotNone(kept)
+        public = self.school._student_public_item_payload(
+            json.loads(stored), class_id=self.dest_class
+        )
+        blob = json.dumps(public)
+        foreign_public = (
+            f"/api/classes/{self.other_class}/module-files/{_FOREIGN_RELPATH}"
+        )
+        self.assertIn(foreign_public, blob)
+        self.assertNotIn(
+            f"/api/classes/{self.dest_class}/module-files/{_FOREIGN_RELPATH}",
+            blob,
+        )
+        dest_student = self._join(self.dest_class, self.tid, "Maple")
+        self.assertEqual(dest_student.get(foreign_public).status_code, 403)
+        teacher = self.app.test_client()
+        with teacher.session_transaction() as sess:
+            sess["logged_in"] = True
+            sess["user_id"] = self.tid
+            sess["portal"] = "staff"
+        self.assertEqual(
+            teacher.get(
+                f"/staff/class/{self.other_class}/module-files/{_FOREIGN_RELPATH}"
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            teacher.get(
+                f"/staff/class/{self.dest_class}/module-files/{_FOREIGN_RELPATH}"
+            ).status_code,
+            404,
+        )
+
 
 class DeckCopyImageRepairTests(unittest.TestCase):
     """Already-copied rows are reported in dry-run and fixed only on apply."""
 
     def test_rebase_text_keeps_a_traversal_out_of_the_copy_list(self) -> None:
-        """A ``..`` path is retargeted and is not offered as a file copy."""
-        text, refs = rebase_module_file_text(
+        """A ``..`` path on the source class is retargeted and not copied."""
+        untouched, refs = rebase_module_file_text(
             "/staff/class/9/module-files/../../etc/passwd", 8
+        )
+        self.assertIn("/staff/class/9/module-files/", untouched)
+        self.assertEqual(refs, [])
+        text, refs = rebase_module_file_text(
+            "/staff/class/9/module-files/../../etc/passwd",
+            8,
+            allowed_source_ids={9},
         )
         self.assertIn("/staff/class/8/module-files/", text)
         self.assertEqual(refs, [])
 
+    def _class_on(
+        self, school: SchoolDB, teacher_id: int, course: str, codename: str
+    ) -> tuple[int, int]:
+        """Create one class and return ``(class_id, library_id)``."""
+        offering = school.assign_course(
+            teacher_user_id=int(teacher_id),
+            ontario_code=course,
+            new_section=True,
+        )
+        library = int(school.create_library(course, origin="upload")["id"])
+        school.attach_library(int(offering["id"]), library)
+        semester = school.get_semester(int(offering["semester_id"]))
+        created = school.game.create_class(
+            year=str(semester["year_display"]),
+            semester=str(semester["term"]),
+            course_code=course,
+            days_preset="M/W/F",
+            time_label="2:00pm",
+            codenames=[codename],
+            offering_id=int(offering["id"]),
+            teacher_user_id=int(teacher_id),
+        )
+        return int(created["id"]), library
+
     def test_dry_run_leaves_rows_and_apply_rewrites_them(self) -> None:
-        """The planner sees a stale class id. Apply rebases it once."""
+        """Same-course stale URLs are repaired. Another course is not."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
@@ -252,25 +382,32 @@ class DeckCopyImageRepairTests(unittest.TestCase):
         self.addCleanup(school.close)
         school.activate_from_semester_json()
         teacher = school.register_staff("teacher@gmail.com")
-        offering = school.assign_course(
-            teacher_user_id=int(teacher["id"]), ontario_code="MCF3M"
+        other = school.register_staff("other-teacher@gmail.com")
+        source_id, source_library = self._class_on(
+            school, int(teacher["id"]), "MCF3M", "Cedar"
         )
-        library = int(school.create_library("MCF3M", origin="upload")["id"])
-        school.attach_library(int(offering["id"]), library)
-        semester = school.get_semester(int(offering["semester_id"]))
-        created = school.game.create_class(
-            year=str(semester["year_display"]),
-            semester=str(semester["term"]),
-            course_code="MCF3M",
-            days_preset="M/W/F",
-            time_label="2:00pm",
-            codenames=["Maple"],
-            offering_id=int(offering["id"]),
-            teacher_user_id=int(teacher["id"]),
+        dest_id, dest_library = self._class_on(
+            school, int(teacher["id"]), "MCF3M", "Maple"
         )
-        class_id = int(created["id"])
-        stale = (
-            f'<img src="/api/classes/9/module-files/{_RELPATH}">'
+        foreign_id, foreign_library = self._class_on(
+            school, int(other["id"]), "MCR3U", "Birch"
+        )
+        store = ContentBlobStore(school.data_dir, school)
+        for library_id, relpath in (
+            (source_library, _RELPATH),
+            (foreign_library, _FOREIGN_RELPATH),
+        ):
+            stored = store.put_bytes(_TINY_PNG, filename=relpath, mime="image/png")
+            school.conn.execute(
+                """
+                INSERT INTO library_files (library_id, relpath, blob_sha, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (int(library_id), relpath, stored.sha256, _now()),
+            )
+        stale = f'<img src="/api/classes/{source_id}/module-files/{_RELPATH}">'
+        foreign = (
+            f'<img src="/api/classes/{foreign_id}/module-files/{_FOREIGN_RELPATH}">'
         )
         school.conn.execute(
             """
@@ -279,23 +416,52 @@ class DeckCopyImageRepairTests(unittest.TestCase):
                 placement_key, item_id, item_json, source_question_id, created_at
             ) VALUES (?, 'M1', 'C1', 1, 'round', 1, 'stale', 'q-stale', ?, NULL, ?)
             """,
-            (class_id, json.dumps({"id": "q-stale", "text_html": stale}), _now()),
+            (
+                dest_id,
+                json.dumps({"id": "q-stale", "text_html": stale + foreign}),
+                _now(),
+            ),
         )
         school.conn.commit()
         before = plan_deck_copy_image_repairs(school.conn)
-        self.assertEqual(len(before), 1)
-        self.assertEqual(before[0].class_id, class_id)
-        self.assertIn(f"/api/classes/{class_id}/module-files/", before[0].new_text)
-        self.assertNotIn("/api/classes/9/", before[0].new_text)
-        dry = plan_deck_copy_image_repairs(school.conn)
-        self.assertEqual(dry[0].old_text, before[0].old_text)
-        written = apply_deck_copy_image_repairs(school.conn, before, stamp=_now())
+        self.assertEqual(len(before.repairs), 1)
+        self.assertEqual(before.repairs[0].class_id, dest_id)
+        self.assertIn(
+            f"/api/classes/{dest_id}/module-files/{_RELPATH}",
+            before.repairs[0].new_text,
+        )
+        self.assertNotIn(f"/api/classes/{source_id}/", before.repairs[0].new_text)
+        self.assertIn(f"/api/classes/{foreign_id}/", before.repairs[0].new_text)
+        self.assertEqual(len(before.repairs[0].copies), 1)
+        self.assertEqual(len(before.cross_course), 1)
+        self.assertEqual(before.cross_course[0].url_class_id, foreign_id)
+        self.assertEqual(before.cross_course[0].owner_course, "MCF3M")
+        self.assertEqual(before.cross_course[0].url_course, "MCR3U")
+        report = format_deck_copy_image_report(before, mode="dry-run")
+        self.assertIn("\ncross-course\n", "\n" + report + "\n")
+        self.assertIn(f"url_class={foreign_id}", report)
+        self.assertIn("url_course=MCR3U", report)
+        written = apply_deck_copy_image_repairs(
+            school.conn, before.repairs, stamp=_now()
+        )
         school.conn.commit()
         self.assertEqual(written["rows"], 1)
+        self.assertEqual(written["file_pointers"], 1)
+        pointed = school.conn.execute(
+            """
+            SELECT relpath FROM library_files WHERE library_id = ?
+            """,
+            (dest_library,),
+        ).fetchall()
+        self.assertEqual([row[0] for row in pointed], [_RELPATH])
         again = plan_deck_copy_image_repairs(school.conn)
-        self.assertEqual(again, [])
-        second = apply_deck_copy_image_repairs(school.conn, again, stamp=_now())
+        self.assertEqual(again.repairs, [])
+        self.assertEqual(len(again.cross_course), 1)
+        second = apply_deck_copy_image_repairs(
+            school.conn, again.repairs, stamp=_now()
+        )
         self.assertEqual(second["rows"], 0)
+        self.assertEqual(second["file_pointers"], 0)
 
 
 class DeckCopyImageScriptTests(unittest.TestCase):

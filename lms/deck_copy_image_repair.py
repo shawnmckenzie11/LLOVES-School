@@ -16,11 +16,13 @@ from typing import Any
 try:
     from question_math import (
         module_file_lookup_relpaths,
+        module_file_refs_in_text,
         rebase_stored_module_file_text,
     )
 except ImportError:
     from lms.question_math import (
         module_file_lookup_relpaths,
+        module_file_refs_in_text,
         rebase_stored_module_file_text,
     )
 
@@ -34,6 +36,46 @@ _TEXT_SCANS: tuple[tuple[str, str], ...] = (
     ("class_live_media_overlays", "stem"),
     ("class_live_media_overlays", "caption"),
 )
+
+
+@dataclass
+class CrossCourseImageRef:
+    """One stored module-file URL that names a different course.
+
+    ``--apply`` does not rewrite these and does not copy a library pointer.
+
+    Attributes:
+        table: Sqlite table.
+        row_id: Primary key.
+        class_id: Class that owns the row.
+        column: Text column that holds the URL.
+        url_class_id: Class id inside the URL.
+        relpath: Path after ``module-files/``.
+        owner_course: Course code of the row's class.
+        url_course: Course code of ``url_class_id``.
+    """
+
+    table: str
+    row_id: int
+    class_id: int
+    column: str
+    url_class_id: int
+    relpath: str
+    owner_course: str
+    url_course: str
+
+
+@dataclass
+class DeckImageRepairPlan:
+    """Repairs that may be written, plus cross-course URLs that may not.
+
+    Attributes:
+        repairs: Rows whose same-course source URLs can be rebased.
+        cross_course: URLs that name another course. Never applied.
+    """
+
+    repairs: list[DeckImageRepair] = field(default_factory=list)
+    cross_course: list[CrossCourseImageRef] = field(default_factory=list)
 
 
 @dataclass
@@ -163,12 +205,89 @@ def _class_library_id(conn: sqlite3.Connection, class_id: int) -> int | None:
     return int(row[0])
 
 
+def _class_scope(
+    conn: sqlite3.Connection, class_id: int
+) -> tuple[str, int | None] | None:
+    """Return ``(course_code, teacher_user_id)`` for one class.
+
+    The offering's course and teacher win when the class is attached to
+    one. A missing class returns None. No names or emails are read.
+
+    Args:
+        conn: Open sqlite connection.
+        class_id: ``classes.id``.
+    """
+    try:
+        row = conn.execute(
+            """
+            SELECT c.course_code,
+                   c.teacher_user_id,
+                   o.ontario_code,
+                   o.teacher_user_id
+            FROM classes c
+            LEFT JOIN course_offerings o ON o.id = c.offering_id
+            WHERE c.id = ?
+            """,
+            (int(class_id),),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if row is None:
+        return None
+    course = str(row[2] or row[0] or "").strip().upper()
+    teacher_raw = row[3] if row[3] is not None else row[1]
+    teacher = int(teacher_raw) if teacher_raw is not None else None
+    return course, teacher
+
+
+def module_file_pointer_scope(
+    conn: sqlite3.Connection, dest_class_id: int, source_class_id: int
+) -> str:
+    """Classify whether a repair may copy one class's library file.
+
+    ``same`` is the widest grant: a different class, the same course code,
+    and the same teacher. ``cross_course`` is never copied. ``other_teacher``
+    and ``unknown`` are never copied either.
+
+    Args:
+        conn: Open sqlite connection.
+        dest_class_id: Class that owns the stored row.
+        source_class_id: Class id named by the module-file URL.
+
+    Returns:
+        ``same_class``, ``same``, ``cross_course``, ``other_teacher``,
+        or ``unknown``.
+    """
+    dest_id = int(dest_class_id)
+    source_id = int(source_class_id)
+    if dest_id == source_id:
+        return "same_class"
+    dest = _class_scope(conn, dest_id)
+    source = _class_scope(conn, source_id)
+    if dest is None or source is None:
+        return "unknown"
+    dest_course, dest_teacher = dest
+    source_course, source_teacher = source
+    if not dest_course or not source_course or dest_course != source_course:
+        return "cross_course"
+    if (
+        dest_teacher is None
+        or source_teacher is None
+        or dest_teacher != source_teacher
+    ):
+        return "other_teacher"
+    return "same"
+
+
 def _copies_for_refs(
     conn: sqlite3.Connection,
     dest_class_id: int,
     refs: list[tuple[int, str]],
 ) -> list[tuple[int, int, str]]:
-    """Plan library pointers for refs whose libraries differ.
+    """Plan library pointers for same-course, same-teacher refs.
+
+    A ref whose class is another course, another teacher, or missing is
+    skipped. The destination library is not given that file.
 
     Args:
         conn: Open sqlite connection.
@@ -185,6 +304,8 @@ def _copies_for_refs(
         if key in seen:
             continue
         seen.add(key)
+        if module_file_pointer_scope(conn, int(dest_class_id), key[0]) != "same":
+            continue
         source_library = _class_library_id(conn, key[0])
         if source_library is None or source_library == dest_library:
             continue
@@ -204,8 +325,11 @@ def _repair_from_text(
     class_id: int,
     column: str,
     text: str,
-) -> DeckImageRepair | None:
-    """Build one repair when ``text`` links another class's module files.
+) -> tuple[DeckImageRepair | None, list[CrossCourseImageRef]]:
+    """Build one repair when ``text`` links a same-course source class.
+
+    A URL for another course is listed and left unchanged. No library
+    pointer is planned for it.
 
     Args:
         conn: Open sqlite connection.
@@ -215,25 +339,64 @@ def _repair_from_text(
         column: Text column.
         text: Current column value.
     """
-    if "module-files/" not in str(text or ""):
-        return None
-    new_text, refs = rebase_stored_module_file_text(str(text or ""), int(class_id))
-    if not refs or new_text == text:
-        return None
-    return DeckImageRepair(
-        table=table,
-        row_id=int(row_id),
-        class_id=int(class_id),
-        column=column,
-        old_text=str(text or ""),
-        new_text=new_text,
-        copies=_copies_for_refs(conn, int(class_id), refs),
+    raw = str(text or "")
+    if "module-files/" not in raw:
+        return None, []
+    allowed: set[int] = set()
+    cross: list[CrossCourseImageRef] = []
+    seen_cross: set[tuple[int, str]] = set()
+    owner = _class_scope(conn, int(class_id))
+    owner_course = owner[0] if owner is not None else ""
+    for source_id, relpath in module_file_refs_in_text(raw):
+        if int(source_id) == int(class_id):
+            continue
+        scope = module_file_pointer_scope(conn, int(class_id), int(source_id))
+        if scope == "same":
+            allowed.add(int(source_id))
+            continue
+        if scope != "cross_course":
+            continue
+        key = (int(source_id), str(relpath))
+        if key in seen_cross:
+            continue
+        seen_cross.add(key)
+        foreign = _class_scope(conn, int(source_id))
+        cross.append(
+            CrossCourseImageRef(
+                table=table,
+                row_id=int(row_id),
+                class_id=int(class_id),
+                column=column,
+                url_class_id=int(source_id),
+                relpath=str(relpath),
+                owner_course=owner_course,
+                url_course=foreign[0] if foreign is not None else "",
+            )
+        )
+    if not allowed:
+        return None, cross
+    new_text, refs = rebase_stored_module_file_text(
+        raw, int(class_id), allowed_source_ids=allowed
+    )
+    if not refs or new_text == raw:
+        return None, cross
+    return (
+        DeckImageRepair(
+            table=table,
+            row_id=int(row_id),
+            class_id=int(class_id),
+            column=column,
+            old_text=raw,
+            new_text=new_text,
+            copies=_copies_for_refs(conn, int(class_id), refs),
+        ),
+        cross,
     )
 
 
 def _scan_table(
     conn: sqlite3.Connection, table: str, column: str
-) -> list[DeckImageRepair]:
+) -> tuple[list[DeckImageRepair], list[CrossCourseImageRef]]:
     """Scan one class-owned text column for foreign module-file URLs.
 
     Args:
@@ -242,6 +405,7 @@ def _scan_table(
         column: Text column to read.
     """
     found: list[DeckImageRepair] = []
+    cross: list[CrossCourseImageRef] = []
     try:
         rows = conn.execute(
             f"""
@@ -251,9 +415,9 @@ def _scan_table(
             """
         ).fetchall()
     except sqlite3.OperationalError:
-        return []
+        return [], []
     for row in rows:
-        repair = _repair_from_text(
+        repair, refs = _repair_from_text(
             conn,
             table=table,
             row_id=int(row[0]),
@@ -263,10 +427,13 @@ def _scan_table(
         )
         if repair is not None:
             found.append(repair)
-    return found
+        cross.extend(refs)
+    return found, cross
 
 
-def _scan_live_items(conn: sqlite3.Connection) -> list[DeckImageRepair]:
+def _scan_live_items(
+    conn: sqlite3.Connection,
+) -> tuple[list[DeckImageRepair], list[CrossCourseImageRef]]:
     """Scan live-session item JSON via the session's class id.
 
     The session code and attendee rows are not read.
@@ -275,6 +442,7 @@ def _scan_live_items(conn: sqlite3.Connection) -> list[DeckImageRepair]:
         conn: Open sqlite connection.
     """
     found: list[DeckImageRepair] = []
+    cross: list[CrossCourseImageRef] = []
     try:
         rows = conn.execute(
             """
@@ -286,9 +454,9 @@ def _scan_live_items(conn: sqlite3.Connection) -> list[DeckImageRepair]:
             """
         ).fetchall()
     except sqlite3.OperationalError:
-        return []
+        return [], []
     for row in rows:
-        repair = _repair_from_text(
+        repair, refs = _repair_from_text(
             conn,
             table="live_session_items",
             row_id=int(row[0]),
@@ -298,21 +466,29 @@ def _scan_live_items(conn: sqlite3.Connection) -> list[DeckImageRepair]:
         )
         if repair is not None:
             found.append(repair)
-    return found
+        cross.extend(refs)
+    return found, cross
 
 
 def plan_deck_copy_image_repairs(
     conn: sqlite3.Connection,
-) -> list[DeckImageRepair]:
+) -> DeckImageRepairPlan:
     """List stored rows whose module-file URLs name a different class.
+
+    Same-teacher, same-course URLs are repairs. Another course is listed
+    on ``cross_course`` and is not a repair.
 
     Args:
         conn: Open sqlite connection. Not written.
     """
-    planned: list[DeckImageRepair] = []
+    planned = DeckImageRepairPlan()
     for table, column in _TEXT_SCANS:
-        planned.extend(_scan_table(conn, table, column))
-    planned.extend(_scan_live_items(conn))
+        repairs, cross = _scan_table(conn, table, column)
+        planned.repairs.extend(repairs)
+        planned.cross_course.extend(cross)
+    repairs, cross = _scan_live_items(conn)
+    planned.repairs.extend(repairs)
+    planned.cross_course.extend(cross)
     return planned
 
 
@@ -370,35 +546,49 @@ def apply_deck_copy_image_repairs(
 
 
 def format_deck_copy_image_report(
-    planned: list[DeckImageRepair], *, mode: str
+    planned: DeckImageRepairPlan, *, mode: str
 ) -> str:
     """Return a dry-run report with class ids and paths, not people.
 
+    Cross-course URLs are a separate section. They are not counted as
+    rows that would be written.
+
     Args:
-        planned: Repairs that would be written.
+        planned: Repairs and cross-course refs from
+            :func:`plan_deck_copy_image_repairs`.
         mode: ``dry-run`` or ``apply``.
     """
     lines = [
         f"mode={mode}",
-        f"rows={len(planned)}",
-        f"file_pointers={sum(len(item.copies) for item in planned)}",
+        f"rows={len(planned.repairs)}",
+        f"file_pointers={sum(len(item.copies) for item in planned.repairs)}",
+        f"cross_course={len(planned.cross_course)}",
     ]
-    for item in planned:
+    for item in planned.repairs:
         lines.append(
             f"{item.table} id={item.row_id} class={item.class_id} "
             f"column={item.column} file_pointers={len(item.copies)}"
         )
+    lines.append("cross-course")
+    for ref in planned.cross_course:
+        lines.append(
+            f"{ref.table} id={ref.row_id} class={ref.class_id} "
+            f"url_class={ref.url_class_id} column={ref.column} "
+            f"relpath={ref.relpath} owner_course={ref.owner_course} "
+            f"url_course={ref.url_course}"
+        )
     return "\n".join(lines)
 
 
-def repair_summary(planned: list[DeckImageRepair]) -> dict[str, Any]:
+def repair_summary(planned: DeckImageRepairPlan) -> dict[str, Any]:
     """Return counts a test can assert without reading the report text.
 
     Args:
-        planned: Repairs from :func:`plan_deck_copy_image_repairs`.
+        planned: Plan from :func:`plan_deck_copy_image_repairs`.
     """
     return {
-        "rows": len(planned),
-        "file_pointers": sum(len(item.copies) for item in planned),
-        "tables": sorted({item.table for item in planned}),
+        "rows": len(planned.repairs),
+        "file_pointers": sum(len(item.copies) for item in planned.repairs),
+        "tables": sorted({item.table for item in planned.repairs}),
+        "cross_course": len(planned.cross_course),
     }
