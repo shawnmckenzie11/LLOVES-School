@@ -2255,6 +2255,8 @@ let lastTeacherMediaSrc = "";
 let lastTeacherMountKey = "";
 /** True while one Prev/Next POST is waiting. Extra clicks are ignored. */
 let pageFlipInFlight = false;
+/** True while a slide publish, unpublish, or page POST has not returned. */
+let slidePostInFlight = false;
 /** True while one media push is waiting. A newer body waits for that ACK. */
 let mediaPushInFlight = false;
 /** @type {Record<string, unknown> | null} */
@@ -2453,6 +2455,19 @@ function currentLivePageIndex() {
 }
 
 /**
+ * Show the rail title and keep the full string on the tooltip.
+ * @param {HTMLElement | null} name
+ * @param {string} label
+ */
+function paintLivePageLabel(name, label) {
+  if (!(name instanceof HTMLElement)) return;
+  const text = String(label || "");
+  name.textContent = text;
+  if (text) name.title = text;
+  else name.removeAttribute("title");
+}
+
+/**
  * Mark the page counter from thin JSON stage + page identity.
  */
 function paintStageRail() {
@@ -2464,12 +2479,12 @@ function paintStageRail() {
   const name = $("live-page-name");
   if (setupPhase) {
     if (counter) counter.textContent = "";
-    if (name) name.textContent = "Set Class";
+    paintLivePageLabel(name, "Set Class");
   } else {
     if (counter) {
       counter.textContent = index >= 0 ? `${index + 1} / ${pages.length}` : "";
     }
-    if (name) name.textContent = index >= 0 ? pages[index].name : "";
+    paintLivePageLabel(name, index >= 0 ? pages[index].name : "");
   }
   const prev = $("live-stage-prev");
   const next = $("live-stage-next");
@@ -2480,12 +2495,12 @@ function paintStageRail() {
       Math.min(slideDeck.pages.length - 1, Number(slideDeck.current_index) || 0)
     );
     if (counter) counter.textContent = `${slideIndex + 1} / ${slideDeck.pages.length}`;
-    if (name) name.textContent = String(slideDeck.title || "Slides");
+    paintLivePageLabel(name, String(slideDeck.title || "Slides"));
     if (prev instanceof HTMLButtonElement) {
-      prev.disabled = setupPhase || pageFlipInFlight || slideIndex <= 0;
+      prev.disabled = setupPhase || slidePostInFlight || slideIndex <= 0;
     }
     if (next instanceof HTMLButtonElement) {
-      next.disabled = pageFlipInFlight || slideIndex >= slideDeck.pages.length - 1;
+      next.disabled = slidePostInFlight || slideIndex >= slideDeck.pages.length - 1;
     }
   } else {
     if (prev instanceof HTMLButtonElement) prev.disabled = setupPhase || pageFlipInFlight;
@@ -3396,6 +3411,26 @@ function paintGoogleSlidesChrome() {
  * @param {number} [index]
  * @returns {Promise<any>}
  */
+/**
+ * Deck revision already painted, or 0 when no deck is held.
+ * @param {any} deck
+ * @returns {number}
+ */
+function googleSlidesRev(deck) {
+  const rev = Number(deck?.rev);
+  return Number.isFinite(rev) ? rev : 0;
+}
+
+/**
+ * Keep a polled deck only when it is at least as new as the one on screen.
+ * A slow ``/state`` must not rewind a Forward that already landed.
+ * @param {any} deck
+ */
+function adoptPolledGoogleSlides(deck) {
+  if (lastGoogleSlides && googleSlidesRev(deck) < googleSlidesRev(lastGoogleSlides)) return;
+  lastGoogleSlides = deck;
+}
+
 async function postGoogleSlideAction(action, index) {
   const sessionId = liveSessionId || readLiveSessionId();
   const deck = googleSlidesDeck();
@@ -3406,10 +3441,17 @@ async function postGoogleSlideAction(action, index) {
       ? `/api/live-sessions/${sessionId}/google-slides/current`
       : `/api/live-sessions/${sessionId}/google-slides/pages/${pageIndex}/${action}`;
   const body = action === "current" ? JSON.stringify({ index: pageIndex }) : "{}";
-  const data = await api(path, { method: "POST", body });
-  if (data?.google_slides) lastGoogleSlides = data.google_slides;
-  paintSlidesMetadata();
-  return data;
+  slidePostInFlight = true;
+  paintStageRail();
+  try {
+    const data = await api(path, { method: "POST", body });
+    if (data?.google_slides) lastGoogleSlides = data.google_slides;
+    paintSlidesMetadata();
+    return data;
+  } finally {
+    slidePostInFlight = false;
+    paintStageRail();
+  }
 }
 
 /**
@@ -7940,9 +7982,10 @@ async function pollLiveSessionAttendees(opts = {}) {
       present
     );
     if (payload && Object.prototype.hasOwnProperty.call(payload, "google_slides")) {
-      lastGoogleSlides = payload.google_slides;
+      adoptPolledGoogleSlides(payload.google_slides);
     }
     paintSlidesMetadata();
+    paintStageRail();
     if (wantFull) paintLiveQuestionCards();
     if (payload?.active_media || payload?.session?.active_media) {
       const media = payload?.active_media || payload?.session?.active_media;
@@ -12662,6 +12705,7 @@ $("teams-spark-reveal")?.addEventListener("click", () => {
 
 $("live-stage-prev")?.addEventListener("click", () => {
   if (slidesRailActive()) {
+    if (slidePostInFlight) return;
     const deck = googleSlidesDeck();
     const index = Number(deck?.current_index) || 0;
     showGoogleSlideIndex(index - 1).catch((err) => showError("#ap-overlay-error", err));
@@ -12675,6 +12719,7 @@ $("live-stage-next")?.addEventListener("click", () => {
     return;
   }
   if (slidesRailActive()) {
+    if (slidePostInFlight) return;
     const deck = googleSlidesDeck();
     const index = Number(deck?.current_index) || 0;
     showGoogleSlideIndex(index + 1).catch((err) => showError("#ap-overlay-error", err));

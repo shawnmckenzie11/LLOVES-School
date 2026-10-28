@@ -434,6 +434,10 @@ body.student-home.has-media .student-live-response {
   background: #fff;
   object-fit: contain;
 }
+.slides-pane iframe[hidden],
+.slides-pane .slides-card-image[hidden] {
+  display: none !important;
+}
 body.student-home .slides-pane.is-google-slide:not([hidden]) {
   flex: 1 1 auto;
   align-self: stretch;

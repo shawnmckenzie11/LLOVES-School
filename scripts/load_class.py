@@ -159,9 +159,10 @@ def seed(
     *,
     classes: int = 1,
     items: int = RANK_ITEMS,
-    include_mc: bool = False,
-    retain: bool = False,
-) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], Any]:
+        include_mc: bool = False,
+        retain: bool = False,
+        slide_pages: int = 0,
+    ) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], Any]:
     """Build concurrent live classes in one sqlite file.
 
     Each class has its own teacher, because one staff user can run only one
@@ -178,6 +179,7 @@ def seed(
         items: Rank questions prepared on each class.
         include_mc: Also prepare one group multiple-choice item, published first.
         retain: Keep the app and test clients open and return ``(fixtures, app)``.
+        slide_pages: When positive, attach that many slide pages and publish the first.
 
     Returns:
         One fixture dict per class, or ``(fixtures, app)`` when ``retain`` is set.
@@ -315,6 +317,9 @@ def seed(
                     "choice": labels[0] if labels else "Graph",
                 },
             )
+        slide_count = 0
+        if int(slide_pages) > 0:
+            slide_count = _attach_load_deck(school, sid, int(slide_pages))
         fixtures.append(
             {
                 "session_id": sid,
@@ -332,6 +337,7 @@ def seed(
                     for i, n in enumerate(names)
                 ],
                 "items": prepared,
+                "slide_count": slide_count,
                 **({"staff_client": staff} if retain else {}),
             }
         )
@@ -494,6 +500,136 @@ _PHONE_LIGHT = frozenset(
         "flag_work",
     }
 )
+
+
+def _attach_load_deck(school: Any, session_id: int, pages: int) -> int:
+    """Attach a small deck and publish its first page.
+
+    Args:
+        school: Open ``SchoolDB``.
+        session_id: ``live_class_sessions.id``.
+        pages: How many pages to store.
+
+    Returns:
+        Page count stored on the session.
+    """
+    import fitz
+
+    pngs: list[bytes] = []
+    document = fitz.open()
+    try:
+        for index in range(int(pages)):
+            page = document.new_page(width=64, height=36)
+            page.insert_text((8, 24), str(index + 1))
+            pngs.append(page.get_pixmap(alpha=False).tobytes("png"))
+    finally:
+        document.close()
+    deck = school.import_google_slides_pages(
+        int(session_id),
+        presentation_id=f"LoadDeck{int(pages)}",
+        page_pngs=pngs,
+        default_published=False,
+        title="Load deck",
+    )
+    school.publish_google_slide_page(int(session_id), 0)
+    stored = deck.get("pages") if isinstance(deck, dict) else None
+    return len(stored) if isinstance(stored, list) else 0
+
+
+def slide_state_p95_ms(rows: list[tuple[float, str, int, float]]) -> float:
+    """Nearest-rank p95 of student and staff ``/state`` samples.
+
+    Args:
+        rows: Recorder rows ``(time, kind, status, ms)``.
+    """
+    kinds = {"student_state_build", "student_state_unchanged", "staff_state"}
+    samples = [ms for _t, kind, status, ms in rows if kind in kinds and status < 500]
+    return pct(samples, 95)
+
+
+def slide_staff_max_ms(rows: list[tuple[float, str, int, float]]) -> float:
+    """Slowest staff ``/state`` sample, including failures.
+
+    Args:
+        rows: Recorder rows ``(time, kind, status, ms)``.
+    """
+    samples = [ms for _t, kind, _status, ms in rows if kind == "staff_state"]
+    return max(samples) if samples else 0.0
+
+
+def slide_reload_peak(
+    rows: list[tuple[float, str, int, float]],
+    *,
+    window_s: float = 1.0,
+) -> int:
+    """Most full student ``/state`` builds in the second after a Forward.
+
+    Args:
+        rows: Recorder rows ``(time, kind, status, ms)``.
+        window_s: How long after each forward to count builds.
+    """
+    forwards = [
+        t
+        for t, kind, status, _ms in rows
+        if kind == "slide_forward" and status < 400
+    ]
+    builds = [
+        t
+        for t, kind, status, _ms in rows
+        if kind == "student_state_build" and status < 500
+    ]
+    peak = 0
+    for moment in forwards:
+        count = sum(1 for built in builds if moment <= built <= moment + window_s)
+        if count > peak:
+            peak = count
+    return peak
+
+
+def _slide_forward_gate_errors(
+    summary: dict[str, Any],
+    rows: list[tuple[float, str, int, float]],
+    *,
+    students_per_class: int,
+    classes: int,
+) -> list[str]:
+    """Failures for a Forward load. An empty list means the run passed.
+
+    ``/state`` p95 must stay under 800 ms. No staff poll may take longer
+    than 4 s. A Forward must not rebuild every phone in that class.
+
+    Args:
+        summary: ``summarize`` output. Slide metrics are written onto it.
+        rows: Recorder rows.
+        students_per_class: Roster size of one class.
+        classes: How many classes were driven.
+    """
+    state_p95 = slide_state_p95_ms(rows)
+    staff_max = slide_staff_max_ms(rows)
+    peak = slide_reload_peak(rows)
+    kinds = summary.get("kinds") or {}
+    forwards = int((kinds.get("slide_forward") or {}).get("n") or 0)
+    staff_errors = int((kinds.get("staff_state") or {}).get("errors_5xx") or 0)
+    summary["state_p95_ms"] = round(state_p95, 1)
+    summary["staff_state_max_ms"] = round(staff_max, 1)
+    summary["slide_reload_peak"] = peak
+    summary["slide_forwards"] = forwards
+    errors: list[str] = []
+    if int(summary.get("errors_5xx") or 0) != 0:
+        errors.append(f"errors_5xx={summary.get('errors_5xx')}, want 0")
+    if staff_errors != 0:
+        errors.append(f"staff_state 5xx={staff_errors}, want 0")
+    if state_p95 >= 800:
+        errors.append(f"state p95 {state_p95:.1f} ms, want < 800")
+    if staff_max > 4000:
+        errors.append(f"staff poll max {staff_max:.1f} ms, want <= 4000")
+    if forwards < int(classes):
+        errors.append(f"slide_forwards={forwards}, want at least {classes}")
+    if peak >= int(students_per_class):
+        errors.append(
+            f"slide reload peak {peak}, want < {students_per_class} (no class-wide /state)"
+        )
+    return errors
 
 
 def builds_per_tap(builds: int, taps: int) -> float | None:
@@ -670,13 +806,15 @@ def start_phone_threads(
                             break
                         if line is None:
                             continue
-                        if line == "":
-                            if etype in _PHONE_LIGHT and not st.get("want"):
-                                st["want"] = True
-                                st["want_at"] = time.monotonic() + 0.04
-                            etype = ""
-                            data = ""
-                            continue
+                    if line == "":
+                        if etype == "google_slide" and data:
+                            _fetch_slide_image(sess, data)
+                        elif etype in _PHONE_LIGHT and not st.get("want"):
+                            st["want"] = True
+                            st["want_at"] = time.monotonic() + 0.04
+                        etype = ""
+                        data = ""
+                        continue
                         if line.startswith("id:"):
                             last = line[3:].strip()
                         elif line.startswith("event:"):
@@ -790,10 +928,26 @@ def start_phone_threads(
             if rv is not None and rv.status_code == 200:
                 chosen["resync_at"] = time.monotonic() + 1.2
 
+    def _fetch_slide_image(sess: Any, raw: str) -> None:
+        """GET one shared slide image. A slide postcard does not fetch ``/state``."""
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return
+        if not isinstance(payload, dict):
+            return
+        url = str(payload.get("image_url") or "")
+        if not url.startswith("/api/classes/") or "/live-question-images/" not in url:
+            return
+        call(sess, "slide_image", "GET", url)
+
     def teacher() -> None:
         """Publish the next item, close the previous one, and time the course page."""
         sess = mk(fx["staff_cookie"])
         next_round = time.monotonic()
+        next_slide = time.monotonic() + 10
+        slide_index = 0
+        slide_count = int(fx.get("slide_count") or 0)
         page = 1
         while time.monotonic() < stop_at:
             call(sess, "staff_state", "GET", f"/api/live-sessions/{sid}/state")
@@ -835,6 +989,16 @@ def start_phone_threads(
                 call(sess, "static_svg", "GET", "/static/mood/good.svg")
                 state["item"] = k
                 next_round = time.monotonic() + round_minutes * 60
+            if slide_count > 1 and time.monotonic() >= next_slide:
+                slide_index = (slide_index + 1) % slide_count
+                call(
+                    sess,
+                    "slide_forward",
+                    "POST",
+                    f"/api/live-sessions/{sid}/google-slides/current",
+                    json={"index": slide_index},
+                )
+                next_slide = time.monotonic() + 10
             time.sleep(2)
 
     def static_sampler() -> None:
@@ -1688,6 +1852,14 @@ def main() -> int:
         help="In-process sqlite group pick and rank tap. Fail above team size plus the teacher.",
     )
     ap.add_argument(
+        "--slide-forward",
+        action="store_true",
+        help=(
+            "13-page deck, teacher Forward every 10s, students tap group MC and rank. "
+            "Gate: /state p95 < 800ms, no staff poll over 4s, no class-wide /state reload."
+        ),
+    )
+    ap.add_argument(
         "--cpu-quota",
         type=float,
         default=0,
@@ -1742,7 +1914,7 @@ def _run(args: argparse.Namespace, out: Path, presence: str) -> int:
     if not (code_root / "lms" / "app.py").is_file():
         print("code root has no lms/app.py:", code_root, file=sys.stderr)
         return 2
-    phone = bool(args.phone)
+    phone = bool(args.phone or args.slide_forward)
     fixtures = seed(
         data,
         args.students,
@@ -1750,6 +1922,7 @@ def _run(args: argparse.Namespace, out: Path, presence: str) -> int:
         classes=args.classes,
         items=args.items,
         include_mc=phone,
+        slide_pages=13 if args.slide_forward else 0,
     )
     public = [
         {k: v for k, v in fx.items() if k not in ("students", "staff_cookie")}
@@ -1862,9 +2035,36 @@ def _run(args: argparse.Namespace, out: Path, presence: str) -> int:
             "code_root": code_root.name,
         },
     )
+    if args.slide_forward:
+        _slide_forward_gate_errors(
+            summary,
+            rec.rows,
+            students_per_class=args.students,
+            classes=args.classes,
+        )
     print(json.dumps({k: v for k, v in summary.items() if k not in ("kinds", "rss")}, indent=2))
     print("results:", out)
     if not args.gate:
+        return 0
+    if args.slide_forward:
+        failures = _slide_forward_gate_errors(
+            summary,
+            rec.rows,
+            students_per_class=args.students,
+            classes=args.classes,
+        )
+        if failures:
+            for line in failures:
+                print("gate:", line, file=sys.stderr)
+            return 1
+        print("gate: passed")
+        print(
+            "slide-forward"
+            f" state_p95_ms={summary.get('state_p95_ms')}"
+            f" staff_state_max_ms={summary.get('staff_state_max_ms')}"
+            f" slide_reload_peak={summary.get('slide_reload_peak')}"
+            f" slide_forwards={summary.get('slide_forwards')}"
+        )
         return 0
     failures = smoke_gate_errors(
         summary,
