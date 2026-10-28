@@ -65,6 +65,36 @@ export function boardNameChipsEnabled() {
 }
 
 /**
+ * Names a legend would paint. Blank rows are left out.
+ *
+ * @param {any[] | undefined} members
+ * @returns {string[]}
+ */
+export function legendChipLabels(members) {
+  return (Array.isArray(members) ? members : [])
+    .map((member) => String((member && member.name) || "").trim())
+    .filter(Boolean);
+}
+
+/**
+ * Legend rows for a board shown on a student screen.
+ *
+ * Colours stay so ink still matches. Names are omitted. The teacher
+ * screen and the projector keep the original rows.
+ *
+ * @param {any[] | undefined} members
+ * @returns {{id: string, name: string, color: string, slot?: number}[]}
+ */
+export function studentShownMembers(members) {
+  return (Array.isArray(members) ? members : []).map((row) => ({
+    id: row && row.id != null ? String(row.id) : "",
+    name: "",
+    color: row && row.color ? String(row.color) : "",
+    slot: Number.isFinite(Number(row && row.slot)) ? Number(row.slot) : 0,
+  }));
+}
+
+/**
  * How a student paints a board the teacher is showing.
  *
  * The owner's own board stays writable so an open stroke, Pen, Text,
@@ -247,7 +277,10 @@ export function wireFormativeWhiteboard(boardApi, opts) {
 
   function paintLegend() {
     legend.replaceChildren();
-    const rows = (opts.members || []).filter((member) => String(member.name || "").trim());
+    const labels = new Set(legendChipLabels(opts.members));
+    const rows = (opts.members || []).filter((member) =>
+      labels.has(String(member.name || "").trim())
+    );
     for (const member of rows) {
       const btn = document.createElement("button");
       btn.type = "button";

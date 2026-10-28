@@ -37157,17 +37157,81 @@ class SchoolDB(LovesDB):
         )
         return {"ok": True, "released": True, "board_key": str(card["board_key"])}
 
+    def _emit_board_ink(self, session_id: int, board_key: str) -> None:
+        """Tell readers of one board that its ink changed.
+
+        The postcard is the board key. Students who cannot read that
+        board do not receive it, and it does not bump ``state_seq``.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            board_key: Board that was just cleared or rewritten.
+        """
+        from live_news_wire import emit_board_ink
+
+        emit_board_ink(self, int(session_id), str(board_key))
+
+    def _set_projected_whiteboard(self, session_id: int, board_key: str) -> None:
+        """Store which board is shown without rebuilding every phone.
+
+        Show and stop-showing write ``whiteboard_projected_board`` on the
+        existing teacher blob and leave ``state_seq`` where it is. A
+        ``board_show`` postcard names the board key and nothing else.
+        Devices that are showing a board fetch that board. Other class
+        state stays on the slow poll.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+            board_key: ``team:`` or ``solo:`` key, or empty to stop.
+
+        Raises:
+            KeyError: The live session is missing.
+            ValueError: The session is not active, or the key is not a board.
+        """
+        from live_news_wire import emit_session_news
+
+        session_row = self.get_live_session(int(session_id))
+        if session_row is None:
+            raise KeyError(f"live session {session_id}")
+        if str(session_row.get("status") or "") != "active":
+            raise ValueError("Session is not active.")
+        text = str(board_key or "").strip()
+        if text and not text.startswith(("team:", "solo:")):
+            raise ValueError("whiteboard_projected_board must be a board key")
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT teacher_state_json FROM live_class_sessions WHERE id = ?",
+                (int(session_id),),
+            ).fetchone()
+        raw = row["teacher_state_json"] if row is not None else ""
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) and raw.strip() else {}
+        except json.JSONDecodeError:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        payload["whiteboard_projected_board"] = text[:80] if text else None
+        self._write_teacher_state(int(session_id), payload)
+        emit_session_news(
+            self,
+            int(session_id),
+            [{"type": "board_show", "board_key": text[:80]}],
+        )
+
     def clear_whiteboard_board(
         self, session_id: int, board_key: str
     ) -> dict[str, Any]:
         """Erase student ink on the current generation of one board.
 
-        Teacher strokes and text stay, including a feedback layer and a
-        release already stored on this board. The surviving teacher ink
-        is written back as new ``stroke_add`` and ``text_upsert`` ops.
+        A team board is one shared copy: clearing it removes that copy
+        for every device on the team. A solo board is that student's
+        copy. Teacher strokes and text stay, including a feedback layer
+        and a release already stored on this board. The surviving teacher
+        ink is written back as new ``stroke_add`` and ``text_upsert`` ops.
         ``stroke_remove`` rows are not replayed: a teacher undo, or a
         stroke id from an older generation, is not validated against a
-        board that no longer has it.
+        board that no longer has it. Readers of this board are tapped
+        even when no teacher ink remains. The class ``state_seq`` stays.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -37257,13 +37321,18 @@ class SchoolDB(LovesDB):
         if released:
             kept.append({"type": "feedback_release", "id": "release"})
         self.boards.purge_board_key(run_key, key)
-        for start in range(0, len(kept), MAX_OPS_PER_BATCH):
-            self.append_live_board_ops(
-                int(session_id),
-                key,
-                owner="teacher",
-                ops=kept[start : start + MAX_OPS_PER_BATCH],
-            )
+        if kept:
+            for start in range(0, len(kept), MAX_OPS_PER_BATCH):
+                self.append_live_board_ops(
+                    int(session_id),
+                    key,
+                    owner="teacher",
+                    ops=kept[start : start + MAX_OPS_PER_BATCH],
+                )
+        else:
+            # A board with no teacher ink still has to wake the devices
+            # that share this copy. Purge itself does not tap the wire.
+            self._emit_board_ink(int(session_id), key)
         remaining = fold_one_board(
             self._board_rows(int(session_id), key), include_feedback=True
         )
@@ -37286,9 +37355,12 @@ class SchoolDB(LovesDB):
 
         Pressing Show for the board that is already up clears
         ``whiteboard_projected_board``. Pressing it for another board
-        switches the projection. Live teacher ink is included. Rows
-        already stored with ``layer=feedback`` stay hidden until a
-        release on this board. Those rows are not deleted.
+        switches the projection. The write does not increment
+        ``state_seq``. Live teacher ink is included. Rows already
+        stored with ``layer=feedback`` stay hidden until a release on
+        this board. Those rows are not deleted. The teacher response
+        still carries the legend names. Student polls receive the same
+        board with those names removed.
 
         Args:
             session_id: ``live_class_sessions.id``.
@@ -37303,10 +37375,7 @@ class SchoolDB(LovesDB):
         teacher = self.live_session_teacher_state_payload(int(session_id))
         current = str(teacher.get("whiteboard_projected_board") or "").strip()
         if current == key:
-            self.set_live_session_teacher_state(
-                int(session_id),
-                whiteboard_projected_board="",
-            )
+            self._set_projected_whiteboard(int(session_id), "")
             return public_board_payload(
                 {
                     "ok": True,
@@ -37319,10 +37388,7 @@ class SchoolDB(LovesDB):
         rows = self._board_rows(int(session_id), key)
         released = feedback_released(rows)
         view = fold_one_board(rows, include_feedback=released)
-        self.set_live_session_teacher_state(
-            int(session_id),
-            whiteboard_projected_board=key,
-        )
+        self._set_projected_whiteboard(int(session_id), key)
         body = {
             "ok": True,
             "projected": True,
@@ -37366,7 +37432,11 @@ class SchoolDB(LovesDB):
             board is projected.
         """
         from board_ops import feedback_released, fold_one_board
-        from formative_live_board import legend_entries, public_board_payload
+        from formative_live_board import (
+            legend_entries,
+            public_board_payload,
+            strip_shown_board_names,
+        )
 
         teacher = teacher_state if isinstance(teacher_state, dict) else None
         if teacher is None:
@@ -37386,13 +37456,15 @@ class SchoolDB(LovesDB):
         board_key = str(card["board_key"])
         rows = self._board_rows(int(session_id), board_key)
         view = fold_one_board(rows, include_feedback=feedback_released(rows))
-        return public_board_payload(
-            {
-                "board_key": board_key,
-                "name": str(card.get("name") or ""),
-                "legend": legend_entries(self, int(session_id), card),
-                "canvas_view": view,
-            }
+        return strip_shown_board_names(
+            public_board_payload(
+                {
+                    "board_key": board_key,
+                    "name": str(card.get("name") or ""),
+                    "legend": legend_entries(self, int(session_id), card),
+                    "canvas_view": view,
+                }
+            )
         )
 
     def purge_board_ops(self, session_id: int) -> None:

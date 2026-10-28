@@ -37,6 +37,27 @@ export const BOARD_INK_DEBOUNCE_MS = 280;
 export const BOARD_INK_JITTER_MS = 80;
 
 /**
+ * True when a snapshot is a new head below the cursor the caller holds.
+ *
+ * Clear deletes the board and starts the sequence again. Merging that
+ * picture would keep this tab's old ink. A snapshot that is simply a
+ * wide gap (the head is still ahead of the cursor) is not a replace.
+ *
+ * @param {number} boardSeq Head the server just reported.
+ * @param {number} requestedSince Cursor this read asked from.
+ * @param {number} [heldSince] Cursor this tab has already applied.
+ * @returns {boolean}
+ */
+export function snapshotReplacesInk(boardSeq, requestedSince, heldSince) {
+  const seq = Number(boardSeq);
+  if (!Number.isFinite(seq)) return false;
+  const asked = Number(requestedSince);
+  if (Number.isFinite(asked) && seq < asked) return true;
+  const held = Number(heldSince);
+  return Number.isFinite(held) && seq < held;
+}
+
+/**
  * Ops whose sequence is strictly above the caller's cursor.
  *
  * @param {any[] | null | undefined} ops
@@ -222,6 +243,7 @@ export function createBoardDeltaPoll(opts) {
   let nextSlotAt = Date.now();
   let pulled = false;
   let kickAfter = false;
+  let forceRead = false;
 
   /**
    * Arm the next poll. A stopped poll does not arm again.
@@ -239,7 +261,9 @@ export function createBoardDeltaPoll(opts) {
   function run(fromKick) {
     timer = 0;
     if (stopped || inFlight) return;
-    if (typeof opts.isShown === "function" && !opts.isShown()) {
+    const force = forceRead;
+    forceRead = false;
+    if (!force && typeof opts.isShown === "function" && !opts.isShown()) {
       delay = BOARD_DELTA_POLL_MS;
       schedule();
       return;
@@ -296,7 +320,8 @@ export function createBoardDeltaPoll(opts) {
    * Pull the next grid slot forward once. Later taps in the gap share it.
    */
   function armKick() {
-    if (stopped || kickTimer || pulled) return;
+    if (stopped || kickTimer) return;
+    if (pulled && !forceRead) return;
     if (inFlight) {
       kickAfter = true;
       return;
@@ -334,10 +359,15 @@ export function createBoardDeltaPoll(opts) {
     },
     /**
      * Pull the next board read forward once per poll gap.
+     *
      * A burst, including the trailing tap, shares that one read.
+     * ``force`` reads even when the board pane is hidden, so a clear
+     * or a show reaches a phone that is not currently polling.
+     * @param {boolean} [force]
      */
-    kick() {
+    kick(force) {
       if (stopped) return;
+      if (force) forceRead = true;
       armKick();
     },
   };
@@ -962,7 +992,8 @@ export function bindWhiteboard(canvas, opts = {}) {
     const rows = cursors;
     layer.innerHTML = rows
       .map((row) => {
-        const name = String(row.name || row.owner || "").replace(/[<>&"]/g, "");
+        const name = String(row.name || "").replace(/[<>&"]/g, "").trim();
+        if (!name) return "";
         const tint = String(row.color || "#0b3d91").replace(/[<>"']/g, "");
         const left = Math.round(Number(row.x) * 1000) / 10;
         const top = Math.round(Number(row.y) * 1000) / 10;

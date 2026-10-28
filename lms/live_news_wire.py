@@ -72,6 +72,7 @@ NEWS_TYPES = frozenset(
         "response_landed",
         "flag_work",
         "board_ink",
+        "board_show",
         "google_slide",
         "busy",
         "ping",
@@ -97,6 +98,8 @@ _FIELDS: dict[str, frozenset[str]] = {
     ),
     # Board key only. No points, no names. Members fetch since-seq deltas.
     "board_ink": frozenset({"type", "board_key"}),
+    # Shown-board key only. Empty means the projection stopped. No names.
+    "board_show": frozenset({"type", "board_key"}),
     # Current slide only. No roster. image_url is empty until the page is shared.
     "google_slide": frozenset(
         {"type", "index", "shared", "page_count", "image_url", "rev"}
@@ -693,6 +696,8 @@ def _clean_event(raw: dict[str, Any]) -> dict[str, Any] | None:
         if not key:
             return None
         event["board_key"] = key
+    if kind == "board_show":
+        event["board_key"] = str(event.get("board_key") or "").strip()[:80]
     if kind == "google_slide":
         event["index"] = max(0, min(40, _as_int(event.get("index"))))
         event["page_count"] = max(0, min(40, _as_int(event.get("page_count"))))
@@ -1570,6 +1575,11 @@ def event_visible(event: dict[str, Any], audience: NewsAudience) -> bool:
         if audience.role == "staff":
             return key == "teacher"
         return key in audience.read_keys
+    if kind == "board_show":
+        # Every joined student paints the shown board. The postcard is
+        # the key only, and the client fetches that board instead of
+        # reloading /state. Staff already painted from the Show POST.
+        return audience.role == "student"
     if audience.role == "staff":
         return True
     if kind == "flag_work":

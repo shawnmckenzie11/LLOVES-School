@@ -55,8 +55,9 @@ import {
   isFreshBoardRunKey,
   opsAboveCursor,
   showBoardRefreshCue,
+  snapshotReplacesInk,
 } from "/static/live_whiteboard.js";
-import { classBoardPaintMode } from "/static/whiteboard_formative.js";
+import { classBoardPaintMode, studentShownMembers } from "/static/whiteboard_formative.js";
 import {
   canvasToPngDataUrl,
   drawSubmitVisible,
@@ -1202,19 +1203,8 @@ function studentPresenceQueue() {
         return;
       }
       if (data.snapshot) {
-        if (typeof data.board_seq === "number" && data.board_seq >= studentBoardSince) {
-          studentBoardSince = data.board_seq;
-        }
-        if (
-          typeof data.teacher_board_seq === "number" &&
-          data.teacher_board_seq >= studentTeacherSince
-        ) {
-          studentTeacherSince = data.teacher_board_seq;
-        }
-        if (typeof bindStudentCanvas.applyDelta === "function") {
-          bindStudentCanvas.applyDelta(data);
-        }
-        applyStudentBoardFormative(data.formative);
+        applyStudentBoardSnapshot(data);
+        if (classMode !== "show-own") applyStudentBoardFormative(data.formative);
         return;
       }
       const teamOps = opsAboveCursor(data.ops_since, studentBoardSince);
@@ -1226,10 +1216,10 @@ function studentPresenceQueue() {
         typeof bindStudentCanvas.applyDelta === "function"
       ) {
         bindStudentCanvas.applyDelta({ ops_since: teamOps, teacher_ops: teacherOps });
-        applyStudentBoardFormative(data.formative);
+        if (classMode !== "show-own") applyStudentBoardFormative(data.formative);
         return;
       }
-      applyStudentBoardFormative(data.formative);
+      if (classMode !== "show-own") applyStudentBoardFormative(data.formative);
       const view = data?.canvas_view || data?.canvas_sync;
       if (view && typeof bindStudentCanvas.importRemote === "function") {
         bindStudentCanvas.importRemote(view, studentPresenceCollab);
@@ -1326,11 +1316,11 @@ function syncClassBoard(data) {
   }
   const board = data.class_board;
   if (board && typeof board === "object" && board.canvas_view) {
-    const legend = Array.isArray(board.legend) ? board.legend : [];
+    const legend = studentShownMembers(Array.isArray(board.legend) ? board.legend : []);
     if (typeof bindStudentCanvas.applyFormativePatch === "function") {
       bindStudentCanvas.applyFormativePatch({
         members: legend,
-        always_show_names: true,
+        always_show_names: false,
         projector_show_names: false,
       });
     }
@@ -1525,7 +1515,7 @@ function refreshStudentBoard() {
     }
     studentBoardSince = Number(data.board_seq) || 0;
     studentTeacherSince = Number(data.teacher_board_seq) || 0;
-    applyStudentBoardFormative(data.formative);
+    if (classMode !== "show-own") applyStudentBoardFormative(data.formative);
     if (studentCanvas instanceof HTMLCanvasElement) {
       // MCK-174: a Fresh board reopen also changes the run key. Keep the
       // reopen line instead of the new-class line.
@@ -1560,13 +1550,51 @@ function failedBoardFetchCue() {
 }
 
 /**
- * Fetch teammate ink now. A ``board_ink`` tap calls this so a watching
- * tab does not wait for the next poll.
+ * Pull the board read forward.
+ *
+ * ``force`` reads even when the canvas pane is hidden, so Clear and
+ * Show reach this phone without a ``/state`` rebuild.
+ * @param {boolean} [force]
  */
-function kickStudentBoardDelta() {
+function kickStudentBoardDelta(force) {
   ensureStudentBoardPoll();
   if (studentBoardPoll && typeof studentBoardPoll.kick === "function") {
-    studentBoardPoll.kick();
+    studentBoardPoll.kick(Boolean(force));
+  }
+}
+
+/**
+ * Paint a board snapshot, replacing local ink when the head moved backwards.
+ *
+ * Clear purges the shared copy and starts the sequence again. A merge
+ * would leave this tab's old strokes on screen.
+ * @param {any} data
+ */
+function applyStudentBoardSnapshot(data) {
+  const replace = snapshotReplacesInk(
+    data && data.board_seq,
+    data && data.since,
+    studentBoardSince
+  );
+  if (typeof data.board_seq === "number" && (replace || data.board_seq >= studentBoardSince)) {
+    studentBoardSince = data.board_seq;
+  }
+  if (
+    typeof data.teacher_board_seq === "number" &&
+    data.teacher_board_seq >= studentTeacherSince
+  ) {
+    studentTeacherSince = data.teacher_board_seq;
+  }
+  if (replace) {
+    studentPresenceQueue().drop();
+    const view = data.canvas_view || { strokes: [], texts: [], cursors: [] };
+    if (typeof bindStudentCanvas.resetRun === "function") {
+      bindStudentCanvas.resetRun(view);
+    }
+    return;
+  }
+  if (typeof bindStudentCanvas.applyDelta === "function") {
+    bindStudentCanvas.applyDelta(data);
   }
 }
 
@@ -1578,8 +1606,7 @@ function ensureStudentBoardPoll() {
      */
     isShown() {
       const pane = document.getElementById("canvas-pane");
-      if (!(pane instanceof HTMLElement) || pane.hidden) return false;
-      return studentPresenceCollab || classBoardHeld;
+      return pane instanceof HTMLElement && !pane.hidden;
     },
     /**
      * @returns {Promise<any>}
@@ -1646,19 +1673,8 @@ function ensureStudentBoardPoll() {
         return;
       }
       if (data.snapshot) {
-        if (typeof data.board_seq === "number" && data.board_seq >= studentBoardSince) {
-          studentBoardSince = data.board_seq;
-        }
-        if (
-          typeof data.teacher_board_seq === "number" &&
-          data.teacher_board_seq >= studentTeacherSince
-        ) {
-          studentTeacherSince = data.teacher_board_seq;
-        }
-        if (typeof bindStudentCanvas.applyDelta === "function") {
-          bindStudentCanvas.applyDelta(data);
-        }
-        applyStudentBoardFormative(data.formative);
+        applyStudentBoardSnapshot(data);
+        if (classMode !== "show-own") applyStudentBoardFormative(data.formative);
         return;
       }
       const teamOps = opsAboveCursor(data.ops || data.ops_since, studentBoardSince);
@@ -1672,7 +1688,7 @@ function ensureStudentBoardPoll() {
           teacher_ops: teacherOps,
         });
       }
-      applyStudentBoardFormative(data.formative);
+      if (classMode !== "show-own") applyStudentBoardFormative(data.formative);
     },
   });
 }
@@ -6014,8 +6030,8 @@ function ensureStudentNewsWire(sessionId) {
         });
         return;
       }
-      if (event && event.type === "board_ink") {
-        kickStudentBoardDelta();
+      if (event && (event.type === "board_ink" || event.type === "board_show")) {
+        kickStudentBoardDelta(true);
         return;
       }
       // The postcard already has the stem. Full /state is spread so one

@@ -749,7 +749,15 @@ class FormativeLiveBoardTests(unittest.TestCase):
         panel = self.staff.get(
             f"/api/live-sessions/{self.session_id}/whiteboard-gallery/team:0"
         )
-        self.assertEqual(panel.get_json().get("legend"), board.get("legend"))
+        panel_legend = panel.get_json().get("legend") or []
+        self.assertEqual(
+            [(row.get("id"), row.get("color")) for row in panel_legend],
+            [(row.get("id"), row.get("color")) for row in board.get("legend") or []],
+        )
+        self.assertTrue(any(str(row.get("name") or "").strip() for row in panel_legend))
+        self.assertFalse(
+            any(str(row.get("name") or "").strip() for row in board.get("legend") or [])
+        )
         denied = pine.post(
             "/api/student/board/team:0/ops",
             json={
@@ -794,7 +802,14 @@ class FormativeLiveBoardTests(unittest.TestCase):
         )
         self.assertEqual(seen.status_code, 200, seen.get_data(as_text=True))
         board = (seen.get_json() or {}).get("class_board") or {}
-        self.assertEqual(board.get("legend"), shown_legend)
+        self.assertEqual(
+            [(row.get("id"), row.get("color")) for row in board.get("legend") or []],
+            [(row.get("id"), row.get("color")) for row in shown_legend],
+        )
+        self.assertFalse(
+            any(str(row.get("name") or "").strip() for row in board.get("legend") or [])
+        )
+        self.assertTrue(any(str(row.get("name") or "").strip() for row in shown_legend))
 
     def test_teacher_wrote_and_clear_keeps_live_ink(self) -> None:
         """The chip follows teacher rows. Clear leaves that ink in place."""
@@ -1190,6 +1205,300 @@ class FormativeLiveBoardTests(unittest.TestCase):
             headers=self._student_headers(self._visit_token(self.pine_id)),
         )
         self.assertEqual(denied.status_code, 403)
+
+
+    def test_clear_wipes_the_shared_team_copy_and_a_solo_board(self) -> None:
+        """Clear deletes the saved board, including one shared team copy.
+
+        A later read from the previous cursor is a snapshot of what
+        remains. Both teammates read that same copy. A solo board is
+        that student's copy. The tap names the board and not the class.
+        """
+        from live_news_wire import NewsAudience, event_visible, log_for, reset_ink_taps
+
+        self._publish("group_shared")
+        key = "team:0"
+        self.school.append_live_board_ops(
+            self.session_id,
+            key,
+            owner=str(self.maple_id),
+            ops=[self._stroke("shared-pen")],
+        )
+        self.school.append_live_board_ops(
+            self.session_id,
+            key,
+            owner=str(self.cedar_id),
+            ops=[self._text_op("shared label", "shared-label")],
+        )
+        maple_before = self.maple.get(
+            f"/api/student/board/{key}?since=0",
+            headers=self._student_headers(self.maple_token),
+        )
+        self.assertEqual(maple_before.status_code, 200, maple_before.get_data(as_text=True))
+        held = int(maple_before.get_json().get("board_seq") or 0)
+        self.assertGreater(held, 0)
+        tape = log_for(self.school.data_dir)
+        cursor = max((int(row.get("id") or 0) for row in tape.since(self.session_id, 0)), default=0)
+        reset_ink_taps()
+        seq_before = int(
+            self.school.live_session_teacher_state_payload(self.session_id).get("state_seq") or 0
+        )
+        cleared = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}/clear"
+        )
+        self.assertEqual(cleared.status_code, 200, cleared.get_data(as_text=True))
+        self.assertTrue(cleared.get_json().get("cleared"))
+        self.assertEqual(
+            int(self.school.live_session_teacher_state_payload(self.session_id).get("state_seq") or 0),
+            seq_before,
+        )
+        for client, token in (
+            (self.maple, self.maple_token),
+            (self.cedar_client, self.cedar_token),
+        ):
+            seen = client.get(
+                f"/api/student/board/{key}?since={held}",
+                headers=self._student_headers(token),
+            )
+            self.assertEqual(seen.status_code, 200, seen.get_data(as_text=True))
+            body = seen.get_json()
+            self.assertTrue(body.get("snapshot"))
+            self.assertLess(int(body.get("board_seq") or 0), held)
+            dumped = json.dumps(body.get("canvas_view") or {})
+            self.assertNotIn("shared-pen", dumped)
+            self.assertNotIn("shared label", dumped)
+        fresh = self.maple.get(
+            f"/api/student/board/{key}?since=0",
+            headers=self._student_headers(self.maple_token),
+        )
+        self.assertNotIn("shared-pen", json.dumps(fresh.get_json()))
+        ink = [
+            row
+            for row in tape.since(self.session_id, cursor)
+            if row.get("type") == "board_ink"
+        ]
+        self.assertTrue(ink, "clear did not tap the shared board")
+        self.assertEqual(ink[-1].get("board_key"), key)
+        self.assertNotIn("name", ink[-1])
+        mine = NewsAudience(
+            "student",
+            student_id=self.maple_id,
+            read_keys=list(self.school.student_board_access(self.session_id, self.maple_id)["read"]),
+        )
+        other = NewsAudience(
+            "student",
+            student_id=self.pine_id,
+            read_keys=list(self.school.student_board_access(self.session_id, self.pine_id)["read"]),
+        )
+        self.assertTrue(event_visible(ink[-1], mine))
+        self.assertFalse(event_visible(ink[-1], other))
+
+        self._publish("individual")
+        solo = f"solo:{self.maple_id}"
+        self.school.append_live_board_ops(
+            self.session_id,
+            solo,
+            owner=str(self.maple_id),
+            ops=[self._stroke("solo-pen")],
+        )
+        solo_before = self.maple.get(
+            f"/api/student/board/{solo}?since=0",
+            headers=self._student_headers(self.maple_token),
+        )
+        solo_held = int(solo_before.get_json().get("board_seq") or 0)
+        self.assertGreater(solo_held, 0)
+        reset_ink_taps()
+        solo_clear = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{solo}/clear"
+        )
+        self.assertEqual(solo_clear.status_code, 200, solo_clear.get_data(as_text=True))
+        solo_after = self.maple.get(
+            f"/api/student/board/{solo}?since={solo_held}",
+            headers=self._student_headers(self.maple_token),
+        )
+        self.assertTrue(solo_after.get_json().get("snapshot"))
+        self.assertNotIn("solo-pen", json.dumps(solo_after.get_json().get("canvas_view") or {}))
+
+    def test_show_hides_names_on_the_student_board_and_skips_state_seq(self) -> None:
+        """Student shown-board payload has no name. Teacher and projector do.
+
+        Show does not bump ``state_seq``. The postcard is the board key.
+        """
+        from live_news_wire import NewsAudience, event_visible, log_for, reset_logs
+
+        self._publish("group_shared")
+        seq_before = int(
+            self.school.live_session_teacher_state_payload(self.session_id).get("state_seq") or 0
+        )
+        tape = log_for(self.school.data_dir)
+        cursor = max((int(row.get("id") or 0) for row in tape.since(self.session_id, 0)), default=0)
+        shown = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/team:0/show"
+        )
+        self.assertEqual(shown.status_code, 200, shown.get_data(as_text=True))
+        teacher = shown.get_json()
+        self.assertTrue(any(str(row.get("name") or "").strip() for row in teacher.get("legend") or []))
+        self.assertEqual(
+            int(self.school.live_session_teacher_state_payload(self.session_id).get("state_seq") or 0),
+            seq_before,
+        )
+        panel = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/team:0"
+        )
+        self.assertTrue(
+            any(str(row.get("name") or "").strip() for row in panel.get_json().get("legend") or [])
+        )
+        seen = self.maple.get(
+            "/api/student/board/mine?since=0&teacher_since=0",
+            headers=self._student_headers(self.maple_token),
+        )
+        self.assertEqual(seen.status_code, 200, seen.get_data(as_text=True))
+        board = (seen.get_json() or {}).get("class_board") or {}
+        self.assertEqual(board.get("board_key"), "team:0")
+        dumped = json.dumps(board)
+        self.assertNotIn('"name"', dumped)
+        for row in teacher.get("legend") or []:
+            label = str(row.get("name") or "").strip()
+            if label:
+                self.assertNotIn(label, dumped)
+        news = [
+            row
+            for row in tape.since(self.session_id, cursor)
+            if row.get("type") == "board_show"
+        ]
+        self.assertTrue(news)
+        self.assertEqual(set(news[-1]) - {"id"}, {"type", "board_key"})
+        self.assertEqual(news[-1].get("board_key"), "team:0")
+        self.assertFalse(
+            any(row.get("type") == "state_seq" for row in tape.since(self.session_id, cursor))
+        )
+        student = NewsAudience("student", student_id=self.pine_id, read_keys=["solo:1"])
+        staff = NewsAudience("staff")
+        self.assertTrue(event_visible(news[-1], student))
+        self.assertFalse(event_visible(news[-1], staff))
+        reset_logs()
+
+    def test_student_shown_legend_dom_has_no_name(self) -> None:
+        """The student shown-board legend paints no name. The teacher legend does."""
+        script = r"""
+import { legendChipLabels, studentShownMembers, wireFormativeWhiteboard } from './lms/static/whiteboard_formative.js';
+import { snapshotReplacesInk } from './lms/static/live_whiteboard.js';
+
+class HTMLElement {}
+class HTMLCanvasElement extends HTMLElement {}
+globalThis.HTMLElement = HTMLElement;
+globalThis.HTMLCanvasElement = HTMLCanvasElement;
+globalThis.Element = class Element {};
+
+function makeEl(id) {
+  const node = {
+    id: id || '',
+    hidden: false,
+    style: {},
+    dataset: {},
+    className: '',
+    classList: { add() {}, remove() {}, toggle() {} },
+    textContent: '',
+    children: [],
+    parentElement: null,
+    append(...kids) { for (const kid of kids) this.children.push(kid); },
+    appendChild(child) { child.parentElement = this; this.children.push(child); return child; },
+    replaceChildren() { this.children = []; this.textContent = ''; },
+    addEventListener() {},
+    setAttribute() {},
+    querySelector(sel) {
+      if (String(sel).includes('class-board-legend')) return this._legend || null;
+      return null;
+    },
+    closest() { return this._root || null; },
+    getBoundingClientRect() {
+      return { width: 320, height: 180, left: 0, top: 0, right: 320, bottom: 180 };
+    },
+    getContext() {
+      return { setTransform() {}, clearRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, fillRect() {} };
+    },
+  };
+  return node;
+}
+
+const label = 'Ink label';
+const members = [{ id: '7', name: label, color: '#2563eb' }];
+if (legendChipLabels(studentShownMembers(members)).length !== 0) process.exit(2);
+if (legendChipLabels(members).join('|') !== label) process.exit(3);
+if (!snapshotReplacesInk(1, 8, 8)) process.exit(4);
+if (snapshotReplacesInk(9, 2, 2)) process.exit(5);
+
+const canvas = makeEl('canvas');
+Object.setPrototypeOf(canvas, HTMLCanvasElement.prototype);
+const stage = makeEl('stage');
+Object.setPrototypeOf(stage, HTMLElement.prototype);
+const legend = makeEl('class-board-legend');
+Object.setPrototypeOf(legend, HTMLElement.prototype);
+const root = makeEl('canvas-pane');
+root._legend = legend;
+root.insertBefore = (node) => root.appendChild(node);
+canvas._root = root;
+stage.parentElement = root;
+canvas.parentElement = stage;
+globalThis.document = {
+  body: makeEl('body'),
+  createElement() { return makeEl(); },
+  getElementById() { return null; },
+  addEventListener() {},
+};
+document.createTextNode = (text) => ({ textContent: String(text) });
+globalThis.window = globalThis;
+window.addEventListener = () => {};
+window.setTimeout = setTimeout;
+window.clearTimeout = clearTimeout;
+window.matchMedia = () => ({ matches: false });
+
+function labels(host) {
+  const found = [];
+  const walk = (node) => {
+    if (!node) return;
+    if (node.textContent) found.push(String(node.textContent));
+    for (const child of node.children || []) walk(child);
+  };
+  walk(host);
+  return found.join(' ');
+}
+
+wireFormativeWhiteboard({ setFormative() {}, getInk: () => ({ strokes: [], texts: [] }) }, {
+  canvas,
+  stage,
+  members: studentShownMembers(members),
+  ownerId: () => '7',
+  alwaysShowNames: false,
+  getInk: () => ({ strokes: [], texts: [] }),
+});
+if (labels(legend).includes(label)) {
+  console.error('student legend ' + labels(legend));
+  process.exit(6);
+}
+legend.replaceChildren();
+wireFormativeWhiteboard({ setFormative() {}, getInk: () => ({ strokes: [], texts: [] }) }, {
+  canvas,
+  stage,
+  members,
+  ownerId: () => 'teacher',
+  isTeacher: true,
+  alwaysShowNames: true,
+  getInk: () => ({ strokes: [], texts: [] }),
+});
+if (!labels(legend).includes(label)) {
+  console.error('teacher legend ' + labels(legend));
+  process.exit(7);
+}
+"""
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
 
 
 if __name__ == "__main__":
