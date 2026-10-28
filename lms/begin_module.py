@@ -1,8 +1,8 @@
 """Begin a section's next module from Attendance & Participation (MCK-339).
 
 The action marks the open module complete and stores that section's next
-module. It does not delete or re-key answers, items, runs, or result
-snapshots. Late catch-up stays on the run's own module.
+module. Wrap-up is final. It does not delete or re-key answers, items,
+runs, or result snapshots. Late catch-up stays on the run's own module.
 
 Attendance has no totals table. A class counts as held when a real,
 non-discarded run saved that module and class slot. A student counts as
@@ -216,6 +216,7 @@ def dialog_copy(current_number: int, next_number: int, held: int, planned: int) 
             ),
             f"Module {nxt} totals start at zero.",
             f"Catch-up answers that come in late still count toward Module {current}.",
+            "This can't be undone.",
         ],
         "cancel": "Cancel",
         "confirm": f"Start Module {nxt}",

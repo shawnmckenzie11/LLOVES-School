@@ -40585,9 +40585,29 @@ class SchoolDB(LovesDB):
     def set_module_complete(
         self, class_id: int, module: str, complete: bool, *, user_id: int | None = None
     ) -> bool:
-        """Teacher 'Mark Module N Complete', or undo (deletes the mark). Returns the new state."""
+        """Teacher 'Mark Module N Complete', or undo (deletes the mark).
+
+        A module already wrapped by Begin new module stays complete. The
+        section pointer is left where it is, and the mark row is not deleted.
+
+        Returns:
+            The module's complete flag after the call.
+        """
         with self._lock:
             if not complete:
+                from begin_module import normalize_module
+                from participation_weight import module_number
+
+                requested = normalize_module(module)
+                pointer = self._begin_module_pointer_unlocked(int(class_id))
+                if (
+                    requested
+                    and pointer
+                    and module_number(pointer) > module_number(requested)
+                ):
+                    if self.conn.in_transaction:
+                        self.conn.commit()
+                    return True
                 self.conn.execute(
                     "DELETE FROM participation_module_marks WHERE class_id = ? AND live_module = ?",
                     (int(class_id), str(module)),
@@ -40816,88 +40836,6 @@ class SchoolDB(LovesDB):
             held=int(board["held"]),
             planned=int(board["planned"]),
         )
-
-    def unmark_begun_module(
-        self,
-        class_id: int,
-        module: str,
-        *,
-        user_id: int | None = None,
-    ) -> dict[str, Any]:
-        """Clear one section's complete mark and step back when it is next.
-
-        The mark row stays, with complete 0, so a later class slot does
-        not mark the module complete again. Answers, items, runs, and
-        snapshots are not deleted. A second un-mark changes nothing.
-
-        Args:
-            class_id: Game-show ``classes.id``.
-            module: Module to reopen, such as ``M3``.
-            user_id: Staff user id stored on the mark. Not logged.
-
-        Returns:
-            ``changed`` false when the module was already open.
-
-        Raises:
-            BeginModuleRejected: The module is not wrapped up for this section.
-        """
-        from begin_module import BeginModuleRejected, next_in_plan, normalize_module
-
-        cid = int(class_id)
-        requested = normalize_module(module)
-        if not requested:
-            raise BeginModuleRejected("module is required.", 400)
-        plan = [token for token, _slots in self._begin_module_plan(cid)]
-        nxt = next_in_plan(plan, requested)
-        with self._lock:
-            self._begin_module_finish_open_transaction()
-            self.conn.execute("BEGIN IMMEDIATE")
-            try:
-                mark = self.conn.execute(
-                    """
-                    SELECT complete FROM participation_module_marks
-                    WHERE class_id = ? AND live_module = ?
-                    """,
-                    (cid, requested),
-                ).fetchone()
-                pointer = self._begin_module_pointer_unlocked(cid)
-                complete = bool(mark["complete"]) if mark is not None else False
-                if not complete and pointer == requested:
-                    self.conn.execute("COMMIT")
-                    changed = False
-                elif not complete:
-                    self.conn.execute("ROLLBACK")
-                    raise BeginModuleRejected("That module is not wrapped up.")
-                else:
-                    now = _now()
-                    self.conn.execute(
-                        """
-                        UPDATE participation_module_marks
-                        SET complete = 0, marked_by = ?, updated_at = ?
-                        WHERE class_id = ? AND live_module = ?
-                        """,
-                        (user_id, now, cid, requested),
-                    )
-                    if pointer == nxt or not pointer:
-                        self.conn.execute(
-                            "UPDATE classes SET current_live_module = ? WHERE id = ?",
-                            (requested, cid),
-                        )
-                    self.conn.execute("COMMIT")
-                    changed = True
-            except BeginModuleRejected:
-                raise
-            except Exception:
-                if self.conn.in_transaction:
-                    self.conn.execute("ROLLBACK")
-                raise
-        current = self._begin_module_pointer(cid) or requested
-        return {
-            "ok": True,
-            "changed": changed,
-            "module": requested,
-            "current_module": current,
-        }
 
     def _begin_module_result(
         self,

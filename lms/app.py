@@ -10910,15 +10910,17 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
     @app.route("/api/classes/<int:class_id>/participation/modules/begin", methods=["POST"])
     @login_required
     def api_begin_new_module(class_id: int):
-        """Wrap this section's open module, or un-mark one wrapped module.
+        """Wrap this section's open module. The wrap cannot be undone.
 
-        The body is ``{"from_module": "M3"}`` or ``{"undo": true, "module": "M3"}``.
-        One section only. The response has no roster fields.
+        The body is ``{"from_module": "M3"}``. One section only. The
+        response has no roster fields.
         """
         denied = _require_class_staff(class_id)
         if denied:
             return denied
         body = request.get_json(silent=True) or {}
+        if body.get("undo"):
+            return jsonify({"ok": False, "error": "This can't be undone."}), 400
         user = current_user()
         user_id = int(user["id"]) if user else None
         try:
@@ -10926,18 +10928,11 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         except ImportError:
             from lms.begin_module import BeginModuleRejected
         try:
-            if body.get("undo"):
-                result = school.unmark_begun_module(
-                    class_id,
-                    str(body.get("module") or "")[:20],
-                    user_id=user_id,
-                )
-            else:
-                result = school.begin_new_module(
-                    class_id,
-                    str(body.get("from_module") or "")[:20],
-                    user_id=user_id,
-                )
+            result = school.begin_new_module(
+                class_id,
+                str(body.get("from_module") or "")[:20],
+                user_id=user_id,
+            )
         except BeginModuleRejected as exc:
             return jsonify({"ok": False, "error": str(exc)}), int(exc.status)
         return jsonify(result)

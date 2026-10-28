@@ -1040,8 +1040,6 @@
               <option value="{{ past.module }}">{{ past.label }}</option>
               {% endfor %}
             </select>
-            <button type="button" class="btn secondary" id="begin-mod-unmark"
-                    data-url="{{ url_for('api_begin_new_module', class_id=cls.id) }}">Un-mark</button>
           </div>
           {% for past in module_wrap.past %}
           <div class="begin-mod-past-panel" data-past-module="{{ past.module }}"{% if not loop.first %} hidden{% endif %}>

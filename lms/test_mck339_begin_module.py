@@ -206,9 +206,11 @@ class CopyTests(unittest.TestCase):
         self.assertIn("nothing is deleted", copy["lines"][1])
         self.assertIn("Module 4 totals start at zero", copy["lines"][2])
         self.assertIn("still count toward Module 3", copy["lines"][3])
+        self.assertEqual(copy["lines"][-1], "This can't be undone.")
         blob = " ".join(copy["lines"]).lower()
         self.assertNotIn("frozen", blob)
         self.assertNotIn("un-mark", blob)
+        self.assertNotIn("undo wrap-up", blob)
 
     def test_disabled_reasons(self) -> None:
         self.assertEqual(
@@ -335,17 +337,63 @@ class BeginModuleTests(Base):
         self.assertEqual(new, 0)
         self.assertTrue(self.school.module_complete(self.class_id, "M1"))
 
-    def test_undo_reopens_the_module_without_deleting_rows(self) -> None:
+    def test_wrap_up_is_final_for_teacher_and_admin(self) -> None:
         _seed_held_class(self.school, self.class_id, self.students)
         self.school.begin_new_module(self.class_id, "M1", user_id=int(self.teacher["id"]))
         before = _counts(self.school.conn, self.class_id)
-        undone = self.school.unmark_begun_module(self.class_id, "M1", user_id=int(self.teacher["id"]))
-        again = self.school.unmark_begun_module(self.class_id, "M1", user_id=int(self.teacher["id"]))
+        keys_before = [
+            tuple(row)
+            for row in self.school.conn.execute(
+                """
+                SELECT question_key, run_key, live_module
+                FROM participation_answers
+                WHERE class_id = ?
+                ORDER BY id
+                """,
+                (self.class_id,),
+            )
+        ]
+        page = self.client.get(f"/staff/class/{self.class_id}?tab=ap&view=attendance")
+        html = page.get_data(as_text=True)
+        self.assertNotIn("Un-mark", html)
+        self.assertNotIn("Undo wrap-up", html)
+        self.assertNotIn("You can undo this from Past modules.", html)
+        refused = self.client.post(
+            f"/api/classes/{self.class_id}/participation/modules/begin",
+            json={"undo": True, "module": "M1"},
+        )
+        self.assertEqual(refused.status_code, 400)
+        stranger = self.school.register_staff("other-staff@example.com")
+        self.school.conn.execute(
+            "UPDATE users SET role = 'it' WHERE id = ?",
+            (int(stranger["id"]),),
+        )
+        self.school.conn.commit()
+        admin = self.app.test_client()
+        _sign_in(admin, self.school, "other-staff@example.com")
+        admin_refused = admin.post(
+            f"/api/classes/{self.class_id}/participation/modules/begin",
+            json={"undo": True, "module": "M1"},
+        )
+        self.assertEqual(admin_refused.status_code, 400)
+        self.assertTrue(self.school.set_module_complete(self.class_id, "M1", False))
         after = _counts(self.school.conn, self.class_id)
-        self.assertTrue(undone["changed"])
-        self.assertEqual(undone["current_module"], "M1")
-        self.assertFalse(again["changed"])
+        keys_after = [
+            tuple(row)
+            for row in self.school.conn.execute(
+                """
+                SELECT question_key, run_key, live_module
+                FROM participation_answers
+                WHERE class_id = ?
+                ORDER BY id
+                """,
+                (self.class_id,),
+            )
+        ]
         self.assertEqual(after, before)
+        self.assertEqual(keys_after, keys_before)
+        self.assertEqual(self.school._begin_module_pointer(self.class_id), "M2")
+        self.assertTrue(self.school.module_complete(self.class_id, "M1"))
         mark = self.school.conn.execute(
             """
             SELECT complete FROM participation_module_marks
@@ -353,9 +401,7 @@ class BeginModuleTests(Base):
             """,
             (self.class_id,),
         ).fetchone()
-        self.assertIsNotNone(mark)
-        self.assertEqual(int(mark["complete"]), 0)
-        self.assertFalse(self.school.module_complete(self.class_id, "M1"))
+        self.assertEqual(int(mark["complete"]), 1)
 
     def test_other_section_of_the_same_pack_stays_on_its_module(self) -> None:
         first = self.school.get_offering_for(
@@ -424,6 +470,12 @@ class BeginModuleTests(Base):
         self.assertIn("Take Attendance", html)
         self.assertNotIn("frozen", html.lower())
         _seed_held_class(self.school, self.class_id, self.students)
+        ready = self.client.get(f"/staff/class/{self.class_id}?tab=ap&view=attendance")
+        ready_html = ready.get_data(as_text=True)
+        self.assertIn("This can't be undone.", ready_html)
+        self.assertIn("Start Module 2", ready_html)
+        self.assertNotIn("Un-mark", ready_html)
+        self.assertNotIn("Undo wrap-up", ready_html)
         self.school.start_live_class_session(self.class_id, int(self.teacher["id"]))
         live = self.client.get(f"/staff/class/{self.class_id}?tab=ap&view=attendance")
         live_html = live.get_data(as_text=True)
@@ -465,20 +517,7 @@ class BeginModuleTests(Base):
         body = started.get_json()
         self.assertTrue(body["changed"])
         self.assertNotIn("name", body)
-        self.school.conn.execute(
-            "UPDATE users SET role = 'it' WHERE id = ?",
-            (int(stranger["id"]),),
-        )
-        self.school.conn.commit()
-        admin = self.app.test_client()
-        _sign_in(admin, self.school, "other-staff@example.com")
-        undone = admin.post(
-            f"/api/classes/{self.class_id}/participation/modules/begin",
-            json={"undo": True, "module": "M1"},
-        )
-        self.assertEqual(undone.status_code, 200, undone.get_data(as_text=True))
-        self.assertTrue(undone.get_json()["changed"])
-        self.assertEqual(undone.get_json()["current_module"], "M1")
+        self.assertEqual(self.school._begin_module_pointer(self.class_id), "M2")
 
 
 def _chrome() -> str:
@@ -552,6 +591,7 @@ class BeginModuleBrowserTests(Base):
                 "Your Module 1 totals move to Past modules, and nothing is deleted.",
                 "Module 2 totals start at zero.",
                 "Catch-up answers that come in late still count toward Module 1.",
+                "This can't be undone.",
             ],
             "afterCurrent": "Current module: Module 2",
             "toast": "Module 1 wrapped up. Module 2 has started.",

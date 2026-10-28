@@ -9,7 +9,6 @@
   const confirmButton = document.getElementById("begin-mod-confirm");
   const reason = document.getElementById("begin-mod-reason");
   const pastSelect = document.getElementById("begin-mod-past-select");
-  const unmark = document.getElementById("begin-mod-unmark");
   const toast = document.getElementById("begin-mod-toast");
 
   if (toast && !toast.hidden) {
@@ -23,12 +22,6 @@
     document.querySelectorAll(".begin-mod-past-panel").forEach((panel) => {
       panel.hidden = panel.getAttribute("data-past-module") !== module;
     });
-    if (unmark) {
-      const label = pastSelect && pastSelect.selectedOptions[0]
-        ? pastSelect.selectedOptions[0].textContent
-        : "module";
-      unmark.setAttribute("aria-label", "Un-mark " + label);
-    }
   }
 
   if (pastSelect) {
@@ -82,30 +75,6 @@
       } catch (err) {
         confirmButton.disabled = false;
         openButton.disabled = false;
-      }
-    });
-  }
-
-  if (unmark && pastSelect) {
-    unmark.addEventListener("click", async () => {
-      if (unmark.disabled) return;
-      unmark.disabled = true;
-      try {
-        const { response, payload } = await post(unmark.dataset.url, {
-          undo: true,
-          module: pastSelect.value,
-        });
-        if (!response.ok) {
-          if (reason) {
-            reason.hidden = false;
-            reason.textContent = payload.error || "Try again.";
-          }
-          unmark.disabled = false;
-          return;
-        }
-        window.location.reload();
-      } catch (err) {
-        unmark.disabled = false;
       }
     });
   }
