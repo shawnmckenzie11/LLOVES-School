@@ -6157,7 +6157,14 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         path = school.live_question_image_path(int(class_id), filename)
         if path is None:
             abort(404)
-        return send_from_directory(path.parent, path.name)
+        response = send_from_directory(path.parent, path.name)
+        if visibility != "absent":
+            response.headers["Cache-Control"] = "private, max-age=300"
+            etag, _weak = response.get_etag()
+            if not etag:
+                stat = path.stat()
+                response.set_etag(f"{stat.st_mtime_ns:x}-{stat.st_size:x}")
+        return response
 
     @app.route("/api/classes/<int:class_id>/module-files/<path:rel>")
     def serve_class_module_file(class_id: int, rel: str):
@@ -9024,7 +9031,9 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         except (TypeError, ValueError):
             return jsonify({"ok": False, "error": "slide page is out of range"}), 400
         try:
-            deck = school.set_google_slides_current(int(session_id), index)
+            deck = school.set_google_slides_current(
+                int(session_id), index, follow=True
+            )
         except KeyError:
             return jsonify({"ok": False, "error": "Session not found"}), 404
         except ValueError as exc:
