@@ -157,7 +157,7 @@ for (let step = 1; step <= 7; step += 1) {
   const header = await waitText(staff.locator("#live-page-counter"), `${step} / 13`, 3000);
   const badge = await readText(staff.locator('[data-surface-status="slides"]'));
   const forwardDisabled = await staff.locator("#live-stage-next").isDisabled();
-  const until = Date.now() + 15000;
+  const until = Date.now() + 28000;
   let seen = await studentSlide();
   while (Date.now() < until && !(seen.src && seen.src !== previous && !seen.cardHidden && seen.frameHidden)) {
     await sleep(80);

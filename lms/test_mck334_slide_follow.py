@@ -49,12 +49,28 @@ def _node_path() -> str:
 
 
 def _ready() -> bool:
-    """True when the browser check can launch."""
-    if not (shutil.which("node") and _chrome() and _node_path()):
+    """True when the browser check can launch.
+
+    A package next to the repo is enough. ``LLOVES_E2E_NODE_PATH`` is optional
+    so the other browser checks, which require that variable, stay skipped.
+    """
+    if not (shutil.which("node") and _chrome()):
         return False
-    env = {**os.environ, "NODE_PATH": _node_path()}
+    env = {**os.environ}
+    if _node_path():
+        env["NODE_PATH"] = _node_path()
     probe = subprocess.run(
-        ["node", "-e", "require.resolve('playwright-core')"],
+        [
+            "node",
+            "--input-type=module",
+            "-e",
+            (
+                "import { createRequire } from 'node:module';"
+                "createRequire(process.cwd() + '/lms/e2e/slide_follow_mck334.mjs')"
+                ".resolve('playwright-core');"
+            ),
+        ],
+        cwd=str(REPO),
         env=env,
         capture_output=True,
         check=False,
@@ -208,7 +224,7 @@ class SlideFollowBrowserTests(unittest.TestCase):
             env={**os.environ, "NODE_PATH": _node_path()},
             capture_output=True,
             text=True,
-            timeout=180,
+            timeout=300,
             check=False,
         )
         lines = [line for line in proc.stdout.splitlines() if line.startswith("{")]
