@@ -9829,12 +9829,14 @@ class LovesDB:
         session_id: int,
         *,
         presentation_id: str,
-        page_pngs: list[bytes],
+        page_pngs: list[bytes] | None = None,
+        page_paths: list[Any] | None = None,
         source: str = "public_export",
         truncated: bool = False,
         default_published: bool = False,
         title: str = "",
         source_bytes: bytes | None = None,
+        source_path: Any | None = None,
         source_suffix: str = "",
         job_id: str | None = None,
     ) -> dict[str, Any]:
@@ -9849,13 +9851,16 @@ class LovesDB:
         Args:
             session_id: ``live_class_sessions.id``.
             presentation_id: Google file id, or empty for a PowerPoint.
-            page_pngs: PNG bytes, one per slide, in order.
+            page_pngs: PNG bytes, one per slide, in order. Omit when
+                ``page_paths`` is set.
+            page_paths: PNG files read one at a time.
             source: ``public_export``, ``oauth_thumbnail``, or ``pptx``.
             truncated: True when the deck was longer than the page cap.
             default_published: Initial shared flag for every page.
             title: Deck name shown beside Start. Blank becomes a fallback.
             source_bytes: Original ppt or pptx, stored as a file.
-            source_suffix: ``.ppt`` or ``.pptx`` when ``source_bytes`` is set.
+            source_path: Original upload on disk, stored as a file.
+            source_suffix: ``.ppt`` or ``.pptx`` when an upload is set.
             job_id: Slide import row. When set, the save is skipped
                 unless that row is still running.
 
@@ -9880,10 +9885,12 @@ class LovesDB:
             title=title or "Google Slides",
             source=str(source or "public_export"),
             presentation_id=str(presentation_id or ""),
-            page_pngs=list(page_pngs or []),
+            page_pngs=list(page_pngs or []) if page_paths is None else None,
+            page_paths=page_paths,
             default_published=bool(default_published),
             truncated=bool(truncated),
             source_bytes=source_bytes,
+            source_path=source_path,
             source_suffix=source_suffix,
             session_id=int(session_id),
             job_id=job_id,
@@ -10139,10 +10146,12 @@ class LovesDB:
         title: str,
         source: str,
         presentation_id: str = "",
-        page_pngs: list[bytes],
+        page_pngs: list[bytes] | None = None,
+        page_paths: list[Any] | None = None,
         default_published: bool = False,
         truncated: bool = False,
         source_bytes: bytes | None = None,
+        source_path: Any | None = None,
         source_suffix: str = "",
         session_id: int | None = None,
         job_id: str | None = None,
@@ -10162,11 +10171,14 @@ class LovesDB:
             title: Deck name for the Set Class summary.
             source: ``public_export``, ``oauth_thumbnail``, or ``pptx``.
             presentation_id: Google file id, or empty.
-            page_pngs: PNG bytes, one per page, in order.
+            page_pngs: PNG bytes, one per page, in order. Omit when
+                ``page_paths`` is set so the pages are not held together.
+            page_paths: PNG files, one per page, read one at a time.
             default_published: Shared flag copied onto a new run.
             truncated: True when the page cap cut the deck.
             source_bytes: Original upload, or None for a share link.
-            source_suffix: ``.ppt`` or ``.pptx`` with ``source_bytes``.
+            source_path: Original upload on disk. Read once at store time.
+            source_suffix: ``.ppt`` or ``.pptx`` with the upload.
             session_id: Active run to rebind. Omit to bind the active
                 run only when its placement matches.
             job_id: Slide import row. When set, the deck is written only
@@ -10181,8 +10193,9 @@ class LovesDB:
         """
         from course_slide_files import slide_deck_title
 
-        pngs = [bytes(raw) for raw in (page_pngs or [])]
-        if not pngs:
+        paths = [Path(str(item)) for item in (page_paths or [])]
+        pngs = [bytes(raw) for raw in (page_pngs or [])] if not paths else []
+        if not paths and not pngs:
             raise ValueError("That deck has no slides.")
         for raw in pngs:
             if not raw.startswith(b"\x89PNG"):
@@ -10196,12 +10209,27 @@ class LovesDB:
         names: list[str] = []
         source_rel = ""
         try:
-            for index, raw in enumerate(pngs):
-                stored = self.store_live_question_image(
-                    int(class_id), raw, filename=f"slide-{index}.png"
+            if paths:
+                for index, path in enumerate(paths):
+                    raw = path.read_bytes()
+                    if not raw.startswith(b"\x89PNG"):
+                        raise ValueError("slide image must be png")
+                    stored = self.store_live_question_image(
+                        int(class_id), raw, filename=f"slide-{index}.png"
+                    )
+                    names.append(str(stored["filename"]))
+                    del raw
+            else:
+                for index, raw in enumerate(pngs):
+                    stored = self.store_live_question_image(
+                        int(class_id), raw, filename=f"slide-{index}.png"
+                    )
+                    names.append(str(stored["filename"]))
+            if source_path:
+                source_rel = self._store_course_slide_source(
+                    int(class_id), Path(source_path).read_bytes(), source_suffix
                 )
-                names.append(str(stored["filename"]))
-            if source_bytes:
+            elif source_bytes:
                 source_rel = self._store_course_slide_source(
                     int(class_id), bytes(source_bytes), source_suffix
                 )
@@ -19691,33 +19719,41 @@ class SchoolDB(LovesDB):
         now = _now()
         participant_uuid = str(uuid.uuid4())
         new_token = secrets.token_urlsafe(24)
-        with self._lock:
-            self.conn.execute(
-                """
-                INSERT INTO live_session_attendees (
-                    live_session_id, student_id, participant_uuid, visit_token,
-                    codename, unmatched, joined_at, left_at, last_heartbeat_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)
-                """,
-                (
-                    int(session_id),
-                    sid,
-                    participant_uuid,
-                    new_token,
-                    name,
-                    1 if unmatched else 0,
-                    now,
-                    now,
-                ),
-            )
-            self.conn.commit()
-            row = self.conn.execute(
-                """
-                SELECT * FROM live_session_attendees
-                WHERE visit_token = ?
-                """,
-                (new_token,),
-            ).fetchone()
+        try:
+            with self._lock:
+                self.conn.execute(
+                    """
+                    INSERT INTO live_session_attendees (
+                        live_session_id, student_id, participant_uuid, visit_token,
+                        codename, unmatched, joined_at, left_at, last_heartbeat_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)
+                    """,
+                    (
+                        int(session_id),
+                        sid,
+                        participant_uuid,
+                        new_token,
+                        name,
+                        1 if unmatched else 0,
+                        now,
+                        now,
+                    ),
+                )
+                self.conn.commit()
+                row = self.conn.execute(
+                    """
+                    SELECT * FROM live_session_attendees
+                    WHERE visit_token = ?
+                    """,
+                    (new_token,),
+                ).fetchone()
+        except sqlite3.IntegrityError:
+            with self._lock:
+                self.conn.rollback()
+            current = self.get_live_session(session_id)
+            if current is None or current.get("status") != "active":
+                raise KeyError(f"live session {session_id} is gone") from None
+            raise
         stored = dict(row) if row else {}
         self._mirror_presence_attendee(stored)
         return stored

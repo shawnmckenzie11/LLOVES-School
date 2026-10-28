@@ -2803,21 +2803,31 @@ class LiveShellTests(unittest.TestCase):
         submit = staff_js.split(
             '$("live-quit-class-form")?.addEventListener("submit"'
         )[1].split("for (const id of")[0]
-        self.assertIn("confirmQuitAndCloseOverlay", submit)
-        self.assertIn("closeLiveSessionOverlay", staff_js.split(
-            "function confirmQuitAndCloseOverlay"
-        )[1].split("$(\"live-quit-class-form\")")[0])
+        self.assertIn("submitQuitLive", submit)
         self.assertIn("event.preventDefault()", submit)
+        self.assertNotIn("form.submit()", submit)
+        quit_fn = staff_js.split("async function submitQuitLive")[1].split(
+            "function confirmQuitAndCloseOverlay"
+        )[0]
+        self.assertIn("closeLiveSessionOverlay()", quit_fn)
+        self.assertIn('const QUIT_RETRY = "Still finishing — Retry"', staff_js)
+        self.assertIn("setQuitStatus(QUIT_RETRY)", quit_fn)
+        self.assertIn('headers: { Accept: "application/json" }', quit_fn)
+        self.assertIn("location.assign", quit_fn)
+        confirm = staff_js.split("function confirmQuitAndCloseOverlay")[1].split(
+            "function openQuitDialog"
+        )[0]
+        self.assertNotIn("closeLiveSessionOverlay()", confirm)
         cancel = staff_js.split(
             'for (const id of ["ap-validate-cancel", "ap-score-cancel"])'
         )[1].split('$("ap-allow-guests")')[0]
         self.assertIn("confirmQuitAndCloseOverlay", cancel)
-        self.assertIn("form.submit()", cancel)
+        self.assertNotIn("form.submit()", cancel)
         track = staff_js.split("document.querySelectorAll(\"[data-track-nav='quit']\")")[
             1
         ].split('$("ap-allow-guests")')[0]
         self.assertIn("confirmQuitAndCloseOverlay", track)
-        self.assertIn("form.submit()", track)
+        self.assertNotIn("form.submit()", track)
 
         common = (
             REPO_ROOT / "tools" / "math-game-show" / "static" / "common.js"

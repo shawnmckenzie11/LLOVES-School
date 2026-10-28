@@ -134,6 +134,8 @@ const canvasCursors = document.getElementById("canvas-cursors");
 const slidesPane = document.getElementById("slides-pane");
 const slidesFrame = document.getElementById("slides-frame");
 const slidesEmpty = document.getElementById("slides-empty");
+const SLIDES_EMPTY_COPY = "No slides are connected yet.";
+const SLIDES_WAITING_COPY = "Teacher hasn't shared this slide yet";
 const mediaStem = document.getElementById("media-stem");
 const mediaChip = document.getElementById("media-chip");
 const mediaCaption = document.getElementById("media-caption");
@@ -1849,11 +1851,28 @@ function clearStudentGoogleSlide() {
  * Paint one shared slide card and remember its rev for the next poll.
  * @param {any} card
  */
+/**
+ * Show the unpublished-slide line instead of an empty white image.
+ */
+function showUnsharedSlidePlaceholder() {
+  clearStudentGoogleSlide();
+  if (slidesPane && !paneIsBeingGrabbed(slidesPane)) slidesPane.hidden = false;
+  if (slidesEmpty) {
+    slidesEmpty.textContent = SLIDES_WAITING_COPY;
+    slidesEmpty.hidden = false;
+  }
+}
+
 function applyStudentGoogleSlide(card) {
   if (!card || card.attached !== true) return;
   if (card.rev != null) lastSlideRev = Number(card.rev) || 0;
   const docked = dockedLiveCardKeys.has("surface:slides");
-  const show = Boolean(card.image_url) && !docked;
+  const url = String(card.image_url || "");
+  if (!url && !docked) {
+    showUnsharedSlidePlaceholder();
+    return;
+  }
+  const show = Boolean(url) && !docked;
   if (slidesPane && !paneIsBeingGrabbed(slidesPane)) slidesPane.hidden = !show;
   if (show) paintStudentSlides({ google_slide: card });
   else clearStudentGoogleSlide();
@@ -1869,7 +1888,10 @@ function paintStudentSlides(payload) {
       slidesFrame.hidden = true;
       slidesFrame.removeAttribute("src");
     }
-    if (slidesEmpty) slidesEmpty.hidden = true;
+    if (slidesEmpty) {
+      slidesEmpty.textContent = SLIDES_EMPTY_COPY;
+      slidesEmpty.hidden = true;
+    }
     if (image instanceof HTMLImageElement && url) {
       if (image.getAttribute("src") !== url) image.src = url;
       image.alt = `Slide ${Number(card.page_number) || 1}`;
@@ -1886,7 +1908,10 @@ function paintStudentSlides(payload) {
     published?.content?.deck_ref || payload?.live_metadata?.slides?.deck_ref || ""
   ).trim();
   const safe = /^https?:\/\//i.test(deckRef);
-  if (slidesEmpty) slidesEmpty.hidden = safe;
+  if (slidesEmpty) {
+    slidesEmpty.textContent = SLIDES_EMPTY_COPY;
+    slidesEmpty.hidden = safe;
+  }
   if (!(slidesFrame instanceof HTMLIFrameElement)) return;
   if (!safe) {
     slidesFrame.hidden = true;

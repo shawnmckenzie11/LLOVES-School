@@ -12,10 +12,18 @@ not use the lesson-deck Drive token.
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import shutil
+import signal
 import socket
+import subprocess
+import sys
+import tempfile
 import threading
 import time
+from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -26,8 +34,19 @@ MAX_GOOGLE_SLIDE_PAGES = 40
 IMPORT_TIME_LIMIT_SECONDS = 45
 MAX_SLIDE_EDGE = 1600
 MAX_SLIDE_PIXELS = 1_600_000
+# Address-space cap for the convert child and the render child (MCK-330).
+# One import runs at a time. This PDF library maps about 900 MiB of
+# files before the first page, so a 600 MiB cap, and a 1 GiB cap with
+# no headroom, kills a normal deck. Resident use for 40 pages stays
+# near 150 MiB. ``SLIDE_IMPORT_RSS_BYTES`` is what stops a child from
+# filling the 1 GB machine; the address ceiling only has to let the
+# library's file maps exist.
+SLIDE_IMPORT_AS_BYTES = 2 * 1024 * 1024 * 1024
+SLIDE_IMPORT_RSS_BYTES = 512 * 1024 * 1024
 _MAX_PDF_BYTES = 20 * 1024 * 1024
 _MAX_PNG_BYTES = 3_500_000
+_RENDER_TOO_LARGE = 75
+_RENDER_TOO_LONG = 76
 _READ_CHUNK = 65536
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]{10,128}$")
 _URL_ID_RE = re.compile(
@@ -548,13 +567,57 @@ def fetch_public_pdf(
     raise SlidesShareNotPublic()
 
 
+def _scales_for_page_count(count: int) -> tuple[float, ...]:
+    """Raster scales to try, smallest last.
+
+    Decks of 16 pages or more skip the largest scale so the first pixmap
+    is not the biggest one.
+
+    Args:
+        count: Pages that will be rendered.
+    """
+    if int(count) >= 16:
+        return (1.0, 0.6)
+    return (1.5, 1.0, 0.6)
+
+
+def _png_for_page(page: Any, *, scales: tuple[float, ...]) -> bytes:
+    """Rasterize one page and drop the pixmap before the next scale.
+
+    Args:
+        page: A pymupdf page.
+        scales: Scales to try until the PNG fits.
+
+    Raises:
+        ValueError: The page is not a PNG or stays over the byte cap.
+    """
+    import fitz
+
+    png = b""
+    for scale in scales:
+        used = _raster_scale(page, scale)
+        pixmap = page.get_pixmap(matrix=fitz.Matrix(used, used), alpha=False)
+        try:
+            png = pixmap.tobytes("png")
+        finally:
+            pixmap = None
+        if len(png) <= _MAX_PNG_BYTES:
+            break
+    if not png.startswith(b"\x89PNG"):
+        raise ValueError("That download was not a slide deck.")
+    if len(png) > _MAX_PNG_BYTES:
+        raise ValueError("That deck is too large to attach.")
+    return png
+
+
 def render_pdf_pages(
     pdf_bytes: bytes, *, deadline: float | None = None
 ) -> tuple[list[bytes], bool]:
     """Render each PDF page to a PNG, capped at ``MAX_GOOGLE_SLIDE_PAGES``.
 
     Each page is scaled so the long edge and the pixel count stay under
-    the raster cap before pymupdf allocates a pixmap.
+    the raster cap before pymupdf allocates a pixmap. Production imports
+    use ``render_pdf_to_dir`` so the PNGs are not kept in this list.
 
     Args:
         pdf_bytes: A Google Slides PDF export.
@@ -582,28 +645,305 @@ def render_pdf_pages(
             raise ValueError("That deck has no slides.")
         truncated = count > MAX_GOOGLE_SLIDE_PAGES
         limit = min(count, MAX_GOOGLE_SLIDE_PAGES)
+        scales = _scales_for_page_count(limit)
         pages: list[bytes] = []
         for index in range(limit):
             _ensure_time(deadline)
-            page = document.load_page(index)
-            png = b""
-            for scale in (1.5, 1.0, 0.6):
-                used = _raster_scale(page, scale)
-                pixmap = page.get_pixmap(
-                    matrix=fitz.Matrix(used, used),
-                    alpha=False,
-                )
-                png = pixmap.tobytes("png")
-                if len(png) <= _MAX_PNG_BYTES:
-                    break
-            if not png.startswith(b"\x89PNG"):
-                raise ValueError("That download was not a slide deck.")
-            if len(png) > _MAX_PNG_BYTES:
-                raise ValueError("That deck is too large to attach.")
+            png = _png_for_page(document.load_page(index), scales=scales)
             pages.append(png)
         return pages, truncated
     finally:
         document.close()
+
+
+def _prlimit_prefix(address_limit: int) -> list[str]:
+    """``prlimit --as`` argv, or empty when the tool is not installed.
+
+    Args:
+        address_limit: Address-space bytes for the child.
+    """
+    binary = shutil.which("prlimit") or "/usr/bin/prlimit"
+    if not Path(binary).is_file():
+        return []
+    return [binary, f"--as={int(address_limit)}", "--"]
+
+
+def _cap_address_space(limit: int) -> None:
+    """Apply an address-space cap in this process.
+
+    Args:
+        limit: Maximum address space in bytes.
+    """
+    import resource
+
+    cap = max(1, int(limit))
+    resource.setrlimit(resource.RLIMIT_AS, (cap, cap))
+
+
+def _resident_bytes() -> int:
+    """Resident set of this process, in bytes.
+
+    Returns:
+        VmRSS, or 0 when ``/proc`` cannot be read. File maps that make
+        the address space large do not count here.
+    """
+    try:
+        text = Path("/proc/self/status").read_text(encoding="utf-8")
+    except OSError:
+        return 0
+    for line in text.splitlines():
+        if not line.startswith("VmRSS:"):
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and parts[1].isdigit():
+            return int(parts[1]) * 1024
+    return 0
+
+
+def _render_pdf_file(pdf_path: Path, out_dir: Path, budget_s: float) -> int:
+    """Write one PNG per page and a manifest. One page is in memory at a time.
+
+    Args:
+        pdf_path: PDF on disk.
+        out_dir: Directory for ``page-000.png`` and ``manifest.json``.
+        budget_s: Seconds allowed for the raster.
+
+    Returns:
+        0 on success, 75 when a page is too large, 76 when time runs out,
+        1 when the file is not a deck.
+    """
+    deadline = time.monotonic() + max(0.0, float(budget_s))
+    import fitz
+
+    if _resident_bytes() > SLIDE_IMPORT_RSS_BYTES:
+        sys.stderr.write("lloves-render-error too-large\n")
+        return _RENDER_TOO_LARGE
+    try:
+        document = fitz.open(str(pdf_path))
+    except MemoryError:
+        sys.stderr.write("lloves-render-error too-large\n")
+        return _RENDER_TOO_LARGE
+    except Exception:  # noqa: BLE001 - pymupdf raises several types
+        sys.stderr.write("lloves-render-error bad-pdf\n")
+        return 1
+    try:
+        count = int(document.page_count or 0)
+        if count < 1:
+            sys.stderr.write("lloves-render-error bad-pdf\n")
+            return 1
+        truncated = count > MAX_GOOGLE_SLIDE_PAGES
+        limit = min(count, MAX_GOOGLE_SLIDE_PAGES)
+        scales = _scales_for_page_count(limit)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for index in range(limit):
+            if time.monotonic() >= deadline:
+                sys.stderr.write("lloves-render-error too-long\n")
+                return _RENDER_TOO_LONG
+            if _resident_bytes() > SLIDE_IMPORT_RSS_BYTES:
+                sys.stderr.write("lloves-render-error too-large\n")
+                return _RENDER_TOO_LARGE
+            try:
+                png = _png_for_page(document.load_page(index), scales=scales)
+            except MemoryError:
+                sys.stderr.write("lloves-render-error too-large\n")
+                return _RENDER_TOO_LARGE
+            except ValueError as exc:
+                text = str(exc)
+                if "too large" in text:
+                    sys.stderr.write("lloves-render-error too-large\n")
+                    return _RENDER_TOO_LARGE
+                if "too long" in text:
+                    sys.stderr.write("lloves-render-error too-long\n")
+                    return _RENDER_TOO_LONG
+                sys.stderr.write("lloves-render-error bad-pdf\n")
+                return 1
+            dest = out_dir / f"page-{index:03d}.png"
+            dest.write_bytes(png)
+            del png
+            if _resident_bytes() > SLIDE_IMPORT_RSS_BYTES:
+                sys.stderr.write("lloves-render-error too-large\n")
+                return _RENDER_TOO_LARGE
+        (out_dir / "manifest.json").write_text(
+            json.dumps({"count": limit, "truncated": bool(truncated)}),
+            encoding="utf-8",
+        )
+        return 0
+    finally:
+        document.close()
+
+
+def _render_failure(
+    returncode: int, err_text: str, *, address_limit: int
+) -> ValueError:
+    """Map a capped render child to a teacher-facing error.
+
+    A child that dies under a tiny cap is always "too large", including
+    when the loader exits before it can print a memory token. A normal
+    cap still reports a file that is not a PDF as "not a slide deck".
+
+    Args:
+        returncode: Child status. Negative values are signals.
+        err_text: Child stderr. It is not shown to the teacher.
+        address_limit: Address-space bytes the child was started with.
+    """
+    lowered = err_text.lower()
+    if returncode == _RENDER_TOO_LONG or "too-long" in lowered:
+        return ValueError("That deck took too long to attach.")
+    explicit_bad = (
+        returncode == 1 and "bad-pdf" in lowered and "too-large" not in lowered
+    )
+    tiny_cap = int(address_limit) < 64 * 1024 * 1024
+    if explicit_bad and not tiny_cap:
+        return ValueError("That download was not a slide deck.")
+    if returncode != 0:
+        return ValueError("That deck is too large to attach.")
+    return ValueError("That download was not a slide deck.")
+
+
+def render_pdf_to_dir(
+    pdf_path: str | Path,
+    out_dir: str | Path,
+    *,
+    deadline: float | None = None,
+    address_limit: int | None = None,
+) -> tuple[list[Path], bool]:
+    """Render a PDF on disk, one PNG at a time, in a capped subprocess.
+
+    The parent does not read the PNG bodies. The child is started with
+    ``prlimit --as`` so a deck that overruns the cap dies in that process.
+    The parent maps that death to a teacher-facing error and stays up.
+
+    Args:
+        pdf_path: PDF file. The parent checks the first bytes only.
+        out_dir: Directory that receives ``page-000.png`` and
+            ``manifest.json``.
+        deadline: ``time.monotonic`` cutoff, or None.
+        address_limit: Address-space bytes. Defaults to
+            ``SLIDE_IMPORT_AS_BYTES``.
+
+    Returns:
+        ``(page_paths, truncated)``.
+
+    Raises:
+        ValueError: The file is not a deck, a page is too large, the
+            child ran out of memory, or the import ran out of time.
+    """
+    source = Path(pdf_path)
+    target = Path(out_dir)
+    with source.open("rb") as handle:
+        magic = handle.read(5)
+    if not magic.startswith(b"%PDF"):
+        raise ValueError("That download was not a slide deck.")
+    if deadline is None:
+        budget = float(IMPORT_TIME_LIMIT_SECONDS)
+    else:
+        budget = float(deadline) - time.monotonic()
+    if budget <= 0:
+        raise ValueError("That deck took too long to attach.")
+    limit = int(address_limit or SLIDE_IMPORT_AS_BYTES)
+    target.mkdir(parents=True, exist_ok=True)
+    command = [
+        *_prlimit_prefix(limit),
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "--render-pdf",
+        str(source),
+        str(target),
+        str(budget),
+        str(limit),
+    ]
+    proc = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        _out, err = proc.communicate(timeout=budget + 5)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.communicate()
+        raise ValueError("That deck took too long to attach.") from None
+    err_text = (err or b"").decode("utf-8", "replace")
+    code = int(proc.returncode or 0)
+    if code != 0:
+        raise _render_failure(code, err_text, address_limit=limit) from None
+    manifest_path = target / "manifest.json"
+    if not manifest_path.is_file():
+        raise ValueError("That download was not a slide deck.")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError("That download was not a slide deck.") from exc
+    count = int(manifest.get("count") or 0)
+    if count < 1:
+        raise ValueError("That deck has no slides.")
+    paths = [target / f"page-{index:03d}.png" for index in range(count)]
+    for path in paths:
+        if not path.is_file():
+            raise ValueError("That download was not a slide deck.")
+    return paths, bool(manifest.get("truncated"))
+
+
+def write_shared_deck_pages(
+    school: Any,
+    presentation_id: str,
+    *,
+    user: dict[str, Any] | None,
+    http: Any | None,
+    deadline: float | None,
+    work_dir: Path,
+) -> tuple[list[Path], bool, str]:
+    """Download a share link and write one PNG per page under ``work_dir``.
+
+    Public PDF export is rendered in a capped subprocess. A private deck
+    uses the read-only thumbnail API, then each PNG is spilled to disk
+    before the caller stores it. This function does not return PNG bodies.
+
+    Args:
+        school: ``SchoolDB`` holding the read-only refresh token.
+        presentation_id: Validated Google file id.
+        user: Signed-in staff row, used only for the read-only fallback.
+        http: Optional HTTP client for tests.
+        deadline: ``time.monotonic`` cutoff for the whole import.
+        work_dir: Directory the caller deletes after the pages are stored.
+
+    Returns:
+        ``(page_paths, truncated, source)``. ``source`` is
+        ``public_export`` or ``oauth_thumbnail``.
+
+    Raises:
+        ValueError: The file is not a usable deck, or time ran out.
+        SlidesShareNotPublic: Neither path could read the deck.
+    """
+    root = Path(work_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        pdf = fetch_public_pdf(presentation_id, http=http, deadline=deadline)
+        pdf_path = root / "deck.pdf"
+        pdf_path.write_bytes(pdf)
+        del pdf
+        paths, truncated = render_pdf_to_dir(
+            pdf_path, root / "pages", deadline=deadline
+        )
+        pdf_path.unlink(missing_ok=True)
+        return paths, truncated, "public_export"
+    except SlidesShareNotPublic:
+        pngs, truncated = _download_with_oauth(
+            school, presentation_id, user=user, http=http, deadline=deadline
+        )
+        page_dir = root / "pages"
+        page_dir.mkdir(parents=True, exist_ok=True)
+        paths = []
+        for index, raw in enumerate(pngs):
+            dest = page_dir / f"page-{index:03d}.png"
+            dest.write_bytes(bytes(raw))
+            paths.append(dest)
+        del pngs
+        return paths, truncated, "oauth_thumbnail"
 
 
 def import_shared_deck(
@@ -651,26 +991,28 @@ def import_shared_deck(
     deadline = time.monotonic() + float(time_limit)
     _ensure_time(deadline)
     presentation_id = parse_presentation_id(url)
-    source = "public_export"
-    truncated = False
+    work_dir = Path(tempfile.mkdtemp(prefix="lloves-gslides-"))
     try:
-        pdf = fetch_public_pdf(presentation_id, http=http, deadline=deadline)
-        pngs, truncated = render_pdf_pages(pdf, deadline=deadline)
-    except SlidesShareNotPublic:
-        pngs, truncated = _download_with_oauth(
-            school, presentation_id, user=user, http=http, deadline=deadline
+        paths, truncated, source = write_shared_deck_pages(
+            school,
+            presentation_id,
+            user=user,
+            http=http,
+            deadline=deadline,
+            work_dir=work_dir,
         )
-        source = "oauth_thumbnail"
-    return school.import_google_slides_pages(
-        int(session_id),
-        presentation_id=presentation_id,
-        page_pngs=pngs,
-        source=source,
-        truncated=truncated,
-        default_published=bool(default_published),
-        title=title or "Google Slides",
-        job_id=job_id,
-    )
+        return school.import_google_slides_pages(
+            int(session_id),
+            presentation_id=presentation_id,
+            page_paths=paths,
+            source=source,
+            truncated=truncated,
+            default_published=bool(default_published),
+            title=title or "Google Slides",
+            job_id=job_id,
+        )
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
 
 
 def _download_with_oauth(
@@ -705,3 +1047,41 @@ def _download_with_oauth(
         return client.download_slide_pngs(presentation_id, deadline=deadline)
     except SlidesConnectRequired as exc:
         raise SlidesShareNotPublic() from exc
+
+
+def _render_cli(argv: list[str]) -> int:
+    """Render one PDF to disk under this process's address cap.
+
+    Args:
+        argv: ``--render-pdf pdf out_dir budget_seconds address_bytes``.
+
+    Returns:
+        0 on success, 75 when a page is too large or memory is exhausted,
+        76 when the budget runs out, 1 otherwise.
+    """
+    if not argv or argv[0] != "--render-pdf" or len(argv) != 5:
+        sys.stderr.write("lloves-render-error bad-pdf\n")
+        return 1
+    _flag, pdf, out_dir, budget_s, address = argv
+    try:
+        _cap_address_space(int(float(address)))
+        return _render_pdf_file(Path(pdf), Path(out_dir), float(budget_s))
+    except MemoryError:
+        sys.stderr.write("lloves-render-error too-large\n")
+        return _RENDER_TOO_LARGE
+    except OSError as exc:
+        if exc.errno == 12:
+            sys.stderr.write("lloves-render-error too-large\n")
+            return _RENDER_TOO_LARGE
+        sys.stderr.write("lloves-render-error bad-pdf\n")
+        return 1
+    except Exception as exc:  # noqa: BLE001 - a capped child must not traceback
+        if type(exc).__name__ in {"MemoryError", "BrokenPipeError"}:
+            sys.stderr.write("lloves-render-error too-large\n")
+            return _RENDER_TOO_LARGE
+        sys.stderr.write("lloves-render-error bad-pdf\n")
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(_render_cli(sys.argv[1:]))

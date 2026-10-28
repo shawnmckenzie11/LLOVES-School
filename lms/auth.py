@@ -2407,6 +2407,15 @@ def register_auth_routes(app: Flask) -> None:
                 "tab that’s still open — or wait a beat and try again."
             )
             return _fail(msg, 409)
+        except KeyError:
+            # The class vanished between the code check and the insert
+            # (MCK-330). That is not a wrong code, so it is not counted.
+            if request.is_json:
+                return jsonify({"ok": False, "error": no_session_msg}), 409
+            return render_template(
+                "landing.html",
+                **landing_kwargs(student_error=no_session_msg),
+            ), 409
         # Same table as failures, under an "ok:" key (MCK-120).
         db.record_join_failures([join_limit_ok_key(ip_key)])
         attendee = join_result.get("attendee") or {}

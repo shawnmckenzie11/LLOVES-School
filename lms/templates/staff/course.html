@@ -1470,9 +1470,10 @@
     <form class="end-live-dialog-form live-quit-class-form" id="live-quit-class-form" method="post" action="{{ url_for('staff_quit_live_class', class_id=cls.id) }}">
       <h2 id="quit-live-title">Quit without saving?</h2>
       <p>Nothing from this class will be saved, including attendance, participation and the catch-up code. This can't be undone.</p>
+      <p id="quit-live-status" class="sub" role="status" hidden></p>
       <div class="end-live-dialog-actions">
         <button type="button" class="secondary" data-close-quit-live autofocus>Go back</button>
-        <button type="submit" class="btn-danger">Quit and delete</button>
+        <button type="submit" id="quit-live-confirm" class="btn-danger">Quit and delete</button>
       </div>
     </form>
   </dialog>

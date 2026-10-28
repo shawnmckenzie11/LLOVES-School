@@ -1232,6 +1232,59 @@ def summarize(
     return summary
 
 
+def _budget_attach_slide_deck(school: Any, fx: dict[str, Any], pages: int = 22) -> None:
+    """Attach a small deck before the tap budget.
+
+    Every page is the same tiny PNG, so the image store keeps one file.
+    The course still has ``pages`` rows. Names and codes are not logged.
+
+    Args:
+        school: ``SchoolDB``.
+        fx: Retained class fixture.
+        pages: Page rows to store.
+    """
+    import fitz
+
+    document = fitz.open()
+    try:
+        document.new_page(width=32, height=18)
+        png = document[0].get_pixmap(alpha=False).tobytes("png")
+    finally:
+        document.close()
+    school.import_google_slides_pages(
+        int(fx["session_id"]),
+        presentation_id="LoadBudgetDeck",
+        page_pngs=[png] * int(pages),
+        default_published=False,
+        title="Load deck",
+    )
+
+
+def _budget_state_p95_ms(fx: dict[str, Any]) -> float:
+    """Full ``/state`` nearest-rank p95, in milliseconds.
+
+    Args:
+        fx: Retained class fixture with student clients and a staff client.
+    """
+    samples: list[float] = []
+    for student in fx["students"]:
+        started = time.perf_counter()
+        rv = student["client"].get("/api/student/state")
+        samples.append((time.perf_counter() - started) * 1000)
+        if int(rv.status_code) != 200:
+            samples.append(10_000.0)
+    started = time.perf_counter()
+    staff = fx["staff_client"].get(f"/api/live-sessions/{fx['session_id']}/state")
+    samples.append((time.perf_counter() - started) * 1000)
+    if int(staff.status_code) != 200:
+        samples.append(10_000.0)
+    ordered = sorted(samples)
+    if not ordered:
+        return 0.0
+    index = min(len(ordered) - 1, max(0, ((len(ordered) * 95 + 99) // 100) - 1))
+    return float(ordered[index])
+
+
 def _budget_warmup(fx: dict[str, Any]) -> None:
     """Store each phone's seq and stamp after a full ``/state``.
 
@@ -1521,6 +1574,7 @@ def run_sqlite_budget(students: int, out: Path) -> int:
         school = app.config["SCHOOL_DB"]
         roster = len(fx["students"])
         _budget_show_prepared_page(school, fx)
+        _budget_attach_slide_deck(school, fx, 22)
         mc = next(item for item in fx["items"] if item.get("kind") == "mc")
         rank = next(item for item in fx["items"] if item.get("kind") == "rank")
         mc_stages = _budget_publish_timed(school, fx, mc)
@@ -1573,6 +1627,10 @@ def run_sqlite_budget(students: int, out: Path) -> int:
                         errors.append(
                             f"rank tap rebuilt {builds}, budget {summary['rank_budget']}"
                         )
+        state_p95 = _budget_state_p95_ms(fx)
+        summary["state_p95_ms"] = round(state_p95, 1)
+        if state_p95 >= 800:
+            errors.append(f"state p95 {state_p95:.1f} ms, want < 800")
         summary["ok"] = not errors
         summary["errors"] = errors
         (out / "summary.json").write_text(json.dumps(summary, indent=2))
@@ -1586,6 +1644,7 @@ def run_sqlite_budget(students: int, out: Path) -> int:
             f" rank={summary.get('rank_builds')}/{summary.get('rank_budget')}"
             f" push_to_visible_ms mc={latency.get('mc', {}).get('push_to_visible_ms')}"
             f" rank={latency.get('rank', {}).get('push_to_visible_ms')}"
+            f" state_p95_ms={summary.get('state_p95_ms')}"
         )
         return 0
     finally:

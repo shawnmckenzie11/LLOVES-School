@@ -10285,28 +10285,108 @@ function selectTrackMode(mode) {
   renderAttendanceList();
 }
 
+const QUIT_RETRY = "Still finishing — Retry";
+
 /**
- * Open the Quit confirm dialog, or close the overlay once it is confirmed.
+ * The Quit confirm dialog, when the course page has one.
+ * @returns {HTMLDialogElement|null}
+ */
+function quitDialog() {
+  const dialog = document.getElementById("quit-live-dialog");
+  return dialog instanceof HTMLDialogElement ? dialog : null;
+}
+
+/**
+ * Write the dialog status line, or clear it.
+ * @param {string} text
+ */
+function setQuitStatus(text) {
+  const status = document.getElementById("quit-live-status");
+  if (!(status instanceof HTMLElement)) return;
+  status.textContent = text || "";
+  status.hidden = !text;
+}
+
+/**
+ * Show or hide the Quit spinner and lock the dialog buttons.
+ * @param {HTMLFormElement} form
+ * @param {boolean} busy
+ */
+function setQuitBusy(form, busy) {
+  const dialog = quitDialog();
+  if (dialog) dialog.setAttribute("aria-busy", busy ? "true" : "false");
+  form.setAttribute("aria-busy", busy ? "true" : "false");
+  const button = document.getElementById("quit-live-confirm");
+  if (button instanceof HTMLButtonElement) {
+    button.disabled = busy;
+    button.textContent = busy ? "Quitting…" : "Quit and delete";
+  }
+  const back = form.querySelector("[data-close-quit-live]");
+  if (back instanceof HTMLButtonElement) back.disabled = busy;
+}
+
+/**
+ * POST Quit and keep the confirm dialog open until the wipe finishes.
+ * A 409 or a dropped connection stays in the dialog with a retry.
+ * The overlay closes only after the server says the wipe finished.
+ * @param {HTMLFormElement} form
+ */
+async function submitQuitLive(form) {
+  if (form.getAttribute("aria-busy") === "true") return;
+  setQuitStatus("");
+  setQuitBusy(form, true);
+  try {
+    const response = await fetch(form.action, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      credentials: "same-origin",
+    });
+    let payload = {};
+    try {
+      payload = await response.json();
+    } catch (_err) {
+      payload = {};
+    }
+    if (!response.ok) {
+      setQuitStatus(QUIT_RETRY);
+      setQuitBusy(form, false);
+      return;
+    }
+    closeLiveSessionOverlay();
+    const next = typeof payload.redirect === "string" ? payload.redirect : form.action;
+    window.location.assign(next);
+  } catch (_err) {
+    setQuitStatus(QUIT_RETRY);
+    setQuitBusy(form, false);
+  }
+}
+
+/**
+ * Open the Quit confirm dialog, or send the wipe once it is already open.
+ * The dialog stays up while the request is in flight.
  * @param {HTMLFormElement|null|undefined} form
- * @returns {boolean} false when the teacher has not confirmed yet
+ * @returns {boolean} false so a form POST never navigates away
  */
 function confirmQuitAndCloseOverlay(form) {
   if (!(form instanceof HTMLFormElement)) return false;
-  const dialog = document.getElementById("quit-live-dialog");
-  if (dialog instanceof HTMLDialogElement && !dialog.open) {
+  const dialog = quitDialog();
+  if (dialog && !dialog.open) {
+    setQuitStatus("");
     dialog.showModal();
     return false;
   }
-  closeLiveSessionOverlay();
-  return true;
+  void submitQuitLive(form);
+  return false;
 }
 
 /**
  * Show the Quit dialog. Nothing is deleted until Quit and delete is pressed.
  */
 function openQuitDialog() {
-  const dialog = document.getElementById("quit-live-dialog");
-  if (dialog instanceof HTMLDialogElement) dialog.showModal();
+  const dialog = quitDialog();
+  if (!dialog) return;
+  setQuitStatus("");
+  dialog.showModal();
 }
 
 $("live-quit-class")?.addEventListener("click", () => {
@@ -10314,24 +10394,37 @@ $("live-quit-class")?.addEventListener("click", () => {
 });
 
 document.querySelector("[data-close-quit-live]")?.addEventListener("click", () => {
-  const dialog = document.getElementById("quit-live-dialog");
-  if (dialog instanceof HTMLDialogElement) dialog.close();
+  const form = $("live-quit-class-form");
+  if (form instanceof HTMLFormElement && form.getAttribute("aria-busy") === "true") return;
+  const dialog = quitDialog();
+  if (dialog) dialog.close();
+});
+
+quitDialog()?.addEventListener("cancel", (event) => {
+  const form = $("live-quit-class-form");
+  if (form instanceof HTMLFormElement && form.getAttribute("aria-busy") === "true") {
+    event.preventDefault();
+  }
 });
 
 $("live-quit-class-form")?.addEventListener("submit", (event) => {
+  event.preventDefault();
   const form = event.currentTarget;
   if (!(form instanceof HTMLFormElement)) return;
-  if (!confirmQuitAndCloseOverlay(form)) {
-    event.preventDefault();
+  const dialog = quitDialog();
+  if (dialog && !dialog.open) {
+    setQuitStatus("");
+    dialog.showModal();
+    return;
   }
+  void submitQuitLive(form);
 });
 
 for (const id of ["ap-validate-cancel", "ap-score-cancel"]) {
   $(id)?.addEventListener("click", () => {
     const form = $("live-quit-class-form");
     if (form instanceof HTMLFormElement) {
-      if (!confirmQuitAndCloseOverlay(form)) return;
-      form.submit();
+      confirmQuitAndCloseOverlay(form);
       return;
     }
     if (id === "ap-score-cancel") {
@@ -10347,8 +10440,7 @@ document.querySelectorAll("[data-track-nav='quit']").forEach((btn) => {
   btn.addEventListener("click", () => {
     const form = $("live-quit-class-form");
     if (form instanceof HTMLFormElement) {
-      if (!confirmQuitAndCloseOverlay(form)) return;
-      form.submit();
+      confirmQuitAndCloseOverlay(form);
       return;
     }
     cancelOverlay();

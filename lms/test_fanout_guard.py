@@ -759,6 +759,54 @@ class FanoutGuardTests(unittest.TestCase):
             self.assertGreaterEqual(first, 1)
             self.assertEqual(calls["n"], 0)
 
+    def test_twenty_two_page_deck_and_one_group_tap_do_not_fan_out(self) -> None:
+        """A 22-page deck plus one group pick rebuilds only that team.
+
+        Each phone is polled once after the tap. The slides client does
+        not reload the page from a slide postcard or a ``/state`` tick.
+        """
+        import fitz
+
+        document = fitz.open()
+        try:
+            document.new_page(width=32, height=18)
+            png = document[0].get_pixmap(alpha=False).tobytes("png")
+        finally:
+            document.close()
+        self.school.import_google_slides_pages(
+            self.session_id,
+            presentation_id="DeckFanout22",
+            page_pngs=[png] * 22,
+        )
+        deck = self.school.google_slides_deck(self.session_id)
+        assert deck is not None
+        self.assertEqual(len(deck["pages"]), 22)
+        self._close_open()
+        row = self._add("mc", True)
+        item = self._publish(row, True)
+
+        def pick() -> None:
+            """One teammate's pick. It must not fetch ``/state`` itself."""
+            rv = self._post_item(
+                0, int(item["id"]), "group-pick", {"choice": _MC[0]}
+            )
+            self._ok_status(rv, 200)
+
+        self._guard_team(0, pick, "22-page deck group pick")
+        js = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        slides = js.split("function applyStudentGoogleSlide")[1].split(
+            "function paintStudentSlides"
+        )[0]
+        wire = js.split('event.type === "google_slide"')[1].split(
+            'event.type === "board_ink"'
+        )[0]
+        self.assertIn("showUnsharedSlidePlaceholder()", slides)
+        self.assertIn("Teacher hasn't shared this slide yet", js)
+        self.assertNotIn("location.reload", js)
+        self.assertNotIn("location.reload", wire)
+        self.assertIn("return;", wire)
+
+
 class FanoutGuardTableTests(unittest.TestCase):
     """The action table and the required CI job names."""
 

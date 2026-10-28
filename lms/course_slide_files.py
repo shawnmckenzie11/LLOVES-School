@@ -203,6 +203,9 @@ while read -r inner outer count; do
   fi
 done < /proc/self/uid_map
 cd "$work" || die cd $?
+# Cap the converter only. Mounts above stay uncapped. 2097152 KiB is 2 GiB.
+as_kb=${LLOVES_SLIDE_AS_KB:-2097152}
+ulimit -v "$as_kb" || die ulimit $?
 if [ "$mapped_nobody" = 1 ]; then
   command -v setpriv >/dev/null 2>&1 || die setpriv 127
   # Keep the converter's status. die would hide a LibreOffice failure.
@@ -793,10 +796,84 @@ def _binary_has_external_url(data: bytes) -> bool:
     return False
 
 
+def pages_from_office_to_dir(
+    source_path: str | Path,
+    suffix: str,
+    page_dir: str | Path,
+    *,
+    timeout: float | None = None,
+    already_stripped: bool = False,
+) -> tuple[list[Path], bool]:
+    """Convert one spilled pptx and write one PNG per page.
+
+    LibreOffice runs inside the pivot_root sandbox under an address cap.
+    Rendering runs after that process exits, in a separate capped process.
+    This function does not return PNG bodies.
+
+    Args:
+        source_path: pptx on disk. The original file is left in place.
+        suffix: ``.pptx``. ``.ppt`` is refused.
+        page_dir: Directory for ``page-000.png``. The caller owns it.
+        timeout: Seconds for conversion and rendering together. The
+            default stays under the import job budget.
+        already_stripped: True when ``source_path`` has no external links.
+
+    Returns:
+        ``(page_paths, truncated)``. ``truncated`` is true past the page cap.
+
+    Raises:
+        ValueError: LibreOffice is missing, the sandbox is missing, the
+            file is not a pptx, or conversion did not finish.
+    """
+    if suffix == ".ppt":
+        raise ValueError(_PPT_MESSAGE)
+    path = Path(source_path)
+    raw = path.read_bytes()
+    office_bytes_ok(raw, suffix)
+    if not already_stripped:
+        raw = strip_external_relationships(raw)
+    binary = soffice_bin()
+    if not binary:
+        raise ValueError(_SANDBOX_MESSAGE)
+    sandbox_tools()
+    from google_slides_import import render_pdf_to_dir
+
+    budget = _CONVERT_TIMEOUT_S if timeout is None else max(1.0, float(timeout))
+    work = Path(tempfile.mkdtemp(prefix="lloves-slide-src-"))
+    try:
+        stripped = work / f"deck{suffix}"
+        stripped.write_bytes(raw)
+        del raw
+        pdf_path = work / "deck.pdf"
+        started = time.monotonic()
+        _office_to_pdf(
+            b"",
+            suffix,
+            binary,
+            timeout=min(_SOFFICE_LIMIT_S, budget),
+            source_path=stripped,
+            pdf_dest=pdf_path,
+        )
+        stripped.unlink(missing_ok=True)
+        remaining = budget - (time.monotonic() - started)
+        if remaining <= 0:
+            raise ValueError("That deck took too long to attach.")
+        destination = Path(page_dir)
+        destination.mkdir(parents=True, exist_ok=True)
+        return render_pdf_to_dir(
+            pdf_path, destination, deadline=time.monotonic() + remaining
+        )
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def pages_from_office(
     raw: bytes, suffix: str, *, timeout: float | None = None
 ) -> tuple[list[bytes], bool]:
     """Render a PowerPoint upload to one PNG per page.
+
+    Callers that can keep the upload on disk should use
+    ``pages_from_office_to_dir`` so the PNGs are not collected here.
 
     Args:
         raw: pptx bytes. Already size-checked.
@@ -814,20 +891,21 @@ def pages_from_office(
     if suffix == ".ppt":
         raise ValueError(_PPT_MESSAGE)
     office_bytes_ok(raw, suffix)
-    raw = strip_external_relationships(raw)
-    sandbox_tools()
-    binary = soffice_bin()
-    if not binary:
-        raise ValueError(_SANDBOX_MESSAGE)
-    from google_slides_import import render_pdf_pages
-
-    budget = _CONVERT_TIMEOUT_S if timeout is None else max(1.0, float(timeout))
-    started = time.monotonic()
-    pdf = _office_to_pdf(raw, suffix, binary, timeout=min(_SOFFICE_LIMIT_S, budget))
-    remaining = budget - (time.monotonic() - started)
-    if remaining <= 0:
-        raise ValueError("That deck took too long to attach.")
-    return render_pdf_pages(pdf, deadline=time.monotonic() + remaining)
+    stripped = strip_external_relationships(raw)
+    del raw
+    with tempfile.TemporaryDirectory(prefix="lloves-pages-") as tmp:
+        root = Path(tmp)
+        source = root / f"deck{suffix}"
+        source.write_bytes(stripped)
+        del stripped
+        paths, truncated = pages_from_office_to_dir(
+            source,
+            suffix,
+            root / "pages",
+            timeout=timeout,
+            already_stripped=True,
+        )
+        return [item.read_bytes() for item in paths], truncated
 
 
 def sandbox_tools() -> tuple[str, str]:
@@ -1592,6 +1670,8 @@ def office_env(root: Path, *, fontconfig_file: str | None = None) -> dict[str, s
     Returns:
         A new environment mapping.
     """
+    from google_slides_import import SLIDE_IMPORT_AS_BYTES
+
     env: dict[str, str] = {
         "PATH": _office_path(),
         "LANG": os.environ.get("LANG", "C.UTF-8"),
@@ -1601,6 +1681,7 @@ def office_env(root: Path, *, fontconfig_file: str | None = None) -> dict[str, s
         "TMP": str(root),
         "XDG_CONFIG_HOME": str(root),
         "XDG_CACHE_HOME": str(root),
+        "LLOVES_SLIDE_AS_KB": str(max(1024, int(SLIDE_IMPORT_AS_BYTES) // 1024)),
     }
     if fontconfig_file:
         env["FONTCONFIG_FILE"] = fontconfig_file
@@ -1637,7 +1718,15 @@ def _converter_binary(root: Path, binary: str) -> str:
     return str(dest)
 
 
-def _office_to_pdf(raw: bytes, suffix: str, binary: str, *, timeout: float) -> bytes:
+def _office_to_pdf(
+    raw: bytes,
+    suffix: str,
+    binary: str,
+    *,
+    timeout: float,
+    source_path: Path | None = None,
+    pdf_dest: Path | None = None,
+) -> bytes:
     """Convert one deck to PDF in a private LibreOffice profile.
 
     The upload name is never placed on the command line. The process
@@ -1648,17 +1737,21 @@ def _office_to_pdf(raw: bytes, suffix: str, binary: str, *, timeout: float) -> b
     with the worker.
 
     Args:
-        raw: Deck bytes. pptx bytes are already stripped.
+        raw: Deck bytes. pptx bytes are already stripped. Ignored when
+            ``source_path`` is set.
         suffix: ``.pptx``.
         binary: Absolute ``soffice`` path, or a test double.
         timeout: Seconds before the process group is killed.
+        source_path: Stripped pptx on disk. Avoids a second RAM copy.
+        pdf_dest: Where to move the PDF. When set, the bytes are not
+            returned.
 
     Returns:
-        PDF bytes.
+        PDF bytes, or empty when ``pdf_dest`` received the file.
 
     Raises:
-        ValueError: The sandbox is unavailable, or conversion failed
-            or timed out.
+        ValueError: The sandbox is unavailable, or conversion failed,
+            ran out of memory, or timed out.
     """
     if suffix == ".ppt":
         raise ValueError(_PPT_MESSAGE)
@@ -1669,7 +1762,10 @@ def _office_to_pdf(raw: bytes, suffix: str, binary: str, *, timeout: float) -> b
         outdir = root / "out"
         profile = root / "profile"
         outdir.mkdir()
-        source.write_bytes(raw)
+        if source_path is not None:
+            shutil.copyfile(source_path, source)
+        else:
+            source.write_bytes(raw)
         fontconfig = _job_fontconfig(root)
         run_bin = _converter_binary(root, binary)
         limit = max(1, int(math.ceil(timeout)))
@@ -1693,6 +1789,7 @@ def _office_to_pdf(raw: bytes, suffix: str, binary: str, *, timeout: float) -> b
         # A test double is a script, not LibreOffice. Skip the soffice flags.
         if run_bin.endswith("converter-bin"):
             inner = [timeout_bin, "-s", "KILL", str(limit), run_bin]
+        started = time.monotonic()
         try:
             completed = run_sandboxed(
                 inner,
@@ -1703,17 +1800,30 @@ def _office_to_pdf(raw: bytes, suffix: str, binary: str, *, timeout: float) -> b
             )
         except subprocess.TimeoutExpired as exc:
             raise ValueError("That deck took too long to attach.") from exc
+        elapsed = time.monotonic() - started
         pdfs = sorted(outdir.glob("*.pdf"))
-        if completed.returncode in {124, 137} or (
+        killed = completed.returncode in {137, -9}
+        if killed and elapsed + 1.0 < float(limit):
+            raise ValueError("That deck is too large to attach.")
+        if completed.returncode in {124, 137, -9} or (
             run_bin.endswith("converter-bin") and completed.returncode != 0
         ):
             raise ValueError("That deck took too long to attach.")
         if completed.returncode != 0 or not pdfs:
             raise ValueError("That PowerPoint could not be read.")
-        data = pdfs[0].read_bytes()
+        with pdfs[0].open("rb") as handle:
+            head = handle.read(5)
+        if not head.startswith(b"%PDF"):
+            raise ValueError("That PowerPoint could not be read.")
+        if pdf_dest is not None:
+            pdf_dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(pdfs[0]), str(pdf_dest))
+            data = b""
+        else:
+            data = pdfs[0].read_bytes()
     finally:
         shutil.rmtree(root, ignore_errors=True)
         shutil.rmtree(Path("/dev/shm") / f"lloves-root-{root.name}", ignore_errors=True)
-    if not data.startswith(b"%PDF"):
+    if pdf_dest is None and not data.startswith(b"%PDF"):
         raise ValueError("That PowerPoint could not be read.")
     return data
