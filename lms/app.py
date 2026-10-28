@@ -4486,6 +4486,21 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             view=ap_view if tab == "ap" else "",
             block=session_for_type is not None and not on_running_live,
         )
+        module_wrap = None
+        module_toast = ""
+        if tab == "ap":
+            module_wrap = school.begin_module_board(
+                class_id, include_test_students=show_tests
+            )
+            try:
+                from begin_module import toast_for_reload
+            except ImportError:
+                from lms.begin_module import toast_for_reload
+            module_toast = toast_for_reload(
+                int(module_wrap["current_number"]),
+                request.args.get("wrapped"),
+                request.args.get("started"),
+            )
         html = render_template(
             "staff/course.html",
             user=user,
@@ -4530,6 +4545,8 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             ) if show_tests else roster_rows,
             show_test_students=show_tests,
             engagement_summary_empty_copy=engagement_copy(KEY_ENGAGEMENT_SUMMARY_EMPTY),
+            module_wrap=module_wrap,
+            module_toast=module_toast,
         )
         resp = make_response(html)
         if (
@@ -10889,6 +10906,41 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             user_id=int(user["id"]) if user else None,
         )
         return jsonify({"ok": True, "module": module, "complete": state})
+
+    @app.route("/api/classes/<int:class_id>/participation/modules/begin", methods=["POST"])
+    @login_required
+    def api_begin_new_module(class_id: int):
+        """Wrap this section's open module, or un-mark one wrapped module.
+
+        The body is ``{"from_module": "M3"}`` or ``{"undo": true, "module": "M3"}``.
+        One section only. The response has no roster fields.
+        """
+        denied = _require_class_staff(class_id)
+        if denied:
+            return denied
+        body = request.get_json(silent=True) or {}
+        user = current_user()
+        user_id = int(user["id"]) if user else None
+        try:
+            from begin_module import BeginModuleRejected
+        except ImportError:
+            from lms.begin_module import BeginModuleRejected
+        try:
+            if body.get("undo"):
+                result = school.unmark_begun_module(
+                    class_id,
+                    str(body.get("module") or "")[:20],
+                    user_id=user_id,
+                )
+            else:
+                result = school.begin_new_module(
+                    class_id,
+                    str(body.get("from_module") or "")[:20],
+                    user_id=user_id,
+                )
+        except BeginModuleRejected as exc:
+            return jsonify({"ok": False, "error": str(exc)}), int(exc.status)
+        return jsonify(result)
 
     @app.route("/api/classes/<int:class_id>/participation/modules/<module>/finish", methods=["POST"])
     @login_required

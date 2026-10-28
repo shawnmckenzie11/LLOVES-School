@@ -832,6 +832,7 @@ class GameShowDB:
         self._migrate_test_student_flag()
         self._migrate_student_id_seq()
         self._migrate_class_require_catchup_pin_change()
+        self._migrate_class_current_module()
         self._migrate_student_portal()
         self._migrate_session_scores_late()
         self._migrate_team_name_poll()
@@ -1009,6 +1010,17 @@ class GameShowDB:
             self.conn.execute(
                 "INSERT OR IGNORE INTO student_id_seq (id, next_id) VALUES (1, ?)", (n,)
             )
+
+    def _migrate_class_current_module(self) -> None:
+        """Store the section's open module after Begin new module (MCK-339).
+
+        Nullable. NULL means the teacher has not used the button, and the
+        open module is still derived from saved classes. The value is one
+        section only.
+        """
+        cols = {str(r[1]) for r in self.conn.execute("PRAGMA table_info(classes)").fetchall()}
+        if "current_live_module" not in cols:
+            self.conn.execute("ALTER TABLE classes ADD COLUMN current_live_module TEXT")
 
     def _migrate_class_require_catchup_pin_change(self) -> None:
         """MCK-207: force students off teacher default PINs before catch-up."""

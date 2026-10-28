@@ -998,6 +998,97 @@
     <script type="module" src="/static/staff_lesson_slides.js"></script>
     {% elif tab == 'ap' %}
     <div id="ap-root" data-class-id="{{ cls.id }}" data-ap-view="{{ ap_view }}" data-take="0" data-participate="0" data-live-session-id="">
+      {% if module_wrap %}
+      <section class="begin-mod" id="begin-mod" data-current="{{ module_wrap.current_module }}">
+        <div class="begin-mod-head">
+          <h2>Attendance &amp; Participation</h2>
+          <span class="begin-mod-pill" id="begin-mod-current">Current module: {{ module_wrap.current_label }}</span>
+          <button type="button" class="btn secondary" id="begin-new-module"
+                  {% if not module_wrap.can_begin %}disabled{% endif %}
+                  data-from-module="{{ module_wrap.current_module }}"
+                  data-url="{{ url_for('api_begin_new_module', class_id=cls.id) }}"
+                  aria-describedby="begin-mod-reason">Begin new module</button>
+          <p class="begin-mod-reason" id="begin-mod-reason"{% if not module_wrap.disabled_reason %} hidden{% endif %}>{{ module_wrap.disabled_reason }}</p>
+        </div>
+        <div class="sheet-wrap begin-mod-wrap">
+          <table class="begin-mod-table" id="begin-mod-current-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Attended</th>
+                <th>Participation</th>
+                <th>%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in module_wrap.students %}
+              <tr>
+                <td>{{ row.name }}</td>
+                <td class="begin-mod-attended">{{ row.attended_text }}</td>
+                <td class="begin-mod-participation">{{ row.participation_text }}</td>
+                <td class="begin-mod-percent">{{ row.percent_text }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <section class="begin-mod-past-block" id="begin-mod-past"{% if not module_wrap.past %} hidden{% endif %}>
+          <div class="begin-mod-past-head">
+            <h3>Past modules</h3>
+            <select id="begin-mod-past-select" aria-label="Past modules">
+              {% for past in module_wrap.past %}
+              <option value="{{ past.module }}">{{ past.label }}</option>
+              {% endfor %}
+            </select>
+            <button type="button" class="btn secondary" id="begin-mod-unmark"
+                    data-url="{{ url_for('api_begin_new_module', class_id=cls.id) }}">Un-mark</button>
+          </div>
+          {% for past in module_wrap.past %}
+          <div class="begin-mod-past-panel" data-past-module="{{ past.module }}"{% if not loop.first %} hidden{% endif %}>
+            <p class="begin-mod-wrapped">{{ past.wrapped }}</p>
+            <div class="sheet-wrap begin-mod-wrap">
+              <table class="begin-mod-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Attended</th>
+                    <th>Participation</th>
+                    <th>%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in past.students %}
+                  <tr>
+                    <td>{{ row.name }}</td>
+                    <td>{{ row.attended_text }}</td>
+                    <td>{{ row.participation_text }}</td>
+                    <td>{{ row.percent_text }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {% endfor %}
+        </section>
+        <p class="begin-mod-toast" id="begin-mod-toast" role="status"{% if not module_toast %} hidden{% endif %}>{{ module_toast }}</p>
+        {% if module_wrap.can_begin %}
+        <dialog class="begin-mod-dialog" id="begin-mod-dialog" aria-labelledby="begin-mod-title">
+          <h2 id="begin-mod-title">{{ module_wrap.dialog.title }}</h2>
+          <ul>
+            {% for line in module_wrap.dialog.lines %}
+            <li>{{ line }}</li>
+            {% endfor %}
+          </ul>
+          <div class="begin-mod-actions">
+            <button type="button" class="btn secondary" id="begin-mod-cancel" autofocus>{{ module_wrap.dialog.cancel }}</button>
+            <button type="button" class="btn begin-mod-confirm" id="begin-mod-confirm">{{ module_wrap.dialog.confirm }}</button>
+          </div>
+        </dialog>
+        {% endif %}
+      </section>
+      <script src="/static/staff_begin_module.js"></script>
+      {% endif %}
       <div class="ap-tab-head">
       <nav class="ap-subtabs" aria-label="Attendance and Participation">
         <a href="{{ url_for('staff_course', class_id=cls.id, tab='ap', view='attendance') }}"
