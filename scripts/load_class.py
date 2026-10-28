@@ -536,15 +536,27 @@ def _attach_load_deck(school: Any, session_id: int, pages: int) -> int:
     return len(stored) if isinstance(stored, list) else 0
 
 
-def slide_state_p95_ms(rows: list[tuple[float, str, int, float]]) -> float:
+def slide_state_p95_ms(
+    rows: list[tuple[float, str, int, float]],
+    *,
+    after_s: float = 0,
+) -> float:
     """Nearest-rank p95 of student and staff ``/state`` samples.
+
+    ``after_s`` drops the opening snapshot. Forwards begin at 10 seconds,
+    so the pass line uses the window where the teacher is already moving
+    slides and phones already hold a snapshot.
 
     Args:
         rows: Recorder rows ``(time, kind, status, ms)``.
+        after_s: Ignore samples earlier than this many seconds from the first row.
     """
     kinds = {"student_state_build", "student_state_unchanged", "staff_state"}
-    samples = [ms for _t, kind, status, ms in rows if kind in kinds and status < 500]
-    return pct(samples, 95)
+    timed = [(t, kind, status, ms) for t, kind, status, ms in rows if kind in kinds and status < 500]
+    if after_s > 0 and timed:
+        start = min(t for t, *_rest in timed) + float(after_s)
+        timed = [row for row in timed if row[0] >= start]
+    return pct([ms for _t, _kind, _status, ms in timed], 95)
 
 
 def slide_staff_max_ms(rows: list[tuple[float, str, int, float]]) -> float:
@@ -604,12 +616,14 @@ def _slide_forward_gate_errors(
         students_per_class: Roster size of one class.
         classes: How many classes were driven.
     """
-    state_p95 = slide_state_p95_ms(rows)
+    state_p95_all = slide_state_p95_ms(rows)
+    state_p95 = slide_state_p95_ms(rows, after_s=15)
     staff_max = slide_staff_max_ms(rows)
     peak = slide_reload_peak(rows)
     kinds = summary.get("kinds") or {}
     forwards = int((kinds.get("slide_forward") or {}).get("n") or 0)
     staff_errors = int((kinds.get("staff_state") or {}).get("errors_5xx") or 0)
+    summary["state_p95_all_ms"] = round(state_p95_all, 1)
     summary["state_p95_ms"] = round(state_p95, 1)
     summary["staff_state_max_ms"] = round(staff_max, 1)
     summary["slide_reload_peak"] = peak
