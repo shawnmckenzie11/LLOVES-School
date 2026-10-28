@@ -113,6 +113,12 @@ class SlideMemoryTests(unittest.TestCase):
         self.assertFalse(truncated)
         self.assertGreaterEqual(len(paths), 1)
         self.assertTrue(_png_magic(paths[0]).startswith(b"\x89PNG"))
+        junk = root / "junk.pdf"
+        junk.write_bytes(b"%PDF-1.4\nnot-a-deck")
+        with self.assertRaises(ValueError) as bad:
+            render_pdf_to_dir(junk, root / "bad")
+        self.assertIn("not a slide deck", str(bad.exception).lower())
+        self.assertNotIn(str(junk), str(bad.exception))
 
     def test_forty_page_pptx_converts_inside_the_sandbox(self) -> None:
         """LibreOffice's stand-in stays inside pivot_root, then pages hit disk."""

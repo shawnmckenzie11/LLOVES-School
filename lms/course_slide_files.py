@@ -203,8 +203,8 @@ while read -r inner outer count; do
   fi
 done < /proc/self/uid_map
 cd "$work" || die cd $?
-# Cap the converter only. Mounts above stay uncapped. 1048576 KiB is 1 GiB.
-as_kb=${LLOVES_SLIDE_AS_KB:-1048576}
+# Cap the converter only. Mounts above stay uncapped. 2097152 KiB is 2 GiB.
+as_kb=${LLOVES_SLIDE_AS_KB:-2097152}
 ulimit -v "$as_kb" || die ulimit $?
 if [ "$mapped_nobody" = 1 ]; then
   command -v setpriv >/dev/null 2>&1 || die setpriv 127

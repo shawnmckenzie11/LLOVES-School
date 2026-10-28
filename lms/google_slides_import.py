@@ -35,16 +35,18 @@ IMPORT_TIME_LIMIT_SECONDS = 45
 MAX_SLIDE_EDGE = 1600
 MAX_SLIDE_PIXELS = 1_600_000
 # Address-space cap for the convert child and the render child (MCK-330).
-# One import runs at a time. The PDF library maps about 900 MiB of file
-# space before the first page, so a 600 MiB cap kills a normal deck.
-# Resident use for 40 pages stays near 150 MiB. This ceiling is above
-# that map and still stops a child that keeps allocating.
-SLIDE_IMPORT_AS_BYTES = 1024 * 1024 * 1024
+# One import runs at a time. This PDF library maps about 900 MiB of
+# files before the first page, so a 600 MiB cap, and a 1 GiB cap with
+# no headroom, kills a normal deck. Resident use for 40 pages stays
+# near 150 MiB. ``SLIDE_IMPORT_RSS_BYTES`` is what stops a child from
+# filling the 1 GB machine; the address ceiling only has to let the
+# library's file maps exist.
+SLIDE_IMPORT_AS_BYTES = 2 * 1024 * 1024 * 1024
+SLIDE_IMPORT_RSS_BYTES = 512 * 1024 * 1024
 _MAX_PDF_BYTES = 20 * 1024 * 1024
 _MAX_PNG_BYTES = 3_500_000
 _RENDER_TOO_LARGE = 75
 _RENDER_TOO_LONG = 76
-_MEMORY_EXITS = {75, 137, -9, 139, -11}
 _READ_CHUNK = 65536
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]{10,128}$")
 _URL_ID_RE = re.compile(
@@ -678,6 +680,26 @@ def _cap_address_space(limit: int) -> None:
     resource.setrlimit(resource.RLIMIT_AS, (cap, cap))
 
 
+def _resident_bytes() -> int:
+    """Resident set of this process, in bytes.
+
+    Returns:
+        VmRSS, or 0 when ``/proc`` cannot be read. File maps that make
+        the address space large do not count here.
+    """
+    try:
+        text = Path("/proc/self/status").read_text(encoding="utf-8")
+    except OSError:
+        return 0
+    for line in text.splitlines():
+        if not line.startswith("VmRSS:"):
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and parts[1].isdigit():
+            return int(parts[1]) * 1024
+    return 0
+
+
 def _render_pdf_file(pdf_path: Path, out_dir: Path, budget_s: float) -> int:
     """Write one PNG per page and a manifest. One page is in memory at a time.
 
@@ -693,8 +715,14 @@ def _render_pdf_file(pdf_path: Path, out_dir: Path, budget_s: float) -> int:
     deadline = time.monotonic() + max(0.0, float(budget_s))
     import fitz
 
+    if _resident_bytes() > SLIDE_IMPORT_RSS_BYTES:
+        sys.stderr.write("lloves-render-error too-large\n")
+        return _RENDER_TOO_LARGE
     try:
         document = fitz.open(str(pdf_path))
+    except MemoryError:
+        sys.stderr.write("lloves-render-error too-large\n")
+        return _RENDER_TOO_LARGE
     except Exception:  # noqa: BLE001 - pymupdf raises several types
         sys.stderr.write("lloves-render-error bad-pdf\n")
         return 1
@@ -711,6 +739,9 @@ def _render_pdf_file(pdf_path: Path, out_dir: Path, budget_s: float) -> int:
             if time.monotonic() >= deadline:
                 sys.stderr.write("lloves-render-error too-long\n")
                 return _RENDER_TOO_LONG
+            if _resident_bytes() > SLIDE_IMPORT_RSS_BYTES:
+                sys.stderr.write("lloves-render-error too-large\n")
+                return _RENDER_TOO_LARGE
             try:
                 png = _png_for_page(document.load_page(index), scales=scales)
             except MemoryError:
@@ -729,6 +760,9 @@ def _render_pdf_file(pdf_path: Path, out_dir: Path, budget_s: float) -> int:
             dest = out_dir / f"page-{index:03d}.png"
             dest.write_bytes(png)
             del png
+            if _resident_bytes() > SLIDE_IMPORT_RSS_BYTES:
+                sys.stderr.write("lloves-render-error too-large\n")
+                return _RENDER_TOO_LARGE
         (out_dir / "manifest.json").write_text(
             json.dumps({"count": limit, "truncated": bool(truncated)}),
             encoding="utf-8",
@@ -738,23 +772,30 @@ def _render_pdf_file(pdf_path: Path, out_dir: Path, budget_s: float) -> int:
         document.close()
 
 
-def _render_failure(returncode: int, err_text: str) -> ValueError:
+def _render_failure(
+    returncode: int, err_text: str, *, address_limit: int
+) -> ValueError:
     """Map a capped render child to a teacher-facing error.
+
+    A child that dies under a tiny cap is always "too large", including
+    when the loader exits before it can print a memory token. A normal
+    cap still reports a file that is not a PDF as "not a slide deck".
 
     Args:
         returncode: Child status. Negative values are signals.
-        err_text: Child stderr, lowercased. It is not shown to the teacher.
+        err_text: Child stderr. It is not shown to the teacher.
+        address_limit: Address-space bytes the child was started with.
     """
     lowered = err_text.lower()
     if returncode == _RENDER_TOO_LONG or "too-long" in lowered:
         return ValueError("That deck took too long to attach.")
-    memory = returncode in _MEMORY_EXITS or returncode < 0
-    if (
-        memory
-        or "too-large" in lowered
-        or "memoryerror" in lowered
-        or "cannot allocate" in lowered
-    ):
+    explicit_bad = (
+        returncode == 1 and "bad-pdf" in lowered and "too-large" not in lowered
+    )
+    tiny_cap = int(address_limit) < 64 * 1024 * 1024
+    if explicit_bad and not tiny_cap:
+        return ValueError("That download was not a slide deck.")
+    if returncode != 0:
         return ValueError("That deck is too large to attach.")
     return ValueError("That download was not a slide deck.")
 
@@ -829,7 +870,7 @@ def render_pdf_to_dir(
     err_text = (err or b"").decode("utf-8", "replace")
     code = int(proc.returncode or 0)
     if code != 0:
-        raise _render_failure(code, err_text) from None
+        raise _render_failure(code, err_text, address_limit=limit) from None
     manifest_path = target / "manifest.json"
     if not manifest_path.is_file():
         raise ValueError("That download was not a slide deck.")
@@ -1028,9 +1069,18 @@ def _render_cli(argv: list[str]) -> int:
     except MemoryError:
         sys.stderr.write("lloves-render-error too-large\n")
         return _RENDER_TOO_LARGE
-    except Exception:  # noqa: BLE001 - a capped child must not traceback to the teacher
-        sys.stderr.write("lloves-render-error too-large\n")
-        return _RENDER_TOO_LARGE
+    except OSError as exc:
+        if exc.errno == 12:
+            sys.stderr.write("lloves-render-error too-large\n")
+            return _RENDER_TOO_LARGE
+        sys.stderr.write("lloves-render-error bad-pdf\n")
+        return 1
+    except Exception as exc:  # noqa: BLE001 - a capped child must not traceback
+        if type(exc).__name__ in {"MemoryError", "BrokenPipeError"}:
+            sys.stderr.write("lloves-render-error too-large\n")
+            return _RENDER_TOO_LARGE
+        sys.stderr.write("lloves-render-error bad-pdf\n")
+        return 1
 
 
 if __name__ == "__main__":
