@@ -53,10 +53,18 @@ jobs:
       - name: Allow the slide sandbox
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
+      - name: Install Chrome for slide e2e
+        run: |
+          set -euo pipefail
+          wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt-get install -y /tmp/chrome.deb
+          npm install --prefix "${GITHUB_WORKSPACE}" playwright-core@1.49.1
+
       - name: Run tests
         env:
           ALLOW_DEV_VERIFICATION_CODE: "1"
           LIVE_PRESENCE_TEST_URL: postgresql://lloves:lloves@127.0.0.1:5432/lloves_live
+          LLOVES_E2E_CHROME: /usr/bin/google-chrome
         # MCK-52: a hang aborts with every thread's stack in the log instead of
         # sitting in_progress for hours.
         timeout-minutes: 30
@@ -101,3 +109,51 @@ jobs:
           ALLOW_DEV_VERIFICATION_CODE: "1"
         timeout-minutes: 15
         run: python scripts/load_class.py --sqlite-budget --students 30 --out lc-qa/load-budget
+
+  slide-load:
+    name: slide forward load
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: lloves
+          POSTGRES_PASSWORD: lloves
+          POSTGRES_DB: lloves_live
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lloves -d lloves_live"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r lms/requirements.txt psutil
+
+      - name: Slide forward load
+        env:
+          ALLOW_DEV_VERIFICATION_CODE: "1"
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          python3 scripts/load_class.py \
+            --minutes 1 \
+            --classes 2 \
+            --students 15 \
+            --items 2 \
+            --round-minutes 0.25 \
+            --slide-forward \
+            --cpu-quota 100 \
+            --gate \
+            --min-classes 2 \
+            --presence-url "postgresql://lloves:lloves@127.0.0.1:5432/lloves_live" \
+            --out "${RUNNER_TEMP}/slide-forward"

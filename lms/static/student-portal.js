@@ -1872,6 +1872,10 @@ function clearStudentGoogleSlide() {
  */
 function showUnsharedSlidePlaceholder() {
   clearStudentGoogleSlide();
+  if (slidesFrame instanceof HTMLIFrameElement) {
+    slidesFrame.hidden = true;
+    slidesFrame.removeAttribute("src");
+  }
   if (slidesPane && !paneIsBeingGrabbed(slidesPane)) slidesPane.hidden = false;
   if (slidesEmpty) {
     slidesEmpty.textContent = SLIDES_WAITING_COPY;

@@ -732,8 +732,35 @@ class FanoutGuardTests(unittest.TestCase):
         for kind in INDIVIDUAL_ROWS:
             self._individual(kind)
 
+    def _news_tip(self) -> int:
+        """Highest postcard id stored for this session, or 0."""
+        from live_news_wire import log_for
+
+        rows = log_for(self.school.data_dir).since(self.session_id, 0)
+        if not rows:
+            return 0
+        return int(rows[-1]["id"])
+
+    def _slide_updates(self, after: int) -> list[dict[str, Any]]:
+        """Slide postcards stored after ``after``.
+
+        Args:
+            after: Last postcard id already seen.
+        """
+        from live_news_wire import log_for
+
+        return [
+            row
+            for row in log_for(self.school.data_dir).since(self.session_id, after)
+            if row.get("type") == "google_slide"
+        ]
+
     def test_slide_publish_and_page_change_do_not_fan_out(self) -> None:
-        """Publishing, moving, or unpublishing a slide leaves every phone unchanged."""
+        """Publishing or moving a slide leaves every phone stamp unchanged.
+
+        Each move stores exactly one slide postcard. Group pick and rank
+        place stay on their own guards.
+        """
         import fitz
 
         pngs: list[bytes] = []
@@ -756,21 +783,53 @@ class FanoutGuardTests(unittest.TestCase):
                 self._assert_same(index, snap, label)
 
         before = {index: self._snap(index) for index in sorted(self.present)}
+        stamps = {
+            index: self.school.live_student_poll_stamp(
+                self.session_id, self.class_id, self.ids[index]
+            )
+            for index in sorted(self.present)
+        }
         time.sleep(GAP_S)
+        tip = self._news_tip()
         published = self.staff.post(
             f"/api/live-sessions/{self.session_id}/google-slides/pages/0/publish"
         )
         self._ok_status(published, 200)
         _same("slide publish")
+        self.assertEqual(len(self._slide_updates(tip)), 1)
+        for index, stamp in stamps.items():
+            self.assertEqual(
+                self.school.live_student_poll_stamp(
+                    self.session_id, self.class_id, self.ids[index]
+                ),
+                stamp,
+                "slide publish",
+            )
 
         before = {index: self._snap(index) for index in sorted(self.present)}
+        stamps = {
+            index: self.school.live_student_poll_stamp(
+                self.session_id, self.class_id, self.ids[index]
+            )
+            for index in sorted(self.present)
+        }
         time.sleep(GAP_S)
+        tip = self._news_tip()
         moved = self.staff.post(
             f"/api/live-sessions/{self.session_id}/google-slides/current",
             json={"index": 1},
         )
         self._ok_status(moved, 200)
         _same("slide page")
+        self.assertEqual(len(self._slide_updates(tip)), 1)
+        for index, stamp in stamps.items():
+            self.assertEqual(
+                self.school.live_student_poll_stamp(
+                    self.session_id, self.class_id, self.ids[index]
+                ),
+                stamp,
+                "slide page",
+            )
 
         before = {index: self._snap(index) for index in sorted(self.present)}
         time.sleep(GAP_S)

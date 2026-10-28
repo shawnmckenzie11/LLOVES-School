@@ -2316,6 +2316,10 @@ body.staff-shell .live-page-counter {
 }
 body.staff-shell .live-page-name {
   margin-left: 0.45rem;
+  min-width: 0;
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: 700;
   font-size: 0.92rem;
   color: #12202e;

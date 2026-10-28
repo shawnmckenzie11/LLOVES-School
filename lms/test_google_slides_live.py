@@ -372,6 +372,181 @@ class GoogleSlidesLiveTests(unittest.TestCase):
         self.assertEqual(self._student_card()["image_url"], second)
         self.assertNotIn(first, self._student_blob())
 
+    def test_forward_publishes_the_next_page_and_skips_ended_sessions(self) -> None:
+        """Publish follows Forward. Visibility does not read ended sessions.
+
+        Moving off a shared page publishes the destination in that same
+        write and bumps the deck rev by one. Moving off an unpublished
+        page leaves the destination unpublished. Slide image responses
+        cache privately. Ended rows are not selected.
+        """
+        deck = self._attach()["google_slides"]
+        first = deck["pages"][0]["image_url"]
+        second = deck["pages"][1]["image_url"]
+        stayed = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/google-slides/current",
+            json={"index": 1},
+        )
+        self.assertEqual(stayed.status_code, 200)
+        quiet = stayed.get_json()
+        self.assertFalse(quiet["google_slides"]["pages"][1]["published"])
+        self.assertEqual(quiet["google_slide"]["image_url"], "")
+        self.assertEqual(self._student_card()["image_url"], "")
+
+        published = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/google-slides/pages/0/publish"
+        )
+        self.assertEqual(published.status_code, 200)
+        shared = published.get_json()["google_slides"]
+        rev = int(shared["rev"])
+        self.assertTrue(shared["pages"][0]["published"])
+        moved = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/google-slides/current",
+            json={"index": 1},
+        )
+        self.assertEqual(moved.status_code, 200)
+        body = moved.get_json()
+        self.assertEqual(body["google_slides"]["current_index"], 1)
+        self.assertTrue(body["google_slides"]["pages"][1]["published"])
+        self.assertEqual(int(body["google_slides"]["rev"]), rev + 1)
+        self.assertEqual(body["google_slide"]["image_url"], second)
+        self.assertEqual(self._student_card()["image_url"], second)
+        shown = self.student.get(second)
+        self.assertEqual(shown.status_code, 200)
+        self.assertIn("private", shown.headers.get("Cache-Control") or "")
+        self.assertIn("max-age=300", shown.headers.get("Cache-Control") or "")
+        self.assertTrue(shown.headers.get("ETag"))
+        shown.close()
+        hidden = self.staff.post(
+            f"/api/live-sessions/{self.live_session_id}/google-slides/pages/0/unpublish"
+        )
+        self.assertEqual(hidden.status_code, 200)
+        self.assertFalse(hidden.get_json()["google_slides"]["pages"][0]["published"])
+        self.assertTrue(hidden.get_json()["google_slides"]["pages"][1]["published"])
+
+        orphan = self._park_ended_slide_copies()
+        queries: list[str] = []
+
+        def _trace(sql: str) -> None:
+            """Record statements issued while visibility is checked."""
+            queries.append(" ".join(sql.split()))
+
+        self.school.conn.set_trace_callback(_trace)
+        try:
+            published_name = second.rsplit("/", 1)[-1]
+            hidden_name = first.rsplit("/", 1)[-1]
+            self.assertEqual(
+                self.school.google_slide_image_visibility(self.class_id, published_name),
+                "published",
+            )
+            self.assertEqual(
+                self.school.google_slide_image_visibility(self.class_id, published_name),
+                "published",
+            )
+            self.assertEqual(
+                self.school.google_slide_image_visibility(self.class_id, hidden_name),
+                "closed",
+            )
+            self.assertEqual(
+                self.school.google_slide_image_visibility(self.class_id, "question.png"),
+                "absent",
+            )
+        finally:
+            self.school.conn.set_trace_callback(None)
+        session_sql = [sql for sql in queries if "live_class_sessions" in sql]
+        self.assertTrue(session_sql)
+        for sql in session_sql:
+            self.assertTrue(
+                "status = 'active'" in sql or "WHERE id =" in sql,
+                sql,
+            )
+        full_reads = [
+            sql
+            for sql in session_sql
+            if sql.startswith("SELECT google_slides_json")
+        ]
+        self.assertEqual(len(full_reads), 1)
+        self.assertNotIn("LIKE", " ".join(queries))
+        self.assertEqual(
+            self.school.google_slide_image_visibility(self.class_id, orphan),
+            "closed",
+        )
+
+        self.school.conn.execute(
+            "UPDATE live_class_sessions SET status = ? WHERE id = ?",
+            ("ended", self.live_session_id),
+        )
+        self.school.conn.commit()
+        ended_queries: list[str] = []
+        self.school.conn.set_trace_callback(
+            lambda sql: ended_queries.append(" ".join(sql.split()))
+        )
+        try:
+            self.assertEqual(
+                self.school.google_slide_image_visibility(
+                    self.class_id, second.rsplit("/", 1)[-1]
+                ),
+                "closed",
+            )
+        finally:
+            self.school.conn.set_trace_callback(None)
+        session_sql = [sql for sql in ended_queries if "live_class_sessions" in sql]
+        self.assertTrue(session_sql)
+        for sql in session_sql:
+            self.assertIn("status = 'active'", sql)
+            self.assertNotIn("status != 'active'", sql)
+        self.assertFalse(
+            any(sql.startswith("SELECT google_slides_json") for sql in ended_queries),
+            ended_queries,
+        )
+
+    def _park_ended_slide_copies(self) -> str:
+        """Store ended session rows that name a file the course deck does not.
+
+        Returns:
+            Content-addressed name present only on those ended rows.
+        """
+        orphan = "ab" * 32 + ".png"
+        blob = json.dumps(
+            {
+                "rev": 1,
+                "pages": [
+                    {
+                        "image_url": (
+                            f"/api/classes/{self.class_id}/live-question-images/{orphan}"
+                        ),
+                        "published": True,
+                    }
+                ],
+            }
+        )
+        source = self.school.conn.execute(
+            "SELECT * FROM live_class_sessions WHERE id = ?",
+            (self.live_session_id,),
+        ).fetchone()
+        self.assertIsNotNone(source)
+        assert source is not None
+        keys = [key for key in source.keys() if key != "id"]
+        for copy in range(4):
+            values: list[object] = []
+            for key in keys:
+                if key == "status":
+                    values.append("ended")
+                elif key == "session_code":
+                    values.append(f"E{copy}{int(source['id'])}")
+                elif key == "google_slides_json":
+                    values.append(blob)
+                else:
+                    values.append(source[key])
+            marks = ",".join("?" for _ in keys)
+            cols = ",".join(keys)
+            self.school.conn.execute(
+                f"INSERT INTO live_class_sessions ({cols}) VALUES ({marks})",
+                values,
+            )
+        self.school.conn.commit()
+        return orphan
+
 
     def test_phone_joined_before_a_deck_still_receives_the_card(self) -> None:
         """A poll with no slide revision still carries the card after attach.

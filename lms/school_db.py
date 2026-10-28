@@ -1006,6 +1006,9 @@ CREATE TABLE IF NOT EXISTS course_slide_pages (
 CREATE INDEX IF NOT EXISTS idx_course_slide_decks_class
     ON course_slide_decks(class_id);
 
+CREATE INDEX IF NOT EXISTS idx_course_slide_pages_relpath
+    ON course_slide_pages(image_relpath);
+
 CREATE TABLE IF NOT EXISTS slide_import_jobs (
     id TEXT PRIMARY KEY,
     owner_user_id INTEGER NOT NULL,
@@ -9970,12 +9973,24 @@ class LovesDB:
             raise ValueError("No slide deck is attached.")
         return fresh
 
-    def set_google_slides_current(self, session_id: int, index: int) -> dict[str, Any]:
-        """Point the shared slide at one page. Published pages push immediately.
+    def set_google_slides_current(
+        self,
+        session_id: int,
+        index: int,
+        *,
+        follow: bool = False,
+    ) -> dict[str, Any]:
+        """Point the shared slide at one page.
+
+        When ``follow`` is true and the page being left is published, the
+        destination is published in the same locked write. Leaving an
+        unpublished page does not publish the destination. Other pages
+        keep their flags. Unpublish stays a separate per-page write.
 
         Args:
             session_id: ``live_class_sessions.id``.
             index: Zero-based page index.
+            follow: Publish the destination when the page being left is shared.
 
         Returns:
             Updated teacher deck.
@@ -9985,8 +10000,14 @@ class LovesDB:
         def move(
             current: int, pages: list[dict[str, Any]]
         ) -> tuple[int, list[dict[str, Any]]]:
-            """Keep publish flags and move the current page."""
-            del current
+            """Move the pointer, and carry a shared page onto the destination."""
+            if (
+                follow
+                and 0 <= current < len(pages)
+                and pages[current].get("published")
+                and 0 <= target < len(pages)
+            ):
+                pages[target]["published"] = True
             return target, pages
 
         return self._update_google_slides(int(session_id), move)
@@ -17818,14 +17839,146 @@ class SchoolDB(LovesDB):
             return name
         return ""
 
+    def _slide_visibility_cache(self) -> dict[tuple[int, int], dict[str, bool]]:
+        """Map ``(session id, deck rev)`` to filename publish flags.
+
+        One entry per session. A newer rev replaces the previous map.
+        """
+        cache = getattr(self, "_slide_visibility_flags", None)
+        if not isinstance(cache, dict):
+            cache = {}
+            self._slide_visibility_flags = cache
+        return cache
+
+    def _active_slide_publish_flags(self, class_id: int) -> dict[str, bool] | None:
+        """Publish flags for the active session's slide pages.
+
+        Reads that one indexed row. Ended sessions are not selected.
+        The page map is cached on ``(session id, deck rev)`` and parsed
+        outside the school lock. An active session with no deck returns
+        an empty map. ``None`` means no session is active.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT id,
+                       COALESCE(json_extract(google_slides_json, '$.rev'), 0) AS rev
+                FROM live_class_sessions
+                WHERE class_id = ? AND status = 'active'
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (int(class_id),),
+            ).fetchone()
+        if row is None:
+            return None
+        session_id = int(row["id"])
+        try:
+            rev = int(row["rev"] or 0)
+        except (TypeError, ValueError):
+            rev = 0
+        cache = self._slide_visibility_cache()
+        cached = cache.get((session_id, rev))
+        if cached is not None:
+            return cached
+        with self._lock:
+            full = self.conn.execute(
+                """
+                SELECT google_slides_json
+                FROM live_class_sessions
+                WHERE id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+        raw = str(full["google_slides_json"] or "") if full is not None else ""
+        try:
+            deck = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            deck = {}
+        if not isinstance(deck, dict):
+            deck = {}
+        flags: dict[str, bool] = {}
+        for page in deck.get("pages") or []:
+            if not isinstance(page, dict):
+                continue
+            page_name = self._google_slide_image_name(
+                str(page.get("image_url") or "").rsplit("/", 1)[-1]
+            )
+            if page_name:
+                flags[page_name] = bool(page.get("published"))
+        kept = {
+            key: value
+            for key, value in cache.items()
+            if key[0] != session_id
+        }
+        kept[(session_id, rev)] = flags
+        self._slide_visibility_flags = kept
+        return flags
+
+    def _course_slide_image_named(self, class_id: int, name: str) -> bool:
+        """True when a course page stores this image under its exact path.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            name: Content-addressed image filename.
+        """
+        relpath = f"live-question-images/{int(class_id)}/{name}"
+        with self._lock:
+            try:
+                row = self.conn.execute(
+                    """
+                    SELECT 1
+                    FROM course_slide_pages AS pages
+                    JOIN course_slide_decks AS decks
+                      ON decks.id = pages.deck_id
+                    WHERE decks.class_id = ?
+                      AND pages.image_relpath = ?
+                    LIMIT 1
+                    """,
+                    (int(class_id), relpath),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                return False
+        return row is not None
+
+    def _ended_slide_names_file(self, class_id: int, name: str) -> bool:
+        """True when a non-active session's deck text names this file.
+
+        The column is not returned and the deck is not parsed. Callers
+        use this only after the active row and the course pages miss,
+        so a shared slide does not touch ended sessions.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            name: Content-addressed image filename.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                """
+                SELECT 1
+                FROM live_class_sessions
+                WHERE class_id = ?
+                  AND status != 'active'
+                  AND instr(google_slides_json, ?) > 0
+                LIMIT 1
+                """,
+                (int(class_id), name),
+            ).fetchone()
+        return row is not None
+
     def google_slide_image_visibility(self, class_id: int, filename: str) -> str:
         """Return how a stored file relates to Google Slides pages.
 
         ``absent`` means the file is not a slide page, so question images
-        keep the existing class-access rule. ``published`` means an active
-        session is sharing that page. ``closed`` means a course deck or a
-        session deck names the file, but that page is not published on
-        the active session.
+        keep the existing class-access rule. ``published`` means the active
+        session is sharing that page. ``closed`` means a course deck names
+        the file, or the active session names it and that page is not
+        shared. Ended sessions are not read. A class with no active
+        session still answers ``closed`` for a course page, without
+        parsing any ended deck.
 
         Args:
             class_id: Game-show ``classes.id``.
@@ -17834,57 +17987,12 @@ class SchoolDB(LovesDB):
         name = self._google_slide_image_name(filename)
         if not name:
             return "absent"
-        course_named = False
-        with self._lock:
-            rows = self.conn.execute(
-                """
-                SELECT status, google_slides_json
-                FROM live_class_sessions
-                WHERE class_id = ?
-                """,
-                (int(class_id),),
-            ).fetchall()
-            try:
-                course = self.conn.execute(
-                    """
-                    SELECT 1
-                    FROM course_slide_pages AS pages
-                    JOIN course_slide_decks AS decks
-                      ON decks.id = pages.deck_id
-                    WHERE decks.class_id = ?
-                      AND pages.image_relpath LIKE ?
-                    LIMIT 1
-                    """,
-                    (int(class_id), f"%/{name}"),
-                ).fetchone()
-                course_named = course is not None
-            except sqlite3.OperationalError:
-                course_named = False
-        seen = False
-        published = False
-        for row in rows:
-            raw = str(row["google_slides_json"] or "")
-            if name not in raw:
-                continue
-            try:
-                deck = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            active = str(row["status"] or "") == "active"
-            for page in deck.get("pages") or []:
-                if not isinstance(page, dict):
-                    continue
-                page_name = self._google_slide_image_name(
-                    str(page.get("image_url") or "").rsplit("/", 1)[-1]
-                )
-                if page_name != name:
-                    continue
-                seen = True
-                if active and page.get("published"):
-                    published = True
-        if published:
-            return "published"
-        if seen or course_named:
+        flags = self._active_slide_publish_flags(int(class_id))
+        if flags is not None and name in flags:
+            return "published" if flags[name] else "closed"
+        if self._course_slide_image_named(int(class_id), name):
+            return "closed"
+        if self._ended_slide_names_file(int(class_id), name):
             return "closed"
         return "absent"
 
