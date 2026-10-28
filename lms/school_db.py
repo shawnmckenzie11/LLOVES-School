@@ -40765,9 +40765,29 @@ class SchoolDB(LovesDB):
     def set_module_complete(
         self, class_id: int, module: str, complete: bool, *, user_id: int | None = None
     ) -> bool:
-        """Teacher 'Mark Module N Complete', or undo (deletes the mark). Returns the new state."""
+        """Teacher 'Mark Module N Complete', or undo (deletes the mark).
+
+        A module already wrapped by Begin new module stays complete. The
+        section pointer is left where it is, and the mark row is not deleted.
+
+        Returns:
+            The module's complete flag after the call.
+        """
         with self._lock:
             if not complete:
+                from begin_module import normalize_module
+                from participation_weight import module_number
+
+                requested = normalize_module(module)
+                pointer = self._begin_module_pointer_unlocked(int(class_id))
+                if (
+                    requested
+                    and pointer
+                    and module_number(pointer) > module_number(requested)
+                ):
+                    if self.conn.in_transaction:
+                        self.conn.commit()
+                    return True
                 self.conn.execute(
                     "DELETE FROM participation_module_marks WHERE class_id = ? AND live_module = ?",
                     (int(class_id), str(module)),
@@ -40788,6 +40808,614 @@ class SchoolDB(LovesDB):
             if self.conn.in_transaction:
                 self.conn.commit()
         return self.module_complete(class_id, module)
+
+    def begin_module_board(
+        self, class_id: int, *, include_test_students: bool = False
+    ) -> dict[str, Any]:
+        """Current and past module totals for one section.
+
+        Args:
+            class_id: Game-show ``classes.id``. One section, not the pack.
+            include_test_students: When True, include test-student rows.
+
+        Returns:
+            Header, current table, past tables, and whether Begin is enabled.
+            Roster labels are display names only.
+        """
+        from begin_module import (
+            derive_current_module,
+            dialog_copy,
+            disabled_reason,
+            next_in_plan,
+            normalize_module,
+            percent_text,
+            wrapped_up_label,
+        )
+        from participation_weight import module_number
+
+        cid = int(class_id)
+        plan = self._begin_module_plan(cid)
+        modules = [module for module, _slots in plan]
+        planned = {module: len(slots) for module, slots in plan}
+        meetings = self._begin_module_meetings(cid)
+        held_counts: dict[str, int] = {}
+        for module, rows in meetings.items():
+            slots = {str(row.get("slot") or "") for row in rows}
+            held_counts[module] = len(slots)
+        explicit = self._begin_module_explicit_marks(cid)
+        complete = {module: bool(flag) for module, flag in explicit.items() if flag}
+        stored = self._begin_module_pointer(cid)
+        current = stored or derive_current_module(modules, held_counts, complete)
+        current = normalize_module(current) or (modules[0] if modules else "M1")
+        nxt = next_in_plan(modules, current)
+        live = self.get_active_live_session_for_class(cid) is not None
+        held = int(held_counts.get(current) or 0)
+        total = int(planned.get(current) or 4)
+        reason = disabled_reason(live=live, held=held, is_last=nxt is None)
+        roster = self.roster_name_entries(cid, include_test_students=include_test_students)
+        student_ids = [int(row["id"]) for row in roster]
+        current_rows = self._begin_module_student_rows(
+            cid, current, meetings.get(current) or [], student_ids
+        )
+        students = []
+        for person in roster:
+            sid = int(person["id"])
+            cell = current_rows.get(sid) or {
+                "attended": 0,
+                "held": held,
+                "answered": 0,
+                "offered": 0,
+                "percent": None,
+            }
+            students.append(
+                {
+                    "student_id": sid,
+                    "name": str(person.get("name") or ""),
+                    "attended": int(cell["attended"]),
+                    "held": int(cell["held"]),
+                    "answered": int(cell["answered"]),
+                    "offered": int(cell["offered"]),
+                    "percent": cell["percent"],
+                    "percent_text": percent_text(cell["percent"]),
+                    "attended_text": f"{int(cell['attended'])} / {int(cell['held'])}",
+                    "participation_text": f"{int(cell['answered'])} / {int(cell['offered'])}",
+                }
+            )
+        past: list[dict[str, Any]] = []
+        for module, (_flag, stamp) in sorted(
+            ((module, pair) for module, pair in explicit.items() if pair[0]),
+            key=lambda item: module_number(item[0]),
+            reverse=True,
+        ):
+            if module == current:
+                continue
+            past_rows = self._begin_module_student_rows(
+                cid, module, meetings.get(module) or [], student_ids
+            )
+            past_students = []
+            for person in roster:
+                sid = int(person["id"])
+                cell = past_rows.get(sid) or {
+                    "attended": 0,
+                    "held": int(held_counts.get(module) or 0),
+                    "answered": 0,
+                    "offered": 0,
+                    "percent": None,
+                }
+                past_students.append(
+                    {
+                        "student_id": sid,
+                        "name": str(person.get("name") or ""),
+                        "attended_text": f"{int(cell['attended'])} / {int(cell['held'])}",
+                        "participation_text": f"{int(cell['answered'])} / {int(cell['offered'])}",
+                        "percent_text": percent_text(cell["percent"]),
+                    }
+                )
+            number = module_number(module)
+            past.append(
+                {
+                    "module": module,
+                    "number": number,
+                    "label": f"Module {number}",
+                    "wrapped": wrapped_up_label(stamp),
+                    "students": past_students,
+                }
+            )
+        current_number = module_number(current)
+        next_number = module_number(nxt) if nxt else 0
+        copy = (
+            dialog_copy(current_number, next_number, held, total)
+            if nxt
+            else {
+                "title": "",
+                "lines": [],
+                "cancel": "Cancel",
+                "confirm": "",
+                "toast": "",
+                "button": "Begin new module",
+            }
+        )
+        return {
+            "current_module": current,
+            "current_number": current_number,
+            "current_label": f"Module {current_number}",
+            "next_module": nxt or "",
+            "next_number": next_number,
+            "held": held,
+            "planned": total,
+            "can_begin": reason == "",
+            "disabled_reason": reason,
+            "live": live,
+            "students": students,
+            "past": past,
+            "dialog": copy,
+        }
+
+    def begin_new_module(
+        self,
+        class_id: int,
+        from_module: str,
+        *,
+        user_id: int | None = None,
+    ) -> dict[str, Any]:
+        """Mark one section's open module complete and start the next.
+
+        Both writes share one transaction on the school connection. A
+        repeat for a module that is already complete does not write.
+        Other sections are not read or written.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            from_module: Module the button showed, such as ``M3``.
+            user_id: Staff user id stored on the mark. Not logged.
+
+        Returns:
+            ``changed`` false when the section was already on the later module.
+
+        Raises:
+            BeginModuleRejected: The section cannot start that next module.
+        """
+        from begin_module import BeginModuleRejected, dialog_copy, next_in_plan, normalize_module
+
+        cid = int(class_id)
+        requested = normalize_module(from_module)
+        if not requested:
+            raise BeginModuleRejected("from_module is required.", 400)
+        board = self.begin_module_board(cid)
+        current = str(board["current_module"])
+        nxt = next_in_plan(
+            [module for module, _slots in self._begin_module_plan(cid)],
+            requested,
+        )
+        explicit = self._begin_module_explicit_marks(cid)
+        already = bool(explicit.get(requested, (False, ""))[0])
+        pointer = self._begin_module_pointer(cid)
+        if already and pointer and pointer != requested:
+            return self._begin_module_result(
+                requested, pointer, changed=False, held=int(board["held"]), planned=int(board["planned"])
+            )
+        if requested != current:
+            raise BeginModuleRejected("That module is not the current module.")
+        if nxt is None:
+            raise BeginModuleRejected("This is the last module.")
+        if board["live"]:
+            raise BeginModuleRejected("End the live class first.")
+        if int(board["held"]) <= 0:
+            raise BeginModuleRejected("No classes held in this module yet.")
+        changed = self._begin_module_commit(
+            cid,
+            requested,
+            nxt,
+            user_id=user_id,
+            write_mark=not already,
+        )
+        return self._begin_module_result(
+            requested,
+            nxt,
+            changed=changed,
+            held=int(board["held"]),
+            planned=int(board["planned"]),
+        )
+
+    def _begin_module_result(
+        self,
+        from_module: str,
+        current_module: str,
+        *,
+        changed: bool,
+        held: int,
+        planned: int,
+    ) -> dict[str, Any]:
+        """JSON-safe begin result. No roster fields.
+
+        Args:
+            from_module: Module the request named.
+            current_module: Module the section is on after the call.
+            changed: False when the transaction wrote nothing.
+            held: Classes held in the module that was open.
+            planned: Planned class slots for that module.
+        """
+        from begin_module import dialog_copy
+        from participation_weight import module_number as number
+
+        from_n = number(from_module)
+        current_n = number(current_module)
+        copy = dialog_copy(from_n, current_n, held, planned) if current_n > from_n else {}
+        return {
+            "ok": True,
+            "changed": bool(changed),
+            "from_module": from_module,
+            "current_module": current_module,
+            "from_number": from_n,
+            "next_number": current_n,
+            "toast": str(copy.get("toast") or "") if changed else "",
+        }
+
+    def _begin_module_commit(
+        self,
+        class_id: int,
+        from_module: str,
+        next_module: str,
+        *,
+        user_id: int | None,
+        write_mark: bool,
+    ) -> bool:
+        """Write the complete mark and the section pointer together.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            from_module: Module being wrapped.
+            next_module: Module the section moves to.
+            user_id: Staff user id stored on a new mark.
+            write_mark: When False, the complete row is already stored.
+
+        Returns:
+            False when the section was already on ``next_module``.
+        """
+        cid = int(class_id)
+        with self._lock:
+            self._begin_module_finish_open_transaction()
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                pointer = self._begin_module_pointer_unlocked(cid)
+                mark = self.conn.execute(
+                    """
+                    SELECT complete FROM participation_module_marks
+                    WHERE class_id = ? AND live_module = ?
+                    """,
+                    (cid, from_module),
+                ).fetchone()
+                if mark is not None and int(mark["complete"] or 0) == 1 and pointer == next_module:
+                    self.conn.execute("COMMIT")
+                    return False
+                active = self.conn.execute(
+                    """
+                    SELECT 1 FROM live_class_sessions
+                    WHERE class_id = ? AND status = 'active'
+                    LIMIT 1
+                    """,
+                    (cid,),
+                ).fetchone()
+                if active is not None:
+                    self.conn.execute("ROLLBACK")
+                    from begin_module import BeginModuleRejected
+
+                    raise BeginModuleRejected("End the live class first.")
+                now = _now()
+                if write_mark or mark is None or int(mark["complete"] or 0) != 1:
+                    self.conn.execute(
+                        """
+                        INSERT INTO participation_module_marks (
+                            class_id, live_module, complete, marked_by, updated_at
+                        ) VALUES (?, ?, 1, ?, ?)
+                        ON CONFLICT(class_id, live_module) DO UPDATE SET
+                            complete = 1,
+                            marked_by = excluded.marked_by,
+                            updated_at = excluded.updated_at
+                        """,
+                        (cid, from_module, user_id, now),
+                    )
+                self.conn.execute(
+                    "UPDATE classes SET current_live_module = ? WHERE id = ?",
+                    (next_module, cid),
+                )
+                self.conn.execute("COMMIT")
+                return True
+            except Exception:
+                if self.conn.in_transaction:
+                    self.conn.execute("ROLLBACK")
+                raise
+
+    def _begin_module_finish_open_transaction(self) -> None:
+        """Commit a leftover autocommit transaction before BEGIN."""
+        if self.conn.in_transaction:
+            self.conn.commit()
+
+    def _begin_module_pointer(self, class_id: int) -> str:
+        """Stored open module for one section, or ``""``.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        with self._lock:
+            return self._begin_module_pointer_unlocked(int(class_id))
+
+    def _begin_module_pointer_unlocked(self, class_id: int) -> str:
+        """Read ``classes.current_live_module``. Caller holds the school lock.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        from begin_module import normalize_module
+
+        row = self.conn.execute(
+            "SELECT current_live_module FROM classes WHERE id = ?",
+            (int(class_id),),
+        ).fetchone()
+        if row is None:
+            return ""
+        return normalize_module(row["current_live_module"])
+
+    def _begin_module_plan(self, class_id: int) -> list[tuple[str, list[str]]]:
+        """Module and class-slot plan for one section.
+
+        Shell sections use ``course_class_slots`` (twenty modules, four
+        classes). A section without those rows uses the course pack.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        from begin_module import plan_from_slot_rows
+
+        cid = int(class_id)
+        offering_id = None
+        course = ""
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT offering_id, course_code FROM classes WHERE id = ?",
+                (cid,),
+            ).fetchone()
+        if row is not None:
+            if row["offering_id"] not in (None, ""):
+                offering_id = int(row["offering_id"])
+            course = str(row["course_code"] or "")
+        if offering_id is not None:
+            with self._lock:
+                slot_rows = self.conn.execute(
+                    """
+                    SELECT module_key, slot_key
+                    FROM course_class_slots
+                    WHERE offering_id = ?
+                    ORDER BY module_number, slot_number
+                    """,
+                    (offering_id,),
+                ).fetchall()
+            plan = plan_from_slot_rows(
+                [(str(item["module_key"]), str(item["slot_key"])) for item in slot_rows]
+            )
+            if plan:
+                return plan
+        try:
+            from participation_schedule import course_module_slots
+        except ImportError:
+            from lms.participation_schedule import course_module_slots
+
+        return [(module, list(slots)) for module, slots in course_module_slots(course)]
+
+    def _begin_module_explicit_marks(self, class_id: int) -> dict[str, tuple[bool, str]]:
+        """Complete flag and stamp for each stored mark on one section.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            Module token → ``(complete, updated_at)``.
+        """
+        from begin_module import normalize_module
+
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT live_module, complete, updated_at
+                FROM participation_module_marks
+                WHERE class_id = ?
+                """,
+                (int(class_id),),
+            ).fetchall()
+        out: dict[str, tuple[bool, str]] = {}
+        for row in rows:
+            module = normalize_module(row["live_module"])
+            if module:
+                out[module] = (bool(int(row["complete"] or 0)), str(row["updated_at"] or ""))
+        return out
+
+    def _begin_module_meetings(self, class_id: int) -> dict[str, list[dict[str, Any]]]:
+        """Saved class slots per module, with tracker session ids.
+
+        A slot is held when a real run saved it (``participation_runs.is_real``,
+        not discarded, not a test live class) or an ended non-test live
+        class stored that slot. Attendance uses ``session_scores`` on the
+        linked tracker session. There is no attendance totals table.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Returns:
+            Module token → ``[{"slot", "session_ids"}]``.
+        """
+        from begin_module import is_class_slot, live_place, normalize_module
+
+        cid = int(class_id)
+        test_ids = self.test_mgs_session_ids(cid)
+        with self._lock:
+            run_rows = self.conn.execute(
+                """
+                SELECT pr.run_key AS run_key,
+                       UPPER(TRIM(pi.live_module)) AS live_module,
+                       UPPER(TRIM(pi.live_slot)) AS live_slot
+                FROM participation_runs pr
+                INNER JOIN participation_items pi
+                    ON pi.class_id = pr.class_id AND pi.run_key = pr.run_key
+                WHERE pr.class_id = ?
+                  AND COALESCE(pr.discarded, 0) = 0
+                  AND COALESCE(pr.is_real, 0) = 1
+                  AND NOT EXISTS (
+                    SELECT 1 FROM live_class_sessions lcs
+                    WHERE lcs.class_id = pr.class_id
+                      AND lcs.run_key = pr.run_key
+                      AND COALESCE(lcs.is_test, 0) = 1
+                  )
+                """,
+                (cid,),
+            ).fetchall()
+            live_rows = self.conn.execute(
+                """
+                SELECT lcs.run_key AS run_key,
+                       lcs.mgs_session_id AS mgs_session_id,
+                       lcs.teacher_state_json AS teacher_state_json,
+                       COALESCE(pr.discarded, 0) AS discarded,
+                       COALESCE(lcs.is_test, 0) AS is_test,
+                       lcs.ended_at AS ended_at
+                FROM live_class_sessions lcs
+                LEFT JOIN participation_runs pr
+                    ON pr.class_id = lcs.class_id AND pr.run_key = lcs.run_key
+                WHERE lcs.class_id = ?
+                """,
+                (cid,),
+            ).fetchall()
+            credit_rows = self.conn.execute(
+                """
+                SELECT lpc.run_key AS run_key, lpc.session_id AS session_id
+                FROM live_participation_credits lpc
+                INNER JOIN sessions s ON s.id = lpc.session_id
+                WHERE s.class_id = ? AND s.status != 'template'
+                """,
+                (cid,),
+            ).fetchall()
+            item_modules = {
+                str(row["run_key"]): (
+                    normalize_module(row["live_module"]),
+                    str(row["live_slot"] or "").strip().upper(),
+                )
+                for row in self.conn.execute(
+                    """
+                    SELECT run_key, live_module, live_slot
+                    FROM participation_items
+                    WHERE class_id = ? AND TRIM(COALESCE(live_module, '')) != ''
+                    """,
+                    (cid,),
+                ).fetchall()
+            }
+        sessions_for_run: dict[str, set[int]] = {}
+        for row in live_rows:
+            key = str(row["run_key"] or "").strip()
+            if not key or int(row["is_test"] or 0):
+                continue
+            raw = row["mgs_session_id"]
+            if raw in (None, ""):
+                continue
+            session_id = int(raw)
+            if session_id in test_ids:
+                continue
+            sessions_for_run.setdefault(key, set()).add(session_id)
+        for row in credit_rows:
+            key = str(row["run_key"] or "").strip()
+            session_id = int(row["session_id"])
+            if not key or session_id in test_ids:
+                continue
+            sessions_for_run.setdefault(key, set()).add(session_id)
+        grouped: dict[str, dict[str, set[int]]] = {}
+
+        def _add(module: str, slot: str, session_ids: set[int]) -> None:
+            token = normalize_module(module)
+            if not token or not is_class_slot(slot):
+                return
+            grouped.setdefault(token, {}).setdefault(slot, set()).update(session_ids)
+
+        seen_runs: set[str] = set()
+        for row in run_rows:
+            key = str(row["run_key"] or "")
+            seen_runs.add(key)
+            _add(str(row["live_module"] or ""), str(row["live_slot"] or ""), sessions_for_run.get(key, set()))
+        for row in live_rows:
+            if int(row["is_test"] or 0) or int(row["discarded"] or 0):
+                continue
+            if not str(row["ended_at"] or "").strip():
+                continue
+            key = str(row["run_key"] or "").strip()
+            if key in seen_runs:
+                continue
+            module, slot = live_place(row["teacher_state_json"], item_modules.get(key))
+            _add(module, slot, sessions_for_run.get(key, set()))
+        return {
+            module: [
+                {"slot": slot, "session_ids": sorted(session_ids)}
+                for slot, session_ids in sorted(slots.items())
+            ]
+            for module, slots in grouped.items()
+        }
+
+    def _begin_module_student_rows(
+        self,
+        class_id: int,
+        module: str,
+        meetings: list[dict[str, Any]],
+        student_ids: list[int],
+    ) -> dict[int, dict[str, Any]]:
+        """Attendance and participation cells for one section module.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+            module: Module token.
+            meetings: Slot rows from :meth:`_begin_module_meetings`.
+            student_ids: Roster ids to include.
+
+        Returns:
+            Student id → attended, held, answered, offered, percent.
+        """
+        from begin_module import tally_attendance
+        from participation import summary
+
+        session_ids: list[int] = []
+        for meeting in meetings:
+            for raw in meeting.get("session_ids") or []:
+                session_ids.append(int(raw))
+        present: dict[int, set[int]] = {}
+        if session_ids:
+            marks = ",".join("?" * len(session_ids))
+            with self._lock:
+                rows = self.conn.execute(
+                    f"""
+                    SELECT ss.session_id AS session_id, ss.student_id AS student_id
+                    FROM session_scores ss
+                    INNER JOIN sessions s ON s.id = ss.session_id
+                    WHERE s.class_id = ?
+                      AND s.status != 'template'
+                      AND ss.present = 1
+                      AND ss.session_id IN ({marks})
+                    """,
+                    (int(class_id), *session_ids),
+                ).fetchall()
+            for row in rows:
+                present.setdefault(int(row["session_id"]), set()).add(int(row["student_id"]))
+        held, attended = tally_attendance(meetings, present, student_ids)
+        offered = self.participation_module_offered(
+            int(class_id), module, include_individual=True, include_group=False
+        )
+        out: dict[int, dict[str, Any]] = {}
+        for student_id in student_ids:
+            answered = self.participation_student_module_answered(
+                int(class_id), module, int(student_id)
+            )
+            cell = summary(answered, offered)
+            out[int(student_id)] = {
+                "attended": int(attended.get(int(student_id), 0)),
+                "held": held,
+                "answered": int(cell["answered"]),
+                "offered": int(cell["offered"]),
+                "percent": cell["percent"],
+            }
+        return out
 
     def module_l4_needs_group(self, class_id: int, module: str) -> bool:
         with self._lock:
