@@ -1159,7 +1159,7 @@ class BoardRouteTests(unittest.TestCase):
         self.assertIn("hasStream()", wire)
         self.assertIn("board_ink", wire)
         self.assertIn('event.type === "board_ink"', student)
-        self.assertIn("kick()", wb)
+        self.assertIn("kick(force)", wb)
         self.assertNotIn("hasStream()", staff)
         self.assertIn("pg_advisory_xact_lock", presence)
         self.assertIn("pg_advisory_xact_lock", boards)

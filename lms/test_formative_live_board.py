@@ -1378,6 +1378,87 @@ class FormativeLiveBoardTests(unittest.TestCase):
         self.assertFalse(event_visible(news[-1], staff))
         reset_logs()
 
+    def _nested_strings(self, value: object) -> list[str]:
+        """Return every string in a JSON tree, keys and values included.
+
+        Args:
+            value: Decoded JSON object, list, or scalar.
+        """
+        found: list[str] = []
+
+        def walk(node: object) -> None:
+            """Collect strings from one node."""
+            if isinstance(node, str):
+                found.append(node)
+                return
+            if isinstance(node, dict):
+                for key, item in node.items():
+                    walk(str(key))
+                    walk(item)
+                return
+            if isinstance(node, list):
+                for item in node:
+                    walk(item)
+
+        walk(value)
+        return found
+
+    def test_student_shown_board_has_no_name_in_any_field(self) -> None:
+        """A shown board sent to a student contains no roster name.
+
+        The scan covers labels, member lists, titles, and nested objects,
+        not only keys named name or codename. The teacher Show body and
+        the projector panel still carry those names.
+        """
+        self._publish("group_shared")
+        key = "team:0"
+        self.school.append_live_board_ops(
+            self.session_id,
+            key,
+            owner=str(self.maple_id),
+            ops=[
+                self._stroke("nested-pen"),
+                self._text_op("axis sketch", "nested-label"),
+            ],
+        )
+        shown = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}/show"
+        )
+        self.assertEqual(shown.status_code, 200, shown.get_data(as_text=True))
+        teacher = shown.get_json()
+        panel = self.staff.get(
+            f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}"
+        )
+        self.assertEqual(panel.status_code, 200, panel.get_data(as_text=True))
+        projector = panel.get_json()
+        names = [
+            str(row.get("name") or "").strip()
+            for row in (teacher.get("legend") or [])
+            if str(row.get("name") or "").strip()
+        ]
+        self.assertGreaterEqual(len(names), 2)
+        teacher_dump = json.dumps(teacher)
+        projector_dump = json.dumps(projector)
+        for label in names:
+            self.assertIn(label, teacher_dump)
+            self.assertIn(label, projector_dump)
+        for student_id, token in (
+            (self.maple_id, self.maple_token),
+            (self.pine_id, self._visit_token(self.pine_id)),
+        ):
+            client = self.maple if student_id == self.maple_id else self.app.test_client()
+            seen = client.get(
+                "/api/student/board/mine?since=0&teacher_since=0",
+                headers=self._student_headers(token),
+            )
+            self.assertEqual(seen.status_code, 200, seen.get_data(as_text=True))
+            board = (seen.get_json() or {}).get("class_board") or {}
+            self.assertEqual(board.get("board_key"), key)
+            self.assertIn("axis sketch", json.dumps(board))
+            blob = "\n".join(self._nested_strings(board)).casefold()
+            for label in names:
+                self.assertNotIn(label.casefold(), blob)
+
     def test_student_shown_legend_dom_has_no_name(self) -> None:
         """The student shown-board legend paints no name. The teacher legend does."""
         script = r"""
