@@ -8061,6 +8061,7 @@ function startStaffNewsWire(sessionId) {
         }
         return;
       }
+      if (event && event.type === "board_show") return;
       staffNewsFetch = true;
       const board = newsPaintsBoardInPlace(event);
       void pollLiveSessionAttendees({ fromNews: true, board: board });

@@ -245,6 +245,32 @@ def public_board_payload(value: Any) -> Any:
     return value
 
 
+_NAME_KEYS = frozenset({"name", "codename"})
+
+
+def strip_shown_board_names(value: Any) -> Any:
+    """Drop display names from a board painted on a student screen.
+
+    The teacher gallery and the projector keep names. A student device
+    that is being shown a board receives colours and geometry only.
+
+    Args:
+        value: Class-board payload about to be sent to a student.
+
+    Returns:
+        A copy with name fields removed at every level.
+    """
+    if isinstance(value, dict):
+        return {
+            str(key): strip_shown_board_names(item)
+            for key, item in value.items()
+            if str(key).lower() not in _NAME_KEYS
+        }
+    if isinstance(value, list):
+        return [strip_shown_board_names(item) for item in value]
+    return value
+
+
 def _plain(raw: str) -> str:
     """Strip tags and collapse whitespace.
 

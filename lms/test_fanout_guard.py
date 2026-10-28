@@ -602,6 +602,126 @@ class FanoutGuardTests(unittest.TestCase):
         self._guard_self(6, lambda: self._answer(6, item, kind), kind)
         self._close(item)
 
+    def test_whiteboard_clear_and_show_do_not_reload_the_class(self) -> None:
+        """Clear and Show update the board channel, not every phone's /state.
+
+        Clear taps only readers of that shared board. Show taps joined
+        students with the board key and does not bump ``state_seq``.
+        Group pick and rank placement stay on their own checks.
+        """
+        import json
+
+        from live_news_wire import NewsAudience, event_visible, log_for, reset_ink_taps
+
+        self._close_open()
+        whiteboard = next(
+            (
+                row
+                for row in self.school.list_live_session_items(self.session_id)
+                if str(row.get("kind") or "") == "whiteboard"
+            ),
+            None,
+        )
+        self.assertIsNotNone(whiteboard)
+        assert whiteboard is not None
+        published = self.staff.post(
+            f"/api/live-sessions/{self.session_id}/items/{int(whiteboard['id'])}/publish",
+            json={"publish_mode": "group_shared"},
+        )
+        self._ok_status(published, 200)
+        key = str(self.school.student_live_board_key(self.session_id, self.ids[0]))
+        self.school.append_live_board_ops(
+            self.session_id,
+            key,
+            owner=str(self.ids[0]),
+            ops=[{"type": "stroke_add", "id": "fan-pen", "points": [[0.2, 0.3], [0.4, 0.5]], "color": "#2563eb"}],
+        )
+        reset_ink_taps()
+        tape = log_for(self.app.config["SCHOOL_DB"].data_dir)
+
+        def clear() -> None:
+            """Clear the shared board for the first team."""
+            rv = self.staff.post(
+                f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}/clear"
+            )
+            self._ok_status(rv, 200)
+
+        before = {i: self._snap(i) for i in sorted(self.present)}
+        cursor = max((int(row.get("id") or 0) for row in tape.since(self.session_id, 0)), default=0)
+        time.sleep(GAP_S)
+        clear()
+        for index in sorted(self.present):
+            self._assert_same(index, before[index], f"clear seat {index}")
+        ink = [
+            row
+            for row in tape.since(self.session_id, cursor)
+            if row.get("type") == "board_ink" and row.get("board_key") == key
+        ]
+        self.assertTrue(ink, "clear did not tap the shared board")
+        actor = NewsAudience(
+            "student",
+            student_id=self.ids[0],
+            read_keys=list(self.school.student_board_access(self.session_id, self.ids[0])["read"]),
+        )
+        watcher = NewsAudience(
+            "student",
+            student_id=self.ids[3],
+            read_keys=list(self.school.student_board_access(self.session_id, self.ids[3])["read"]),
+        )
+        self.assertTrue(event_visible(ink[-1], actor))
+        self.assertFalse(event_visible(ink[-1], watcher))
+        self.assertFalse(
+            any(row.get("type") == "state_seq" for row in tape.since(self.session_id, cursor))
+        )
+        seen = self.phones[0].get(f"/api/student/board/{key}?since=0")
+        self._ok_status(seen, 200)
+        self.assertNotIn("fan-pen", str(seen.get_json()))
+
+        def show() -> None:
+            """Show that board without a class-wide state bump."""
+            rv = self.staff.post(
+                f"/api/live-sessions/{self.session_id}/whiteboard-gallery/{key}/show"
+            )
+            self._ok_status(rv, 200)
+            self._shown = rv.get_json() or {}
+
+        before = {i: self._snap(i) for i in sorted(self.present)}
+        cursor = max((int(row.get("id") or 0) for row in tape.since(self.session_id, 0)), default=0)
+        time.sleep(GAP_S)
+        show()
+        for index in sorted(self.present):
+            self._assert_same(index, before[index], f"show seat {index}")
+        cards = [
+            row
+            for row in tape.since(self.session_id, cursor)
+            if row.get("type") == "board_show"
+        ]
+        self.assertTrue(cards, "show did not tap students")
+        self.assertFalse(
+            any(row.get("type") == "state_seq" for row in tape.since(self.session_id, cursor))
+        )
+        self.assertTrue(event_visible(cards[-1], actor))
+        self.assertTrue(event_visible(cards[-1], watcher))
+        self.assertFalse(event_visible(cards[-1], NewsAudience("staff")))
+        teacher_names = [
+            str(row.get("name") or "").strip()
+            for row in (self._shown.get("legend") or [])
+            if str(row.get("name") or "").strip()
+        ]
+        self.assertTrue(teacher_names)
+        student = self.phones[3].get("/api/student/board/mine?since=0&teacher_since=0")
+        self._ok_status(student, 200)
+        board = (student.get_json() or {}).get("class_board") or {}
+        dumped = json.dumps(board)
+        self.assertNotIn('"name"', dumped)
+        for label in teacher_names:
+            self.assertNotIn(label, dumped)
+        portal = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        wire = portal.split('event.type === "board_ink"')[1].split("scheduleNewsState")[0]
+        self.assertIn("board_show", wire)
+        self.assertIn("return;", wire)
+        self.assertNotIn("void tick()", wire)
+
     def test_student_actions_do_not_fan_out(self) -> None:
         """Each student action, then one answer of every live question type."""
         self.assertEqual(set(INDIVIDUAL_ROWS), set(LIVE_QUESTION_TYPES))

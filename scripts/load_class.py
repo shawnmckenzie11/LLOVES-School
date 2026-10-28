@@ -291,32 +291,35 @@ def seed(
             prepared.append(
                 {"live_item_id": int(row["id"]), "options": opts, "kind": "rank"}
             )
+        whiteboard_id = 0
+        for row in school.list_live_session_items(sid):
+            if str(row.get("kind") or "") == "whiteboard":
+                whiteboard_id = int(row["id"])
+                break
+        if not whiteboard_id:
+            raise RuntimeError("live class has no whiteboard")
+        mc_rv = staff.post(
+            f"/api/staff/class/{class_id}/live-lessons/M1/C2/add-question",
+            json={
+                "page_number": 5,
+                "stage": "round",
+                "type": "mc",
+                "text": f"Which representation ({index})?",
+                "options": ["Graph", "Table", "Equation", "Points"],
+                "correct_index": 0,
+            },
+        )
+        assert mc_rv.status_code == 200, mc_rv.get_data(as_text=True)[:300]
+        mc_item_id = mc_rv.get_json()["placement"]["item"]["id"]
+        mc_row = next(r for r in school.list_live_session_items(sid) if r["item_id"] == mc_item_id)
+        mc_live = school.get_live_session_item(sid, int(mc_row["id"]))
+        mc_labels = school._mc_option_labels(mc_live)
+        group_mc = {
+            "live_item_id": int(mc_row["id"]),
+            "choice": mc_labels[0] if mc_labels else "Graph",
+        }
         if include_mc:
-            rv = staff.post(
-                f"/api/staff/class/{class_id}/live-lessons/M1/C2/add-question",
-                json={
-                    "page_number": 5,
-                    "stage": "round",
-                    "type": "mc",
-                    "text": f"Which representation ({index})?",
-                    "options": ["Graph", "Table", "Equation", "Points"],
-                    "correct_index": 0,
-                },
-            )
-            assert rv.status_code == 200, rv.get_data(as_text=True)[:300]
-            item_id = rv.get_json()["placement"]["item"]["id"]
-            row = next(r for r in school.list_live_session_items(sid) if r["item_id"] == item_id)
-            live_item = school.get_live_session_item(sid, int(row["id"]))
-            labels = school._mc_option_labels(live_item)
-            prepared.insert(
-                0,
-                {
-                    "live_item_id": int(row["id"]),
-                    "options": [],
-                    "kind": "mc",
-                    "choice": labels[0] if labels else "Graph",
-                },
-            )
+            prepared.insert(0, {"options": [], "kind": "mc", **group_mc})
         slide_count = 0
         if int(slide_pages) > 0:
             slide_count = _attach_load_deck(school, sid, int(slide_pages))
@@ -337,6 +340,8 @@ def seed(
                     for i, n in enumerate(names)
                 ],
                 "items": prepared,
+                "group_mc": group_mc,
+                "whiteboard_id": whiteboard_id,
                 "slide_count": slide_count,
                 **({"staff_client": staff} if retain else {}),
             }
@@ -1205,6 +1210,74 @@ def run_load(
 
         def teacher() -> None:
             s = mk(fx["staff_cookie"])
+            mc = fx.get("group_mc") if isinstance(fx.get("group_mc"), dict) else None
+            if mc:
+                call(
+                    s,
+                    "publish",
+                    "POST",
+                    f"/api/live-sessions/{sid}/items/{mc['live_item_id']}/publish",
+                    json={"publish_mode": "group_submit"},
+                )
+                caller = mk(fx["students"][0]["cookie"])
+                call(
+                    caller,
+                    "group_pick",
+                    "POST",
+                    f"/api/student/live-items/{mc['live_item_id']}/group-pick",
+                    json={"choice": mc.get("choice") or "Graph"},
+                )
+                call(
+                    s,
+                    "close",
+                    "POST",
+                    f"/api/live-sessions/{sid}/items/{mc['live_item_id']}/close",
+                )
+            board_id = int(fx.get("whiteboard_id") or 0)
+            if board_id:
+                call(
+                    s,
+                    "publish",
+                    "POST",
+                    f"/api/live-sessions/{sid}/items/{board_id}/publish",
+                    json={"publish_mode": "group_shared"},
+                )
+                gallery = call(
+                    s,
+                    "board_gallery",
+                    "GET",
+                    f"/api/live-sessions/{sid}/whiteboard-gallery",
+                )
+                run_key = ""
+                if gallery is not None and gallery.status_code == 200:
+                    run_key = str((gallery.json() or {}).get("run_key") or "")
+                drawer = mk(fx["students"][0]["cookie"])
+                call(
+                    drawer,
+                    "board_draw",
+                    "POST",
+                    "/api/student/canvas-presence",
+                    json={
+                        "x": 0.2,
+                        "y": 0.3,
+                        "points": [[0.2, 0.3], [0.4, 0.5]],
+                        "stroke_id": "load-pen",
+                        "ended": True,
+                        "run_key": run_key,
+                    },
+                )
+                call(
+                    s,
+                    "board_clear",
+                    "POST",
+                    f"/api/live-sessions/{sid}/whiteboard-gallery/team:0/clear",
+                )
+                call(
+                    s,
+                    "board_show",
+                    "POST",
+                    f"/api/live-sessions/{sid}/whiteboard-gallery/team:0/show",
+                )
             next_round = time.monotonic()
             page = 1
             while time.monotonic() < stop:
