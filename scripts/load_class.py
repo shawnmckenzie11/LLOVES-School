@@ -480,11 +480,22 @@ class Recorder:
         self.w = csv.writer(self.fh)
         self.w.writerow(["t", "kind", "status", "ms"])
         self.rows: list[tuple[float, str, int, float]] = []
+        self.scoped: list[tuple[float, str, str, int, float]] = []
 
-    def add(self, kind: str, status: int, ms: float) -> None:
+    def add(self, kind: str, status: int, ms: float, scope: str = "") -> None:
+        """Record one sample. ``scope`` tags a class without changing the CSV kind.
+
+        Args:
+            kind: Request name, such as ``student_state_build``.
+            status: HTTP status.
+            ms: Elapsed milliseconds.
+            scope: Class session id, used only for the per-class reload check.
+        """
         t = time.time()
         with self.lock:
             self.rows.append((t, kind, status, ms))
+            if scope:
+                self.scoped.append((t, kind, str(scope), int(status), float(ms)))
             self.w.writerow([f"{t:.3f}", kind, status, f"{ms:.1f}"])
 
 
@@ -543,7 +554,7 @@ def slide_state_p95_ms(
 ) -> float:
     """Nearest-rank p95 of student and staff ``/state`` samples.
 
-    ``after_s`` drops the opening snapshot. Forwards begin at 10 seconds,
+    ``after_s`` drops the opening snapshot. Forwards begin at 20 seconds,
     so the pass line uses the window where the teacher is already moving
     slides and phones already hold a snapshot.
 
@@ -571,26 +582,57 @@ def slide_staff_max_ms(rows: list[tuple[float, str, int, float]]) -> float:
 
 def slide_reload_peak(
     rows: list[tuple[float, str, int, float]],
+    scoped: list[tuple[float, str, str, int, float]] | None = None,
     *,
     window_s: float = 1.0,
+    after_s: float = 20,
 ) -> int:
-    """Most full student ``/state`` builds in the second after a Forward.
+    """Most full ``/state`` builds in one class in the second after a Forward.
+
+    Forwards in the first ``after_s`` seconds are ignored so the opening
+    snapshot is not counted as a slide reload. When samples are tagged
+    with a session, classes are counted separately.
 
     Args:
-        rows: Recorder rows ``(time, kind, status, ms)``.
+        rows: Untagged recorder rows, used when ``scoped`` is empty.
+        scoped: ``(time, kind, session, status, ms)`` rows.
         window_s: How long after each forward to count builds.
+        after_s: Ignore forwards earlier than this many seconds from the first sample.
     """
+    peak = 0
+    if scoped:
+        origin = min(row[0] for row in scoped)
+        sessions = {row[2] for row in scoped}
+        for session in sessions:
+            forwards = [
+                row[0]
+                for row in scoped
+                if row[2] == session
+                and row[1] == "slide_forward"
+                and row[3] < 400
+                and row[0] >= origin + after_s
+            ]
+            builds = [
+                row[0]
+                for row in scoped
+                if row[2] == session and row[1] == "student_state_build" and row[3] < 500
+            ]
+            for moment in forwards:
+                count = sum(1 for built in builds if moment <= built <= moment + window_s)
+                if count > peak:
+                    peak = count
+        return peak
+    origin = min((row[0] for row in rows), default=0)
     forwards = [
         t
         for t, kind, status, _ms in rows
-        if kind == "slide_forward" and status < 400
+        if kind == "slide_forward" and status < 400 and t >= origin + after_s
     ]
     builds = [
         t
         for t, kind, status, _ms in rows
         if kind == "student_state_build" and status < 500
     ]
-    peak = 0
     for moment in forwards:
         count = sum(1 for built in builds if moment <= built <= moment + window_s)
         if count > peak:
@@ -604,6 +646,7 @@ def _slide_forward_gate_errors(
     *,
     students_per_class: int,
     classes: int,
+    scoped: list[tuple[float, str, str, int, float]] | None = None,
 ) -> list[str]:
     """Failures for a Forward load. An empty list means the run passed.
 
@@ -615,11 +658,12 @@ def _slide_forward_gate_errors(
         rows: Recorder rows.
         students_per_class: Roster size of one class.
         classes: How many classes were driven.
+        scoped: Per-session samples for the reload check.
     """
     state_p95_all = slide_state_p95_ms(rows)
     state_p95 = slide_state_p95_ms(rows, after_s=15)
     staff_max = slide_staff_max_ms(rows)
-    peak = slide_reload_peak(rows)
+    peak = slide_reload_peak(rows, scoped or [])
     kinds = summary.get("kinds") or {}
     forwards = int((kinds.get("slide_forward") or {}).get("n") or 0)
     staff_errors = int((kinds.get("staff_state") or {}).get("errors_5xx") or 0)
@@ -782,7 +826,7 @@ def start_phone_threads(
         if body.get("retry") or body.get("error") == "state unavailable":
             rec.add("student_state_shed", rv.status_code, ms)
             return
-        rec.add("student_state_build", rv.status_code, ms)
+        rec.add("student_state_build", rv.status_code, ms, scope=str(sid))
         if body.get("state_seq") is not None:
             st["seq"] = body.get("state_seq")
         if body.get("stamp"):
@@ -959,7 +1003,7 @@ def start_phone_threads(
         """Publish the next item, close the previous one, and time the course page."""
         sess = mk(fx["staff_cookie"])
         next_round = time.monotonic()
-        next_slide = time.monotonic() + 10
+        next_slide = time.monotonic() + 20
         slide_index = 0
         slide_count = int(fx.get("slide_count") or 0)
         page = 1
@@ -1011,6 +1055,7 @@ def start_phone_threads(
                     "POST",
                     f"/api/live-sessions/{sid}/google-slides/current",
                     json={"index": slide_index},
+                    scope=str(sid),
                 )
                 next_slide = time.monotonic() + 10
             time.sleep(2)
@@ -1062,14 +1107,14 @@ def run_load(
 
     stop = time.monotonic() + minutes * 60
 
-    def call(sess: Any, kind: str, method: str, url: str, **kw: Any) -> Any:
+    def call(sess: Any, kind: str, method: str, url: str, scope: str = "", **kw: Any) -> Any:
         t0 = time.perf_counter()
         try:
             rv = sess.request(method, base + url, timeout=60, **kw)
-            rec.add(kind, rv.status_code, (time.perf_counter() - t0) * 1000)
+            rec.add(kind, rv.status_code, (time.perf_counter() - t0) * 1000, scope=scope)
             return rv
         except Exception:  # noqa: BLE001
-            rec.add(kind, 599, (time.perf_counter() - t0) * 1000)
+            rec.add(kind, 599, (time.perf_counter() - t0) * 1000, scope=scope)
             time.sleep(1)
             return None
 
@@ -2055,6 +2100,7 @@ def _run(args: argparse.Namespace, out: Path, presence: str) -> int:
             rec.rows,
             students_per_class=args.students,
             classes=args.classes,
+            scoped=rec.scoped,
         )
     print(json.dumps({k: v for k, v in summary.items() if k not in ("kinds", "rss")}, indent=2))
     print("results:", out)
@@ -2066,6 +2112,7 @@ def _run(args: argparse.Namespace, out: Path, presence: str) -> int:
             rec.rows,
             students_per_class=args.students,
             classes=args.classes,
+            scoped=rec.scoped,
         )
         if failures:
             for line in failures:
