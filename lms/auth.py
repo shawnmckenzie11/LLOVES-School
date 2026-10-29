@@ -1398,7 +1398,10 @@ def _finish_google_identity(
         session.pop("google_oauth_next", None)
         return render_template(
             "forbidden.html",
-            message="This account isn't set up for ALC yet.",
+            message=(
+                "This Google account is not registered with ALC yet. "
+                "Request access below and we will get back to you."
+            ),
             show_request_access=True,
         ), 403
     if user.get("archived_at"):
