@@ -2230,6 +2230,46 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             access_utm=access_campaign_tags(incoming),
         )
 
+    def _public_legal_page(kind: str):
+        """Render one noindex placeholder for privacy, terms, or support.
+
+        Policy text is not invented. Support only points at the public
+        request form and does not publish a contact address.
+
+        Args:
+            kind: ``privacy``, ``terms``, or ``support``.
+
+        Returns:
+            HTML response with ``X-Robots-Tag: noindex``.
+        """
+        titles = {"privacy": "Privacy", "terms": "Terms", "support": "Support"}
+        if kind not in titles:
+            abort(404)
+        resp = make_response(
+            render_template(
+                "legal_page.html",
+                page_kind=kind,
+                page_title=titles[kind],
+            )
+        )
+        resp.headers["X-Robots-Tag"] = "noindex"
+        return resp
+
+    @app.route("/privacy")
+    def privacy():
+        """Public privacy placeholder. Not an approved notice."""
+        return _public_legal_page("privacy")
+
+    @app.route("/terms")
+    def terms():
+        """Public terms placeholder. Not an approved contract."""
+        return _public_legal_page("terms")
+
+    @app.route("/support")
+    def support():
+        """Public support placeholder: how to request access."""
+        return _public_legal_page("support")
+
     @app.route("/health")
     def health():
         """Fly / DNS liveness — no auth, no presence ping, no live session."""

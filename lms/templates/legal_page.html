@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>{{ page_title }} · ALC</title>
+  <link rel="stylesheet" href="/static/lloves.css">
+</head>
+<body class="landing-page legal-page">
+  <main class="wrap legal-wrap" id="legal-{{ page_kind }}">
+    <p class="kicker">ALC</p>
+    <h1>{{ page_title }}</h1>
+    <p class="legal-banner" id="legal-pending-banner" role="status">Text pending Shawn + legal approval</p>
+    {% if page_kind == 'support' %}
+    <h2>Request access</h2>
+    <p>Teachers, families, and school administrators who are not on ALC yet can ask to join the pilot.</p>
+    <ol>
+      <li>Open the school home.</li>
+      <li>Choose Request access.</li>
+      <li>Say whether you are a teacher, a family, or a school administrator, plus the grade band, the subject, and how you would use ALC.</li>
+      <li>Submit the form. ALC writes back at the address on the form when an invite is ready. Submitting does not create an account.</li>
+    </ol>
+    <p><a class="btn" id="support-request-access" href="{{ url_for('request_access') }}">Request access</a></p>
+    <h2>Contact</h2>
+    <p>This page does not list a personal contact address. Use Request access and describe what you need. If you already teach a class on ALC, sign in from the school home and use Help there.</p>
+    <p><a href="{{ url_for('landing') }}">School home</a></p>
+    {% elif page_kind == 'privacy' %}
+    <p>The privacy notice is not published yet. This page is not ALC's privacy notice. Approved text will replace this placeholder.</p>
+    {% else %}
+    <p>The terms are not published yet. This page is not a contract and not ALC's terms of use. Approved text will replace this placeholder.</p>
+    {% endif %}
+  </main>
+  {% include "_legal_footer.html" %}
+</body>
+</html>

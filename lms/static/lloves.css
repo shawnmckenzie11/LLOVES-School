@@ -232,6 +232,66 @@ body.landing-page .mkt-footer {
   font-size: 0.88rem;
 }
 .mckenzian-credit a { color: var(--muted); }
+.legal-wrap {
+  max-width: 40rem;
+  text-align: left;
+  padding-top: 1.5rem;
+}
+.legal-wrap h1 { font-size: clamp(1.6rem, 4vw, 2rem); }
+.legal-wrap h2 { font-size: 1.15rem; margin: 1.25rem 0 0.4rem; }
+.legal-wrap p, .legal-wrap li { line-height: 1.5; }
+.legal-wrap ol { margin: 0.4rem 0 1rem; padding-left: 1.25rem; }
+.legal-banner {
+  margin: 0 0 1.25rem;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  border: 1px solid #fbbf24;
+  background: #3b2a0a;
+  color: #fde68a;
+  font-weight: 650;
+  line-height: 1.4;
+}
+.legal-footer {
+  max-width: 40rem;
+  margin: 1.5rem auto 0;
+  padding: 1rem 1rem 2.5rem;
+  border-top: 1px solid rgba(147, 164, 184, 0.45);
+  text-align: center;
+  font-size: 0.92rem;
+}
+.legal-footer-name {
+  margin: 0 0 0.35rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+}
+.legal-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.1rem;
+  justify-content: center;
+}
+.legal-footer-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: inherit;
+  text-underline-offset: 0.18em;
+}
+.wrap > .legal-footer {
+  margin-left: 0;
+  margin-right: 0;
+  text-align: left;
+}
+.wrap > .legal-footer .legal-footer-links {
+  justify-content: flex-start;
+}
+body.staff-shell.course-live > .legal-footer,
+body.staff-shell.course-modules > .legal-footer {
+  display: none;
+}
+@media (max-width: 480px) {
+  .legal-wrap { padding-top: 1rem; }
+}
 .request-access-wrap { text-align: left; }
 .request-access-form { text-align: left; }
 .hp-field {
