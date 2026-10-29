@@ -879,7 +879,10 @@ class FanoutGuardTests(unittest.TestCase):
 
         from auth import CLASS_ENDED_JOIN_NOTE
 
-        self.assertEqual(CLASS_ENDED_JOIN_NOTE, "This class has ended.")
+        self.assertEqual(
+            CLASS_ENDED_JOIN_NOTE,
+            "This class has ended. Your teacher will share a new code for the next class.",
+        )
         landing = (LMS_DIR / "templates" / "landing.html").read_text(encoding="utf-8")
         portal = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
         self.assertNotIn(CLASS_ENDED_JOIN_NOTE, landing)

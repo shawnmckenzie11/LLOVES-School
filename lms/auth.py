@@ -415,8 +415,10 @@ def google_oauth_ready() -> bool:
     return google_credentials_present()
 
 
-# Wonder supplies the final student wording. This is the only copy.
-CLASS_ENDED_JOIN_NOTE = "This class has ended."
+# Student join-page sentence after quit. This is the only copy.
+CLASS_ENDED_JOIN_NOTE = (
+    "This class has ended. Your teacher will share a new code for the next class."
+)
 
 
 def class_ended_join_note() -> str:
@@ -424,10 +426,10 @@ def class_ended_join_note() -> str:
 
     The flag is ``ended=1`` on the landing URL the live poll already
     returns. A normal visit to the join page does not show the note, and
-    this does not poll. Wonder replaces ``CLASS_ENDED_JOIN_NOTE``.
+    this does not poll. The sentence lives only in ``CLASS_ENDED_JOIN_NOTE``.
 
     Returns:
-        The placeholder sentence, or ``""`` when the flag is absent.
+        The student sentence, or ``""`` when the flag is absent.
     """
     from flask import has_request_context, request
 
