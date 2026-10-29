@@ -433,9 +433,15 @@ school = SchoolDB(root / "lloves.sqlite", root)
 args = json.loads(sys.argv[3])
 go = root / "go"
 deadline = time.time() + 60
-while not go.exists() and time.time() < deadline:
+# The file can exist before its text is visible. Wait for a number.
+raw = ""
+while time.time() < deadline:
+    if go.exists():
+        raw = go.read_text().strip()
+        if raw:
+            break
     time.sleep(0.005)
-start = float(go.read_text())
+start = float(raw)
 while time.time() < start:
     pass
 try:
