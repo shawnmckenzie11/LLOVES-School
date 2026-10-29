@@ -1,8 +1,8 @@
-"""MCK-350: privacy, terms, and support placeholders.
+"""MCK-350: published privacy, terms, and support pages.
 
-Public pages carry the pending-approval banner, noindex, and a shared
-footer whose legal name is ALC. The same footer is on the school home,
-the unknown-account page, and the staff shell.
+Public pages carry the approved text, noindex, and a shared footer whose
+legal name is ALC. The same footer is on the school home, the unknown-account
+page, and the staff shell.
 """
 
 from __future__ import annotations
@@ -26,13 +26,15 @@ os.environ.pop("GOOGLE_CLIENT_SECRET", None)
 
 from app import create_app  # noqa: E402
 
-BANNER = "Text pending Shawn + legal approval"
 LEGAL_HREFS = ('href="/privacy"', 'href="/terms"', 'href="/support"')
-BANNED = ("celebration", "slides", "import", "@")
+PUBLISHED = "October 29, 2026"
+# Substring bans from the placeholder pass. "@" is the published contact
+# address, so it is not banned. "whiteboard" is approved product language.
+BANNED = ("celebration", "slides", "import")
 
 
 class LegalPageTests(unittest.TestCase):
-    """Placeholder legal pages and the shared footer."""
+    """Published legal pages and the shared footer."""
 
     def setUp(self) -> None:
         """Isolated sqlite and a quiet test client."""
@@ -59,12 +61,12 @@ class LegalPageTests(unittest.TestCase):
         for href in LEGAL_HREFS:
             self.assertIn(href, body)
 
-    def _assert_placeholder(self, path: str, title: str) -> str:
-        """One legal page is noindex and shows the pending banner.
+    def _assert_published(self, path: str, title: str) -> str:
+        """One legal page is noindex and shows the approved text.
 
         Args:
             path: Public path such as ``/privacy``.
-            title: Expected document title stem.
+            title: Expected document title.
 
         Returns:
             The rendered HTML.
@@ -75,26 +77,38 @@ class LegalPageTests(unittest.TestCase):
         body = rv.get_data(as_text=True)
         self.assertIn('<meta name="robots" content="noindex">', body)
         self.assertIn(f"<title>{title} · ALC</title>", body)
-        self.assertIn(f'id="legal-pending-banner"', body)
-        self.assertIn(BANNER, body)
+        self.assertNotIn('id="legal-pending-banner"', body)
+        self.assertNotIn("Text pending Shawn + legal approval", body)
+        self.assertIn(f"Last updated: {PUBLISHED}", body)
         self._assert_footer(body)
         lowered = body.lower()
         for word in BANNED:
             self.assertNotIn(word, lowered)
         return body
 
-    def test_privacy_terms_and_support_are_noindex_placeholders(self) -> None:
-        """Each page shows the banner and does not invent a contact address."""
-        privacy = self._assert_placeholder("/privacy", "Privacy")
-        terms = self._assert_placeholder("/terms", "Terms")
-        support = self._assert_placeholder("/support", "Support")
-        self.assertIn("not ALC's privacy notice", privacy)
-        self.assertIn("not a contract", terms)
+    def test_privacy_terms_and_support_publish_the_approved_text(self) -> None:
+        """Each page shows the approved copy, dated, with no pending banner."""
+        privacy = self._assert_published("/privacy", "Privacy Notice")
+        terms = self._assert_published("/terms", "Terms of Use")
+        support = self._assert_published("/support", "Support")
+        self.assertIn("The only student identifier ALC stores is the student's first name", privacy)
+        self.assertIn("whiteboard work", privacy)
+        self.assertIn("kept with no automatic deletion", privacy)
+        self.assertIn("Privacy contact: Shawn McKenzie", privacy)
+        self.assertNotIn("not ALC's privacy notice", privacy)
+        self.assertIn("Teachers run classes with whiteboards", terms)
+        self.assertIn("Prices include applicable taxes.", terms)
+        self.assertIn("laws of Ontario", terms)
+        self.assertNotIn("not a contract", terms)
         self.assertIn('id="support-request-access"', support)
         self.assertIn('href="/request-access"', support)
         self.assertIn("Request access", support)
-        self.assertIn("personal contact address", support)
-        self.assertNotIn("mailto:", support.lower())
+        self.assertIn("We reply within 48 hours.", support)
+        self.assertIn("How do students join a class?", support)
+        self.assertIn('href="/privacy"', support)
+        self.assertIn("mailto:solutions@mckenzian.com", support)
+        self.assertNotIn("personal contact address", support)
+        self.assertNotIn("HELP_CONTACT_EMAIL", support)
 
     def test_landing_and_request_form_use_the_footer(self) -> None:
         """The school home and the request form link the three pages."""

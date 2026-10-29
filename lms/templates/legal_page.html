@@ -11,24 +11,215 @@
   <main class="wrap legal-wrap" id="legal-{{ page_kind }}">
     <p class="kicker">ALC</p>
     <h1>{{ page_title }}</h1>
-    <p class="legal-banner" id="legal-pending-banner" role="status">Text pending Shawn + legal approval</p>
+    <p class="sub">Last updated: October 29, 2026</p>
     {% if page_kind == 'support' %}
-    <h2>Request access</h2>
-    <p>Teachers, families, and school administrators who are not on ALC yet can ask to join the pilot.</p>
-    <ol>
-      <li>Open the school home.</li>
-      <li>Choose Request access.</li>
-      <li>Say whether you are a teacher, a family, or a school administrator, plus the grade band, the subject, and how you would use ALC.</li>
-      <li>Submit the form. ALC writes back at the address on the form when an invite is ready. Submitting does not create an account.</li>
-    </ol>
-    <p><a class="btn" id="support-request-access" href="{{ url_for('request_access') }}">Request access</a></p>
-    <h2>Contact</h2>
-    <p>This page does not list a personal contact address. Use Request access and describe what you need. If you already teach a class on ALC, sign in from the school home and use Help there.</p>
-    <p><a href="{{ url_for('landing') }}">School home</a></p>
+    <p>Email us at <strong><a href="mailto:{{ help_contact_email }}">{{ help_contact_email }}</a></strong>. <strong>We reply within 48 hours.</strong></p>
+    <p>New to ALC? <a id="support-request-access" href="{{ url_for('request_access') }}">Request access</a>.</p>
+    <h2>Common questions</h2>
+    <p><strong>How do students join a class?</strong></p>
+    <p>Give students the class code shown on your screen while class is live. They enter it and pick their first name from the list. They do not need an email, password, or Google account. Codes work only while the class is live.</p>
+    <p><strong>A student missed class. How do they catch up?</strong></p>
+    <p>After you end a class, ALC creates a catch-up link. The student opens it and enters their catch-up PIN. The PIN is not the class code. Teachers can see or reset PINs.</p>
+    <p><strong>How do teachers sign in?</strong></p>
+    <p>Sign in with your Google account, then enter the 6-digit code we email you. If Google says your account isn't registered, you haven't been invited yet. Request access, or ask your school's ALC admin.</p>
+    <p><strong>How do I get access?</strong></p>
+    <p>ALC is invite-only. Fill in the <a href="{{ url_for('request_access') }}">Request access</a> form and we'll reply by email.</p>
+    <p><strong>What's the difference between End and Quit?</strong></p>
+    <p>End saves attendance, participation, and the catch-up link. Quit saves nothing and deletes that session's data right away.</p>
+    <p><strong>Privacy questions?</strong> See our <a href="{{ url_for('privacy') }}">Privacy Notice</a>, or email us.</p>
     {% elif page_kind == 'privacy' %}
-    <p>The privacy notice is not published yet. This page is not ALC's privacy notice. Approved text will replace this placeholder.</p>
+    <p>ALC is a live-class tool for grades 6–12 teachers. It is operated by <strong>McKenzian Solutions</strong> ("we"). This notice explains what we collect, why, who helps us run ALC, and how to ask about your data.</p>
+    <p>Contact (email only): <strong><a href="mailto:solutions@mckenzian.com">solutions@mckenzian.com</a></strong></p>
+    <h2>The short version</h2>
+    <ul>
+      <li>Students do not have accounts. They join a class with a class code and pick their first name from the class list.</li>
+      <li><strong>The only student identifier ALC stores is the student's first name from the class list.</strong> We never ask students for an email, password, phone number, or Google account.</li>
+      <li>Teachers sign in with Google. Access is by invitation only.</li>
+      <li>Schools and school boards control their student records. We process them only on the school's behalf, to run ALC.</li>
+      <li>We do not sell data, and we do not use it for advertising.</li>
+    </ul>
+    <h2>Who controls student information</h2>
+    <p>When a school or school board uses ALC, that school or board controls its student records. McKenzian Solutions acts as a service provider. We handle student information only to provide ALC to that school, and only as the school directs. We handle it in line with Ontario's <em>Municipal Freedom of Information and Protection of Privacy Act</em> (MFIPPA) and Canada's <em>Personal Information Protection and Electronic Documents Act</em> (PIPEDA), as they apply.</p>
+    <p>Questions about a student's records should go to the student's school first. We will help the school answer them.</p>
+    <h2>What we collect</h2>
+    <table class="data">
+      <thead>
+        <tr>
+          <th scope="col">Who</th>
+          <th scope="col">What we store</th>
+          <th scope="col">Why</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th scope="row" rowspan="7"><strong>Students</strong></th>
+          <td>First name from the class list</td>
+          <td>So the teacher knows who is in class</td>
+        </tr>
+        <tr>
+          <td>Answers, drawings and whiteboard work during class</td>
+          <td>So the class activity works and the teacher can review it</td>
+        </tr>
+        <tr>
+          <td>Attendance (join and leave times) and participation points</td>
+          <td>Attendance and participation records for the teacher</td>
+        </tr>
+        <tr>
+          <td>Mood check-ins and optional comments on class feedback</td>
+          <td>So the teacher can see how the class went</td>
+        </tr>
+        <tr>
+          <td>Teacher notes and observations about class work</td>
+          <td>Teaching and assessment</td>
+        </tr>
+        <tr>
+          <td>A catch-up PIN (stored scrambled, never in plain text)</td>
+          <td>So a student can open the catch-up work for a missed class</td>
+        </tr>
+        <tr>
+          <td>A chosen character or avatar</td>
+          <td>Shown in class in place of a photo</td>
+        </tr>
+        <tr>
+          <th scope="row" rowspan="3"><strong>Teachers and school staff</strong></th>
+          <td>Google email address, name, and Google account ID</td>
+          <td>Sign-in</td>
+        </tr>
+        <tr>
+          <td>Sign-in times, 2-step email codes, and an access log</td>
+          <td>Security and account protection</td>
+        </tr>
+        <tr>
+          <td>Classes, lessons, and content they create or upload</td>
+          <td>To run the classes</td>
+        </tr>
+        <tr>
+          <th scope="row"><strong>People who request access</strong></th>
+          <td>Name, email, role, organization, and the message they write</td>
+          <td>To review the request and reply</td>
+        </tr>
+        <tr>
+          <th scope="row"><strong>Everyone, including students</strong></th>
+          <td>IP address when joining or signing in, and error reports</td>
+          <td>Rate limiting and security</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>We do not collect student emails, passwords, phone numbers, addresses, birth dates, or photos.</p>
+    <h2>Student privacy</h2>
+    <ul>
+      <li>Students never sign in with Google or any other outside account.</li>
+      <li>A teacher's class code works only while that class is live.</li>
+      <li>Teachers see only their own classes. One teacher cannot open another teacher's class.</li>
+      <li>If a teacher <strong>Quits</strong> a class instead of ending it, nothing from that session is saved. Its answers, attendance, board work, and notes are deleted right away.</li>
+      <li>We do not show advertising to students or build profiles of them.</li>
+    </ul>
+    <h2>Who helps us run ALC (subprocessors)</h2>
+    <table class="data">
+      <thead>
+        <tr>
+          <th scope="col">Provider</th>
+          <th scope="col">What they do</th>
+          <th scope="col">Where</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Fly.io</td>
+          <td>Hosting and data storage</td>
+          <td>Toronto, Canada region</td>
+        </tr>
+        <tr>
+          <td>Google</td>
+          <td>Teacher sign-in (name and email only)</td>
+          <td>May be processed in the United States</td>
+        </tr>
+        <tr>
+          <td>Resend (or our email provider)</td>
+          <td>Sends sign-in codes, invitations, and access-request emails</td>
+          <td>May be processed in the United States</td>
+        </tr>
+        <tr>
+          <td>Sentry</td>
+          <td>Error reports so we can fix problems</td>
+          <td>May be processed in the United States</td>
+        </tr>
+        <tr>
+          <td>A third-party payment processor</td>
+          <td>Pro billing for teachers. We never see or store your full card number.</td>
+          <td>Varies by processor</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>Error reports do not include student names on purpose. On teacher pages they may include an internal teacher ID.</p>
+    <h2>How we protect data</h2>
+    <ul>
+      <li>All traffic uses encrypted connections (HTTPS).</li>
+      <li>Stored data sits on encrypted disks.</li>
+      <li>Staff sign-in uses Google plus a 6-digit email code.</li>
+      <li>Access to student records is logged.</li>
+    </ul>
+    <p><strong>IP addresses and access logs:</strong> we log IP addresses, including students' IP addresses, to limit repeated join attempts and to protect ALC. We also keep an access log of sign-ins, student joins, and views of student records. Right now, IP address logs and the access log are <strong>kept with no automatic deletion</strong>.</p>
+    <h2>How long we keep data</h2>
+    <p>We keep student records for as long as the school or board needs them to meet its MFIPPA obligations. When a school or board asks, or when its service with ALC ends, we delete its data. Data a teacher Quits is deleted immediately. IP address logs and the access log currently have no automatic deletion (see above).</p>
+    <h2>Your rights and requests</h2>
+    <p>You can ask to see, correct, or delete personal information, or ask how it is used.</p>
+    <ul>
+      <li><strong>Students and parents:</strong> contact your school. The school controls the records and we will help it respond.</li>
+      <li><strong>Teachers and others:</strong> email <strong><a href="mailto:solutions@mckenzian.com">solutions@mckenzian.com</a></strong>.</li>
+    </ul>
+    <p>We reply within 48 hours and aim to complete requests within 30 days. If you are not satisfied, you can contact the Information and Privacy Commissioner of Ontario or the Office of the Privacy Commissioner of Canada.</p>
+    <h2>If something goes wrong</h2>
+    <p>If a breach affects personal information, we will tell the affected school or board without delay so it can meet its notice duties, and we will help it respond.</p>
+    <h2>Changes</h2>
+    <p>If we change this notice, we will update the date above. If the change is significant, we will tell schools before it takes effect.</p>
+    <p>Privacy contact: Shawn McKenzie, <a href="mailto:solutions@mckenzian.com">solutions@mckenzian.com</a></p>
     {% else %}
-    <p>The terms are not published yet. This page is not a contract and not ALC's terms of use. Approved text will replace this placeholder.</p>
+    <p>These terms are an agreement between you and <strong>McKenzian Solutions</strong> ("we"), which operates ALC. By using ALC you agree to them.</p>
+    <p>Contact (email only): <a href="mailto:solutions@mckenzian.com">solutions@mckenzian.com</a></p>
+    <h2>What ALC is</h2>
+    <p>ALC is a live-class tool for grades 6–12 teachers. Teachers run classes with whiteboards, attendance, participation points, and catch-up work. Students join with a class code.</p>
+    <h2>Who can use it</h2>
+    <ul>
+      <li><strong>Teachers and school staff</strong> sign in with Google. Access is by invitation only. You can ask for access on our Request Access page.</li>
+      <li><strong>Students</strong> join only with a code from their teacher and use their first name from the class list.</li>
+      <li>You must be allowed by your school or board to use ALC with your students.</li>
+    </ul>
+    <h2>Your responsibilities</h2>
+    <ul>
+      <li>Keep your Google account secure, and do not share your sign-in or email codes.</li>
+      <li>Share class codes only with your students.</li>
+      <li>Use only students' first names on class lists.</li>
+      <li>Upload only content you have the right to use.</li>
+      <li>Do not misuse ALC: no attempts to break in, overload it, copy it, or reach other people's data.</li>
+    </ul>
+    <h2>Your content and student data</h2>
+    <ul>
+      <li>You and your school keep ownership of your lessons, content, and student records.</li>
+      <li>You give us permission to store and process them only to run ALC for you.</li>
+      <li>Student data is handled as described in our Privacy Notice. Schools and boards control student records. We act on their behalf.</li>
+    </ul>
+    <h2>ALC Pro</h2>
+    <ul>
+      <li>See our pricing page for current Pro prices. <strong>Prices include applicable taxes.</strong></li>
+      <li>Payments are handled by a third-party payment processor. We never see or store your full card number.</li>
+      <li>Pro renews automatically each month or year until you cancel.</li>
+      <li><strong>Cancel anytime.</strong> You keep Pro until the end of the period you have paid for.</li>
+      <li><strong>Monthly plans:</strong> we do not refund partial months.</li>
+      <li><strong>Annual plans:</strong> if you cancel within 30 days of payment, we refund it in full. After 30 days there is no refund.</li>
+      <li>If we change Pro prices, we will tell you before your next renewal.</li>
+    </ul>
+    <h2>Availability</h2>
+    <p>We work to keep ALC running, but we cannot promise it will never be interrupted. We may update or change features over time.</p>
+    <h2>Ending use</h2>
+    <p>You can stop using ALC at any time. We may suspend accounts that break these terms or put others at risk. When service ends, we delete data as described in the Privacy Notice.</p>
+    <h2>Limits on our responsibility</h2>
+    <p>ALC is provided "as is." To the extent the law allows, we are not responsible for indirect losses. Our total responsibility is limited to the amount you paid us in the 12 months before the claim. Nothing in these terms removes rights you have under consumer protection law.</p>
+    <h2>Governing law</h2>
+    <p>These terms are governed by the laws of Ontario and the federal laws of Canada that apply there. Disputes will be handled in the courts of Ontario.</p>
+    <h2>Changes</h2>
+    <p>We will post changes here and update the date above. For significant changes, we will tell you in advance.</p>
+    <p>Questions: <a href="mailto:solutions@mckenzian.com">solutions@mckenzian.com</a></p>
     {% endif %}
   </main>
   {% include "_legal_footer.html" %}
