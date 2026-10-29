@@ -1224,10 +1224,15 @@ def _pin_portal_identity(school: SchoolDB) -> tuple[int, int] | None:
 
 
 def _student_post_live_end_destination(school: SchoolDB) -> str:
-    """Where students land when live ends; PIN portal returns to the dashboard."""
+    """Where students land when live ends; PIN portal returns to the dashboard.
+
+    The join page gets ``ended=1`` from this same redirect. That flag is
+    the quit/end signal the student poll already follows. It does not
+    start another poll.
+    """
     if resolve_pin_portal_context(school, session) is not None:
         return url_for("student_dashboard")
-    return url_for("landing")
+    return url_for("landing", ended=1)
 
 
 def _student_dashboard_live_handover(

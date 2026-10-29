@@ -417,6 +417,31 @@ def google_oauth_ready() -> bool:
     return google_credentials_present()
 
 
+# Student join-page sentence after quit. This is the only copy.
+CLASS_ENDED_JOIN_NOTE = (
+    "This class has ended. Your teacher will share a new code for the next class."
+)
+
+
+def class_ended_join_note() -> str:
+    """Join-page note after the existing end/quit redirect, else empty.
+
+    The flag is ``ended=1`` on the landing URL the live poll already
+    returns. A normal visit to the join page does not show the note, and
+    this does not poll. The sentence lives only in ``CLASS_ENDED_JOIN_NOTE``.
+
+    Returns:
+        The student sentence, or ``""`` when the flag is absent.
+    """
+    from flask import has_request_context, request
+
+    if not has_request_context():
+        return ""
+    if str(request.args.get("ended") or "").strip() != "1":
+        return ""
+    return CLASS_ENDED_JOIN_NOTE
+
+
 def landing_kwargs(**extra: Any) -> dict[str, Any]:
     """Template context for the public landing page."""
     from celebration import WONDER_COPY
@@ -430,6 +455,7 @@ def landing_kwargs(**extra: Any) -> dict[str, Any]:
         "student_candidates": [],
         "student_code": "",
         "student_name": "",
+        "class_ended_note": class_ended_join_note(),
         "celebration_copy": {
             "page_title": WONDER_COPY["page_title"],
             "coming_soon_line": WONDER_COPY["coming_soon_line"],

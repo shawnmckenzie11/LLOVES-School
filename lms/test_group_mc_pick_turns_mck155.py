@@ -433,15 +433,14 @@ school = SchoolDB(root / "lloves.sqlite", root)
 args = json.loads(sys.argv[3])
 go = root / "go"
 deadline = time.time() + 60
-# The file can exist before its text is visible. Wait for a number.
-raw = ""
+text = ""
 while time.time() < deadline:
     if go.exists():
-        raw = go.read_text().strip()
-        if raw:
+        text = go.read_text().strip()
+        if text:
             break
     time.sleep(0.005)
-start = float(raw)
+start = float(text)
 while time.time() < start:
     pass
 try:
@@ -462,8 +461,11 @@ except GroupAnswerLocked:
                 cwd=str(LMS_DIR),
             )
         # Both children open the DB first; then they start on the same clock.
+        # Replace the stamp into place so a reader never sees an empty file.
         time.sleep(3.0)
-        go.write_text(str(time.time() + 1.0))
+        stamp = root / "go.tmp"
+        stamp.write_text(f"{time.time() + 1.0:.6f}\n")
+        stamp.replace(go)
         results: dict[str, int] = {}
         for name, proc in procs.items():
             stdout, stderr = proc.communicate(timeout=120)
