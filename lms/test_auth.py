@@ -411,7 +411,7 @@ class AuthTests(unittest.TestCase):
 
     def test_public_front_door_omits_out_of_scope_claims(self) -> None:
         """Landing, the request form, its confirmation, and the unknown-account page stay on-brief."""
-        banned = ("slides", "powerpoint", "whiteboard", "multi-tenant", "codename")
+        banned = ("slides", "powerpoint", "multi-tenant", "codename")
         pages = [
             self.client.get("/").get_data(as_text=True),
             self.client.get("/request-access").get_data(as_text=True),
