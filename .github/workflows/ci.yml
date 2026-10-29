@@ -1,14 +1,47 @@
 name: CI
 
-# Tests only. Runs on feature branches and pull requests so work in progress
-# gets feedback without touching the live site. Deploys live in deploy.yml.
-# production is tested by deploy.yml on push; skip it here to avoid doubling.
+# Tests only. A pull request runs on pull_request (opened, synchronize,
+# reopened). A push runs only for main. Title and body edits do not run
+# this workflow. production is tested by deploy.yml.
+# One run per ref: a newer push cancels the in-progress run for that ref.
 on:
   push:
-    branches-ignore: [main, production]
+    branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  classify:
+    name: Classify changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      heavy: ${{ steps.gate.outputs.heavy }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+
+      # Copy-only pull requests set heavy=false. Push to main, a failed
+      # diff, and any path outside the safe globs set heavy=true.
+      # Globs: .github/scripts/ci_path_class.py
+      - id: gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "${EVENT_NAME}" != "pull_request" ] || [ ! -f .github/scripts/ci_path_class.py ]; then
+            echo "heavy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 .github/scripts/ci_path_class.py || echo "heavy=true" >> "$GITHUB_OUTPUT"
+
   test:
     name: LMS test suite
     runs-on: ubuntu-latest
@@ -72,6 +105,11 @@ jobs:
 
   fanout-guard:
     name: fan-out guard
+    needs: classify
+    # Copy-only pull requests skip this job. Push to main always runs it.
+    # A missing classification runs it. Live-class state always matches a
+    # heavy glob, so this job and the 30-seat load still run.
+    if: "${{ !cancelled() && (github.event_name != 'pull_request' || needs.classify.outputs.heavy != 'false') }}"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -92,6 +130,9 @@ jobs:
 
   load-budget:
     name: 30-seat load budget
+    needs: classify
+    # Same gate as fan-out guard. Main and any non-copy diff run the budget.
+    if: "${{ !cancelled() && (github.event_name != 'pull_request' || needs.classify.outputs.heavy != 'false') }}"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -112,6 +153,9 @@ jobs:
 
   slide-load:
     name: slide forward load
+    needs: classify
+    # Same gate as fan-out guard. Main and any non-copy diff run this load.
+    if: "${{ !cancelled() && (github.event_name != 'pull_request' || needs.classify.outputs.heavy != 'false') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
