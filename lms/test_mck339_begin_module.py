@@ -519,12 +519,74 @@ class BeginModuleTests(Base):
         self.assertNotIn("name", body)
         self.assertEqual(self.school._begin_module_pointer(self.class_id), "M2")
 
+    def test_simultaneous_clicks_make_one_change(self) -> None:
+        """Two overlapping Begin new module calls write the section once."""
+        _seed_held_class(self.school, self.class_id, self.students)
+        barrier = threading.Barrier(2)
+        results: list[dict] = []
+        errors: list[Exception] = []
+        gate = threading.Lock()
+
+        def click() -> None:
+            """One Begin new module call, released together with the other."""
+            try:
+                barrier.wait(timeout=5)
+                outcome = self.school.begin_new_module(
+                    self.class_id,
+                    "M1",
+                    user_id=int(self.teacher["id"]),
+                )
+            except Exception as exc:  # noqa: BLE001
+                with gate:
+                    errors.append(exc)
+                return
+            with gate:
+                results.append(outcome)
+
+        threads = [threading.Thread(target=click) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+            self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(len(results), 2)
+        self.assertEqual(sum(1 for row in results if row["changed"]), 1)
+        self.assertTrue(all(row["current_module"] == "M2" for row in results))
+        self.assertEqual(self.school._begin_module_pointer(self.class_id), "M2")
+        marks = self.school.conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM participation_module_marks
+            WHERE class_id = ? AND live_module = 'M1' AND complete = 1
+            """,
+            (self.class_id,),
+        ).fetchone()
+        self.assertEqual(int(marks["n"]), 1)
+
 
 def _chrome() -> str:
     for path in (os.environ.get("LLOVES_E2E_CHROME", ""), "/usr/bin/google-chrome", "/usr/bin/chromium"):
         if path and Path(path).exists():
             return path
     return ""
+
+
+def _begin_module_shot_dir(fallback: Path) -> Path:
+    """Directory for the Begin new module dialog screenshots.
+
+    ``LLOVES_BEGIN_MODULE_SHOT_DIR`` picks the directory. Otherwise the
+    shots stay in the test's temporary folder.
+
+    Args:
+        fallback: Temporary directory for this test.
+
+    Returns:
+        The directory, created when it is missing.
+    """
+    raw = os.environ.get("LLOVES_BEGIN_MODULE_SHOT_DIR", "").strip()
+    out = Path(raw) if raw else fallback
+    out.mkdir(parents=True, exist_ok=True)
+    return out
 
 
 def _playwright_ready() -> bool:
@@ -575,9 +637,9 @@ class BeginModuleBrowserTests(Base):
 
         self.server = make_server("127.0.0.1", 0, self.app, threaded=True)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
-        shot = Path("/opt/cursor/artifacts/begin-module-1280.png")
-        dialog_shot = Path("/opt/cursor/artifacts/begin-module-dialog-1280.png")
-        shot.parent.mkdir(parents=True, exist_ok=True)
+        out_dir = _begin_module_shot_dir(Path(self.tmp.name))
+        shot = out_dir / "begin-module-1280.png"
+        dialog_shot = out_dir / "begin-module-dialog-1280.png"
         cookies = {cookie.key: cookie.value for cookie in self.client._cookies.values()}
         spec = {
             "port": self.server.server_port,
@@ -619,6 +681,29 @@ class BeginModuleBrowserTests(Base):
         self.assertEqual(failed, [], json.dumps(out["steps"], indent=1))
         self.assertTrue(shot.is_file())
         self.assertTrue(dialog_shot.is_file())
+
+
+class BeginModuleShotDirTests(unittest.TestCase):
+    """Dialog screenshots stay out of a fixed artifacts directory."""
+
+    def test_dialog_shots_use_a_temp_or_configured_dir(self) -> None:
+        previous = os.environ.pop("LLOVES_BEGIN_MODULE_SHOT_DIR", None)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                out = _begin_module_shot_dir(Path(tmp))
+                self.assertEqual(out, Path(tmp))
+                self.assertFalse(str(out).startswith("/opt/cursor/artifacts"))
+            with tempfile.TemporaryDirectory() as configured:
+                os.environ["LLOVES_BEGIN_MODULE_SHOT_DIR"] = configured
+                unused = Path(tempfile.gettempdir()) / "unused-begin-module-shots"
+                out = _begin_module_shot_dir(unused)
+                self.assertEqual(out, Path(configured))
+                self.assertFalse(unused.exists())
+        finally:
+            if previous is None:
+                os.environ.pop("LLOVES_BEGIN_MODULE_SHOT_DIR", None)
+            else:
+                os.environ["LLOVES_BEGIN_MODULE_SHOT_DIR"] = previous
 
 
 if __name__ == "__main__":

@@ -70,6 +70,140 @@ def format_next_class_label(module: object, slot: object) -> str:
     return f"{str(module or '').strip().upper()} · {str(slot or '').strip().upper()}"
 
 
+def chapters_for_module(
+    module: object,
+    catalogue: list[tuple[str, str]],
+    plan: list[tuple[str, list[str]]] | None = None,
+) -> list[str]:
+    """Class slots for one module, from the section plan, then the pack.
+
+    Args:
+        module: Section module such as ``M2``.
+        catalogue: Published ``(module, slot)`` pairs.
+        plan: Section plan ``(module, slots)``. Used when the pack has
+            not published this module.
+
+    Returns:
+        Chapter tokens in teaching order. ``["C1"]`` when neither source
+        lists the module.
+    """
+
+    token = str(module or "").strip().upper()
+    if plan:
+        for planned, slots in plan:
+            if str(planned).strip().upper() != token:
+                continue
+            found = [
+                str(slot).strip().upper()
+                for slot in slots
+                if str(slot).strip().upper().startswith("C")
+            ]
+            if found:
+                return found
+    found = [
+        str(slot).strip().upper()
+        for mod, slot in catalogue
+        if str(mod).strip().upper() == token and str(slot).strip().upper().startswith("C")
+    ]
+    return found or ["C1"]
+
+
+def default_setup_class(
+    catalogue: list[tuple[str, str]],
+    last_run: tuple[str, str] | None,
+    *,
+    current_module: str = "",
+    run_in_current: tuple[str, str] | None = None,
+    current_chapters: list[str] | None = None,
+) -> tuple[str, str] | None:
+    """Default module and chapter for one section's Set Class.
+
+    An empty ``current_module`` keeps the template class after
+    ``last_run``. A stored module stays selected. Its first chapter is
+    the default until a real class in that module has been run; the next
+    chapter in that module is the default after that. A class run in
+    some other module does not move this default. This function does
+    not write the stored module.
+
+    Args:
+        catalogue: Ordered published ``(module, slot)`` pairs.
+        last_run: Latest real template class in the section, or None.
+        current_module: ``classes.current_live_module``, or empty.
+        run_in_current: Latest real class inside ``current_module``.
+        current_chapters: Class slots for ``current_module``, in order.
+
+    Returns:
+        ``(module, slot)``, or None when the catalogue is empty and no
+        current module is stored.
+    """
+
+    module = str(current_module or "").strip().upper()
+    if not module:
+        return next_class_after_last_run(catalogue, last_run)
+    chapters = [
+        str(slot).strip().upper()
+        for slot in (current_chapters or [])
+        if str(slot).strip().upper().startswith("C")
+    ]
+    if not chapters:
+        chapters = [
+            str(slot).strip().upper()
+            for mod, slot in catalogue
+            if str(mod).strip().upper() == module and str(slot).strip().upper().startswith("C")
+        ]
+    if not chapters:
+        chapters = ["C1"]
+    scoped = [(module, chapter) for chapter in chapters]
+    if run_in_current is None:
+        return scoped[0]
+    nxt = next_class_after_last_run(scoped, run_in_current)
+    return nxt or scoped[0]
+
+
+def registry_with_setup_module(registry: dict, module: object, chapters: Iterable[object]) -> dict:
+    """Copy a pack registry so Set Class can select the section module.
+
+    Published packs sometimes stop before the section's current module.
+    The copy adds that module and its chapters for the page. The stored
+    pack and the section pointer are left as they are.
+
+    Args:
+        registry: ``live_class_registry`` result for the page.
+        module: Module Set Class should select.
+        chapters: Class slots for that module.
+
+    Returns:
+        ``registry`` when it already lists the module, otherwise a copy.
+    """
+
+    token = str(module or "").strip().upper()
+    slots = [
+        str(slot).strip().upper()
+        for slot in chapters
+        if str(slot or "").strip().upper().startswith("C")
+    ]
+    if not token:
+        return registry
+    modules = [str(item).strip().upper() for item in (registry.get("modules") or [])]
+    slots_by = {
+        str(key).strip().upper(): [str(slot).strip().upper() for slot in (value or [])]
+        for key, value in (registry.get("slots_by_module") or {}).items()
+    }
+    changed = False
+    if token not in modules:
+        modules.append(token)
+        changed = True
+    if token not in slots_by:
+        slots_by[token] = slots or ["C1"]
+        changed = True
+    if not changed:
+        return registry
+    copied = dict(registry)
+    copied["modules"] = modules
+    copied["slots_by_module"] = slots_by
+    return copied
+
+
 def next_class_after_last_run(
     catalogue: list[tuple[str, str]],
     last_run: tuple[str, str] | None,

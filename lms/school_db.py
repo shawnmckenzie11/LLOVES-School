@@ -40276,31 +40276,40 @@ class SchoolDB(LovesDB):
     def set_class_picker(self, class_id: int) -> dict[str, Any]:
         """Default Set Class pick and the next open-office slot per module.
 
-        The picker lands on the template class after the last real live
-        class. Open office is numbered inside the module (``M3 O1``, then
-        ``M3 O2``) and is not itself the "next class".
+        Reads ``classes.current_live_module`` for this section and does
+        not write it. When that pointer is set, Set Class opens on that
+        module. The first chapter is selected until a real class in the
+        module has been run; later classes in the same module advance
+        one chapter. A module chosen only for one session is ignored
+        here. With no pointer yet, the picker still lands on the template
+        class after the last real live class. Open office is numbered
+        inside the module (``M3 O1``, then ``M3 O2``) and is not itself
+        the "next class".
 
         Args:
             class_id: Game-show ``classes.id``.
 
         Returns:
-            ``module``, ``slot``, ``label`` (``M3 · C2``), ``course``,
-            ``module_titles``, and ``open_office_next`` (module → ``O`` slot).
+            ``module``, ``slot``, ``chapters``, ``label`` (``M3 · C2``),
+            ``course``, ``module_titles``, and ``open_office_next``
+            (module → ``O`` slot).
         """
         try:
             from live_class_packs import live_class_registry
             from set_class import (
+                chapters_for_module,
+                default_setup_class,
                 format_next_class_label,
                 is_open_office_slot,
-                next_class_after_last_run,
                 next_open_office_slot,
             )
         except ImportError:
             from lms.live_class_packs import live_class_registry
             from lms.set_class import (
+                chapters_for_module,
+                default_setup_class,
                 format_next_class_label,
                 is_open_office_slot,
-                next_class_after_last_run,
                 next_open_office_slot,
             )
 
@@ -40319,9 +40328,12 @@ class SchoolDB(LovesDB):
                 if is_open_office_slot(token) or not token.startswith("C"):
                     continue
                 catalogue.append((str(module).strip().upper(), token))
+        pointer = self._begin_module_pointer(int(class_id))
         office_used: dict[str, list[str]] = {}
         last: tuple[str, str] | None = None
         last_at = ""
+        in_module: tuple[str, str] | None = None
+        in_module_at = ""
         for row in self.list_lesson_slides_latest(int(class_id)):
             if int(row.get("is_test") or 0):
                 continue
@@ -40334,9 +40346,32 @@ class SchoolDB(LovesDB):
             if ended and ended >= last_at:
                 last_at = ended
                 last = (module, slot)
-        nxt = next_class_after_last_run(catalogue, last if last_at else None)
+            if (
+                pointer
+                and module == pointer
+                and slot.startswith("C")
+                and ended
+                and ended >= in_module_at
+            ):
+                in_module_at = ended
+                in_module = (module, slot)
+        plan = self._begin_module_plan(int(class_id)) if pointer else []
+        chapters = chapters_for_module(pointer, catalogue, plan) if pointer else []
+        nxt = default_setup_class(
+            catalogue,
+            last if last_at else None,
+            current_module=pointer,
+            run_in_current=in_module if in_module_at else None,
+            current_chapters=chapters,
+        )
         if nxt is None:
             nxt = ("M1", "C1")
+        if pointer and nxt[0] == pointer and chapters:
+            chosen_chapters = chapters
+        else:
+            chosen_chapters = [slot for module, slot in catalogue if module == nxt[0]]
+        if not chosen_chapters:
+            chosen_chapters = [nxt[1]]
         modules: list[str] = []
         for module, _slot in catalogue:
             if module not in modules:
@@ -40346,6 +40381,8 @@ class SchoolDB(LovesDB):
                 modules.append(module)
         if not modules:
             modules = ["M1"]
+        if nxt[0] not in modules:
+            modules.append(nxt[0])
         titles: dict[str, str] = {}
         if offering:
             try:
@@ -40364,6 +40401,7 @@ class SchoolDB(LovesDB):
             "course": course,
             "module": nxt[0],
             "slot": nxt[1],
+            "chapters": chosen_chapters,
             "label": format_next_class_label(nxt[0], nxt[1]),
             "module_titles": titles,
             "open_office_next": {
