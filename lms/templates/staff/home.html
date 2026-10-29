@@ -273,6 +273,7 @@
   {% if active_live_session %}
   <form id="end-live-form" method="post" action="{{ url_for('staff_end_live_class', class_id=active_live_session.class_id) }}"></form>
   {% endif %}
+  {% include "_legal_footer.html" %}
   <script type="module" src="/static/staff_home.js"></script>
   <script type="module" src="/static/staff_roster_names.js"></script>
   <script type="module" src="/static/staff_celebration.js"></script>

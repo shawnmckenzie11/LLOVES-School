@@ -97,6 +97,7 @@
       {% endfor %}
     </ul>
   </div>
+  {% include "_legal_footer.html" %}
   <script>
     const base = "/api/classes/{{ class_id }}";
     const post = (url, body, method = "POST") => fetch(url, {method, headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)}).then((r) => r.ok ? location.reload() : r.json().then((j) => alert(j.error || "Error")));
