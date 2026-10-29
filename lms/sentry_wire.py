@@ -413,6 +413,15 @@ _BARE_CODE_RE = re.compile(
 )
 # A 4-digit token with no ``PIN`` label. Years are put back by the replacer.
 _BARE_PIN_RE = re.compile(r"(?<!\d)(\d{4})(?!\d)")
+# Join / catch-up lengths only. ``{4,8}`` would also eat 7-letter words.
+_CODE_TOKEN_RE = re.compile(
+    r"\b(?:[A-Za-z0-9]{8}|[A-Za-z0-9]{6}|[A-Za-z0-9]{5}|[A-Za-z0-9]{4})\b"
+)
+# ``Zorblax Quuxley`` with no "student" or "by" cue. Both words stay
+# capitalized; a lowercase second word ("Roster edited") is not a name.
+_NAME_PAIR_RE = re.compile(r"\b([A-Z][a-z]{2,})\s+([A-Z][a-z]{2,})\b")
+# Ministry course codes (MCF3M, SBI4U). Same length as a join code, different shape.
+_ONTARIO_COURSE_CODE_RE = re.compile(r"^[A-Z]{3}[1-4][A-Z]$")
 _PERSON_NAME_RE = re.compile(r"^[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?$")
 # Words that follow "student" and are the product, not a person.
 _NOT_A_STUDENT_NAME = frozenset(
@@ -516,6 +525,163 @@ _NOT_A_BY_NAME = _NOT_A_PERSON | _NOT_A_STUDENT_NAME | frozenset(
         "anyone",
     }
 )
+# All-letter tokens that share a join-code length and show up in logs.
+# A mixed letter+digit token is still a code. Keep in sync with
+# ORDINARY_CODE_WORDS in static/sentry-live.js.
+_ORDINARY_CODE_WORDS = _NOT_A_BY_NAME | frozenset(
+    {
+        "lookup",
+        "failed",
+        "failure",
+        "edited",
+        "opened",
+        "saved",
+        "publish",
+        "import",
+        "added",
+        "request",
+        "response",
+        "status",
+        "disk",
+        "full",
+        "locked",
+        "database",
+        "joined",
+        "handler",
+        "typed",
+        "ping",
+        "keep",
+        "post",
+        "get",
+        "put",
+        "head",
+        "patch",
+        "http",
+        "https",
+        "json",
+        "html",
+        "info",
+        "debug",
+        "warn",
+        "trace",
+        "span",
+        "event",
+        "from",
+        "with",
+        "that",
+        "this",
+        "when",
+        "have",
+        "been",
+        "were",
+        "your",
+        "into",
+        "over",
+        "after",
+        "before",
+        "about",
+        "there",
+        "where",
+        "which",
+        "other",
+        "only",
+        "also",
+        "just",
+        "like",
+        "some",
+        "each",
+        "both",
+        "most",
+        "many",
+        "more",
+        "back",
+        "down",
+        "here",
+        "once",
+        "year",
+        "date",
+        "time",
+        "open",
+        "close",
+        "start",
+        "stop",
+        "save",
+        "send",
+        "load",
+        "read",
+        "file",
+        "path",
+        "host",
+        "port",
+        "type",
+        "data",
+        "body",
+        "text",
+        "note",
+        "test",
+        "drop",
+        "pass",
+        "skip",
+        "done",
+        "left",
+        "next",
+        "main",
+        "base",
+        "size",
+        "line",
+        "take",
+        "quit",
+        "bank",
+        "true",
+        "false",
+        "none",
+        "null",
+        "error",
+        "warning",
+        "critical",
+        "fatal",
+        "course",
+        "select",
+        "from",
+        "where",
+        "insert",
+        "update",
+        "delete",
+        "values",
+        "table",
+        "index",
+        "limit",
+        "order",
+        "inner",
+        "outer",
+        "count",
+        "union",
+        "having",
+        "distinct",
+        "exists",
+        "unique",
+        "check",
+        "column",
+        "schema",
+        "using",
+        "case",
+        "then",
+        "else",
+        "desc",
+        "offset",
+        "fetch",
+        "pragma",
+        "vacuum",
+        "begin",
+        "commit",
+        "alter",
+        "create",
+        "explain",
+        "ignore",
+        "abort",
+        "rollback",
+    }
+)
 
 
 def _looks_like_person_name(value: str) -> bool:
@@ -594,6 +760,80 @@ def _is_unlabelled_pin(value: str) -> bool:
     return not 1900 <= number <= 2099
 
 
+def _is_ontario_course_code(value: str) -> bool:
+    """True for a ministry course code such as ``MCF3M``.
+
+    Args:
+        value: One token.
+
+    Returns:
+        Whether the token is a course code rather than a join code.
+    """
+    return bool(_ONTARIO_COURSE_CODE_RE.fullmatch(str(value or "").strip().upper()))
+
+
+def _should_redact_code_token(value: str) -> bool:
+    """True when a free-text token is a join or catch-up code.
+
+    Lengths are 4, 5, 6, or 8. A letter plus a digit is enough, with no
+    cue word such as ``code``. Ministry course codes stay. An all-letter
+    token stays unless it is written in all capitals and is not a normal
+    log word (``lookup``, ``failed``, ``POST``).
+
+    Args:
+        value: One whitespace-delimited token.
+
+    Returns:
+        Whether to replace the token with ``[redacted]``.
+    """
+    text = str(value or "").strip()
+    if not _looks_like_join_code(text):
+        return False
+    if _is_ontario_course_code(text):
+        return False
+    if any(ch.isdigit() for ch in text):
+        return True
+    return bool(
+        text.isalpha()
+        and text.isupper()
+        and text.lower() not in _ORDINARY_CODE_WORDS
+    )
+
+
+def _scrub_code_token(match: re.Match[str]) -> str:
+    """Replace one join-shaped token, or leave a course code and a log word.
+
+    Args:
+        match: A 4, 5, 6, or 8 character alphanumeric token.
+
+    Returns:
+        ``[redacted]`` or the original token.
+    """
+    token = match.group(0)
+    if _should_redact_code_token(token):
+        return "[redacted]"
+    return token
+
+
+def _scrub_name_pair(match: re.Match[str]) -> str:
+    """Redact ``First Last`` anywhere, and leave product-word pairs.
+
+    ``Take Attendance`` and ``Roster edited`` are not people. A pair is
+    removed only when neither word is a weekday, month, or product word.
+
+    Args:
+        match: Two consecutive capitalized words.
+
+    Returns:
+        ``[redacted]`` or the original pair.
+    """
+    first = match.group(1)
+    last = match.group(2)
+    if first.lower() in _NOT_A_BY_NAME or last.lower() in _NOT_A_BY_NAME:
+        return match.group(0)
+    return "[redacted]"
+
+
 def _scrub_by_name(match: re.Match[str]) -> str:
     """Redact a capitalized name after ``by``, such as ``tap by Zorblax``.
 
@@ -657,8 +897,9 @@ def _scrub_text(value: str) -> str:
     """Redact emails, PINs, join codes, and student names in text.
 
     Labelled forms (``PIN 9876``, ``join code Q7Z9K``, ``name=Zorblax``)
-    and unlabelled forms (``tap by Zorblax``, ``code Q7Z9K``, a bare
-    4-digit PIN) are both removed. Course codes and calendar years stay.
+    and cue-less forms (``lookup failed for Q7Z9K / Zorblax Quuxley``,
+    a bare 4-digit PIN, an email) are both removed. Ministry course
+    codes and calendar years stay.
 
     Args:
         value: One string from an event, a log, or a breadcrumb.
@@ -673,7 +914,9 @@ def _scrub_text(value: str) -> str:
     value = _NAME_TEXT_RE.sub(r"\1\2[redacted]", value)
     value = _STUDENT_LABEL_RE.sub(_scrub_student_label, value)
     value = _BY_NAME_RE.sub(_scrub_by_name, value)
+    value = _NAME_PAIR_RE.sub(_scrub_name_pair, value)
     value = _BARE_CODE_RE.sub(_scrub_bare_code, value)
+    value = _CODE_TOKEN_RE.sub(_scrub_code_token, value)
     return _BARE_PIN_RE.sub(_scrub_bare_pin, value)
 
 
@@ -1317,7 +1560,12 @@ def before_breadcrumb(
                     secret = (
                         _looks_like_person_name(arg)
                         or bool(_EMAIL_TEXT_RE.search(arg))
-                        or (mentions_code and _looks_like_join_code(arg))
+                        or _should_redact_code_token(arg)
+                        or (
+                            mentions_code
+                            and _looks_like_join_code(arg)
+                            and not _is_ontario_course_code(arg)
+                        )
                         or _is_unlabelled_pin(arg)
                         or (pin_shaped and mentions_pin)
                     )
@@ -1356,8 +1604,9 @@ def _scrub_log_parameters(log: dict[str, Any]) -> None:
     Sentry copies ``logger.warning("pin %s", pin)`` into
     ``sentry.message.parameter.*`` as well as the formatted body. The body
     is already scrubbed. Arguments that are emails, person names, join
-    codes on a line that mentions a code, or 4-digit PINs (including an
-    unlabelled PIN that is not a calendar year) are replaced here.
+    or catch-up codes (with or without a cue word), or 4-digit PINs
+    (including an unlabelled PIN that is not a calendar year) are
+    replaced here.
 
     Args:
         log: Sentry log payload, mutated in place.
@@ -1382,7 +1631,11 @@ def _scrub_log_parameters(log: dict[str, Any]) -> None:
         pin_shaped = bool(re.fullmatch(r"\d{4}", value.strip()))
         if _is_unlabelled_pin(value) or (mentions_pin and pin_shaped):
             secret = True
-        if mentions_code and _looks_like_join_code(value):
+        if _should_redact_code_token(value) or (
+            mentions_code
+            and _looks_like_join_code(value)
+            and not _is_ontario_course_code(value)
+        ):
             secret = True
         if mentions_name:
             secret = True

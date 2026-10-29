@@ -278,15 +278,19 @@ class UnlabelledScrubTests(unittest.TestCase):
         return blob
 
     def test_unlabelled_secrets_are_absent_from_every_payload(self) -> None:
-        """``tap by <name>`` and ``code <token>`` never survive a send."""
+        """Cue-less text and labelled text both lose codes, PINs, and names."""
         prose = (
             f"Roster edited. tap by {FAKE_NAME} {FAKE_LAST} code {FAKE_JOIN} "
             f"catch-up code {FAKE_CATCH} typed {FAKE_PIN} ping {FAKE_EMAIL} "
             f"course code MCF3M student portal due by Monday in 2026 "
             f"code pin_not_set"
         )
+        bare = (
+            f"lookup failed for {FAKE_JOIN} / {FAKE_PIN} / "
+            f"{FAKE_NAME} {FAKE_LAST} / {FAKE_EMAIL}"
+        )
         event = {
-            "message": prose,
+            "message": f"{prose} {bare}",
             "extra": {
                 "note": f"tap by {FAKE_NAME} code {FAKE_CATCH} typed {FAKE_PIN}",
                 "course_code": "MCF3M",
@@ -295,12 +299,13 @@ class UnlabelledScrubTests(unittest.TestCase):
                 "pin": FAKE_PIN,
             },
             "exception": {
-                "values": [{"type": "RuntimeError", "value": prose}]
+                "values": [{"type": "RuntimeError", "value": f"{prose} {bare}"}]
             },
             "breadcrumbs": {
                 "values": [
                     {"message": f"tap by {FAKE_NAME}", "data": {"note": f"code {FAKE_JOIN}"}},
                     {"message": f"typed {FAKE_PIN} ping {FAKE_EMAIL}"},
+                    {"message": bare},
                 ]
             },
         }
@@ -308,6 +313,7 @@ class UnlabelledScrubTests(unittest.TestCase):
         self.assertIs(sent, event)
         blob = self._assert_banned(sent, "event")
         self.assertIn("tap by [redacted]", blob)
+        self.assertIn("lookup failed for", blob)
         self.assertIn("course code MCF3M", blob)
         self.assertIn("student portal", blob)
         self.assertIn("due by Monday", blob)
@@ -318,7 +324,7 @@ class UnlabelledScrubTests(unittest.TestCase):
         log = {
             "severity_text": "warning",
             "severity_number": 13,
-            "body": prose,
+            "body": f"{prose} {bare}",
             "attributes": {
                 "course_code": "MCF3M",
                 "code": "pin_not_set",
@@ -334,7 +340,27 @@ class UnlabelledScrubTests(unittest.TestCase):
         self.assertIn("MCF3M", log_blob)
         self.assertIn("pin_not_set", log_blob)
         self.assertIn("2026", log_blob)
+        self.assertIn("lookup failed for", log_blob)
         self.assertEqual(logged["attributes"]["course_code"], "MCF3M")
+        bare_log = before_send_log(
+            {
+                "severity_text": "warning",
+                "severity_number": 13,
+                "body": bare,
+                "attributes": {
+                    "course_code": "MCF3M",
+                    "sentry.message.template": "lookup failed for %s / %s / %s / %s",
+                    "sentry.message.parameter.0": FAKE_JOIN,
+                    "sentry.message.parameter.1": FAKE_PIN,
+                    "sentry.message.parameter.2": f"{FAKE_NAME} {FAKE_LAST}",
+                    "sentry.message.parameter.3": FAKE_EMAIL,
+                },
+            }
+        )
+        self.assertIsNotNone(bare_log)
+        bare_blob = self._assert_banned(bare_log, "cue-less log")
+        self.assertIn("lookup failed for", bare_blob)
+        self.assertEqual(bare_log["attributes"]["course_code"], "MCF3M")
 
         crumb = before_breadcrumb(
             {
@@ -348,6 +374,13 @@ class UnlabelledScrubTests(unittest.TestCase):
         crumb_blob = self._assert_banned(crumb, "breadcrumb")
         self.assertIn("by [redacted]", crumb_blob)
         self.assertIn("[redacted]", crumb_blob)
+        bare_crumb = before_breadcrumb(
+            {"category": "query", "message": bare},
+            None,
+        )
+        self.assertIsNotNone(bare_crumb)
+        bare_crumb_blob = self._assert_banned(bare_crumb, "cue-less breadcrumb")
+        self.assertIn("lookup failed for", bare_crumb_blob)
 
 
 class RequestSurfaceTests(unittest.TestCase):
@@ -483,8 +516,9 @@ const prose = [
   "ping " + EMAIL,
   "course code MCF3M student portal due by Monday in 2026 code pin_not_set",
 ].join(" ");
+const bare = "lookup failed for " + JOIN + " / " + PIN + " / " + NAME + " " + LAST + " / " + EMAIL;
 const event = {
-  message: prose,
+  message: prose + " " + bare,
   extra: {
     note: "tap by " + NAME + " code " + CATCH + " typed " + PIN,
     course_code: "MCF3M",
@@ -493,7 +527,7 @@ const event = {
     pin: PIN,
     join_code: JOIN,
   },
-  exception: { values: [{ type: "Error", value: prose, stacktrace: { frames: [{
+  exception: { values: [{ type: "Error", value: prose + " " + bare, stacktrace: { frames: [{
     filename: "app.js",
     vars: { scratch: "onlylocalSECRET", pin: PIN, email: EMAIL },
   }] } }] },
@@ -512,6 +546,7 @@ const event = {
   },
   breadcrumbs: [
     { category: "custom", message: "tap by " + NAME + " code " + JOIN, data: { note: "typed " + PIN } },
+    { category: "query", message: bare },
     { category: "console", message: NAME },
   ],
   user: { id: "7", username: NAME, email: EMAIL },
@@ -523,6 +558,7 @@ for (const secret of [NAME, LAST, NAME.toLowerCase(), LAST.toLowerCase(), EMAIL,
   assert(!blob.includes(secret), "leaked " + secret + " in " + blob);
 }
 assert(blob.includes("tap by [redacted]"), blob);
+assert(blob.includes("lookup failed for"), blob);
 assert(blob.includes("course code MCF3M"), blob);
 assert(blob.includes("student portal"), blob);
 assert(blob.includes("due by Monday"), blob);
@@ -538,7 +574,7 @@ assert(sent.request.headers["User-Agent"] === "TestAgent/[redacted]", sent.reque
 assert(sent.request.headers.Referer === "https://alc.example/student/pick", sent.request.headers.Referer);
 assert(!sent.exception.values[0].stacktrace.frames[0].vars, "frame locals");
 assert(JSON.stringify(sent.user) === '{"id":"7"}', "user");
-assert(sent.breadcrumbs.length === 1, "console crumb dropped");
+assert(sent.breadcrumbs.length === 2, "console crumb dropped " + sent.breadcrumbs.length);
 const cyclic = { message: "boom" };
 cyclic.extra = { loop: cyclic };
 assert(opts.beforeSend(cyclic) === null, "scrub failure must drop the event");
@@ -554,6 +590,12 @@ for (const secret of [NAME, PIN, JOIN, EMAIL]) {
   assert(!keptBlob.includes(secret), "crumb leaked " + secret);
 }
 assert(keptBlob.includes("by [redacted]"), keptBlob);
+const bareCrumb = opts.beforeBreadcrumb({ category: "query", message: bare });
+const bareBlob = JSON.stringify(bareCrumb);
+for (const secret of [NAME, LAST, EMAIL, PIN, JOIN]) {
+  assert(!bareBlob.includes(secret), "cue-less crumb leaked " + secret + " " + bareBlob);
+}
+assert(bareBlob.includes("lookup failed for"), bareBlob);
 console.log("ok");
 """
         completed = subprocess.run(

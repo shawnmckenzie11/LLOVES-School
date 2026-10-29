@@ -357,6 +357,32 @@
     accept: 1, "accept-language": 1, "content-length": 1, "content-type": 1,
     host: 1, referer: 1, "user-agent": 1,
   };
+  // All-letter tokens of join-code length that are ordinary log words.
+  // Keep in sync with ``_ORDINARY_CODE_WORDS`` in sentry_wire.py.
+  var ORDINARY_CODE_WORDS = {
+    lookup: 1, failed: 1, failure: 1, edited: 1, opened: 1, saved: 1,
+    publish: 1, import: 1, added: 1, request: 1, response: 1, status: 1,
+    disk: 1, full: 1, locked: 1, database: 1, joined: 1, handler: 1,
+    typed: 1, ping: 1, keep: 1, post: 1, get: 1, put: 1, head: 1, patch: 1,
+    http: 1, https: 1, json: 1, html: 1, info: 1, debug: 1, warn: 1,
+    trace: 1, span: 1, event: 1, from: 1, with: 1, that: 1, this: 1,
+    when: 1, have: 1, been: 1, were: 1, your: 1, into: 1, over: 1, after: 1,
+    before: 1, about: 1, there: 1, where: 1, which: 1, other: 1, only: 1,
+    also: 1, just: 1, like: 1, some: 1, each: 1, both: 1, most: 1, many: 1,
+    more: 1, back: 1, down: 1, here: 1, once: 1, year: 1, date: 1, time: 1,
+    open: 1, close: 1, start: 1, stop: 1, save: 1, send: 1, load: 1, read: 1,
+    file: 1, path: 1, host: 1, port: 1, type: 1, data: 1, body: 1, text: 1,
+    note: 1, test: 1, drop: 1, pass: 1, skip: 1, done: 1, left: 1, next: 1,
+    main: 1, base: 1, size: 1, line: 1, take: 1, quit: 1, bank: 1, true: 1,
+    false: 1, none: 1, null: 1, error: 1, warning: 1, critical: 1, fatal: 1,
+    course: 1, select: 1, from: 1, where: 1, insert: 1, update: 1, delete: 1,
+    values: 1, table: 1, index: 1, limit: 1, order: 1, inner: 1, outer: 1,
+    count: 1, union: 1, having: 1, distinct: 1, exists: 1, unique: 1,
+    check: 1, column: 1, schema: 1, using: 1, case: 1, then: 1, else: 1,
+    desc: 1, offset: 1, fetch: 1, pragma: 1, vacuum: 1, begin: 1, commit: 1,
+    alter: 1, create: 1, explain: 1, ignore: 1, abort: 1, rollback: 1,
+  };
+  Object.keys(NOT_A_BY_NAME).forEach(function (word) { ORDINARY_CODE_WORDS[word] = 1; });
 
   /**
    * True when a string is shaped like a live join or catch-up code.
@@ -372,10 +398,33 @@
   }
 
   /**
-   * True for a 4-digit token that is not a calendar year.
+   * True for a ministry course code such as MCF3M.
    * @param {string} value
    * @returns {boolean}
    */
+  function isOntarioCourseCode(value) {
+    return /^[A-Za-z]{3}[1-4][A-Za-z]$/.test(String(value || "").trim());
+  }
+
+  /**
+   * True when a free-text token is a join or catch-up code with no cue word.
+   * A letter plus a digit, length 4, 5, 6, or 8. Course codes stay. An
+   * all-letter token stays unless it is all capitals and not a log word.
+   * @param {string} value
+   * @returns {boolean}
+   */
+  function shouldRedactCodeToken(value) {
+    var text = String(value || "").trim();
+    if (!looksLikeJoinCode(text)) return false;
+    if (isOntarioCourseCode(text)) return false;
+    if (/\d/.test(text)) return true;
+    return (
+      /^[A-Za-z]+$/.test(text) &&
+      text === text.toUpperCase() &&
+      !ORDINARY_CODE_WORDS[text.toLowerCase()]
+    );
+  }
+
   function isUnlabelledPin(value) {
     var text = String(value || "").trim();
     if (!/^\d{4}$/.test(text)) return false;
@@ -443,6 +492,13 @@
       var prefix = String(whole).slice(0, offset);
       if (/course[_ \t]+$/i.test(prefix)) return all;
       return label + sep + "[redacted]";
+    });
+    text = text.replace(/\b(?:[A-Za-z0-9]{8}|[A-Za-z0-9]{6}|[A-Za-z0-9]{5}|[A-Za-z0-9]{4})\b/g, function (token) {
+      return shouldRedactCodeToken(token) ? "[redacted]" : token;
+    });
+    text = text.replace(/\b([A-Z][a-z]{2,})\s+([A-Z][a-z]{2,})\b/g, function (all, first, last) {
+      if (NOT_A_BY_NAME[first.toLowerCase()] || NOT_A_BY_NAME[last.toLowerCase()]) return all;
+      return "[redacted]";
     });
     text = text.replace(/(?<!\d)(\d{4})(?!\d)/g, function (digits) {
       return isUnlabelledPin(digits) ? "[redacted]" : digits;
