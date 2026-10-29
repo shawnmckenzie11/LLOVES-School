@@ -6,8 +6,9 @@ override. ``has_feature`` reads the override first and otherwise the plan
 default. Students have no accounts: a live session uses the teacher who
 owns it.
 
-This module does not attach :func:`feature_required` to any production
-route. Later tickets gate import, whiteboards, and the screens.
+Gate tickets call :func:`feature_required` on the routes they own.
+Students have no accounts, so a signed-out request follows the teacher
+who owns the live session.
 """
 
 from __future__ import annotations
@@ -404,7 +405,11 @@ def _positive_int(raw: Any) -> int | None:
 
 
 def _session_id_from_request(kwargs: dict[str, Any]) -> int | None:
-    """Live session id from the view kwargs or the current request.
+    """Live session id from the view kwargs, the request, or the student cookie.
+
+    Students do not sign in as staff. Their live session id is stored on
+    the Flask session after they join. A view that puts ``session_id``
+    in the URL still wins over that cookie.
 
     Args:
         kwargs: Keyword arguments bound for the view.
@@ -414,7 +419,7 @@ def _session_id_from_request(kwargs: dict[str, Any]) -> int | None:
         if found is not None:
             return found
     try:
-        from flask import has_request_context, request
+        from flask import has_request_context, request, session
     except ImportError:
         return None
     if not has_request_context():
@@ -430,7 +435,7 @@ def _session_id_from_request(kwargs: dict[str, Any]) -> int | None:
             found = _positive_int(source.get(name))
             if found is not None:
                 return found
-    return None
+    return _positive_int(session.get("student_live_session_id"))
 
 
 def _caller_has_feature(key: str, kwargs: dict[str, Any]) -> bool:
@@ -461,8 +466,7 @@ def feature_required(key: str) -> Callable:
 
     Staff and IT are checked with :func:`has_feature`. A signed-out
     request uses :func:`feature_for_session` when the view names a live
-    session. Off is 404, not 403. Do not put this on production routes
-    in the registry PR; the gate tickets do that.
+    session, or when the student cookie has one. Off is 404, not 403.
 
     Args:
         key: Feature key that must be on.
@@ -486,3 +490,124 @@ def feature_required(key: str) -> Callable:
         return wrapped
 
     return decorator
+
+
+def feature_required_any(*keys: str) -> Callable:
+    """Decorate a view so it runs when any listed key is on.
+
+    Off for every listed key is 404. The same caller rules as
+    :func:`feature_required` apply. An empty key list is always off.
+
+    Args:
+        keys: Feature keys. One on-key is enough.
+
+    Returns:
+        A decorator for a Flask view.
+    """
+
+    def decorator(view: Callable) -> Callable:
+        """Attach the any-key check to ``view``."""
+
+        @wraps(view)
+        def wrapped(*args: Any, **kwargs: Any):
+            """Return 404 when every listed key is off for this caller."""
+            if not any(_caller_has_feature(key, kwargs) for key in keys):
+                from flask import abort
+
+                abort(404)
+            return view(*args, **kwargs)
+
+        return wrapped
+
+    return decorator
+
+
+def deny_unless(key: str, **kwargs: Any) -> None:
+    """Abort 404 when the current caller does not have ``key``.
+
+    Use this inside one branch of a view that also serves an ungated
+    method. ``kwargs`` are the view arguments, used to find a live session
+    when nobody is signed in.
+
+    Args:
+        key: Feature key that must be on.
+        kwargs: View keyword arguments.
+    """
+    if _caller_has_feature(key, kwargs):
+        return
+    from flask import abort
+
+    abort(404)
+
+
+def feature_map(user: Any) -> dict[str, bool]:
+    """Every registry flag for ``user``.
+
+    Missing users are all off. The map is booleans only.
+
+    Args:
+        user: Staff or IT user row.
+
+    Returns:
+        ``feature_key`` to whether it is on.
+    """
+    return {key: has_feature(user, key) for key in FEATURE_KEYS}
+
+
+def limits_apply(user: Any) -> bool:
+    """True when this teacher is on the free caps.
+
+    A ``pro`` plan is not capped. The launch grant turns ``catchup_full``
+    on, and that grant is the same "keep everything" mark, so those
+    teachers are not capped either. A missing user is capped.
+
+    Args:
+        user: Staff or IT user row.
+    """
+    row = _as_user(user)
+    if row is None:
+        return True
+    if str(row.get("plan") or PLAN_BASIC).strip().lower() == PLAN_PRO:
+        return False
+    return not has_feature(row, "catchup_full")
+
+
+def grant_testing_login(user: Any) -> None:
+    """Turn every registry key on after a staff login in a Flask test app.
+
+    The launch grant runs at boot, before a test calls ``register_staff``.
+    Existing suites then sign in through the mock Google callback and
+    expect the full product. Production leaves this function unused
+    because ``TESTING`` is off. A second login does not rewrite rows that
+    are already on.
+
+    Args:
+        user: User row. Roles other than staff and IT are ignored.
+    """
+    try:
+        from flask import current_app, has_app_context
+    except ImportError:
+        return
+    if not has_app_context() or not current_app.config.get("TESTING"):
+        return
+    row = _as_user(user)
+    if row is None:
+        return
+    if str(row.get("role") or "").strip().lower() not in {"staff", "it"}:
+        return
+    school = _school()
+    with school._lock:
+        stamp = _now()
+        for key in FEATURE_KEYS:
+            school.conn.execute(
+                """
+                INSERT INTO user_features (user_id, feature_key, enabled, updated_at)
+                VALUES (?, ?, 1, ?)
+                ON CONFLICT(user_id, feature_key) DO UPDATE SET
+                    enabled = 1,
+                    updated_at = excluded.updated_at
+                WHERE user_features.enabled != 1
+                """,
+                (int(row["id"]), key, stamp),
+            )
+        school.conn.commit()

@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/static/whiteboard_formative.css">
 
   {% include "_sentry_browser.html" %}
+  <script id="lloves-features" type="application/json">{{ teacher_features_json|safe }}</script>
 </head>
 <body class="staff-shell{% if tab in ['modules', 'pages', 'assignments', 'quizzes', 'library', 'question-banks'] %} course-modules{% elif tab == 'live' %} course-live{% endif %}"
       data-user-id="{{ user.id }}"
@@ -560,6 +561,7 @@
                   <button type="button" class="secondary" id="live-deck-copy-keep" hidden>Keep current</button>{# copy: Wonder #}
                 </div>
               </div>
+              {% if teacher_features.slides_import %}
               <form id="set-class-slides-form" class="live-google-slides-form set-class-add-slides">
                 <label class="live-google-slides-label" for="set-class-slides-url">Share link
                   <input id="set-class-slides-url" type="url" inputmode="url" autocomplete="off" placeholder="https://docs.google.com/presentation/d/…" spellcheck="false">
@@ -574,6 +576,7 @@
                 <button type="submit" class="secondary" id="set-class-slides-add">Add Slides</button>
                 <button type="button" class="secondary" id="set-class-slides-remove" hidden>Remove slides</button>
               </form>
+              {% endif %}
               <p class="hint compact" id="set-class-slides-error" hidden></p>
             </div>
           </div>
@@ -634,9 +637,13 @@
             <div class="live-active-toolbar">
               <h2 class="live-content-heading">Content</h2>
               <nav class="live-content-tabs" id="live-content-tabs" aria-label="Content">
+                {% if teacher_features.media %}
                 <button type="button" class="live-content-tab" data-tab="media">Media</button>
+                {% endif %}
                 <button type="button" class="live-content-tab is-active" data-tab="questions" aria-current="page">Questions</button>
+                {% if teacher_features.whiteboard or teacher_features.whiteboard_submit %}
                 <button type="button" class="live-content-tab" data-tab="canvas">Whiteboard</button>
+                {% endif %}
                 <button type="button" class="live-content-tab" data-tab="slides">Slides</button>
               </nav>
             </div>
@@ -792,7 +799,7 @@
                 <p class="hint compact live-reopen-toast" id="live-canvas-reopen-toast" hidden role="status"></p>
                 <div class="live-group-setup-opts-host" data-group-setup-opts-host="canvas" hidden></div>
                 <p class="hint compact">Whiteboard lasts for this live class. Text stays until the class ends.</p>
-                <section id="formative-live-board" class="wb-live" hidden>
+                <section id="formative-live-board" class="wb-live" hidden data-refresh-ms="{{ 30000 if teacher_features.whiteboard_submit and not teacher_features.whiteboard else 2000 }}">
                   <header class="wb-live-head">
                     <div>
                       <h2 class="wb-live-title">Live whiteboard</h2>
@@ -806,7 +813,11 @@
                           <option value="5">5</option>
                         </select>
                       </label>
+                      {% if teacher_features.whiteboard %}
                       <span class="wb-live-pill">Live</span>
+                      {% else %}
+                      <button type="button" id="wb-live-refresh" class="secondary">Refresh</button>
+                      {% endif %}
                     </div>
                   </header>
                   <div id="wb-live-filters" class="wb-live-filters" role="tablist"></div>
@@ -851,9 +862,11 @@
                 </div>
                 <p class="hint compact" id="live-slides-empty">{# copy: Wonder #}No slides yet. Add a deck when you start a live class, at step 3 (Which deck?).</p>
                 <p class="hint compact" id="live-google-slides-count" hidden></p>
+                {% if teacher_features.slides_import %}
                 <div class="live-google-slides-stage" id="live-google-slides-stage" hidden>
                   <img id="live-google-slides-card" class="live-google-slides-card" alt="">
                 </div>
+                {% endif %}
                 <iframe id="live-slides-preview" class="live-slides-preview" title="Live class slides" hidden></iframe>
               </section>
             </div>
@@ -1474,7 +1487,9 @@
         <div id="portfolio-lenses"></div>
         <div class="row-actions compact">
           <button type="button" id="portfolio-generate">Generate HTML</button>
+          {% if teacher_features.portfolio_gdoc %}
           <button type="button" class="secondary" id="portfolio-drive">Generate Google Doc</button>
+          {% endif %}
         </div>
         <p id="portfolio-build-status" class="hint compact" hidden></p>
       </section>
