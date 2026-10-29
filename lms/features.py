@@ -1,9 +1,10 @@
 """Per-teacher feature switches (MCK-345).
 
-The registry says which keys a basic-plan teacher has. ``user_features``
-stores a per-teacher override. ``has_feature`` reads the override first
-and otherwise the plan default. Students have no accounts: a live session
-uses the teacher who owns it.
+The registry says which keys a basic-plan teacher has. A ``pro`` plan
+turns every registry key on. ``user_features`` stores a per-teacher
+override. ``has_feature`` reads the override first and otherwise the plan
+default. Students have no accounts: a live session uses the teacher who
+owns it.
 
 This module does not attach :func:`feature_required` to any production
 route. Later tickets gate import, whiteboards, and the screens.
@@ -19,9 +20,10 @@ from typing import Any, Callable
 logger = logging.getLogger(__name__)
 
 PLAN_BASIC = "basic"
+PLAN_PRO = "pro"
 
 #: One registry. True means on for a basic-plan teacher.
-#: Anything absent from this map is off.
+#: Anything absent from this map is off. ``pro`` turns every listed key on.
 FEATURE_REGISTRY: dict[str, bool] = {
     # Individual and group multiple choice.
     "mc_questions": True,
@@ -33,7 +35,10 @@ FEATURE_REGISTRY: dict[str, bool] = {
     "essay_questions": True,
     # Built-in live lesson decks.
     "live_slides": True,
+    # Most recent class only.
     "catchup_links": True,
+    # All past classes.
+    "catchup_full": False,
     "celebrations": True,
     # Automated gradebook, attendance, and participation.
     "gradebook_tracking": True,
@@ -41,6 +46,10 @@ FEATURE_REGISTRY: dict[str, bool] = {
     "game_show": True,
     # Google Slides / PowerPoint import.
     "slides_import": False,
+    # Individual draw-and-submit. The teacher overview refreshes on tap
+    # or a timer of 30 seconds or more, and is never streamed.
+    "whiteboard_submit": True,
+    # Real-time team whiteboards plus a live overview (pro).
     "whiteboard": False,
     "media": False,
     "team_draw": False,
@@ -82,8 +91,9 @@ def _now() -> str:
 def plan_default(plan: str | None, key: str) -> bool:
     """Return the plan default for ``key``.
 
-    Only ``basic`` is defined. A missing plan is basic. Unknown keys are
-    off on every plan. A per-teacher row still wins over this default.
+    ``basic`` uses the registry flag. ``pro`` turns on every registry key.
+    A missing plan is basic. Unknown keys and any other plan are off.
+    A per-teacher row still wins over this default.
 
     Args:
         plan: ``users.plan``, or None when the column is empty.
@@ -93,9 +103,12 @@ def plan_default(plan: str | None, key: str) -> bool:
         True when a teacher on this plan has the feature with no override.
     """
     normalized = (plan or PLAN_BASIC).strip().lower()
+    name = str(key or "")
+    if normalized == PLAN_PRO:
+        return name in FEATURE_REGISTRY
     if normalized != PLAN_BASIC:
         return False
-    return bool(FEATURE_REGISTRY.get(str(key or ""), False))
+    return bool(FEATURE_REGISTRY.get(name, False))
 
 
 def ensure_feature_schema(conn: Any) -> None:

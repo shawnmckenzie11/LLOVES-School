@@ -75,7 +75,7 @@ class FeatureSchemaTests(unittest.TestCase):
     """Older sqlite files gain the column and the table."""
 
     def test_registry_defaults_and_unknown_keys(self) -> None:
-        """Basic plan matches the registry. Unknown keys and plans are off."""
+        """Basic matches the registry. Pro turns every registry key on."""
         self.assertEqual(len(FEATURE_KEYS), len(set(FEATURE_KEYS)))
         self.assertEqual(set(BASIC_ON) | set(BASIC_OFF), set(FEATURE_KEYS))
         for key in BASIC_ON:
@@ -85,6 +85,13 @@ class FeatureSchemaTests(unittest.TestCase):
         for key in BASIC_OFF:
             self.assertFalse(FEATURE_REGISTRY[key], key)
             self.assertFalse(plan_default("basic", key), key)
+        self.assertTrue(plan_default("basic", "whiteboard_submit"))
+        self.assertFalse(plan_default("basic", "whiteboard"))
+        self.assertTrue(plan_default("basic", "catchup_links"))
+        self.assertFalse(plan_default("basic", "catchup_full"))
+        for key in FEATURE_KEYS:
+            self.assertTrue(plan_default("pro", key), key)
+        self.assertFalse(plan_default("pro", "not_in_registry"))
         self.assertFalse(plan_default("basic", "not_in_registry"))
         self.assertFalse(plan_default("other", "mc_questions"))
 
@@ -239,6 +246,10 @@ class FeatureAccessTests(unittest.TestCase):
             self.assertTrue(flags[key], key)
         for key in BASIC_OFF:
             self.assertFalse(flags[key], key)
+        self.assertTrue(flags["whiteboard_submit"])
+        self.assertTrue(flags["catchup_links"])
+        self.assertFalse(flags["whiteboard"])
+        self.assertFalse(flags["catchup_full"])
         with self.app.app_context():
             self.assertFalse(has_feature(user, "not_in_registry"))
 
@@ -250,6 +261,9 @@ class FeatureAccessTests(unittest.TestCase):
         self.assertEqual(again["rows_written"], 0)
         self.assertEqual(self._rows_for(int(late["id"])), 0)
         self.assertFalse(self._flags(late)["whiteboard"])
+        self.assertFalse(self._flags(late)["catchup_full"])
+        self.assertTrue(self._flags(late)["whiteboard_submit"])
+        self.assertTrue(self._flags(late)["catchup_links"])
         self.assertTrue(self._flags(late)["mc_questions"])
 
     def test_it_role_is_granted_at_boot(self) -> None:
@@ -275,6 +289,29 @@ class FeatureAccessTests(unittest.TestCase):
         set_feature_override(self.school, int(user["id"]), "not_in_registry", True)
         with self.app.app_context():
             self.assertTrue(has_feature(user, "not_in_registry"))
+
+    def test_pro_plan_turns_on_every_key_until_an_override(self) -> None:
+        """Pro enables every registry key. An off override still wins."""
+        user = self.school.register_staff("pro-teacher@example.com", "Pro")
+        self.school.conn.execute(
+            "UPDATE users SET plan = 'pro' WHERE id = ?",
+            (int(user["id"]),),
+        )
+        fresh = self.school.get_user(int(user["id"]))
+        self.assertIsNotNone(fresh)
+        assert fresh is not None
+        self.assertEqual(fresh.get("plan"), "pro")
+        self.assertEqual(self._rows_for(int(user["id"])), 0)
+        flags = self._flags(fresh)
+        for key in FEATURE_KEYS:
+            self.assertTrue(flags[key], key)
+        with self.app.app_context():
+            self.assertFalse(has_feature(fresh, "not_in_registry"))
+        set_feature_override(self.school, int(user["id"]), "whiteboard", False)
+        after = self._flags(fresh)
+        self.assertFalse(after["whiteboard"])
+        self.assertTrue(after["whiteboard_submit"])
+        self.assertTrue(after["catchup_full"])
 
     def test_migration_grants_the_cohort_and_rerun_writes_nothing(self) -> None:
         """Staff, IT, allowlist, and test accounts get every key. The second run is a no-op."""
@@ -378,6 +415,13 @@ class FeatureAccessTests(unittest.TestCase):
         opened = basic_client.get("/__test/feature/mc_questions")
         self.assertEqual(opened.status_code, 200)
         self.assertEqual(opened.get_data(as_text=True), "mc_questions")
+        submit = basic_client.get("/__test/feature/whiteboard_submit")
+        self.assertEqual(submit.status_code, 200)
+        self.assertEqual(submit.get_data(as_text=True), "whiteboard_submit")
+        recent = basic_client.get("/__test/feature/catchup_links")
+        self.assertEqual(recent.status_code, 200)
+        full = basic_client.get("/__test/feature/catchup_full")
+        self.assertEqual(full.status_code, 404)
 
     def test_signed_out_probe_follows_the_session_teacher(self) -> None:
         """A signed-out caller uses the session owner. A signed-in teacher does not borrow it."""
