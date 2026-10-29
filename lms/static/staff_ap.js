@@ -3368,7 +3368,12 @@ function paintGoogleSlidesChrome() {
     if (card instanceof HTMLImageElement) {
       card.removeAttribute("src");
     }
-    if (close) close.textContent = "Close";
+    if (close instanceof HTMLButtonElement) {
+      close.hidden = false;
+      close.textContent = "Close";
+    }
+    const unpublish = $("live-slides-unpublish");
+    if (unpublish instanceof HTMLButtonElement) unpublish.hidden = true;
     paintSlidesEmpty();
     return;
   }
@@ -3399,8 +3404,13 @@ function paintGoogleSlidesChrome() {
   const publish = document.querySelector('[data-surface-publish="slides"]');
   if (publish instanceof HTMLButtonElement) publish.disabled = shared;
   if (close instanceof HTMLButtonElement) {
-    close.textContent = "Unpublish";
-    close.disabled = !shared;
+    close.hidden = true;
+    close.textContent = "Close";
+  }
+  const unpublish = $("live-slides-unpublish");
+  if (unpublish instanceof HTMLButtonElement) {
+    unpublish.hidden = false;
+    unpublish.disabled = !shared || slidePostInFlight;
   }
   paintSlidesEmpty();
 }
@@ -3443,6 +3453,7 @@ async function postGoogleSlideAction(action, index) {
   const body = action === "current" ? JSON.stringify({ index: pageIndex }) : "{}";
   slidePostInFlight = true;
   paintStageRail();
+  paintGoogleSlidesChrome();
   try {
     const data = await api(path, { method: "POST", body });
     if (data?.google_slides) lastGoogleSlides = data.google_slides;
@@ -3461,6 +3472,23 @@ async function postGoogleSlideAction(action, index) {
  */
 async function showGoogleSlideIndex(index) {
   await postGoogleSlideAction("current", index);
+  paintSurfacePublishing();
+}
+
+/**
+ * Hide only the slide on screen. Other pages keep their published flag.
+ * @returns {Promise<void>}
+ */
+async function unpublishCurrentSlide() {
+  const deck = googleSlidesDeck();
+  if (!deck || slidePostInFlight) return;
+  const index = Math.max(
+    0,
+    Math.min(deck.pages.length - 1, Number(deck.current_index) || 0)
+  );
+  const page = deck.pages[index] || {};
+  if (!page.published) return;
+  await postGoogleSlideAction("unpublish", index);
   paintSurfacePublishing();
 }
 
@@ -13274,6 +13302,9 @@ document.querySelectorAll("[data-surface-close]").forEach((button) => {
     closeSurface(button.getAttribute("data-surface-close"))
       .catch((err) => showError("#ap-overlay-error", err));
   });
+});
+$("live-slides-unpublish")?.addEventListener("click", () => {
+  unpublishCurrentSlide().catch((err) => showError("#ap-overlay-error", err));
 });
 $("set-class-slides-form")?.addEventListener("submit", (event) => {
   addSetClassSlides(event).catch((err) => showError("#ap-overlay-error", err));

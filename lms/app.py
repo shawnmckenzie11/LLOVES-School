@@ -1224,10 +1224,15 @@ def _pin_portal_identity(school: SchoolDB) -> tuple[int, int] | None:
 
 
 def _student_post_live_end_destination(school: SchoolDB) -> str:
-    """Where students land when live ends; PIN portal returns to the dashboard."""
+    """Where students land when live ends; PIN portal returns to the dashboard.
+
+    The join page gets ``ended=1`` from this same redirect. That flag is
+    the quit/end signal the student poll already follows. It does not
+    start another poll.
+    """
     if resolve_pin_portal_context(school, session) is not None:
         return url_for("student_dashboard")
-    return url_for("landing")
+    return url_for("landing", ended=1)
 
 
 def _student_dashboard_live_handover(
@@ -2224,6 +2229,46 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             form=form,
             access_utm=access_campaign_tags(incoming),
         )
+
+    def _public_legal_page(kind: str):
+        """Render one noindex placeholder for privacy, terms, or support.
+
+        Policy text is not invented. Support only points at the public
+        request form and does not publish a contact address.
+
+        Args:
+            kind: ``privacy``, ``terms``, or ``support``.
+
+        Returns:
+            HTML response with ``X-Robots-Tag: noindex``.
+        """
+        titles = {"privacy": "Privacy", "terms": "Terms", "support": "Support"}
+        if kind not in titles:
+            abort(404)
+        resp = make_response(
+            render_template(
+                "legal_page.html",
+                page_kind=kind,
+                page_title=titles[kind],
+            )
+        )
+        resp.headers["X-Robots-Tag"] = "noindex"
+        return resp
+
+    @app.route("/privacy")
+    def privacy():
+        """Public privacy placeholder. Not an approved notice."""
+        return _public_legal_page("privacy")
+
+    @app.route("/terms")
+    def terms():
+        """Public terms placeholder. Not an approved contract."""
+        return _public_legal_page("terms")
+
+    @app.route("/support")
+    def support():
+        """Public support placeholder: how to request access."""
+        return _public_legal_page("support")
 
     @app.route("/health")
     def health():

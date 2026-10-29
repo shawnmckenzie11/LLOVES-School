@@ -26,6 +26,7 @@
     body.landing-page .join-card h1 { margin:0 0 1rem; font-size:1.4rem; text-align:center; }
     body.landing-page .join-card input, body.landing-page .join-card button[type="submit"] { box-sizing:border-box; width:100%; }
     body.landing-page .join-card button[type="submit"] { min-height:3rem; margin-top:1rem; font-size:1.05rem; }
+    body.landing-page .class-ended-note { margin:0 0 1rem; text-align:center; }
     @media (max-width: 480px) {
       body.landing-page .join-card { margin-top:1rem; }
       body.landing-page .join-topbar { flex-wrap:wrap; justify-content:center; }
@@ -43,6 +44,7 @@
   </header>
   <main class="wrap landing-wrap join-card" id="sign-in">
     <h1>Join Class</h1>
+    {% if class_ended_note %}<p class="hint class-ended-note" id="class-ended-note" role="status">{{ class_ended_note }}</p>{% endif %}
     {% if student_error %}<div class="error" id="error">{{ student_error }}</div>{% endif %}
     <form class="student-code-panel" id="student-code-panel" method="post" action="{{ url_for('auth_student_code') }}">
       <label class="field" for="code">Join code</label>
@@ -75,6 +77,7 @@
       <p class="sub">{{ celebration_copy.coming_soon_sub }}</p>
     </article>
   </section>
+  {% include "_legal_footer.html" %}
   <script src="/static/unsent_signout.js"></script>
   <script>
     (function () {

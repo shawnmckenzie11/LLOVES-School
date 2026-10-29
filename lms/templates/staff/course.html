@@ -846,6 +846,7 @@
                 <div class="live-surface-publish" data-surface-controls="slides">
                   <span class="live-status-badge" data-surface-status="slides">Inactive</span>
                   <button type="button" data-surface-publish="slides">Publish</button>
+                  <button type="button" class="secondary" id="live-slides-unpublish" data-slide-unpublish hidden>Unpublish</button>
                   <button type="button" class="secondary" data-surface-close="slides" disabled>Close</button>
                 </div>
                 <p class="hint compact" id="live-slides-empty">{# copy: Wonder #}No slides yet. Add a deck when you start a live class, at step 3 (Which deck?).</p>
@@ -1587,5 +1588,6 @@
       </div>
     </form>
   </dialog>
+  {% include "_legal_footer.html" %}
 </body>
 </html>
