@@ -1411,6 +1411,12 @@ def _finish_google_identity(
             message="This Google account is not registered. Ask IT, or request access from the home page.",
         ), 403
 
+    try:
+        from features import grant_testing_login
+    except ImportError:
+        from lms.features import grant_testing_login
+    grant_testing_login(user)
+
     needs_mfa = staff_2fa_challenge_required(user)
     if needs_mfa:
         _code, emailed = _send_first_login_code(user)
@@ -1537,6 +1543,10 @@ def _disconnect_student_live_if_bound() -> None:
 
 def register_auth_routes(app: Flask) -> None:
     """Attach Google, verify, logout, and student-code routes."""
+    try:
+        from features import feature_required
+    except ImportError:
+        from lms.features import feature_required
 
     @app.route("/auth/google")
     def auth_google():
@@ -1779,6 +1789,7 @@ def register_auth_routes(app: Flask) -> None:
 
     @app.route("/auth/google/slides")
     @login_required
+    @feature_required("slides_import")
     def auth_google_slides():
         """Start incremental Slides/Drive OAuth for allowlisted Shawn accounts."""
         user = current_user()
@@ -1821,6 +1832,7 @@ def register_auth_routes(app: Flask) -> None:
 
     @app.route("/auth/google/slides/callback")
     @login_required
+    @feature_required("slides_import")
     def auth_google_slides_callback():
         """Store a refresh token for deck creation; does not change login identity."""
         user = current_user()
@@ -1889,6 +1901,7 @@ def register_auth_routes(app: Flask) -> None:
 
     @app.route("/auth/google/slides-read")
     @login_required
+    @feature_required("slides_import")
     def auth_google_slides_read():
         """Start incremental read-only Slides consent for a private deck.
 
@@ -1934,6 +1947,7 @@ def register_auth_routes(app: Flask) -> None:
 
     @app.route("/auth/google/slides-read/callback")
     @login_required
+    @feature_required("slides_import")
     def auth_google_slides_read_callback():
         """Store a Slides read-only refresh token, apart from the Drive token."""
         user = current_user()
@@ -2012,6 +2026,7 @@ def register_auth_routes(app: Flask) -> None:
 
     @app.route("/api/auth/slides-status")
     @login_required
+    @feature_required("slides_import")
     def api_slides_status():
         """JSON: whether this user can connect and already has a token."""
         user = current_user()

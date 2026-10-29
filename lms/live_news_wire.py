@@ -1047,6 +1047,13 @@ def emit_session_news(
     if not events:
         return []
     try:
+        from feature_gates import news_events_for_session
+    except ImportError:
+        from lms.feature_gates import news_events_for_session
+    events = news_events_for_session(int(session_id), events)
+    if not events:
+        return []
+    try:
         return log_for(school.data_dir).append(int(session_id), events)
     except Exception:
         logger.warning("live news emit failed session=%s", session_id)

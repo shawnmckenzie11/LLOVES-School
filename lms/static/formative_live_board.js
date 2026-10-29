@@ -15,6 +15,21 @@ import {
 const TILE_POLL_MS = 2000;
 /** Open side panel refreshes faster than the grid. */
 const PANEL_POLL_MS = 500;
+/** Submit-only overviews wait at least this long between polls. */
+const SUBMIT_REFRESH_MS = 30000;
+/** Set by the Refresh button so the next gallery read is a tap. */
+let overviewTap = false;
+
+/**
+ * Poll gap for this page. Submit-only whiteboards use the server minimum.
+ * @returns {number}
+ */
+function overviewPollMs() {
+  const node = document.getElementById("formative-live-board");
+  const asked = Number(node && node.dataset ? node.dataset.refreshMs : TILE_POLL_MS);
+  if (Number.isFinite(asked) && asked >= SUBMIT_REFRESH_MS) return asked;
+  return TILE_POLL_MS;
+}
 const STUDENT_INK = "#2563eb";
 const TEACHER_INK = "#dc2626";
 
@@ -663,8 +678,10 @@ export function mountTeacherGrid(root) {
       for (const key of Object.keys(cursors)) delete cursors[key];
     }
     const query = encodeURIComponent(JSON.stringify(cursors));
+    const tap = overviewTap ? "&tap=1" : "";
+    overviewTap = false;
     const data = await readJson(
-      `/api/live-sessions/${id}/whiteboard-gallery?cursors=${query}`,
+      `/api/live-sessions/${id}/whiteboard-gallery?cursors=${query}${tap}`,
       { credentials: "same-origin" }
     );
     if (!data) return;
@@ -766,11 +783,20 @@ export function mountTeacherGrid(root) {
     });
     observer.observe(ap, { attributes: true, attributeFilter: ["data-live-session-id"] });
   }
+  const refreshButton = document.getElementById("wb-live-refresh");
+  if (refreshButton) {
+    refreshButton.addEventListener("click", () => {
+      overviewTap = true;
+      pollTiles();
+    });
+  }
+  const pollMs = overviewPollMs();
+  const panelMs = pollMs >= SUBMIT_REFRESH_MS ? pollMs : PANEL_POLL_MS;
   pollTiles();
-  tileTimer = window.setInterval(pollTiles, TILE_POLL_MS);
+  tileTimer = window.setInterval(pollTiles, pollMs);
   panelTimer = window.setInterval(() => {
     if (openKey) refreshPanel();
-  }, PANEL_POLL_MS);
+  }, panelMs);
   void tileTimer;
   void panelTimer;
 }

@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/static/whiteboard_formative.css">
 
   {% include "_sentry_browser.html" %}
+  <script id="lloves-features" type="application/json">{{ teacher_features_json|safe }}</script>
 </head>
 <body class="student-portal student-home{% if payload.scoring %} is-live{% elif payload.waiting_room != false %} is-waiting-room{% endif %}"
       data-scoring="{{ '1' if payload.scoring else '0' }}"
@@ -46,6 +47,7 @@
     <p class="media-caption" id="media-caption" hidden></p>
     <p class="media-toast" id="media-toast" hidden role="status"></p>
     <ul class="media-answers" id="media-answers" hidden></ul>
+    {% if teacher_features.media %}
     <div id="media-pane" class="media-pane student-floating-pane" hidden>
       <div class="student-pane-bar" data-pane-drag="media">
         <span>Media</span>
@@ -56,6 +58,8 @@
       <div id="media-lock" class="student-frame-lock" hidden>Media locked</div>
       <iframe id="media-frame" title="Live class media" sandbox="allow-scripts allow-same-origin"></iframe>
     </div>
+    {% endif %}
+    {% if teacher_features.whiteboard or teacher_features.whiteboard_submit %}
     <div id="canvas-pane" class="canvas-pane student-floating-pane" hidden>
       <div class="student-pane-bar" data-pane-drag="canvas">
         <span>Whiteboard</span>
@@ -75,13 +79,18 @@
         <div id="team-draw-mystery" class="team-draw-mystery" hidden aria-label="Mystery rule steps"></div>
         <p id="team-draw-step4-banner" class="team-draw-step4-banner" hidden>Step 4 — yours</p>
         <canvas id="student-canvas" class="student-canvas" aria-label="Live whiteboard"></canvas>
+        {% if teacher_features.whiteboard %}
         <div id="canvas-cursors" class="canvas-cursors" aria-hidden="true"></div>
+        {% endif %}
       </div>
+      {% if teacher_features.team_draw or teacher_features.group_draw %}
       <div id="team-draw-phone" class="team-draw-phone" hidden>
         <p id="team-draw-turn-pill" class="team-draw-turn-pill" hidden role="status"></p>
         <button type="button" id="team-draw-submit" class="team-draw-submit" hidden>Submit</button>
       </div>
+      {% endif %}
     </div>
+    {% endif %}
     <div id="slides-pane" class="slides-pane student-floating-pane" hidden>
       <div class="student-pane-bar" data-pane-drag="slides">
         <span>Slides</span>
@@ -90,7 +99,9 @@
       </div>
       <button type="button" class="student-pane-resize" data-pane-resize="slides" aria-label="Resize slides"></button>
       <div class="slides-fit-stage" id="slides-fit-stage">
+        {% if teacher_features.slides_import %}
         <img id="slides-card" class="slides-card-image" alt="" hidden>
+        {% endif %}
       </div>
       <iframe id="slides-frame" title="Live class slides" hidden sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
       <p id="slides-empty" class="slides-empty">No slides are connected yet.</p>

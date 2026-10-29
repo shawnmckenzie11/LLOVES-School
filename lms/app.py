@@ -1510,6 +1510,38 @@ def create_app(
     app.jinja_env.globals["safe_next_url"] = _safe_next_url
 
     @app.context_processor
+    def inject_teacher_features() -> dict[str, Any]:
+        """Expose registry flags for the signed-in teacher or the session owner.
+
+        Students follow the live session's teacher. The payload is booleans
+        only. A lookup failure hides pro-only controls.
+        """
+        import json
+
+        try:
+            from features import FEATURE_KEYS, feature_for_session, feature_map
+        except ImportError:
+            from lms.features import FEATURE_KEYS, feature_for_session, feature_map
+        flags = {key: False for key in FEATURE_KEYS}
+        try:
+            if has_request_context():
+                user = current_user()
+                if user is not None:
+                    flags = feature_map(user)
+                else:
+                    sid = session.get("student_live_session_id")
+                    if sid:
+                        flags = {
+                            key: feature_for_session(int(sid), key) for key in FEATURE_KEYS
+                        }
+        except Exception:
+            logger.exception("feature flags for this page failed")
+        return {
+            "teacher_features": flags,
+            "teacher_features_json": json.dumps(flags),
+        }
+
+    @app.context_processor
     def inject_public_brand() -> dict[str, str]:
         """Expose ALC display names and McKenzian credit on every template."""
         return public_brand()
@@ -1642,6 +1674,14 @@ def _same_origin_post() -> bool:
 
 
 def _register_pages(app: Flask, school: SchoolDB) -> None:
+    try:
+        from features import deny_unless, limits_apply
+    except ImportError:
+        from lms.features import deny_unless, limits_apply
+    try:
+        from feature_gates import BASIC_CLASS_CAP, BASIC_SEAT_CAP
+    except ImportError:
+        from lms.feature_gates import BASIC_CLASS_CAP, BASIC_SEAT_CAP
     """Landing, IT, staff, student, static, and module/syllabus routes."""
 
     def _audit(
@@ -3929,6 +3969,21 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         names = body.get("codenames") or []
         if not isinstance(names, list):
             return jsonify({"ok": False, "error": "codenames must be a list"}), 400
+        if limits_apply(user) and len(names) > BASIC_SEAT_CAP:
+            return jsonify(
+                {"ok": False, "error": "The basic plan allows 35 students in a class."}
+            ), 400
+        if limits_apply(user):
+            active = school.get_active_semester()
+            existing = (
+                school.list_staff_classes(int(user["id"]), int(active["id"]))
+                if active
+                else []
+            )
+            if len(existing) >= BASIC_CLASS_CAP:
+                return jsonify(
+                    {"ok": False, "error": "The basic plan allows 3 classes."}
+                ), 400
         days = str(body.get("days") or offering.get("live_days") or "")
         time_label = str(body.get("time") or offering.get("live_time") or "")
         if offering.get("live_days") and offering.get("live_time"):
@@ -3967,6 +4022,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         names = body.get("codenames") or []
         if not isinstance(names, list):
             return jsonify({"ok": False, "error": "codenames must be a list"}), 400
+        if limits_apply(user) and len(names) > BASIC_SEAT_CAP:
+            return jsonify(
+                {"ok": False, "error": "The basic plan allows 35 students in a class."}
+            ), 400
         active_live = school.get_active_live_session_for_class(int(class_id))
         if active_live is not None:
             return jsonify(
@@ -5542,6 +5601,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         save_to_bank = bool(save_raw)
         if isinstance(save_raw, str):
             save_to_bank = save_raw.strip().lower() in {"1", "true", "yes"}
+        question_type = str(body.get("type") or body.get("question_type") or "").strip().lower()
+        response_mode = str(body.get("response_mode") or "").strip().lower()
+        if question_type == "team_draw" or response_mode in {"team_draw", "group_draw"}:
+            if response_mode in {"group", "group_submit", "group_draw"}:
+                deny_unless("group_draw")
+            else:
+                deny_unless("team_draw")
         try:
             placement = school.add_staff_question_to_class_playlist(
                 int(class_id),
@@ -7006,6 +7072,34 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             offset=offset,
             limit=PAGE_SIZE,
         )
+        try:
+            from feature_gates import class_owner as _class_owner
+            from feature_gates import scope_catchup_links as _scope_catchup
+        except ImportError:
+            from lms.feature_gates import class_owner as _class_owner
+            from lms.feature_gates import scope_catchup_links as _scope_catchup
+        listed = school.list_catchup_links(int(held["class_id"]))
+        visible = _scope_catchup(_class_owner(school, int(held["class_id"])), listed)
+        if len(visible) != len(listed):
+            allowed = {
+                (
+                    str(row.get("live_module") or ""),
+                    str(row.get("live_slot") or ""),
+                    str(row.get("run_key") or ""),
+                )
+                for row in visible
+            }
+            rows = [
+                row
+                for row in rows
+                if (
+                    str(row.get("live_module") or ""),
+                    str(row.get("live_slot") or ""),
+                    str(row.get("run_key") or ""),
+                )
+                in allowed
+            ]
+            total = len(rows)
         return jsonify(
             {
                 "ok": True,
@@ -7718,6 +7812,10 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         live_session_id = int(
             ctx.get("live_session_id") or session["student_live_session_id"]
         )
+        from feature_gates import session_whiteboard_closed
+
+        if session_whiteboard_closed(live_session_id):
+            abort(404)
         body = request.get_json(silent=True) or {}
         team_id = school.student_team_id_for_class(int(class_id), int(student_id))
         name = str(ctx.get("codename") or body.get("name") or student_id).strip()
@@ -8332,10 +8430,16 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 session_id, live_item_id, sync="if_stale"
             )
             image_b64 = str(body.get("image") or body.get("image_png") or "")
-            if (
+            mode = str(item.get("response_mode") or "")
+            if mode == "group_draw":
+                deny_unless("group_draw", session_id=session_id)
+            else:
+                deny_unless("team_draw", session_id=session_id)
+            individual = (
                 school._question_answer_kind(item) == "team_draw"
-                and str(item.get("response_mode") or "") == "individual"
-            ):
+                and mode == "individual"
+            )
+            if individual:
                 card = school.submit_individual_draw(
                     session_id,
                     live_item_id,
@@ -8365,6 +8469,42 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
         return jsonify({"ok": True, "ack": True, "team_draw": card})
 
 def _register_game_api(app: Flask, school: SchoolDB) -> None:
+    try:
+        from features import (
+            deny_unless,
+            feature_required,
+            feature_required_any,
+            has_feature,
+            limits_apply,
+        )
+    except ImportError:
+        from lms.features import (
+            deny_unless,
+            feature_required,
+            feature_required_any,
+            has_feature,
+            limits_apply,
+        )
+    try:
+        from feature_gates import (
+            BASIC_CLASS_CAP,
+            BASIC_SEAT_CAP,
+            WHITEBOARD_SUBMIT_REFRESH_S,
+            catchup_row_allowed,
+            class_owner,
+            overview_refresh_allowed,
+            scope_catchup_links,
+        )
+    except ImportError:
+        from lms.feature_gates import (
+            BASIC_CLASS_CAP,
+            BASIC_SEAT_CAP,
+            WHITEBOARD_SUBMIT_REFRESH_S,
+            catchup_row_allowed,
+            class_owner,
+            overview_refresh_allowed,
+            scope_catchup_links,
+        )
     """Mount Math Game Show JSON APIs with staff (or student scoreboard) auth."""
 
     def _require_class_staff(class_id: int) -> tuple[Any, int] | None:
@@ -8375,6 +8515,101 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         if not school.teacher_owns_class(int(user["id"]), class_id):
             return jsonify({"ok": False, "error": "Forbidden"}), 403
         return None
+
+    def _reject_basic_roster(class_id: int) -> None:
+        """Raise when a free-plan class is already at the seat cap.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+
+        Raises:
+            ValueError: The named roster is already at 35.
+        """
+        user = current_user()
+        if user is None or not limits_apply(user):
+            return
+        try:
+            count = len(school.class_codenames(int(class_id)))
+        except Exception:
+            return
+        if count >= BASIC_SEAT_CAP:
+            raise ValueError("The basic plan allows 35 students in a class.")
+
+    def _whiteboard_flags(session_id: int) -> tuple[bool, bool]:
+        """Return ``(realtime, submit)`` for the caller of this live session.
+
+        A signed-in teacher uses their own flags. A student uses the
+        session owner. ``session_id`` is ignored for a signed-in teacher.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        user = current_user()
+        if user is not None:
+            return has_feature(user, "whiteboard"), has_feature(user, "whiteboard_submit")
+        try:
+            from features import feature_for_session
+        except ImportError:
+            from lms.features import feature_for_session
+        return (
+            feature_for_session(int(session_id), "whiteboard"),
+            feature_for_session(int(session_id), "whiteboard_submit"),
+        )
+
+    def _team_board_closed(session_id: int) -> bool:
+        """True when a team board is not on this plan.
+
+        Real-time whiteboards and group draw may use a ``team:`` board.
+        Draw-and-submit stays on the student's own board.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+        """
+        realtime, _submit = _whiteboard_flags(int(session_id))
+        if realtime:
+            return False
+        try:
+            from features import feature_for_session
+        except ImportError:
+            from lms.features import feature_for_session
+        return not feature_for_session(int(session_id), "group_draw")
+
+    def _whiteboard_overview_hold(session_id: int):
+        """404 when whiteboards are off. 429 when a submit-only overview is early.
+
+        Real-time whiteboards are not held. The hold is per reader id.
+
+        Args:
+            session_id: ``live_class_sessions.id``.
+
+        Returns:
+            A response tuple, or None when the read may continue.
+        """
+        realtime, submit = _whiteboard_flags(int(session_id))
+        if not realtime and not submit:
+            from flask import abort
+
+            abort(404)
+        if realtime:
+            return None
+        user = current_user()
+        if user is not None:
+            actor = f"u:{int(user['id'])}"
+        else:
+            actor = f"s:{int(session.get('student_id') or 0)}"
+        tap = str(request.args.get("tap") or "").strip().lower() in {"1", "true", "yes"}
+        if overview_refresh_allowed(int(session_id), actor, tap=tap):
+            return None
+        response = jsonify(
+            {
+                "ok": False,
+                "error": "Refresh in a moment.",
+                "refresh_ms": WHITEBOARD_SUBMIT_REFRESH_S * 1000,
+            }
+        )
+        response.status_code = 429
+        response.headers["Retry-After"] = str(WHITEBOARD_SUBMIT_REFRESH_S)
+        return response
 
     def _can_view_live_session(session_row: dict[str, Any]) -> bool:
         """True when the current user may poll this live session.
@@ -8966,6 +9201,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
     @app.route("/api/slide-imports/<job_id>", methods=["GET"])
     @login_required
+    @feature_required("slides_import")
     def api_slide_import_status(job_id: str):
         """Poll one slide import started by this teacher.
 
@@ -9041,6 +9277,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         methods=["POST"],
     )
     @login_required
+    @feature_required("slides_import")
     def api_live_session_google_slides_current(session_id: int):
         """Move the slide students see when that page is already published.
 
@@ -9069,6 +9306,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         methods=["POST"],
     )
     @login_required
+    @feature_required("slides_import")
     def api_live_session_google_slides_publish(session_id: int, index: int):
         """Publish one slide page and push it to students."""
         _row, err = _active_owned_live_session(session_id)
@@ -9087,6 +9325,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         methods=["POST"],
     )
     @login_required
+    @feature_required("slides_import")
     def api_live_session_google_slides_unpublish(session_id: int, index: int):
         """Unpublish one slide page. Other pages stay as they were."""
         _row, err = _active_owned_live_session(session_id)
@@ -9179,6 +9418,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         too_big = _slide_body_too_large()
         if too_big is not None:
             return too_big
+        deny_unless("slides_import")
         user = current_user()
         if user is None:
             return jsonify({"ok": False, "error": "Authentication required."}), 401
@@ -9341,6 +9581,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         methods=["GET", "POST"],
     )
     @login_required
+    @feature_required("media")
     def api_live_session_active_media(session_id: int):
         """Staff: read or set/swap/clear/patch live-session active media.
 
@@ -9977,6 +10218,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         methods=["GET"],
     )
     @login_required
+    @feature_required_any("team_draw", "group_draw")
     def api_team_draw_gallery(session_id: int, live_item_id: int):
         """Teacher gallery for one Team Draw item (session-only images)."""
 
@@ -9994,6 +10236,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         methods=["POST"],
     )
     @login_required
+    @feature_required_any("team_draw", "group_draw")
     def api_team_draw_clear(session_id: int, live_item_id: int):
         """End Team Draw boards: purge team ink and gallery blobs."""
 
@@ -10306,6 +10549,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         session_row = school.get_live_session(session_id)
         if session_row is None:
             return jsonify({"ok": False, "error": "Session not found"}), 404
+        from feature_gates import session_whiteboard_closed
+
+        if session_whiteboard_closed(session_id):
+            abort(404)
         body = request.get_json(silent=True) or {}
         as_teacher = False
         owner = ""
@@ -10491,11 +10738,17 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             return denied
         student_id = int(ctx["student_id"])
         live_session_id = int(ctx["live_session_id"])
+        from feature_gates import session_whiteboard_closed
+
+        if session_whiteboard_closed(live_session_id):
+            abort(404)
         key, rejected = _resolve_student_board_key(
             live_session_id, student_id, board_key
         )
         if rejected is not None:
             return rejected
+        if str(key).startswith("team:") and _team_board_closed(live_session_id):
+            abort(404)
         try:
             reply = school.read_board(
                 live_session_id,
@@ -10527,6 +10780,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         student_id = int(ctx["student_id"])
         class_id = int(ctx["class_id"])
         live_session_id = int(ctx["live_session_id"])
+        from feature_gates import session_whiteboard_closed
+
+        if session_whiteboard_closed(live_session_id):
+            abort(404)
         access = school.student_board_access(live_session_id, int(student_id))
         token = str(board_key or "").strip()
         if token == "mine":
@@ -10538,6 +10795,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 return jsonify({"ok": False, "error": "Forbidden"}), 403
         if key not in access["write"]:
             return jsonify({"ok": False, "error": "Forbidden"}), 403
+        if str(key).startswith("team:") and _team_board_closed(live_session_id):
+            abort(404)
         body = request.get_json(silent=True) or {}
         ops = body.get("ops") if isinstance(body.get("ops"), list) else []
         team_id = school.student_team_id_for_class(int(class_id), int(student_id))
@@ -10593,10 +10852,14 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         methods=["GET"],
     )
     @login_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
     def api_whiteboard_gallery(session_id: int):
         """Teacher gallery. Hidden until a whiteboard question is published."""
         from formative_live_board import parse_cursors
 
+        held = _whiteboard_overview_hold(session_id)
+        if held is not None:
+            return held
         _row, denied = _teacher_formative_session(session_id)
         if denied is not None:
             return denied
@@ -10613,8 +10876,12 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         methods=["GET"],
     )
     @login_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
     def api_whiteboard_gallery_one(session_id: int, board_key: str):
         """Teacher side panel for one team or solo board."""
+        held = _whiteboard_overview_hold(session_id)
+        if held is not None:
+            return held
         _row, denied = _teacher_formative_session(session_id)
         if denied is not None:
             return denied
@@ -10633,6 +10900,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         methods=["POST"],
     )
     @login_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
     def api_whiteboard_gallery_feedback(session_id: int, board_key: str):
         """Append live teacher ink. Does not create a feedback layer."""
         _row, denied = _teacher_formative_session(session_id)
@@ -10662,6 +10930,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         methods=["POST"],
     )
     @login_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
     def api_whiteboard_gallery_release(session_id: int, board_key: str):
         """Release feedback rows already stored. New ink does not use this."""
         _row, denied = _teacher_formative_session(session_id)
@@ -10678,6 +10947,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         methods=["POST"],
     )
     @login_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
     def api_whiteboard_gallery_clear(session_id: int, board_key: str):
         """Clear student ink on one board. Teacher ink stays."""
         _row, denied = _teacher_formative_session(session_id)
@@ -10698,6 +10968,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         methods=["POST"],
     )
     @login_required
+    @feature_required_any("whiteboard", "whiteboard_submit")
     def api_whiteboard_gallery_show(session_id: int, board_key: str):
         """Show one board to the class, including its colour legend."""
         _row, denied = _teacher_formative_session(session_id)
@@ -10722,9 +10993,16 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         session_row = school.get_live_session(session_id)
         if session_row is None:
             return jsonify({"ok": False, "error": "Session not found"}), 404
+        from feature_gates import session_whiteboard_closed
+
+        if session_whiteboard_closed(session_id):
+            abort(404)
         if _can_view_live_session(session_row):
             if str(board_key or "").strip() != "teacher":
                 return jsonify({"ok": False, "error": "Forbidden"}), 403
+            held = _whiteboard_overview_hold(session_id)
+            if held is not None:
+                return held
             try:
                 reply = school.read_board(
                     session_id,
@@ -10748,6 +11026,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         )
         if key_rejected is not None:
             return key_rejected
+        if str(key).startswith("team:") and _team_board_closed(session_id):
+            abort(404)
         try:
             reply = school.read_board(
                 session_id,
@@ -10778,6 +11058,10 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         session_row = school.get_live_session(session_id)
         if session_row is None:
             return jsonify({"ok": False, "error": "Session not found"}), 404
+        from feature_gates import session_whiteboard_closed
+
+        if session_whiteboard_closed(session_id):
+            abort(404)
         body = request.get_json(silent=True) or {}
         ops = body.get("ops") if isinstance(body.get("ops"), list) else []
         batch_id = str(body.get("client_batch_id") or "").strip() or None
@@ -10819,6 +11103,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 return jsonify({"ok": False, "error": "Forbidden"}), 403
         if key not in access["write"]:
             return jsonify({"ok": False, "error": "Forbidden"}), 403
+        if str(key).startswith("team:") and _team_board_closed(session_id):
+            abort(404)
         try:
             school.append_live_board_ops(
                 session_id,
@@ -10876,6 +11162,19 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         )
 
     def _catchup_links_payload(class_id: int) -> list[dict[str, Any]]:
+        """Catch-up rows the class owner may show.
+
+        Full catch-up keeps every row. The free plan keeps the newest
+        class inside the history window. The URL is built here and is
+        not logged.
+
+        Args:
+            class_id: Game-show ``classes.id``.
+        """
+        visible = scope_catchup_links(
+            class_owner(school, int(class_id)),
+            school.list_catchup_links(class_id),
+        )
         return [
             {
                 **link,
@@ -10884,7 +11183,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 "discarded": bool(link.get("discarded")),
                 "url": _catchup_url({**link, "class_id": int(class_id)}),
             }
-            for link in school.list_catchup_links(class_id)
+            for link in visible
         ]
 
     @app.route("/api/classes/<int:class_id>/participation")
@@ -11476,6 +11775,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         )
 
         class_id = int(link["class_id"])
+        if not catchup_row_allowed(school, class_id, link):
+            abort(404)
         course_code = school._course_code_for_class(class_id)
         header_kicker = catchup_header_kicker(
             course_code, str(link.get("live_module") or ""), str(link.get("live_slot") or "")
@@ -12856,6 +13157,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         user = current_user()
         assert user is not None
         body = request.get_json(silent=True) or {}
+        if body.get("drive"):
+            deny_unless("portfolio_gdoc")
         code = _portfolio_course_code(class_id)
         module_n = int(body.get("module") or 1)
         try:
@@ -12946,6 +13249,8 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             drive_error = ""
             client = None
             try:
+                if not has_feature(user, "portfolio_gdoc"):
+                    raise SlidesConnectRequired()
                 client = GoogleSlidesClient(school, user=user)
                 folder_id = ensure_portfolio_folder(
                     client,
@@ -13444,6 +13749,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
         def run(body):
             """Apply one staff JSON mutation for this class."""
+            _reject_basic_roster(class_id)
             return school.game.add_late_student(
                 class_id,
                 int(body.get("student_id") or 0),
@@ -13488,6 +13794,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
 
         def run(body):
             """Apply one staff JSON mutation for this class."""
+            _reject_basic_roster(class_id)
             try:
                 return _dashboard_payload_from_add(class_id, body)
             except ValueError as exc:

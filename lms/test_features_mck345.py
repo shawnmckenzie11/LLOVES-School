@@ -438,10 +438,11 @@ class FeatureAccessTests(unittest.TestCase):
         borrowed = basic_client.get(f"/__test/feature/whiteboard?session_id={session_id}")
         self.assertEqual(borrowed.status_code, 404)
 
-    def test_decorator_is_not_wired_to_production_routes(self) -> None:
-        """The registry PR ships the decorator without hanging it on a real route."""
+    def test_decorator_is_wired_on_the_gate_modules(self) -> None:
+        """Gate modules may call the decorator. Other modules still must not."""
+        allowed = {"features.py", "app.py", "auth.py", "feature_gates.py"}
         for path in LMS_DIR.rglob("*.py"):
-            if path.name == "features.py" or path.name.startswith("test_"):
+            if path.name.startswith("test_") or path.name in allowed:
                 continue
             text = path.read_text(encoding="utf-8")
             self.assertNotIn(
