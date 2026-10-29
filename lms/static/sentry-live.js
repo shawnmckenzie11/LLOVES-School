@@ -4,9 +4,12 @@
  * MCK-183: staff pages carry ``lloves-sentry-user`` (the teacher's user id,
  * never a name or email) and ``lloves-sentry-tags`` (teacher_id,
  * teacher_kind, portal, class_id, course_code, tool). Student pages carry
- * tags only. Breadcrumbs are scrubbed so roster names on screen never ride
- * along: console lines drop, click/input crumbs keep the element tag and
- * class only, and URLs lose their query. Session Replay stays off.
+ * tags only. Breadcrumbs and events are scrubbed with the same rules as
+ * ``lms/sentry_wire.py``: emails, PINs, join and catch-up codes, and
+ * student names (labelled or not, including ``tap by <name>`` and
+ * ``code <token>``). Console lines drop, click/input crumbs keep the
+ * element tag and class only, and URLs lose their query. A scrub error
+ * drops the event. Session Replay stays off.
  *
  * Failed live fetches (HTTP 500 and other non-shed 5xx) and exceptions a
  * poll loop would otherwise swallow (``window.llovesSentryReport``) report.
@@ -292,6 +295,8 @@
       if (frame.filename) frame.filename = stripQuery(frame.filename);
       if (frame.abs_path) frame.abs_path = stripQuery(frame.abs_path);
       if (frame.module && /[?#]/.test(String(frame.module))) frame.module = stripQuery(frame.module);
+      // Locals can hold a PIN under any name. The server drops frame vars too.
+      if (frame.vars) delete frame.vars;
     }
   }
 
@@ -318,9 +323,83 @@
    * @param {object} crumb
    * @returns {object|null}
    */
+  // Keep these lists aligned with ``_DROPPED_KEYS`` / ``_NOT_A_BY_NAME``
+  // in sentry_wire.py. ``course_code`` is not a dropped key.
+  var DROPPED_KEYS = {
+    email: 1, confirm_email: 1, login_hint: 1,
+    pin: 1, course_pin: 1, student_pin: 1, catchup_pin: 1, catch_up_pin: 1,
+    default_pin: 1, pin_hash: 1,
+    join_code: 1, session_code: 1, portal_join_code: 1, catchup_code: 1,
+    catch_up_code: 1, live_access_code: 1, access_code: 1,
+    name: 1, student_name: 1, first_name: 1, last_name: 1, display_name: 1,
+    full_name: 1, preferred_name: 1, roster_name: 1, given_name: 1,
+    family_name: 1, codename: 1, last_display: 1, username: 1,
+  };
+  var NOT_A_STUDENT_NAME = {
+    portal: 1, state: 1, home: 1, join: 1, code: 1, pin: 1, live: 1,
+    class: 1, session: 1, error: 1, failed: 1, page: 1, view: 1, tab: 1,
+    board: 1, phone: 1, card: 1,
+  };
+  var NOT_A_BY_NAME = {
+    error: 1, warning: 1, failed: 1, false: 1, true: 1, none: 1, null: 1,
+    graph: 1, publish: 1, roster: 1, student: 1, portal: 1, class: 1,
+    dashboard: 1, attendance: 1, state: 1, home: 1, join: 1, code: 1,
+    pin: 1, live: 1, session: 1, page: 1, view: 1, tab: 1, board: 1,
+    phone: 1, card: 1, monday: 1, tuesday: 1, wednesday: 1, thursday: 1,
+    friday: 1, saturday: 1, sunday: 1, january: 1, february: 1, march: 1,
+    april: 1, may: 1, june: 1, july: 1, august: 1, september: 1, october: 1,
+    november: 1, december: 1, staff: 1, teacher: 1, admin: 1, user: 1,
+    system: 1, server: 1, module: 1, lesson: 1, question: 1, answer: 1,
+    team: 1, group: 1, item: 1, step: 1, today: 1, tomorrow: 1,
+    yesterday: 1, someone: 1, anyone: 1,
+  };
+  var HEADER_ALLOW = {
+    accept: 1, "accept-language": 1, "content-length": 1, "content-type": 1,
+    host: 1, referer: 1, "user-agent": 1,
+  };
+
   /**
-   * Cut the query from every URL or path inside free text (messages,
-   * exception values): ``.../app.js?v=abc`` → ``.../app.js``.
+   * True when a string is shaped like a live join or catch-up code.
+   * Lengths are 4, 5, 6, or 8, alphanumeric, with a letter.
+   * @param {string} value
+   * @returns {boolean}
+   */
+  function looksLikeJoinCode(value) {
+    var text = String(value || "").trim().toUpperCase().replace(/ /g, "");
+    if ([4, 5, 6, 8].indexOf(text.length) < 0) return false;
+    if (!/^[A-Z0-9]+$/.test(text) || /^[0-9]+$/.test(text)) return false;
+    return /[A-Z]/.test(text);
+  }
+
+  /**
+   * True for a 4-digit token that is not a calendar year.
+   * @param {string} value
+   * @returns {boolean}
+   */
+  function isUnlabelledPin(value) {
+    var text = String(value || "").trim();
+    if (!/^\d{4}$/.test(text)) return false;
+    var number = Number(text);
+    return !(number >= 1900 && number <= 2099);
+  }
+
+  /**
+   * True when this field must not be sent.
+   * @param {string} key
+   * @param {any} child
+   * @returns {boolean}
+   */
+  function dropSecretField(key, child) {
+    var lowered = String(key).toLowerCase();
+    if (DROPPED_KEYS[lowered] || /_pin$/.test(lowered)) return true;
+    if (lowered === "code" && typeof child === "string" && looksLikeJoinCode(child)) return true;
+    return false;
+  }
+
+  /**
+   * Cut the query from every URL or path inside free text, then redact
+   * emails, PINs, join and catch-up codes, and student names.
+   * Mirrors ``_scrub_text`` in sentry_wire.py.
    * @param {any} text
    * @returns {any}
    */
@@ -331,7 +410,92 @@
         return stripQuery(path);
       });
     }
-    return maskPathTokens(text);
+    text = maskPathTokens(text);
+    text = text.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[redacted]");
+    text = text.replace(/\b(pin)\b(\s*[:=]?\s*)\d{4}\b/gi, function (_all, label, sep) {
+      return label + sep + "[redacted]";
+    });
+    text = text.replace(
+      /\b((?:join|catch-?up|session|portal|access)\s+code|session_code|portal_join_code|join_code|live_access_code|catch-?up_code)\b(\s*[:=]?\s*)[A-Za-z0-9]{4,8}\b/gi,
+      function (_all, label, sep) {
+        return label + sep + "[redacted]";
+      }
+    );
+    text = text.replace(
+      /\b(student(?:'s)?\s+name|first_name|last_name|full_name|display_name|codename|roster_name|name)\b(\s*[:=]\s*)([^\s,;"'&=]{1,80})/gi,
+      function (_all, label, sep) {
+        return label + sep + "[redacted]";
+      }
+    );
+    text = text.replace(/\b(Student|student|Roster|roster)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b/g, function (all, label, name) {
+      if (NOT_A_STUDENT_NAME[String(name).toLowerCase()]) return all;
+      return label + " [redacted]";
+    });
+    text = text.replace(/\b[Bb]y\s+([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\b/g, function (all, name) {
+      var words = String(name).split(/\s+/);
+      var safe = words.length && words.every(function (word) {
+        return NOT_A_BY_NAME[word.toLowerCase()];
+      });
+      return safe ? all : "by [redacted]";
+    });
+    text = text.replace(/\b(code)(\s*[:=]?\s*)([A-Za-z0-9]{4,8})\b/gi, function (all, label, sep, token, offset, whole) {
+      if (!looksLikeJoinCode(token)) return all;
+      var prefix = String(whole).slice(0, offset);
+      if (/course[_ \t]+$/i.test(prefix)) return all;
+      return label + sep + "[redacted]";
+    });
+    text = text.replace(/(?<!\d)(\d{4})(?!\d)/g, function (digits) {
+      return isUnlabelledPin(digits) ? "[redacted]" : digits;
+    });
+    return text;
+  }
+
+  /**
+   * Drop secret keys and redact secret text. A repeated object is a cycle:
+   * throw so the caller drops the event instead of sending it.
+   * @param {any} value
+   * @param {WeakSet<object>} seen
+   * @returns {any}
+   */
+  function scrubNode(value, seen) {
+    if (typeof value === "string") return scrubText(value);
+    if (!value || typeof value !== "object") return value;
+    if (seen.has(value)) throw new Error("cyclic sentry payload");
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (var i = 0; i < value.length; i++) value[i] = scrubNode(value[i], seen);
+      return value;
+    }
+    Object.keys(value).forEach(function (key) {
+      if (dropSecretField(key, value[key])) {
+        delete value[key];
+        return;
+      }
+      value[key] = scrubNode(value[key], seen);
+    });
+    return value;
+  }
+
+  /**
+   * Allowlisted request headers only, with any URL query cut.
+   * @param {object} request
+   */
+  function scrubRequest(request) {
+    if (!request || typeof request !== "object") return;
+    delete request.data;
+    delete request.cookies;
+    delete request.query_string;
+    delete request.env;
+    if (typeof request.url === "string") request.url = stripQuery(request.url);
+    var headers = request.headers;
+    if (!headers || typeof headers !== "object") return;
+    Object.keys(headers).forEach(function (name) {
+      if (!HEADER_ALLOW[String(name).toLowerCase()]) {
+        delete headers[name];
+        return;
+      }
+      headers[name] = typeof headers[name] === "string" ? stripQuery(headers[name]) : "";
+    });
   }
 
   /**
@@ -349,28 +513,19 @@
   }
 
   /**
-   * Mask path tokens in every string inside a breadcrumb's data.
-   * @param {any} value
-   * @param {number} depth
-   * @returns {any}
+   * Scrub one breadcrumb in place. Console lines drop. A scrub error throws
+   * so beforeBreadcrumb can drop the crumb.
+   * @param {object} crumb
+   * @returns {object|null}
    */
-  function maskNested(value, depth) {
-    if (depth > 6) return value;
-    if (typeof value === "string") return maskPathTokens(value);
-    if (Array.isArray(value)) return value.map(function (v) { return maskNested(v, depth + 1); });
-    if (value && typeof value === "object") {
-      Object.keys(value).forEach(function (k) { value[k] = maskNested(value[k], depth + 1); });
-    }
-    return value;
-  }
-
   function scrubBreadcrumb(crumb) {
-    if (!crumb) return crumb;
-    if (crumb.message) crumb.message = scrubText(crumb.message);
+    if (!crumb || typeof crumb !== "object") return crumb;
+    scrubNode(crumb, new WeakSet());
     var category = String(crumb.category || "");
     if (category === "console") return null;
     if (category.indexOf("ui.") === 0 && crumb.message) {
       crumb.message = String(crumb.message).replace(/\[[^\]]*\]/g, "");
+      crumb.message = scrubText(crumb.message);
     }
     if (category === "navigation" && crumb.data) {
       if (crumb.data.from) crumb.data.from = stripQuery(crumb.data.from);
@@ -379,56 +534,38 @@
     if ((category === "fetch" || category === "xhr") && crumb.data && crumb.data.url) {
       crumb.data.url = stripQuery(crumb.data.url);
     }
-    if (crumb.data) crumb.data = maskNested(crumb.data, 0);
     return crumb;
   }
 
   /**
-   * Scrub an event in place: query strings, referer, and any user field
-   * other than the teacher id.
+   * Scrub an event in place: secrets, query strings, cookies, headers, and
+   * any user field other than the teacher id. Throws on a scrub failure so
+   * beforeSend drops the event.
    * @param {object} event
    * @returns {object}
    */
   function scrubEvent(event) {
-    if (!event) return event;
-    if (event.request) {
-      if (event.request.url) event.request.url = stripQuery(event.request.url);
-      delete event.request.query_string;
-      delete event.request.cookies;
-      delete event.request.data;
-      var headers = event.request.headers;
-      if (headers) {
-        if (headers.Referer) headers.Referer = stripQuery(headers.Referer);
-        if (headers.referer) headers.referer = stripQuery(headers.referer);
-      }
-    }
+    if (!event || typeof event !== "object") return event;
+    scrubNode(event, new WeakSet());
+    if (event.request) scrubRequest(event.request);
     var groups = [event.exception, event.threads];
     for (var g = 0; g < groups.length; g++) {
       var values = groups[g] && groups[g].values;
-      if (Array.isArray(values)) {
-        values.forEach(function (value) {
-          scrubFrames(value);
-          if (value && value.value) value.value = scrubText(value.value);
-        });
-      }
+      if (Array.isArray(values)) values.forEach(scrubFrames);
     }
-    if (event.message) event.message = scrubText(event.message);
-    if (event.transaction) event.transaction = maskPathTokens(event.transaction);
-    if (event.logentry) event.logentry = maskNested(event.logentry, 0);
-    if (event.extra) event.extra = maskNested(event.extra, 0);
-    if (event.tags) event.tags = maskNested(event.tags, 0);
-    if (event.contexts) event.contexts = maskNested(event.contexts, 0);
+    if (typeof event.transaction === "string") {
+      event.transaction = maskPathTokens(stripQuery(event.transaction));
+    }
     if (event.stacktrace) scrubFrames(event);
     if (event.user) {
       event.user = event.user.id ? { id: String(event.user.id) } : undefined;
       if (!event.user) delete event.user;
     }
-    if (Array.isArray(event.breadcrumbs)) {
-      event.breadcrumbs = event.breadcrumbs
-        .map(function (crumb) {
-          return scrubBreadcrumb(crumb);
-        })
-        .filter(Boolean);
+    var crumbs = event.breadcrumbs;
+    if (Array.isArray(crumbs)) {
+      event.breadcrumbs = crumbs.map(scrubBreadcrumb).filter(Boolean);
+    } else if (crumbs && Array.isArray(crumbs.values)) {
+      crumbs.values = crumbs.values.map(scrubBreadcrumb).filter(Boolean);
     }
     return event;
   }
@@ -581,7 +718,8 @@
         if (!isOwnFetchFailure(event) && shouldDropLivePollEvent(event)) return null;
         return scrubEvent(event);
       } catch (_err) {
-        return event;
+        // Fail closed. The event can hold a name, a PIN, or a join code.
+        return null;
       }
     },
     // Streamed tracing (SDK default) has no transaction hook: this is the scrub.
@@ -590,7 +728,7 @@
         if (shouldDropLivePollSpan(span)) return null;
         return stripSpanQueries(span);
       } catch (_err) {
-        return span;
+        return null;
       }
     },
     beforeBreadcrumb: function (crumb) {
@@ -598,7 +736,7 @@
         var kept = filterLivePollBreadcrumb(crumb);
         return kept ? scrubBreadcrumb(kept) : kept;
       } catch (_err) {
-        return crumb;
+        return null;
       }
     },
   };

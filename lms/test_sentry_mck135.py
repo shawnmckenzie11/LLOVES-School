@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -23,12 +24,37 @@ from sentry_sdk.transport import Transport  # noqa: E402
 from app import _json_error, create_app  # noqa: E402
 from sentry_wire import (  # noqa: E402
     EXPECTED_MONTHLY_LOG_LINES,
+    before_breadcrumb,
     before_send,
     before_send_log,
     note_busy_shed,
     report_swallowed,
     reset_busy_shed_counts,
     sentry_init_options,
+)
+
+# Obvious fakes. Not a roster codename, a course PIN, or a real address.
+FAKE_NAME = "Zorblax"
+FAKE_LAST = "Quuxley"
+FAKE_EMAIL = "zorblax.quuxley@example.test"
+FAKE_PIN = "9876"
+FAKE_JOIN = "Q7Z9K"
+FAKE_CATCH = "W4N8P2"
+ONLY_COOKIE = "onlycookieSECRET"
+ONLY_QUERY = "onlyquerySECRET"
+ONLY_HEADER = "onlyheaderSECRET"
+ONLY_LOCAL = "onlylocalSECRET"
+ONLY_REFER = "onlyreferSECRET"
+_BANNED = (
+    FAKE_NAME,
+    FAKE_LAST,
+    FAKE_NAME.lower(),
+    FAKE_LAST.lower(),
+    f"{FAKE_NAME} {FAKE_LAST}",
+    FAKE_EMAIL,
+    FAKE_PIN,
+    FAKE_JOIN,
+    FAKE_CATCH,
 )
 
 JOIN = "R3K1X"
@@ -239,6 +265,306 @@ class AlertAndQuotaTests(unittest.TestCase):
         self.assertEqual(integration._sentry_logs_handler.level, logging.WARNING)
         self.assertIsNone(integration._handler)
         self.assertTrue(options["enable_logs"])
+
+
+class UnlabelledScrubTests(unittest.TestCase):
+    """Messages and breadcrumbs lose codes, PINs, and names with no label."""
+
+    def _assert_banned(self, payload: object, label: str) -> str:
+        """The serialized payload contains none of the fake secrets."""
+        blob = json.dumps(payload)
+        for secret in _BANNED:
+            self.assertNotIn(secret, blob, f"{label} leaked {secret}")
+        return blob
+
+    def test_unlabelled_secrets_are_absent_from_every_payload(self) -> None:
+        """``tap by <name>`` and ``code <token>`` never survive a send."""
+        prose = (
+            f"Roster edited. tap by {FAKE_NAME} {FAKE_LAST} code {FAKE_JOIN} "
+            f"catch-up code {FAKE_CATCH} typed {FAKE_PIN} ping {FAKE_EMAIL} "
+            f"course code MCF3M student portal due by Monday in 2026 "
+            f"code pin_not_set"
+        )
+        event = {
+            "message": prose,
+            "extra": {
+                "note": f"tap by {FAKE_NAME} code {FAKE_CATCH} typed {FAKE_PIN}",
+                "course_code": "MCF3M",
+                "code": "pin_not_set",
+                "email": FAKE_EMAIL,
+                "pin": FAKE_PIN,
+            },
+            "exception": {
+                "values": [{"type": "RuntimeError", "value": prose}]
+            },
+            "breadcrumbs": {
+                "values": [
+                    {"message": f"tap by {FAKE_NAME}", "data": {"note": f"code {FAKE_JOIN}"}},
+                    {"message": f"typed {FAKE_PIN} ping {FAKE_EMAIL}"},
+                ]
+            },
+        }
+        sent = before_send(event, None)
+        self.assertIs(sent, event)
+        blob = self._assert_banned(sent, "event")
+        self.assertIn("tap by [redacted]", blob)
+        self.assertIn("course code MCF3M", blob)
+        self.assertIn("student portal", blob)
+        self.assertIn("due by Monday", blob)
+        self.assertIn("2026", blob)
+        self.assertIn("pin_not_set", blob)
+        self.assertIn("MCF3M", sent["extra"]["course_code"])
+
+        log = {
+            "severity_text": "warning",
+            "severity_number": 13,
+            "body": prose,
+            "attributes": {
+                "course_code": "MCF3M",
+                "code": "pin_not_set",
+                "sentry.message.template": "tap by %s code %s typed %s",
+                "sentry.message.parameter.0": f"{FAKE_NAME} {FAKE_LAST}",
+                "sentry.message.parameter.1": FAKE_JOIN,
+                "sentry.message.parameter.2": FAKE_PIN,
+            },
+        }
+        logged = before_send_log(log)
+        self.assertIsNotNone(logged)
+        log_blob = self._assert_banned(logged, "log")
+        self.assertIn("MCF3M", log_blob)
+        self.assertIn("pin_not_set", log_blob)
+        self.assertIn("2026", log_blob)
+        self.assertEqual(logged["attributes"]["course_code"], "MCF3M")
+
+        crumb = before_breadcrumb(
+            {
+                "category": "custom",
+                "message": f"tap by {FAKE_NAME} code {FAKE_CATCH} typed {FAKE_PIN} {FAKE_EMAIL}",
+                "data": {"note": f"code {FAKE_JOIN} tap by {FAKE_LAST}"},
+            },
+            None,
+        )
+        self.assertIsNotNone(crumb)
+        crumb_blob = self._assert_banned(crumb, "breadcrumb")
+        self.assertIn("by [redacted]", crumb_blob)
+        self.assertIn("[redacted]", crumb_blob)
+
+
+class RequestSurfaceTests(unittest.TestCase):
+    """Headers, cookies, query strings, and exception locals never ship."""
+
+    def test_headers_cookies_query_and_locals_are_removed(self) -> None:
+        """Opaque secrets in those four places are absent from the payload."""
+        event = {
+            "message": "handler failed in 2026 course code MCF3M",
+            "request": {
+                "method": "POST",
+                "url": (
+                    f"https://alc.example/student/join?blob={ONLY_QUERY}"
+                    f"&pin={FAKE_PIN}&code={FAKE_JOIN}"
+                ),
+                "query_string": (
+                    f"blob={ONLY_QUERY}&code={FAKE_JOIN}&email={FAKE_EMAIL}"
+                ),
+                "cookies": {"session": ONLY_COOKIE, "pin": FAKE_PIN},
+                "env": {"RAW": ONLY_HEADER},
+                "data": {"name": FAKE_NAME, "note": ONLY_LOCAL},
+                "headers": {
+                    "Cookie": f"session={ONLY_COOKIE}",
+                    "Authorization": f"Bearer {ONLY_HEADER}",
+                    "X-Student-Visit-Token": ONLY_HEADER,
+                    "Referer": f"https://alc.example/student/pick?blob={ONLY_REFER}",
+                    "User-Agent": f"TestAgent/{FAKE_PIN}",
+                    "Host": "alc.example",
+                },
+            },
+            "exception": {
+                "values": [
+                    {
+                        "type": "RuntimeError",
+                        "value": f"tap by {FAKE_NAME} code {FAKE_JOIN} typed {FAKE_PIN}",
+                        "stacktrace": {
+                            "frames": [
+                                {
+                                    "filename": "app.py",
+                                    "lineno": 10,
+                                    "vars": {
+                                        "pin": FAKE_PIN,
+                                        "email": FAKE_EMAIL,
+                                        "session_code": FAKE_JOIN,
+                                        "first_name": FAKE_NAME,
+                                        "scratch": ONLY_LOCAL,
+                                        "course_code": "MCF3M",
+                                    },
+                                }
+                            ]
+                        },
+                    }
+                ]
+            },
+        }
+        sent = before_send(event, None)
+        self.assertIs(sent, event)
+        blob = json.dumps(sent)
+        for secret in _BANNED + (
+            ONLY_COOKIE,
+            ONLY_QUERY,
+            ONLY_HEADER,
+            ONLY_LOCAL,
+            ONLY_REFER,
+        ):
+            self.assertNotIn(secret, blob, secret)
+        request = sent["request"]
+        self.assertNotIn("query_string", request)
+        self.assertNotIn("cookies", request)
+        self.assertNotIn("env", request)
+        self.assertNotIn("data", request)
+        self.assertEqual(request["url"], "https://alc.example/student/join")
+        self.assertEqual(request["method"], "POST")
+        headers = request["headers"]
+        self.assertNotIn("Cookie", headers)
+        self.assertNotIn("Authorization", headers)
+        self.assertNotIn("X-Student-Visit-Token", headers)
+        self.assertEqual(headers["Host"], "alc.example")
+        self.assertEqual(headers["User-Agent"], "TestAgent/[redacted]")
+        self.assertEqual(headers["Referer"], "https://alc.example/student/pick")
+        frame = sent["exception"]["values"][0]["stacktrace"]["frames"][0]
+        self.assertNotIn("vars", frame)
+        self.assertEqual(frame["filename"], "app.py")
+        self.assertEqual(frame["lineno"], 10)
+        self.assertIn("course code MCF3M", blob)
+        self.assertIn("2026", blob)
+        self.assertIn("tap by [redacted]", blob)
+
+
+class BrowserScrubTests(unittest.TestCase):
+    """sentry-live.js applies the server scrub rules and drops a failed scrub."""
+
+    def test_browser_scrubs_secrets_and_drops_a_failed_scrub(self) -> None:
+        """Node run: messages, extras, breadcrumbs, and a cyclic event."""
+        script = r"""
+const fs = require("fs");
+const vm = require("vm");
+const src = fs.readFileSync(process.argv[1], "utf8");
+function meta(content) { return { content, getAttribute() { return this.content; } }; }
+const metas = {
+  'meta[name="lloves-sentry-dsn"]': meta("https://public@o0.ingest.sentry.io/1"),
+  'meta[name="lloves-sentry-environment"]': meta("tip"),
+  'meta[name="lloves-sentry-tags"]': meta('{"portal":"student","course_code":"MCF3M"}'),
+};
+const sandbox = {
+  console,
+  location: { origin: "https://alc.example" },
+  document: { querySelector(sel) { return metas[sel] || null; } },
+  fetch: function () { return Promise.resolve({ status: 200, ok: true }); },
+};
+sandbox.window = sandbox;
+sandbox.globalThis = sandbox;
+sandbox.Sentry = {
+  init(opts) { sandbox.__opts = opts; },
+  browserTracingIntegration() { return { name: "BrowserTracing" }; },
+  setUser() {}, setTags() {}, captureMessage() {}, captureException() {}, addBreadcrumb() {},
+};
+vm.createContext(sandbox);
+vm.runInContext(src, sandbox);
+const opts = sandbox.__opts;
+function assert(cond, msg) { if (!cond) throw new Error(msg || "assert"); }
+const NAME = "Zorblax";
+const LAST = "Quuxley";
+const EMAIL = "zorblax.quuxley@example.test";
+const PIN = "9876";
+const JOIN = "Q7Z9K";
+const CATCH = "W4N8P2";
+const prose = [
+  "Roster edited. tap by " + NAME + " " + LAST,
+  "code " + JOIN,
+  "catch-up code " + CATCH,
+  "typed " + PIN,
+  "ping " + EMAIL,
+  "course code MCF3M student portal due by Monday in 2026 code pin_not_set",
+].join(" ");
+const event = {
+  message: prose,
+  extra: {
+    note: "tap by " + NAME + " code " + CATCH + " typed " + PIN,
+    course_code: "MCF3M",
+    code: "pin_not_set",
+    email: EMAIL,
+    pin: PIN,
+    join_code: JOIN,
+  },
+  exception: { values: [{ type: "Error", value: prose, stacktrace: { frames: [{
+    filename: "app.js",
+    vars: { scratch: "onlylocalSECRET", pin: PIN, email: EMAIL },
+  }] } }] },
+  request: {
+    url: "https://alc.example/student/join?blob=onlyquerySECRET&pin=" + PIN,
+    query_string: "blob=onlyquerySECRET&code=" + JOIN,
+    cookies: { session: "onlycookieSECRET" },
+    data: { name: NAME },
+    headers: {
+      Cookie: "session=onlycookieSECRET",
+      Authorization: "Bearer onlyheaderSECRET",
+      Referer: "https://alc.example/student/pick?blob=onlyreferSECRET",
+      "User-Agent": "TestAgent/" + PIN,
+      Host: "alc.example",
+    },
+  },
+  breadcrumbs: [
+    { category: "custom", message: "tap by " + NAME + " code " + JOIN, data: { note: "typed " + PIN } },
+    { category: "console", message: NAME },
+  ],
+  user: { id: "7", username: NAME, email: EMAIL },
+};
+const sent = opts.beforeSend(event);
+assert(sent === event, "event identity");
+const blob = JSON.stringify(sent);
+for (const secret of [NAME, LAST, NAME.toLowerCase(), LAST.toLowerCase(), EMAIL, PIN, JOIN, CATCH, "onlylocalSECRET", "onlyquerySECRET", "onlycookieSECRET", "onlyheaderSECRET", "onlyreferSECRET"]) {
+  assert(!blob.includes(secret), "leaked " + secret + " in " + blob);
+}
+assert(blob.includes("tap by [redacted]"), blob);
+assert(blob.includes("course code MCF3M"), blob);
+assert(blob.includes("student portal"), blob);
+assert(blob.includes("due by Monday"), blob);
+assert(blob.includes("2026"), blob);
+assert(blob.includes("pin_not_set"), blob);
+assert(sent.extra.course_code === "MCF3M", "course code field");
+assert(!sent.extra.email && !sent.extra.pin && !sent.extra.join_code, "secret keys");
+assert(sent.request.url === "https://alc.example/student/join", sent.request.url);
+assert(!sent.request.query_string && !sent.request.cookies && !sent.request.data, "request body");
+assert(!sent.request.headers.Cookie && !sent.request.headers.Authorization, "secret headers");
+assert(sent.request.headers.Host === "alc.example", "host");
+assert(sent.request.headers["User-Agent"] === "TestAgent/[redacted]", sent.request.headers["User-Agent"]);
+assert(sent.request.headers.Referer === "https://alc.example/student/pick", sent.request.headers.Referer);
+assert(!sent.exception.values[0].stacktrace.frames[0].vars, "frame locals");
+assert(JSON.stringify(sent.user) === '{"id":"7"}', "user");
+assert(sent.breadcrumbs.length === 1, "console crumb dropped");
+const cyclic = { message: "boom" };
+cyclic.extra = { loop: cyclic };
+assert(opts.beforeSend(cyclic) === null, "scrub failure must drop the event");
+const bad = { category: "custom", message: "x", data: {} };
+bad.data.loop = bad.data;
+assert(opts.beforeBreadcrumb(bad) === null, "scrub failure must drop the breadcrumb");
+const kept = opts.beforeBreadcrumb({
+  category: "custom",
+  message: "tap by " + NAME + " code " + JOIN + " typed " + PIN + " " + EMAIL,
+});
+const keptBlob = JSON.stringify(kept);
+for (const secret of [NAME, PIN, JOIN, EMAIL]) {
+  assert(!keptBlob.includes(secret), "crumb leaked " + secret);
+}
+assert(keptBlob.includes("by [redacted]"), keptBlob);
+console.log("ok");
+"""
+        completed = subprocess.run(
+            ["node", "-e", script, str(LMS_DIR / "static" / "sentry-live.js")],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+        self.assertIn("ok", completed.stdout)
 
 
 if __name__ == "__main__":

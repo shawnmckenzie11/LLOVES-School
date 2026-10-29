@@ -401,6 +401,18 @@ _NAME_TEXT_RE = re.compile(
 _STUDENT_LABEL_RE = re.compile(
     r"\b([Ss]tudent|[Rr]oster)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b"
 )
+# ``tap by Zorblax`` has no student/roster label. The name is capitalized;
+# ``(?i)`` would also swallow ordinary words.
+_BY_NAME_RE = re.compile(
+    r"\b[Bb]y\s+([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\b"
+)
+# ``code Q7Z9K`` / ``code=Q7Z9K`` with no join/catch-up/session label.
+# ``course code MCF3M`` is excluded in :func:`_scrub_bare_code`.
+_BARE_CODE_RE = re.compile(
+    r"(?i)\b(code)(\s*[:=]?\s*)([A-Za-z0-9]{4,8})\b"
+)
+# A 4-digit token with no ``PIN`` label. Years are put back by the replacer.
+_BARE_PIN_RE = re.compile(r"(?<!\d)(\d{4})(?!\d)")
 _PERSON_NAME_RE = re.compile(r"^[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?$")
 # Words that follow "student" and are the product, not a person.
 _NOT_A_STUDENT_NAME = frozenset(
@@ -459,6 +471,51 @@ _NOT_A_PERSON = frozenset(
         "attendance",
     }
 )
+# Words that follow "by" and are not a student. Weekdays and months stay
+# so "due by Monday" is still readable. Keep this set in sync with
+# NOT_A_BY_NAME in static/sentry-live.js.
+_NOT_A_BY_NAME = _NOT_A_PERSON | _NOT_A_STUDENT_NAME | frozenset(
+    {
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+        "staff",
+        "teacher",
+        "admin",
+        "user",
+        "system",
+        "server",
+        "module",
+        "lesson",
+        "question",
+        "answer",
+        "team",
+        "group",
+        "item",
+        "step",
+        "today",
+        "tomorrow",
+        "yesterday",
+        "someone",
+        "anyone",
+    }
+)
 
 
 def _looks_like_person_name(value: str) -> bool:
@@ -514,18 +571,97 @@ def _looks_like_join_code(value: str) -> bool:
 
 
 def _scrub_student_label(match: re.Match[str]) -> str:
-    """Replace ``student Maple`` and leave ``student portal`` in place."""
+    """Replace ``student Zorblax`` and leave ``student portal`` in place."""
     name = match.group(2)
     if name.lower() in _NOT_A_STUDENT_NAME:
         return match.group(0)
     return f"{match.group(1)} [redacted]"
 
 
-def _scrub_text(value: str) -> str:
-    """Redact emails, labeled PINs, join codes, and student names in text.
+def _is_unlabelled_pin(value: str) -> bool:
+    """True for a 4-digit token that is not a calendar year.
 
     Args:
-        value: One string from an event or a log.
+        value: One logging argument or a text token.
+
+    Returns:
+        Whether the value should be treated as a PIN.
+    """
+    text = str(value or "").strip()
+    if not re.fullmatch(r"\d{4}", text):
+        return False
+    number = int(text)
+    return not 1900 <= number <= 2099
+
+
+def _scrub_by_name(match: re.Match[str]) -> str:
+    """Redact a capitalized name after ``by``, such as ``tap by Zorblax``.
+
+    Weekdays, months, and product words stay so ``due by Monday`` and
+    ``by Staff`` are unchanged.
+
+    Args:
+        match: The ``by <Name>`` match. Group 1 is the name.
+
+    Returns:
+        ``by [redacted]`` or the original text.
+    """
+    words = match.group(1).split()
+    if words and all(word.lower() in _NOT_A_BY_NAME for word in words):
+        return match.group(0)
+    return "by [redacted]"
+
+
+def _scrub_bare_code(match: re.Match[str]) -> str:
+    """Redact a join-shaped token after the word ``code``.
+
+    ``course code MCF3M`` is a course code, not a join secret. A token
+    that is not join-shaped (``pin_not_set``, an all-digit PIN) is left
+    for the PIN pass or kept as-is.
+
+    Args:
+        match: The bare ``code <token>`` match.
+
+    Returns:
+        The label plus ``[redacted]``, or the original text.
+    """
+    token = match.group(3)
+    if not _looks_like_join_code(token):
+        return match.group(0)
+    prefix = match.string[: match.start()]
+    if re.search(r"(?i)course[_ \t]+$", prefix):
+        return match.group(0)
+    return f"{match.group(1)}{match.group(2)}[redacted]"
+
+
+def _scrub_bare_pin(match: re.Match[str]) -> str:
+    """Redact a 4-digit token that is not a calendar year.
+
+    Labelled ``PIN 9876`` is already handled. This catches the same shape
+    with no label, such as ``typed 9876``. Years 1900–2099 stay so a date
+    in a message is still readable.
+
+    Args:
+        match: A 4-digit token.
+
+    Returns:
+        ``[redacted]`` or the original digits when they are a year.
+    """
+    digits = match.group(1)
+    if _is_unlabelled_pin(digits):
+        return "[redacted]"
+    return digits
+
+
+def _scrub_text(value: str) -> str:
+    """Redact emails, PINs, join codes, and student names in text.
+
+    Labelled forms (``PIN 9876``, ``join code Q7Z9K``, ``name=Zorblax``)
+    and unlabelled forms (``tap by Zorblax``, ``code Q7Z9K``, a bare
+    4-digit PIN) are both removed. Course codes and calendar years stay.
+
+    Args:
+        value: One string from an event, a log, or a breadcrumb.
 
     Returns:
         The same text with those secrets replaced by ``[redacted]``.
@@ -535,7 +671,10 @@ def _scrub_text(value: str) -> str:
     value = _PIN_TEXT_RE.sub(r"\1\2[redacted]", value)
     value = _CODE_TEXT_RE.sub(r"\1\2[redacted]", value)
     value = _NAME_TEXT_RE.sub(r"\1\2[redacted]", value)
-    return _STUDENT_LABEL_RE.sub(_scrub_student_label, value)
+    value = _STUDENT_LABEL_RE.sub(_scrub_student_label, value)
+    value = _BY_NAME_RE.sub(_scrub_by_name, value)
+    value = _BARE_CODE_RE.sub(_scrub_bare_code, value)
+    return _BARE_PIN_RE.sub(_scrub_bare_pin, value)
 
 
 def _drop_secret_field(key: str, child: Any) -> bool:
@@ -653,7 +792,39 @@ def _drop_request_body(event: dict[str, Any]) -> dict[str, Any]:
     if isinstance(transaction, str):
         event["transaction"] = _INVITE_TOKEN_RE.sub("/invite/[token]", transaction)
     _mask_event_tokens(event)
+    _drop_frame_locals(event)
     return event
+
+
+def _drop_frame_locals(event: dict[str, Any]) -> None:
+    """Remove exception and thread local-variable dicts.
+
+    ``include_local_variables`` is off. A frame that still carries ``vars``
+    can hold a PIN or a name under an arbitrary key, so the dict is removed
+    rather than scrubbed key by key.
+
+    Args:
+        event: Sentry event payload, mutated in place.
+    """
+    for group in ("exception", "threads"):
+        holder = event.get(group)
+        if not isinstance(holder, dict):
+            continue
+        values = holder.get("values")
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if not isinstance(value, dict):
+                continue
+            stack = value.get("stacktrace")
+            if not isinstance(stack, dict):
+                continue
+            frames = stack.get("frames")
+            if not isinstance(frames, list):
+                continue
+            for frame in frames:
+                if isinstance(frame, dict):
+                    frame.pop("vars", None)
 
 
 # Request headers Sentry may keep (MCK-183 gate, #249 ccff8ef MED). Everything
@@ -1141,14 +1312,14 @@ def before_breadcrumb(
                     mentions_code = bool(
                         re.search(r"\bcode\b|join|catch-?up", message, re.I)
                     )
+                    pin_shaped = bool(re.fullmatch(r"\d{4}", arg.strip()))
+                    mentions_pin = bool(re.search(r"\bpin\b", message, re.I))
                     secret = (
                         _looks_like_person_name(arg)
                         or bool(_EMAIL_TEXT_RE.search(arg))
                         or (mentions_code and _looks_like_join_code(arg))
-                        or (
-                            bool(re.fullmatch(r"\d{4}", arg.strip()))
-                            and bool(re.search(r"\bpin\b", message, re.I))
-                        )
+                        or _is_unlabelled_pin(arg)
+                        or (pin_shaped and mentions_pin)
                     )
                     if secret:
                         message = _redact_secret_argument(message, arg)
@@ -1184,8 +1355,9 @@ def _scrub_log_parameters(log: dict[str, Any]) -> None:
 
     Sentry copies ``logger.warning("pin %s", pin)`` into
     ``sentry.message.parameter.*`` as well as the formatted body. The body
-    is already scrubbed. Arguments that are emails, or that sit on a line
-    about a PIN, join code, or student name, are replaced here.
+    is already scrubbed. Arguments that are emails, person names, join
+    codes on a line that mentions a code, or 4-digit PINs (including an
+    unlabelled PIN that is not a calendar year) are replaced here.
 
     Args:
         log: Sentry log payload, mutated in place.
@@ -1207,7 +1379,8 @@ def _scrub_log_parameters(log: dict[str, Any]) -> None:
         if not isinstance(value, str):
             continue
         secret = bool(_EMAIL_TEXT_RE.search(value)) or _looks_like_person_name(value)
-        if mentions_pin and re.fullmatch(r"\d{4}", value.strip()):
+        pin_shaped = bool(re.fullmatch(r"\d{4}", value.strip()))
+        if _is_unlabelled_pin(value) or (mentions_pin and pin_shaped):
             secret = True
         if mentions_code and _looks_like_join_code(value):
             secret = True
