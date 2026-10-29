@@ -440,7 +440,14 @@ class FeatureAccessTests(unittest.TestCase):
 
     def test_decorator_is_wired_on_the_gate_modules(self) -> None:
         """Gate modules may call the decorator. Other modules still must not."""
-        allowed = {"features.py", "app.py", "auth.py", "feature_gates.py"}
+        # Live-class gates moved with the routes into the live blueprint.
+        allowed = {
+            "features.py",
+            "app.py",
+            "auth.py",
+            "feature_gates.py",
+            "routes_live.py",
+        }
         for path in LMS_DIR.rglob("*.py"):
             if path.name.startswith("test_") or path.name in allowed:
                 continue

@@ -1,5 +1,5 @@
 {
-  "description": "URL map from main before MCK-364 blueprint split. Each row is [rule, methods, endpoint].",
+  "description": "URL map from main before the MCK-364 blueprint split. Each row is [rule, methods, endpoint].",
   "rows": [
     [
       "/",
@@ -2081,6 +2081,15 @@
       "logout"
     ],
     [
+      "/privacy",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "privacy"
+    ],
+    [
       "/request-access",
       [
         "GET",
@@ -2438,6 +2447,24 @@
         "OPTIONS"
       ],
       "student_waiting"
+    ],
+    [
+      "/support",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "support"
+    ],
+    [
+      "/terms",
+      [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "terms"
     ],
     [
       "/verify-email",

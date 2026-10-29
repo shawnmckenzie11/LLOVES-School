@@ -44,7 +44,8 @@ def group_scope_emits(src: str) -> dict[str, list[bool]]:
     """Map each ``scope="group"`` emit to whether that call passes ``team_id``.
 
     Args:
-        src: Text of ``lms/app.py``.
+        src: Python source whose route functions are indented four spaces.
+            That is ``app.py`` before the split, and each lane module after.
 
     Returns:
         Function name to one flag per group emit in that function.
@@ -136,7 +137,24 @@ class GroupEmitTeamIdTests(unittest.TestCase):
     """Every group emit names a team, except the two class-wide teacher moves."""
 
     def test_scope_group_emits_pass_team_id(self) -> None:
-        found = group_scope_emits((LMS_DIR / "app.py").read_text(encoding="utf-8"))
+        """Every group emit still passes a team, including after the route split.
+
+        The calls moved out of ``app.py`` into the lane modules. Scan those
+        files with the same indent the registrar functions use.
+        """
+        chunks = []
+        for name in (
+            "app.py",
+            "routes_live.py",
+            "routes_teacher.py",
+            "routes_platform.py",
+            "routes_common.py",
+        ):
+            chunks.append((LMS_DIR / name).read_text(encoding="utf-8"))
+        found: dict[str, list[bool]] = {}
+        for src in chunks:
+            for name, flags in group_scope_emits(src).items():
+                found.setdefault(name, []).extend(flags)
         self.assertGreaterEqual(len(found), 10)
         for name, flags in found.items():
             if name in _CLASS_WIDE_GROUP_EMITS:
