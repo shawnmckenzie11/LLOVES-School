@@ -858,6 +858,77 @@ class FanoutGuardTests(unittest.TestCase):
         )
         self._ok_status(rv, 302)
 
+    def _news_rows(self, after: int) -> list[dict[str, Any]]:
+        """Postcards stored for this session after ``after``.
+
+        Args:
+            after: Last postcard id already seen.
+        """
+        from live_news_wire import log_for
+
+        return list(log_for(self.school.data_dir).since(self.session_id, after))
+
+    def test_quit_join_note_does_not_fan_out(self) -> None:
+        """Quit reuses one end signal. Phones are not each told to reload.
+
+        The join note is the ``ended=1`` flag on the redirect the student
+        poll already returns. Quit stores one postcard for the session,
+        not one per phone, and the phones' follow-up polls add none.
+        """
+        from urllib.parse import parse_qs, urlsplit
+
+        from auth import CLASS_ENDED_JOIN_NOTE
+
+        self.assertEqual(
+            CLASS_ENDED_JOIN_NOTE,
+            "This class has ended. Your teacher will share a new code for the next class.",
+        )
+        landing = (LMS_DIR / "templates" / "landing.html").read_text(encoding="utf-8")
+        portal = (LMS_DIR / "static" / "student-portal.js").read_text(encoding="utf-8")
+        self.assertNotIn(CLASS_ENDED_JOIN_NOTE, landing)
+        self.assertNotIn(CLASS_ENDED_JOIN_NOTE, portal)
+        self.assertIn("{{ class_ended_note }}", landing)
+        self.assertNotIn("setInterval", landing)
+
+        tip = self._news_tip()
+        quit_rv = self.staff.post(
+            f"/staff/class/{self.class_id}/quit-live",
+            follow_redirects=False,
+        )
+        self._ok_status(quit_rv, 302)
+        signaled = self._news_rows(tip)
+        self.assertEqual(len(signaled), 1)
+        self.assertLess(len(signaled), len(self.present))
+        self.assertEqual(signaled[0].get("type"), "state_seq")
+
+        redirects: list[str] = []
+        for index in sorted(self.present):
+            rv = self.phones[index].get("/api/student/state")
+            self._ok_status(rv, 200)
+            body = rv.get_json() or {}
+            self.assertEqual(body.get("status"), "ended")
+            self.assertFalse(body.get("celebrate"))
+            loc = str(body.get("redirect") or "")
+            redirects.append(loc)
+            parts = urlsplit(loc)
+            self.assertEqual(parts.path, "/")
+            self.assertEqual(parse_qs(parts.query).get("ended"), ["1"])
+            self.assertNotIn(self.session_code, loc)
+            for seat in self.seats:
+                self.assertNotIn(seat, loc)
+        self.assertEqual(len(set(redirects)), 1)
+        self.assertEqual(len(self._news_rows(tip)), 1)
+
+        noted = self.phones[0].get(redirects[0])
+        self._ok_status(noted, 200)
+        html = noted.get_data(as_text=True)
+        self.assertEqual(html.count(CLASS_ENDED_JOIN_NOTE), 1)
+        self.assertIn('id="class-ended-note"', html)
+        plain = self.phones[0].get("/")
+        self._ok_status(plain, 200)
+        self.assertNotIn(CLASS_ENDED_JOIN_NOTE, plain.get_data(as_text=True))
+        self.assertNotIn('id="class-ended-note"', plain.get_data(as_text=True))
+
 
     def test_dead_bank_image_student_refresh_fetches_once(self) -> None:
         """One refused bank image is fetched on the first student view only."""
