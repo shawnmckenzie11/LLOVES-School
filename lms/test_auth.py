@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hmac
+import html
 import os
 import sys
 import tempfile
@@ -144,16 +145,298 @@ class AuthTests(unittest.TestCase):
                 "role": "parent",
                 "organization": "Homeschool co-op",
                 "context": "Grade 11 functions for two learners.",
+                "grade_band": "6-12",
+                "subject": "Functions",
+                "live_classes_per_week": "0-1",
             },
             follow_redirects=False,
         )
         self.assertEqual(rv.status_code, 200)
-        self.assertIn("We received your request", rv.get_data(as_text=True))
+        body = rv.get_data(as_text=True)
+        self.assertNotIn(
+            "Thanks, your request is in. We'll email you when your invite is ready.",
+            body,
+        )
+        self.assertNotIn("Request received", body)
+        self.assertIn(
+            "A person on our team reviews every request. We will reply by email as soon as we can.",
+            body,
+        )
+        self.assertIn(
+            "Sending this form does not create an account, and we never ask for payment here. "
+            "If we approve your request, you will get an email invite to sign in with Google.",
+            body,
+        )
         self.assertIsNone(self.school.get_user_by_email("pat@example.com"))
         rows = self.school.list_access_requests(status="pending")
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["email"], "pat@example.com")
         self.assertEqual(rows[0]["role"], "parent")
+
+    def _count_rows(self, table: str) -> int:
+        """Return how many rows are in one school table.
+
+        Args:
+            table: ``users`` or ``access_requests``.
+        """
+        if table not in {"users", "access_requests"}:
+            raise ValueError("unknown table")
+        row = self.school.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+        return int(row[0])
+
+    def test_landing_has_request_access_button(self) -> None:
+        """The school home links to the request form from the top bar and the join card."""
+        rv = self.client.get("/")
+        self.assertEqual(rv.status_code, 200)
+        body = rv.get_data(as_text=True)
+        self.assertIn('id="landing-request-access"', body)
+        self.assertIn('id="landing-request-access-inline"', body)
+        self.assertIn('href="/request-access"', body)
+
+    def test_landing_carries_campaign_tags(self) -> None:
+        """The request links keep the five campaign tags and drop anything else."""
+        long_source = "s" * 250
+        rv = self.client.get(
+            "/",
+            query_string={
+                "utm_source": long_source,
+                "utm_medium": "email",
+                "utm_campaign": "pilot",
+                "utm_term": "senior",
+                "utm_content": "banner",
+                "gclid": "drop-me",
+            },
+        )
+        body = rv.get_data(as_text=True)
+        self.assertIn("utm_medium=email", body)
+        self.assertIn("utm_campaign=pilot", body)
+        self.assertIn("utm_term=senior", body)
+        self.assertIn("utm_content=banner", body)
+        self.assertIn("utm_source=" + ("s" * 200), body)
+        self.assertNotIn("s" * 201, body)
+        self.assertNotIn("gclid", body)
+        self.assertNotIn("drop-me", body)
+
+    def test_request_access_confirmation_copy(self) -> None:
+        """A valid request stores the new answers and does not create a user."""
+        before_users = self._count_rows("users")
+        before_requests = self._count_rows("access_requests")
+        page = self.client.get("/request-access").get_data(as_text=True)
+        self.assertIn("Request access to ALC", page)
+        self.assertIn(
+            "ALC is in a small pilot with teachers right now. Tell us a bit about your classes and we'll send you an invite.",
+            page,
+        )
+        payload = {
+            "name": "Applicant One",
+            "email": "applicant-one@example.com",
+            "role": "teacher",
+            "organization": "Example School",
+            "context": "One senior class.",
+            "grade_band": "6-12",
+            "subject": "Mathematics",
+            "live_classes_per_week": "2-4",
+            "utm_source": "newsletter",
+            "utm_medium": "email",
+            "utm_campaign": "pilot",
+            "utm_term": "senior",
+            "utm_content": "banner",
+        }
+        timed = self.client.post("/request-access", data=payload, follow_redirects=False)
+        timed_body = timed.get_data(as_text=True)
+        self.assertEqual(timed.status_code, 200)
+        self.assertNotIn(
+            "Thanks, your request is in. We'll email you when your invite is ready.",
+            timed_body,
+        )
+        self.assertNotIn("Request received", timed_body)
+        self.assertIn(
+            "A person on our team reviews every request. We will reply by email as soon as we can.",
+            timed_body,
+        )
+        self.assertIn(
+            "Sending this form does not create an account, and we never ask for payment here. "
+            "If we approve your request, you will get an email invite to sign in with Google.",
+            timed_body,
+        )
+        self.assertNotIn("allowlists", timed_body.lower())
+        self.assertEqual(self._count_rows("users"), before_users)
+        self.assertEqual(self._count_rows("access_requests"), before_requests + 1)
+        self.assertIsNone(self.school.get_user_by_email("applicant-one@example.com"))
+        row = self.school.list_access_requests(status="pending")[0]
+        self.assertEqual(row["grade_band"], "6-12")
+        self.assertEqual(row["subject"], "Mathematics")
+        self.assertEqual(row["live_classes_per_week"], "2-4")
+        self.assertEqual(row["heard_about"], "")
+        self.assertEqual(row["utm_source"], "newsletter")
+        self.assertEqual(row["utm_medium"], "email")
+        self.assertEqual(row["utm_campaign"], "pilot")
+        self.assertEqual(row["utm_term"], "senior")
+        self.assertEqual(row["utm_content"], "banner")
+
+        with_note = self.client.post(
+            "/request-access",
+            data={
+                **payload,
+                "email": "applicant-two@example.com",
+                "heard_about": "A colleague",
+                "subject": "S" * 250,
+            },
+            follow_redirects=False,
+        )
+        noted_body = with_note.get_data(as_text=True)
+        self.assertNotIn(
+            "Thanks, your request is in. We'll email you when your invite is ready.",
+            noted_body,
+        )
+        self.assertIn(
+            "A person on our team reviews every request. We will reply by email as soon as we can.",
+            noted_body,
+        )
+        self.assertIn(
+            "Sending this form does not create an account, and we never ask for payment here. "
+            "If we approve your request, you will get an email invite to sign in with Google.",
+            noted_body,
+        )
+        saved = next(
+            item
+            for item in self.school.list_access_requests(status="pending")
+            if item["email"] == "applicant-two@example.com"
+        )
+        self.assertEqual(saved["heard_about"], "A colleague")
+        self.assertEqual(saved["subject"], "S" * 200)
+        self.assertEqual(self._count_rows("users"), before_users)
+
+    def test_request_access_rejects_unknown_grade_band(self) -> None:
+        """An unknown grade band is refused and the submitted choice is not echoed."""
+        before_requests = self._count_rows("access_requests")
+        rv = self.client.post(
+            "/request-access",
+            data={
+                "name": "Applicant Five",
+                "email": "applicant-five@example.com",
+                "role": "teacher",
+                "context": "One senior class.",
+                "grade_band": "nope",
+                "subject": "Mathematics",
+                "live_classes_per_week": "2-4",
+            },
+            follow_redirects=False,
+        )
+        body = rv.get_data(as_text=True)
+        self.assertEqual(rv.status_code, 200)
+        self.assertIn("Choose a grade band", body)
+        self.assertNotIn("nope", body)
+        self.assertEqual(self._count_rows("access_requests"), before_requests)
+
+    def test_access_request_migration_is_idempotent(self) -> None:
+        """An older request table gains the new columns, and a second pass is a no-op."""
+        conn = self.school.conn
+        conn.execute("ALTER TABLE access_requests RENAME TO access_requests_prev")
+        conn.execute(
+            """
+            CREATE TABLE access_requests (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                role TEXT NOT NULL,
+                organization TEXT NOT NULL DEFAULT '',
+                context TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                reviewed_at TEXT,
+                reviewed_by_user_id INTEGER
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO access_requests (
+                name, email, role, organization, context, status, created_at
+            )
+            SELECT name, email, role, organization, context, status, created_at
+            FROM access_requests_prev
+            """
+        )
+        conn.execute("DROP TABLE access_requests_prev")
+        self.school._ensure_access_request_schema()
+        self.school._ensure_access_request_schema()
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(access_requests)")}
+        for name in (
+            "grade_band",
+            "subject",
+            "live_classes_per_week",
+            "heard_about",
+            "utm_source",
+            "utm_medium",
+            "utm_campaign",
+            "utm_term",
+            "utm_content",
+        ):
+            self.assertIn(name, cols)
+
+    def test_request_access_honeypot_same_confirmation(self) -> None:
+        """A filled honeypot shows the same confirmation and stores no row."""
+        before_requests = self._count_rows("access_requests")
+        rv = self.client.post(
+            "/request-access",
+            data={
+                "name": "Applicant Three",
+                "email": "applicant-three@example.com",
+                "role": "teacher",
+                "organization": "",
+                "context": "One senior class.",
+                "website": "x",
+            },
+            follow_redirects=False,
+        )
+        body = rv.get_data(as_text=True)
+        self.assertEqual(rv.status_code, 200)
+        self.assertNotIn(
+            "Thanks, your request is in. We'll email you when your invite is ready.",
+            body,
+        )
+        self.assertIn(
+            "A person on our team reviews every request. We will reply by email as soon as we can.",
+            body,
+        )
+        self.assertIn(
+            "Sending this form does not create an account, and we never ask for payment here. "
+            "If we approve your request, you will get an email invite to sign in with Google.",
+            body,
+        )
+        self.assertIn('id="request-access-confirmed"', body)
+        self.assertEqual(self._count_rows("access_requests"), before_requests)
+        self.assertIsNone(self.school.get_user_by_email("applicant-three@example.com"))
+
+    def test_public_front_door_omits_out_of_scope_claims(self) -> None:
+        """Landing, the request form, its confirmation, and the unknown-account page stay on-brief."""
+        banned = ("slides", "powerpoint", "whiteboard", "multi-tenant", "codename")
+        pages = [
+            self.client.get("/").get_data(as_text=True),
+            self.client.get("/request-access").get_data(as_text=True),
+        ]
+        posted = self.client.post(
+            "/request-access",
+            data={
+                "name": "Applicant Four",
+                "email": "applicant-four@example.com",
+                "role": "parent",
+                "organization": "",
+                "context": "Two learners at home.",
+                "grade_band": "other",
+                "subject": "Science",
+                "live_classes_per_week": "5-9",
+            },
+        )
+        pages.append(posted.get_data(as_text=True))
+        unknown = self._callback("stranger@gmail.com", "staff")
+        self.assertEqual(unknown.status_code, 403)
+        pages.append(unknown.get_data(as_text=True))
+        for body in pages:
+            lowered = body.lower()
+            for word in banned:
+                self.assertNotIn(word, lowered)
 
     def test_health_keeps_internal_lloves_alias(self) -> None:
         """/health still reports the internal SCHOOL_SHORT alias."""
@@ -165,8 +448,46 @@ class AuthTests(unittest.TestCase):
         """Unknown Google accounts are not auto-created."""
         rv = self._callback("stranger@gmail.com", "staff")
         self.assertEqual(rv.status_code, 403)
-        self.assertIn("not registered", rv.get_data(as_text=True))
+        self.assertIn(
+            "This Google account is not registered with ALC yet. "
+            "Request access below and we will get back to you.",
+            html.unescape(rv.get_data(as_text=True)),
+        )
         self.assertIsNone(self.school.get_user_by_email("stranger@gmail.com"))
+
+    def test_unknown_google_account_links_request_access(self) -> None:
+        """An unknown Google account gets a 403 whose primary button opens the request form."""
+        rv = self._callback("stranger@gmail.com", "staff")
+        self.assertEqual(rv.status_code, 403)
+        body = rv.get_data(as_text=True)
+        self.assertIn('href="/request-access"', body)
+        self.assertIn('id="forbidden-request-access"', body)
+        self.assertIn(
+            'class="btn" id="forbidden-request-access" href="/request-access"',
+            body,
+        )
+        request_at = body.find('id="forbidden-request-access"')
+        home_at = body.find("Return to school home")
+        self.assertGreater(request_at, -1)
+        self.assertLess(request_at, home_at)
+        self.assertNotIn("from the home page", body)
+        self.assertIn(
+            "This Google account is not registered with ALC yet. "
+            "Request access below and we will get back to you.",
+            html.unescape(body),
+        )
+        self.assertNotIn("to join the pilot.", body)
+
+    def test_forbidden_without_flag_has_no_primary_cta(self) -> None:
+        """Other forbidden pages do not show the request-access button."""
+        self.school.register_staff("teacher@gmail.com")
+        self._callback("teacher@gmail.com", "staff")
+        self._complete_2sv("teacher@gmail.com")
+        rv = self.client.get("/it")
+        self.assertEqual(rv.status_code, 403)
+        body = rv.get_data(as_text=True)
+        self.assertNotIn("forbidden-request-access", body)
+        self.assertNotIn('href="/request-access"', body)
 
     def test_it_email_may_use_staff_portal(self) -> None:
         """Shawn's IT email can complete Staff Login after 2SV."""

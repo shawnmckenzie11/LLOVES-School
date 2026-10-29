@@ -10,9 +10,16 @@
   <div class="wrap">
     <p class="kicker">{{ school_display }}</p>
     <h1>Access needed</h1>
+    {% if show_request_access %}
     <p class="sub">{{ message }}</p>
-    <p><a class="btn" href="{{ url_for('landing') }}">Return to school home</a>
-       <a class="btn secondary" href="{{ url_for('request_access') }}">Request access</a></p>
+    <p class="row-actions">
+      <a class="btn" id="forbidden-request-access" href="{{ url_for('request_access') }}">Request access</a>
+      <a class="btn secondary" href="{{ url_for('landing') }}">Return to school home</a>
+    </p>
+    {% else %}
+    <p class="sub">{{ message }}</p>
+    <p><a class="btn" href="{{ url_for('landing') }}">Return to school home</a></p>
+    {% endif %}
   </div>
 </body>
 </html>

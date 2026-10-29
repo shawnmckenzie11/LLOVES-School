@@ -1206,6 +1206,15 @@ CREATE TABLE IF NOT EXISTS access_requests (
     role TEXT NOT NULL,
     organization TEXT NOT NULL DEFAULT '',
     context TEXT NOT NULL DEFAULT '',
+    grade_band TEXT,
+    subject TEXT,
+    live_classes_per_week TEXT,
+    heard_about TEXT,
+    utm_source TEXT,
+    utm_medium TEXT,
+    utm_campaign TEXT,
+    utm_term TEXT,
+    utm_content TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
     created_at TEXT NOT NULL,
     reviewed_at TEXT,
@@ -2216,6 +2225,68 @@ def ensure_live_session_teacher_nullable(conn: sqlite3.Connection) -> None:
         if owns_txn and conn.in_transaction:
             conn.execute("ROLLBACK")
         raise
+
+
+# Public request form. Free-text answers and campaign tags are cut to this
+# length. Allowed sets are the only accepted choices.
+ACCESS_REQUEST_FIELD_MAX = 200
+ACCESS_REQUEST_GRADE_BANDS = frozenset({"6-12", "other"})
+ACCESS_REQUEST_WEEKLY_LOADS = frozenset({"0-1", "2-4", "5-9", "10+"})
+ACCESS_REQUEST_UTM_KEYS = (
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+)
+ACCESS_REQUEST_EXTRA_COLUMNS = (
+    "grade_band",
+    "subject",
+    "live_classes_per_week",
+    "heard_about",
+    *ACCESS_REQUEST_UTM_KEYS,
+)
+
+
+def limit_access_text(value: object, limit: int = ACCESS_REQUEST_FIELD_MAX) -> str:
+    """Strip a request answer and keep at most ``limit`` characters.
+
+    The original text is not logged.
+
+    Args:
+        value: Raw form or query value.
+        limit: Maximum stored length.
+
+    Returns:
+        The stripped value, cut to ``limit`` when it is longer.
+    """
+    text = str(value or "").replace("\x00", "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit]
+
+
+def access_campaign_tags(source: Any) -> dict[str, str]:
+    """Copy the five campaign tags from a query or form.
+
+    Unknown keys are ignored. Each tag is stripped and length-capped.
+    Blank tags are empty strings. Nothing from ``source`` is logged.
+
+    Args:
+        source: A mapping such as request args or form fields.
+
+    Returns:
+        ``utm_source``, ``utm_medium``, ``utm_campaign``, ``utm_term``,
+        and ``utm_content``.
+    """
+    getter = getattr(source, "get", None)
+    tags: dict[str, str] = {}
+    for key in ACCESS_REQUEST_UTM_KEYS:
+        raw = getter(key, "") if getter else ""
+        if isinstance(raw, (list, tuple)):
+            raw = raw[0] if raw else ""
+        tags[key] = limit_access_text(raw)
+    return tags
 
 
 class LovesDB:
@@ -5516,7 +5587,9 @@ class LovesDB:
         """Create the public signup-request table on existing sqlite files.
 
         Requests are a queue for IT. Submitting one never creates a user,
-        tenant, or allowlist row.
+        tenant, or allowlist row. Added answer and campaign columns are
+        applied with ``PRAGMA table_info`` then ``ALTER TABLE``, so a second
+        boot on a database that already has them does nothing.
         """
         self.conn.executescript(
             """
@@ -5527,6 +5600,15 @@ class LovesDB:
                 role TEXT NOT NULL,
                 organization TEXT NOT NULL DEFAULT '',
                 context TEXT NOT NULL DEFAULT '',
+                grade_band TEXT,
+                subject TEXT,
+                live_classes_per_week TEXT,
+                heard_about TEXT,
+                utm_source TEXT,
+                utm_medium TEXT,
+                utm_campaign TEXT,
+                utm_term TEXT,
+                utm_content TEXT,
                 status TEXT NOT NULL DEFAULT 'pending',
                 created_at TEXT NOT NULL,
                 reviewed_at TEXT,
@@ -5538,6 +5620,12 @@ class LovesDB:
                 ON access_requests(status);
             """
         )
+        cols = {row[1] for row in self.conn.execute("PRAGMA table_info(access_requests)")}
+        for name in ACCESS_REQUEST_EXTRA_COLUMNS:
+            if name not in cols:
+                self.conn.execute(
+                    f"ALTER TABLE access_requests ADD COLUMN {name} TEXT"
+                )
 
     def _seed(self) -> None:
         """Insert IT user, curriculum catalog, MCF3M expectations, default semester."""
@@ -5745,11 +5833,22 @@ class LovesDB:
         role: str,
         organization: str = "",
         context: str = "",
+        grade_band: str = "",
+        subject: str = "",
+        live_classes_per_week: str = "",
+        heard_about: str = "",
+        utm_source: str = "",
+        utm_medium: str = "",
+        utm_campaign: str = "",
+        utm_term: str = "",
+        utm_content: str = "",
     ) -> dict[str, Any]:
         """Store a public signup request without creating a user.
 
         A second submit from the same email while still pending updates the
-        existing row so IT is not flooded with duplicates.
+        existing row so IT is not flooded with duplicates. New answers and
+        campaign tags are stripped and length-capped. Their values are not
+        logged.
 
         Args:
             name: Contact name.
@@ -5757,18 +5856,40 @@ class LovesDB:
             role: One of ``ACCESS_REQUEST_ROLES``.
             organization: School or family name.
             context: Why they want access.
+            grade_band: ``6-12`` or ``other``.
+            subject: Free-text subject.
+            live_classes_per_week: ``0-1``, ``2-4``, ``5-9``, or ``10+``.
+            heard_about: Optional referral note.
+            utm_source: Campaign tag from the landing link.
+            utm_medium: Campaign tag from the landing link.
+            utm_campaign: Campaign tag from the landing link.
+            utm_term: Campaign tag from the landing link.
+            utm_content: Campaign tag from the landing link.
 
         Returns:
             The access_requests row.
 
         Raises:
-            ValueError: If required fields are missing or the role is unknown.
+            ValueError: If required fields are missing or a choice is unknown.
         """
         label = (name or "").strip()
         key = (email or "").strip().lower()
         kind = (role or "").strip().lower()
         org = (organization or "").strip()
         note = (context or "").strip()
+        band = limit_access_text(grade_band, 16)
+        topic = limit_access_text(subject)
+        weekly = limit_access_text(live_classes_per_week, 16)
+        heard = limit_access_text(heard_about)
+        tags = access_campaign_tags(
+            {
+                "utm_source": utm_source,
+                "utm_medium": utm_medium,
+                "utm_campaign": utm_campaign,
+                "utm_term": utm_term,
+                "utm_content": utm_content,
+            }
+        )
         if not label:
             raise ValueError("Enter your name")
         if "@" not in key:
@@ -5777,7 +5898,29 @@ class LovesDB:
             raise ValueError("Choose how you would use ALC")
         if not note:
             raise ValueError("Tell us a little about your school or family")
+        if band not in ACCESS_REQUEST_GRADE_BANDS:
+            raise ValueError("Choose a grade band")
+        if not topic:
+            raise ValueError("Enter a subject")
+        if weekly not in ACCESS_REQUEST_WEEKLY_LOADS:
+            raise ValueError("Choose how many live classes you teach in a week")
         now = _now()
+        stored = (
+            label,
+            kind,
+            org,
+            note,
+            band,
+            topic,
+            weekly,
+            heard,
+            tags["utm_source"],
+            tags["utm_medium"],
+            tags["utm_campaign"],
+            tags["utm_term"],
+            tags["utm_content"],
+            now,
+        )
         with self._lock:
             pending = self.conn.execute(
                 """
@@ -5792,10 +5935,13 @@ class LovesDB:
                     """
                     UPDATE access_requests
                     SET name = ?, role = ?, organization = ?, context = ?,
+                        grade_band = ?, subject = ?, live_classes_per_week = ?,
+                        heard_about = ?, utm_source = ?, utm_medium = ?,
+                        utm_campaign = ?, utm_term = ?, utm_content = ?,
                         created_at = ?
                     WHERE id = ?
                     """,
-                    (label, kind, org, note, now, int(pending["id"])),
+                    (*stored, int(pending["id"])),
                 )
                 self.conn.commit()
                 row = self.conn.execute(
@@ -5806,12 +5952,16 @@ class LovesDB:
                 cur = self.conn.execute(
                     """
                     INSERT INTO access_requests (
-                        name, email, role, organization, context, status,
-                        created_at
+                        name, email, role, organization, context,
+                        grade_band, subject, live_classes_per_week,
+                        heard_about, utm_source, utm_medium, utm_campaign,
+                        utm_term, utm_content, status, created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, 'pending', ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
                     """,
-                    (label, key, kind, org, note, now),
+                    (label, key, kind, org, note, band, topic, weekly, heard,
+                     tags["utm_source"], tags["utm_medium"], tags["utm_campaign"],
+                     tags["utm_term"], tags["utm_content"], now),
                 )
                 self.conn.commit()
                 row = self.conn.execute(

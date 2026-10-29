@@ -2160,7 +2160,13 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
 
     @app.route("/request-access", methods=["GET", "POST"])
     def request_access():
-        """Capture a signup request. Never collects payment or auto-allowlists."""
+        """Capture a signup request. Never collects payment or auto-allowlists.
+
+        New answers and the five campaign tags are length-capped and stored
+        on the request row. Field values are not logged.
+        """
+        from school_db import access_campaign_tags, limit_access_text
+
         error = None
         submitted = False
         form = {
@@ -2169,7 +2175,12 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             "role": "parent",
             "organization": "",
             "context": "",
+            "grade_band": "",
+            "subject": "",
+            "live_classes_per_week": "",
+            "heard_about": "",
         }
+        incoming = request.form if request.method == "POST" else request.args
         if request.method == "POST":
             honeypot = (request.form.get("website") or "").strip()
             form["name"] = (request.form.get("name") or "").strip()
@@ -2177,16 +2188,32 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             form["role"] = (request.form.get("role") or "parent").strip()
             form["organization"] = (request.form.get("organization") or "").strip()
             form["context"] = (request.form.get("context") or "").strip()
+            form["grade_band"] = limit_access_text(request.form.get("grade_band"), 16)
+            form["subject"] = limit_access_text(request.form.get("subject"))
+            form["live_classes_per_week"] = limit_access_text(
+                request.form.get("live_classes_per_week"), 16
+            )
+            form["heard_about"] = limit_access_text(request.form.get("heard_about"))
             if honeypot:
                 submitted = True
             else:
                 try:
+                    tags = access_campaign_tags(request.form)
                     row = school.create_access_request(
                         name=form["name"],
                         email=form["email"],
                         role=form["role"],
                         organization=form["organization"],
                         context=form["context"],
+                        grade_band=form["grade_band"],
+                        subject=form["subject"],
+                        live_classes_per_week=form["live_classes_per_week"],
+                        heard_about=form["heard_about"],
+                        utm_source=tags["utm_source"],
+                        utm_medium=tags["utm_medium"],
+                        utm_campaign=tags["utm_campaign"],
+                        utm_term=tags["utm_term"],
+                        utm_content=tags["utm_content"],
                     )
                     try:
                         email_service.send_access_request_notice(row)
@@ -2200,6 +2227,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             error=error,
             submitted=submitted,
             form=form,
+            access_utm=access_campaign_tags(incoming),
         )
 
     @app.route("/health")
