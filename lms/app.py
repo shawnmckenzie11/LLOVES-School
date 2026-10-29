@@ -4463,6 +4463,15 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             or "MCF3M"
         )
         set_class = school.set_class_picker(class_id)
+        try:
+            from set_class import registry_with_setup_module
+        except ImportError:
+            from lms.set_class import registry_with_setup_module
+        live_packs = registry_with_setup_module(
+            live_packs,
+            set_class.get("module"),
+            set_class.get("chapters") or [],
+        )
         from engagement_summary import KEY_ENGAGEMENT_SUMMARY_EMPTY, engagement_copy
         from flask import make_response
 
