@@ -4,9 +4,12 @@
  * MCK-183: staff pages carry ``lloves-sentry-user`` (the teacher's user id,
  * never a name or email) and ``lloves-sentry-tags`` (teacher_id,
  * teacher_kind, portal, class_id, course_code, tool). Student pages carry
- * tags only. Breadcrumbs are scrubbed so roster names on screen never ride
- * along: console lines drop, click/input crumbs keep the element tag and
- * class only, and URLs lose their query. Session Replay stays off.
+ * tags only. Breadcrumbs and events are scrubbed with the same rules as
+ * ``lms/sentry_wire.py``: emails, PINs, join and catch-up codes, and
+ * student names (labelled or not, including ``tap by <name>`` and
+ * ``code <token>``). Console lines drop, click/input crumbs keep the
+ * element tag and class only, and URLs lose their query. A scrub error
+ * drops the event. Session Replay stays off.
  *
  * Failed live fetches (HTTP 500 and other non-shed 5xx) and exceptions a
  * poll loop would otherwise swallow (``window.llovesSentryReport``) report.
@@ -18,7 +21,9 @@
  * Busy / 503 / reconnect / heartbeat failures stay on the soft strip in
  * ``staff_ap.js`` and ``student-portal.js``. This file drops that same
  * class of event if one escapes as an unhandled rejection. A script
- * exception while painting a poll response still reports.
+ * exception still reports when the message mentions 500, unavailable, or
+ * busy. The vendored browser SDK (11.1.0) has no ``enableLogs``, so
+ * WARNING and above are sent from the server.
  */
 (function () {
   var POLL_URL =
@@ -72,24 +77,6 @@
   }
 
   /**
-   * Fetch and XHR breadcrumb URLs, oldest first.
-   * @param {object} event
-   * @returns {string[]}
-   */
-  function breadcrumbUrls(event) {
-    var crumbs = (event && event.breadcrumbs) || [];
-    var urls = [];
-    if (!Array.isArray(crumbs)) return urls;
-    crumbs.forEach(function (crumb) {
-      if (!crumb) return;
-      if (crumb.category !== "fetch" && crumb.category !== "xhr") return;
-      var data = crumb.data || {};
-      urls.push(String(data.url || data.to || crumb.message || ""));
-    });
-    return urls;
-  }
-
-  /**
    * Newest fetch/XHR URL on the event, or an empty string.
    * @param {object} event
    * @returns {string}
@@ -108,17 +95,38 @@
   }
 
   /**
+   * True for a programming error (paint, undefined, and so on).
+   * A TypeError whose text is only "Failed to fetch" is a network failure.
+   * @param {object} event
+   * @returns {boolean}
+   */
+  function isProgrammingFault(event) {
+    var values = event && event.exception && event.exception.values;
+    if (!Array.isArray(values) || !values.length) return false;
+    var network = /failed to fetch|networkerror|network request failed|load failed|aborterror|the operation was aborted|the user aborted|request aborted|^HTTP\s+\d{3}\b/i;
+    return values.every(function (value) {
+      var type = String((value && value.type) || "");
+      var text = String((value && value.value) || "");
+      if (!type || network.test(text)) return false;
+      return /Error$/.test(type);
+    });
+  }
+
+  /**
    * True when a soft poll/heartbeat failure should not become a fatal event.
+   * A script exception still reports when its text mentions 500, unavailable,
+   * or busy. An older poll breadcrumb does not hide that exception.
    * @param {object} event
    * @returns {boolean}
    */
   function shouldDropLivePollEvent(event) {
     if (!event || !SOFT_POLL_TEXT.test(eventText(event))) return false;
+    if (isProgrammingFault(event)) return false;
     var requestUrl = event.request && event.request.url ? String(event.request.url) : "";
     var newest = newestFetchUrl(event);
     if (newest) return isLivePollUrl(newest);
     if (requestUrl && isLivePollUrl(requestUrl)) return true;
-    return breadcrumbUrls(event).some(isLivePollUrl);
+    return false;
   }
 
   /**
@@ -287,6 +295,8 @@
       if (frame.filename) frame.filename = stripQuery(frame.filename);
       if (frame.abs_path) frame.abs_path = stripQuery(frame.abs_path);
       if (frame.module && /[?#]/.test(String(frame.module))) frame.module = stripQuery(frame.module);
+      // Locals can hold a PIN under any name. The server drops frame vars too.
+      if (frame.vars) delete frame.vars;
     }
   }
 
@@ -313,9 +323,132 @@
    * @param {object} crumb
    * @returns {object|null}
    */
+  // Keep these lists aligned with ``_DROPPED_KEYS`` / ``_NOT_A_BY_NAME``
+  // in sentry_wire.py. ``course_code`` is not a dropped key.
+  var DROPPED_KEYS = {
+    email: 1, confirm_email: 1, login_hint: 1,
+    pin: 1, course_pin: 1, student_pin: 1, catchup_pin: 1, catch_up_pin: 1,
+    default_pin: 1, pin_hash: 1,
+    join_code: 1, session_code: 1, portal_join_code: 1, catchup_code: 1,
+    catch_up_code: 1, live_access_code: 1, access_code: 1,
+    name: 1, student_name: 1, first_name: 1, last_name: 1, display_name: 1,
+    full_name: 1, preferred_name: 1, roster_name: 1, given_name: 1,
+    family_name: 1, codename: 1, last_display: 1, username: 1,
+  };
+  var NOT_A_STUDENT_NAME = {
+    portal: 1, state: 1, home: 1, join: 1, code: 1, pin: 1, live: 1,
+    class: 1, session: 1, error: 1, failed: 1, page: 1, view: 1, tab: 1,
+    board: 1, phone: 1, card: 1,
+  };
+  var NOT_A_BY_NAME = {
+    error: 1, warning: 1, failed: 1, false: 1, true: 1, none: 1, null: 1,
+    graph: 1, publish: 1, roster: 1, student: 1, portal: 1, class: 1,
+    dashboard: 1, attendance: 1, state: 1, home: 1, join: 1, code: 1,
+    pin: 1, live: 1, session: 1, page: 1, view: 1, tab: 1, board: 1,
+    phone: 1, card: 1, monday: 1, tuesday: 1, wednesday: 1, thursday: 1,
+    friday: 1, saturday: 1, sunday: 1, january: 1, february: 1, march: 1,
+    april: 1, may: 1, june: 1, july: 1, august: 1, september: 1, october: 1,
+    november: 1, december: 1, staff: 1, teacher: 1, admin: 1, user: 1,
+    system: 1, server: 1, module: 1, lesson: 1, question: 1, answer: 1,
+    team: 1, group: 1, item: 1, step: 1, today: 1, tomorrow: 1,
+    yesterday: 1, someone: 1, anyone: 1,
+  };
+  var HEADER_ALLOW = {
+    accept: 1, "accept-language": 1, "content-length": 1, "content-type": 1,
+    host: 1, referer: 1, "user-agent": 1,
+  };
+  // All-letter tokens of join-code length that are ordinary log words.
+  // Keep in sync with ``_ORDINARY_CODE_WORDS`` in sentry_wire.py.
+  var ORDINARY_CODE_WORDS = {
+    lookup: 1, failed: 1, failure: 1, edited: 1, opened: 1, saved: 1,
+    publish: 1, import: 1, added: 1, request: 1, response: 1, status: 1,
+    disk: 1, full: 1, locked: 1, database: 1, joined: 1, handler: 1,
+    typed: 1, ping: 1, keep: 1, post: 1, get: 1, put: 1, head: 1, patch: 1,
+    http: 1, https: 1, json: 1, html: 1, info: 1, debug: 1, warn: 1,
+    trace: 1, span: 1, event: 1, from: 1, with: 1, that: 1, this: 1,
+    when: 1, have: 1, been: 1, were: 1, your: 1, into: 1, over: 1, after: 1,
+    before: 1, about: 1, there: 1, where: 1, which: 1, other: 1, only: 1,
+    also: 1, just: 1, like: 1, some: 1, each: 1, both: 1, most: 1, many: 1,
+    more: 1, back: 1, down: 1, here: 1, once: 1, year: 1, date: 1, time: 1,
+    open: 1, close: 1, start: 1, stop: 1, save: 1, send: 1, load: 1, read: 1,
+    file: 1, path: 1, host: 1, port: 1, type: 1, data: 1, body: 1, text: 1,
+    note: 1, test: 1, drop: 1, pass: 1, skip: 1, done: 1, left: 1, next: 1,
+    main: 1, base: 1, size: 1, line: 1, take: 1, quit: 1, bank: 1, true: 1,
+    false: 1, none: 1, null: 1, error: 1, warning: 1, critical: 1, fatal: 1,
+    course: 1, select: 1, from: 1, where: 1, insert: 1, update: 1, delete: 1,
+    values: 1, table: 1, index: 1, limit: 1, order: 1, inner: 1, outer: 1,
+    count: 1, union: 1, having: 1, distinct: 1, exists: 1, unique: 1,
+    check: 1, column: 1, schema: 1, using: 1, case: 1, then: 1, else: 1,
+    desc: 1, offset: 1, fetch: 1, pragma: 1, vacuum: 1, begin: 1, commit: 1,
+    alter: 1, create: 1, explain: 1, ignore: 1, abort: 1, rollback: 1,
+  };
+  Object.keys(NOT_A_BY_NAME).forEach(function (word) { ORDINARY_CODE_WORDS[word] = 1; });
+
   /**
-   * Cut the query from every URL or path inside free text (messages,
-   * exception values): ``.../app.js?v=abc`` → ``.../app.js``.
+   * True when a string is shaped like a live join or catch-up code.
+   * Lengths are 4, 5, 6, or 8, alphanumeric, with a letter.
+   * @param {string} value
+   * @returns {boolean}
+   */
+  function looksLikeJoinCode(value) {
+    var text = String(value || "").trim().toUpperCase().replace(/ /g, "");
+    if ([4, 5, 6, 8].indexOf(text.length) < 0) return false;
+    if (!/^[A-Z0-9]+$/.test(text) || /^[0-9]+$/.test(text)) return false;
+    return /[A-Z]/.test(text);
+  }
+
+  /**
+   * True for a ministry course code such as MCF3M.
+   * @param {string} value
+   * @returns {boolean}
+   */
+  function isOntarioCourseCode(value) {
+    return /^[A-Za-z]{3}[1-4][A-Za-z]$/.test(String(value || "").trim());
+  }
+
+  /**
+   * True when a free-text token is a join or catch-up code with no cue word.
+   * A letter plus a digit, length 4, 5, 6, or 8. Course codes stay. An
+   * all-letter token stays unless it is all capitals and not a log word.
+   * @param {string} value
+   * @returns {boolean}
+   */
+  function shouldRedactCodeToken(value) {
+    var text = String(value || "").trim();
+    if (!looksLikeJoinCode(text)) return false;
+    if (isOntarioCourseCode(text)) return false;
+    if (/\d/.test(text)) return true;
+    return (
+      /^[A-Za-z]+$/.test(text) &&
+      text === text.toUpperCase() &&
+      !ORDINARY_CODE_WORDS[text.toLowerCase()]
+    );
+  }
+
+  function isUnlabelledPin(value) {
+    var text = String(value || "").trim();
+    if (!/^\d{4}$/.test(text)) return false;
+    var number = Number(text);
+    return !(number >= 1900 && number <= 2099);
+  }
+
+  /**
+   * True when this field must not be sent.
+   * @param {string} key
+   * @param {any} child
+   * @returns {boolean}
+   */
+  function dropSecretField(key, child) {
+    var lowered = String(key).toLowerCase();
+    if (DROPPED_KEYS[lowered] || /_pin$/.test(lowered)) return true;
+    if (lowered === "code" && typeof child === "string" && looksLikeJoinCode(child)) return true;
+    return false;
+  }
+
+  /**
+   * Cut the query from every URL or path inside free text, then redact
+   * emails, PINs, join and catch-up codes, and student names.
+   * Mirrors ``_scrub_text`` in sentry_wire.py.
    * @param {any} text
    * @returns {any}
    */
@@ -326,7 +459,99 @@
         return stripQuery(path);
       });
     }
-    return maskPathTokens(text);
+    text = maskPathTokens(text);
+    text = text.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[redacted]");
+    text = text.replace(/\b(pin)\b(\s*[:=]?\s*)\d{4}\b/gi, function (_all, label, sep) {
+      return label + sep + "[redacted]";
+    });
+    text = text.replace(
+      /\b((?:join|catch-?up|session|portal|access)\s+code|session_code|portal_join_code|join_code|live_access_code|catch-?up_code)\b(\s*[:=]?\s*)[A-Za-z0-9]{4,8}\b/gi,
+      function (_all, label, sep) {
+        return label + sep + "[redacted]";
+      }
+    );
+    text = text.replace(
+      /\b(student(?:'s)?\s+name|first_name|last_name|full_name|display_name|codename|roster_name|name)\b(\s*[:=]\s*)([^\s,;"'&=]{1,80})/gi,
+      function (_all, label, sep) {
+        return label + sep + "[redacted]";
+      }
+    );
+    text = text.replace(/\b(Student|student|Roster|roster)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b/g, function (all, label, name) {
+      if (NOT_A_STUDENT_NAME[String(name).toLowerCase()]) return all;
+      return label + " [redacted]";
+    });
+    text = text.replace(/\b[Bb]y\s+([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\b/g, function (all, name) {
+      var words = String(name).split(/\s+/);
+      var safe = words.length && words.every(function (word) {
+        return NOT_A_BY_NAME[word.toLowerCase()];
+      });
+      return safe ? all : "by [redacted]";
+    });
+    text = text.replace(/\b(code)(\s*[:=]?\s*)([A-Za-z0-9]{4,8})\b/gi, function (all, label, sep, token, offset, whole) {
+      if (!looksLikeJoinCode(token)) return all;
+      var prefix = String(whole).slice(0, offset);
+      if (/course[_ \t]+$/i.test(prefix)) return all;
+      return label + sep + "[redacted]";
+    });
+    text = text.replace(/\b(?:[A-Za-z0-9]{8}|[A-Za-z0-9]{6}|[A-Za-z0-9]{5}|[A-Za-z0-9]{4})\b/g, function (token) {
+      return shouldRedactCodeToken(token) ? "[redacted]" : token;
+    });
+    text = text.replace(/\b([A-Z][a-z]{2,})\s+([A-Z][a-z]{2,})\b/g, function (all, first, last) {
+      if (NOT_A_BY_NAME[first.toLowerCase()] || NOT_A_BY_NAME[last.toLowerCase()]) return all;
+      return "[redacted]";
+    });
+    text = text.replace(/(?<!\d)(\d{4})(?!\d)/g, function (digits) {
+      return isUnlabelledPin(digits) ? "[redacted]" : digits;
+    });
+    return text;
+  }
+
+  /**
+   * Drop secret keys and redact secret text. A repeated object is a cycle:
+   * throw so the caller drops the event instead of sending it.
+   * @param {any} value
+   * @param {WeakSet<object>} seen
+   * @returns {any}
+   */
+  function scrubNode(value, seen) {
+    if (typeof value === "string") return scrubText(value);
+    if (!value || typeof value !== "object") return value;
+    if (seen.has(value)) throw new Error("cyclic sentry payload");
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (var i = 0; i < value.length; i++) value[i] = scrubNode(value[i], seen);
+      return value;
+    }
+    Object.keys(value).forEach(function (key) {
+      if (dropSecretField(key, value[key])) {
+        delete value[key];
+        return;
+      }
+      value[key] = scrubNode(value[key], seen);
+    });
+    return value;
+  }
+
+  /**
+   * Allowlisted request headers only, with any URL query cut.
+   * @param {object} request
+   */
+  function scrubRequest(request) {
+    if (!request || typeof request !== "object") return;
+    delete request.data;
+    delete request.cookies;
+    delete request.query_string;
+    delete request.env;
+    if (typeof request.url === "string") request.url = stripQuery(request.url);
+    var headers = request.headers;
+    if (!headers || typeof headers !== "object") return;
+    Object.keys(headers).forEach(function (name) {
+      if (!HEADER_ALLOW[String(name).toLowerCase()]) {
+        delete headers[name];
+        return;
+      }
+      headers[name] = typeof headers[name] === "string" ? stripQuery(headers[name]) : "";
+    });
   }
 
   /**
@@ -344,28 +569,19 @@
   }
 
   /**
-   * Mask path tokens in every string inside a breadcrumb's data.
-   * @param {any} value
-   * @param {number} depth
-   * @returns {any}
+   * Scrub one breadcrumb in place. Console lines drop. A scrub error throws
+   * so beforeBreadcrumb can drop the crumb.
+   * @param {object} crumb
+   * @returns {object|null}
    */
-  function maskNested(value, depth) {
-    if (depth > 6) return value;
-    if (typeof value === "string") return maskPathTokens(value);
-    if (Array.isArray(value)) return value.map(function (v) { return maskNested(v, depth + 1); });
-    if (value && typeof value === "object") {
-      Object.keys(value).forEach(function (k) { value[k] = maskNested(value[k], depth + 1); });
-    }
-    return value;
-  }
-
   function scrubBreadcrumb(crumb) {
-    if (!crumb) return crumb;
-    if (crumb.message) crumb.message = scrubText(crumb.message);
+    if (!crumb || typeof crumb !== "object") return crumb;
+    scrubNode(crumb, new WeakSet());
     var category = String(crumb.category || "");
     if (category === "console") return null;
     if (category.indexOf("ui.") === 0 && crumb.message) {
       crumb.message = String(crumb.message).replace(/\[[^\]]*\]/g, "");
+      crumb.message = scrubText(crumb.message);
     }
     if (category === "navigation" && crumb.data) {
       if (crumb.data.from) crumb.data.from = stripQuery(crumb.data.from);
@@ -374,56 +590,38 @@
     if ((category === "fetch" || category === "xhr") && crumb.data && crumb.data.url) {
       crumb.data.url = stripQuery(crumb.data.url);
     }
-    if (crumb.data) crumb.data = maskNested(crumb.data, 0);
     return crumb;
   }
 
   /**
-   * Scrub an event in place: query strings, referer, and any user field
-   * other than the teacher id.
+   * Scrub an event in place: secrets, query strings, cookies, headers, and
+   * any user field other than the teacher id. Throws on a scrub failure so
+   * beforeSend drops the event.
    * @param {object} event
    * @returns {object}
    */
   function scrubEvent(event) {
-    if (!event) return event;
-    if (event.request) {
-      if (event.request.url) event.request.url = stripQuery(event.request.url);
-      delete event.request.query_string;
-      delete event.request.cookies;
-      delete event.request.data;
-      var headers = event.request.headers;
-      if (headers) {
-        if (headers.Referer) headers.Referer = stripQuery(headers.Referer);
-        if (headers.referer) headers.referer = stripQuery(headers.referer);
-      }
-    }
+    if (!event || typeof event !== "object") return event;
+    scrubNode(event, new WeakSet());
+    if (event.request) scrubRequest(event.request);
     var groups = [event.exception, event.threads];
     for (var g = 0; g < groups.length; g++) {
       var values = groups[g] && groups[g].values;
-      if (Array.isArray(values)) {
-        values.forEach(function (value) {
-          scrubFrames(value);
-          if (value && value.value) value.value = scrubText(value.value);
-        });
-      }
+      if (Array.isArray(values)) values.forEach(scrubFrames);
     }
-    if (event.message) event.message = scrubText(event.message);
-    if (event.transaction) event.transaction = maskPathTokens(event.transaction);
-    if (event.logentry) event.logentry = maskNested(event.logentry, 0);
-    if (event.extra) event.extra = maskNested(event.extra, 0);
-    if (event.tags) event.tags = maskNested(event.tags, 0);
-    if (event.contexts) event.contexts = maskNested(event.contexts, 0);
+    if (typeof event.transaction === "string") {
+      event.transaction = maskPathTokens(stripQuery(event.transaction));
+    }
     if (event.stacktrace) scrubFrames(event);
     if (event.user) {
       event.user = event.user.id ? { id: String(event.user.id) } : undefined;
       if (!event.user) delete event.user;
     }
-    if (Array.isArray(event.breadcrumbs)) {
-      event.breadcrumbs = event.breadcrumbs
-        .map(function (crumb) {
-          return scrubBreadcrumb(crumb);
-        })
-        .filter(Boolean);
+    var crumbs = event.breadcrumbs;
+    if (Array.isArray(crumbs)) {
+      event.breadcrumbs = crumbs.map(scrubBreadcrumb).filter(Boolean);
+    } else if (crumbs && Array.isArray(crumbs.values)) {
+      crumbs.values = crumbs.values.map(scrubBreadcrumb).filter(Boolean);
     }
     return event;
   }
@@ -576,7 +774,8 @@
         if (!isOwnFetchFailure(event) && shouldDropLivePollEvent(event)) return null;
         return scrubEvent(event);
       } catch (_err) {
-        return event;
+        // Fail closed. The event can hold a name, a PIN, or a join code.
+        return null;
       }
     },
     // Streamed tracing (SDK default) has no transaction hook: this is the scrub.
@@ -585,7 +784,7 @@
         if (shouldDropLivePollSpan(span)) return null;
         return stripSpanQueries(span);
       } catch (_err) {
-        return span;
+        return null;
       }
     },
     beforeBreadcrumb: function (crumb) {
@@ -593,7 +792,7 @@
         var kept = filterLivePollBreadcrumb(crumb);
         return kept ? scrubBreadcrumb(kept) : kept;
       } catch (_err) {
-        return crumb;
+        return null;
       }
     },
   };

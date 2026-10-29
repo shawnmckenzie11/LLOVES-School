@@ -1146,6 +1146,64 @@ class FanoutGuardTests(unittest.TestCase):
         self.assertNotIn("location.reload", wire)
         self.assertIn("return;", wire)
 
+    def test_sentry_group_pick_adds_no_per_tap_load(self) -> None:
+        """MCK-135: with Sentry on, one team pick still rebuilds only that team.
+
+        The pick and the polls after it emit no error event and no
+        WARNING-or-above log. Traces are forced off so a 5% sample cannot
+        fail this guard. Production still samples non-poll routes at 5%
+        and live polls at 0.
+        """
+        import sentry_sdk
+        from sentry_sdk.transport import Transport
+
+        from sentry_wire import sentry_init_options
+
+        class CountingTransport(Transport):
+            """Count error events and logs. Do not send them."""
+
+            def __init__(self, options: Any = None) -> None:
+                """Start the counters at zero."""
+                super().__init__(options)
+                self.events = 0
+                self.logs = 0
+
+            def capture_envelope(self, envelope: Any) -> None:
+                """Count error events and log batches."""
+                for item in envelope.items:
+                    kind = item.headers.get("type")
+                    if kind == "event":
+                        self.events += 1
+                    elif kind == "log":
+                        self.logs += 1
+
+        logging.disable(logging.NOTSET)
+        transport = CountingTransport()
+        options = sentry_init_options("https://public@o0.ingest.sentry.io/1")
+        options["traces_sampler"] = lambda _sampling_context: 0.0
+        sentry_sdk.init(transport=transport, **options)
+        try:
+            row = self._add("mc", True)
+            item = self._publish(row, True)
+            sentry_sdk.flush(timeout=2)
+            before = (transport.events, transport.logs)
+
+            def pick() -> None:
+                """One teammate's pick."""
+                rv = self._post_item(
+                    0, int(item["id"]), "group-pick", {"choice": _MC[0]}
+                )
+                self._ok_status(rv, 200)
+
+            self._guard_team(0, pick, "sentry group pick")
+            sentry_sdk.flush(timeout=2)
+            self.assertEqual(transport.events, before[0], "sentry error on a tap")
+            self.assertEqual(transport.logs, before[1], "sentry log on a tap")
+        finally:
+            logging.disable(logging.WARNING)
+            sentry_sdk.get_client().close()
+            sentry_sdk.init()
+
 
 class FanoutGuardTableTests(unittest.TestCase):
     """The action table and the required CI job names."""

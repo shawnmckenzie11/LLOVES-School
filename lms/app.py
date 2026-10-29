@@ -171,6 +171,8 @@ from sentry_wire import (  # noqa: E402
     browser_context as sentry_browser_tags,
     init_flask_sentry,
     install_request_scope as install_sentry_request_scope,
+    note_busy_shed,
+    report_swallowed,
     sentry_browser_context,
 )
 from artifact import (  # noqa: E402
@@ -529,6 +531,7 @@ def class_is_simple(school: Any, class_id: int) -> bool:
             else None
         )
     except Exception:  # noqa: BLE001
+        report_swallowed("class is simple")
         return False
     if not offering:
         return False
@@ -564,6 +567,9 @@ def _json_error(exc: BaseException):
         return jsonify({"ok": False, "error": str(exc)}), 404
     if isinstance(exc, ValueError):
         return jsonify({"ok": False, "error": str(exc)}), 400
+    # KeyError, FileNotFoundError, and ValueError are the API contract.
+    # Anything else is a fault the handler was hiding behind a JSON 500.
+    report_swallowed("json api")
     return jsonify({"ok": False, "error": str(exc)}), 500
 
 
@@ -610,7 +616,14 @@ def _artifact_busy(action: str):
     Returns:
         HTTP 503 ``{ok: false, retry: true}``.
     """
-    logger.exception("live artifact %s failed", action)
+    # Full traceback stays in the process log. Sentry gets the sampled
+    # counter below, not one issue per student during a busy open.
+    logger.exception(
+        "live artifact %s failed",
+        action,
+        extra={"lloves_sentry_skip": True},
+    )
+    note_busy_shed(action)
     return jsonify(
         {
             "ok": False,
@@ -1290,6 +1303,7 @@ def _student_dashboard_redirect_if_live(school: SchoolDB, class_id: int, student
         try:
             resolved = school.resolve_student_visit_token(token, allow_left=True)
         except Exception:
+            report_swallowed("student visit token")
             resolved = None
         if (
             resolved is not None
@@ -4863,6 +4877,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
                 q["fix_codes"] = codes.get(int(key), []) if key.isdigit() else []
             fix_counts = lint_counts(school, int(library_id))
         except Exception:  # noqa: BLE001 - lint data is optional
+            report_swallowed("question bank lint")
             fix_counts = {}
         return jsonify(
             {
@@ -6531,6 +6546,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             live_id = int(ctx.get("live_session_id") or 0)
             open_now = bool(live_id) and school.live_session_reward_window_open(live_id)
         except Exception:  # noqa: BLE001 - unknown state counts as mid-class
+            report_swallowed("avatar reward window")
             open_now = False
         if not open_now:
             return None
@@ -9976,7 +9992,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             try:
                 payload["game"] = school.game.game_state(int(session_row["class_id"]))
             except Exception:
-                pass
+                report_swallowed("teacher patch game state")
         return jsonify(payload)
 
     @app.route(
@@ -12355,6 +12371,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
         try:
             state = school.game.game_state(class_id)
         except Exception:  # noqa: BLE001
+            report_swallowed("session meeting date")
             return None
         sess = state.get("session") or {}
         return session_meeting_date(sess.get("starts_at") or sess.get("meeting_date"))
@@ -13271,6 +13288,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             except SlidesConnectRequired:
                 result["needs_drive_connect"] = True
             except Exception as exc:  # noqa: BLE001
+                report_swallowed("portfolio drive doc")
                 result["drive_error"] = str(exc)
                 result["needs_drive_connect"] = False
         return jsonify(result)
@@ -13325,7 +13343,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                 )
                 useful = list(ctx.get("useful_words") or [])
             except Exception:  # noqa: BLE001
-                pass
+                report_swallowed("portfolio useful words")
             semester = school.get_active_semester() or {}
             label = str(semester.get("label") or "")
             submissions: list[dict[str, str]] = []
@@ -13345,6 +13363,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
             except SlidesConnectRequired:
                 drive_error = "Drive not connected"
             except Exception as exc:  # noqa: BLE001
+                report_swallowed("portfolio drive folder")
                 drive_error = str(exc)
             submissions.extend(list_local_submissions(code, module_n))
             saved = {
@@ -13373,6 +13392,7 @@ def _register_game_api(app: Flask, school: SchoolDB) -> None:
                                 else raw
                             )
                         except Exception:  # noqa: BLE001
+                            report_swallowed("portfolio doc text")
                             text = ""
                     if text:
                         suggested = suggest_levels(text, useful)

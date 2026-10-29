@@ -1,0 +1,20 @@
+{
+  "name": "LLOVES new issue",
+  "frequency": 0,
+  "actionMatch": "any",
+  "filterMatch": "all",
+  "conditions": [
+    {
+      "id": "sentry.rules.conditions.first_seen_event.FirstSeenEventCondition"
+    }
+  ],
+  "filters": [],
+  "actions": [
+    {
+      "id": "sentry.integrations.slack.notify_action.SlackNotifyServiceAction",
+      "workspace": "CONFIGURE_IN_SENTRY",
+      "channel": "CONFIGURE_IN_SENTRY",
+      "notes": "Slack channel Shawn reads. Set workspace and channel in the Sentry UI. Create this rule once on lloves-lms and once on lloves-live."
+    }
+  ]
+}

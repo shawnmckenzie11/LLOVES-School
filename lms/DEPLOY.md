@@ -288,4 +288,25 @@ throw new Error('lloves-live tip smoke MCK-8')
 
 Confirm `lloves-lms` and `lloves-live` show those messages, environment `tip`, and release equal to `GH_SHA` when it is set.
 
-Busy, 503, reconnect, and heartbeat failures stay on the soft strip. They are not fatal Sentry events. A script exception while the page is up still reports. Traces sample at 5%. `/health`, `/api/student/state`, `/api/student/heartbeat`, and `/api/live-sessions/<id>/state` are not sampled. Request bodies and local variables are not sent.
+Busy, 503, reconnect, and heartbeat failures stay on the soft strip. They are not fatal Sentry events. A script exception while the page is up still reports, including when the message mentions 500, unavailable, or busy. Traces sample at 5%. `/health`, `/api/student/state`, `/api/student/heartbeat`, and `/api/live-sessions/<id>/state` are not sampled. Request bodies and local variables are not sent.
+
+### Logs (MCK-135)
+
+`enable_logs` is on. Python WARNING and above are Sentry Logs. INFO is not, so the per-poll `live /state` line never leaves the machine. MCK-183 teacher action lines and throttled student step-rejection warnings still send. `before_send` and `before_send_log` scrub before send: join codes, catch-up codes, PINs, student names, and email addresses. A scrub failure drops the event.
+
+Expected volume, one teacher: **about 1,000 lines in a healthy month; under 15,000 in a noisy week** (the step-rejection cap is 120 lines a minute for one 75-minute period). Confirm the org log quota in Sentry → Settings → Subscription before relying on this. The vendored browser SDK is 11.1.0 and has no `enableLogs`; WARNING and above are the server logs. Browser errors still use `SENTRY_DSN_LIVE`.
+
+Artifact busy / 503 paths keep a local traceback and emit at most one WARNING a minute (`live busy shed action=… count=…`). They are not one Sentry issue per student.
+
+### New-issue alert
+
+Config, not a Fly secret: [`lms/ops/sentry_new_issue_alert.json`](ops/sentry_new_issue_alert.json).
+
+In Sentry, for **both** `lloves-lms` and `lloves-live`:
+
+1. Alerts → Create Alert → Issues.
+2. When: **A new issue is created** (`FirstSeenEventCondition`).
+3. Then: notify the Slack channel Shawn reads. The Slack integration has to be installed on the org first. The JSON file leaves `workspace` and `channel` as `CONFIGURE_IN_SENTRY` on purpose.
+4. Save. A deliberate `capture_exception` on tip (the smoke above) should post once when the issue is first seen.
+
+No `SENTRY_AUTH_TOKEN` is required on the Fly app. An API token is only needed if someone applies that JSON with the Sentry API instead of the form.

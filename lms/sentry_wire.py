@@ -17,6 +17,8 @@ import json
 import logging
 import os
 import re
+import threading
+import time
 from typing import Any, Callable
 from urllib.parse import urlparse
 
@@ -346,11 +348,598 @@ def _mask_event_tokens(event: dict[str, Any]) -> None:
 
 
 _IDENTITY_KEYS = frozenset({"email", "confirm_email", "login_hint"})
+# Structured fields that hold a join code, catch-up code, PIN, or student name.
+# Dropped entirely before send. ``course_code`` is not in this set.
+_DROPPED_KEYS = _IDENTITY_KEYS | frozenset(
+    {
+        "pin",
+        "course_pin",
+        "student_pin",
+        "catchup_pin",
+        "catch_up_pin",
+        "default_pin",
+        "pin_hash",
+        "join_code",
+        "session_code",
+        "portal_join_code",
+        "catchup_code",
+        "catch_up_code",
+        "live_access_code",
+        "access_code",
+        "name",
+        "student_name",
+        "first_name",
+        "last_name",
+        "display_name",
+        "full_name",
+        "preferred_name",
+        "roster_name",
+        "given_name",
+        "family_name",
+        "codename",
+        "last_display",
+        "username",
+    }
+)
 _EMAIL_TEXT_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+# "PIN 4321" / "pin=4321". A bare 4-digit year or status is left alone.
+_PIN_TEXT_RE = re.compile(r"(?i)\b(pin)\b(\s*[:=]?\s*)\d{4}\b")
+# Labeled join / catch-up / session codes. "course code MCF3M" is not a label.
+_CODE_TEXT_RE = re.compile(
+    r"(?i)\b((?:join|catch-?up|session|portal|access)\s+code"
+    r"|session_code|portal_join_code|join_code|live_access_code|catch-?up_code)"
+    r"\b(\s*[:=]?\s*)[A-Za-z0-9]{4,8}\b"
+)
+# "name=Maple" / "first_name: Maple". Requires a separator so "name Maple" in
+# prose is handled by the student-label pattern instead.
+_NAME_TEXT_RE = re.compile(
+    r"(?i)\b(student(?:'s)?\s+name|first_name|last_name|full_name|display_name"
+    r"|codename|roster_name|name)\b(\s*[:=]\s*)([^\s,;\"'&=]{1,80})"
+)
+# The name must be capitalized. ``(?i)`` would turn "Roster edited" into a
+# redacted name, because "edited" would match.
+_STUDENT_LABEL_RE = re.compile(
+    r"\b([Ss]tudent|[Rr]oster)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b"
+)
+# ``tap by Zorblax`` has no student/roster label. The name is capitalized;
+# ``(?i)`` would also swallow ordinary words.
+_BY_NAME_RE = re.compile(
+    r"\b[Bb]y\s+([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\b"
+)
+# ``code Q7Z9K`` / ``code=Q7Z9K`` with no join/catch-up/session label.
+# ``course code MCF3M`` is excluded in :func:`_scrub_bare_code`.
+_BARE_CODE_RE = re.compile(
+    r"(?i)\b(code)(\s*[:=]?\s*)([A-Za-z0-9]{4,8})\b"
+)
+# A 4-digit token with no ``PIN`` label. Years are put back by the replacer.
+_BARE_PIN_RE = re.compile(r"(?<!\d)(\d{4})(?!\d)")
+# Join / catch-up lengths only. ``{4,8}`` would also eat 7-letter words.
+_CODE_TOKEN_RE = re.compile(
+    r"\b(?:[A-Za-z0-9]{8}|[A-Za-z0-9]{6}|[A-Za-z0-9]{5}|[A-Za-z0-9]{4})\b"
+)
+# ``Zorblax Quuxley`` with no "student" or "by" cue. Both words stay
+# capitalized; a lowercase second word ("Roster edited") is not a name.
+_NAME_PAIR_RE = re.compile(r"\b([A-Z][a-z]{2,})\s+([A-Z][a-z]{2,})\b")
+# Ministry course codes (MCF3M, SBI4U). Same length as a join code, different shape.
+_ONTARIO_COURSE_CODE_RE = re.compile(r"^[A-Z]{3}[1-4][A-Z]$")
+_PERSON_NAME_RE = re.compile(r"^[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?$")
+# Words that follow "student" and are the product, not a person.
+_NOT_A_STUDENT_NAME = frozenset(
+    {
+        "portal",
+        "state",
+        "home",
+        "join",
+        "code",
+        "pin",
+        "live",
+        "class",
+        "session",
+        "error",
+        "failed",
+        "page",
+        "view",
+        "tab",
+        "board",
+        "phone",
+        "card",
+    }
+)
+# OTel severity number for warn. WARNING and above are at least this.
+_LOG_WARNING_NUMBER = 13
+_LOG_WARNING_TEXT = frozenset({"warn", "warning", "error", "fatal", "critical"})
+# One sampled busy-shed line per action per minute, not one per student tap.
+_SHED_INTERVAL_S = 60.0
+_shed_lock = threading.Lock()
+_shed_counts: dict[str, int] = {}
+_shed_logged_at: dict[str, float] = {}
+# Healthy month vs one noisy 75-minute period at the step-rejection cap.
+# Confirm the org's log quota before production; this is the expected volume.
+EXPECTED_MONTHLY_LOG_LINES = (
+    "about 1,000 lines in a healthy month; under 15,000 in a noisy week"
+)
+
+
+# Product words that share the shape of a capitalized name.
+_NOT_A_PERSON = frozenset(
+    {
+        "error",
+        "warning",
+        "failed",
+        "false",
+        "true",
+        "none",
+        "null",
+        "graph",
+        "publish",
+        "roster",
+        "student",
+        "portal",
+        "class",
+        "dashboard",
+        "attendance",
+    }
+)
+# Words that follow "by" and are not a student. Weekdays and months stay
+# so "due by Monday" is still readable. Keep this set in sync with
+# NOT_A_BY_NAME in static/sentry-live.js.
+_NOT_A_BY_NAME = _NOT_A_PERSON | _NOT_A_STUDENT_NAME | frozenset(
+    {
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+        "staff",
+        "teacher",
+        "admin",
+        "user",
+        "system",
+        "server",
+        "module",
+        "lesson",
+        "question",
+        "answer",
+        "team",
+        "group",
+        "item",
+        "step",
+        "today",
+        "tomorrow",
+        "yesterday",
+        "someone",
+        "anyone",
+    }
+)
+# All-letter tokens that share a join-code length and show up in logs.
+# A mixed letter+digit token is still a code. Keep in sync with
+# ORDINARY_CODE_WORDS in static/sentry-live.js.
+_ORDINARY_CODE_WORDS = _NOT_A_BY_NAME | frozenset(
+    {
+        "lookup",
+        "failed",
+        "failure",
+        "edited",
+        "opened",
+        "saved",
+        "publish",
+        "import",
+        "added",
+        "request",
+        "response",
+        "status",
+        "disk",
+        "full",
+        "locked",
+        "database",
+        "joined",
+        "handler",
+        "typed",
+        "ping",
+        "keep",
+        "post",
+        "get",
+        "put",
+        "head",
+        "patch",
+        "http",
+        "https",
+        "json",
+        "html",
+        "info",
+        "debug",
+        "warn",
+        "trace",
+        "span",
+        "event",
+        "from",
+        "with",
+        "that",
+        "this",
+        "when",
+        "have",
+        "been",
+        "were",
+        "your",
+        "into",
+        "over",
+        "after",
+        "before",
+        "about",
+        "there",
+        "where",
+        "which",
+        "other",
+        "only",
+        "also",
+        "just",
+        "like",
+        "some",
+        "each",
+        "both",
+        "most",
+        "many",
+        "more",
+        "back",
+        "down",
+        "here",
+        "once",
+        "year",
+        "date",
+        "time",
+        "open",
+        "close",
+        "start",
+        "stop",
+        "save",
+        "send",
+        "load",
+        "read",
+        "file",
+        "path",
+        "host",
+        "port",
+        "type",
+        "data",
+        "body",
+        "text",
+        "note",
+        "test",
+        "drop",
+        "pass",
+        "skip",
+        "done",
+        "left",
+        "next",
+        "main",
+        "base",
+        "size",
+        "line",
+        "take",
+        "quit",
+        "bank",
+        "true",
+        "false",
+        "none",
+        "null",
+        "error",
+        "warning",
+        "critical",
+        "fatal",
+        "course",
+        "select",
+        "from",
+        "where",
+        "insert",
+        "update",
+        "delete",
+        "values",
+        "table",
+        "index",
+        "limit",
+        "order",
+        "inner",
+        "outer",
+        "count",
+        "union",
+        "having",
+        "distinct",
+        "exists",
+        "unique",
+        "check",
+        "column",
+        "schema",
+        "using",
+        "case",
+        "then",
+        "else",
+        "desc",
+        "offset",
+        "fetch",
+        "pragma",
+        "vacuum",
+        "begin",
+        "commit",
+        "alter",
+        "create",
+        "explain",
+        "ignore",
+        "abort",
+        "rollback",
+    }
+)
+
+
+def _looks_like_person_name(value: str) -> bool:
+    """True for one or two capitalized words, such as a roster codename.
+
+    Args:
+        value: One logging argument or field.
+
+    Returns:
+        Whether the value should be treated as a student name.
+    """
+    text = str(value or "").strip()
+    if text.lower() in _NOT_A_PERSON:
+        return False
+    return bool(_PERSON_NAME_RE.fullmatch(text))
+
+
+def _redact_secret_argument(text: str, argument: str) -> str:
+    """Replace one secret argument wherever it stands as its own word.
+
+    Args:
+        text: Message that may contain the argument.
+        argument: The raw argument.
+
+    Returns:
+        ``text`` with that argument replaced by ``[redacted]``.
+    """
+    if not argument or argument not in text:
+        return text
+    return re.sub(rf"\b{re.escape(argument)}\b", "[redacted]", text)
+
+
+def _looks_like_join_code(value: str) -> bool:
+    """True when a string is shaped like a live join or catch-up code.
+
+    Lengths are 4, 5, 6, or 8, alphanumeric, with a letter. Underscored
+    error slugs (``pin_not_set``) and all-digit PINs are not codes. Course
+    codes such as ``MCF3M`` share this shape; they belong on ``course_code``,
+    not on a ``code`` field.
+
+    Args:
+        value: Field value.
+
+    Returns:
+        Whether the value should be treated as a join or catch-up secret.
+    """
+    text = str(value or "").strip().upper().replace(" ", "")
+    if len(text) not in (4, 5, 6, 8):
+        return False
+    if not text.isalnum() or text.isdigit():
+        return False
+    return any(ch.isalpha() for ch in text)
+
+
+def _scrub_student_label(match: re.Match[str]) -> str:
+    """Replace ``student Zorblax`` and leave ``student portal`` in place."""
+    name = match.group(2)
+    if name.lower() in _NOT_A_STUDENT_NAME:
+        return match.group(0)
+    return f"{match.group(1)} [redacted]"
+
+
+def _is_unlabelled_pin(value: str) -> bool:
+    """True for a 4-digit token that is not a calendar year.
+
+    Args:
+        value: One logging argument or a text token.
+
+    Returns:
+        Whether the value should be treated as a PIN.
+    """
+    text = str(value or "").strip()
+    if not re.fullmatch(r"\d{4}", text):
+        return False
+    number = int(text)
+    return not 1900 <= number <= 2099
+
+
+def _is_ontario_course_code(value: str) -> bool:
+    """True for a ministry course code such as ``MCF3M``.
+
+    Args:
+        value: One token.
+
+    Returns:
+        Whether the token is a course code rather than a join code.
+    """
+    return bool(_ONTARIO_COURSE_CODE_RE.fullmatch(str(value or "").strip().upper()))
+
+
+def _should_redact_code_token(value: str) -> bool:
+    """True when a free-text token is a join or catch-up code.
+
+    Lengths are 4, 5, 6, or 8. A letter plus a digit is enough, with no
+    cue word such as ``code``. Ministry course codes stay. An all-letter
+    token stays unless it is written in all capitals and is not a normal
+    log word (``lookup``, ``failed``, ``POST``).
+
+    Args:
+        value: One whitespace-delimited token.
+
+    Returns:
+        Whether to replace the token with ``[redacted]``.
+    """
+    text = str(value or "").strip()
+    if not _looks_like_join_code(text):
+        return False
+    if _is_ontario_course_code(text):
+        return False
+    if any(ch.isdigit() for ch in text):
+        return True
+    return bool(
+        text.isalpha()
+        and text.isupper()
+        and text.lower() not in _ORDINARY_CODE_WORDS
+    )
+
+
+def _scrub_code_token(match: re.Match[str]) -> str:
+    """Replace one join-shaped token, or leave a course code and a log word.
+
+    Args:
+        match: A 4, 5, 6, or 8 character alphanumeric token.
+
+    Returns:
+        ``[redacted]`` or the original token.
+    """
+    token = match.group(0)
+    if _should_redact_code_token(token):
+        return "[redacted]"
+    return token
+
+
+def _scrub_name_pair(match: re.Match[str]) -> str:
+    """Redact ``First Last`` anywhere, and leave product-word pairs.
+
+    ``Take Attendance`` and ``Roster edited`` are not people. A pair is
+    removed only when neither word is a weekday, month, or product word.
+
+    Args:
+        match: Two consecutive capitalized words.
+
+    Returns:
+        ``[redacted]`` or the original pair.
+    """
+    first = match.group(1)
+    last = match.group(2)
+    if first.lower() in _NOT_A_BY_NAME or last.lower() in _NOT_A_BY_NAME:
+        return match.group(0)
+    return "[redacted]"
+
+
+def _scrub_by_name(match: re.Match[str]) -> str:
+    """Redact a capitalized name after ``by``, such as ``tap by Zorblax``.
+
+    Weekdays, months, and product words stay so ``due by Monday`` and
+    ``by Staff`` are unchanged.
+
+    Args:
+        match: The ``by <Name>`` match. Group 1 is the name.
+
+    Returns:
+        ``by [redacted]`` or the original text.
+    """
+    words = match.group(1).split()
+    if words and all(word.lower() in _NOT_A_BY_NAME for word in words):
+        return match.group(0)
+    return "by [redacted]"
+
+
+def _scrub_bare_code(match: re.Match[str]) -> str:
+    """Redact a join-shaped token after the word ``code``.
+
+    ``course code MCF3M`` is a course code, not a join secret. A token
+    that is not join-shaped (``pin_not_set``, an all-digit PIN) is left
+    for the PIN pass or kept as-is.
+
+    Args:
+        match: The bare ``code <token>`` match.
+
+    Returns:
+        The label plus ``[redacted]``, or the original text.
+    """
+    token = match.group(3)
+    if not _looks_like_join_code(token):
+        return match.group(0)
+    prefix = match.string[: match.start()]
+    if re.search(r"(?i)course[_ \t]+$", prefix):
+        return match.group(0)
+    return f"{match.group(1)}{match.group(2)}[redacted]"
+
+
+def _scrub_bare_pin(match: re.Match[str]) -> str:
+    """Redact a 4-digit token that is not a calendar year.
+
+    Labelled ``PIN 9876`` is already handled. This catches the same shape
+    with no label, such as ``typed 9876``. Years 1900–2099 stay so a date
+    in a message is still readable.
+
+    Args:
+        match: A 4-digit token.
+
+    Returns:
+        ``[redacted]`` or the original digits when they are a year.
+    """
+    digits = match.group(1)
+    if _is_unlabelled_pin(digits):
+        return "[redacted]"
+    return digits
+
+
+def _scrub_text(value: str) -> str:
+    """Redact emails, PINs, join codes, and student names in text.
+
+    Labelled forms (``PIN 9876``, ``join code Q7Z9K``, ``name=Zorblax``)
+    and cue-less forms (``lookup failed for Q7Z9K / Zorblax Quuxley``,
+    a bare 4-digit PIN, an email) are both removed. Ministry course
+    codes and calendar years stay.
+
+    Args:
+        value: One string from an event, a log, or a breadcrumb.
+
+    Returns:
+        The same text with those secrets replaced by ``[redacted]``.
+    """
+    value = _EMAIL_TEXT_RE.sub("[redacted]", value)
+    value = mask_path_tokens(value)
+    value = _PIN_TEXT_RE.sub(r"\1\2[redacted]", value)
+    value = _CODE_TEXT_RE.sub(r"\1\2[redacted]", value)
+    value = _NAME_TEXT_RE.sub(r"\1\2[redacted]", value)
+    value = _STUDENT_LABEL_RE.sub(_scrub_student_label, value)
+    value = _BY_NAME_RE.sub(_scrub_by_name, value)
+    value = _NAME_PAIR_RE.sub(_scrub_name_pair, value)
+    value = _BARE_CODE_RE.sub(_scrub_bare_code, value)
+    value = _CODE_TOKEN_RE.sub(_scrub_code_token, value)
+    return _BARE_PIN_RE.sub(_scrub_bare_pin, value)
+
+
+def _drop_secret_field(key: str, child: Any) -> bool:
+    """True when this field must not be sent to Sentry.
+
+    Args:
+        key: Dict key.
+        child: Field value.
+
+    Returns:
+        Whether to omit the field.
+    """
+    lowered = str(key).lower()
+    if lowered in _DROPPED_KEYS or lowered.endswith("_pin"):
+        return True
+    if lowered == "code" and isinstance(child, str) and _looks_like_join_code(child):
+        return True
+    return False
 
 
 def _scrub_identity(value: Any) -> Any:
-    """Drop address and confirm fields and redact address text.
+    """Drop address, PIN, code, and name fields and redact them in text.
 
     Walks every nested dict and list with an explicit stack, so a deep
     payload is still scrubbed. A cycle raises and the caller drops the
@@ -366,7 +955,7 @@ def _scrub_identity(value: Any) -> Any:
         ValueError: The payload contains a cycle.
     """
     if isinstance(value, str):
-        return _EMAIL_TEXT_RE.sub("[redacted]", value)
+        return _scrub_text(value)
     if not isinstance(value, (dict, list)):
         return value
 
@@ -378,7 +967,7 @@ def _scrub_identity(value: Any) -> Any:
         """Yield kept children. Address and confirm keys are skipped."""
         if isinstance(node, dict):
             for key, child in node.items():
-                if str(key).lower() in _IDENTITY_KEYS:
+                if _drop_secret_field(str(key), child):
                     continue
                 yield str(key), child
             return
@@ -402,7 +991,7 @@ def _scrub_identity(value: Any) -> Any:
             stack.pop()
             continue
         if isinstance(child, str):
-            put(clones[id(node)], key, _EMAIL_TEXT_RE.sub("[redacted]", child))
+            put(clones[id(node)], key, _scrub_text(child))
             continue
         if isinstance(child, (dict, list)):
             child_id = id(child)
@@ -446,7 +1035,39 @@ def _drop_request_body(event: dict[str, Any]) -> dict[str, Any]:
     if isinstance(transaction, str):
         event["transaction"] = _INVITE_TOKEN_RE.sub("/invite/[token]", transaction)
     _mask_event_tokens(event)
+    _drop_frame_locals(event)
     return event
+
+
+def _drop_frame_locals(event: dict[str, Any]) -> None:
+    """Remove exception and thread local-variable dicts.
+
+    ``include_local_variables`` is off. A frame that still carries ``vars``
+    can hold a PIN or a name under an arbitrary key, so the dict is removed
+    rather than scrubbed key by key.
+
+    Args:
+        event: Sentry event payload, mutated in place.
+    """
+    for group in ("exception", "threads"):
+        holder = event.get(group)
+        if not isinstance(holder, dict):
+            continue
+        values = holder.get("values")
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if not isinstance(value, dict):
+                continue
+            stack = value.get("stacktrace")
+            if not isinstance(stack, dict):
+                continue
+            frames = stack.get("frames")
+            if not isinstance(frames, list):
+                continue
+            for frame in frames:
+                if isinstance(frame, dict):
+                    frame.pop("vars", None)
 
 
 # Request headers Sentry may keep (MCK-183 gate, #249 ccff8ef MED). Everything
@@ -550,7 +1171,8 @@ def before_send_transaction(
             _strip_span_queries(span)
         return event
     except Exception:  # noqa: BLE001
-        return event
+        # Same as before_send: a scrub error must not ship the transaction.
+        return None
 
 
 def sentry_init_options(dsn: str) -> dict[str, Any]:
@@ -562,6 +1184,15 @@ def sentry_init_options(dsn: str) -> dict[str, Any]:
     Returns:
         Keyword arguments for ``sentry_sdk.init``.
     """
+    # WARNING and above become Sentry Logs. INFO stays out, including the
+    # per-poll ``live /state`` line, so a class does not pay a log per beat.
+    # Issues come from ``capture_exception`` (swallowed faults), not from
+    # every ``logger.exception`` that already logs and continues.
+    # An explicit LoggingIntegration replaces only the default logging one;
+    # Flask and the other defaults still auto-enable.
+    import logging as py_logging
+    from sentry_sdk.integrations.logging import LoggingIntegration
+
     options: dict[str, Any] = {
         "dsn": dsn,
         "environment": environment_name(),
@@ -570,12 +1201,17 @@ def sentry_init_options(dsn: str) -> dict[str, Any]:
         "max_request_body_size": "never",
         "traces_sampler": traces_sampler,
         "before_send": before_send,
-        # MCK-183 S3: Sentry Logs carry one line per key teacher action.
-        # ``before_send_log`` keeps those lines only, so ordinary Python
-        # logging (which can mention anything) never becomes a Sentry log.
         "enable_logs": True,
         "before_send_log": before_send_log,
         "before_send_transaction": before_send_transaction,
+        "integrations": [
+            LoggingIntegration(
+                level=py_logging.WARNING,
+                event_level=None,
+                sentry_logs_level=py_logging.WARNING,
+            )
+        ],
+        "before_breadcrumb": before_breadcrumb,
     }
     release = release_name()
     if release:
@@ -889,23 +1525,229 @@ def make_event_processor(
     return processor
 
 
+def before_breadcrumb(
+    crumb: dict[str, Any], hint: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
+    """Scrub a breadcrumb. Drop it when scrubbing fails.
+
+    Logging arguments that are emails, PINs, join codes, or names are
+    removed from the message. The breadcrumb level is WARNING and above,
+    so an INFO poll line never becomes one.
+
+    Args:
+        crumb: Sentry breadcrumb.
+        hint: SDK hint, sometimes including the log record.
+
+    Returns:
+        The scrubbed breadcrumb, or ``None`` to drop it.
+    """
+    try:
+        if not isinstance(crumb, dict):
+            return crumb
+        message = crumb.get("message")
+        record = (hint or {}).get("log_record") if isinstance(hint, dict) else None
+        args = getattr(record, "args", None) if record is not None else None
+        if isinstance(message, str):
+            if isinstance(args, tuple):
+                for arg in args:
+                    if not isinstance(arg, str):
+                        continue
+                    mentions_code = bool(
+                        re.search(r"\bcode\b|join|catch-?up", message, re.I)
+                    )
+                    pin_shaped = bool(re.fullmatch(r"\d{4}", arg.strip()))
+                    mentions_pin = bool(re.search(r"\bpin\b", message, re.I))
+                    secret = (
+                        _looks_like_person_name(arg)
+                        or bool(_EMAIL_TEXT_RE.search(arg))
+                        or _should_redact_code_token(arg)
+                        or (
+                            mentions_code
+                            and _looks_like_join_code(arg)
+                            and not _is_ontario_course_code(arg)
+                        )
+                        or _is_unlabelled_pin(arg)
+                        or (pin_shaped and mentions_pin)
+                    )
+                    if secret:
+                        message = _redact_secret_argument(message, arg)
+            crumb["message"] = _scrub_text(message)
+        data = crumb.get("data")
+        if isinstance(data, dict):
+            cleaned = _scrub_identity(data)
+            if isinstance(cleaned, dict):
+                crumb["data"] = cleaned
+        return crumb
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _log_is_warning_or_above(log: dict[str, Any]) -> bool:
+    """True when a Sentry log is WARNING, ERROR, or FATAL.
+
+    Args:
+        log: Sentry log payload.
+
+    Returns:
+        Whether the severity is warning or higher.
+    """
+    text = str(log.get("severity_text") or log.get("level") or "").strip().lower()
+    if text in _LOG_WARNING_TEXT:
+        return True
+    number = log.get("severity_number")
+    return isinstance(number, (int, float)) and number >= _LOG_WARNING_NUMBER
+
+
+def _scrub_log_parameters(log: dict[str, Any]) -> None:
+    """Redact stdlib logging arguments when the line is about a secret.
+
+    Sentry copies ``logger.warning("pin %s", pin)`` into
+    ``sentry.message.parameter.*`` as well as the formatted body. The body
+    is already scrubbed. Arguments that are emails, person names, join
+    or catch-up codes (with or without a cue word), or 4-digit PINs
+    (including an unlabelled PIN that is not a calendar year) are
+    replaced here.
+
+    Args:
+        log: Sentry log payload, mutated in place.
+    """
+    attributes = log.get("attributes")
+    if not isinstance(attributes, dict):
+        return
+    template = str(attributes.get("sentry.message.template") or "")
+    body = str(log.get("body") or "")
+    haystack = f"{template}\n{body}".lower()
+    mentions_pin = bool(re.search(r"\bpin\b", haystack))
+    mentions_code = bool(
+        re.search(r"\bcode\b|join|catch-?up|session_code|portal_join", haystack)
+    )
+    mentions_name = bool(re.search(r"\bname\b|\bstudent\b|\broster\b", haystack))
+    for key, value in list(attributes.items()):
+        if not str(key).startswith("sentry.message.parameter."):
+            continue
+        if not isinstance(value, str):
+            continue
+        secret = bool(_EMAIL_TEXT_RE.search(value)) or _looks_like_person_name(value)
+        pin_shaped = bool(re.fullmatch(r"\d{4}", value.strip()))
+        if _is_unlabelled_pin(value) or (mentions_pin and pin_shaped):
+            secret = True
+        if _should_redact_code_token(value) or (
+            mentions_code
+            and _looks_like_join_code(value)
+            and not _is_ontario_course_code(value)
+        ):
+            secret = True
+        if mentions_name:
+            secret = True
+        if secret:
+            attributes[key] = "[redacted]"
+            body = _redact_secret_argument(body, value)
+    if body != log.get("body"):
+        log["body"] = body
+
+
+def _apply_scrub(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """Scrub one event or log in place. ``None`` when scrubbing fails closed.
+
+    Args:
+        payload: Mutable Sentry payload.
+
+    Returns:
+        The same dict, or ``None`` when the payload must not be sent.
+    """
+    cleaned = _scrub_identity(payload)
+    if not isinstance(cleaned, dict):
+        return None
+    payload.clear()
+    payload.update(cleaned)
+    return payload
+
+
 def before_send_log(log: dict[str, Any], _hint: Any = None) -> dict[str, Any] | None:
-    """Keep only MCK-183 action lines in Sentry Logs.
+    """Send WARNING and above, plus MCK-183 action lines, after scrubbing.
+
+    INFO python logs are dropped. A log marked ``lloves_sentry_skip`` is
+    the per-request busy traceback; the sampled shed counter is the line
+    that ships. Secrets are removed first. A scrub error drops the log.
 
     Args:
         log: Sentry log payload.
         _hint: SDK hint.
 
     Returns:
-        The log, or ``None`` for anything that is not an action line.
+        The scrubbed log, or ``None`` when it must not be sent.
     """
     try:
         attributes = log.get("attributes") or {}
-        if ACTION_LOG_ATTRIBUTE in attributes:
-            return log
+        if isinstance(attributes, dict) and attributes.get("lloves_sentry_skip"):
+            return None
+        scrubbed = _apply_scrub(log)
+        if scrubbed is None:
+            return None
+        _scrub_log_parameters(scrubbed)
+        attributes = scrubbed.get("attributes") or {}
+        if isinstance(attributes, dict) and ACTION_LOG_ATTRIBUTE in attributes:
+            return scrubbed
+        if _log_is_warning_or_above(scrubbed):
+            return scrubbed
     except Exception:  # noqa: BLE001
         return None
     return None
+
+
+def report_swallowed(where: str) -> None:
+    """Report an exception a handler would otherwise hide.
+
+    Call from the ``except`` block. Writes one error log (Sentry Logs keep
+    WARNING and above) and, when the SDK is active, one issue. ``where`` is
+    a short static label, never request data. Blocks that already log and
+    continue should not call this. Never raises, including when Sentry is off.
+
+    Args:
+        where: Static handler name, such as ``json api``.
+    """
+    label = str(where or "handler")[:80]
+    logger.exception("swallowed error in %s", label)
+    try:
+        import sentry_sdk
+
+        if sentry_sdk.get_client().is_active():
+            sentry_sdk.capture_exception(tags={"lloves.swallowed": label})
+    except Exception:  # noqa: BLE001
+        return
+
+
+def note_busy_shed(action: str) -> None:
+    """Count a busy/503 shed and emit at most one WARNING a minute.
+
+    The caller's per-request ``logger.exception`` should set
+    ``extra={"lloves_sentry_skip": True}`` so Sentry does not store one
+    traceback per student. This line carries the action and the count only.
+
+    Args:
+        action: Short label such as ``mint`` or ``preview``.
+    """
+    label = str(action or "busy")[:40]
+    now = time.monotonic()
+    emit = False
+    count = 0
+    with _shed_lock:
+        _shed_counts[label] = _shed_counts.get(label, 0) + 1
+        last = _shed_logged_at.get(label, 0.0)
+        if now - last >= _SHED_INTERVAL_S:
+            _shed_logged_at[label] = now
+            count = _shed_counts[label]
+            _shed_counts[label] = 0
+            emit = True
+    if emit:
+        logger.warning("live busy shed action=%s count=%s", label, count)
+
+
+def reset_busy_shed_counts() -> None:
+    """Clear the in-process busy-shed counter. Used by tests."""
+    with _shed_lock:
+        _shed_counts.clear()
+        _shed_logged_at.clear()
 
 
 def action_for(endpoint: str | None, method: str) -> str | None:
