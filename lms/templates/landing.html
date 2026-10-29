@@ -21,12 +21,15 @@
     body.landing-page .join-topbar nav { display:flex; gap:1rem; white-space:nowrap; font-size:0.9rem; }
     body.landing-page .join-topbar nav a { color:var(--muted); text-decoration:none; display:inline-flex; align-items:center; min-height:24px; }
     body.landing-page .join-topbar nav a:hover { color:var(--accent-2); text-decoration:underline; }
+    body.landing-page .join-topbar nav a.landing-request-access { color:#fff; background:var(--accent-2); padding:0.35rem 0.8rem; border-radius:6px; text-decoration:none; }
     body.landing-page .join-card { box-sizing:border-box; width:100%; max-width:420px; margin:min(10vh,4rem) auto 1rem; padding:0 1rem; text-align:left; }
     body.landing-page .join-card h1 { margin:0 0 1rem; font-size:1.4rem; text-align:center; }
     body.landing-page .join-card input, body.landing-page .join-card button[type="submit"] { box-sizing:border-box; width:100%; }
     body.landing-page .join-card button[type="submit"] { min-height:3rem; margin-top:1rem; font-size:1.05rem; }
     @media (max-width: 480px) {
       body.landing-page .join-card { margin-top:1rem; }
+      body.landing-page .join-topbar { flex-wrap:wrap; justify-content:center; }
+      body.landing-page .join-topbar nav { flex-wrap:wrap; justify-content:center; white-space:normal; width:100%; max-width:100%; }
     }
   </style>
   <header class="join-topbar">
@@ -34,6 +37,8 @@
       <a href="#celebrations">Celebrations</a>
       <a href="{{ teacher_href }}">Teacher login</a>
       <a href="{{ url_for('auth_google', portal='it') }}">Admin login</a>
+      <a class="btn landing-request-access" id="landing-request-access"
+         href="{{ url_for('request_access') }}">Request access</a>
     </nav>
   </header>
   <main class="wrap landing-wrap join-card" id="sign-in">
@@ -58,6 +63,8 @@
       {% endif %}
       <button type="submit">Join</button>
     </form>
+    <p class="hint landing-request-hint">New to ALC?
+      <a href="{{ url_for('request_access') }}" id="landing-request-access-inline">Request access</a></p>
   </main>
   <section class="wrap calc-wrap" id="celebrations" hidden>
     <p class="landing-hash-nav"><a href="#sign-in">Back to sign-in</a></p>

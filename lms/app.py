@@ -2155,7 +2155,11 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
 
     @app.route("/request-access", methods=["GET", "POST"])
     def request_access():
-        """Capture a signup request. Never collects payment or auto-allowlists."""
+        """Capture a signup request. Never collects payment or auto-allowlists.
+
+        The confirmation names ``ACCESS_RESPONSE_TIME`` when that variable
+        is set, and otherwise says ``as soon as we can``.
+        """
         error = None
         submitted = False
         form = {
@@ -2195,6 +2199,7 @@ def _register_pages(app: Flask, school: SchoolDB) -> None:
             error=error,
             submitted=submitted,
             form=form,
+            access_response_time=(os.getenv("ACCESS_RESPONSE_TIME") or "as soon as we can"),
         )
 
     @app.route("/health")
