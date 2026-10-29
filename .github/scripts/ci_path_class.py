@@ -3,8 +3,9 @@
 
 Copy-only diffs skip the fan-out guard, the 30-seat load budget, and the
 slide-forward load. Copy-only means markdown, CSS, text, or HTML that is
-not under a templates directory. ``lms/templates/**/*.html`` always runs
-the load jobs. Anything else runs them too, including live-class state,
+not under a templates directory. ``lms/templates/**/*.html`` and
+``lms/static/live-media/**`` always run the load jobs. Anything else runs
+them too, including live-class state,
 polling, news/postcards, sessions, auth, and DB code.
 
 Push events, an empty diff, and a failed classification run the load jobs.
@@ -51,6 +52,7 @@ HEAVY_GLOBS: tuple[str, ...] = (
     "lms/static/**/*poll*",
     "lms/static/**/*session*",
     "lms/static/**/*news*",
+    "lms/static/live-media/**",
     "lms/templates/**/*.html",
     "lms/templates/**/*.htm",
     "**/templates/**/*.html",
@@ -227,6 +229,8 @@ def _self_test() -> None:
         raise SystemExit("blanket html globs must not be safe")
     if "lms/templates/**/*.html" not in HEAVY_GLOBS:
         raise SystemExit("lms/templates/**/*.html must be a heavy glob")
+    if "lms/static/live-media/**" not in HEAVY_GLOBS:
+        raise SystemExit("lms/static/live-media/** must be a heavy glob")
     safe = [
         "lms/static/lloves.css",
         "lms/static/whiteboard_formative.css",
@@ -235,12 +239,12 @@ def _self_test() -> None:
         "docs/notes.md",
         "agents/semester-context.md",
         "content-builder/docs/pipeline-readiness.md",
-        "lms/static/live-media/m1c1-c1-real-slice.html",
         "lms/static/portfolio/MCF3M-M1.html",
         "content-builder/docs/MCF3M-builder-onboarding-implementation-plan.html",
         "content-builder/packages/MCF3M-builder-input/sources/overall-A-extracted.txt",
     ]
     heavy = [
+        "lms/static/live-media/m1c1-c1-real-slice.html",
         "lms/templates/staff/course.html",
         "lms/templates/landing.html",
         "lms/templates/student/home.html",
@@ -329,6 +333,30 @@ def _assert_lms_templates_are_heavy() -> None:
             raise SystemExit(f"template glob missed {rel}")
         if not heavy_checks_required([rel]):
             raise SystemExit(f"expected heavy template: {rel}")
+    _assert_live_media_is_heavy()
+
+
+def _assert_live_media_is_heavy() -> None:
+    """Fail unless live-class media pages run the load jobs.
+
+    Those HTML files carry inline scripts, so they are not copy-only.
+    """
+    sample = "lms/static/live-media/m1c1-c1-real-slice.html"
+    if not glob_match(sample, "lms/static/live-media/**"):
+        raise SystemExit(f"live-media glob missed {sample}")
+    if not heavy_checks_required([sample]):
+        raise SystemExit(f"expected heavy live-media page: {sample}")
+    root = Path(__file__).resolve().parents[2]
+    found = list((root / "lms" / "static" / "live-media").rglob("*"))
+    pages = [path for path in found if path.is_file()]
+    if not pages:
+        raise SystemExit("lms/static/live-media files were not found")
+    for path in pages:
+        rel = path.relative_to(root).as_posix()
+        if not glob_match(rel, "lms/static/live-media/**"):
+            raise SystemExit(f"live-media glob missed {rel}")
+        if not heavy_checks_required([rel]):
+            raise SystemExit(f"expected heavy live-media path: {rel}")
 
 
 if __name__ == "__main__":
