@@ -214,6 +214,12 @@ def catchup_row_allowed(school: Any, class_id: int, link: dict[str, Any]) -> boo
         link: One catch-up row, including ``run_key``.
     """
     owner = class_owner(school, int(class_id))
+    try:
+        from features import has_feature
+    except ImportError:
+        from lms.features import has_feature
+    if owner is not None and has_feature(owner, "catchup_full"):
+        return True
     visible = scope_catchup_links(owner, school.list_catchup_links(int(class_id)))
     module = str(link.get("live_module") or "")
     slot = str(link.get("live_slot") or "")

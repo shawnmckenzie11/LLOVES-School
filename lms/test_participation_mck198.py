@@ -115,6 +115,13 @@ class Base(unittest.TestCase):
         self.school = self.app.config["SCHOOL_DB"]
         self.school.activate_from_semester_json()
         self.teacher = self.school.register_staff("teacher@gmail.com")
+        # Existing staff suites predate the basic plan. This teacher keeps
+        # every catch-up class, the same as the launch grant.
+        from features import set_feature_override
+
+        set_feature_override(
+            self.school, int(self.teacher["id"]), "catchup_full", True
+        )
         offering = self.school.assign_course(teacher_user_id=int(self.teacher["id"]), ontario_code="MCR3U")
         self.school.set_offering_schedule(
             int(offering["id"]),
