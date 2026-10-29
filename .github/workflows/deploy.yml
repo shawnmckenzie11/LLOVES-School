@@ -1,54 +1,41 @@
 name: Deploy LLOVES LMS
 
-# Push to production runs the LMS test suite immediately. The Production
-# approval job then waits for review on `production`; once approved, the
-# Deploy to Fly job runs flyctl deploy. The required reviewer is a repo
-# setting (shawnmckenzie11), not this file.
+# A push to main does not deploy. Merge to main, then fast-forward production to ship.
 #
-# workflow_dispatch runs the same four jobs (test, load-smoke, approve, deploy).
-# Only refs/heads/production gets past test: the load smoke and approve
-# hold that ref. approve holds the production environment and runs the SHA
-# guard; deploy needs approve from the same run attempt and re-runs the SHA
-# guard before flyctl. Deploy also names the production environment so
-# FLY_API_TOKEN is read from that environment when the secret lives there.
-# The load smoke runs on the CI runner against 127.0.0.1. It never calls
-# flyctl and never receives FLY_API_TOKEN. A red smoke skips approval, so
-# flyctl does not run.
+# Push to production runs the LMS test suite, then the 30-seat load smoke.
+# Deploy to Fly is the one production-environment approval: Shawn clicks
+# once, and that same job runs the SHA guard and flyctl deploy. The
+# required reviewer is a repo setting (shawnmckenzie11), not this file.
+#
+# workflow_dispatch runs the same three jobs (test, load-smoke, deploy).
+# Only refs/heads/production gets past test. A red test or a red load
+# smoke skips deploy, so flyctl does not run. The load smoke runs on the
+# CI runner against 127.0.0.1. It never calls flyctl and never receives
+# FLY_API_TOKEN.
 # Feature branches never run this workflow; they test via ci.yml.
 #
-# Concurrency (MCK-126): only the newest run waits at the Production gate.
-# Four jobs, four groups:
-#   test    group deploy-lloves-lms-test-<ref>, cancel-in-progress true.
-#           A newer run on the same ref cancels an older run still testing.
-#   smoke   group deploy-lloves-lms-smoke-<ref>, cancel-in-progress true.
-#           MCK-44. Local 30-seat gunicorn (two classes). A newer run
-#           cancels an older smoke. Nothing here touches Fly.
-#   approve group deploy-lloves-lms-gate-<ref>, cancel-in-progress true.
-#           Holds the production environment (required reviewer). A job
-#           waiting for review occupies its concurrency group, so a newer
-#           run's approve job cancels an older one still waiting.
-#   deploy  group deploy-lloves-lms-fly, cancel-in-progress false.
-#           Names the production environment so the Fly token is an
-#           environment secret. The approve job already waited on that
-#           same environment, so a required reviewer waits again here.
-#           Runs flyctl. Never cancelled by a newer run; a newer approved
-#           deploy waits as pending (one pending slot, newest wins).
-# The test and gate groups are separate so an older run's approve job
-# can never cancel a newer run's tests.
-# Backstops: the SHA guard refuses flyctl unless GITHUB_SHA is still
-# origin/production, and deploy refuses unless approve ran in this run attempt
-# (a "Re-run failed jobs" of deploy alone does not skip approval).
-# Re-run only the newest run. Re-running an older run re-enters the gate
-# group and cancels whatever newer run is waiting there; the SHA guard
-# then fails the older one, leaving nothing to approve.
+# Concurrency (MCK-126):
+#   test   group deploy-lloves-lms-test-<ref>, cancel-in-progress true.
+#          A newer run on the same ref cancels an older run still testing.
+#   smoke  group deploy-lloves-lms-smoke-<ref>, cancel-in-progress true.
+#          MCK-44. Local 30-seat gunicorn (two classes). A newer run
+#          cancels an older smoke. Nothing here touches Fly.
+#   deploy group deploy-lloves-lms-fly, cancel-in-progress false.
+#          The only production-environment approval, so FLY_API_TOKEN is
+#          read here. One click, then flyctl. Never cancelled by a newer
+#          run; a newer deploy waits as pending (one pending slot).
+# The test group is separate so a deploy wait cannot cancel a newer test.
+# The SHA guard refuses flyctl unless GITHUB_SHA is still origin/production.
+# Re-running Deploy to Fly asks for the production review again.
 #
 # Not a code deploy: attach-live-postgres.yml is workflow_dispatch only.
 # It does not flyctl deploy. It can restart lloves-lms and waits on the
 # same production environment.
 #
-# FLY_API_TOKEN is the Fly deploy token for app lloves-lms. Jobs that
-# name the production environment read it from that environment when
-# the secret is set there, and from the repository secret until then.
+# FLY_API_TOKEN is the Fly deploy token for app lloves-lms. The deploy job
+# names the production environment, so it reads the token from that
+# environment when the secret is set there, and from the repository secret
+# until then.
 on:
   push:
     branches: [production]
@@ -106,7 +93,7 @@ jobs:
           cache: pip
 
       # MCK-182: show this deploy's What's new lines on the run summary, so
-      # they can be read before Production approval. Never fails the job.
+      # they can be read before the production approval. Never fails the job.
       - name: Preview What's new
         continue-on-error: true
         env:
@@ -136,7 +123,7 @@ jobs:
   load-smoke:
     name: 30-seat load smoke
     needs: test
-    # A red test skips this job. production only, same as approve. The
+    # A red test skips this job. production only, same as deploy. The
     # gunicorn process is on this runner. It does not deploy.
     if: github.ref == 'refs/heads/production'
     runs-on: ubuntu-latest
@@ -212,47 +199,12 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-  approve:
-    name: Production approval
+  deploy:
+    name: Deploy to Fly
     needs: load-smoke
     # workflow_dispatch can target any ref. Only production may request a
     # production review. A red test or a red load smoke skips this job, so
     # approval cannot ship a failed build.
-    if: github.ref == 'refs/heads/production'
-    runs-on: ubuntu-latest
-    environment:
-      name: production
-      url: https://alc.mckenzian.com
-    # Only the newest run waits here. A newer run's approve job cancels
-    # this one while it is waiting for review (or pending). Nothing in
-    # this job touches Fly, so cancelling it is always safe.
-    concurrency:
-      group: deploy-lloves-lms-gate-${{ github.ref }}
-      cancel-in-progress: true
-    outputs:
-      attempt: ${{ steps.approved.outputs.attempt }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Refuse a stale production SHA
-        run: |
-          set -euo pipefail
-          git fetch --no-tags origin production
-          tip="$(git rev-parse origin/production)"
-          echo "This run:          ${GITHUB_SHA}"
-          echo "origin/production: ${tip}"
-          if [ "${GITHUB_SHA}" != "${tip}" ]; then
-            echo "::error title=Stale deploy blocked::This run is ${GITHUB_SHA}, but origin/production is ${tip}. A newer push landed while this deploy waited for review. Approve the newest green Deploy LLOVES LMS run instead."
-            exit 1
-          fi
-
-      - name: Record the approved attempt
-        id: approved
-        run: echo "attempt=${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
-
-  deploy:
-    name: Deploy to Fly
-    needs: approve
     if: github.ref == 'refs/heads/production'
     runs-on: ubuntu-latest
     # pull-requests/actions: read so What's new can read merged PRs and
@@ -262,11 +214,12 @@ jobs:
       pull-requests: read
       actions: read
     # One flyctl deploy at a time, and never cancelled by a newer run:
-    # mid-deploy cancellation is unsafe. A newer approved run waits here
-    # as pending; a still-newer one replaces it (queue single).
-    # Same production environment as approve. GitHub waits for that
-    # environment's required reviewer on this job too. FLY_API_TOKEN is
-    # the environment secret once it is added there.
+    # mid-deploy cancellation is unsafe. A newer run waits here as pending;
+    # a still-newer one replaces it (queue single).
+    # This is the only production-environment approval. GitHub waits for
+    # the required reviewer before any step, then this job deploys.
+    # FLY_API_TOKEN is the environment secret once it is added there.
+    # A re-run asks for that review again.
     environment:
       name: production
       url: https://alc.mckenzian.com
@@ -274,16 +227,6 @@ jobs:
       group: deploy-lloves-lms-fly
       cancel-in-progress: false
     steps:
-      - name: Require approval in this run attempt
-        env:
-          APPROVED_ATTEMPT: ${{ needs.approve.outputs.attempt }}
-        run: |
-          set -euo pipefail
-          if [ "${APPROVED_ATTEMPT}" != "${GITHUB_RUN_ATTEMPT}" ]; then
-            echo "::error title=Approval not in this attempt::Production approval ran in attempt ${APPROVED_ATTEMPT}, this is attempt ${GITHUB_RUN_ATTEMPT}. Use Re-run all jobs so the deploy is approved again."
-            exit 1
-          fi
-
       - uses: actions/checkout@v4
 
       - name: Refuse a stale production SHA

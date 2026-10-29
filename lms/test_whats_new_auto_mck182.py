@@ -311,10 +311,13 @@ class WiringTests(unittest.TestCase):
     """The workflows and template call the script; guards are untouched."""
 
     def test_deploy_writes_notes_after_the_guards_and_before_flyctl(self) -> None:
+        """Deploy to Fly is the only production approval.
+
+        What's new is written after the SHA guard and before flyctl.
+        """
         text = (REPO_ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
         deploy = text[text.index("  deploy:\n"):]
         order = [
-            deploy.index("Require approval in this run attempt"),
             deploy.index("Refuse a stale production SHA"),
             deploy.index("Guard against dev login"),
             deploy.index("Write What's new for this deploy"),
@@ -325,11 +328,12 @@ class WiringTests(unittest.TestCase):
         self.assertIn("continue-on-error: true", step)
         self.assertIn("whats_new.py build", step)
         self.assertNotIn("contents: write", text)
-        # Approve already waited on production. Deploy names the same
-        # environment so FLY_API_TOKEN can come from that environment.
-        self.assertEqual(text.count("environment:\n      name: production"), 2)
+        self.assertNotIn("Require approval in this run attempt", text)
+        # One production environment, on Deploy to Fly, so one approval
+        # reads FLY_API_TOKEN and then runs the steps.
+        self.assertEqual(text.count("environment:\n      name: production"), 1)
         self.assertIn("environment:\n      name: production", deploy[:deploy.index("steps:")])
-        test_job = text[text.index("  test:\n"):text.index("  approve:\n")]
+        test_job = text[text.index("  test:\n"):text.index("  load-smoke:\n")]
         self.assertIn("Preview What's new", test_job)
         self.assertIn('--out "${RUNNER_TEMP}/releases.preview.json"', test_job)
 

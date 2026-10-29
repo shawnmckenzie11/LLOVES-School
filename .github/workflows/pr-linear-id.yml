@@ -1,15 +1,27 @@
 name: Require Linear ID
 
+# opened, synchronize, and reopened always check the title and body.
+# edited runs the check only when the title or body changed, so a base-branch
+# edit does not. CI (ci.yml) does not list edited, so a title or body edit
+# does not start the test suite.
 on:
   pull_request:
-    types: [opened, edited, synchronize, reopened]
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
   pull-requests: read
 
+concurrency:
+  group: linear-id-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check-linear-id:
+    if: >-
+      github.event.action != 'edited'
+      || contains(toJSON(github.event.changes), '"title"')
+      || contains(toJSON(github.event.changes), '"body"')
     runs-on: ubuntu-latest
     env:
       PR_TITLE: ${{ github.event.pull_request.title }}

@@ -113,21 +113,19 @@ git fetch origin && git push origin origin/main:production
 
 Then approve the **Deploy LLOVES LMS** run on GitHub Actions.
 
-A push to `production` runs **Deploy LLOVES LMS** (`.github/workflows/deploy.yml`) through four jobs:
+A push to `production` runs **Deploy LLOVES LMS** (`.github/workflows/deploy.yml`) through three jobs:
 
 1. **LMS test suite** (group `deploy-lloves-lms-test-<ref>`, cancel-in-progress).
-2. **30-seat load smoke** (group `deploy-lloves-lms-smoke-<ref>`, cancel-in-progress). Two classes of 15 on one local gunicorn. It requires 0 errors, HTTP p95 under 400 ms (margin for shared runners), and 0 worker restarts. The per-run presence db is created after the loopback check and always dropped. Results stay as the `load-smoke` artifact. A failure skips approval, so `flyctl` does not run. The target is `127.0.0.1` on the runner, not `alc.mckenzian.com`.
-3. **Production approval**: the `production` environment gate, Shawn approves (group `deploy-lloves-lms-gate-<ref>`, cancel-in-progress).
-4. **Deploy to Fly**: `flyctl deploy` (group `deploy-lloves-lms-fly`, never cancelled).
+2. **30-seat load smoke** (group `deploy-lloves-lms-smoke-<ref>`, cancel-in-progress). Two classes of 15 on one local gunicorn. It requires 0 errors, HTTP p95 under 400 ms (margin for shared runners), and 0 worker restarts. The per-run presence db is created after the loopback check and always dropped. Results stay as the `load-smoke` artifact. A failure skips deploy, so `flyctl` does not run. The target is `127.0.0.1` on the runner, not `alc.mckenzian.com`.
+3. **Deploy to Fly**: one `production` environment approval, then `flyctl deploy` (group `deploy-lloves-lms-fly`, never cancelled). Shawn clicks once. That job reads `FLY_API_TOKEN`, refuses a stale SHA, and deploys.
 
 **What this means for Shawn:**
-- **Older runs should clear themselves; if an older run is still waiting, reject it.** A newer push is meant to cancel any older run still testing or waiting at **Production approval**, so only the newest run asks for review. Until the first post-merge test on `production` proves that cancel works, check Actions before approving: if an older run is still "Waiting for review", reject it and approve only the newest.
-- **A deploy in progress is never cancelled.** If a newer run is approved while Fly is still deploying, it waits as *pending* and starts when that deploy ends.
-- **Stale SHAs are still refused.** Both approval and deploy fail when the run's SHA is no longer `origin/production`.
-- **To retry a failed deploy, use "Re-run all jobs".** "Re-run failed jobs" on Deploy to Fly alone is refused, because approval must happen in the same attempt.
-- **Only re-run the newest run.** Re-running an older run puts it back in the approval group, where it cancels the newer run that is waiting there. Its SHA guard then fails, so nothing is left to approve and you have to re-run the newest run anyway.
-- **The GitHub deployment record is set by the approval job.** The environment's deployment shows success once approval passes. Check the Deploy to Fly job (or `/health`) for the real result.
-- **One-time switch:** runs started before this change use the old single job and group. Reject any that are still "Waiting for review" once. They don't block new runs, because the Fly group has a new name.
+- **One click.** The production environment gate is on Deploy to Fly. Approving it starts that job.
+- **A deploy in progress is never cancelled.** If a newer run reaches Deploy to Fly while this one is waiting for review or still deploying, it waits as *pending*. Reject an older review that is still waiting, then approve the newest.
+- **Stale SHAs are still refused.** After the click, deploy fails when the run's SHA is no longer `origin/production`.
+- **Re-running Deploy to Fly asks for review again.** The job names the production environment, so GitHub applies that gate on a re-run, then the SHA guard runs before `flyctl`.
+- **Only re-run the newest run.** An older re-run can take the Fly slot and then fail its SHA guard.
+- **The deployment record is this job.** It succeeds only after `flyctl` finishes. Check `/health` for the live machine.
 
 ## Live presence Postgres (heartbeat / Artifact polls)
 
@@ -196,7 +194,7 @@ the process is serving.
 
 Recovery under live poll load:
 
-- Image deploy (a push to `production` runs tests, then the **Production approval** job holds the `production` environment gate for Shawn; once approved, the Deploy to Fly job waits its turn and runs `flyctl deploy`), or `fly machines update` on the one machine.
+- Image deploy (a push to `production` runs tests and the load smoke, then Shawn approves Deploy to Fly once and that job runs `flyctl deploy`), or `fly machines update` on the one machine.
 - Do not use `fly machines restart` while student and staff polls are attached.
 
 The image also refuses connections past backlog 64 (gunicorn's default
@@ -250,7 +248,7 @@ Fly secrets, after Shawn's GO (this tip does not deploy):
 fly secrets set SENTRY_DSN='…' SENTRY_DSN_LIVE='…' --app lloves-lms
 ```
 
-Paste each DSN at the prompt. The next approved deploy from `production` ships the SDK (tests run, then the **Production approval** job holds the `production` environment gate for Shawn; once approved, the Deploy to Fly job waits its turn and runs `flyctl deploy`). Events appear once those secrets exist on the machine.
+Paste each DSN at the prompt. The next approved deploy from `production` ships the SDK (tests and the load smoke run, then Shawn approves Deploy to Fly once and that job runs `flyctl deploy`). Events appear once those secrets exist on the machine.
 
 ### Tip smoke on :8787
 

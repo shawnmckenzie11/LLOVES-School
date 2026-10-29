@@ -32,7 +32,7 @@ Two commands:
     A deploy whose PRs only say ``none`` (or nothing) writes no entry. Any
     GitHub API failure keeps the committed file as it is, and the command
     always exits 0, so it can never block a deploy. The notes are also
-    written to the run summary for the Production approval.
+    written to the run summary for the production environment approval.
 """
 
 from __future__ import annotations
@@ -458,7 +458,7 @@ def build_releases(
 
 
 def summary_markdown(generated: list[dict[str, Any]], sha: str, note: str = "") -> str:
-    """Run-summary text for the Production approval."""
+    """Run-summary text for the production environment approval."""
     lines = [SUMMARY_TITLE, ""]
     current = next((r for r in generated if r["sha"] == sha), None)
     if current:
